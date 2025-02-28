@@ -1,10 +1,11 @@
-use std::collections::VecDeque;
-use std::fmt::{Debug, Formatter};
-
-use super::UserAction;
+use super::{ActionState, UserAction};
 use crate::shared::tick_manager::Tick;
 use bevy::prelude::{Component, Resource};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::fmt::{Debug, Formatter};
+use std::time::Instant;
+use steamworks::Input;
 use tracing::trace;
 
 #[derive(Resource, Component, Debug)]
@@ -64,6 +65,44 @@ impl<T> Default for InputBuffer<T> {
             buffer: VecDeque::new(),
             start_tick: None,
         }
+    }
+}
+
+impl<T: UserAction> InputBuffer<T> {
+        /// Upon receiving an [`InputMessage`](super::input_message::InputMessage), update the InputBuffer with all the inputs
+    /// included in the message.
+    /// TODO: disallow overwriting inputs for ticks we've already received inputs for?
+    ///
+    pub(crate) fn update_from_message(
+        &mut self,
+        end_tick: Tick,
+        values: &Vec<InputData<T>>,
+    ) {
+        let start_tick = end_tick - values.len() as u16;
+            for (delta, input) in values.iter().enumerate() {
+                let tick = start_tick + Tick(delta as u16);
+                match input {
+                    InputData::Absent => {
+                        self.set_empty(tick);
+                    }
+                    InputData::SameAsPrecedent => {
+                        if let Some(v) = self.get(tick - 1) {
+                            self.set(tick, v.clone());
+                        } else {
+                            self.set_empty(tick);
+                        }
+                    }
+                    InputData::Input(input) => {
+                        if self
+                            .get(tick)
+                            .is_some_and(|existing_value| existing_value == input)
+                        {
+                            continue;
+                        }
+                        self.set(tick, input.clone());
+                    }
+                }
+            }
     }
 }
 

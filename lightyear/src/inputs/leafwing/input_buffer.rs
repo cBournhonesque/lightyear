@@ -28,7 +28,7 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
     /// included in the message.
     /// TODO: disallow overwriting inputs for ticks we've already received inputs for?
     ///
-    pub(crate) fn update_from_message(
+    pub(crate) fn update_from_diffs(
         &mut self,
         end_tick: Tick,
         start_value: &ActionState<T>,

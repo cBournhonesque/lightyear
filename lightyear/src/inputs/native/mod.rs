@@ -19,21 +19,27 @@ There are several steps to use the `InputPlugin`:
 
 */
 
-use std::fmt::Debug;
-
+use crate::prelude::Deserialize;
+use bevy::ecs::entity::MapEntities;
+use bevy::prelude::{Component, Reflect};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-
+use std::fmt::Debug;
 
 /// Defines an [`InputBuffer`](input_buffer::InputBuffer) buffer to store the inputs of a player for each tick
 pub mod input_buffer;
 pub(crate) mod input_message;
 
+#[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize, Reflect)]
+pub struct ActionState<A> {
+    value: Option<A>
+}
+
 // TODO: should we request that a user input is a message?
 // TODO: the bound should be `BitSerializable`, not `Serialize + DeserializeOwned`
 //  but it causes the derive macro for InputMessage to fail
 pub trait UserAction:
-    Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static
+    Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + MapEntities + 'static
 {
 }
 

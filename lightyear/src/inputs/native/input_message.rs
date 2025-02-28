@@ -1,6 +1,11 @@
+use crate::inputs::leafwing::action_diff::ActionDiff;
 use crate::inputs::native::input_buffer::{InputBuffer, InputData};
+use crate::inputs::native::ActionState;
+use crate::prelude::client::InterpolationDelay;
 use crate::prelude::{Deserialize, Serialize, Tick, UserAction};
-use bevy::prelude::Reflect;
+use bevy::prelude::{Entity, Reflect};
+use leafwing_input_manager::Actionlike;
+use std::cmp::max;
 use std::fmt::Write;
 
 // TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
@@ -8,9 +13,34 @@ use std::fmt::Write;
 /// Message that we use to send the client inputs to the server
 /// We will store the last N inputs starting from start_tick (in case of packet loss)
 pub struct InputMessage<T> {
+    /// Interpolation delay of the client at the time the message is sent
+    ///
+    /// We don't need any extra redundancy for the InterpolationDelay so we'll just send the value at `end_tick`.
+    pub(crate) interpolation_delay: Option<InterpolationDelay>,
     pub(crate) end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
-    pub(crate) inputs: Vec<InputData<T>>,
+    pub(crate) inputs: Vec<PerTargetData<T>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
+pub enum InputTarget {
+    /// the input is for a predicted or confirmed entity: on the client, the server's local entity is mapped to the client's confirmed entity
+    Entity(Entity),
+    /// the input is for a pre-predicted entity: on the server, the server's local entity is mapped to the client's pre-predicted entity
+    PrePredictedEntity(Entity),
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
+pub(crate) struct PerTargetData<A: Actionlike> {
+    pub(crate) target: InputTarget,
+    // ActionState<A> from ticks `end_ticks-N` to `end_tick` (included)
+    pub(crate) states: Vec<InputData<A>>,
+}
+
+pub trait InputMessageTrait<B, T> {
+    fn update_buffer(&self, buffer: &mut B);
+
+    fn create_message(buffer: &B, end_tick: Tick, num_ticks: u16) -> Self;
 }
 
 impl<T: UserAction> InputMessage<T> {
@@ -57,6 +87,38 @@ impl<T: UserAction> InputMessage<T> {
         }
     }
 
+        /// Add the inputs for the `num_ticks` ticks starting from `self.end_tick - num_ticks + 1` up to `self.end_tick`
+    ///
+    /// If we don't have a starting `ActionState` from the `input_buffer`, we start from the first tick for which
+    /// we have an `ActionState`.
+    pub fn add_inputs(
+            &mut self,
+            num_ticks: u16,
+            target: InputTarget,
+            input_buffer: &InputBuffer<T>,
+    ) {
+        let Some(buffer_start_tick) = input_buffer.start_tick else {
+            return
+        };
+        // find the first tick for which we have an `ActionState` buffered
+        let mut start_tick = max(self.end_tick - num_ticks + 1, buffer_start_tick);
+
+        // find the initial state
+        let start_state = input_buffer.get(start_tick).map_or(
+            InputData::Absent,
+            |input| InputData::Input(input.clone()),
+        );
+        let mut states = vec![start_state];
+        // append the other states until the end tick
+        let buffer_start = (start_tick + 1 - buffer_start_tick) as usize;
+        let buffer_end = (self.end_tick + 1 - buffer_start_tick) as usize;
+        states.extend_from_slice(&input_buffer.buffer[buffer_start..buffer_end]);
+        self.inputs.push(PerTargetData::<T> {
+            target,
+            states
+        });
+    }
+
     // Convert the last N ticks up to end_tick included into a compressed message that we can send to the server
     // Return None if the last N inputs are all Absent
     pub(crate) fn create_message(buffer: &InputBuffer<T>, end_tick: Tick, num_ticks: u16) -> InputMessage<T> {
@@ -83,7 +145,7 @@ impl<T: UserAction> InputMessage<T> {
                 inputs.push(value);
             }
         }
-        InputMessage { inputs, end_tick }
+        InputMessage { interpolation_delay: None, inputs, end_tick }
     }
 }
 
@@ -106,6 +168,7 @@ mod tests {
         assert_eq!(
             message,
             InputMessage {
+                interpolation_delay: None,
                 end_tick: Tick(10),
                 inputs: vec![
                     InputData::Absent,
@@ -126,6 +189,7 @@ mod tests {
         let mut input_buffer = InputBuffer::default();
 
         let message = InputMessage {
+            interpolation_delay: None,
             end_tick: Tick(20),
             inputs: vec![
                 InputData::Absent,

@@ -128,7 +128,7 @@ fn receive_input_message<A: LeafwingUserAction>(
                                 buffer.as_ref(),
                                 message
                             );
-                            buffer.update_from_message(
+                            buffer.update_from_diffs(
                                 message.end_tick,
                                 &data.start_state,
                                 &data.diffs,

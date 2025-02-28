@@ -42,7 +42,7 @@ use crate::channel::builder::InputChannel;
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::input::{is_input_delay, InputSystemSet};
+use crate::client::input::{is_input_delay, BaseInputPlugin, InputSystemSet};
 use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
@@ -150,357 +150,51 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
     fn build(&self, app: &mut App) {
         // PLUGINS
         app.add_plugins(InputManagerPlugin::<A>::default());
-        // RESOURCES
-        app.insert_resource(self.config);
+        app.add_plugins(BaseInputPlugin::<ActionState<A>, With<InputMap<A>>>::default());
 
         // in host-server mode, we don't need to handle inputs in any way, because the player's entity
         // is spawned with `InputBuffer` and the client is in the same timeline as the server
         let should_run = not(is_host_server);
 
-        // SETS
-        app.configure_sets(
-            PreUpdate,
-            (
-                InputSystemSet::AddBuffers
-                    // TODO: these constraints are only necessary for entities controlled by other players
-                    //  make a distinction between other players and local player
-                    .after(PredictionSet::SpawnPrediction)
-                    .before(PredictionSet::Sync),
-                InputSystemSet::ReceiveInputMessages
-                    .after(InternalMainSet::<ClientMarker>::ReceiveEvents),
-            )
-                .run_if(should_run.clone()),
-        );
-        app.configure_sets(
-            FixedPreUpdate,
-            InputSystemSet::BufferClientInputs.run_if(should_run.clone()),
-        );
-        app.configure_sets(
-            FixedPostUpdate,
-            InputSystemSet::PrepareInputMessage.run_if(should_run.clone().and(is_synced)),
-        );
-        app.configure_sets(
-            PostUpdate,
-            (
-                SyncSet,
-                // run after SyncSet to make sure that the TickEvents are handled
-                // and that the interpolation_delay injected in the message are correct
-                (InputSystemSet::SendInputMessage, InputSystemSet::CleanUp)
-                    .chain()
-                    .run_if(should_run.clone().and(is_synced)),
-                InternalMainSet::<ClientMarker>::Send,
-            )
-                .chain(),
-        );
+        // RESOURCES
+        app.insert_resource(self.config);
+        app.init_resource::<MessageBuffer<A>>();
 
         // SYSTEMS
+        app.add_observer(handle_new_input_map::<A>);
         app.add_systems(
             PreUpdate,
-            (
                 receive_remote_player_input_messages::<A>
                     .in_set(InputSystemSet::ReceiveInputMessages),
-                add_action_state_buffer::<A>
-                    .in_set(InputSystemSet::AddBuffers)
-                    .after(PredictionSet::SpawnPrediction),
-            ),
         );
 
-        app.add_systems(
-            FixedPreUpdate,
-            (
-                (
-                    // update_action_state_remote_players::<A>,
-                    buffer_action_state::<A>,
-                    // If InputDelay is enabled, we get the ActionState for the current tick
-                    // from the InputBuffer (which was added to the InputBuffer input_delay ticks ago)
-                    get_non_rollback_action_state::<A>.run_if(is_input_delay),
-                )
-                    .chain()
-                    .run_if(not(is_in_rollback)),
-                get_rollback_action_state::<A>.run_if(is_in_rollback),
-            )
-                .in_set(InputSystemSet::BufferClientInputs),
-        );
         app.add_systems(
             FixedPostUpdate,
-            // TODO: think about how we can avoid this, maybe have a separate DelayedActionState component?
-            // we want:
-            // - to write diffs for the delayed tick (in the next FixedUpdate run), so re-fetch the delayed action-state
-            //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
-            // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
-            (
-                get_delayed_action_state::<A>
-                    .run_if(
-                        is_input_delay
-                            .and(should_run.clone())
-                            .and(not(is_in_rollback)),
-                    )
-                    .before(InputManagerSystem::Tick),
-                prepare_input_message::<A>
-                    .in_set(InputSystemSet::PrepareInputMessage)
-                    // no need to prepare messages to send if in rollback
-                    .run_if(not(is_in_rollback)),
-            ),
+            prepare_input_message::<A>
+                .in_set(InputSystemSet::PrepareInputMessage)
+                // no need to prepare messages to send if in rollback
+                .run_if(not(is_in_rollback)),
         );
-
-        // if the client tick is updated because of a desync, update the ticks in the input buffers
-        app.add_observer(receive_tick_events::<A>);
         app.add_systems(
             PostUpdate,
-            (
                 send_input_messages::<A>.in_set(InputSystemSet::SendInputMessage),
-                clean_buffers::<A>.in_set(InputSystemSet::CleanUp),
-            ),
         );
     }
 }
 
 
 
-/// For each entity that has an action-state, insert an input buffer.
-/// that will store the value of the action-state for the last few ticks
-fn add_action_state_buffer<A: LeafwingUserAction>(
+/// Insert an ActionState<A> for each entity that has an InputMap
+fn handle_new_input_map<A: LeafwingUserAction>(
+    trigger: Trigger<OnAdd, InputMap<A>>,
     mut commands: Commands,
     // player-controlled entities are the ones that have an InputMap
-    player_entities: Query<
-        (Entity, Has<ActionState<A>>),
-        (
-            Without<InputBuffer<A>>,
-            Added<InputMap<A>>,
-            // TODO: is this needed? should we just add when InputMap is added?
-            // Or<(
-
-            // (Added<ActionState<A>>, With<InputMap<A>>),
-            // Added<InputMap<A>>,
-            // )>,
-        ),
-    >,
-    remote_entities: Query<
-        Entity,
-        (
-            Added<ActionState<A>>,
-            Without<InputBuffer<A>>,
-            Without<InputMap<A>>,
-        ),
-    >,
+    player_entities: Query<(), Without<ActionState<A>>>,
 ) {
     // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
     //  maybe provide the "controlled" component? or just use With<InputMap>?
-
-    for (entity, has_action_state) in player_entities.iter() {
-        trace!(?entity, "adding actions state buffer");
-        commands.entity(entity).insert((
-            // input buffer needed to rollback to a previous ActionState
-            InputBuffer::<A>::default(),
-            // make sure that the server entity has an ActionState component (if we use PrePrediction),
-            // but don't replicate any updates after we replicated the initial component spawn
-            ReplicateOnceComponent::<ActionState<A>>::default(),
-        ));
-        if !has_action_state {
-            commands.entity(entity).insert(ActionState::<A>::default());
-        }
-    }
-    for entity in remote_entities.iter() {
-        trace!(?entity, "adding actions state buffer");
-        commands.entity(entity).insert(
-            // action-diff-buffer needed to store input diffs (that we can apply during rollback)
-            InputBuffer::<A>::default(),
-        );
-    }
-}
-
-/// At the start of the frame, restore the ActionState to the latest-action state in buffer
-/// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
-fn get_delayed_action_state<A: LeafwingUserAction>(
-    config: Res<ClientConfig>,
-    tick_manager: Res<TickManager>,
-    connection_manager: Res<ConnectionManager>,
-    // global_input_buffer: Res<InputBuffer<A>>,
-    // global_action_state: Option<ResMut<ActionState<A>>>,
-    mut action_state_query: Query<
-        (Entity, &mut ActionState<A>, &InputBuffer<A>),
-        With<InputMap<A>>,
-    >,
-) {
-    let input_delay_ticks = config.prediction.input_delay_ticks(
-        connection_manager.ping_manager.rtt(),
-        config.shared.tick.tick_duration,
-    ) as i16;
-    let delayed_tick = tick_manager.tick() + input_delay_ticks;
-    for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
-        // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
-        //  the problem is that the Leafwing Plugin works on ActionState directly...
-        if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
-            *action_state = delayed_action_state.clone();
-            // dbg!(input_buffer);
-            // dbg!(delayed_tick);
-            trace!(
-                ?entity,
-                ?delayed_tick,
-                "fetched delayed action state {:?} from input buffer: {}",
-                action_state.get_pressed(),
-                input_buffer
-            );
-        }
-        // TODO: if we don't find an ActionState in the buffer, should we reset the delayed one to default?
-    }
-    // if let Some(mut action_state) = global_action_state {
-    //     *action_state = global_input_buffer.get_last().unwrap().clone();
-    // }
-}
-
-/// Write the value of the ActionState in the InputBuffer.
-/// (so that we can pull it for rollback or for delayed inputs)
-///
-/// If we have input-delay, we will store the current ActionState in the buffer at the delayed-tick,
-/// and we will pull ActionStates from the buffer instead of just using the ActionState component directly.
-///
-/// We do not need to buffer inputs during rollback, as they have already been buffered
-fn buffer_action_state<A: LeafwingUserAction>(
-    config: Res<ClientConfig>,
-    connection_manager: Res<ConnectionManager>,
-    tick_manager: Res<TickManager>,
-    // mut global_input_buffer: ResMut<InputBuffer<A>>,
-    // global_action_state: Option<Res<ActionState<A>>>,
-    mut action_state_query: Query<
-        (Entity, &ActionState<A>, &mut InputBuffer<A>),
-        With<InputMap<A>>,
-    >,
-) {
-    let input_delay_ticks = connection_manager.input_delay_ticks() as i16;
-    let tick = tick_manager.tick() + input_delay_ticks;
-    for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
-        input_buffer.set(tick, action_state.clone());
-        // dbg!(tick, action_state);
-        trace!(
-            ?entity,
-            current_tick = ?tick_manager.tick(),
-            delayed_tick = ?tick,
-            "set action state in input buffer: {}",
-            input_buffer.as_ref()
-        );
-        #[cfg(feature = "metrics")]
-        {
-            metrics::gauge!(format!(
-                "inputs::{}::{}::buffer_size",
-                std::any::type_name::<A>(),
-                entity
-            ))
-            .set(input_buffer.len() as f64);
-        }
-    }
-    // if let Some(action_state) = global_action_state {
-    //     global_input_buffer.set(tick, action_state.as_ref());
-    // }
-}
-
-/// Retrieve the ActionState from the InputBuffer (if input_delay is enabled)
-///
-/// If we have input-delay, we need to set the ActionState for the current tick
-/// using the value stored in the buffer (since the local ActionState is for the delayed tick)
-fn get_non_rollback_action_state<A: LeafwingUserAction>(
-    tick_manager: Res<TickManager>,
-    // NOTE: we want to apply the Inputs for BOTH the local player and the remote player.
-    // - local player: we need to get the input from the InputBuffer because of input delay
-    // - remote player: we want to reduce the amount of rollbacks by updating the ActionState
-    //   as fast as possible (the inputs are broadcasted with no delay)
-    mut action_state_query: Query<
-        (Entity, &mut ActionState<A>, &InputBuffer<A>),
-        // With<InputMap<A>>,
-    >,
-) {
-    let tick = tick_manager.tick();
-    for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
-        // We only apply the ActionState from the buffer if we have one.
-        // If we don't (which could happen for remote inputs), we won't do anything.
-        // This is equivalent to considering that the remote player will keep playing the last action they played.
-        if let Some(action) = input_buffer.get(tick) {
-            *action_state = action.clone();
-            trace!(
-                ?entity,
-                ?tick,
-                "fetched action state {:?} from input buffer: {}",
-                action_state.get_pressed(),
-                input_buffer
-            );
-        }
-    }
-}
-
-/// During rollback, fetch the action-state from the InputBuffer for the corresponding tick and use that
-/// to set the ActionState resource/component.
-///
-/// We are using the InputBuffer instead of the PredictedHistory because they are a bit different:
-/// - the PredictedHistory is updated at PreUpdate whenever we receive a server message; but here we update every tick
-///   (both for the player's inputs and for the remote player's inputs if we send them every tick)
-/// - on rollback, we erase the PredictedHistory (because we are going to rollback to compute a new one), but inputs
-///   are different, they shouldn't be erased or overriden since they are not generated from doing the rollback!
-///
-/// For actions from other players (with no InputMap), we replicate the ActionState so we have the
-/// correct ActionState value at the rollback tick. To add even more precision during the rollback,
-/// we can use the raw InputMessage of the remote player (broadcasted by the server).
-/// We will apply those InputDiffs up to the most recent tick available, and then we leave the ActionState as is.
-/// This is equivalent to considering that the remove player will keep playing the last action they played.
-///
-/// This is better than just using the ActionState from the rollback tick, because we have additional information (tick)
-/// for the remote inputs that we can use to have a higher precision rollback.
-/// TODO: implement some decay for the rollback ActionState of other players?
-fn get_rollback_action_state<A: LeafwingUserAction>(
-    mut player_action_state_query: Query<
-        (Entity, &mut ActionState<A>, &InputBuffer<A>),
-        With<InputMap<A>>,
-    >,
-    mut remote_player_query: Query<
-        (Entity, &mut ActionState<A>, &InputBuffer<A>),
-        Without<InputMap<A>>,
-    >,
-    rollback: Res<Rollback>,
-) {
-    let tick = rollback
-        .get_rollback_tick()
-        .expect("we should be in rollback");
-    for (entity, mut action_state, input_buffer) in player_action_state_query.iter_mut() {
-        *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
-        trace!(
-            ?entity,
-            ?tick,
-            pressed = ?action_state.get_pressed(),
-            "updated action state for rollback using input_buffer: {}",
-            input_buffer
-        );
-    }
-    for (entity, mut action_state, input_buffer) in remote_player_query.iter_mut() {
-        // TODO: should we reuse the existing ActionState as an optimization?
-        *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
-        trace!(
-            ?tick,
-            ?entity,
-            pressed = ?action_state.get_pressed(),
-            "Update action state for rollback of remote player using input_buffer: {}",
-            input_buffer
-        );
-    }
-}
-
-/// System that removes old entries from the ActionDiffBuffer and the InputBuffer
-fn clean_buffers<A: LeafwingUserAction>(
-    connection: Res<ConnectionManager>,
-    tick_manager: Res<TickManager>,
-    global_input_buffer: Option<ResMut<InputBuffer<A>>>,
-    mut input_buffer_query: Query<(Entity, &mut InputBuffer<A>)>,
-) {
-    // delete old input values
-    // anything beyond interpolation tick should be safe to be deleted
-    let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
-    trace!(
-        "popping all input buffers since interpolation tick: {:?}",
-        interpolation_tick
-    );
-    for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
-        input_buffer.pop(interpolation_tick);
-    }
-    if let Some(mut input_buffer) = global_input_buffer {
-        input_buffer.pop(interpolation_tick);
+    if let Ok(()) = player_entities.get(trigger.entity()) {
+        commands.entity(trigger.entity()).insert(ActionState::<A>::default());
     }
 }
 
@@ -649,40 +343,6 @@ fn send_input_messages<A: LeafwingUserAction>(
     }
 }
 
-/// In case the client tick changes suddenly, we also update the InputBuffer accordingly
-fn receive_tick_events<A: LeafwingUserAction>(
-    trigger: Trigger<TickEvent>,
-    mut message_buffer: ResMut<MessageBuffer<A>>,
-    mut global_input_buffer: Option<ResMut<InputBuffer<A>>>,
-    mut input_buffer_query: Query<&mut InputBuffer<A>>,
-) {
-    match *trigger.event() {
-        TickEvent::TickSnap { old_tick, new_tick } => {
-            if let Some(ref mut global_input_buffer) = global_input_buffer {
-                if let Some(start_tick) = global_input_buffer.start_tick {
-                    debug!(
-                        "Receive tick snap event {:?}. Updating global input buffer start_tick!",
-                        trigger.event()
-                    );
-                    global_input_buffer.start_tick = Some(start_tick + (new_tick - old_tick));
-                }
-            }
-            for mut input_buffer in input_buffer_query.iter_mut() {
-                if let Some(start_tick) = input_buffer.start_tick {
-                    input_buffer.start_tick = Some(start_tick + (new_tick - old_tick));
-                    debug!(
-                        "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
-                        trigger.event(),
-                        input_buffer.start_tick
-                    );
-                }
-            }
-            for message in message_buffer.0.iter_mut() {
-                message.end_tick = message.end_tick + (new_tick - old_tick);
-            }
-        }
-    }
-}
 
 /// Read the InputMessages of other clients from the server to update their InputBuffer and ActionState.
 /// This is useful if we want to do client-prediction for remote players.
@@ -734,7 +394,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                         if let Ok(input_buffer) = predicted_query.get_mut(predicted) {
                             debug!(?entity, ?target_data.diffs, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
                             if let Some(mut input_buffer) = input_buffer {
-                                input_buffer.update_from_message(
+                                input_buffer.update_from_diffs(
                                     message.end_tick,
                                     &target_data.start_state,
                                     &target_data.diffs,
@@ -758,7 +418,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                             } else {
                                 // add the ActionState or InputBuffer if they are missing
                                 let mut input_buffer = InputBuffer::<A>::default();
-                                input_buffer.update_from_message(
+                                input_buffer.update_from_diffs(
                                     message.end_tick,
                                     &target_data.start_state,
                                     &target_data.diffs,

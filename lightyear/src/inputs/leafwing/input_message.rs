@@ -67,8 +67,6 @@ impl<A: LeafwingUserAction> std::fmt::Display for InputMessage<A> {
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
 pub enum InputTarget {
-    /// the input is for a global resource
-    Global,
     /// the input is for a predicted or confirmed entity: on the client, the server's local entity is mapped to the client's confirmed entity
     Entity(Entity),
     /// the input is for a pre-predicted entity: on the server, the server's local entity is mapped to the client's pre-predicted entity

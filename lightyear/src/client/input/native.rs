@@ -45,36 +45,40 @@
 //! NOTE: I would advise to activate the `leafwing` feature to handle inputs via the `input_leafwing` module, instead.
 //! That module is more up-to-date and has more features.
 //! This module is kept for simplicity but might get removed in the future.
+
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
-use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::plugin::InputManagerSystem;
+use std::marker::PhantomData;
 use tracing::{error, trace};
 
+use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
 use crate::client::events::InputEvent;
-use crate::client::input::{is_input_delay, InputSystemSet};
+use crate::client::input::{is_input_delay, BaseInputPlugin, InputSystemSet};
 use crate::client::prediction::plugin::is_in_rollback;
+use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
 use crate::client::run_conditions::is_synced;
 use crate::client::sync::SyncSet;
 use crate::connection::client::NetClient;
 use crate::connection::client::NetClientDispatch;
+use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::InputMessage;
 use crate::inputs::native::UserAction;
 use crate::prelude::client::{LeafwingInputConfig, PredictionSet};
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, LeafwingUserAction, PrePredicted, ReplicateOnceComponent, Replicated, Tick, TickManager, TimeManager};
+use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, Deserialize, LeafwingUserAction, MessageRegistry, PrePredicted, ReplicateOnceComponent, Replicated, Serialize, Tick, TickManager, TimeManager};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 use crate::{channel::builder::InputChannel, prelude::client::ClientConnection};
 
-#[derive(Debug, Clone, Copy, Reflect)]
-pub struct InputConfig {
+#[derive(Debug, Clone, Copy, Reflect, Resource)]
+pub struct InputConfig<A> {
     /// If enabled, the client will send the interpolation_delay to the server so that the server
     /// can apply lag compensation when the predicted client is shooting at interpolated enemies.
     ///
@@ -88,6 +92,7 @@ pub struct InputConfig {
     /// How often do we send input messages to the server?
     /// Duration::default() means that we will send input messages every frame.
     pub send_interval: Duration,
+    marker: PhantomData<A>,
 }
 
 
@@ -101,26 +106,25 @@ pub struct InputConfig {
 /// - A gets read from Buffer using current tick
 
 
-impl Default for InputConfig {
+impl<A> Default for InputConfig<A> {
     fn default() -> Self {
         InputConfig {
             lag_compensation: false,
             packet_redundancy: 10,
             send_interval: Duration::default(),
+            marker: PhantomData,
         }
     }
 }
 
-pub struct InputPlugin<A: UserAction> {
-    config: InputConfig,
-    _marker: std::marker::PhantomData<A>,
+pub struct InputPlugin<A> {
+    config: InputConfig<A>,
 }
 
 impl<A: UserAction> InputPlugin<A> {
-    fn new(config: InputConfig) -> Self {
+    fn new(config: InputConfig<A>) -> Self {
         Self {
             config,
-            _marker: std::marker::PhantomData,
         }
     }
 }
@@ -131,11 +135,22 @@ impl<A: UserAction> Default for InputPlugin<A> {
     }
 }
 
-/// Input of the user for the current tick
-pub struct CurrentInput<A: UserAction> {
-    // TODO: should we allow a Vec of inputs? for example if a user presses multiple buttons?
-    //  or would that be encoded as a combination?
-    input: A,
+// TODO: is this actually necessary? The sync happens in PostUpdate,
+//  so maybe it's ok if the InputMessages contain the pre-sync tick! (since those inputs happened
+//  before the sync). If it's not needed, send the messages directly in FixedPostUpdate!
+//  Actually maybe it is, because the send-tick on the server will be updated.
+/// Buffer that will store the InputMessages we want to write this frame.
+///
+/// We need this because:
+/// - we write the InputMessages during FixedPostUpdate
+/// - we apply the TickUpdateEvents (from doing sync) during PostUpdate, which might affect the ticks from the InputMessages.
+///   During this phase, we want to update the tick of the InputMessages that we wrote during FixedPostUpdate.
+#[derive(Debug, Resource)]
+struct MessageBuffer<A: UserAction>(Vec<InputMessage<A>>);
+
+#[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize, Reflect)]
+struct ActionState<A> {
+    value: Option<A>
 }
 
 impl<A: UserAction> Plugin for InputPlugin<A> {
@@ -144,106 +159,33 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         // is spawned with `InputBuffer` and the client is in the same timeline as the server
         let should_run = not(is_host_server);
 
-        // REGISTRATION
-        app.register_type::<InputConfig>();
+        app.add_plugins(BaseInputPlugin::<ActionState<A>, ()>::default());
 
-        // SETS
-        app.configure_sets(
-            PreUpdate,
-            (
-                InputSystemSet::AddBuffers
-                    // TODO: these constraints are only necessary for entities controlled by other players
-                    //  make a distinction between other players and local player
-                    .after(PredictionSet::SpawnPrediction)
-                    .before(PredictionSet::Sync),
-                InputSystemSet::ReceiveInputMessages
-                    .after(InternalMainSet::<ClientMarker>::ReceiveEvents),
-            )
-                .run_if(should_run.clone()),
-        );
-        app.configure_sets(
-            FixedPreUpdate,
-            (
-                InputSystemSet::WriteClientInputs,
-                InputSystemSet::BufferClientInputs
-            )
-                .chain()
-                .run_if(should_run.clone()),
-        );
-        app.configure_sets(
-            FixedPostUpdate,
-            InputSystemSet::PrepareInputMessage.run_if(should_run.clone().and(is_synced)),
-        );
-        app.configure_sets(
-            PostUpdate,
-            (
-                SyncSet,
-                // run after SyncSet to make sure that the TickEvents are handled
-                // and that the interpolation_delay injected in the message are correct
-                (InputSystemSet::SendInputMessage, InputSystemSet::CleanUp)
-                    .chain()
-                    .run_if(should_run.clone().and(is_synced)),
-                InternalMainSet::<ClientMarker>::Send,
-            )
-                .chain(),
-        );
+        // REGISTRATION
+        app.register_type::<InputConfig<A>>();
+
+        // RESOURCES
+        app.insert_resource(self.config.clone());
+        app.init_resource::<MessageBuffer<A>>();
 
         // SYSTEMS
         app.add_systems(
             PreUpdate,
             (
-                crate::client::input::leafwing::receive_remote_player_input_messages::<A>
+                receive_remote_player_input_messages::<A>
                     .in_set(InputSystemSet::ReceiveInputMessages),
-                add_action_state_buffer::<A>
-                    .in_set(InputSystemSet::AddBuffers)
-                    .after(PredictionSet::SpawnPrediction),
             ),
         );
         app.add_systems(
-            FixedPreUpdate,
-            (
-                (
-                    // update_action_state_remote_players::<A>,
-                    buffer_action_state::<A>,
-                    // If InputDelay is enabled, we get the ActionState for the current tick
-                    // from the InputBuffer (which was added to the InputBuffer input_delay ticks ago)
-                    get_non_rollback_action_state::<A>.run_if(is_input_delay),
-                )
-                    .chain()
-                    .run_if(not(is_in_rollback)),
-                get_rollback_action_state::<A>.run_if(is_in_rollback),
-            )
-                .in_set(InputSystemSet::BufferClientInputs),
-        );
-        app.add_systems(
             FixedPostUpdate,
-            // TODO: think about how we can avoid this, maybe have a separate DelayedActionState component?
-            // we want:
-            // - to write diffs for the delayed tick (in the next FixedUpdate run), so re-fetch the delayed action-state
-            //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
-            // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
-            (
-                get_delayed_action_state::<A>
-                    .run_if(
-                        is_input_delay
-                            .and(should_run.clone())
-                            .and(not(is_in_rollback)),
-                    )
-                    .before(InputManagerSystem::Tick),
                 prepare_input_message::<A>
                     .in_set(InputSystemSet::PrepareInputMessage)
                     // no need to prepare messages to send if in rollback
                     .run_if(not(is_in_rollback)),
-            ),
         );
-        // if the client tick is updated because of a desync, update the ticks in the input buffers
-        app.add_observer(receive_tick_events::<A>);
         app.add_systems(
             PostUpdate,
-            (
                 send_input_messages::<A>.in_set(InputSystemSet::SendInputMessage),
-                clean_buffers::<A>.in_set(InputSystemSet::CleanUp),
-            ),
         );
     }
 }
@@ -251,7 +193,8 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
 
 /// Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<A: UserAction>(
-    mut connection: ResMut<ConnectionManager>,
+    mut connection: Res<ConnectionManager>,
+    mut message_buffer: ResMut<MessageBuffer<A>>,
     channel_registry: Res<ChannelRegistry>,
     config: Res<ClientConfig>,
     input_config: Res<InputConfig<A>>,
@@ -259,301 +202,200 @@ fn prepare_input_message<A: UserAction>(
     input_buffer_query: Query<
         (
             Entity,
-            &InputBuffer<A>,
+            &InputBuffer<ActionState<A>>,
             Option<&Predicted>,
             Option<&PrePredicted>,
         ),
-        // TODO: add filter
-        With<InputMap<A>>,
+        // TODO: add filter to only include the controlled client, not remote clients
     >,
 ) {
-    let current_tick = tick_manager.tick();
+    let input_delay_ticks = connection.input_delay_ticks() as i16;
+    let tick = tick_manager.tick() + input_delay_ticks;
     // TODO: the number of messages should be in SharedConfig
-    trace!(tick = ?current_tick, "prepare_input_message");
-    // TODO: instead of 15, send ticks up to the latest yet ACK-ed input tick
+    trace!(tick = ?tick, "prepare_input_message");
+    // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
     //  this system what the latest acked input tick is?
-
-    // we send redundant inputs, so that if a packet is lost, we can still recover
-    // A redundancy of 2 means that we can recover from 1 lost packet
     let input_send_interval = channel_registry
         .get_builder_from_kind(&ChannelKind::of::<InputChannel>())
         .unwrap()
         .settings
         .send_frequency;
+    // we send redundant inputs, so that if a packet is lost, we can still recover
+    // A redundancy of 2 means that we can recover from 1 lost packet
     let mut num_tick: u16 =
         ((input_send_interval.as_nanos() / config.shared.tick.tick_duration.as_nanos()) + 1)
             .try_into()
             .unwrap();
     num_tick *= input_config.packet_redundancy;
-
+    let mut message = InputMessage::<A>::new(tick);
     for (entity, input_buffer, predicted, pre_predicted) in input_buffer_query.iter() {
-        let message = InputMessage::<A>::create_message(input_buffer, tick_manager.tick(), num_tick);
-        // all inputs are absent
-        if !message.is_empty() {
-            // TODO: should we provide variants of each user-facing function, so that it pushes the error
-            //  to the ConnectionEvents?
-            trace!(
-            ?current_tick,
-            "sending input message: {:?}",
-            message.end_tick
-        );
-            connection
-                .send_message::<InputChannel, _>(&message)
-                .unwrap_or_else(|err| {
-                    error!("Error while sending input message: {:?}", err);
-                })
-        }
-    }
-    // NOTE: actually we keep the input values! because they might be needed when we rollback for client prediction
-    // TODO: figure out when we can delete old inputs. Basically when the oldest prediction group tick has passed?
-    //  maybe at interpolation_tick(), since it's before any latest server update we receive?
-
-    // // delete old input values
-    // let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
-    // input_manager.input_buffer.pop(interpolation_tick);
-    // .pop(current_tick - (message_len + 1));
-}
-
-/// In host server mode, we don't buffer inputs (because there is no rollback) and we don't send
-/// inputs through the network, we just send directly to the server's InputEvents
-fn send_input_directly_to_client_events<A: UserAction>(
-    tick_manager: Res<TickManager>,
-    client: Res<ClientConnection>,
-    mut input_manager: ResMut<InputManager<A>>,
-    mut server_input_events: EventWriter<crate::server::events::InputEvent<A>>,
-) {
-    if let NetClientDispatch::Local(client) = &client.client {
-        let tick = tick_manager.tick();
-        let input = input_manager.input_buffer.pop(tick);
-        let event = crate::server::events::InputEvent::new(input, client.id());
-        server_input_events.send(event);
-    }
-}
-
-/// For each entity that has the Action component, insert an input buffer.
-fn add_action_state_buffer<A: UserAction>(
-    mut commands: Commands,
-    // player-controlled entities are the ones that have an InputMap
-    player_entities: Query<
-        Entity,
-        (
-            Without<InputBuffer<A>>,
-            Added<A>,
-        ),
-    >,
-    remote_entities: Query<
-        Entity,
-        (
-            Added<A>,
-            Without<InputBuffer<A>>,
-            With<Replicated>,
-        ),
-    >,
-) {
-    // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
-    //  maybe provide the "controlled" component? or just use With<InputMap>?
-    for entity in player_entities.iter() {
-        commands.entity(entity).insert((
-            InputBuffer::<A>::default(),
-            // make sure that the server entity has the action component (if we use PrePrediction),
-            // but don't replicate any updates after we replicated the initial component spawn
-            ReplicateOnceComponent::<ActionState<A>>::default(),
-        ));
-    }
-    for entity in remote_entities.iter() {
-        commands.entity(entity).insert(
-            InputBuffer::<A>::default(),
-        );
-    }
-}
-
-/// Write the value of the ActionState in the InputBuffer.
-/// (so that we can pull it for rollback or for delayed inputs)
-///
-/// If we have input-delay, we will store the current ActionState in the buffer at the delayed-tick,
-/// and we will pull ActionStates from the buffer instead of just using the ActionState component directly.
-///
-/// We do not need to buffer inputs during rollback, as they have already been buffered
-fn buffer_action_state<A: UserAction>(
-    config: Res<ClientConfig>,
-    connection_manager: Res<ConnectionManager>,
-    tick_manager: Res<TickManager>,
-    mut action_state_query: Query<(Entity, &A, &mut InputBuffer<A>)>,
-) {
-    let input_delay_ticks = connection_manager.input_delay_ticks() as i16;
-    let tick = tick_manager.tick() + input_delay_ticks;
-    for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
-        input_buffer.set(tick, action_state.clone());
         trace!(
+            ?tick,
             ?entity,
-            current_tick = ?tick_manager.tick(),
-            delayed_tick = ?tick,
-            "set action state in input buffer: {}",
-            input_buffer.as_ref()
+            "Preparing input message with buffer: {:?}",
+            input_buffer
         );
-        #[cfg(feature = "metrics")]
-        {
-            metrics::gauge!(format!(
-                "inputs::{}::{}::buffer_size",
-                std::any::type_name::<A>(),
+
+        // Make sure that server can read the inputs correctly
+        // TODO: currently we are not sending inputs for pre-predicted entities until we receive the confirmation from the server
+        //  could we find a way to do it?
+        //  maybe if it's pre-predicted, we send the original entity (pre-predicted), and the server will apply the conversion
+        //   on their end?
+        if pre_predicted.is_some() {
+            // wait until the client receives the PrePredicted entity confirmation to send inputs
+            // otherwise we get failed entity_map logs
+            // TODO: the problem is that we wait until we have received the server answer. Ideally we would like
+            //  to wait until the server has received the PrePredicted entity
+            if predicted.is_none() {
+                continue;
+            }
+            trace!(
+                ?tick,
+                "sending inputs for pre-predicted entity! Local client entity: {:?}",
                 entity
-            ))
-                .set(input_buffer.len() as f64);
+            );
+            // TODO: not sure if this whole pre-predicted inputs thing is worth it, because the server won't be able to
+            //  to receive the inputs until it receives the pre-predicted spawn message.
+            //  so all the inputs sent between pre-predicted spawn and server-receives-pre-predicted will be lost
+
+            // TODO: I feel like pre-predicted inputs work well only for global-inputs, because then the server can know
+            //  for which client the inputs were!
+
+            // 0. the entity is pre-predicted, no need to convert the entity (the mapping will be done on the server, when
+            // receiving the message. It's possible because the server received the PrePredicted entity before)
+            message.add_inputs(
+                num_tick,
+                InputTarget::PrePredictedEntity(entity),
+                input_buffer,
+            );
+        } else {
+            // 1. if the entity is confirmed, we need to convert the entity to the server's entity
+            // 2. if the entity is predicted, we need to first convert the entity to confirmed, and then from confirmed to remote
+            if let Some(confirmed) = predicted.map_or(Some(entity), |p| p.confirmed_entity) {
+                if let Some(server_entity) = connection
+                    .replication_receiver
+                    .remote_entity_map
+                    .get_remote(confirmed)
+                {
+                    trace!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
+                    // println!(
+                    //     "preparing input message using input_buffer: {}",
+                    //     input_buffer
+                    // );
+                    message.add_inputs(num_tick, InputTarget::Entity(server_entity), input_buffer);
+                }
+            } else {
+                // TODO: entity is not predicted or not confirmed? also need to do the conversion, no?
+                trace!("not sending inputs because couldnt find server entity");
+            }
         }
     }
+
+    trace!(
+        ?tick,
+        ?num_tick,
+        "sending input message for {:?}: {}",
+        std::any::type_name::<A>(),
+        message
+    );
+    message_buffer.0.push(message);
+
+    // NOTE: keep the older input values in the InputBuffer! because they might be needed when we rollback for client prediction
 }
 
-/// Retrieve the ActionState from the InputBuffer (if input_delay is enabled)
+
+/// Read the InputMessages of other clients from the server to update their InputBuffer and ActionState.
+/// This is useful if we want to do client-prediction for remote players.
 ///
-/// If we have input-delay, we need to set the ActionState for the current tick
-/// using the value stored in the buffer (since the local ActionState is for the delayed tick)
-fn get_non_rollback_action_state<A: UserAction>(
+/// If the InputBuffer/ActionState is missing, we will add it.
+///
+/// We will apply the diffs on the Predicted entity.
+fn receive_remote_player_input_messages<A: UserAction>(
+    mut commands: Commands,
     tick_manager: Res<TickManager>,
-    // NOTE: we want to apply the Inputs for BOTH the local player and the remote player.
-    // - local player: we need to get the input from the InputBuffer because of input delay
-    // - remote player: we want to reduce the amount of rollbacks by updating the ActionState
-    //   as fast as possible (the inputs are broadcasted with no delay)
-    mut action_state_query: Query<
-        (Entity, &mut A, &InputBuffer<A>),
-        // With<InputMap<A>>,
+    mut received_inputs: ResMut<Events<ClientReceiveMessage<InputMessage<A>>>>,
+    connection: Res<ConnectionManager>,
+    prediction_manager: Res<PredictionManager>,
+    message_registry: Res<MessageRegistry>,
+    // TODO: currently we do not handle entities that are controlled by multiple clients
+    confirmed_query: Query<&Confirmed>,
+    mut predicted_query: Query<
+        Option<&mut InputBuffer<A>>,
+        With<Predicted>,
     >,
 ) {
     let tick = tick_manager.tick();
-    for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
-        // We only apply the ActionState from the buffer if we have one.
-        // If we don't (which could happen for remote inputs), we won't do anything.
-        // This is equivalent to considering that the remote player will keep playing the last action they played.
-        if let Some(action) = input_buffer.get(tick) {
-            *action_state = action.clone();
-            trace!(
-                ?entity,
-                ?tick,
-                "fetched action state {:?} from input buffer: {}",
-                action_state.get_pressed(),
-                input_buffer
-            );
-        }
-    }
-}
-
-/// During rollback, fetch the action-state from the InputBuffer for the corresponding tick and use that
-/// to set the ActionState resource/component.
-///
-/// We are using the InputBuffer instead of the PredictedHistory because they are a bit different:
-/// - the PredictedHistory is updated at PreUpdate whenever we receive a server message; but here we update every tick
-///   (both for the player's inputs and for the remote player's inputs if we send them every tick)
-/// - on rollback, we erase the PredictedHistory (because we are going to rollback to compute a new one), but inputs
-///   are different, they shouldn't be erased or overriden since they are not generated from doing the rollback!
-///
-/// For actions from other players (with no InputMap), we replicate the ActionState so we have the
-/// correct ActionState value at the rollback tick. To add even more precision during the rollback,
-/// we can use the raw InputMessage of the remote player (broadcasted by the server).
-/// We will apply those InputDiffs up to the most recent tick available, and then we leave the ActionState as is.
-/// This is equivalent to considering that the remove player will keep playing the last action they played.
-///
-/// This is better than just using the ActionState from the rollback tick, because we have additional information (tick)
-/// for the remote inputs that we can use to have a higher precision rollback.
-/// TODO: implement some decay for the rollback ActionState of other players?
-fn get_rollback_action_state<A: UserAction>(
-    mut player_action_state_query: Query<
-        (Entity, &mut A, &InputBuffer<A>),
-    >,
-    mut remote_player_query: Query<
-        (Entity, &mut A, &InputBuffer<A>),
-    >,
-    rollback: Res<Rollback>,
-) {
-    let tick = rollback
-        .get_rollback_tick()
-        .expect("we should be in rollback");
-    for (entity, mut action_state, input_buffer) in player_action_state_query.iter_mut() {
-        *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
-        trace!(
-            ?entity,
-            ?tick,
-            pressed = ?action_state.get_pressed(),
-            "updated action state for rollback using input_buffer: {}",
-            input_buffer
-        );
-    }
-    for (entity, mut action_state, input_buffer) in remote_player_query.iter_mut() {
-        // TODO: should we reuse the existing ActionState as an optimization?
-        *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
-        trace!(
-            ?tick,
-            ?entity,
-            pressed = ?action_state.get_pressed(),
-            "Update action state for rollback of remote player using input_buffer: {}",
-            input_buffer
-        );
-    }
-}
-
-/// At the start of the frame, restore the ActionState to the latest-action state in buffer
-/// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
-fn get_delayed_action_state<A: UserAction>(
-    config: Res<ClientConfig>,
-    tick_manager: Res<TickManager>,
-    connection_manager: Res<ConnectionManager>,
-    // global_input_buffer: Res<InputBuffer<A>>,
-    // global_action_state: Option<ResMut<ActionState<A>>>,
-    mut action_state_query: Query<
-        (Entity, &mut A, &InputBuffer<A>),
-        // TODO: set a filter so that this is only for controlled players, not remote players
-    >,
-) {
-    let input_delay_ticks = config.prediction.input_delay_ticks(
-        connection_manager.ping_manager.rtt(),
-        config.shared.tick.tick_duration,
-    ) as i16;
-    let delayed_tick = tick_manager.tick() + input_delay_ticks;
-    for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
-        // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
-        //  the problem is that the Leafwing Plugin works on ActionState directly...
-        if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
-            *action_state = delayed_action_state.clone();
-            // dbg!(input_buffer);
-            // dbg!(delayed_tick);
-            trace!(
-                ?entity,
-                ?delayed_tick,
-                "fetched delayed action state {:?} from input buffer: {}",
-                action_state.get_pressed(),
-                input_buffer
-            );
-        }
-        // TODO: if we don't find an ActionState in the buffer, should we reset the delayed one to default?
-    }
-    // if let Some(mut action_state) = global_action_state {
-    //     *action_state = global_input_buffer.get_last().unwrap().clone();
-    // }
-}
-
-/// In case the client tick changes suddenly, we also update the InputBuffer accordingly
-fn receive_tick_events<A: UserAction>(
-    trigger: Trigger<TickEvent>,
-    mut message_buffer: ResMut<MessageBuffer<A>>,
-    mut input_buffer_query: Query<&mut InputBuffer<A>>,
-) {
-    match *trigger.event() {
-        TickEvent::TickSnap { old_tick, new_tick } => {
-            for mut input_buffer in input_buffer_query.iter_mut() {
-                if let Some(start_tick) = input_buffer.start_tick {
-                    input_buffer.start_tick = Some(start_tick + (new_tick - old_tick));
-                    debug!(
-                        "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
-                        trigger.event(),
-                        input_buffer.start_tick
-                    );
+    received_inputs.drain().for_each(|event| {
+        let message = event.message;
+        debug!(?message.end_tick, ?message.inputs, "received input message for action: {:?}", std::any::type_name::<A>());
+        for target_data in &message.inputs {
+            // - the input target has already been set to the server entity in the InputMessage
+            // - it has been mapped to a client-entity on the client during deserialization
+            //   ONLY if it's PrePredicted (look at the MapEntities implementation)
+            let entity = match target_data.target {
+                InputTarget::Entity(entity) => {
+                    // TODO: find a better way!
+                    // if InputTarget = Entity, we still need to do the mapping
+                    connection
+                        .replication_receiver
+                        .remote_entity_map
+                        .get_local(entity)
                 }
-            }
-            for message in message_buffer.0.iter_mut() {
-                message.end_tick = message.end_tick + (new_tick - old_tick);
+                InputTarget::PrePredictedEntity(entity) => Some(entity),
+            };
+            if let Some(entity) = entity {
+                debug!(
+                    "received input message for entity: {:?}. Applying to diff buffer.",
+                    entity
+                );
+                if let Ok(confirmed) = confirmed_query.get(entity) {
+                    if let Some(predicted) = confirmed.predicted {
+                        if let Ok(input_buffer) = predicted_query.get_mut(predicted) {
+                            debug!(?entity, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
+                            if let Some(mut input_buffer) = input_buffer {
+                                input_buffer.update_from_message(message.end_tick, &target_data.states);
+                                #[cfg(feature = "metrics")]
+                                {
+                                    let margin = input_buffer.end_tick().unwrap() - tick;
+                                    metrics::gauge!(format!(
+                                                    "inputs::{}::remote_player::{}::buffer_margin",
+                                                    std::any::type_name::<A>(),
+                                                    entity
+                                                ))
+                                        .set(margin as f64);
+                                    metrics::gauge!(format!(
+                                                    "inputs::{}::remote_player::{}::buffer_size",
+                                                    std::any::type_name::<A>(),
+                                                    entity
+                                                ))
+                                        .set(input_buffer.len() as f64);
+                                }
+                            } else {
+                                // add the ActionState or InputBuffer if they are missing
+                                let mut input_buffer = InputBuffer::<A>::default();
+                                input_buffer.update_from_message(
+                                    message.end_tick,
+                                    &target_data.states,
+                                );
+                                // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
+                                commands.entity(predicted).insert((
+                                    input_buffer,
+                                    ActionState::<A>::default(),
+                                ));
+                            };
+                        }
+                    }
+                } else {
+                    error!(?entity, ?target_data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                }
+            } else {
+                error!("received remote player input message for unrecognized entity");
             }
         }
-    }
+    });
 }
+
 
 /// Drain the messages from the buffer and send them to the server
 fn send_input_messages<A: UserAction>(
@@ -580,74 +422,57 @@ fn send_input_messages<A: UserAction>(
             );
         }
         connection
-            .send_message::<InputChannel, crate::prelude::InputMessage<A>>(&message)
+            .send_message::<InputChannel, InputMessage<A>>(&message)
             .unwrap_or_else(|err| {
                 error!("Error while sending input message: {:?}", err);
             });
     }
 }
 
-/// System that removes old entries from the InputBuffer
-fn clean_buffers<A: UserAction>(
-    connection: Res<ConnectionManager>,
-    tick_manager: Res<TickManager>,
-    mut input_buffer_query: Query<(Entity, &mut InputBuffer<A>)>,
-) {
-    // delete old input values
-    // anything beyond interpolation tick should be safe to be deleted
-    let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
-    trace!(
-        "popping all input buffers since interpolation tick: {:?}",
-        interpolation_tick
-    );
-    for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
-        input_buffer.pop(interpolation_tick);
-    }
-}
 
-#[cfg(test)]
-mod tests {
-    use crate::client::input::native::InputSystemSet;
-    use crate::prelude::client::InputManager;
-    use crate::prelude::{server, TickManager};
-    use crate::tests::host_server_stepper::HostServerStepper;
-    use crate::tests::protocol::MyInput;
-    use bevy::prelude::*;
-
-    fn press_input(
-        mut input_manager: ResMut<InputManager<MyInput>>,
-        tick_manager: Res<TickManager>,
-    ) {
-        input_manager.add_input(MyInput(2), tick_manager.tick());
-    }
-
-    #[derive(Resource)]
-    pub struct Counter(pub u32);
-
-    fn receive_input(
-        mut counter: ResMut<Counter>,
-        mut input: EventReader<server::InputEvent<MyInput>>,
-    ) {
-        for input in input.read() {
-            assert_eq!(input.input().unwrap(), MyInput(2));
-            counter.0 += 1;
-        }
-    }
-
-    /// Check that in host-server mode the native client inputs from the buffer
-    /// are forwarded directly to the server's InputEvents
-    #[test]
-    fn test_host_server_input() {
-        let mut stepper = HostServerStepper::default_no_init();
-        stepper.server_app.world_mut().insert_resource(Counter(0));
-        stepper.server_app.add_systems(
-            FixedPreUpdate,
-            press_input.in_set(InputSystemSet::BufferInputs),
-        );
-        stepper.server_app.add_systems(FixedUpdate, receive_input);
-        stepper.init();
-
-        stepper.frame_step();
-        assert!(stepper.server_app.world().resource::<Counter>().0 > 0);
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use crate::client::input::native::InputSystemSet;
+//     use crate::prelude::client::InputManager;
+//     use crate::prelude::{server, TickManager};
+//     use crate::tests::host_server_stepper::HostServerStepper;
+//     use crate::tests::protocol::MyInput;
+//     use bevy::prelude::*;
+//
+//     fn press_input(
+//         mut input_manager: ResMut<InputManager<MyInput>>,
+//         tick_manager: Res<TickManager>,
+//     ) {
+//         input_manager.add_input(MyInput(2), tick_manager.tick());
+//     }
+//
+//     #[derive(Resource)]
+//     pub struct Counter(pub u32);
+//
+//     fn receive_input(
+//         mut counter: ResMut<Counter>,
+//         mut input: EventReader<server::InputEvent<MyInput>>,
+//     ) {
+//         for input in input.read() {
+//             assert_eq!(input.input().unwrap(), MyInput(2));
+//             counter.0 += 1;
+//         }
+//     }
+//
+//     /// Check that in host-server mode the native client inputs from the buffer
+//     /// are forwarded directly to the server's InputEvents
+//     #[test]
+//     fn test_host_server_input() {
+//         let mut stepper = HostServerStepper::default_no_init();
+//         stepper.server_app.world_mut().insert_resource(Counter(0));
+//         stepper.server_app.add_systems(
+//             FixedPreUpdate,
+//             press_input.in_set(InputSystemSet::BufferInputs),
+//         );
+//         stepper.server_app.add_systems(FixedUpdate, receive_input);
+//         stepper.init();
+//
+//         stepper.frame_step();
+//         assert!(stepper.server_app.world().resource::<Counter>().0 > 0);
+//     }
+// }
