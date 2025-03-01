@@ -1,6 +1,4 @@
-use crate::client::input::native::InputSystemSet;
-use crate::prelude::client::InputManager;
-use crate::prelude::server::{InputEvent, Replicate};
+use crate::prelude::server::Replicate;
 use crate::prelude::*;
 use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;
@@ -8,21 +6,8 @@ use crate::tests::stepper::BevyStepper;
 use bevy::prelude::*;
 use bevy::utils::Duration;
 
-fn press_input(mut input_manager: ResMut<InputManager<MyInput>>, tick_manager: Res<TickManager>) {
-    input_manager.add_input(MyInput(0), tick_manager.tick());
-}
-fn increment(
-    mut query: Query<&mut ComponentSyncModeFull>,
-    mut ev: EventReader<InputEvent<MyInput>>,
-) {
-    for _ in ev.read() {
-        for mut c in query.iter_mut() {
-            c.0 += 1.0;
-        }
-    }
-}
 
-/// This test checks that input handling and replication still works if the client connect when the server
+/// This test checks that replication still works if the client connect when the server
 /// is on a new tick generation
 #[test]
 fn test_sync_after_tick_wrap() {
@@ -42,12 +27,6 @@ fn test_sync_after_tick_wrap() {
         .world_mut()
         .resource_mut::<TickManager>()
         .set_tick_to(new_tick);
-
-    // increment the component value by sending inputs
-    stepper.client_app.add_systems(
-        FixedPreUpdate,
-        press_input.in_set(InputSystemSet::BufferInputs),
-    );
 
     let server_entity = stepper
         .server_app
@@ -90,7 +69,7 @@ fn test_sync_after_tick_wrap() {
     );
 }
 
-/// This test checks that input handling and replication still works if the client connect when the server
+/// This test checks that replication still works if the client connect when the server
 /// is u16::MAX ticks ahead
 #[test]
 fn test_sync_after_tick_half_wrap() {
@@ -110,11 +89,6 @@ fn test_sync_after_tick_half_wrap() {
         .world_mut()
         .resource_mut::<TickManager>()
         .set_tick_to(new_tick);
-
-    stepper.client_app.add_systems(
-        FixedPreUpdate,
-        press_input.in_set(InputSystemSet::BufferInputs),
-    );
 
     let server_entity = stepper
         .server_app

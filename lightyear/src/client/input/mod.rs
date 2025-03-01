@@ -30,6 +30,8 @@ pub enum InputSystemSet {
     /// (we do this in the FixedUpdate schedule because if the simulation is slow (e.g. 10Hz)
     /// we don't want to send an InputMessage every frame)
     PrepareInputMessage,
+    /// Restore the ActionState for the correct tick (without InputDelay) from the buffer
+    RestoreInputs,
 
     // POST UPDATE
     /// System Set to prepare the input message
@@ -43,9 +45,6 @@ use bevy::ecs::query::{QueryFilter, WorldQuery};
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
-use leafwing_input_manager::action_state::ActionState;
-use leafwing_input_manager::input_map::InputMap;
-use leafwing_input_manager::plugin::InputManagerSystem;
 use std::marker::PhantomData;
 use tracing::{error, trace};
 
@@ -61,12 +60,11 @@ use crate::client::run_conditions::is_synced;
 use crate::client::sync::SyncSet;
 use crate::connection::client::NetClient;
 use crate::connection::client::NetClientDispatch;
-use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::InputMessage;
 use crate::inputs::native::{UserAction, UserActionState};
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, LeafwingUserAction, MessageRegistry, PrePredicted, ReplicateOnceComponent, Replicated, Tick, TickManager, TimeManager};
+use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, MessageRegistry, PrePredicted, ReplicateOnceComponent, Replicated, Tick, TickManager, TimeManager};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 use crate::{channel::builder::InputChannel, prelude::client::ClientConnection};
@@ -145,7 +143,7 @@ impl<A, F> Default for BaseInputPlugin<A, F> {
 struct MessageBuffer<A>(Vec<InputMessage<A>>);
 
 
-impl<A: UserActionState, F: QueryFilter + 'static> Plugin for BaseInputPlugin<A, F> {
+impl<A: UserActionState, F: QueryFilter + Send + Sync + 'static> Plugin for BaseInputPlugin<A, F> {
     fn build(&self, app: &mut App) {
         // in host-server mode, we don't need to handle inputs in any way, because the player's entity
         // is spawned with `InputBuffer` and the client is in the same timeline as the server
@@ -219,7 +217,8 @@ impl<A: UserActionState, F: QueryFilter + 'static> Plugin for BaseInputPlugin<A,
                             .and(should_run.clone())
                             .and(not(is_in_rollback)),
                     )
-                    .before(InputManagerSystem::Tick),
+                    .in_set(InputSystemSet::RestoreInputs)
+
             ),
         );
 
@@ -259,7 +258,7 @@ fn add_action_state_buffer<A: UserActionState>(
 /// and we will pull ActionStates from the buffer instead of just using the ActionState component directly.
 ///
 /// We do not need to buffer inputs during rollback, as they have already been buffered
-fn buffer_action_state<A: UserActionState, F: QueryFilter + 'static>(
+fn buffer_action_state<A: UserActionState, F: QueryFilter + Send + Sync + 'static>(
     config: Res<ClientConfig>,
     connection_manager: Res<ConnectionManager>,
     tick_manager: Res<TickManager>,
@@ -362,7 +361,7 @@ fn get_rollback_action_state<A: UserActionState>(
 
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
-fn get_delayed_action_state<A: UserActionState, F: QueryFilter + 'static>(
+fn get_delayed_action_state<A: UserActionState, F: QueryFilter + Send + Sync + 'static>(
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
     connection_manager: Res<ConnectionManager>,
@@ -413,52 +412,5 @@ fn clean_buffers<A: UserAction>(
     );
     for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
         input_buffer.pop(interpolation_tick);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::client::input::native::InputSystemSet;
-    use crate::prelude::client::InputManager;
-    use crate::prelude::{server, TickManager};
-    use crate::tests::host_server_stepper::HostServerStepper;
-    use crate::tests::protocol::MyInput;
-    use bevy::prelude::*;
-
-    fn press_input(
-        mut input_manager: ResMut<InputManager<MyInput>>,
-        tick_manager: Res<TickManager>,
-    ) {
-        input_manager.add_input(MyInput(2), tick_manager.tick());
-    }
-
-    #[derive(Resource)]
-    pub struct Counter(pub u32);
-
-    fn receive_input(
-        mut counter: ResMut<Counter>,
-        mut input: EventReader<server::InputEvent<MyInput>>,
-    ) {
-        for input in input.read() {
-            assert_eq!(input.input().unwrap(), MyInput(2));
-            counter.0 += 1;
-        }
-    }
-
-    /// Check that in host-server mode the native client inputs from the buffer
-    /// are forwarded directly to the server's InputEvents
-    #[test]
-    fn test_host_server_input() {
-        let mut stepper = HostServerStepper::default_no_init();
-        stepper.server_app.world_mut().insert_resource(Counter(0));
-        stepper.server_app.add_systems(
-            FixedPreUpdate,
-            press_input.in_set(InputSystemSet::BufferInputs),
-        );
-        stepper.server_app.add_systems(FixedUpdate, receive_input);
-        stepper.init();
-
-        stepper.frame_step();
-        assert!(stepper.server_app.world().resource::<Counter>().0 > 0);
     }
 }

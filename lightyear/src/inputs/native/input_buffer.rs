@@ -4,8 +4,6 @@ use bevy::prelude::{Component, Resource};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
-use std::time::Instant;
-use steamworks::Input;
 use tracing::trace;
 
 #[derive(Component, Debug)]
@@ -79,33 +77,17 @@ impl<T: UserAction> InputBuffer<ActionState<T>> {
         values: &Vec<InputData<T>>,
     ) {
         let start_tick = end_tick - values.len() as u16;
-        let mut precedent = ActionState::<T>::default();
         // the first value is guaranteed to not be SameAsPrecedent
         for (delta, input) in values.iter().enumerate() {
             let tick = start_tick + Tick(delta as u16);
             match input {
                 InputData::Absent => {
                     self.set_empty(tick);
-                    precedent = ActionState::<T>::default();
                 }
                 InputData::SameAsPrecedent => {
-                    // TODO: we can directly write 'SameAsPrecedent' in the buffer!
-
-                    if let Some(input) = &precedent.value {
-                         // do not set the value if it's equal to what's already in the buffer
-                        if self
-                            .get(tick)
-                            .is_some_and(|existing_value| existing_value.value.as_ref().is_some_and(|v| v == input))
-                        {
-                            continue;
-                        }
-                        self.set(tick, input.clone());
-                    } else {
-                        self.set_empty(tick);
-                    }
+                    self.set_raw(tick, InputData::SameAsPrecedent);
                 }
                 InputData::Input(input) => {
-                    precedent = input.clone();
                     // do not set the value if it's equal to what's already in the buffer
                     if self
                         .get(tick)
@@ -113,7 +95,7 @@ impl<T: UserAction> InputBuffer<ActionState<T>> {
                     {
                         continue;
                     }
-                    self.set(tick, input.clone());
+                    self.set(tick, ActionState::<T> { value: Some(input.clone())});
                 }
             }
         }
@@ -132,10 +114,29 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
     ///
     /// This should be called every tick.
     pub fn set(&mut self, tick: Tick, value: T) {
+        if let Some(precedent) = self.get(tick - 1) {
+            if precedent == &value {
+                self.set_raw(tick, InputData::SameAsPrecedent);
+                return;
+            }
+        }
+        self.set_raw(tick, InputData::Input(value));
+    }
+
+    // Note: we expect this to be set every tick?
+    //  i.e. there should be an ActionState for every tick, even if the action is None
+    /// Set the ActionState for the given tick in the InputBuffer
+    ///
+    /// This should be called every tick.
+    pub fn set_empty(&mut self, tick: Tick) {
+        self.set_raw(tick, InputData::Absent);
+    }
+
+    pub(crate) fn set_raw(&mut self, tick: Tick, value: InputData<T>) {
         let Some(start_tick) = self.start_tick else {
             // initialize the buffer
             self.start_tick = Some(tick);
-            self.buffer.push_back(InputData::Input(value));
+            self.buffer.push_back(value);
             return;
         };
 
@@ -165,55 +166,9 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
             self.buffer.push_back(InputData::Absent);
         }
 
-        // check if the value is the same as the precedent tick, in which case we compress it
-        let mut same_as_precedent = false;
-        if let Some(action_state) = self.get(end_tick) {
-            if action_state == &value {
-                same_as_precedent = true;
-            }
-        }
-
         // safety: we are guaranteed that the tick is in the buffer
         let entry = self.buffer.get_mut((tick - start_tick) as usize).unwrap();
-        if same_as_precedent {
-            *entry = InputData::SameAsPrecedent;
-        } else {
-            *entry = InputData::Input(value);
-        }
-    }
-
-    // Note: we expect this to be set every tick?
-    //  i.e. there should be an ActionState for every tick, even if the action is None
-    /// Set the ActionState for the given tick in the InputBuffer
-    ///
-    /// This should be called every tick.
-    pub fn set_empty(&mut self, tick: Tick) {
-        let Some(start_tick) = self.start_tick else {
-            // initialize the buffer
-            self.start_tick = Some(tick);
-            self.buffer.push_back(InputData::Absent);
-            return;
-        };
-
-        // cannot set lower values than start_tick
-        if tick < start_tick {
-            return;
-        }
-
-        let end_tick = start_tick + (self.buffer.len() as i16 - 1);
-        if tick > end_tick {
-            // fill the ticks between end_tick and tick with a copy of the current ActionState
-            for _ in 0..(tick - end_tick - 1) {
-                trace!("fill ticks");
-                self.buffer.push_back(InputData::Absent);
-            }
-            // add a new value to the buffer, which we will override below
-            self.buffer.push_back(InputData::Absent);
-        }
-
-        // safety: we are guaranteed that the tick is in the buffer
-        let entry = self.buffer.get_mut((tick - start_tick) as usize).unwrap();
-        *entry = InputData::Absent;
+        *entry = value;
     }
 
     /// Remove all the inputs that are older than the given tick, then return the input
@@ -251,6 +206,19 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
         } else {
             None
         }
+    }
+
+    pub(crate) fn get_raw(&self, tick: Tick) -> &InputData<T> {
+        let Some(start_tick) = self.start_tick else {
+            return &InputData::Absent
+        };
+        if self.buffer.is_empty() {
+            return &InputData::Absent
+        }
+        if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
+            return &InputData::Absent
+        }
+        self.buffer.get((tick - start_tick) as usize).unwrap()
     }
 
     /// Get the [`ActionState`] for the given tick

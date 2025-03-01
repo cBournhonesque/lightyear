@@ -125,6 +125,9 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         app.insert_resource(self.config);
         app.init_resource::<MessageBuffer<A>>();
 
+        // SETS
+        app.configure_sets(FixedPostUpdate, InputSystemSet::RestoreInputs.before(InputManagerSystem::Tick));
+
         // SYSTEMS
         app.add_observer(handle_new_input_map::<A>);
         app.add_systems(

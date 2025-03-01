@@ -49,8 +49,6 @@
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
-use leafwing_input_manager::input_map::InputMap;
-use leafwing_input_manager::plugin::InputManagerSystem;
 use std::marker::PhantomData;
 use tracing::{error, trace};
 
@@ -71,7 +69,7 @@ use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::{InputMessage, InputTarget};
 use crate::inputs::native::{ActionState, UserAction, UserActionState};
 use crate::prelude::client::PredictionSet;
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, Deserialize, LeafwingUserAction, MessageRegistry, PrePredicted, ReplicateOnceComponent, Replicated, Serialize, Tick, TickManager, TimeManager};
+use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, Deserialize, MessageRegistry, PrePredicted, ReplicateOnceComponent, Replicated, Serialize, Tick, TickManager, TimeManager};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 use crate::{channel::builder::InputChannel, prelude::client::ClientConnection};
@@ -116,7 +114,7 @@ impl<A: UserAction> Default for InputPlugin<A> {
 /// - we write the InputMessages during FixedPostUpdate
 /// - we apply the TickUpdateEvents (from doing sync) during PostUpdate, which might affect the ticks from the InputMessages.
 ///   During this phase, we want to update the tick of the InputMessages that we wrote during FixedPostUpdate.
-#[derive(Debug, Default, Resource)]
+#[derive(Debug, Resource)]
 struct MessageBuffer<A>(Vec<InputMessage<A>>);
 
 impl<A> Default for MessageBuffer<A> {

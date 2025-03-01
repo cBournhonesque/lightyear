@@ -31,7 +31,7 @@ use std::fmt::Debug;
 pub mod input_buffer;
 pub(crate) mod input_message;
 
-#[derive(Component, Clone, Debug, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize, Reflect)]
 pub struct ActionState<A> {
     value: Option<A>
 }

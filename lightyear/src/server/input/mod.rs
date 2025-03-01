@@ -1,3 +1,4 @@
+//! Handle input messages received from the clients
 pub mod native;
 
 #[cfg_attr(docsrs, doc(cfg(feature = "leafwing")))]
@@ -5,10 +6,9 @@ pub mod native;
 pub mod leafwing;
 
 
-//! Handles client-generated inputs
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserActionState;
-use crate::prelude::{server::is_started, InputMessage, MessageRegistry, ServerReceiveMessage, TickManager, UserAction};
+use crate::prelude::{server::is_started, MessageRegistry, ServerReceiveMessage, TickManager, UserAction};
 use crate::server::connection::ConnectionManager;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use bevy::prelude::*;
