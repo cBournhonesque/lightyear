@@ -31,7 +31,6 @@
 //!
 //! Currently, global inputs (that are stored in a [`Resource`] instead of being attached to a specific [`Entity`] are not supported)
 use std::fmt::Debug;
-use std::marker::PhantomData;
 
 use bevy::prelude::*;
 use leafwing_input_manager::plugin::InputManagerSystem;
@@ -42,20 +41,15 @@ use crate::channel::builder::InputChannel;
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::input::{is_input_delay, BaseInputPlugin, InputConfig, InputSystemSet};
-use crate::client::prediction::plugin::{is_in_rollback, PredictionSet};
+use crate::client::input::{BaseInputPlugin, InputConfig, InputSystemSet};
+use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
-use crate::client::run_conditions::is_synced;
-use crate::client::sync::SyncSet;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::inputs::native::UserActionState;
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage, MessageRegistry, ReplicateOnceComponent, TickManager, TimeManager, UserAction};
+use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage, MessageRegistry, TickManager, TimeManager};
 use crate::shared::replication::components::PrePredicted;
-use crate::shared::sets::{ClientMarker, InternalMainSet};
 use crate::shared::tick_manager::TickEvent;
 
 

@@ -5,7 +5,6 @@ use crate::prelude::{Deserialize, Serialize, Tick, UserAction};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Reflect};
 use std::cmp::max;
-use std::fmt::Write;
 
 // TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]

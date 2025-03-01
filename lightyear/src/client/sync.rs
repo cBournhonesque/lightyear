@@ -587,7 +587,6 @@ impl SyncManager {
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::*;
     use bevy::utils::Duration;
 
     use crate::prelude::server::Replicate;

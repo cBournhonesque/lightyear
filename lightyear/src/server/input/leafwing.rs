@@ -5,10 +5,9 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{is_host_server, server::is_started, InputMessage, MessageRegistry, ServerReceiveMessage, TickManager};
+use crate::prelude::{is_host_server, InputMessage, MessageRegistry, ServerReceiveMessage};
 use crate::server::connection::ConnectionManager;
 use crate::server::input::InputSystemSet;
-use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 pub struct LeafwingInputPlugin<A> {
     marker: std::marker::PhantomData<A>,
