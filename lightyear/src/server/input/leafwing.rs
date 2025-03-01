@@ -7,6 +7,7 @@ use leafwing_input_manager::prelude::*;
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::prelude::{is_host_server, server::is_started, InputMessage, MessageRegistry, ServerReceiveMessage, TickManager};
 use crate::server::connection::ConnectionManager;
+use crate::server::input::InputSystemSet;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
 pub struct LeafwingInputPlugin<A> {
@@ -21,15 +22,6 @@ impl<A> Default for LeafwingInputPlugin<A> {
     }
 }
 
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum InputSystemSet {
-    /// Add the ActionDiffBuffers to new entities that have an [`ActionState`]
-    AddBuffers,
-    /// Receive the latest ActionDiffs from the client
-    ReceiveInputs,
-    /// Use the ActionDiff received from the client to update the [`ActionState`]
-    Update,
-}
 
 impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     fn build(&self, app: &mut App) {

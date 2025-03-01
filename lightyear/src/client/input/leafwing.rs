@@ -699,7 +699,7 @@ mod tests {
         stepper
             .client_app
             .world_mut()
-            .resource_mut::<LeafwingInputConfig<LeafwingInput1>>()
+            .resource_mut::<InputConfig<LeafwingInput1>>()
             .lag_compensation = true;
         let (server_entity, client_entity) = setup(&mut stepper);
 

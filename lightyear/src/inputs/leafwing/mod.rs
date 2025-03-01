@@ -2,6 +2,9 @@
 
 use std::fmt::Debug;
 
+use crate::inputs::native::UserActionState;
+use crate::prelude::UserAction;
+use leafwing_input_manager::prelude::ActionState;
 use leafwing_input_manager::Actionlike;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -14,17 +17,19 @@ pub mod input_message;
 ///
 /// See more information in the leafwing_input_manager crate: [`Actionlike`]
 pub trait LeafwingUserAction:
-    Serialize + DeserializeOwned + Copy + Debug + Actionlike + bevy::reflect::GetTypeRegistration
+    UserAction + Copy + Actionlike + bevy::reflect::GetTypeRegistration
 {
 }
 
 impl<
-        A: Serialize
-            + DeserializeOwned
+        A: UserAction
             + Copy
-            + Debug
             + Actionlike
             + bevy::reflect::GetTypeRegistration,
     > LeafwingUserAction for A
 {
+}
+
+impl<A: LeafwingUserAction> UserActionState for ActionState<A> {
+    type UserAction = A;
 }

@@ -26,12 +26,10 @@ impl<A> Default for BaseInputPlugin<A> {
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystemSet {
-    /// Add the ActionDiffBuffers to new entities that have an [`ActionState`]
-    AddBuffers,
     /// Receive the latest ActionDiffs from the client
     ReceiveInputs,
     /// Use the ActionDiff received from the client to update the [`ActionState`]
-    Update,
+    UpdateActionState,
 }
 
 impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
@@ -40,20 +38,20 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
         app.configure_sets(
             PreUpdate,
             (
-                InternalMainSet::<ServerMarker>::Receive,
+                InternalMainSet::<ServerMarker>::ReceiveEvents,
                 InputSystemSet::ReceiveInputs,
             )
                 .chain()
                 .run_if(is_started),
         );
-        app.configure_sets(FixedPreUpdate, InputSystemSet::Update.run_if(is_started));
+        app.configure_sets(FixedPreUpdate, InputSystemSet::UpdateActionState.run_if(is_started));
 
         // SYSTEMS
         // TODO: this runs twice in host-server mode
         app.add_observer(add_action_state_buffer::<A>);
         app.add_systems(
             FixedPreUpdate,
-            update_action_state::<A>.in_set(InputSystemSet::Update),
+            update_action_state::<A>.in_set(InputSystemSet::UpdateActionState),
         );
     }
 }

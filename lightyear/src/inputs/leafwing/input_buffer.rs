@@ -64,6 +64,7 @@ mod tests {
     use crate::inputs::native::input_buffer::InputData;
     use bevy::prelude::Reflect;
     use leafwing_input_manager::Actionlike;
+    use serde::{Deserialize, Serialize};
 
     #[derive(
         Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash, Reflect, Actionlike,

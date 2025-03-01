@@ -170,7 +170,7 @@ mod tests {
     fn test_generate_input_message_no_start_input() {
         let input_buffer = InputBuffer::default();
         let mut input_message = InputMessage::<Action>::new(Tick(10));
-        input_message.add_inputs(5, InputTarget::Global, &input_buffer);
+        input_message.add_inputs(5, InputTarget::Entity(Entity::PLACEHOLDER), &input_buffer);
         assert_eq!(
             input_message,
             InputMessage {
