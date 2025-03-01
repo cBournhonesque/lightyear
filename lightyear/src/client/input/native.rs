@@ -47,32 +47,21 @@
 //! This module is kept for simplicity but might get removed in the future.
 
 use bevy::prelude::*;
-use bevy::reflect::Reflect;
-use bevy::utils::Duration;
-use std::marker::PhantomData;
 use tracing::{error, trace};
 
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::events::InputEvent;
-use crate::client::input::{is_input_delay, BaseInputPlugin, InputConfig, InputSystemSet};
+use crate::client::input::{BaseInputPlugin, InputConfig, InputSystemSet};
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
-use crate::client::run_conditions::is_synced;
-use crate::client::sync::SyncSet;
-use crate::connection::client::NetClient;
-use crate::connection::client::NetClientDispatch;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::{InputMessage, InputTarget};
-use crate::inputs::native::{ActionState, UserAction, UserActionState};
-use crate::prelude::client::PredictionSet;
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, Deserialize, MessageRegistry, PrePredicted, ReplicateOnceComponent, Replicated, Serialize, Tick, TickManager, TimeManager};
-use crate::shared::sets::{ClientMarker, InternalMainSet};
+use crate::inputs::native::{ActionState, UserAction};
+use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, MessageRegistry, PrePredicted, TickManager, TimeManager};
 use crate::shared::tick_manager::TickEvent;
-use crate::{channel::builder::InputChannel, prelude::client::ClientConnection};
+use crate::channel::builder::InputChannel;
 
 
 /// FLOW leafwing
@@ -163,7 +152,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
 
 /// Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<A: UserAction>(
-    mut connection: Res<ConnectionManager>,
+    connection: Res<ConnectionManager>,
     mut message_buffer: ResMut<MessageBuffer<A>>,
     channel_registry: Res<ChannelRegistry>,
     config: Res<ClientConfig>,

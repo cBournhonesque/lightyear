@@ -1,7 +1,7 @@
 use crate::inputs::native::input_buffer::{InputBuffer, InputData};
 use crate::inputs::native::ActionState;
 use crate::prelude::client::InterpolationDelay;
-use crate::prelude::{Deserialize, Serialize, Tick, UserAction};
+use crate::prelude::{Deserialize, Serialize, Tick};
 use bevy::prelude::{Entity, Reflect};
 use std::cmp::max;
 use std::fmt::Write;
@@ -64,7 +64,7 @@ impl<T: Clone + PartialEq> InputMessage<T> {
             return
         };
         // find the first tick for which we have an `ActionState` buffered
-        let mut start_tick = max(self.end_tick - num_ticks + 1, buffer_start_tick);
+        let start_tick = max(self.end_tick - num_ticks + 1, buffer_start_tick);
 
         // find the initial state, (which we convert out of SameAsPrecedent)
         let start_state = input_buffer.get(start_tick).map_or(

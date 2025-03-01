@@ -41,33 +41,24 @@ pub enum InputSystemSet {
 }
 
 
-use bevy::ecs::query::{QueryFilter, WorldQuery};
+use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
 use std::marker::PhantomData;
-use tracing::{error, trace};
+use tracing::trace;
 
-use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::events::InputEvent;
 use crate::client::prediction::plugin::is_in_rollback;
-use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
-use crate::client::prediction::Predicted;
 use crate::client::run_conditions::is_synced;
 use crate::client::sync::SyncSet;
-use crate::connection::client::NetClient;
-use crate::connection::client::NetClientDispatch;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::InputMessage;
 use crate::inputs::native::{UserAction, UserActionState};
-use crate::prelude::client::PredictionSet;
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, MessageRegistry, PrePredicted, ReplicateOnceComponent, Replicated, Tick, TickManager, TimeManager};
+use crate::prelude::{is_host_server, TickManager};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
-use crate::shared::tick_manager::TickEvent;
-use crate::{channel::builder::InputChannel, prelude::client::ClientConnection};
 
 #[derive(Debug, Clone, Copy, Reflect, Resource)]
 pub struct InputConfig<A> {
@@ -210,16 +201,13 @@ impl<A: UserActionState, F: QueryFilter + Send + Sync + 'static> Plugin for Base
             // - to write diffs for the delayed tick (in the next FixedUpdate run), so re-fetch the delayed action-state
             //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
             // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
-            (
-                get_delayed_action_state::<A, F>
+            get_delayed_action_state::<A, F>
                     .run_if(
                         is_input_delay
                             .and(should_run.clone())
                             .and(not(is_in_rollback)),
                     )
-                    .in_set(InputSystemSet::RestoreInputs)
-
-            ),
+                    .in_set(InputSystemSet::RestoreInputs),
         );
 
         app.add_systems(

@@ -21,7 +21,6 @@ There are several steps to use the `InputPlugin`:
 
 use crate::inputs::native::input_buffer::InputData;
 use crate::prelude::Deserialize;
-use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Component, Reflect};
 use serde::de::DeserializeOwned;
 use serde::Serialize;

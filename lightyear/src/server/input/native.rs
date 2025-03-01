@@ -1,11 +1,10 @@
 //! Handles client-generated inputs
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::{InputMessage, InputTarget};
-use crate::inputs::native::{ActionState, UserActionState};
-use crate::prelude::{is_host_server, server::is_started, MessageRegistry, ServerReceiveMessage, TickManager, UserAction};
+use crate::inputs::native::ActionState;
+use crate::prelude::{is_host_server, MessageRegistry, ServerReceiveMessage, UserAction};
 use crate::server::connection::ConnectionManager;
 use crate::server::input::InputSystemSet;
-use crate::shared::sets::{InternalMainSet, ServerMarker};
 use bevy::prelude::*;
 
 pub struct InputPlugin<A> {
