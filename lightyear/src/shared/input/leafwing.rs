@@ -4,13 +4,13 @@ use bevy::app::{App, Plugin};
 use leafwing_input_manager::prelude::ActionState;
 
 use crate::client::config::ClientConfig;
-use crate::client::input::leafwing::LeafwingInputConfig;
+use crate::client::input::InputConfig;
 use crate::prelude::{AppComponentExt, ChannelDirection, InputMessage, LeafwingUserAction};
 use crate::protocol::message::registry::AppMessageInternalExt;
 use crate::server::config::ServerConfig;
 
 pub struct LeafwingInputPlugin<A> {
-    pub config: LeafwingInputConfig<A>,
+    pub config: InputConfig<A>,
 }
 
 impl<A> Default for LeafwingInputPlugin<A> {

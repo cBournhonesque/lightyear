@@ -76,7 +76,7 @@ impl<T: UserAction> InputBuffer<ActionState<T>> {
         end_tick: Tick,
         values: &Vec<InputData<T>>,
     ) {
-        let start_tick = end_tick - values.len() as u16;
+        let start_tick = end_tick + 1 - values.len() as u16;
         // the first value is guaranteed to not be SameAsPrecedent
         for (delta, input) in values.iter().enumerate() {
             let tick = start_tick + Tick(delta as u16);

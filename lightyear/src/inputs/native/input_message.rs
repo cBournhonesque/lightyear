@@ -1,8 +1,9 @@
 use crate::inputs::native::input_buffer::{InputBuffer, InputData};
 use crate::inputs::native::ActionState;
 use crate::prelude::client::InterpolationDelay;
-use crate::prelude::{Deserialize, Serialize, Tick};
-use bevy::prelude::{Entity, Reflect};
+use crate::prelude::{Deserialize, Serialize, Tick, UserAction};
+use bevy::ecs::entity::MapEntities;
+use bevy::prelude::{Entity, EntityMapper, Reflect};
 use std::cmp::max;
 use std::fmt::Write;
 
@@ -34,6 +35,26 @@ pub(crate) struct PerTargetData<A> {
     // ActionState<A> from ticks `end_ticks-N` to `end_tick` (included)
     pub(crate) states: Vec<InputData<A>>,
 }
+impl<A: UserAction + MapEntities> MapEntities for InputMessage<A> {
+    // NOTE: we do NOT map the entities for input-message because when already convert
+    //  the entities on the message to the corresponding client entities when we write them
+    //  in the input message
+
+    // NOTE: we only map the inputs for the pre-predicted entities
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        self.inputs.iter_mut().for_each(|data| {
+            if let InputTarget::PrePredictedEntity(ref mut e) = data.target {
+                *e = entity_mapper.map_entity(*e);
+            }
+            data.states.iter_mut().for_each(|state| {
+                if let InputData::Input(ref mut action_state) = state {
+                    action_state.map_entities(entity_mapper);
+                }
+            });
+        });
+    }
+}
+
 
 impl<T: Clone + PartialEq> InputMessage<T> {
     pub fn new(end_tick: Tick) -> Self {
@@ -124,14 +145,13 @@ mod tests {
                     PerTargetData {
                         target: InputTarget::Entity(Entity::PLACEHOLDER),
                         states: vec![
-                            InputData::Absent,
                             InputData::Input(0),
                             InputData::SameAsPrecedent,
                             InputData::Input(1),
                             InputData::SameAsPrecedent,
                             InputData::Absent,
-                            InputData::SameAsPrecedent,
-                            InputData::SameAsPrecedent,
+                            InputData::Absent,
+                            InputData::Absent,
                         ]
                     },
                 ],
@@ -152,6 +172,7 @@ mod tests {
                 InputData::SameAsPrecedent,
                 InputData::SameAsPrecedent,
         ]);
+        dbg!(&input_buffer);
 
         assert_eq!(input_buffer.get(Tick(20)), None);
         assert_eq!(input_buffer.get(Tick(19)), None);
