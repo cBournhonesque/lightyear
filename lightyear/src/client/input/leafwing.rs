@@ -41,7 +41,7 @@ use crate::channel::builder::InputChannel;
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::input::{BaseInputPlugin, InputConfig, InputSystemSet};
+use crate::client::input::{BaseInputPlugin, InputSystemSet};
 use crate::client::prediction::plugin::is_in_rollback;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
@@ -50,6 +50,7 @@ use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::inputs::native::UserActionState;
 use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage, MessageRegistry, TickManager, TimeManager};
+use crate::shared::input::InputConfig;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::tick_manager::TickEvent;
 

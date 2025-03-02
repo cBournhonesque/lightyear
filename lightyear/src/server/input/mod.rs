@@ -7,18 +7,21 @@ pub mod leafwing;
 
 
 use crate::inputs::native::input_buffer::InputBuffer;
+use crate::inputs::native::input_message::InputMessage;
 use crate::inputs::native::UserActionState;
-use crate::prelude::{server::is_started, TickManager};
+use crate::prelude::{server::is_started, InputChannel, NetworkTarget, ServerReceiveMessage, ServerSendMessage, TickManager, UserAction};
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use bevy::prelude::*;
 
 pub struct BaseInputPlugin<A> {
+    rebroadcast_inputs: bool,
     marker: std::marker::PhantomData<A>,
 }
 
 impl<A> Default for BaseInputPlugin<A> {
     fn default() -> Self {
         Self {
+            rebroadcast_inputs: false,
             marker: std::marker::PhantomData,
         }
     }
@@ -30,6 +33,8 @@ pub enum InputSystemSet {
     ReceiveInputs,
     /// Use the ActionDiff received from the client to update the [`ActionState`]
     UpdateActionState,
+    /// Rebroadcast inputs to other clients
+    RebroadcastInputs,
 }
 
 impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
@@ -38,19 +43,25 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
         app.configure_sets(
             PreUpdate,
             (
+
                 InternalMainSet::<ServerMarker>::ReceiveEvents,
-                InputSystemSet::ReceiveInputs,
+                InputSystemSet::ReceiveInputs
             )
                 .chain()
                 .run_if(is_started),
         );
         app.configure_sets(FixedPreUpdate, InputSystemSet::UpdateActionState.run_if(is_started));
+        app.configure_sets(PostUpdate, InputSystemSet::RebroadcastInputs
+            .run_if(is_started)
+            .before(InternalMainSet::<ServerMarker>::SendEvents)
+        );
 
         // SYSTEMS
         app.add_systems(
             FixedPreUpdate,
             update_action_state::<A>.in_set(InputSystemSet::UpdateActionState),
         );
+
     }
 }
 

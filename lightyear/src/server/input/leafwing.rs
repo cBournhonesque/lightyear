@@ -1,22 +1,26 @@
 //! Handles client-generated inputs
+use crate::client::config::ClientConfig;
+use crate::connection::client::ClientConnection;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
+use crate::inputs::leafwing::LeafwingUserAction;
+use crate::inputs::native::{InputMarker, UserActionState};
+use crate::prelude::client::{InputConfig, NetClient};
+use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel, InputMessage, MessageRegistry, NetworkTarget, ServerReceiveMessage, ServerSendMessage, TickManager, UserAction};
+use crate::server::connection::ConnectionManager;
+use crate::server::input::InputSystemSet;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use crate::inputs::leafwing::LeafwingUserAction;
-use crate::inputs::native::UserActionState;
-use crate::prelude::{is_host_server, InputMessage, MessageRegistry, ServerReceiveMessage};
-use crate::server::connection::ConnectionManager;
-use crate::server::input::InputSystemSet;
-
 pub struct LeafwingInputPlugin<A> {
-    marker: std::marker::PhantomData<A>,
+    pub(crate) rebroadcast_inputs: bool,
+    pub(crate) marker: std::marker::PhantomData<A>,
 }
 
 impl<A> Default for LeafwingInputPlugin<A> {
     fn default() -> Self {
         Self {
+            rebroadcast_inputs: false,
             marker: std::marker::PhantomData,
         }
     }
@@ -25,8 +29,10 @@ impl<A> Default for LeafwingInputPlugin<A> {
 
 impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     fn build(&self, app: &mut App) {
-        app.add_plugins(super::BaseInputPlugin::<ActionState<A>>::default());
-
+        app.add_plugins(super::BaseInputPlugin::<crate::inputs::native::ActionState<A>> {
+            rebroadcast_inputs: self.rebroadcast_inputs,
+            marker: std::marker::PhantomData,
+        });
 
         // SYSTEMS
         // TODO: this runs twice in host-server mode. How to avoid this?
@@ -35,6 +41,19 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
             PreUpdate,
                 receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputs)
         );
+
+        // TODO: make this changeable dynamically by putting this in a resource?
+        if self.rebroadcast_inputs {
+            app.add_systems(
+                PostUpdate,
+                (
+                    send_host_server_input_message::<A>.run_if(is_host_server),
+                    rebroadcast_inputs::<A>
+                ).chain()
+                    .in_set(InputSystemSet::RebroadcastInputs)
+            );
+        }
+
     }
 
     // TODO: this doesn't work! figure out how to make sure that InputManagerPlugin is called
@@ -121,6 +140,86 @@ fn receive_input_message<A: LeafwingUserAction>(
         }
     });
 }
+
+/// In host-server mode, we usually don't need to send any input messages because any update
+/// to the ActionState is immediately visible to the server.
+/// However we might want other clients to see the inputs of the host client, in which case we will create
+/// a InputMessage and send it to the server. The user can then have a `replicate_inputs` system that takes this
+/// message and propagates it to other clients
+fn send_host_server_input_message<A: LeafwingUserAction>(
+    connection: Res<ClientConnectionManager>,
+    netclient: Res<ClientConnection>,
+    mut events: ResMut<Events<ServerReceiveMessage<InputMessage<A>>>>,
+    channel_registry: Res<ChannelRegistry>,
+    config: Res<ClientConfig>,
+    input_config: Res<InputConfig<A>>,
+    tick_manager: Res<TickManager>,
+    input_buffer_query: Query<
+        (
+            Entity,
+            &InputBuffer<ActionState<A>>,
+        ),
+        With<InputMap<A>>,
+    >,
+) {
+    let tick = tick_manager.tick();
+    // TODO: the number of messages should be in SharedConfig
+    trace!(tick = ?tick, "prepare_input_message");
+    // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
+    //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
+    //  this system what the latest acked input tick is?
+    let input_send_interval = channel_registry
+        .get_builder_from_kind(&ChannelKind::of::<InputChannel>())
+        .unwrap()
+        .settings
+        .send_frequency;
+    // we send redundant inputs, so that if a packet is lost, we can still recover
+    // A redundancy of 2 means that we can recover from 1 lost packet
+    let mut num_tick: u16 =
+        ((input_send_interval.as_nanos() / config.shared.tick.tick_duration.as_nanos()) + 1)
+            .try_into()
+            .unwrap();
+    num_tick *= input_config.packet_redundancy;
+    let mut message = InputMessage::<A>::new(tick);
+    for (entity, input_buffer) in input_buffer_query.iter() {
+        error!(
+            ?tick,
+            ?entity,
+            "Preparing host-server input message with buffer: {:?}",
+            input_buffer
+        );
+        // we are using PrePredictedEntity to make sure that MapEntities will be used on the client receiving side
+        message.add_inputs(
+            num_tick,
+            InputTarget::PrePredictedEntity(entity),
+            input_buffer,
+        );
+    }
+
+    events.send(
+        ServerReceiveMessage::new(
+            message,
+            netclient.id(),
+        )
+    );
+}
+
+pub(crate) fn rebroadcast_inputs<A: UserAction>(
+    mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<A>>>>,
+    mut send_inputs: EventWriter<ServerSendMessage<InputMessage<A>>>,
+) {
+    // rebroadcast the input to other clients
+    // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
+    // so that the server had the time to process the inputs
+    send_inputs.send_batch(receive_inputs.drain().map(|ev| {
+        ServerSendMessage::new_with_target::<InputChannel>(
+            ev.message,
+            NetworkTarget::AllExceptSingle(ev.from),
+        )
+    }));
+}
+
+
 
 #[cfg(test)]
 mod tests {

@@ -3,10 +3,10 @@
 use bevy::app::{App, Plugin};
 
 use crate::client::config::ClientConfig;
-use crate::client::input::InputConfig;
 use crate::prelude::{ChannelDirection, InputMessage, LeafwingUserAction};
 use crate::protocol::message::registry::AppMessageInternalExt;
 use crate::server::config::ServerConfig;
+use crate::shared::input::InputConfig;
 
 pub struct LeafwingInputPlugin<A> {
     pub config: InputConfig<A>,
@@ -34,7 +34,10 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
             );
         }
         if is_server {
-            app.add_plugins(crate::server::input::leafwing::LeafwingInputPlugin::<A>::default());
+            app.add_plugins(crate::server::input::leafwing::LeafwingInputPlugin::<A> {
+                rebroadcast_inputs: self.config.rebroadcast_inputs,
+                marker: std::marker::PhantomData,
+            });
         }
     }
 

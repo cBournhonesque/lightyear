@@ -18,6 +18,7 @@ use crate::protocol::serialize::SerializeFns;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::SerializationError;
+use crate::shared::input::InputConfig;
 use crate::shared::replication::delta::Diffable;
 
 // Event
@@ -222,7 +223,12 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<EntityMessage>(ChannelDirection::Bidirectional)
             .add_map_entities();
         // inputs
-        app.add_plugins(InputPlugin::<MyInput>::default());
+        app.add_plugins(InputPlugin::<MyInput> {
+            config: InputConfig::<MyInput> {
+                rebroadcast_inputs: true,
+                ..default()
+            }
+        });
         // components
         app.register_component::<ComponentSyncModeFull>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Full)

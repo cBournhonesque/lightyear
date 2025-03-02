@@ -279,7 +279,6 @@ pub mod prelude {
             ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
             DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent,
         };
-        pub use crate::client::input::InputConfig;
         pub use crate::client::interpolation::interpolation_history::ConfirmedHistory;
         pub use crate::client::interpolation::plugin::{
             InterpolationConfig, InterpolationDelay, InterpolationSet,
@@ -308,6 +307,7 @@ pub mod prelude {
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::client::{SocketConfig, SteamConfig};
         pub use crate::protocol::message::client::ClientTriggerExt;
+        pub use crate::shared::input::InputConfig;
     }
     pub mod server {
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]

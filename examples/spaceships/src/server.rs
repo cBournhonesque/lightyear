@@ -13,7 +13,7 @@ use lightyear::client::connection;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::server::input::leafwing::InputSystemSet;
+use lightyear::server::input::InputSystemSet;
 use lightyear::shared::tick_manager;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 

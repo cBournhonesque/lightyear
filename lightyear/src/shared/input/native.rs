@@ -1,11 +1,11 @@
 //! Plugin to register and handle user inputs.
 
 use crate::client::config::ClientConfig;
-use crate::client::input::InputConfig;
 use crate::inputs::native::input_message::InputMessage;
 use crate::prelude::{ChannelDirection, UserAction};
 use crate::protocol::message::registry::AppMessageInternalExt;
 use crate::server::config::ServerConfig;
+use crate::shared::input::InputConfig;
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 
@@ -39,7 +39,10 @@ impl<A: UserAction + MapEntities> Plugin for InputPlugin<A> {
             app.add_plugins(crate::client::input::native::InputPlugin::<A>::new(self.config.clone()));
         }
         if is_server {
-            app.add_plugins(crate::server::input::native::InputPlugin::<A>::default());
+            app.add_plugins(crate::server::input::native::InputPlugin::<A> {
+                rebroadcast_inputs: self.config.rebroadcast_inputs,
+                marker: std::marker::PhantomData,
+            });
         }
     }
 }

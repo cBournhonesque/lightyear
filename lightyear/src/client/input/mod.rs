@@ -5,7 +5,10 @@ pub mod native;
 pub mod leafwing;
 
 /// Returns true if there is input delay present
-pub fn is_input_delay(config: Res<ClientConfig>) -> bool {
+pub fn is_input_delay(identity: Option<Res<State<NetworkIdentityState>>>, config: Res<ClientConfig>) -> bool {
+    // if we are running in host-server mode, disable input delay
+    // (because the InputBuffer on a given entity is shared between client and server)
+    !identity.is_some_and(|i| i.get() == &NetworkIdentityState::HostServer) &&
     config.prediction.minimum_input_delay_ticks > 0
         || config.prediction.maximum_input_delay_before_prediction > 0
         || config.prediction.maximum_predicted_ticks < 30
@@ -56,48 +59,9 @@ use crate::client::sync::SyncSet;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::InputMessage;
 use crate::inputs::native::{UserAction, UserActionState};
-use crate::prelude::{is_host_server, TickManager};
+use crate::prelude::{is_host_server, NetworkIdentityState, TickManager};
+use crate::shared::input::InputConfig;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
-
-#[derive(Debug, Clone, Copy, Reflect, Resource)]
-pub struct InputConfig<A> {
-    /// If enabled, the client will send the interpolation_delay to the server so that the server
-    /// can apply lag compensation when the predicted client is shooting at interpolated enemies.
-    ///
-    /// See: <https://developer.valvesoftware.com/wiki/Lag_Compensation>
-    pub lag_compensation: bool,
-    /// How many consecutive packets losses do we want to handle?
-    /// This is used to compute the redundancy of the input messages.
-    /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
-    ///  for the 3 last packets.
-    pub packet_redundancy: u16,
-    /// How often do we send input messages to the server?
-    /// Duration::default() means that we will send input messages every frame.
-    pub send_interval: Duration,
-    pub marker: PhantomData<A>,
-}
-
-
-/// FLOW leafwing
-/// - ActionState gets updated by leafwing, from keyboard actions
-/// - ActionState gets buffered in InputBuffer with delay
-/// - ActionState gets read from Buffer using current tick
-/// Flow native:
-/// - Component A = ActionState gets updated by the user, in WriteInputs
-/// - A gets buffered in InputBuffer with delay
-/// - A gets read from Buffer using current tick
-
-
-impl<A> Default for InputConfig<A> {
-    fn default() -> Self {
-        InputConfig {
-            lag_compensation: false,
-            packet_redundancy: 10,
-            send_interval: Duration::default(),
-            marker: PhantomData,
-        }
-    }
-}
 
 pub(crate) struct BaseInputPlugin<A, F> {
     config: InputConfig<A>,
@@ -153,7 +117,10 @@ impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
             (
                 // we still need to be able to update inputs in host-server mode!
                 InputSystemSet::WriteClientInputs,
-                InputSystemSet::BufferClientInputs.run_if(should_run.clone())
+                // NOTE: we could not buffer inputs in host-server mode, but it's required if
+                //  we want the host-server client to broadcast its inputs to other clients
+                InputSystemSet::BufferClientInputs
+                    // .run_if(should_run.clone())
             )
                 .chain()
         );

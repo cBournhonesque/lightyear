@@ -4,9 +4,10 @@ use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
-use lightyear::prelude::client::{InputConfig, Replicate};
+use lightyear::prelude::client::Replicate;
 use lightyear::prelude::server::SyncTarget;
 use lightyear::prelude::*;
+use lightyear::shared::input::InputConfig;
 use lightyear::shared::replication::components::ReplicationGroupIdBuilder;
 use lightyear::utils::bevy::*;
 
