@@ -105,6 +105,7 @@ mod tests {
         );
         assert_eq!(input_buffer.pop(Tick(7)), Some(a2.clone()));
         assert_eq!(input_buffer.start_tick, Some(Tick(8)));
+        assert_eq!(input_buffer.get(Tick(8)), Some(&a2));
         assert_eq!(input_buffer.buffer.len(), 0);
     }
 }

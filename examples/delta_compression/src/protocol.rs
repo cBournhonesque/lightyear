@@ -152,9 +152,11 @@ impl Direction {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Inputs {
     Direction(Direction),
-    Delete,
-    Spawn,
-    None,
+}
+
+impl MapEntities for Inputs {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+    }
 }
 
 // Protocol

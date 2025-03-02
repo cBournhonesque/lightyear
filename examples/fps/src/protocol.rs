@@ -4,7 +4,7 @@ use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
-use lightyear::prelude::client::{LeafwingInputConfig, Replicate};
+use lightyear::prelude::client::{InputConfig, Replicate};
 use lightyear::prelude::server::SyncTarget;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::ReplicationGroupIdBuilder;
@@ -81,7 +81,7 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
         app.add_plugins(LeafwingInputPlugin::<PlayerActions> {
-            config: LeafwingInputConfig::<PlayerActions> {
+            config: InputConfig::<PlayerActions> {
                 // enable lag compensation; the input messages sent to the server will include the
                 // interpolation delay of that client
                 lag_compensation: true,

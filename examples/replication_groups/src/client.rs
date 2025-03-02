@@ -4,6 +4,7 @@ use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
 use bevy::prelude::*;
 use bevy::utils::Duration;
 use lightyear::client::input::InputSystemSet;
+use lightyear::inputs::native::{ActionState, InputMarker};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -24,7 +25,7 @@ impl Plugin for ExampleClientPlugin {
         );
         app.add_systems(
             FixedPreUpdate,
-            buffer_input.in_set(InputSystemSet::BufferInputs),
+            buffer_input.in_set(InputSystemSet::WriteClientInputs),
         );
         app.add_systems(FixedUpdate, (movement, shared_tail_behaviour).chain());
         app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
@@ -45,44 +46,39 @@ pub(crate) fn init(mut commands: Commands) {
 
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(
-    tick_manager: Res<TickManager>,
-    mut input_manager: ResMut<InputManager<Inputs>>,
+    mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
-    let tick = tick_manager.tick();
-    let mut input = Inputs::None;
-    if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
-        input = Inputs::Direction(Direction::Up);
-    } else if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
-        input = Inputs::Direction(Direction::Down);
-    } else if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
-        input = Inputs::Direction(Direction::Left);
-    } else if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
-        input = Inputs::Direction(Direction::Right);
-    } else if keypress.pressed(KeyCode::Backspace) {
-        input = Inputs::Delete;
-    } else if keypress.pressed(KeyCode::Space) {
-        input = Inputs::Spawn;
+    if let Ok(mut action_state) = query.get_single_mut() {
+        if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
+            action_state.value = Some(Inputs::Direction(Direction::Up));
+        } else if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
+            action_state.value = Some(Inputs::Direction(Direction::Down));
+        } else if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
+            action_state.value = Some(Inputs::Direction(Direction::Left));
+        } else if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
+            action_state.value = Some(Inputs::Direction(Direction::Right));
+        } else {
+            // make sure to set the ActionState to None if no keys are pressed
+            // otherwise the previous tick's ActionState will be used!
+            action_state.value = None;
+        }
     }
-    return input_manager.add_input(input, tick);
 }
 
 // The client input only gets applied to predicted entities that we own
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
-pub(crate) fn movement(
-    // TODO: maybe make prediction mode a separate component!!!
-    mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
+fn movement(
+    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>,
 ) {
-    for input in input_reader.read() {
-        if let Some(input) = input.input() {
-            for position in position_query.iter_mut() {
-                shared_movement_behaviour(position, input);
-            }
+    for (position, input) in position_query.iter_mut() {
+        if let Some(inputs) = &input.value {
+            shared_movement_behaviour(position, inputs);
         }
     }
 }
+
 
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation
@@ -104,7 +100,10 @@ pub(crate) fn handle_predicted_spawn(
         //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
         commands
             .entity(entity)
-            .insert(VisualInterpolateStatus::<PlayerPosition>::default());
+            .insert((
+                VisualInterpolateStatus::<PlayerPosition>::default(),
+                InputMarker::<Inputs>::default(),
+            ));
     }
 }
 

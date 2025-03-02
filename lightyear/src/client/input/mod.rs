@@ -74,7 +74,7 @@ pub struct InputConfig<A> {
     /// How often do we send input messages to the server?
     /// Duration::default() means that we will send input messages every frame.
     pub send_interval: Duration,
-    marker: PhantomData<A>,
+    pub marker: PhantomData<A>,
 }
 
 

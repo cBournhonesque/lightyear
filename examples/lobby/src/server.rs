@@ -94,6 +94,7 @@ fn spawn_player_entity(
 
 mod game {
     use super::*;
+    use lightyear::inputs::native::ActionState;
 
     /// When a player connects, create a new player entity.
     /// This is only for the HostServer mode (for the dedicated server mode, the clients are already connected to the server
@@ -129,29 +130,15 @@ mod game {
 
     /// Read client inputs and move players
     pub(crate) fn movement(
-        mut position_query: Query<(&ControlledBy, &mut PlayerPosition)>,
-        mut input_reader: EventReader<InputEvent<Inputs>>,
-        tick_manager: Res<TickManager>,
+        mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>,
     ) {
-        for input in input_reader.read() {
-            let client_id = input.from();
-            if let Some(input) = input.input() {
-                trace!(
-                    "Receiving input: {:?} from client: {:?} on tick: {:?}",
-                    input,
-                    client_id,
-                    tick_manager.tick()
-                );
-                // NOTE: you can define a mapping from client_id to entity_id to avoid iterating through all
-                //  entities here
-                for (controlled_by, position) in position_query.iter_mut() {
-                    if controlled_by.targets(&client_id) {
-                        shared_movement_behaviour(position, input);
-                    }
-                }
+        for (position, inputs) in position_query.iter_mut() {
+            if let Some(inputs) = &inputs.value {
+                shared_movement_behaviour(position, inputs);
             }
         }
     }
+
 }
 
 mod lobby {

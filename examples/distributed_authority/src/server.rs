@@ -11,6 +11,7 @@ use crate::shared;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
+use lightyear::inputs::native::ActionState;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use std::sync::Arc;
@@ -52,6 +53,7 @@ fn init(mut commands: Commands) {
         },
     ));
 }
+
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
     mut connections: EventReader<ConnectEvent>,
@@ -76,28 +78,14 @@ pub(crate) fn handle_connections(
     }
 }
 
-/// Read client inputs and move players
-pub(crate) fn movement(
-    mut position_query: Query<(&ControlledBy, &mut Position), With<PlayerId>>,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
-    tick_manager: Res<TickManager>,
+
+/// Read client inputs and move players in server therefore giving a basis for other clients
+fn movement(
+    mut position_query: Query<(&mut Position, &ActionState<Inputs>)>,
 ) {
-    for input in input_reader.read() {
-        let client_id = input.from();
-        if let Some(input) = input.input() {
-            trace!(
-                "Receiving input: {:?} from client: {:?} on tick: {:?}",
-                input,
-                client_id,
-                tick_manager.tick()
-            );
-            // NOTE: you can define a mapping from client_id to entity_id to avoid iterating through all
-            //  entities here
-            for (controlled_by, position) in position_query.iter_mut() {
-                if controlled_by.targets(&client_id) {
-                    shared::shared_movement_behaviour(position, input);
-                }
-            }
+    for (position, inputs) in position_query.iter_mut() {
+        if let Some(inputs) = &inputs.value {
+            shared::shared_movement_behaviour(position, inputs);
         }
     }
 }

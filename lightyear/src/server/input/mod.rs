@@ -69,10 +69,6 @@ fn update_action_state<A: UserActionState>(
         if let Some(action) = input_buffer.get(tick) {
             *action_state = action.clone();
             trace!(?tick, ?entity, "action state after update. Input Buffer: {}", input_buffer.as_ref());
-            // remove all the previous values
-            // we keep the current value in the InputBuffer so that if future messages are lost, we can still
-            // fallback on the last known value
-            input_buffer.pop(tick - 1);
 
             #[cfg(feature = "metrics")]
             {
@@ -86,5 +82,9 @@ fn update_action_state<A: UserActionState>(
                 .set(input_buffer.len() as f64);
             }
         }
+        // remove all the previous values
+        // we keep the current value in the InputBuffer so that if future messages are lost, we can still
+        // fallback on the last known value
+        input_buffer.pop(tick - 1);
     }
 }

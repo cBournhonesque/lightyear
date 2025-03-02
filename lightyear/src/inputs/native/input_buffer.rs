@@ -67,7 +67,7 @@ impl<T> Default for InputBuffer<T> {
 }
 
 impl<T: UserAction> InputBuffer<ActionState<T>> {
-        /// Upon receiving an [`InputMessage`](super::input_message::InputMessage), update the InputBuffer with all the inputs
+    /// Upon receiving an [`InputMessage`](super::input_message::InputMessage), update the InputBuffer with all the inputs
     /// included in the message.
     /// TODO: disallow overwriting inputs for ticks we've already received inputs for?
     ///
@@ -82,7 +82,7 @@ impl<T: UserAction> InputBuffer<ActionState<T>> {
             let tick = start_tick + Tick(delta as u16);
             match input {
                 InputData::Absent => {
-                    self.set_empty(tick);
+                    self.set_raw(tick, InputData::Input(ActionState::<T> { value: None }));
                 }
                 InputData::SameAsPrecedent => {
                     self.set_raw(tick, InputData::SameAsPrecedent);
@@ -279,16 +279,29 @@ mod tests {
         input_buffer.set(Tick(4), 0);
         input_buffer.set(Tick(6), 1);
         input_buffer.set(Tick(7), 1);
+        input_buffer.set(Tick(8), 1);
 
         assert_eq!(input_buffer.get(Tick(4)), Some(&0));
+        // missing ticks are filled with SameAsPrecedent
         assert_eq!(input_buffer.get(Tick(5)), Some(&0));
+        assert_eq!(input_buffer.get_raw(Tick(5)), &InputData::SameAsPrecedent);
         assert_eq!(input_buffer.get(Tick(6)), Some(&1));
-        assert_eq!(input_buffer.get(Tick(8)), None);
+        // similar values are compressed
+        assert_eq!(input_buffer.get_raw(Tick(7)), &InputData::SameAsPrecedent);
+        assert_eq!(input_buffer.get_raw(Tick(8)), &InputData::SameAsPrecedent);
+        // we get None if we try to get a value outside the buffer
+        assert_eq!(input_buffer.get(Tick(9)), None);
 
+        // we get the correct value even if we pop SameAsPrecedent
         assert_eq!(input_buffer.pop(Tick(5)), Some(0));
         assert_eq!(input_buffer.start_tick, Some(Tick(6)));
+
+        // if the next value in the buffer after we pop is SameAsPrecedent, it should
+        // get replaced with a real value
         assert_eq!(input_buffer.pop(Tick(7)), Some(1));
         assert_eq!(input_buffer.start_tick, Some(Tick(8)));
-        assert_eq!(input_buffer.buffer.len(), 0);
+        assert_eq!(input_buffer.get(Tick(8)), Some(&1));
+        assert_eq!(input_buffer.get_raw(Tick(8)), &InputData::Input(1));
+        assert_eq!(input_buffer.buffer.len(), 1);
     }
 }

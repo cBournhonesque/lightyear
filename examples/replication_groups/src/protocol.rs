@@ -63,7 +63,7 @@ impl PlayerBundle {
 
 impl TailBundle {
     pub(crate) fn new(id: ClientId, parent: Entity, parent_position: Vec2, length: f32) -> Self {
-        let default_direction = Direction::default();
+        let default_direction = Direction::Up;
         let tail = default_direction.get_tail(parent_position, length);
         let mut points = VecDeque::new();
         points.push_front((tail, default_direction));
@@ -236,14 +236,18 @@ pub struct Message1(pub usize);
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Default, Reflect)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
 // To simplify, we only allow one direction at a time
 pub enum Direction {
-    #[default]
     Up,
     Down,
     Left,
     Right,
+}
+
+impl MapEntities for Direction {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+    }
 }
 
 impl Direction {
@@ -265,7 +269,7 @@ impl Direction {
         if from.x < to.x {
             return Some(Self::Right);
         }
-        return None;
+        None
     }
 
     // Get the position of the point that would become `head` if we applied `length` * `self`
@@ -284,10 +288,11 @@ pub enum Inputs {
     Direction(Direction),
     Delete,
     Spawn,
-    // NOTE: the server MUST be able to distinguish between an input saying "the user is not doing any actions" and
-    // "we haven't received the input for this tick", which means that the client must send inputs every tick
-    // even if the user is not doing anything.
-    None,
+}
+
+impl MapEntities for Inputs {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+    }
 }
 
 // Protocol
