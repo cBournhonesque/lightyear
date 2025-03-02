@@ -60,7 +60,7 @@ use crate::client::prediction::Predicted;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::{InputMessage, InputTarget};
 use crate::inputs::native::{ActionState, InputMarker, UserAction};
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, MessageRegistry, PrePredicted, TickManager, TimeManager};
+use crate::prelude::{ChannelKind, ChannelRegistry, ClientReceiveMessage, MessageRegistry, PrePredicted, TickManager, TimeManager};
 use crate::shared::input::InputConfig;
 use crate::shared::tick_manager::TickEvent;
 
