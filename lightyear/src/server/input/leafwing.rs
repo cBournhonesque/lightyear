@@ -1,4 +1,5 @@
 //! Handles client-generated inputs
+
 use crate::client::config::ClientConfig;
 use crate::connection::client::ClientConnection;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
@@ -11,6 +12,7 @@ use crate::server::connection::ConnectionManager;
 use crate::server::input::InputSystemSet;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
+use std::cmp::min;
 
 pub struct LeafwingInputPlugin<A> {
     pub(crate) rebroadcast_inputs: bool,
@@ -77,6 +79,7 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
     }
 }
 
+// TODO? is this correct? maybe she would update the FixedUpdate state! not the Update state?
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<A: LeafwingUserAction>(
     message_registry: Res<MessageRegistry>,
@@ -154,17 +157,19 @@ fn send_host_server_input_message<A: LeafwingUserAction>(
     config: Res<ClientConfig>,
     input_config: Res<InputConfig<A>>,
     tick_manager: Res<TickManager>,
-    input_buffer_query: Query<
+    mut input_buffer_query: Query<
         (
             Entity,
-            &InputBuffer<ActionState<A>>,
+            &mut InputBuffer<A>,
         ),
         With<InputMap<A>>,
     >,
 ) {
-    let tick = tick_manager.tick();
+    // we send a message from the latest tick that we have available, which is the delayed tick
+    let current_tick = tick_manager.tick();
+    let input_delay_ticks = connection.input_delay_ticks() as i16;
+    let tick = current_tick + input_delay_ticks;
     // TODO: the number of messages should be in SharedConfig
-    trace!(tick = ?tick, "prepare_input_message");
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
     //  this system what the latest acked input tick is?
@@ -181,9 +186,10 @@ fn send_host_server_input_message<A: LeafwingUserAction>(
             .unwrap();
     num_tick *= input_config.packet_redundancy;
     let mut message = InputMessage::<A>::new(tick);
-    for (entity, input_buffer) in input_buffer_query.iter() {
-        error!(
+    for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
+        trace!(
             ?tick,
+            ?current_tick,
             ?entity,
             "Preparing host-server input message with buffer: {:?}",
             input_buffer
@@ -192,9 +198,19 @@ fn send_host_server_input_message<A: LeafwingUserAction>(
         message.add_inputs(
             num_tick,
             InputTarget::PrePredictedEntity(entity),
-            input_buffer,
+            input_buffer.as_ref(),
         );
+
+        // clean older ticks for the buffer
+        // (but be careful not to erase the values for the current tick from the buffer!)
+        input_buffer.pop(min(tick - num_tick - 1, current_tick - 1));
     }
+    error!(
+        ?tick,
+        ?current_tick,
+        %message,
+        "Sending host-server input message"
+    );
 
     events.send(
         ServerReceiveMessage::new(
@@ -204,7 +220,7 @@ fn send_host_server_input_message<A: LeafwingUserAction>(
     );
 }
 
-pub(crate) fn rebroadcast_inputs<A: UserAction>(
+pub(crate) fn rebroadcast_inputs<A: LeafwingUserAction>(
     mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<A>>>>,
     mut send_inputs: EventWriter<ServerSendMessage<InputMessage<A>>>,
 ) {

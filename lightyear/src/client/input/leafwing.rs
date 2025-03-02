@@ -129,7 +129,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         app.add_observer(add_action_state::<A>);
         app.add_observer(add_input_buffer::<A>);
         app.add_systems(
-            PreUpdate,
+            RunFixedMainLoop,
                 receive_remote_player_input_messages::<A>
                     .in_set(InputSystemSet::ReceiveInputMessages),
         );
@@ -199,10 +199,11 @@ fn prepare_input_message<A: LeafwingUserAction>(
         With<InputMap<A>>,
     >,
 ) {
+    // we send a message from the latest tick that we have available, which is the delayed tick
     let input_delay_ticks = connection.input_delay_ticks() as i16;
     let tick = tick_manager.tick() + input_delay_ticks;
     // TODO: the number of messages should be in SharedConfig
-    trace!(tick = ?tick, "prepare_input_message");
+    trace!(delayed_tick = ?tick, current_tick = ?tick_manager.tick(), "prepare_input_message");
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
     //  this system what the latest acked input tick is?
@@ -350,7 +351,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
     let tick = tick_manager.tick();
     received_inputs.drain().for_each(|event| {
         let message = event.message;
-        debug!(action = ?A::short_type_path(), ?message.end_tick, ?message.diffs, "received input message");
+        error!(?tick, action = ?A::short_type_path(), ?message.end_tick, %message, "received remote input message");
         for target_data in &message.diffs {
             // - the input target has already been set to the server entity in the InputMessage
             // - it has been mapped to a client-entity on the client during deserialization
@@ -381,6 +382,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                                     &target_data.start_state,
                                     &target_data.diffs,
                                 );
+                                error!("input buffer after update: {:?}", input_buffer);
                                 #[cfg(feature = "metrics")]
                                 {
                                     let margin = input_buffer.end_tick().unwrap() - tick;

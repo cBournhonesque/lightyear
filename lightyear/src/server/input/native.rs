@@ -1,4 +1,5 @@
 //! Handles client-generated inputs
+
 use crate::client::config::ClientConfig;
 use crate::connection::client::{ClientConnection, NetClient};
 use crate::inputs::native::input_buffer::InputBuffer;
@@ -9,6 +10,7 @@ use crate::server::connection::ConnectionManager;
 use crate::server::input::InputSystemSet;
 use crate::shared::input::InputConfig;
 use bevy::prelude::*;
+use std::cmp::min;
 
 pub struct InputPlugin<A> {
     /// If True, the server will rebroadcast a client's inputs to all other clients.
@@ -136,15 +138,18 @@ fn send_host_server_input_message<A: UserAction>(
     config: Res<ClientConfig>,
     input_config: Res<InputConfig<A>>,
     tick_manager: Res<TickManager>,
-    input_buffer_query: Query<
+    mut input_buffer_query: Query<
         (
             Entity,
-            &InputBuffer<ActionState<A>>,
+            &mut InputBuffer<ActionState<A>>,
         ),
         With<InputMarker<A>>,
     >,
 ) {
-    let tick = tick_manager.tick();
+    // we send a message from the latest tick that we have available, which is the delayed tick
+    let current_tick = tick_manager.tick();
+    let input_delay_ticks = connection.input_delay_ticks() as i16;
+    let tick = current_tick + input_delay_ticks;
     // TODO: the number of messages should be in SharedConfig
     trace!(tick = ?tick, "prepare_input_message");
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
@@ -163,9 +168,10 @@ fn send_host_server_input_message<A: UserAction>(
             .unwrap();
     num_tick *= input_config.packet_redundancy;
     let mut message = InputMessage::<A>::new(tick);
-    for (entity, input_buffer) in input_buffer_query.iter() {
+    for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
         trace!(
             ?tick,
+            ?current_tick,
             ?entity,
             "Preparing host-server input message with buffer: {:?}",
             input_buffer
@@ -174,8 +180,12 @@ fn send_host_server_input_message<A: UserAction>(
         message.add_inputs(
             num_tick,
             InputTarget::PrePredictedEntity(entity),
-            input_buffer,
+            input_buffer.as_ref(),
         );
+
+        // clean older ticks for the buffer
+        // (but be careful not to erase the values for the current tick from the buffer!)
+        input_buffer.pop(min(tick - num_tick - 1, current_tick - 1));
     }
 
     events.send(

@@ -113,11 +113,9 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
 
         // SYSTEMS
         app.add_systems(
-            PreUpdate,
-            (
+            RunFixedMainLoop,
                 receive_remote_player_input_messages::<A>
                     .in_set(InputSystemSet::ReceiveInputMessages),
-            ),
         );
         app.add_systems(
             FixedPostUpdate,
@@ -154,10 +152,11 @@ fn prepare_input_message<A: UserAction>(
         With<InputMarker<A>>,
     >,
 ) {
+    // we send a message from the latest tick that we have available, which is the delayed tick
     let input_delay_ticks = connection.input_delay_ticks() as i16;
     let tick = tick_manager.tick() + input_delay_ticks;
     // TODO: the number of messages should be in SharedConfig
-    trace!(tick = ?tick, "prepare_input_message");
+    trace!(delayed_tick = ?tick, current_tick = ?tick_manager.tick(), "prepare_input_message");
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
     //  this system what the latest acked input tick is?
@@ -274,7 +273,7 @@ fn receive_remote_player_input_messages<A: UserAction>(
     let tick = tick_manager.tick();
     received_inputs.drain().for_each(|event| {
         let message = event.message;
-        trace!(?message.end_tick, ?message.inputs, "received remote input message for action: {:?}", std::any::type_name::<A>());
+        trace!(?message.end_tick, %message, "received remote input message for action: {:?}", std::any::type_name::<A>());
         for target_data in &message.inputs {
             // - the input target has already been set to the server entity in the InputMessage
             // - it has been mapped to a client-entity on the client during deserialization

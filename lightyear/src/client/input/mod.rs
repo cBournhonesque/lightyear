@@ -4,11 +4,19 @@ pub mod native;
 #[cfg(feature = "leafwing")]
 pub mod leafwing;
 
+//
+// /// Returns true if there is input delay present
+// pub fn is_input_delay(identity: Option<Res<State<NetworkIdentityState>>>, config: Res<ClientConfig>) -> bool {
+//     // if we are running in host-server mode, disable input delay
+//     // (because the InputBuffer on a given entity is shared between client and server)
+//     !identity.is_some_and(|i| i.get() == &NetworkIdentityState::HostServer) &&
+//     config.prediction.minimum_input_delay_ticks > 0
+//         || config.prediction.maximum_input_delay_before_prediction > 0
+//         || config.prediction.maximum_predicted_ticks < 30
+// }
+//
 /// Returns true if there is input delay present
-pub fn is_input_delay(identity: Option<Res<State<NetworkIdentityState>>>, config: Res<ClientConfig>) -> bool {
-    // if we are running in host-server mode, disable input delay
-    // (because the InputBuffer on a given entity is shared between client and server)
-    !identity.is_some_and(|i| i.get() == &NetworkIdentityState::HostServer) &&
+pub fn is_input_delay(config: Res<ClientConfig>) -> bool {
     config.prediction.minimum_input_delay_ticks > 0
         || config.prediction.maximum_input_delay_before_prediction > 0
         || config.prediction.maximum_predicted_ticks < 30
@@ -45,7 +53,6 @@ pub enum InputSystemSet {
 
 
 use bevy::prelude::*;
-use bevy::reflect::Reflect;
 use std::marker::PhantomData;
 use tracing::trace;
 
@@ -103,14 +110,18 @@ impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
         let should_run = not(is_host_server);
 
         // SETS
+        // NOTE: this is subtle! We receive remote players messages after
+        //  RunFixedMainLoopSystem::BeforeFixedMainLoop to ensure that leafwing `states` have
+        //  been switched to the `fixed_update` state (see https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)
+        //  Conveniently, this also ensures that we run this after InternalMainSet::<ClientMarker>::ReceiveEvents
         app.configure_sets(
-            PreUpdate,
-            (
-                InputSystemSet::ReceiveInputMessages
-                    .after(InternalMainSet::<ClientMarker>::ReceiveEvents),
-            )
-                .run_if(should_run.clone()),
+            RunFixedMainLoop,
+            InputSystemSet::ReceiveInputMessages
+                .before(RunFixedMainLoopSystem::FixedMainLoop)
+                .after(RunFixedMainLoopSystem::BeforeFixedMainLoop)
+                .run_if(should_run.clone())
         );
+
         app.configure_sets(
             FixedPreUpdate,
             (
@@ -168,7 +179,6 @@ impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
             get_delayed_action_state::<A, F>
                     .run_if(
                         is_input_delay
-                            .and(should_run.clone())
                             .and(not(is_in_rollback)),
                     )
                     .in_set(InputSystemSet::RestoreInputs),
@@ -177,7 +187,6 @@ impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
         app.add_systems(
             PostUpdate,
             (
-
                 clean_buffers::<A>.in_set(InputSystemSet::CleanUp),
             ),
         );
@@ -308,10 +317,7 @@ fn get_delayed_action_state<A: UserActionState, F: Component>(
         With<F>
     >,
 ) {
-    let input_delay_ticks = config.prediction.input_delay_ticks(
-        connection_manager.ping_manager.rtt(),
-        config.shared.tick.tick_duration,
-    ) as i16;
+    let input_delay_ticks = connection_manager.input_delay_ticks() as i16;
     let delayed_tick = tick_manager.tick() + input_delay_ticks;
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
         // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?

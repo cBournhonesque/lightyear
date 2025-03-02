@@ -1,10 +1,11 @@
 use crate::inputs::native::input_buffer::{InputBuffer, InputData};
 use crate::inputs::native::ActionState;
 use crate::prelude::client::InterpolationDelay;
-use crate::prelude::{Deserialize, Serialize, Tick, UserAction};
+use crate::prelude::{Deserialize, LeafwingUserAction, Serialize, Tick, UserAction};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Reflect};
 use std::cmp::max;
+use std::fmt::{Formatter, Write};
 
 // TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
@@ -51,6 +52,31 @@ impl<A: UserAction + MapEntities> MapEntities for InputMessage<A> {
                 }
             });
         });
+    }
+}
+
+impl<A: UserAction> std::fmt::Display for InputMessage<A> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let ty = std::any::type_name::<A>();
+
+        if self.inputs.is_empty() {
+            return write!(f, "EmptyInputMessage");
+        }
+        let start_tick = self.end_tick - Tick(self.inputs[0].states.len() as u16);
+        let buffer_str = self
+            .inputs
+            .iter()
+            .map(|data| {
+                let mut str = format!("Entity: {:?}\n", data.target);
+                for (i, input) in data.states.iter().enumerate() {
+                    let tick = start_tick + i as i16;
+                    let _ = writeln!(&mut str, "Tick: {}, Input: {:?}", tick, input);
+                }
+                str
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+        write!(f, "InputMessage<{:?}>:\n {}", ty, buffer_str)
     }
 }
 

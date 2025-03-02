@@ -39,12 +39,6 @@ impl Plugin for ExampleServerPlugin {
             predict_all: self.predict_all,
         });
         app.add_systems(Startup, (start_server, init));
-        app.add_systems(
-            PreUpdate,
-            // this system will replicate the inputs of a client to other clients
-            // so that a client can predict other clients
-            replicate_inputs.after(InputSystemSet::ReceiveInputs),
-        );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(
             FixedUpdate,
@@ -94,21 +88,6 @@ fn init(mut commands: Commands) {
         let pos = Vec2::new(125.0 * angle.cos(), 125.0 * angle.sin());
         commands.spawn(BallBundle::new(radius, pos, css::GOLD.into()));
     }
-}
-
-pub(crate) fn replicate_inputs(
-    mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<PlayerActions>>>>,
-    mut send_inputs: EventWriter<ServerSendMessage<InputMessage<PlayerActions>>>,
-) {
-    // rebroadcast the input to other clients
-    // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
-    // so that the server had the time to process the inputs
-    send_inputs.send_batch(receive_inputs.drain().map(|ev| {
-        ServerSendMessage::new_with_target::<InputChannel>(
-            ev.message,
-            NetworkTarget::AllExceptSingle(ev.from),
-        )
-    }));
 }
 
 /// Whenever a new client connects, spawn their spaceship
@@ -264,13 +243,14 @@ pub(crate) fn player_movement(
 ) {
     let tick = tick_manager.tick();
     for (action_state, mut aiq) in q.iter_mut() {
-        // if !aiq.action.get_pressed().is_empty() {
-        //     info!(
-        //         "🎹 {:?} {tick:?} = {:?}",
-        //         aiq.player.client_id,
-        //         aiq.action.get_pressed(),
-        //     );
-        // }
+
+        if !action_state.get_pressed().is_empty() {
+            error!(
+                "🎹 {:?} {tick:?} = {:?}",
+                aiq.player.client_id,
+                action_state.get_pressed(),
+            );
+        }
         // check for missing inputs, and set them to default? or sustain for 1 tick?
         apply_action_state_to_player_movement(action_state, 0, &mut aiq, tick);
     }

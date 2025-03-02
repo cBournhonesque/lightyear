@@ -39,6 +39,10 @@ pub enum InputSystemSet {
 impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
     fn build(&self, app: &mut App) {
         // SETS
+        // TODO:
+        //  - could there be an issue because, client updates `state` and `fixed_update_state` and sends it to server
+        //  - server only considers `state`
+        //  - but host-server broadcasting their inputs only updates `state`
         app.configure_sets(
             PreUpdate,
             (
@@ -50,6 +54,8 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
                 .run_if(is_started),
         );
         app.configure_sets(FixedPreUpdate, InputSystemSet::UpdateActionState.run_if(is_started));
+        // TODO: maybe put this in a Fixed schedule to avoid sending multiple host-server identical
+        //  messages per frame if we didn't run FixedUpdate at all?
         app.configure_sets(PostUpdate, InputSystemSet::RebroadcastInputs
             .run_if(is_started)
             .before(InternalMainSet::<ServerMarker>::SendEvents)

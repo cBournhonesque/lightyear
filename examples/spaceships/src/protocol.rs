@@ -238,7 +238,12 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
+        app.add_plugins(LeafwingInputPlugin::<PlayerActions> {
+            config: InputConfig::<PlayerActions> {
+                rebroadcast_inputs: true,
+                ..default()
+            }
+        });
 
         // Player is synced as Simple, because we periodically update rtt ping stats
         app.register_component::<Player>(ChannelDirection::ServerToClient)

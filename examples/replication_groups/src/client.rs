@@ -70,7 +70,7 @@ pub(crate) fn buffer_input(
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn movement(
-    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>,
+    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
 ) {
     for (position, input) in position_query.iter_mut() {
         if let Some(inputs) = &input.value {
