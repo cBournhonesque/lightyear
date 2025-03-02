@@ -41,7 +41,6 @@ pub enum InputSystemSet {
 }
 
 
-use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::utils::Duration;
@@ -134,7 +133,7 @@ impl<A, F> Default for BaseInputPlugin<A, F> {
 struct MessageBuffer<A>(Vec<InputMessage<A>>);
 
 
-impl<A: UserActionState, F: QueryFilter + Send + Sync + 'static> Plugin for BaseInputPlugin<A, F> {
+impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
     fn build(&self, app: &mut App) {
         // in host-server mode, we don't need to handle inputs in any way, because the player's entity
         // is spawned with `InputBuffer` and the client is in the same timeline as the server
@@ -152,11 +151,11 @@ impl<A: UserActionState, F: QueryFilter + Send + Sync + 'static> Plugin for Base
         app.configure_sets(
             FixedPreUpdate,
             (
+                // we still need to be able to update inputs in host-server mode!
                 InputSystemSet::WriteClientInputs,
-                InputSystemSet::BufferClientInputs
+                InputSystemSet::BufferClientInputs.run_if(should_run.clone())
             )
                 .chain()
-                .run_if(should_run.clone()),
         );
         app.configure_sets(
             FixedPostUpdate,
@@ -177,7 +176,6 @@ impl<A: UserActionState, F: QueryFilter + Send + Sync + 'static> Plugin for Base
         );
 
         // SYSTEMS
-        app.add_observer(add_action_state_buffer::<A>);
         app.add_systems(
             FixedPreUpdate,
             (
@@ -224,21 +222,6 @@ impl<A: UserActionState, F: QueryFilter + Send + Sync + 'static> Plugin for Base
 
 
 
-/// For each entity that has the Action component, insert an input buffer.
-fn add_action_state_buffer<A: UserActionState>(
-    trigger: Trigger<OnAdd, A>,
-    mut commands: Commands,
-    query: Query<(), Without<InputBuffer<A>>>,
-) {
-    // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
-    //  maybe provide the "controlled" component? or just use With<InputMap>?
-    if let Ok(()) = query.get(trigger.entity()) {
-        commands.entity(trigger.entity()).insert((
-            InputBuffer::<A>::default(),
-        ));
-    }
-}
-
 /// Write the value of the ActionState in the InputBuffer.
 /// (so that we can pull it for rollback or for delayed inputs)
 ///
@@ -246,11 +229,11 @@ fn add_action_state_buffer<A: UserActionState>(
 /// and we will pull ActionStates from the buffer instead of just using the ActionState component directly.
 ///
 /// We do not need to buffer inputs during rollback, as they have already been buffered
-fn buffer_action_state<A: UserActionState, F: QueryFilter + Send + Sync + 'static>(
+fn buffer_action_state<A: UserActionState, F: Component>(
     config: Res<ClientConfig>,
     connection_manager: Res<ConnectionManager>,
     tick_manager: Res<TickManager>,
-    mut action_state_query: Query<(Entity, &A, &mut InputBuffer<A>), F>,
+    mut action_state_query: Query<(Entity, &A, &mut InputBuffer<A>), With<F>>,
 ) {
     let input_delay_ticks = connection_manager.input_delay_ticks() as i16;
     let tick = tick_manager.tick() + input_delay_ticks;
@@ -349,14 +332,14 @@ fn get_rollback_action_state<A: UserActionState>(
 
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
-fn get_delayed_action_state<A: UserActionState, F: QueryFilter + Send + Sync + 'static>(
+fn get_delayed_action_state<A: UserActionState, F: Component>(
     config: Res<ClientConfig>,
     tick_manager: Res<TickManager>,
     connection_manager: Res<ConnectionManager>,
     mut action_state_query: Query<
         (Entity, &mut A, &InputBuffer<A>),
         // Filter so that this is only for directly controlled players, not remote players
-        F
+        With<F>
     >,
 ) {
     let input_delay_ticks = config.prediction.input_delay_ticks(
@@ -381,8 +364,6 @@ fn get_delayed_action_state<A: UserActionState, F: QueryFilter + Send + Sync + '
         // TODO: if we don't find an ActionState in the buffer, should we reset the delayed one to default?
     }
 }
-
-
 
 
 /// System that removes old entries from the InputBuffer

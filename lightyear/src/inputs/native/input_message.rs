@@ -55,7 +55,7 @@ impl<A: UserAction + MapEntities> MapEntities for InputMessage<A> {
 }
 
 
-impl<T: Clone + PartialEq> InputMessage<T> {
+impl<T: UserAction> InputMessage<T> {
     pub fn new(end_tick: Tick) -> Self {
         Self {
             interpolation_delay: None,

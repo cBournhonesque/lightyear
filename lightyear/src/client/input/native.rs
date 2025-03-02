@@ -49,6 +49,7 @@
 use bevy::prelude::*;
 use tracing::{error, trace};
 
+use crate::channel::builder::InputChannel;
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -58,21 +59,9 @@ use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::{InputMessage, InputTarget};
-use crate::inputs::native::{ActionState, UserAction};
+use crate::inputs::native::{ActionState, InputMarker, UserAction};
 use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, MessageRegistry, PrePredicted, TickManager, TimeManager};
 use crate::shared::tick_manager::TickEvent;
-use crate::channel::builder::InputChannel;
-
-
-/// FLOW leafwing
-/// - ActionState gets updated by leafwing, from keyboard actions
-/// - ActionState gets buffered in InputBuffer with delay
-/// - ActionState gets read from Buffer using current tick
-/// Flow native:
-/// - Component A = ActionState gets updated by the user, in WriteInputs
-/// - A gets buffered in InputBuffer with delay
-/// - A gets read from Buffer using current tick
-
 
 
 pub struct InputPlugin<A> {
@@ -115,11 +104,7 @@ impl<A> Default for MessageBuffer<A> {
 
 impl<A: UserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
-        // in host-server mode, we don't need to handle inputs in any way, because the player's entity
-        // is spawned with `InputBuffer` and the client is in the same timeline as the server
-        let should_run = not(is_host_server);
-
-        app.add_plugins(BaseInputPlugin::<ActionState<A>, ()>::default());
+        app.add_plugins(BaseInputPlugin::<ActionState<A>, InputMarker<A>>::default());
 
         // RESOURCES
         app.insert_resource(self.config.clone());
@@ -165,7 +150,7 @@ fn prepare_input_message<A: UserAction>(
             Option<&Predicted>,
             Option<&PrePredicted>,
         ),
-        // TODO: add filter to only include the controlled client, not remote clients
+        With<InputMarker<A>>,
     >,
 ) {
     let input_delay_ticks = connection.input_delay_ticks() as i16;
@@ -251,7 +236,7 @@ fn prepare_input_message<A: UserAction>(
         }
     }
 
-    trace!(
+    error!(
         ?tick,
         ?num_tick,
         "sending input message for {:?}: {:?}",
@@ -278,10 +263,10 @@ fn receive_remote_player_input_messages<A: UserAction>(
     prediction_manager: Res<PredictionManager>,
     message_registry: Res<MessageRegistry>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
-    confirmed_query: Query<&Confirmed>,
+    confirmed_query: Query<&Confirmed, Without<InputMarker<A>>>,
     mut predicted_query: Query<
         Option<&mut InputBuffer<ActionState<A>>>,
-        With<Predicted>,
+        (With<Predicted>, Without<InputMarker<A>>)
     >,
 ) {
     let tick = tick_manager.tick();

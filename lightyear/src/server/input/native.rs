@@ -26,10 +26,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         // SYSTEMS
         app.add_systems(
             PreUpdate,
-            (
                 receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputs)
-                    .run_if(not(is_host_server)),
-            ),
         );
     }
 }
@@ -48,7 +45,7 @@ fn receive_input_message<A: UserAction>(
     received_inputs.read().for_each(|event| {
         let message = &event.message;
         let client_id = event.from;
-        trace!(?client_id, action = ?std::any::type_name::<A>(), ?message.end_tick, ?message.inputs, "received input message");
+        error!(?client_id, action = ?std::any::type_name::<A>(), ?message.end_tick, ?message.inputs, "received input message");
 
         // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
         //  that the message was intended for?
@@ -68,18 +65,18 @@ fn receive_input_message<A: UserAction>(
                 InputTarget::Entity(entity)
                 | InputTarget::PrePredictedEntity(entity) => {
                     // TODO Don't update input buffer if inputs arrived too late?
-                    trace!("received input for entity: {:?}", entity);
+                    error!("received input for entity: {:?}", entity);
 
                     if let Ok(buffer) = query.get_mut(entity) {
                         if let Some(mut buffer) = buffer {
-                            trace!(
+                            error!(
                                 "Update InputBuffer: {} using InputMessage: {:?}",
                                 buffer.as_ref(),
                                 message
                             );
                             buffer.update_from_message(message.end_tick, &data.states);
                         } else {
-                            debug!("Adding InputBuffer and ActionState which are missing on the entity");
+                            error!("Adding InputBuffer and ActionState which are missing on the entity");
                             commands.entity(entity).insert((
                                 InputBuffer::<ActionState<A>>::default(),
                                 ActionState::<A>::default(),

@@ -21,6 +21,7 @@ impl<A: UserAction> Default for InputPlugin<A> {
     }
 }
 
+
 impl<A: UserAction + MapEntities> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
         // TODO: this adds a receive_message fn that is never used! Because we have custom handling

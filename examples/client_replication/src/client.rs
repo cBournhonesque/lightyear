@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::utils::Duration;
-use lightyear::client::input::native::InputSystemSet;
+use lightyear::client::input::InputSystemSet;
+use lightyear::inputs::native::{ActionState, InputMarker};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -17,7 +18,7 @@ impl Plugin for ExampleClientPlugin {
         // Inputs need to be buffered in the `FixedPreUpdate` schedule
         app.add_systems(
             FixedPreUpdate,
-            buffer_input.in_set(InputSystemSet::BufferInputs),
+            buffer_input.in_set(InputSystemSet::WriteClientInputs),
         );
         // all actions related-system that can be rolled back should be in the `FixedUpdate` schedule
         app.add_systems(FixedUpdate, (player_movement, delete_player));
@@ -40,6 +41,7 @@ pub(crate) fn init(mut commands: Commands) {
     commands.connect_client();
 }
 
+
 /// Listen for events to know when the client is connected;
 /// - spawn a text entity to display the client id
 /// - spawn a client-owned cursor entity that will be replicated to the server
@@ -61,57 +63,50 @@ pub(crate) fn handle_connection(
 
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(
-    tick_manager: Res<TickManager>,
-    mut input_manager: ResMut<InputManager<Inputs>>,
+    mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
-    let tick = tick_manager.tick();
-    let mut input = Inputs::None;
-    let mut direction = Direction {
-        up: false,
-        down: false,
-        left: false,
-        right: false,
-    };
-    if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
-        direction.up = true;
+    if let Ok(mut action_state) = query.get_single_mut() {
+        let mut input = None;
+        let mut direction = Direction {
+            up: false,
+            down: false,
+            left: false,
+            right: false,
+        };
+        if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
+            direction.up = true;
+        }
+        if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
+            direction.down = true;
+        }
+        if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
+            direction.left = true;
+        }
+        if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
+            direction.right = true;
+        }
+        if !direction.is_none() {
+            input = Some(Inputs::Direction(direction));
+        }
+        if keypress.pressed(KeyCode::KeyK) {
+            input = Some(Inputs::Delete);
+        }
+        action_state.value = input;
     }
-    if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
-        direction.down = true;
-    }
-    if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
-        direction.left = true;
-    }
-    if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
-        direction.right = true;
-    }
-    if !direction.is_none() {
-        input = Inputs::Direction(direction);
-    }
-    if keypress.pressed(KeyCode::KeyK) {
-        input = Inputs::Delete;
-    }
-    if keypress.pressed(KeyCode::Space) {
-        input = Inputs::Spawn;
-    }
-    input_manager.add_input(input, tick);
 }
 
 // The client input only gets applied to predicted entities that we own
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
-    mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
-    // InputEvent is a special case: we get an event for every fixed-update system run instead of every frame!
-    mut input_reader: EventReader<InputEvent<Inputs>>,
+    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
 ) {
-    for input in input_reader.read() {
-        if let Some(input) = input.input() {
-            for position in position_query.iter_mut() {
-                // NOTE: be careful to directly pass Mut<PlayerPosition>
-                // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
-                shared_movement_behaviour(position, input);
-            }
+    for (position, input) in position_query.iter_mut() {
+        if let Some(input) = &input.value {
+            // NOTE: be careful to directly pass Mut<PlayerPosition>
+            // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+            shared_movement_behaviour(position, input);
         }
     }
 }
@@ -119,7 +114,7 @@ fn player_movement(
 /// Spawn a server-owned pre-predicted player entity when the space command is pressed
 fn spawn_player(
     mut commands: Commands,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
+    keypress: Res<ButtonInput<KeyCode>>,
     connection: Res<ClientConnection>,
     players: Query<&PlayerId, With<PlayerPosition>>,
 ) {
@@ -131,32 +126,24 @@ fn spawn_player(
             return;
         }
     }
-    for input in input_reader.read() {
-        if let Some(input) = input.input() {
-            match input {
-                Inputs::Spawn => {
-                    debug!("got spawn input");
-                    commands.spawn((
-                        PlayerBundle::new(client_id, Vec2::ZERO),
-                        // IMPORTANT: this lets the server know that the entity is pre-predicted
-                        // when the server replicates this entity; we will get a Confirmed entity which will use this entity
-                        // as the Predicted version
-                        PrePredicted::default(),
-                    ));
-                }
-                _ => {}
-            }
-        }
+    if keypress.just_pressed(KeyCode::Space) {
+         commands.spawn((
+            PlayerBundle::new(client_id, Vec2::ZERO),
+            // add a marker to specify that we will be writing Inputs on this entity
+            InputMarker::<Inputs>::default(),
+            // IMPORTANT: this lets the server know that the entity is pre-predicted
+            // when the server replicates this entity; we will get a Confirmed entity which will use this entity
+            // as the Predicted version
+            PrePredicted::default(),
+        ));
     }
 }
 
 /// Delete the predicted player when the space command is pressed
 fn delete_player(
     mut commands: Commands,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
-    connection: Res<ClientConnection>,
     players: Query<
-        (Entity, &PlayerId),
+        (Entity, &ActionState<Inputs>),
         (
             With<PlayerPosition>,
             Without<Confirmed>,
@@ -164,24 +151,14 @@ fn delete_player(
         ),
     >,
 ) {
-    let client_id = connection.id();
-    for input in input_reader.read() {
-        if let Some(input) = input.input() {
-            match input {
-                Inputs::Delete => {
-                    for (entity, player_id) in players.iter() {
-                        if player_id.0 == client_id {
-                            if let Some(mut entity_mut) = commands.get_entity(entity) {
-                                // we need to use this special function to despawn prediction entity
-                                // the reason is that we actually keep the entity around for a while,
-                                // in case we need to re-store it for rollback
-                                entity_mut.prediction_despawn();
-                                debug!("Despawning the predicted/pre-predicted player because we received player action!");
-                            }
-                        }
-                    }
-                }
-                _ => {}
+    for (entity, inputs, ) in players.iter() {
+        if inputs.value.as_ref().is_some_and(|v| v == &Inputs::Delete) {
+             if let Some(mut entity_mut) = commands.get_entity(entity) {
+                // we need to use this special function to despawn prediction entity
+                // the reason is that we actually keep the entity around for a while,
+                // in case we need to re-store it for rollback
+                entity_mut.prediction_despawn();
+                debug!("Despawning the predicted/pre-predicted player because we received player action!");
             }
         }
     }

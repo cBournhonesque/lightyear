@@ -7,6 +7,7 @@ use crate::shared::{color_from_id, shared_movement_behaviour};
 use lightyear::client::components::Confirmed;
 use lightyear::client::interpolation::Interpolated;
 use lightyear::client::prediction::Predicted;
+use lightyear::inputs::native::ActionState;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::components::InitialReplicated;
@@ -33,57 +34,33 @@ pub(crate) fn init(mut commands: Commands) {
 
 /// Read client inputs and move players
 pub(crate) fn movement(
-    mut position_query: Query<(&mut PlayerPosition, &PlayerId)>,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
+    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>),
+        // if we run in host-server mode, we don't want to apply this system to the local client's entities
+        // because they are already moved by the client plugin
+        (Without<Confirmed>, Without<Predicted>),>,
     tick_manager: Res<TickManager>,
 ) {
-    for input in input_reader.read() {
-        let client_id = input.from();
-        if let Some(input) = input.input() {
-            if matches!(input, Inputs::None) {
-                continue;
-            }
-            trace!(
-                "Receiving input: {:?} from client: {:?} on tick: {:?}",
-                input,
-                client_id,
-                tick_manager.tick()
-            );
-
-            for (position, player_id) in position_query.iter_mut() {
-                if player_id.0 == client_id {
-                    // NOTE: be careful to directly pass Mut<PlayerPosition>
-                    // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
-                    shared_movement_behaviour(position, input);
-                }
-            }
+    for (position, inputs) in position_query.iter_mut() {
+        if let Some(input) = &inputs.value {
+            // NOTE: be careful to directly pass Mut<PlayerPosition>
+            // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+            shared_movement_behaviour(position, input);
         }
     }
 }
 
 fn delete_player(
     mut commands: Commands,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
-    query: Query<(Entity, &PlayerId), With<PlayerPosition>>,
+    query: Query<(Entity, &ActionState<Inputs>), With<PlayerPosition>>,
 ) {
-    for input in input_reader.read() {
-        let client_id = input.from();
-        if let Some(input) = input.input() {
-            if matches!(input, Inputs::Delete) {
-                debug!("received delete input!");
-                for (entity, player_id) in query.iter() {
-                    // NOTE: we could not accept the despawn (server conflict)
-                    //  in which case the client would have to rollback to delete
-                    if player_id.0 == client_id {
-                        // You can try 2 things here:
-                        // - either you consider that the client's action is correct, and you despawn the entity. This should get replicated
-                        //   to other clients.
-                        // - you decide that the client's despawn is incorrect, and you do not despawn the entity. Then the client's prediction
-                        //   should be rolled back, and the entity should not get despawned on client.
-                        commands.entity(entity).despawn();
-                    }
-                }
-            }
+    for (entity, inputs) in query.iter() {
+        if inputs.value.as_ref().is_some_and(|v| v == &Inputs::Delete) {
+            // You can try 2 things here:
+            // - either you consider that the client's action is correct, and you despawn the entity. This should get replicated
+            //   to other clients.
+            // - you decide that the client's despawn is incorrect, and you do not despawn the entity. Then the client's prediction
+            //   should be rolled back, and the entity should not get despawned on client.
+            commands.entity(entity).despawn();
         }
     }
 }

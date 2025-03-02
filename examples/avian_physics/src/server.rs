@@ -10,7 +10,7 @@ use leafwing_input_manager::prelude::*;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::server::input::leafwing::InputSystemSet;
+use lightyear::server::input::InputSystemSet;
 use lightyear::shared::replication::components::InitialReplicated;
 
 // Plugin for server-specific logic

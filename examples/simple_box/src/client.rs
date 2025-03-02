@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy::utils::Duration;
 
-use lightyear::client::input::native::InputSystemSet;
+use lightyear::client::input::InputSystemSet;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 

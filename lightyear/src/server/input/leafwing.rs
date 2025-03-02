@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
 use crate::inputs::leafwing::LeafwingUserAction;
+use crate::inputs::native::UserActionState;
 use crate::prelude::{is_host_server, InputMessage, MessageRegistry, ServerReceiveMessage};
 use crate::server::connection::ConnectionManager;
 use crate::server::input::InputSystemSet;
@@ -28,12 +29,11 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
 
 
         // SYSTEMS
+        // TODO: this runs twice in host-server mode. How to avoid this?
+        app.add_observer(add_action_state_buffer::<A>);
         app.add_systems(
             PreUpdate,
-            (
                 receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputs)
-                    .run_if(not(is_host_server)),
-            ),
         );
     }
 
@@ -45,6 +45,18 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     }
 }
 
+/// For each entity that has the Action component, insert an input buffer.
+fn add_action_state_buffer<A: LeafwingUserAction>(
+    trigger: Trigger<OnAdd, ActionState<A>>,
+    mut commands: Commands,
+    query: Query<(), Without<InputBuffer<A>>>,
+) {
+    if let Ok(()) = query.get(trigger.entity()) {
+        commands.entity(trigger.entity()).insert((
+            InputBuffer::<A>::default(),
+        ));
+    }
+}
 
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<A: LeafwingUserAction>(

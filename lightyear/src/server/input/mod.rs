@@ -47,8 +47,6 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
         app.configure_sets(FixedPreUpdate, InputSystemSet::UpdateActionState.run_if(is_started));
 
         // SYSTEMS
-        // TODO: this runs twice in host-server mode
-        app.add_observer(add_action_state_buffer::<A>);
         app.add_systems(
             FixedPreUpdate,
             update_action_state::<A>.in_set(InputSystemSet::UpdateActionState),
@@ -56,20 +54,7 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
     }
 }
 
-/// For each entity that has the Action component, insert an input buffer.
-fn add_action_state_buffer<A: UserActionState>(
-    trigger: Trigger<OnAdd, A>,
-    mut commands: Commands,
-    query: Query<(), Without<InputBuffer<A>>>,
-) {
-    // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
-    //  maybe provide the "controlled" component? or just use With<InputMap>?
-    if let Ok(()) = query.get(trigger.entity()) {
-        commands.entity(trigger.entity()).insert((
-            InputBuffer::<A>::default(),
-        ));
-    }
-}
+
 
 /// Read the InputState for the current tick from the buffer, and use them to update the ActionState
 fn update_action_state<A: UserActionState>(

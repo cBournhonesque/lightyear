@@ -48,6 +48,7 @@ use crate::client::prediction::Predicted;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
+use crate::inputs::native::UserActionState;
 use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage, MessageRegistry, TickManager, TimeManager};
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::tick_manager::TickEvent;
@@ -109,7 +110,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
     fn build(&self, app: &mut App) {
         // PLUGINS
         app.add_plugins(InputManagerPlugin::<A>::default());
-        app.add_plugins(BaseInputPlugin::<ActionState<A>, With<InputMap<A>>>::default());
+        app.add_plugins(BaseInputPlugin::<ActionState<A>, InputMap<A>>::default());
 
         // in host-server mode, we don't need to handle inputs in any way, because the player's entity
         // is spawned with `InputBuffer` and the client is in the same timeline as the server
@@ -123,7 +124,9 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         app.configure_sets(FixedPostUpdate, InputSystemSet::RestoreInputs.before(InputManagerSystem::Tick));
 
         // SYSTEMS
-        app.add_observer(handle_new_input_map::<A>);
+        // we use required components for native inputs; here let's use observers
+        app.add_observer(add_action_state::<A>);
+        app.add_observer(add_input_buffer::<A>);
         app.add_systems(
             PreUpdate,
                 receive_remote_player_input_messages::<A>
@@ -146,21 +149,36 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
     }
 }
 
-
-
-/// Insert an ActionState<A> for each entity that has an InputMap
-fn handle_new_input_map<A: LeafwingUserAction>(
-    trigger: Trigger<OnAdd, InputMap<A>>,
+/// For each entity that has the Action component, insert an input buffer.
+fn add_input_buffer<A: LeafwingUserAction>(
+    trigger: Trigger<OnAdd, ActionState<A>>,
     mut commands: Commands,
-    // player-controlled entities are the ones that have an InputMap
-    player_entities: Query<(), Without<ActionState<A>>>,
+    query: Query<(), Without<InputBuffer<A>>>,
 ) {
     // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
     //  maybe provide the "controlled" component? or just use With<InputMap>?
-    if let Ok(()) = player_entities.get(trigger.entity()) {
-        commands.entity(trigger.entity()).insert(ActionState::<A>::default());
+    if let Ok(()) = query.get(trigger.entity()) {
+        commands.entity(trigger.entity()).insert((
+            InputBuffer::<A>::default(),
+        ));
     }
 }
+
+/// For each entity that has the Action component, insert an input buffer.
+fn add_action_state<A: LeafwingUserAction>(
+    trigger: Trigger<OnAdd, InputMap<A>>,
+    mut commands: Commands,
+    query: Query<(), Without<ActionState<A>>>,
+) {
+    // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
+    //  maybe provide the "controlled" component? or just use With<InputMap>?
+    if let Ok(()) = query.get(trigger.entity()) {
+        commands.entity(trigger.entity()).insert((
+            ActionState::<A>::default(),
+        ));
+    }
+}
+
 
 /// Send a message to the server containing the ActionDiffs for the last few ticks
 fn prepare_input_message<A: LeafwingUserAction>(

@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
-use lightyear::client::input::native::InputSystemSet;
+use lightyear::client::input::InputSystemSet;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::server::ServerCommandsExt;
 use lightyear::prelude::*;
