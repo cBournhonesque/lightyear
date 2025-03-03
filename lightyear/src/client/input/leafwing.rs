@@ -128,11 +128,13 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         // we use required components for native inputs; here let's use observers
         app.add_observer(add_action_state::<A>);
         app.add_observer(add_input_buffer::<A>);
-        app.add_systems(
-            RunFixedMainLoop,
+        if self.config.rebroadcast_inputs {
+            app.add_systems(
+                RunFixedMainLoop,
                 receive_remote_player_input_messages::<A>
                     .in_set(InputSystemSet::ReceiveInputMessages),
-        );
+            );
+        }
 
         app.add_systems(
             FixedPostUpdate,
@@ -283,7 +285,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
         }
     }
 
-    trace!(
+    error!(
         ?tick,
         ?num_tick,
         "sending input message for {:?}: {}",

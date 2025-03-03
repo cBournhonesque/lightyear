@@ -6,8 +6,8 @@ use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
 use crate::inputs::native::{InputMarker, UserActionState};
-use crate::prelude::client::{InputConfig, NetClient};
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel, InputMessage, MessageRegistry, NetworkTarget, ServerReceiveMessage, ServerSendMessage, TickManager, UserAction};
+use crate::prelude::client::NetClient;
+use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel, InputConfig, InputMessage, MessageRegistry, NetworkTarget, ServerReceiveMessage, ServerSendMessage, TickManager, UserAction};
 use crate::server::connection::ConnectionManager;
 use crate::server::input::InputSystemSet;
 use bevy::prelude::*;
@@ -31,7 +31,7 @@ impl<A> Default for LeafwingInputPlugin<A> {
 
 impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     fn build(&self, app: &mut App) {
-        app.add_plugins(super::BaseInputPlugin::<crate::inputs::native::ActionState<A>> {
+        app.add_plugins(super::BaseInputPlugin::<ActionState<A>> {
             rebroadcast_inputs: self.rebroadcast_inputs,
             marker: std::marker::PhantomData,
         });
@@ -89,7 +89,9 @@ fn receive_input_message<A: LeafwingUserAction>(
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<Option<&mut InputBuffer<A>>>,
     mut commands: Commands,
+    tick_manager: Res<TickManager>,
 ) {
+    let tick = tick_manager.tick();
     received_inputs.read().for_each(|event| {
         let message = &event.message;
         let client_id = event.from;
@@ -104,7 +106,6 @@ fn receive_input_message<A: LeafwingUserAction>(
             }
         }
 
-        // TODO: UPDATE THIS
         for data in &message.diffs {
             match data.target {
                 // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
@@ -118,7 +119,7 @@ fn receive_input_message<A: LeafwingUserAction>(
 
                     if let Ok(buffer) = query.get_mut(entity) {
                         if let Some(mut buffer) = buffer {
-                            trace!(
+                            error!(
                                 "Update InputBuffer: {} using InputMessage: {}",
                                 buffer.as_ref(),
                                 message
@@ -130,8 +131,14 @@ fn receive_input_message<A: LeafwingUserAction>(
                             );
                         } else {
                             debug!("Adding InputBuffer and ActionState which are missing on the entity");
+                            let mut buffer = InputBuffer::<A>::default();
+                            buffer.update_from_diffs(
+                                message.end_tick,
+                                &data.start_state,
+                                &data.diffs,
+                            );
                             commands.entity(entity).insert((
-                                InputBuffer::<A>::default(),
+                                buffer,
                                 ActionState::<A>::default(),
                             ));
                         }
@@ -201,9 +208,9 @@ fn send_host_server_input_message<A: LeafwingUserAction>(
             input_buffer.as_ref(),
         );
 
-        // clean older ticks for the buffer
-        // (but be careful not to erase the values for the current tick from the buffer!)
-        input_buffer.pop(min(tick - num_tick - 1, current_tick - 1));
+        // // clean older ticks for the buffer
+        // // (but be careful not to erase the values for the current tick from the buffer!)
+        // input_buffer.pop(min(tick - num_tick - 1, current_tick - 1));
     }
     error!(
         ?tick,

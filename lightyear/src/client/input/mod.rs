@@ -146,6 +146,7 @@ impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
                 // and that the interpolation_delay injected in the message are correct
                 (InputSystemSet::SendInputMessage, InputSystemSet::CleanUp)
                     .chain()
+                    // no need to run in host-server because the server already cleans up the buffers
                     .run_if(should_run.clone().and(is_synced)),
                 InternalMainSet::<ClientMarker>::Send,
             )

@@ -66,7 +66,6 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
             FixedPreUpdate,
             update_action_state::<A>.in_set(InputSystemSet::UpdateActionState),
         );
-
     }
 }
 

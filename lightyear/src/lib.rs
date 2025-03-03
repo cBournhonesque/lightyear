@@ -208,6 +208,7 @@ pub mod prelude {
     #[cfg(feature = "leafwing")]
     pub use crate::shared::input::leafwing::LeafwingInputPlugin;
     pub use crate::shared::input::native::InputPlugin;
+    pub use crate::shared::input::InputConfig;
     pub use crate::shared::message::MessageSend;
     pub use crate::shared::ping::manager::PingConfig;
     pub use crate::shared::plugin::SharedPlugin;
@@ -307,7 +308,6 @@ pub mod prelude {
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::client::{SocketConfig, SteamConfig};
         pub use crate::protocol::message::client::ClientTriggerExt;
-        pub use crate::shared::input::InputConfig;
     }
     pub mod server {
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]

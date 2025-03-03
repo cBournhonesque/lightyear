@@ -161,7 +161,12 @@ impl Plugin for ProtocolPlugin {
         // messages
         app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
-        app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
+        app.add_plugins(LeafwingInputPlugin::<PlayerActions> {
+            config: InputConfig::<PlayerActions> {
+                rebroadcast_inputs: true,
+                ..default()
+            }
+        });
         app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());
         // components
         app.register_component::<PlayerId>(ChannelDirection::Bidirectional)

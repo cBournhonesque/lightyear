@@ -112,11 +112,13 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         app.init_resource::<MessageBuffer<A>>();
 
         // SYSTEMS
-        app.add_systems(
-            RunFixedMainLoop,
+        if self.config.rebroadcast_inputs {
+            app.add_systems(
+                RunFixedMainLoop,
                 receive_remote_player_input_messages::<A>
                     .in_set(InputSystemSet::ReceiveInputMessages),
-        );
+            );
+        }
         app.add_systems(
             FixedPostUpdate,
                 prepare_input_message::<A>
