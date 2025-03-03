@@ -1,15 +1,20 @@
-use crate::protocol::*;
-use crate::shared::BOT_RADIUS;
 use avian2d::prelude::*;
-use bevy::color::palettes::basic::GREEN;
-use bevy::color::palettes::css::BLUE;
-use bevy::ecs::query::QueryFilter;
-use bevy::prelude::*;
-use lightyear::client::interpolation::VisualInterpolationPlugin;
-use lightyear::prelude::client::{Interpolated, Predicted, VisualInterpolateStatus};
-use lightyear::prelude::server::ReplicationTarget;
-use lightyear::prelude::{NetworkIdentity, PreSpawnedPlayerObject, Replicated};
+use bevy::{
+    color::palettes::{basic::GREEN, css::BLUE},
+    ecs::query::QueryFilter,
+    prelude::*,
+};
+use lightyear::{
+    client::interpolation::VisualInterpolationPlugin,
+    prelude::{
+        client::{Interpolated, Predicted, VisualInterpolateStatus},
+        server::ReplicationTarget,
+        NetworkIdentity, PreSpawnedPlayerObject, Replicated,
+    },
+};
 use lightyear_avian::prelude::AabbEnvelopeHolder;
+
+use crate::{protocol::*, shared::BOT_RADIUS};
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;

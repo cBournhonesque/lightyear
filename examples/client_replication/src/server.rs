@@ -1,16 +1,16 @@
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{prelude::*, utils::Duration};
+use lightyear::{
+    client::{components::Confirmed, interpolation::Interpolated, prediction::Predicted},
+    inputs::native::ActionState,
+    prelude::{server::*, *},
+    shared::replication::components::InitialReplicated,
+};
 
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour};
-use lightyear::client::components::Confirmed;
-use lightyear::client::interpolation::Interpolated;
-use lightyear::client::prediction::Predicted;
-use lightyear::inputs::native::ActionState;
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
-use lightyear::shared::replication::components::InitialReplicated;
+use crate::{
+    protocol::*,
+    shared,
+    shared::{color_from_id, shared_movement_behaviour},
+};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;

@@ -1,9 +1,11 @@
-use bevy::prelude::*;
-use lightyear::prelude::server::Replicate;
-use lightyear::prelude::ReplicationGroup;
-use lightyear_benches::local_stepper::{LocalBevyStepper, Step};
-use lightyear_benches::protocol::Component1;
 use std::fs::File;
+
+use bevy::prelude::*;
+use lightyear::prelude::{server::Replicate, ReplicationGroup};
+use lightyear_benches::{
+    local_stepper::{LocalBevyStepper, Step},
+    protocol::Component1,
+};
 
 const N: usize = 100;
 

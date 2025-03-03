@@ -1,18 +1,16 @@
 use bevy::utils::HashMap;
-use byteorder::NetworkEndian;
-use byteorder::ReadBytesExt;
+use byteorder::{NetworkEndian, ReadBytesExt};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use tracing::trace;
 
-use crate::packet::packet::PacketId;
-use crate::packet::packet_type::PacketType;
-use crate::packet::stats_manager::packet::PacketStatsManager;
-use crate::prelude::TimeManager;
-use crate::serialize::reader::Reader;
-use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::ping::manager::PingManager;
-use crate::shared::tick_manager::Tick;
-use crate::shared::time_manager::WrappedTime;
+use crate::{
+    packet::{
+        packet::PacketId, packet_type::PacketType, stats_manager::packet::PacketStatsManager,
+    },
+    prelude::TimeManager,
+    serialize::{reader::Reader, SerializationError, ToBytes},
+    shared::{ping::manager::PingManager, tick_manager::Tick, time_manager::WrappedTime},
+};
 
 /// Header included at the start of all packets
 #[derive(Debug, Clone, PartialEq)]
@@ -349,9 +347,8 @@ impl ReceiveBuffer {
 // TODO: add test for notification of packet delivered
 #[cfg(test)]
 mod tests {
-    use crate::serialize::ToBytes;
-
     use super::*;
+    use crate::serialize::ToBytes;
 
     #[test]
     fn test_recv_buffer() {

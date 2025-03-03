@@ -1,19 +1,19 @@
 use std::ops::{Add, Mul};
 
-use bevy::ecs::entity::MapEntities;
-use bevy::math::Vec2;
-use bevy::prelude::*;
-use leafwing_input_manager::action_state::ActionState;
-use leafwing_input_manager::input_map::InputMap;
-use leafwing_input_manager::prelude::Actionlike;
-use leafwing_input_manager::InputManagerBundle;
+use bevy::{ecs::entity::MapEntities, math::Vec2, prelude::*};
+use leafwing_input_manager::{
+    action_state::ActionState, input_map::InputMap, prelude::Actionlike, InputManagerBundle,
+};
+use lightyear::{
+    client::components::ComponentSyncMode,
+    prelude::{
+        server::{ControlledBy, Replicate, SyncTarget},
+        *,
+    },
+    shared::replication::components::NetworkRelevanceMode,
+};
 use serde::{Deserialize, Serialize};
 use tracing::info;
-
-use lightyear::client::components::ComponentSyncMode;
-use lightyear::prelude::server::{ControlledBy, Replicate, SyncTarget};
-use lightyear::prelude::*;
-use lightyear::shared::replication::components::NetworkRelevanceMode;
 use UserAction;
 
 use crate::shared::color_from_id;

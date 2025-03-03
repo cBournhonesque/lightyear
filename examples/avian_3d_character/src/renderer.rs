@@ -1,17 +1,17 @@
+use avian3d::prelude::*;
+use bevy::prelude::*;
+use lightyear::{
+    client::prediction::diagnostics::PredictionDiagnosticsPlugin,
+    prelude::{client::*, server::ReplicationTarget, *},
+    transport::io::IoDiagnosticsPlugin,
+};
+
 use crate::{
     protocol::{BlockMarker, CharacterMarker, ColorComponent, FloorMarker},
     shared::{
         BLOCK_HEIGHT, BLOCK_WIDTH, CHARACTER_CAPSULE_HEIGHT, CHARACTER_CAPSULE_RADIUS,
         FLOOR_HEIGHT, FLOOR_WIDTH,
     },
-};
-use avian3d::prelude::*;
-use bevy::prelude::*;
-use lightyear::prelude::server::ReplicationTarget;
-use lightyear::{
-    client::prediction::diagnostics::PredictionDiagnosticsPlugin,
-    prelude::{client::*, *},
-    transport::io::IoDiagnosticsPlugin,
 };
 
 pub struct ExampleRendererPlugin;

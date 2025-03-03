@@ -1,15 +1,13 @@
 use avian2d::prelude::RigidBody;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
+use lightyear::{
+    client::components::{ComponentSyncMode, LerpFn},
+    prelude::{client::Replicate, server::SyncTarget, *},
+    shared::{input::InputConfig, replication::components::ReplicationGroupIdBuilder},
+    utils::bevy::*,
+};
 use serde::{Deserialize, Serialize};
-
-use lightyear::client::components::{ComponentSyncMode, LerpFn};
-use lightyear::prelude::client::Replicate;
-use lightyear::prelude::server::SyncTarget;
-use lightyear::prelude::*;
-use lightyear::shared::input::InputConfig;
-use lightyear::shared::replication::components::ReplicationGroupIdBuilder;
-use lightyear::utils::bevy::*;
 
 use crate::shared::color_from_id;
 

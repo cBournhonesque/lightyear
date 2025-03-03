@@ -1,20 +1,25 @@
-use avian2d::prelude::*;
-use bevy::prelude::*;
-use bevy::time::Stopwatch;
-use bevy::utils::Duration;
-use leafwing_input_manager::prelude::*;
 use std::ops::DerefMut;
 
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, shared_player_movement, BOT_RADIUS};
-use lightyear::client::prediction::Predicted;
-use lightyear::prelude::client::{Confirmed, InterpolationDelay};
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
-use lightyear::shared::replication::components::InitialReplicated;
+use avian2d::prelude::*;
+use bevy::{prelude::*, time::Stopwatch, utils::Duration};
+use leafwing_input_manager::prelude::*;
+use lightyear::{
+    client::prediction::Predicted,
+    prelude::{
+        client::{Confirmed, InterpolationDelay},
+        server::*,
+        *,
+    },
+    shared::replication::components::InitialReplicated,
+};
 use lightyear_avian::prelude::{
     LagCompensationHistory, LagCompensationPlugin, LagCompensationSet, LagCompensationSpatialQuery,
+};
+
+use crate::{
+    protocol::*,
+    shared,
+    shared::{color_from_id, shared_player_movement, BOT_RADIUS},
 };
 
 // Plugin for server-specific logic

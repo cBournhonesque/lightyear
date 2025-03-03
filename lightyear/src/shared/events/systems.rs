@@ -1,14 +1,18 @@
 use bevy::prelude::{Component, EventWriter, ResMut};
 
-use crate::shared::events::components::{
-    ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, EntityDespawnEvent,
-    EntitySpawnEvent,
+use crate::shared::{
+    events::{
+        components::{
+            ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, EntityDespawnEvent,
+            EntitySpawnEvent,
+        },
+        connection::{
+            ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent,
+            IterComponentUpdateEvent, IterEntityDespawnEvent, IterEntitySpawnEvent,
+        },
+    },
+    replication::ReplicationReceive,
 };
-use crate::shared::events::connection::{
-    ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
-    IterEntityDespawnEvent, IterEntitySpawnEvent,
-};
-use crate::shared::replication::ReplicationReceive;
 
 /// System that gathers the replication events received by the local host and sends them to bevy Events
 pub(crate) fn push_component_events<C: Component, R: ReplicationReceive>(

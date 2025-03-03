@@ -1,13 +1,18 @@
 //! Implement lightyear traits for some common bevy types
-use crate::prelude::client::{InterpolationSet, PredictionSet};
-use crate::shared::replication::delta::Diffable;
-use avian2d::math::Scalar;
-use avian2d::prelude::*;
-use bevy::app::{RunFixedMainLoop, RunFixedMainLoopSystem};
-use bevy::prelude::TransformSystem::TransformPropagate;
-use bevy::prelude::{App, FixedPostUpdate, Plugin};
-use bevy::prelude::{IntoSystemSetConfigs, PostUpdate};
+use avian2d::{math::Scalar, prelude::*};
+use bevy::{
+    app::{RunFixedMainLoop, RunFixedMainLoopSystem},
+    prelude::{
+        App, FixedPostUpdate, IntoSystemSetConfigs, Plugin, PostUpdate,
+        TransformSystem::TransformPropagate,
+    },
+};
 use tracing::trace;
+
+use crate::{
+    prelude::client::{InterpolationSet, PredictionSet},
+    shared::replication::delta::Diffable,
+};
 
 pub(crate) struct Avian2dPlugin;
 

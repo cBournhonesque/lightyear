@@ -6,17 +6,16 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
-use crate::protocol::*;
-use crate::shared;
-use bevy::app::PluginGroupBuilder;
-use bevy::prelude::*;
-use bevy::utils::HashMap;
-use lightyear::client::components::Confirmed;
-use lightyear::client::prediction::Predicted;
-use lightyear::inputs::native::ActionState;
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
 use std::sync::Arc;
+
+use bevy::{app::PluginGroupBuilder, prelude::*, utils::HashMap};
+use lightyear::{
+    client::{components::Confirmed, prediction::Predicted},
+    inputs::native::ActionState,
+    prelude::{server::*, *},
+};
+
+use crate::{protocol::*, shared};
 
 pub struct ExampleServerPlugin;
 

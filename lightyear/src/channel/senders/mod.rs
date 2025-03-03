@@ -4,11 +4,11 @@ use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use enum_dispatch::enum_dispatch;
 
-use crate::packet::message::{MessageAck, MessageId, SendMessage};
-use crate::serialize::SerializationError;
-use crate::shared::ping::manager::PingManager;
-use crate::shared::tick_manager::TickManager;
-use crate::shared::time_manager::TimeManager;
+use crate::{
+    packet::message::{MessageAck, MessageId, SendMessage},
+    serialize::SerializationError,
+    shared::{ping::manager::PingManager, tick_manager::TickManager, time_manager::TimeManager},
+};
 
 pub(crate) mod fragment_ack_receiver;
 pub(crate) mod fragment_sender;

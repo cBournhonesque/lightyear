@@ -1,14 +1,13 @@
 use avian2d::prelude::*;
-use bevy::app::PluginGroupBuilder;
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{app::PluginGroupBuilder, prelude::*, utils::Duration};
 use leafwing_input_manager::prelude::*;
-use lightyear::prelude::client::*;
-use lightyear::prelude::*;
+use lightyear::prelude::{client::*, *};
 
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour};
+use crate::{
+    protocol::*,
+    shared,
+    shared::{color_from_id, shared_movement_behaviour},
+};
 
 pub struct ExampleClientPlugin;
 

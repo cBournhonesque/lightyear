@@ -1,29 +1,33 @@
-use std::fmt::Debug;
-use std::ops::{Deref, DerefMut};
-
-use bevy::app::FixedMain;
-use bevy::ecs::entity::EntityHashSet;
-use bevy::ecs::reflect::ReflectResource;
-use bevy::prelude::{
-    Commands, Component, DespawnRecursiveExt, DetectChanges, Entity, Has, Query, Ref, Res, ResMut,
-    Resource, With, Without, World,
+use std::{
+    fmt::Debug,
+    ops::{Deref, DerefMut},
 };
-use bevy::reflect::Reflect;
-use bevy::time::{Fixed, Time};
+
+use bevy::{
+    app::FixedMain,
+    ecs::{entity::EntityHashSet, reflect::ReflectResource},
+    prelude::{
+        Commands, Component, DespawnRecursiveExt, DetectChanges, Entity, Has, Query, Ref, Res,
+        ResMut, Resource, With, Without, World,
+    },
+    reflect::Reflect,
+    time::{Fixed, Time},
+};
 use parking_lot::RwLock;
 use tracing::{debug, error, trace, trace_span};
 
-use crate::client::components::{Confirmed, SyncComponent};
-use crate::client::config::ClientConfig;
-use crate::client::connection::ConnectionManager;
-use crate::client::prediction::correction::Correction;
-use crate::client::prediction::diagnostics::PredictionMetrics;
-use crate::client::prediction::resource::PredictionManager;
-use crate::prelude::{ComponentRegistry, HistoryState, PreSpawnedPlayerObject, Tick, TickManager};
-
-use super::predicted_history::PredictionHistory;
-use super::resource_history::ResourceHistory;
-use super::Predicted;
+use super::{predicted_history::PredictionHistory, resource_history::ResourceHistory, Predicted};
+use crate::{
+    client::{
+        components::{Confirmed, SyncComponent},
+        config::ClientConfig,
+        connection::ConnectionManager,
+        prediction::{
+            correction::Correction, diagnostics::PredictionMetrics, resource::PredictionManager,
+        },
+    },
+    prelude::{ComponentRegistry, HistoryState, PreSpawnedPlayerObject, Tick, TickManager},
+};
 
 #[derive(Component)]
 /// Marker component used to indicate that an entity:
@@ -780,12 +784,15 @@ pub(crate) fn increment_rollback_tick(rollback: Res<Rollback>) {
 
 #[cfg(test)]
 pub(crate) mod test_utils {
-    use crate::client::components::Confirmed;
-    use crate::client::connection::ConnectionManager;
-    use crate::prelude::Tick;
-    use crate::tests::stepper::BevyStepper;
-    use bevy::prelude::Entity;
     use std::time::Duration;
+
+    use bevy::prelude::Entity;
+
+    use crate::{
+        client::{components::Confirmed, connection::ConnectionManager},
+        prelude::Tick,
+        tests::stepper::BevyStepper,
+    };
 
     /// Helper function to simulate that we received a server message
     pub(crate) fn received_confirmed_update(
@@ -814,22 +821,26 @@ pub(crate) mod test_utils {
 mod tests {
     use std::time::Duration;
 
-    use super::test_utils::*;
-
-    use crate::client::prediction::diagnostics::PredictionMetrics;
-    use crate::client::prediction::predicted_history::PredictionHistory;
-    use crate::client::prediction::resource::PredictionManager;
-    use crate::client::prediction::rollback::{check_rollback, DisableRollback};
-    use crate::prelude::server::SyncTarget;
-    use crate::prelude::{
-        client::*, AppComponentExt, ChannelDirection, NetworkTarget, SharedConfig, TickConfig,
+    use bevy::{
+        ecs::{entity::MapEntities, system::RunSystemOnce},
+        prelude::*,
     };
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::BevyStepper;
-    use bevy::ecs::entity::MapEntities;
-    use bevy::ecs::system::RunSystemOnce;
-    use bevy::prelude::*;
     use serde::{Deserialize, Serialize};
+
+    use super::test_utils::*;
+    use crate::{
+        client::prediction::{
+            diagnostics::PredictionMetrics,
+            predicted_history::PredictionHistory,
+            resource::PredictionManager,
+            rollback::{check_rollback, DisableRollback},
+        },
+        prelude::{
+            client::*, server::SyncTarget, AppComponentExt, ChannelDirection, NetworkTarget,
+            SharedConfig, TickConfig,
+        },
+        tests::{protocol::*, stepper::BevyStepper},
+    };
 
     fn setup(increment_component: bool) -> (BevyStepper, Entity, Entity) {
         fn increment_component_system(

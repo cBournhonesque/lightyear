@@ -1,21 +1,24 @@
-use super::MessageKind;
-use crate::packet::message_manager::MessageManager;
-use crate::prelude::{
-    Channel, ClientId, ClientReceiveMessage, ClientSendMessage, Message, ServerReceiveMessage,
+use bevy::{
+    app::App,
+    ecs::{change_detection::MutUntyped, component::ComponentId},
+    prelude::{Commands, Entity, Event, Events, FilteredResourcesMut, TypePath, World},
+    utils::HashMap,
 };
-use crate::protocol::message::registry::MessageRegistry;
-use crate::protocol::message::trigger::TriggerMessage;
-use crate::protocol::message::MessageError;
-use crate::protocol::registry::NetId;
-use crate::protocol::serialize::ErasedSerializeFns;
-use crate::serialize::reader::Reader;
-use crate::serialize::ToBytes;
-use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
-use bevy::app::App;
-use bevy::ecs::change_detection::MutUntyped;
-use bevy::ecs::component::ComponentId;
-use bevy::prelude::{Commands, Entity, Event, Events, FilteredResourcesMut, TypePath, World};
-use bevy::utils::HashMap;
+
+use super::MessageKind;
+use crate::{
+    packet::message_manager::MessageManager,
+    prelude::{
+        Channel, ClientId, ClientReceiveMessage, ClientSendMessage, Message, ServerReceiveMessage,
+    },
+    protocol::{
+        message::{registry::MessageRegistry, trigger::TriggerMessage, MessageError},
+        registry::NetId,
+        serialize::ErasedSerializeFns,
+    },
+    serialize::{reader::Reader, ToBytes},
+    shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap},
+};
 
 /// Metadata needed to receive/send messages
 ///

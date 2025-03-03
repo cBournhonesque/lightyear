@@ -1,10 +1,11 @@
 /// Defines the [`Packet`] struct
 use crate::connection::netcode::MAX_PACKET_SIZE;
-use crate::packet::message::MessageAck;
-use crate::packet::packet_builder::Payload;
-use crate::protocol::channel::ChannelId;
-use crate::serialize::ToBytes;
-use crate::utils::wrapping_id::wrapping_id;
+use crate::{
+    packet::{message::MessageAck, packet_builder::Payload},
+    protocol::channel::ChannelId,
+    serialize::ToBytes,
+    utils::wrapping_id::wrapping_id,
+};
 
 cfg_if::cfg_if!(
     if #[cfg(test)] {
@@ -102,7 +103,6 @@ impl Packet {
 #[cfg(test)]
 mod tests {
     use bevy::prelude::{default, Reflect};
-
     use lightyear_macros::ChannelInternal;
 
     use crate::prelude::{ChannelMode, ChannelRegistry, ChannelSettings};

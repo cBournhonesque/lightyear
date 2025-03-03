@@ -1,23 +1,21 @@
-use bevy::diagnostic::LogDiagnosticsPlugin;
-use bevy::ecs::query::QueryData;
-use bevy::prelude::*;
-use bevy::utils::Duration;
-use lightyear::inputs::leafwing::input_buffer::InputBuffer;
-use server::ControlledEntities;
 use std::hash::{Hash, Hasher};
 
 use avian2d::prelude::*;
+use bevy::{diagnostic::LogDiagnosticsPlugin, ecs::query::QueryData, prelude::*, utils::Duration};
 use leafwing_input_manager::prelude::ActionState;
-use lightyear::shared::replication::components::Controlled;
-use tracing::Level;
-
-use lightyear::prelude::client::*;
-use lightyear::prelude::server::{DespawnReplicationCommandExt, ReplicationTarget};
-use lightyear::prelude::TickManager;
-use lightyear::prelude::*;
-use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
-use lightyear::transport::io::IoDiagnosticsPlugin;
+use lightyear::{
+    inputs::leafwing::input_buffer::InputBuffer,
+    prelude::{
+        client::*,
+        server::{DespawnReplicationCommandExt, ReplicationTarget},
+        TickManager, *,
+    },
+    shared::{ping::diagnostics::PingDiagnosticsPlugin, replication::components::Controlled},
+    transport::io::IoDiagnosticsPlugin,
+};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
+use server::ControlledEntities;
+use tracing::Level;
 
 use crate::protocol::*;
 #[cfg(feature = "gui")]

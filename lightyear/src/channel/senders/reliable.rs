@@ -1,20 +1,26 @@
-use bevy::prelude::{Timer, TimerMode};
-use std::collections::VecDeque;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 
-use bevy::utils::Duration;
+use bevy::{
+    prelude::{Timer, TimerMode},
+    utils::Duration,
+};
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
 use tracing::trace;
 
-use crate::channel::builder::ReliableSettings;
-use crate::channel::senders::fragment_sender::FragmentSender;
-use crate::channel::senders::ChannelSend;
-use crate::packet::message::{FragmentData, MessageAck, MessageId, SendMessage, SingleData};
-use crate::serialize::SerializationError;
-use crate::shared::ping::manager::PingManager;
-use crate::shared::tick_manager::TickManager;
-use crate::shared::time_manager::{TimeManager, WrappedTime};
+use crate::{
+    channel::{
+        builder::ReliableSettings,
+        senders::{fragment_sender::FragmentSender, ChannelSend},
+    },
+    packet::message::{FragmentData, MessageAck, MessageId, SendMessage, SingleData},
+    serialize::SerializationError,
+    shared::{
+        ping::manager::PingManager,
+        tick_manager::TickManager,
+        time_manager::{TimeManager, WrappedTime},
+    },
+};
 
 #[derive(Debug)]
 pub struct FragmentAck {
@@ -340,10 +346,8 @@ mod tests {
     use bevy::utils::Duration;
     use bytes::Bytes;
 
-    use crate::channel::builder::ReliableSettings;
-    use crate::packet::message::SingleData;
-
     use super::*;
+    use crate::{channel::builder::ReliableSettings, packet::message::SingleData};
 
     #[test]
     fn test_reliable_sender_internals() {

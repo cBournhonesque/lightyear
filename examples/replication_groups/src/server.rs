@@ -1,11 +1,14 @@
 use bevy::prelude::*;
-use lightyear::client::components::Confirmed;
-use lightyear::client::prediction::Predicted;
-use lightyear::inputs::native::ActionState;
-use lightyear::prelude::server::*;
+use lightyear::{
+    client::{components::Confirmed, prediction::Predicted},
+    inputs::native::ActionState,
+    prelude::server::*,
+};
 
-use crate::protocol::*;
-use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
+use crate::{
+    protocol::*,
+    shared::{shared_movement_behaviour, shared_tail_behaviour},
+};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;

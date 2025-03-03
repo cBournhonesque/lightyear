@@ -1,19 +1,23 @@
 //! Handles client-generated inputs
 
-use crate::client::config::ClientConfig;
-use crate::connection::client::{ClientConnection, NetClient};
-use crate::inputs::native::input_buffer::InputBuffer;
-use crate::inputs::native::input_message::{InputMessage, InputTarget};
-use crate::inputs::native::{ActionState, InputMarker};
-use crate::prelude::{
-    is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel,
-    MessageRegistry, NetworkTarget, ServerReceiveMessage, ServerSendMessage, TickManager,
-    UserAction,
-};
-use crate::server::connection::ConnectionManager;
-use crate::server::input::InputSystemSet;
-use crate::shared::input::InputConfig;
 use bevy::prelude::*;
+
+use crate::{
+    client::config::ClientConfig,
+    connection::client::{ClientConnection, NetClient},
+    inputs::native::{
+        input_buffer::InputBuffer,
+        input_message::{InputMessage, InputTarget},
+        ActionState, InputMarker,
+    },
+    prelude::{
+        is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel,
+        MessageRegistry, NetworkTarget, ServerReceiveMessage, ServerSendMessage, TickManager,
+        UserAction,
+    },
+    server::{connection::ConnectionManager, input::InputSystemSet},
+    shared::input::InputConfig,
+};
 
 pub struct InputPlugin<A> {
     /// If True, the server will rebroadcast a client's inputs to all other clients.

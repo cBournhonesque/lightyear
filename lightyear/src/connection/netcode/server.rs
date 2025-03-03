@@ -1,24 +1,14 @@
-use std::collections::{HashMap, VecDeque};
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::{HashMap, VecDeque},
+    net::SocketAddr,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use bevy::prelude::Resource;
 use tracing::{debug, error, trace, warn};
-
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
-
-use crate::connection::id;
-use crate::connection::netcode::token::TOKEN_EXPIRE_SEC;
-use crate::connection::server::{
-    ConnectionError, ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason,
-    IoConfig, NetServer,
-};
-use crate::packet::packet_builder::RecvPayload;
-use crate::server::config::NetcodeConfig;
-use crate::server::io::{Io, ServerIoEvent, ServerNetworkEventSender};
-use crate::transport::{PacketReceiver, PacketSender};
 
 use super::{
     bytes::Bytes,
@@ -31,6 +21,22 @@ use super::{
     replay::ReplayProtection,
     token::{ChallengeToken, ConnectToken, ConnectTokenBuilder, ConnectTokenPrivate},
     MAC_BYTES, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
+};
+use crate::{
+    connection::{
+        id,
+        netcode::token::TOKEN_EXPIRE_SEC,
+        server::{
+            ConnectionError, ConnectionRequestHandler, DefaultConnectionRequestHandler,
+            DeniedReason, IoConfig, NetServer,
+        },
+    },
+    packet::packet_builder::RecvPayload,
+    server::{
+        config::NetcodeConfig,
+        io::{Io, ServerIoEvent, ServerNetworkEventSender},
+    },
+    transport::{PacketReceiver, PacketSender},
 };
 
 pub const MAX_CLIENTS: usize = 256;
@@ -1044,9 +1050,10 @@ impl<Ctx> NetcodeServer<Ctx> {
 }
 
 pub(crate) mod connection {
+    use core::result::Result;
+
     use super::*;
     use crate::connection::server::ConnectionError;
-    use core::result::Result;
 
     #[derive(Default)]
     pub(crate) struct NetcodeServerContext {

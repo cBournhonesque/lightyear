@@ -1,7 +1,7 @@
-use crate::protocol::*;
-use bevy::prelude::*;
-use bevy::render::RenderPlugin;
+use bevy::{prelude::*, render::RenderPlugin};
 use lightyear::client::components::Confirmed;
+
+use crate::protocol::*;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;

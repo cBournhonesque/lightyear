@@ -1,25 +1,26 @@
 use std::ops::{Add, Mul};
 
-use bevy::app::{App, Plugin};
-use bevy::ecs::entity::{MapEntities, VisitEntities, VisitEntitiesMut};
-use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
-use bevy::utils::HashSet;
+use bevy::{
+    app::{App, Plugin},
+    ecs::entity::{MapEntities, VisitEntities, VisitEntitiesMut},
+    prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource},
+    utils::HashSet,
+};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use cfg_if::cfg_if;
 use lightyear_macros::ChannelInternal;
 use serde::{Deserialize, Serialize};
 
-use crate::client::components::ComponentSyncMode;
-use crate::prelude::*;
-use crate::protocol::message::registry::AppMessageExt;
-use crate::protocol::message::resource::AppResourceExt;
-use crate::protocol::message::trigger::AppTriggerExt;
-use crate::protocol::serialize::SerializeFns;
-use crate::serialize::reader::Reader;
-use crate::serialize::writer::Writer;
-use crate::serialize::SerializationError;
-use crate::shared::input::InputConfig;
-use crate::shared::replication::delta::Diffable;
+use crate::{
+    client::components::ComponentSyncMode,
+    prelude::*,
+    protocol::{
+        message::{registry::AppMessageExt, resource::AppResourceExt, trigger::AppTriggerExt},
+        serialize::SerializeFns,
+    },
+    serialize::{reader::Reader, writer::Writer, SerializationError},
+    shared::{input::InputConfig, replication::delta::Diffable},
+};
 
 // Event
 #[derive(Event, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]

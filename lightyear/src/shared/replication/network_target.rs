@@ -1,10 +1,11 @@
-use crate::prelude::ClientId;
-use crate::serialize::reader::Reader;
-use crate::serialize::{SerializationError, ToBytes};
-use bevy::prelude::Reflect;
-use bevy::utils::HashSet;
+use bevy::{prelude::Reflect, utils::HashSet};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    prelude::ClientId,
+    serialize::{reader::Reader, SerializationError, ToBytes},
+};
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect)]
 /// NetworkTarget indicated which clients should receive some message

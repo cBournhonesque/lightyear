@@ -1,14 +1,19 @@
-use bevy::ecs::system::EntityCommands;
-use bevy::ecs::world::Command;
-use bevy::prelude::*;
+use bevy::{
+    ecs::{system::EntityCommands, world::Command},
+    prelude::*,
+};
 use tracing::{debug, error, trace};
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
-use crate::client::prediction::Predicted;
-use crate::prelude::{
-    AppIdentityExt, ComponentRegistry, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
+use crate::{
+    client::{
+        components::{ComponentSyncMode, Confirmed, SyncComponent},
+        prediction::Predicted,
+    },
+    prelude::{
+        AppIdentityExt, ComponentRegistry, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
+    },
+    shared::tick_manager::Tick,
 };
-use crate::shared::tick_manager::Tick;
 
 // - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
 //   - maybe we don't do it, and we wait until we are sure (confirmed despawn) before actually despawning the entity
@@ -164,14 +169,22 @@ pub(crate) fn remove_despawn_marker(
 
 #[cfg(test)]
 mod tests {
-    use crate::client::prediction::despawn::PredictionDespawnMarker;
-    use crate::client::prediction::resource::PredictionManager;
-    use crate::prelude::client::{Confirmed, PredictionDespawnCommandsExt};
-    use crate::prelude::server::SyncTarget;
-    use crate::prelude::{client, server, NetworkTarget};
-    use crate::tests::protocol::{ComponentSyncModeFull, ComponentSyncModeSimple};
-    use crate::tests::stepper::BevyStepper;
     use bevy::prelude::{default, Component};
+
+    use crate::{
+        client::prediction::{despawn::PredictionDespawnMarker, resource::PredictionManager},
+        prelude::{
+            client,
+            client::{Confirmed, PredictionDespawnCommandsExt},
+            server,
+            server::SyncTarget,
+            NetworkTarget,
+        },
+        tests::{
+            protocol::{ComponentSyncModeFull, ComponentSyncModeSimple},
+            stepper::BevyStepper,
+        },
+    };
 
     #[derive(Component, Debug, PartialEq)]
     struct TestComponent(usize);

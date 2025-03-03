@@ -1,36 +1,38 @@
+use std::collections::{HashMap, VecDeque};
+
 use byteorder::ReadBytesExt;
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
-use std::collections::{HashMap, VecDeque};
 use tracing::trace;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-use crate::channel::builder::ChannelContainer;
-use crate::channel::receivers::ChannelReceive;
-use crate::channel::senders::ChannelSend;
 #[cfg(feature = "trace")]
 use crate::channel::stats::send::ChannelSendStats;
-use crate::packet::error::PacketError;
-use crate::packet::header::PacketHeader;
-use crate::packet::message::{
-    FragmentData, MessageAck, MessageId, ReceiveMessage, SendMessage, SingleData,
-};
-use crate::packet::packet::PacketId;
-use crate::packet::packet_builder::{PacketBuilder, Payload, RecvPayload};
-use crate::packet::packet_type::PacketType;
-use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
-use crate::protocol::channel::{ChannelId, ChannelKind, ChannelRegistry};
-use crate::protocol::registry::NetId;
-use crate::serialize::reader::Reader;
-use crate::serialize::writer::Writer;
-use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::ping::manager::PingManager;
-use crate::shared::tick_manager::Tick;
-use crate::shared::tick_manager::TickManager;
-use crate::shared::time_manager::TimeManager;
 #[cfg(test)]
 use crate::utils::captures::Captures;
+use crate::{
+    channel::{builder::ChannelContainer, receivers::ChannelReceive, senders::ChannelSend},
+    packet::{
+        error::PacketError,
+        header::PacketHeader,
+        message::{FragmentData, MessageAck, MessageId, ReceiveMessage, SendMessage, SingleData},
+        packet::PacketId,
+        packet_builder::{PacketBuilder, Payload, RecvPayload},
+        packet_type::PacketType,
+        priority_manager::{PriorityConfig, PriorityManager},
+    },
+    protocol::{
+        channel::{ChannelId, ChannelKind, ChannelRegistry},
+        registry::NetId,
+    },
+    serialize::{reader::Reader, writer::Writer, SerializationError, ToBytes},
+    shared::{
+        ping::manager::PingManager,
+        tick_manager::{Tick, TickManager},
+        time_manager::TimeManager,
+    },
+};
 
 // TODO: hard to split message manager into send/receive because the acks need both the send side and receive side
 //  maybe have a separate actor for acks?
@@ -439,14 +441,12 @@ mod tests {
 
     use bevy::prelude::default;
 
-    use crate::packet::message::MessageId;
-    use crate::packet::packet::FRAGMENT_SIZE;
-    use crate::packet::priority_manager::PriorityConfig;
-    use crate::prelude::*;
-
-    use crate::tests::protocol::*;
-
     use super::*;
+    use crate::{
+        packet::{message::MessageId, packet::FRAGMENT_SIZE, priority_manager::PriorityConfig},
+        prelude::*,
+        tests::protocol::*,
+    };
 
     fn setup() -> (MessageManager, MessageManager) {
         let mut channel_registry = ChannelRegistry::default();

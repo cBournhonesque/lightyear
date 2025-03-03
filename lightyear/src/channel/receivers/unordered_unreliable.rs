@@ -1,13 +1,18 @@
-use bytes::Bytes;
 use std::collections::VecDeque;
 
-use crate::channel::receivers::error::ChannelReceiveError;
-use crate::channel::receivers::fragment_receiver::FragmentReceiver;
-use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{MessageData, ReceiveMessage};
-use crate::prelude::Tick;
-use crate::shared::tick_manager::TickManager;
-use crate::shared::time_manager::{TimeManager, WrappedTime};
+use bytes::Bytes;
+
+use crate::{
+    channel::receivers::{
+        error::ChannelReceiveError, fragment_receiver::FragmentReceiver, ChannelReceive,
+    },
+    packet::message::{MessageData, ReceiveMessage},
+    prelude::Tick,
+    shared::{
+        tick_manager::TickManager,
+        time_manager::{TimeManager, WrappedTime},
+    },
+};
 
 const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 
@@ -63,11 +68,11 @@ impl ChannelReceive for UnorderedUnreliableReceiver {
 mod tests {
     use bytes::Bytes;
 
-    use crate::channel::receivers::error::ChannelReceiveError;
-    use crate::channel::receivers::ChannelReceive;
-    use crate::packet::message::{MessageId, SingleData};
-
     use super::*;
+    use crate::{
+        channel::receivers::{error::ChannelReceiveError, ChannelReceive},
+        packet::message::{MessageId, SingleData},
+    };
 
     #[test]
     fn test_unordered_unreliable_receiver_internals() -> Result<(), ChannelReceiveError> {

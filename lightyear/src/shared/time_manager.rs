@@ -9,16 +9,18 @@ It will interact with bevy's [`Time`] resource, and potentially change the relat
 The network serialization uses a u32 which can only represent times up to 46 days.
 This module contains some helper functions to compute the difference between two times.
 */
-use std::fmt::Formatter;
-use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
+use std::{
+    fmt::Formatter,
+    ops::{Add, AddAssign, Mul, Sub, SubAssign},
+};
 
-use bevy::app::{App, RunFixedMainLoop, RunFixedMainLoopSystem};
-use bevy::prelude::{IntoSystemConfigs, Plugin, Res, ResMut, Resource, Time};
-use bevy::time::Fixed;
-use bevy::utils::Duration;
-use bevy::utils::Instant;
+use bevy::{
+    app::{App, RunFixedMainLoop, RunFixedMainLoopSystem},
+    prelude::{IntoSystemConfigs, Plugin, Res, ResMut, Resource, Time},
+    time::Fixed,
+    utils::{Duration, Instant},
+};
 use chrono::Duration as ChronoDuration;
-
 pub use wrapped_time::WrappedTime;
 
 use crate::prelude::Tick;
@@ -143,8 +145,6 @@ impl TimeManager {
 }
 
 mod wrapped_time {
-    use crate::serialize::reader::Reader;
-    use crate::serialize::{SerializationError, ToBytes};
     use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
     use serde::{
         de::{Error, Visitor},
@@ -152,6 +152,7 @@ mod wrapped_time {
     };
 
     use super::*;
+    use crate::serialize::{reader::Reader, SerializationError, ToBytes};
 
     /// Time since start of server, in milliseconds
     /// Serializes in a compact manner (we only serialize up to the milliseconds)

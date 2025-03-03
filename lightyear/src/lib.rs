@@ -184,163 +184,183 @@ pub mod prelude {
     pub use lightyear_macros::Channel;
     pub use serde::{Deserialize, Serialize};
 
-    pub use crate::channel::builder::{
-        Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
-        InputChannel, ReliableSettings,
-    };
-    pub use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
-    pub use crate::connection::id::ClientId;
-    pub use crate::connection::netcode::{generate_key, ConnectToken, Key};
     #[cfg(feature = "leafwing")]
     pub use crate::inputs::leafwing::{input_message::InputMessage, LeafwingUserAction};
-    pub use crate::inputs::native::UserAction;
-    pub use crate::packet::error::PacketError;
-    pub use crate::packet::message::Message;
-    pub use crate::protocol::channel::{AppChannelExt, ChannelKind, ChannelRegistry};
-    pub use crate::protocol::component::{AppComponentExt, ComponentRegistry, Linear};
-    pub use crate::protocol::message::{
-        registry::{AppMessageExt, MessageRegistry},
-        resource::AppResourceExt,
-    };
-    pub use crate::protocol::serialize::AppSerializeExt;
-    pub use crate::shared::config::SharedConfig;
-    pub use crate::shared::identity::{AppIdentityExt, NetworkIdentity, NetworkIdentityState};
     #[cfg(feature = "leafwing")]
     pub use crate::shared::input::leafwing::LeafwingInputPlugin;
-    pub use crate::shared::input::native::InputPlugin;
-    pub use crate::shared::input::InputConfig;
-    pub use crate::shared::message::MessageSend;
-    pub use crate::shared::ping::manager::PingConfig;
-    pub use crate::shared::plugin::SharedPlugin;
-    pub use crate::shared::replication::authority::HasAuthority;
-    pub use crate::shared::replication::components::{
-        DeltaCompression, DisabledComponents, NetworkRelevanceMode, OverrideTargetComponent,
-        PrePredicted, ReplicateHierarchy, ReplicateOnceComponent, Replicated, Replicating,
-        ReplicationGroup, ShouldBePredicted, TargetEntity,
+    pub use crate::{
+        channel::builder::{
+            Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode,
+            ChannelSettings, InputChannel, ReliableSettings,
+        },
+        client::prediction::prespawn::PreSpawnedPlayerObject,
+        connection::{
+            id::ClientId,
+            netcode::{generate_key, ConnectToken, Key},
+        },
+        inputs::native::UserAction,
+        packet::{error::PacketError, message::Message},
+        protocol::{
+            channel::{AppChannelExt, ChannelKind, ChannelRegistry},
+            component::{AppComponentExt, ComponentRegistry, Linear},
+            message::{
+                registry::{AppMessageExt, MessageRegistry},
+                resource::AppResourceExt,
+            },
+            serialize::AppSerializeExt,
+        },
+        shared::{
+            config::SharedConfig,
+            identity::{AppIdentityExt, NetworkIdentity, NetworkIdentityState},
+            input::{native::InputPlugin, InputConfig},
+            message::MessageSend,
+            ping::manager::PingConfig,
+            plugin::SharedPlugin,
+            replication::{
+                authority::HasAuthority,
+                components::{
+                    DeltaCompression, DisabledComponents, NetworkRelevanceMode,
+                    OverrideTargetComponent, PrePredicted, ReplicateHierarchy,
+                    ReplicateOnceComponent, Replicated, Replicating, ReplicationGroup,
+                    ShouldBePredicted, TargetEntity,
+                },
+                entity_map::RemoteEntityMap,
+                hierarchy::ParentSync,
+                network_target::NetworkTarget,
+                plugin::{ReplicationConfig, SendUpdatesMode},
+                resources::{
+                    ReplicateResourceExt, ReplicateResourceMetadata, StopReplicateResourceExt,
+                },
+            },
+            run_conditions::*,
+            sets::{FixedUpdateSet, MainSet},
+            tick_manager::{Tick, TickConfig, TickManager},
+            time_manager::TimeManager,
+        },
+        transport::middleware::{
+            compression::CompressionConfig, conditioner::LinkConditionerConfig,
+        },
+        utils::history_buffer::{HistoryBuffer, HistoryState},
     };
-    pub use crate::shared::replication::entity_map::RemoteEntityMap;
-    pub use crate::shared::replication::hierarchy::ParentSync;
-    pub use crate::shared::replication::network_target::NetworkTarget;
-    pub use crate::shared::replication::plugin::ReplicationConfig;
-    pub use crate::shared::replication::plugin::SendUpdatesMode;
-    pub use crate::shared::replication::resources::{
-        ReplicateResourceExt, ReplicateResourceMetadata, StopReplicateResourceExt,
-    };
-    pub use crate::shared::run_conditions::*;
-    pub use crate::shared::sets::{FixedUpdateSet, MainSet};
-    pub use crate::shared::tick_manager::TickManager;
-    pub use crate::shared::tick_manager::{Tick, TickConfig};
-    pub use crate::shared::time_manager::TimeManager;
-    pub use crate::transport::middleware::compression::CompressionConfig;
-    pub use crate::transport::middleware::conditioner::LinkConditionerConfig;
-    pub use crate::utils::history_buffer::{HistoryBuffer, HistoryState};
 
     mod rename {
-        pub use crate::client::events::ComponentInsertEvent as ClientComponentInsertEvent;
-        pub use crate::client::events::ComponentRemoveEvent as ClientComponentRemoveEvent;
-        pub use crate::client::events::ComponentUpdateEvent as ClientComponentUpdateEvent;
-        pub use crate::client::events::ConnectEvent as ClientConnectEvent;
-        pub use crate::client::events::DisconnectEvent as ClientDisconnectEvent;
-        pub use crate::client::events::EntityDespawnEvent as ClientEntityDespawnEvent;
-        pub use crate::client::events::EntitySpawnEvent as ClientEntitySpawnEvent;
-        pub use crate::client::message::ReceiveMessage as ClientReceiveMessage;
-        pub use crate::client::message::ReceiveMessage as FromServer;
-        pub use crate::client::message::SendMessage as ClientSendMessage;
-        pub use crate::client::message::SendMessage as ToServer;
-        pub use crate::client::replication::send::Replicate as ClientReplicate;
-
-        pub use crate::client::connection::ConnectionManager as ClientConnectionManager;
-
-        pub use crate::server::events::ComponentInsertEvent as ServerComponentInsertEvent;
-        pub use crate::server::events::ComponentRemoveEvent as ServerComponentRemoveEvent;
-        pub use crate::server::events::ComponentUpdateEvent as ServerComponentUpdateEvent;
-        pub use crate::server::events::ConnectEvent as ServerConnectEvent;
-        pub use crate::server::events::DisconnectEvent as ServerDisconnectEvent;
-        pub use crate::server::events::EntityDespawnEvent as ServerEntityDespawnEvent;
-        pub use crate::server::events::EntitySpawnEvent as ServerEntitySpawnEvent;
-        pub use crate::server::message::ReceiveMessage as ServerReceiveMessage;
-        pub use crate::server::message::ReceiveMessage as FromClients;
-        pub use crate::server::message::SendMessage as ServerSendMessage;
-        pub use crate::server::message::SendMessage as ToClients;
-
-        pub use crate::server::connection::ConnectionManager as ServerConnectionManager;
-
-        pub use crate::server::replication::send::Replicate as ServerReplicate;
+        pub use crate::{
+            client::{
+                connection::ConnectionManager as ClientConnectionManager,
+                events::{
+                    ComponentInsertEvent as ClientComponentInsertEvent,
+                    ComponentRemoveEvent as ClientComponentRemoveEvent,
+                    ComponentUpdateEvent as ClientComponentUpdateEvent,
+                    ConnectEvent as ClientConnectEvent, DisconnectEvent as ClientDisconnectEvent,
+                    EntityDespawnEvent as ClientEntityDespawnEvent,
+                    EntitySpawnEvent as ClientEntitySpawnEvent,
+                },
+                message::{
+                    ReceiveMessage as ClientReceiveMessage, ReceiveMessage as FromServer,
+                    SendMessage as ClientSendMessage, SendMessage as ToServer,
+                },
+                replication::send::Replicate as ClientReplicate,
+            },
+            server::{
+                connection::ConnectionManager as ServerConnectionManager,
+                events::{
+                    ComponentInsertEvent as ServerComponentInsertEvent,
+                    ComponentRemoveEvent as ServerComponentRemoveEvent,
+                    ComponentUpdateEvent as ServerComponentUpdateEvent,
+                    ConnectEvent as ServerConnectEvent, DisconnectEvent as ServerDisconnectEvent,
+                    EntityDespawnEvent as ServerEntityDespawnEvent,
+                    EntitySpawnEvent as ServerEntitySpawnEvent,
+                },
+                message::{
+                    ReceiveMessage as ServerReceiveMessage, ReceiveMessage as FromClients,
+                    SendMessage as ServerSendMessage, SendMessage as ToClients,
+                },
+                replication::send::Replicate as ServerReplicate,
+            },
+        };
     }
     pub use rename::*;
 
     pub mod client {
-        pub use crate::client::components::{
-            ComponentSyncMode, Confirmed, LerpFn, SyncComponent, SyncMetadata,
-        };
-        pub use crate::client::config::{ClientConfig, NetcodeConfig, PacketConfig};
-        pub use crate::client::connection::ConnectionManager;
-        pub use crate::client::error::ClientError;
-        pub use crate::client::events::{
-            ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
-            DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent,
-        };
-        pub use crate::client::interpolation::interpolation_history::ConfirmedHistory;
-        pub use crate::client::interpolation::plugin::{
-            InterpolationConfig, InterpolationDelay, InterpolationSet,
-        };
-        pub use crate::client::interpolation::{
-            InterpolateStatus, Interpolated, VisualInterpolateStatus, VisualInterpolationPlugin,
-        };
-        pub use crate::client::io::config::ClientTransport;
-        pub use crate::client::io::Io;
-        pub use crate::client::message::ReceiveMessage;
-        pub use crate::client::networking::{ClientCommandsExt, ConnectedState, NetworkingState};
-        pub use crate::client::plugin::ClientPlugins;
-        pub use crate::client::prediction::correction::Correction;
-        pub use crate::client::prediction::despawn::PredictionDespawnCommandsExt;
-        pub use crate::client::prediction::plugin::is_in_rollback;
-        pub use crate::client::prediction::plugin::{PredictionConfig, PredictionSet};
-        pub use crate::client::prediction::rollback::{Rollback, RollbackState};
-        pub use crate::client::prediction::Predicted;
-        pub use crate::client::replication::commands::DespawnReplicationCommandExt;
-        pub use crate::client::replication::send::{Replicate, ReplicateToServer};
-        pub use crate::client::run_conditions::{is_connected, is_disconnected, is_synced};
-        pub use crate::client::sync::SyncConfig;
-        pub use crate::connection::client::{
-            Authentication, ClientConnection, IoConfig, NetClient, NetConfig,
-        };
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::client::{SocketConfig, SteamConfig};
-        pub use crate::protocol::message::client::ClientTriggerExt;
+        pub use crate::{
+            client::{
+                components::{ComponentSyncMode, Confirmed, LerpFn, SyncComponent, SyncMetadata},
+                config::{ClientConfig, NetcodeConfig, PacketConfig},
+                connection::ConnectionManager,
+                error::ClientError,
+                events::{
+                    ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
+                    DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent,
+                },
+                interpolation::{
+                    interpolation_history::ConfirmedHistory,
+                    plugin::{InterpolationConfig, InterpolationDelay, InterpolationSet},
+                    InterpolateStatus, Interpolated, VisualInterpolateStatus,
+                    VisualInterpolationPlugin,
+                },
+                io::{config::ClientTransport, Io},
+                message::ReceiveMessage,
+                networking::{ClientCommandsExt, ConnectedState, NetworkingState},
+                plugin::ClientPlugins,
+                prediction::{
+                    correction::Correction,
+                    despawn::PredictionDespawnCommandsExt,
+                    plugin::{is_in_rollback, PredictionConfig, PredictionSet},
+                    rollback::{Rollback, RollbackState},
+                    Predicted,
+                },
+                replication::{
+                    commands::DespawnReplicationCommandExt,
+                    send::{Replicate, ReplicateToServer},
+                },
+                run_conditions::{is_connected, is_disconnected, is_synced},
+                sync::SyncConfig,
+            },
+            connection::client::{
+                Authentication, ClientConnection, IoConfig, NetClient, NetConfig,
+            },
+            protocol::message::client::ClientTriggerExt,
+        };
     }
     pub mod server {
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
         pub use wtransport::tls::Identity;
 
-        pub use crate::connection::server::{IoConfig, NetConfig, NetServer, ServerConnection};
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         pub use crate::connection::steam::server::{SocketConfig, SteamConfig};
-        pub use crate::protocol::message::server::ServerTriggerExt;
-        pub use crate::server::clients::ControlledEntities;
-        pub use crate::server::config::{NetcodeConfig, PacketConfig, ServerConfig};
-        pub use crate::server::connection::ConnectionManager;
-        pub use crate::server::error::ServerError;
-        pub use crate::server::events::{
-            ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
-            DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent,
-        };
-        pub use crate::server::io::config::ServerTransport;
-        pub use crate::server::io::Io;
-        pub use crate::server::networking::{NetworkingState, ServerCommandsExt};
-        pub use crate::server::plugin::ServerPlugins;
-        pub use crate::server::relevance::immediate::RelevanceManager;
-        pub use crate::server::relevance::room::{RoomId, RoomManager};
-        pub use crate::server::replication::commands::AuthorityCommandExt;
-        pub use crate::server::replication::commands::DespawnReplicationCommandExt;
-        pub use crate::server::replication::{
-            send::{
-                ControlledBy, Lifetime, Replicate, ReplicationTarget, ServerFilter, SyncTarget,
+        pub use crate::{
+            connection::server::{IoConfig, NetConfig, NetServer, ServerConnection},
+            protocol::message::server::ServerTriggerExt,
+            server::{
+                clients::ControlledEntities,
+                config::{NetcodeConfig, PacketConfig, ServerConfig},
+                connection::ConnectionManager,
+                error::ServerError,
+                events::{
+                    ComponentInsertEvent, ComponentRemoveEvent, ComponentUpdateEvent, ConnectEvent,
+                    DisconnectEvent, EntityDespawnEvent, EntitySpawnEvent, InputEvent,
+                },
+                io::{config::ServerTransport, Io},
+                networking::{NetworkingState, ServerCommandsExt},
+                plugin::ServerPlugins,
+                relevance::{
+                    immediate::RelevanceManager,
+                    room::{RoomId, RoomManager},
+                },
+                replication::{
+                    commands::{AuthorityCommandExt, DespawnReplicationCommandExt},
+                    send::{
+                        ControlledBy, Lifetime, Replicate, ReplicationTarget, ServerFilter,
+                        SyncTarget,
+                    },
+                    ReplicationSet, ServerReplicationSet,
+                },
+                run_conditions::{is_started, is_stopped},
             },
-            ReplicationSet, ServerReplicationSet,
+            shared::replication::authority::AuthorityPeer,
         };
-        pub use crate::server::run_conditions::{is_started, is_stopped};
-        pub use crate::shared::replication::authority::AuthorityPeer;
     }
 
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]

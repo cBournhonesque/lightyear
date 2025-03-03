@@ -1,25 +1,27 @@
 //! WebTransport client implementation.
-use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 
 use async_compat::Compat;
-use bevy::tasks::IoTaskPool;
-use bevy::utils::HashMap;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use bevy::{tasks::IoTaskPool, utils::HashMap};
+use tokio::sync::{
+    mpsc,
+    mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender},
+};
 use tracing::{debug, error, info, trace};
-use wtransport;
-use wtransport::datagram::Datagram;
-use wtransport::Connection;
-use wtransport::{Identity, ServerConfig};
+use wtransport::{self, datagram::Datagram, Connection, Identity, ServerConfig};
 
-use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
-use crate::server::io::{ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender};
-use crate::transport::error::Result;
-use crate::transport::io::IoState;
-use crate::transport::{
-    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MIN_MTU, MTU,
+use crate::{
+    server::io::{
+        transport::{ServerTransportBuilder, ServerTransportEnum},
+        ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender,
+    },
+    transport::{
+        error::Result, io::IoState, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender,
+        Transport, MIN_MTU, MTU,
+    },
 };
 
 pub(crate) struct WebTransportServerSocketBuilder {

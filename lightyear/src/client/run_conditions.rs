@@ -1,7 +1,10 @@
 //! Common client-related run conditions
-use crate::client::connection::ConnectionManager;
-use crate::connection::client::{ClientConnection, ConnectionState, NetClient};
 use bevy::prelude::Res;
+
+use crate::{
+    client::connection::ConnectionManager,
+    connection::client::{ClientConnection, ConnectionState, NetClient},
+};
 
 /// Returns true if the client is connected
 ///

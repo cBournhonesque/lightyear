@@ -1,14 +1,16 @@
-use crate::protocol::*;
-use crate::shared::Wall;
-use avian2d::position::{Position, Rotation};
-use avian2d::prelude::LinearVelocity;
-use bevy::color::palettes::css;
-use bevy::prelude::*;
-use bevy::render::RenderPlugin;
-use lightyear::client::components::Confirmed;
-use lightyear::client::interpolation::VisualInterpolateStatus;
-use lightyear::client::prediction::Predicted;
-use lightyear::prelude::client::{InterpolationSet, PredictionSet, VisualInterpolationPlugin};
+use avian2d::{
+    position::{Position, Rotation},
+    prelude::LinearVelocity,
+};
+use bevy::{color::palettes::css, prelude::*, render::RenderPlugin};
+use lightyear::{
+    client::{
+        components::Confirmed, interpolation::VisualInterpolateStatus, prediction::Predicted,
+    },
+    prelude::client::{InterpolationSet, PredictionSet, VisualInterpolationPlugin},
+};
+
+use crate::{protocol::*, shared::Wall};
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin {

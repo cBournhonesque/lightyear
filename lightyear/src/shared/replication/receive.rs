@@ -1,24 +1,31 @@
 //! General struct handling replication
 use std::collections::BTreeMap;
 
-use super::entity_map::RemoteEntityMap;
-use super::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
-use crate::packet::message::MessageId;
-use crate::prelude::client::Confirmed;
-use crate::prelude::{ClientId, Tick};
-use crate::protocol::component::ComponentRegistry;
-use crate::serialize::reader::Reader;
-use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
-use crate::shared::replication::components::{InitialReplicated, Replicated, ReplicationGroupId};
-#[cfg(test)]
-use crate::utils::captures::Captures;
-use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{DespawnRecursiveExt, Entity, EntityWorldMut, World};
-use bevy::utils::{hashbrown, HashSet};
+use bevy::{
+    ecs::entity::EntityHash,
+    prelude::{DespawnRecursiveExt, Entity, EntityWorldMut, World},
+    utils::{hashbrown, HashSet},
+};
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
+
+use super::{entity_map::RemoteEntityMap, EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
+#[cfg(test)]
+use crate::utils::captures::Captures;
+use crate::{
+    packet::message::MessageId,
+    prelude::{client::Confirmed, ClientId, Tick},
+    protocol::component::ComponentRegistry,
+    serialize::reader::Reader,
+    shared::{
+        events::connection::ConnectionEvents,
+        replication::{
+            authority::{AuthorityPeer, HasAuthority},
+            components::{InitialReplicated, Replicated, ReplicationGroupId},
+        },
+    },
+};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
@@ -889,12 +896,17 @@ impl GroupChannel {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::prelude::ServerReplicate;
-    use crate::shared::replication::EntityActions;
-    use crate::tests::protocol::{ComponentSyncModeOnce, ComponentSyncModeSimple};
-    use crate::tests::stepper::BevyStepper;
     use bevy::prelude::{OnAdd, Query, Trigger, With};
+
+    use super::*;
+    use crate::{
+        prelude::ServerReplicate,
+        shared::replication::EntityActions,
+        tests::{
+            protocol::{ComponentSyncModeOnce, ComponentSyncModeSimple},
+            stepper::BevyStepper,
+        },
+    };
 
     /// Test that the UpdatesIterator works correctly, when we want to iterate through
     /// the buffered updates we have received

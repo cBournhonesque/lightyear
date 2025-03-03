@@ -1,11 +1,14 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use lightyear::prelude::client::PredictionConfig;
-use lightyear_examples_common::app::{Apps, Cli};
-use lightyear_examples_common::settings::Settings;
+use lightyear_examples_common::{
+    app::{Apps, Cli},
+    settings::Settings,
+};
+
+use crate::shared::SharedPlugin;
 
 #[cfg(feature = "client")]
 mod client;

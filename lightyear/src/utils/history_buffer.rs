@@ -1,10 +1,9 @@
-use crate::prelude::Tick;
-use bevy::prelude::{Component, Reflect, Resource};
-use bevy::prelude::{ReflectComponent, ReflectResource};
-use std::collections::VecDeque;
-use std::fmt::Debug;
-use std::iter::FilterMap;
+use std::{collections::VecDeque, fmt::Debug, iter::FilterMap};
+
+use bevy::prelude::{Component, Reflect, ReflectComponent, ReflectResource, Resource};
 use tracing::debug;
+
+use crate::prelude::Tick;
 
 /// Stores a past value in the history buffer
 #[derive(Debug, PartialEq, Clone, Default, Reflect)]

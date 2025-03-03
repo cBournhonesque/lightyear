@@ -19,13 +19,15 @@ There are several steps to use the `InputPlugin`:
 
 */
 
-use crate::inputs::native::input_buffer::{InputBuffer, InputData};
-use crate::prelude::Deserialize;
+use std::{fmt::Debug, marker::PhantomData};
+
 use bevy::prelude::{Component, Reflect};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use std::fmt::Debug;
-use std::marker::PhantomData;
+use serde::{de::DeserializeOwned, Serialize};
+
+use crate::{
+    inputs::native::input_buffer::{InputBuffer, InputData},
+    prelude::Deserialize,
+};
 
 /// Defines an [`InputBuffer`](input_buffer::InputBuffer) buffer to store the inputs of a player for each tick
 pub mod input_buffer;

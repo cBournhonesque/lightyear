@@ -1,28 +1,26 @@
 //! Helpers to setup a bevy app where I can just step the world easily.
 //! Uses crossbeam channels to mock the network
-use bevy::core::TaskPoolThreadAssignmentPolicy;
-use bevy::ecs::system::RunSystemOnce;
-use bevy::log::{error, Level, LogPlugin};
-use bevy::utils::Duration;
-use std::net::SocketAddr;
-use std::str::FromStr;
+use std::{net::SocketAddr, str::FromStr};
 
-use bevy::prelude::{
-    default, App, Commands, Mut, Plugin, PluginGroup, Real, Resource, TaskPoolOptions,
-    TaskPoolPlugin, Time,
+use bevy::{
+    core::TaskPoolThreadAssignmentPolicy,
+    ecs::system::RunSystemOnce,
+    log::{error, Level, LogPlugin},
+    prelude::{
+        default, App, Commands, Mut, Plugin, PluginGroup, Real, Resource, TaskPoolOptions,
+        TaskPoolPlugin, Time,
+    },
+    state::app::StatesPlugin,
+    tasks::available_parallelism,
+    time::TimeUpdateStrategy,
+    utils::{Duration, HashMap},
+    MinimalPlugins,
 };
-use bevy::state::app::StatesPlugin;
-use bevy::tasks::available_parallelism;
-use bevy::time::TimeUpdateStrategy;
-use bevy::utils::HashMap;
-use bevy::MinimalPlugins;
-
-use lightyear::connection::netcode::generate_key;
-use lightyear::prelude::client::*;
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
-use lightyear::prelude::{client, server};
-use lightyear::transport::LOCAL_SOCKET;
+use lightyear::{
+    connection::netcode::generate_key,
+    prelude::{client, client::*, server, server::*, *},
+    transport::LOCAL_SOCKET,
+};
 
 use crate::protocol::*;
 

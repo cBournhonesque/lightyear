@@ -1,16 +1,20 @@
 //! Logic related to delta compression (sending only the changes between two states, instead of the new state)
 
-use crate::prelude::{ComponentRegistry, Message, Tick};
-use crate::protocol::component::ComponentKind;
-use crate::shared::replication::components::ReplicationGroupId;
-use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{Component, Entity};
-use bevy::ptr::Ptr;
-use bevy::utils::{hashbrown, HashMap};
+use std::{collections::BTreeMap, ptr::NonNull};
 
+use bevy::{
+    ecs::entity::EntityHash,
+    prelude::{Component, Entity},
+    ptr::Ptr,
+    utils::{hashbrown, HashMap},
+};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::ptr::NonNull;
+
+use crate::{
+    prelude::{ComponentRegistry, Message, Tick},
+    protocol::component::ComponentKind,
+    shared::replication::components::ReplicationGroupId,
+};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum DeltaType {
@@ -219,9 +223,10 @@ impl DeltaComponentStore {
 
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::World;
+
     use super::*;
     use crate::tests::protocol::ComponentDeltaCompression;
-    use bevy::prelude::World;
 
     #[test]
     fn test_add_get_data() {

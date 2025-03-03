@@ -1,27 +1,34 @@
-use crate::client::io::transport::{ClientTransportBuilder, ClientTransportBuilderEnum};
-use crate::client::io::{Io, IoContext};
-use crate::prelude::CompressionConfig;
-use crate::transport::config::SharedIoConfig;
-use crate::transport::dummy::DummyIo;
-use crate::transport::error::Result;
-use crate::transport::io::{BaseIo, IoStats};
-use crate::transport::local::LocalChannelBuilder;
+use std::net::SocketAddr;
+
+use bevy::prelude::TypePath;
+use crossbeam_channel::{Receiver, Sender};
+
 #[cfg(feature = "zstd")]
 use crate::transport::middleware::compression::zstd::compression::ZstdCompressor;
 #[cfg(feature = "zstd")]
 use crate::transport::middleware::compression::zstd::decompression::ZstdDecompressor;
-use crate::transport::middleware::conditioner::LinkConditioner;
-use crate::transport::middleware::PacketReceiverWrapper;
 #[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::UdpSocketBuilder;
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::client::WebSocketClientSocketBuilder;
 #[cfg(feature = "webtransport")]
 use crate::transport::webtransport::client::WebTransportClientSocketBuilder;
-use crate::transport::{BoxedReceiver, Transport};
-use bevy::prelude::TypePath;
-use crossbeam_channel::{Receiver, Sender};
-use std::net::SocketAddr;
+use crate::{
+    client::io::{
+        transport::{ClientTransportBuilder, ClientTransportBuilderEnum},
+        Io, IoContext,
+    },
+    prelude::CompressionConfig,
+    transport::{
+        config::SharedIoConfig,
+        dummy::DummyIo,
+        error::Result,
+        io::{BaseIo, IoStats},
+        local::LocalChannelBuilder,
+        middleware::{conditioner::LinkConditioner, PacketReceiverWrapper},
+        BoxedReceiver, Transport,
+    },
+};
 
 /// Use this to configure the [`Transport`] that will be used to establish a connection with the
 /// server.

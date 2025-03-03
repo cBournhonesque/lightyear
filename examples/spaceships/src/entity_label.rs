@@ -1,10 +1,9 @@
 use avian2d::prelude::{Position, Rotation};
-use bevy::prelude::TransformSystem::TransformPropagate;
 /// Utility plugin to display a text label next to an entity.
 ///
 /// Label will track parent position, ignoring rotation.
 use bevy::prelude::*;
-use bevy::text::TextReader;
+use bevy::{prelude::TransformSystem::TransformPropagate, text::TextReader};
 use lightyear::{
     client::{
         interpolation::{plugin::InterpolationSet, VisualInterpolateStatus},

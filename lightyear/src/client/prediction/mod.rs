@@ -1,9 +1,12 @@
 //! Handles client-side prediction
-use crate::client::prediction::resource::PredictionManager;
-use bevy::ecs::component::StorageType;
-use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
 use std::fmt::Debug;
+
+use bevy::{
+    ecs::{component::StorageType, world::DeferredWorld},
+    prelude::{Component, Entity, Reflect, ReflectComponent},
+};
+
+use crate::client::prediction::resource::PredictionManager;
 
 pub mod correction;
 pub mod despawn;

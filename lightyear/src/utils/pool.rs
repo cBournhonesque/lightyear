@@ -66,9 +66,11 @@
 //!
 //! [`std::sync::Arc`]: https://doc.rust-lang.org/stable/std/sync/struct.Arc.html
 
-use std::iter::FromIterator;
-use std::mem::{forget, ManuallyDrop};
-use std::ops::{Deref, DerefMut};
+use std::{
+    iter::FromIterator,
+    mem::{forget, ManuallyDrop},
+    ops::{Deref, DerefMut},
+};
 
 use parking_lot::Mutex;
 

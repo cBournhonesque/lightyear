@@ -6,16 +6,13 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
-use bevy::prelude::*;
-use bevy::utils::Duration;
-use bevy::utils::HashMap;
+use bevy::{
+    prelude::*,
+    utils::{Duration, HashMap},
+};
+use lightyear::prelude::{server::*, *};
 
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
-
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::shared_movement_behaviour;
+use crate::{protocol::*, shared, shared::shared_movement_behaviour};
 
 pub struct ExampleServerPlugin {
     pub(crate) is_dedicated_server: bool,
@@ -93,8 +90,9 @@ fn spawn_player_entity(
 }
 
 mod game {
-    use super::*;
     use lightyear::inputs::native::ActionState;
+
+    use super::*;
 
     /// When a player connects, create a new player entity.
     /// This is only for the HostServer mode (for the dedicated server mode, the clients are already connected to the server
@@ -139,8 +137,7 @@ mod game {
 }
 
 mod lobby {
-    use lightyear::server::connection::ConnectionManager;
-    use lightyear::server::relevance::room::RoomManager;
+    use lightyear::server::{connection::ConnectionManager, relevance::room::RoomManager};
 
     use super::*;
 

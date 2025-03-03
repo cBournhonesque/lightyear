@@ -1,12 +1,17 @@
-use crate::prelude::{ComponentRegistry, Message, MessageRegistry};
-use crate::serialize::{reader::Reader, writer::Writer, SerializationError};
-use crate::shared::replication::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
-use bevy::app::App;
-use bevy::ecs::entity::MapEntities;
-use bevy::ptr::{Ptr, PtrMut};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use std::any::TypeId;
+
+use bevy::{
+    app::App,
+    ecs::entity::MapEntities,
+    ptr::{Ptr, PtrMut},
+};
+use serde::{de::DeserializeOwned, Serialize};
+
+use crate::{
+    prelude::{ComponentRegistry, Message, MessageRegistry},
+    serialize::{reader::Reader, writer::Writer, SerializationError},
+    shared::replication::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap},
+};
 
 /// Stores function pointers related to serialization and deserialization
 #[derive(Clone, Debug, PartialEq)]
@@ -244,13 +249,16 @@ impl AppSerializeExt for App {
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::serialize::{erased_serialize_fn, ErasedSerializeFns};
-    use crate::serialize::reader::Reader;
-    use crate::serialize::writer::Writer;
-    use crate::shared::replication::authority::AuthorityChange;
-    use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
-    use bevy::prelude::Entity;
-    use bevy::ptr::Ptr;
+    use bevy::{prelude::Entity, ptr::Ptr};
+
+    use crate::{
+        protocol::serialize::{erased_serialize_fn, ErasedSerializeFns},
+        serialize::{reader::Reader, writer::Writer},
+        shared::replication::{
+            authority::AuthorityChange,
+            entity_map::{ReceiveEntityMap, SendEntityMap},
+        },
+    };
 
     /// Test serializing/deserializing using the ErasedSerializeFns
     #[test]

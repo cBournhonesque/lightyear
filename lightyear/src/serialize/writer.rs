@@ -5,8 +5,9 @@
 //!
 //! The idea is that we have one allocation under the [`BytesMut`], when we finish writing a message,
 //! we can split the message of as a separate [`Bytes`], but
-use bytes::{BufMut, Bytes, BytesMut};
 use std::io::Write;
+
+use bytes::{BufMut, Bytes, BytesMut};
 
 #[derive(Debug)]
 pub struct Writer(bytes::buf::Writer<BytesMut>);

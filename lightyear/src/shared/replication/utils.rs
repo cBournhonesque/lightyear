@@ -1,12 +1,17 @@
-use bevy::ecs::component::{ComponentId, StorageType, Tick, TickCells};
-use bevy::ecs::entity::EntityLocation;
-use bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell;
-use bevy::prelude::*;
-#[allow(unused_imports)]
-use bevy::ptr::{Ptr, UnsafeCellDeref};
 use std::any::TypeId;
 #[cfg(feature = "track_change_detection")]
 use std::{cell::UnsafeCell, panic::Location};
+
+#[allow(unused_imports)]
+use bevy::ptr::{Ptr, UnsafeCellDeref};
+use bevy::{
+    ecs::{
+        component::{ComponentId, StorageType, Tick, TickCells},
+        entity::EntityLocation,
+        world::unsafe_world_cell::UnsafeWorldCell,
+    },
+    prelude::*,
+};
 
 #[cfg(feature = "track_change_detection")]
 pub(crate) type MaybeUnsafeCellLocation<'a> = &'a UnsafeCell<&'static Location<'static>>;

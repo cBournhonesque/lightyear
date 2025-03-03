@@ -1,15 +1,23 @@
 //! The transport is a UDP socket
-use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
-
-use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
-use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
-use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
-use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
-use crate::transport::io::IoState;
-use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 
 use super::error::Result;
+use crate::{
+    client::io::{
+        transport::{ClientTransportBuilder, ClientTransportEnum},
+        ClientIoEventReceiver, ClientNetworkEventSender,
+    },
+    server::io::{
+        transport::{ServerTransportBuilder, ServerTransportEnum},
+        ServerIoEventReceiver, ServerNetworkEventSender,
+    },
+    transport::{
+        io::IoState, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU,
+    },
+};
 
 pub struct UdpSocketBuilder {
     pub(crate) local_addr: SocketAddr,
@@ -131,17 +139,22 @@ impl PacketReceiver for UdpSocketBuffer {
 #[cfg(not(target_family = "wasm"))]
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
-    use std::str::FromStr;
+    use std::{net::SocketAddr, str::FromStr};
 
-    use crate::client::io::transport::ClientTransportBuilder;
-    use crate::server::io::transport::ServerTransportBuilder;
     use bevy::utils::Duration;
 
-    use crate::transport::middleware::conditioner::{LinkConditioner, LinkConditionerConfig};
-    use crate::transport::middleware::PacketReceiverWrapper;
-    use crate::transport::udp::UdpSocketBuilder;
-    use crate::transport::{PacketReceiver, PacketSender, Transport};
+    use crate::{
+        client::io::transport::ClientTransportBuilder,
+        server::io::transport::ServerTransportBuilder,
+        transport::{
+            middleware::{
+                conditioner::{LinkConditioner, LinkConditionerConfig},
+                PacketReceiverWrapper,
+            },
+            udp::UdpSocketBuilder,
+            PacketReceiver, PacketSender, Transport,
+        },
+    };
 
     #[test]
     fn test_udp_socket() {

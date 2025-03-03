@@ -2,9 +2,10 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-use crate::settings::get_settings;
 use bevy::prelude::*;
 use lightyear_examples_common::app::{Apps, Cli};
+
+use crate::settings::get_settings;
 
 #[cfg(feature = "client")]
 mod client;

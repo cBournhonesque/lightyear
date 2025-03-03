@@ -2,10 +2,10 @@
 use bevy::prelude::{Added, Commands, Entity, Query, Res};
 use tracing::debug;
 
-use crate::client::components::Confirmed;
-use crate::client::connection::ConnectionManager;
-use crate::client::prediction::Predicted;
-use crate::prelude::{ShouldBePredicted, TickManager};
+use crate::{
+    client::{components::Confirmed, connection::ConnectionManager, prediction::Predicted},
+    prelude::{ShouldBePredicted, TickManager},
+};
 
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
 /// The `Confirmed` entity could already exist because we share the Confirmed component for prediction and interpolation.
@@ -79,12 +79,16 @@ pub(crate) fn spawn_predicted_entity(
 //
 #[cfg(test)]
 mod tests {
-    use crate::client::components::Confirmed;
-    use crate::prelude::server::SyncTarget;
-    use crate::prelude::{client, server, ClientId, NetworkTarget};
-    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
-    use bevy::hierarchy::{BuildChildren, Parent};
-    use bevy::prelude::default;
+    use bevy::{
+        hierarchy::{BuildChildren, Parent},
+        prelude::default,
+    };
+
+    use crate::{
+        client::components::Confirmed,
+        prelude::{client, server, server::SyncTarget, ClientId, NetworkTarget},
+        tests::stepper::{BevyStepper, TEST_CLIENT_ID},
+    };
 
     /// https://github.com/cBournhonesque/lightyear/issues/627
     /// Test that when we spawn a parent + child with hierarchy (ParentSync),

@@ -1,33 +1,37 @@
-use crate::entity_label::*;
-/// Renders entities using gizmos to draw outlines
-use crate::protocol::*;
-use crate::shared::*;
-use avian2d::parry::shape::SharedShape;
-use avian2d::prelude::*;
-use bevy::color::palettes::css;
-use bevy::core_pipeline::bloom::Bloom;
-use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::prelude::*;
-use bevy::time::common_conditions::on_timer;
+use std::{
+    f32::consts::{PI, TAU},
+    time::Duration,
+};
+
+use avian2d::{parry::shape::SharedShape, prelude::*};
+use bevy::{
+    color::palettes::css,
+    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
+    prelude::*,
+    time::common_conditions::on_timer,
+};
 use leafwing_input_manager::action_state::ActionState;
-use lightyear::client::prediction::prespawn::PreSpawnedPlayerObject;
-use lightyear::inputs::leafwing::input_buffer::InputBuffer;
-use lightyear::prelude::client::*;
-use lightyear::prelude::Replicating;
-use lightyear::shared::tick_manager;
-use lightyear::shared::tick_manager::Tick;
-use lightyear::shared::tick_manager::TickManager;
-use lightyear::transport::io::IoDiagnosticsPlugin;
 use lightyear::{
     client::{
         interpolation::plugin::InterpolationSet,
-        prediction::{diagnostics::PredictionDiagnosticsPlugin, plugin::PredictionSet},
+        prediction::{
+            diagnostics::PredictionDiagnosticsPlugin, plugin::PredictionSet,
+            prespawn::PreSpawnedPlayerObject,
+        },
     },
-    shared::run_conditions::is_server,
+    inputs::leafwing::input_buffer::InputBuffer,
+    prelude::{client::*, Replicating},
+    shared::{
+        run_conditions::is_server,
+        tick_manager,
+        tick_manager::{Tick, TickManager},
+    },
+    transport::io::IoDiagnosticsPlugin,
 };
-use std::f32::consts::PI;
-use std::f32::consts::TAU;
-use std::time::Duration;
+
+/// Renders entities using gizmos to draw outlines
+use crate::protocol::*;
+use crate::{entity_label::*, shared::*};
 
 pub struct SpaceshipsRendererPlugin;
 

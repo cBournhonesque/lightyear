@@ -32,12 +32,15 @@
 // - then in PostUpdate (visual interpolation) we interpolate between the previous tick and the current tick using the overstep
 // - in PreUpdate, we restore the component value to the previous tick values
 
-use bevy::prelude::*;
-use bevy::transform::TransformSystem::TransformPropagate;
+use bevy::{prelude::*, transform::TransformSystem::TransformPropagate};
 
-use crate::client::components::SyncComponent;
-use crate::prelude::client::{Correction, InterpolationSet, PredictionSet};
-use crate::prelude::{ComponentRegistry, MainSet, TickManager, TimeManager};
+use crate::{
+    client::components::SyncComponent,
+    prelude::{
+        client::{Correction, InterpolationSet, PredictionSet},
+        ComponentRegistry, MainSet, TickManager, TimeManager,
+    },
+};
 
 pub struct VisualInterpolationPlugin<C: SyncComponent> {
     _marker: std::marker::PhantomData<C>,
@@ -195,16 +198,15 @@ pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
 
 #[cfg(test)]
 mod tests {
-    use crate::client::config::ClientConfig;
     use approx::assert_relative_eq;
-    use bevy::prelude::*;
-    use bevy::utils::Duration;
-
-    use crate::prelude::{SharedConfig, TickConfig};
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::BevyStepper;
+    use bevy::{prelude::*, utils::Duration};
 
     use super::*;
+    use crate::{
+        client::config::ClientConfig,
+        prelude::{SharedConfig, TickConfig},
+        tests::{protocol::*, stepper::BevyStepper},
+    };
 
     #[derive(Resource, Debug)]
     pub struct Toggle(bool);

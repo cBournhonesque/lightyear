@@ -1,27 +1,33 @@
 //! Module to handle replicating entities and components from server to client
-use bevy::ecs::entity::EntityHash;
-use std::fmt::Debug;
-use std::hash::Hash;
+use std::{fmt::Debug, hash::Hash};
 
-use bevy::prelude::{Entity, Resource};
-use bevy::utils::hashbrown::HashMap;
+use bevy::{
+    ecs::entity::EntityHash,
+    prelude::{Entity, Resource},
+    utils::hashbrown::HashMap,
+};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 
-use crate::connection::id::ClientId;
-use crate::packet::message::MessageId;
-use crate::prelude::Tick;
-use crate::protocol::component::ComponentNetId;
-use crate::protocol::EventContext;
-use crate::serialize::reader::Reader;
-use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
-use crate::serialize::writer::Writer;
-use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::events::connection::{
-    ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
-    IterEntityDespawnEvent, IterEntitySpawnEvent,
+use crate::{
+    connection::id::ClientId,
+    packet::message::MessageId,
+    prelude::Tick,
+    protocol::{component::ComponentNetId, EventContext},
+    serialize::{
+        reader::Reader,
+        varint::{varint_len, VarIntReadExt, VarIntWriteExt},
+        writer::Writer,
+        SerializationError, ToBytes,
+    },
+    shared::{
+        events::connection::{
+            ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent,
+            IterComponentUpdateEvent, IterEntityDespawnEvent, IterEntitySpawnEvent,
+        },
+        replication::components::ReplicationGroupId,
+    },
 };
-use crate::shared::replication::components::ReplicationGroupId;
 
 pub mod components;
 

@@ -1,18 +1,24 @@
-use bevy::prelude::{Timer, TimerMode};
-use bevy::utils::Duration;
 use std::collections::VecDeque;
 
+use bevy::{
+    prelude::{Timer, TimerMode},
+    utils::Duration,
+};
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
 
-use crate::channel::senders::fragment_ack_receiver::FragmentAckReceiver;
-use crate::channel::senders::fragment_sender::FragmentSender;
-use crate::channel::senders::ChannelSend;
-use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
-use crate::serialize::SerializationError;
-use crate::shared::ping::manager::PingManager;
-use crate::shared::tick_manager::TickManager;
-use crate::shared::time_manager::{TimeManager, WrappedTime};
+use crate::{
+    channel::senders::{
+        fragment_ack_receiver::FragmentAckReceiver, fragment_sender::FragmentSender, ChannelSend,
+    },
+    packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData},
+    serialize::SerializationError,
+    shared::{
+        ping::manager::PingManager,
+        tick_manager::TickManager,
+        time_manager::{TimeManager, WrappedTime},
+    },
+};
 
 const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 
@@ -167,9 +173,8 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::packet::FRAGMENT_SIZE;
-
     use super::*;
+    use crate::packet::packet::FRAGMENT_SIZE;
 
     #[test]
     fn test_receive_ack() {

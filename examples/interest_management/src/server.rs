@@ -1,14 +1,15 @@
-use bevy::prelude::*;
-use bevy::utils::Duration;
-use bevy::utils::HashMap;
+use bevy::{
+    prelude::*,
+    utils::{Duration, HashMap},
+};
 use leafwing_input_manager::prelude::{ActionState, InputMap};
+use lightyear::prelude::{server::*, *};
 
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
-
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour};
+use crate::{
+    protocol::*,
+    shared,
+    shared::{color_from_id, shared_movement_behaviour},
+};
 
 const GRID_SIZE: f32 = 200.0;
 const NUM_CIRCLES: i32 = 10;

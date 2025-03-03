@@ -1,11 +1,12 @@
 //! The server spawns an entity per connected client to store metadata about them.
 //!
 //! This module contains components and systems to manage the metadata on client entities.
-use crate::server::clients::systems::handle_controlled_by_remove;
-use crate::server::replication::send::Lifetime;
-use crate::shared::sets::{InternalReplicationSet, ServerMarker};
-use bevy::ecs::entity::EntityHashMap;
-use bevy::prelude::*;
+use bevy::{ecs::entity::EntityHashMap, prelude::*};
+
+use crate::{
+    server::{clients::systems::handle_controlled_by_remove, replication::send::Lifetime},
+    shared::sets::{InternalReplicationSet, ServerMarker},
+};
 
 /// List of entities under the control of a client
 #[derive(Component, Default, Debug, Deref, DerefMut, PartialEq)]
@@ -26,12 +27,15 @@ impl ControlledEntities {
 pub(crate) struct ClientsMetadataPlugin;
 
 mod systems {
-    use super::*;
-    use crate::prelude::server::ControlledBy;
-    use crate::server::clients::ControlledEntities;
-    use crate::server::connection::ConnectionManager;
-    use crate::server::events::DisconnectEvent;
     use tracing::{debug, trace};
+
+    use super::*;
+    use crate::{
+        prelude::server::ControlledBy,
+        server::{
+            clients::ControlledEntities, connection::ConnectionManager, events::DisconnectEvent,
+        },
+    };
 
     // TODO: remove entity in ControlledEntities lists after the component gets updated
     //  (e.g. control goes from client 1 to client 2)
@@ -171,16 +175,27 @@ impl Plugin for ClientsMetadataPlugin {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::networking::ClientCommandsExt;
-    use crate::prelude::server::{ConnectionManager, ControlledBy, Replicate};
-    use crate::prelude::{client, ClientId, NetworkTarget, Replicated};
-    use crate::server::clients::ControlledEntities;
-    use crate::server::replication::send::Lifetime;
-    use crate::server::replication::send::ReplicationTarget;
-    use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
-    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
-    use bevy::ecs::entity::EntityHashMap;
-    use bevy::prelude::{default, Entity, With};
+    use bevy::{
+        ecs::entity::EntityHashMap,
+        prelude::{default, Entity, With},
+    };
+
+    use crate::{
+        client::networking::ClientCommandsExt,
+        prelude::{
+            client,
+            server::{ConnectionManager, ControlledBy, Replicate},
+            ClientId, NetworkTarget, Replicated,
+        },
+        server::{
+            clients::ControlledEntities,
+            replication::send::{Lifetime, ReplicationTarget},
+        },
+        tests::{
+            multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2},
+            stepper::{BevyStepper, TEST_CLIENT_ID},
+        },
+    };
 
     /// Check that the Client Entities are updated after ControlledBy is added
     #[test]

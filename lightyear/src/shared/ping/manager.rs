@@ -1,13 +1,17 @@
 //! Manages sending/receiving pings and computing network statistics
-use bevy::reflect::Reflect;
-use bevy::time::Stopwatch;
-use bevy::utils::Duration;
+use bevy::{reflect::Reflect, time::Stopwatch, utils::Duration};
 use tracing::{error, trace};
 
-use crate::shared::ping::message::{Ping, Pong};
-use crate::shared::ping::store::{PingId, PingStore};
-use crate::shared::time_manager::{TimeManager, WrappedTime};
-use crate::utils::ready_buffer::ReadyBuffer;
+use crate::{
+    shared::{
+        ping::{
+            message::{Ping, Pong},
+            store::{PingId, PingStore},
+        },
+        time_manager::{TimeManager, WrappedTime},
+    },
+    utils::ready_buffer::ReadyBuffer,
+};
 
 /// Config for the ping manager, which sends regular pings to the remote machine in order
 /// to compute network statistics (RTT, jitter)

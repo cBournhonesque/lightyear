@@ -1,49 +1,51 @@
 //! Specify how a Client sends/receives messages with a Server
-use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Resource, World};
-use bevy::utils::Duration;
 #[cfg(feature = "leafwing")]
 use bevy::utils::HashMap;
+use bevy::{
+    ecs::{component::Tick as BevyTick, entity::MapEntities},
+    prelude::{Resource, World},
+    utils::Duration,
+};
 use bytes::Bytes;
 use tracing::{debug, trace, trace_span};
 
-use crate::channel::builder::{
-    EntityActionsChannel, EntityUpdatesChannel, PingChannel, PongChannel,
-};
-
-use crate::channel::receivers::ChannelReceive;
-use crate::channel::senders::ChannelSend;
-use crate::client::config::ClientConfig;
-use crate::client::error::ClientError;
-use crate::client::sync::SyncConfig;
-use crate::connection::netcode::MAX_PACKET_SIZE;
-use crate::packet::message_manager::MessageManager;
-use crate::packet::packet_builder::{Payload, RecvPayload};
-use crate::packet::priority_manager::PriorityConfig;
-use crate::prelude::client::PredictionConfig;
-use crate::prelude::{ChannelKind, ClientId, Message, MessageRegistry, ReplicationConfig};
-use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::component::ComponentRegistry;
-use crate::protocol::registry::NetId;
-use crate::serialize::reader::Reader;
-use crate::serialize::writer::Writer;
-use crate::serialize::{SerializationError, ToBytes};
-use crate::server::error::ServerError;
-use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::ping::manager::{PingConfig, PingManager};
-use crate::shared::ping::message::{Ping, Pong};
-use crate::shared::replication::delta::DeltaManager;
-use crate::shared::replication::receive::ReplicationReceiver;
-use crate::shared::replication::send::ReplicationSender;
-use crate::shared::replication::{EntityActionsMessage, EntityUpdatesMessage, ReplicationSend};
-use crate::shared::replication::{ReplicationPeer, ReplicationReceive};
-use crate::shared::sets::ClientMarker;
-use crate::shared::tick_manager::Tick;
-use crate::shared::tick_manager::TickManager;
-use crate::shared::time_manager::TimeManager;
-
 use super::sync::SyncManager;
+use crate::{
+    channel::{
+        builder::{EntityActionsChannel, EntityUpdatesChannel, PingChannel, PongChannel},
+        receivers::ChannelReceive,
+        senders::ChannelSend,
+    },
+    client::{config::ClientConfig, error::ClientError, sync::SyncConfig},
+    connection::netcode::MAX_PACKET_SIZE,
+    packet::{
+        message_manager::MessageManager,
+        packet_builder::{Payload, RecvPayload},
+        priority_manager::PriorityConfig,
+    },
+    prelude::{
+        client::PredictionConfig, ChannelKind, ClientId, Message, MessageRegistry,
+        ReplicationConfig,
+    },
+    protocol::{channel::ChannelRegistry, component::ComponentRegistry, registry::NetId},
+    serialize::{reader::Reader, writer::Writer, SerializationError, ToBytes},
+    server::error::ServerError,
+    shared::{
+        events::connection::ConnectionEvents,
+        ping::{
+            manager::{PingConfig, PingManager},
+            message::{Ping, Pong},
+        },
+        replication::{
+            delta::DeltaManager, receive::ReplicationReceiver, send::ReplicationSender,
+            EntityActionsMessage, EntityUpdatesMessage, ReplicationPeer, ReplicationReceive,
+            ReplicationSend,
+        },
+        sets::ClientMarker,
+        tick_manager::{Tick, TickManager},
+        time_manager::TimeManager,
+    },
+};
 
 /// Wrapper that handles the connection with the server
 ///
@@ -506,9 +508,10 @@ impl ReplicationSend for ConnectionManager {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{client, server, ClientConnectionManager, RemoteEntityMap};
-    use crate::tests::protocol::EntityMessage;
-    use crate::tests::stepper::BevyStepper;
+    use crate::{
+        prelude::{client, server, ClientConnectionManager, RemoteEntityMap},
+        tests::{protocol::EntityMessage, stepper::BevyStepper},
+    };
 
     /// Check that we can map entities from the local world to the remote world
     /// using the ConnectionManager

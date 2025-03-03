@@ -5,11 +5,13 @@ pub mod native;
 #[cfg(feature = "leafwing")]
 pub mod leafwing;
 
-use crate::inputs::native::input_buffer::InputBuffer;
-use crate::inputs::native::UserActionState;
-use crate::prelude::{server::is_started, TickManager};
-use crate::shared::sets::{InternalMainSet, ServerMarker};
 use bevy::prelude::*;
+
+use crate::{
+    inputs::native::{input_buffer::InputBuffer, UserActionState},
+    prelude::{server::is_started, TickManager},
+    shared::sets::{InternalMainSet, ServerMarker},
+};
 
 pub struct BaseInputPlugin<A> {
     rebroadcast_inputs: bool,

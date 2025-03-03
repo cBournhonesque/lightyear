@@ -1,10 +1,13 @@
-use crate::serialize::reader::Reader;
-use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
-use crate::serialize::{SerializationError, ToBytes};
+use std::{any::TypeId, hash::Hash};
+
 use bevy::utils::HashMap;
 use byteorder::WriteBytesExt;
-use std::any::TypeId;
-use std::hash::Hash;
+
+use crate::serialize::{
+    reader::Reader,
+    varint::{varint_len, VarIntReadExt, VarIntWriteExt},
+    SerializationError, ToBytes,
+};
 
 /// ID used to serialize IDs over the network efficiently
 pub(crate) type NetId = u16;

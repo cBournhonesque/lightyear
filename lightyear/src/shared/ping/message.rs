@@ -1,9 +1,10 @@
 //! Defines the actual ping/pong messages
-use crate::serialize::reader::Reader;
-use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::ping::store::PingId;
-use crate::shared::time_manager::WrappedTime;
 use byteorder::WriteBytesExt;
+
+use crate::{
+    serialize::{reader::Reader, SerializationError, ToBytes},
+    shared::{ping::store::PingId, time_manager::WrappedTime},
+};
 
 // TODO: do we need the ping ids? we could just re-use the message id ?
 /// Ping message; the remote should respond immediately with a pong

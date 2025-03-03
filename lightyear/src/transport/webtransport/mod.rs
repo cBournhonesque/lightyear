@@ -12,14 +12,17 @@ cfg_if::cfg_if! {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::io::transport::ClientTransportBuilder;
-    use crate::server::io::transport::ServerTransportBuilder;
-    use bevy::tasks::{IoTaskPool, TaskPoolBuilder};
-    use bevy::utils::Duration;
+    use bevy::{
+        tasks::{IoTaskPool, TaskPoolBuilder},
+        utils::Duration,
+    };
     use wtransport::Identity;
 
-    use super::client::*;
-    use super::server::*;
+    use super::{client::*, server::*};
+    use crate::{
+        client::io::transport::ClientTransportBuilder,
+        server::io::transport::ServerTransportBuilder,
+    };
 
     #[cfg(not(target_family = "wasm"))]
     #[tokio::test]

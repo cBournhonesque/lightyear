@@ -1,10 +1,10 @@
-use crate::prelude::server::Replicate;
-use crate::prelude::*;
-use crate::shared::time_manager::WrappedTime;
-use crate::tests::protocol::*;
-use crate::tests::stepper::BevyStepper;
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{prelude::*, utils::Duration};
+
+use crate::{
+    prelude::{server::Replicate, *},
+    shared::time_manager::WrappedTime,
+    tests::{protocol::*, stepper::BevyStepper},
+};
 
 /// This test checks that replication still works if the client connect when the server
 /// is on a new tick generation

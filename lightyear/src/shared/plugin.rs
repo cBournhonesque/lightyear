@@ -1,20 +1,28 @@
 //! Bevy [`Plugin`] used by both the server and the client
-use crate::prelude::client::ComponentSyncMode;
-use crate::prelude::{
-    client, server, AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry,
-    ComponentRegistry, LinkConditionerConfig, MessageRegistry, NetworkIdentityState, ParentSync,
-    PingConfig, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
+use bevy::{prelude::*, utils::Duration};
+
+use crate::{
+    prelude::{
+        client, client::ComponentSyncMode, server, AppComponentExt, AppMessageExt,
+        ChannelDirection, ChannelRegistry, ComponentRegistry, LinkConditionerConfig,
+        MessageRegistry, NetworkIdentityState, ParentSync, PingConfig, PrePredicted,
+        PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
+    },
+    shared::{
+        config::SharedConfig,
+        plugin::utils::AppStateExt,
+        replication::{
+            authority::AuthorityChange,
+            components::{Controlled, ShouldBeInterpolated},
+        },
+        tick_manager::TickManagerPlugin,
+        time_manager::TimePlugin,
+    },
+    transport::{
+        io::{IoState, IoStats},
+        middleware::compression::CompressionConfig,
+    },
 };
-use crate::shared::config::SharedConfig;
-use crate::shared::plugin::utils::AppStateExt;
-use crate::shared::replication::authority::AuthorityChange;
-use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
-use crate::shared::tick_manager::TickManagerPlugin;
-use crate::shared::time_manager::TimePlugin;
-use crate::transport::io::{IoState, IoStats};
-use crate::transport::middleware::compression::CompressionConfig;
-use bevy::prelude::*;
-use bevy::utils::Duration;
 
 #[derive(Default, Debug)]
 pub struct SharedPlugin {
@@ -115,9 +123,11 @@ fn spawn_metrics_visualizer(mut commands: Commands) {
 }
 
 pub(super) mod utils {
-    use bevy::app::App;
-    use bevy::prelude::{NextState, State, StateTransition, StateTransitionEvent};
-    use bevy::state::state::{setup_state_transitions_in_world, FreelyMutableState};
+    use bevy::{
+        app::App,
+        prelude::{NextState, State, StateTransition, StateTransitionEvent},
+        state::state::{setup_state_transitions_in_world, FreelyMutableState},
+    };
 
     pub(super) trait AppStateExt {
         // Helper function that runs `init_state::<S>` without entering the state

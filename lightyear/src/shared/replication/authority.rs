@@ -6,9 +6,9 @@
 //! In this case C1 has authority even though the server is still replicating some states.
 //!
 
+use bevy::{ecs::entity::MapEntities, prelude::*};
+
 use crate::prelude::{ClientId, Deserialize, Serialize};
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::*;
 
 /// Authority is used to define who is in charge of simulating an entity.
 ///
@@ -51,18 +51,25 @@ impl MapEntities for AuthorityChange {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::prediction::predicted_history::PredictionHistory;
-    use crate::prelude::client::{Confirmed, ConfirmedHistory};
-    use crate::prelude::server::{Replicate, SyncTarget};
-    use crate::prelude::{client, server, ClientId, NetworkTarget, Replicated};
-    use crate::server::replication::commands::AuthorityCommandExt;
-    use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
-    use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
-    use crate::tests::protocol::{
-        ComponentMapEntities, ComponentSyncModeFull, ComponentSyncModeSimple,
-    };
-    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::prelude::{default, Entity};
+
+    use crate::{
+        client::prediction::predicted_history::PredictionHistory,
+        prelude::{
+            client,
+            client::{Confirmed, ConfirmedHistory},
+            server,
+            server::{Replicate, SyncTarget},
+            ClientId, NetworkTarget, Replicated,
+        },
+        server::replication::commands::AuthorityCommandExt,
+        shared::replication::authority::{AuthorityPeer, HasAuthority},
+        tests::{
+            multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2},
+            protocol::{ComponentMapEntities, ComponentSyncModeFull, ComponentSyncModeSimple},
+            stepper::{BevyStepper, TEST_CLIENT_ID},
+        },
+    };
 
     #[test]
     fn test_transfer_authority_server_to_client() {

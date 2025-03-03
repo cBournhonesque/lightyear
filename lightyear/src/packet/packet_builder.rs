@@ -1,20 +1,24 @@
 //! Module to take a buffer of messages to send and build packets
-use crate::connection::netcode::MAX_PACKET_SIZE;
-use crate::packet::header::PacketHeaderManager;
-use crate::packet::message::{FragmentData, MessageAck, SingleData};
-use crate::packet::packet::{Packet, FRAGMENT_SIZE};
-use crate::packet::packet_type::PacketType;
-use crate::prelude::Tick;
-use crate::protocol::channel::ChannelId;
-use crate::protocol::registry::NetId;
-use crate::serialize::varint::varint_len;
-use crate::serialize::{SerializationError, ToBytes};
+use std::collections::VecDeque;
+
 use byteorder::WriteBytesExt;
 use bytes::Bytes;
-use std::collections::VecDeque;
 use tracing::trace;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
+
+use crate::{
+    connection::netcode::MAX_PACKET_SIZE,
+    packet::{
+        header::PacketHeaderManager,
+        message::{FragmentData, MessageAck, SingleData},
+        packet::{Packet, FRAGMENT_SIZE},
+        packet_type::PacketType,
+    },
+    prelude::Tick,
+    protocol::{channel::ChannelId, registry::NetId},
+    serialize::{varint::varint_len, SerializationError, ToBytes},
+};
 
 pub type Payload = Vec<u8>;
 
@@ -422,14 +426,12 @@ mod tests {
 
     use bevy::prelude::{default, TypePath};
     use bytes::Bytes;
-
     use lightyear_macros::ChannelInternal;
 
-    use crate::channel::senders::fragment_sender::FragmentSender;
-    use crate::packet::message::MessageId;
-    use crate::prelude::*;
-
     use super::*;
+    use crate::{
+        channel::senders::fragment_sender::FragmentSender, packet::message::MessageId, prelude::*,
+    };
 
     #[derive(ChannelInternal, TypePath)]
     struct Channel1;

@@ -1,22 +1,27 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
 
-use crate::client::connection::ConnectionManager;
-use crate::client::error::ClientError;
-use crate::prelude::client::{ClientConnection, NetClient};
-use crate::prelude::{
-    client::is_connected, is_host_server, Channel, ChannelKind, ClientId, MainSet, Message,
-    MessageRegistry, MessageSend,
+use bevy::{
+    ecs::system::{FilteredResourcesMutParamBuilder, ParamBuilder},
+    prelude::*,
 };
-use crate::serialize::reader::Reader;
-use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::message::private::InternalMessageSend;
-use crate::shared::replication::network_target::NetworkTarget;
-use crate::shared::sets::{ClientMarker, InternalMainSet};
-use bevy::ecs::system::{FilteredResourcesMutParamBuilder, ParamBuilder};
-use bevy::prelude::*;
 use byteorder::WriteBytesExt;
 use bytes::Bytes;
 use tracing::error;
+
+use crate::{
+    client::{connection::ConnectionManager, error::ClientError},
+    prelude::{
+        client::{is_connected, ClientConnection, NetClient},
+        is_host_server, Channel, ChannelKind, ClientId, MainSet, Message, MessageRegistry,
+        MessageSend,
+    },
+    serialize::{reader::Reader, SerializationError, ToBytes},
+    shared::{
+        message::private::InternalMessageSend,
+        replication::network_target::NetworkTarget,
+        sets::{ClientMarker, InternalMainSet},
+    },
+};
 
 /// Bevy [`Event`] emitted on the client when a (non-replication) message is received
 #[allow(type_alias_bounds)]
@@ -340,14 +345,18 @@ fn read_triggers(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::prelude::client::ClientTriggerExt;
-    use crate::prelude::{ClientSendMessage, ServerReceiveMessage};
-    use crate::serialize::writer::Writer;
-    use crate::tests::host_server_stepper::HostServerStepper;
-    use crate::tests::protocol::{Channel1, IntegerEvent, StringMessage};
-    use crate::tests::stepper::BevyStepper;
     use bevy::prelude::{EventReader, Resource, Update};
+
+    use super::*;
+    use crate::{
+        prelude::{client::ClientTriggerExt, ClientSendMessage, ServerReceiveMessage},
+        serialize::writer::Writer,
+        tests::{
+            host_server_stepper::HostServerStepper,
+            protocol::{Channel1, IntegerEvent, StringMessage},
+            stepper::BevyStepper,
+        },
+    };
 
     #[test]
     fn client_message_serde() {

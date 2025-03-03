@@ -1,12 +1,11 @@
-/// This plugin maintains a history buffer of the Position, Rotation and ColliderAabb of server entities
-/// so that they can be used for lag compensation.
-use bevy::prelude::*;
-use lightyear::prelude::{HistoryBuffer, TickManager};
-
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use avian2d::{math::Vector, prelude::*};
 #[cfg(all(feature = "3d", not(feature = "2d")))]
 use avian3d::{math::Vector, prelude::*};
+/// This plugin maintains a history buffer of the Position, Rotation and ColliderAabb of server entities
+/// so that they can be used for lag compensation.
+use bevy::prelude::*;
+use lightyear::prelude::{HistoryBuffer, TickManager};
 
 /// Add this plugin to enable lag compensation on the server
 #[derive(Resource)]

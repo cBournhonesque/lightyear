@@ -1,59 +1,63 @@
 //! Specify how a Server sends/receives messages with a Client
-use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::{EntityHash, MapEntities};
-use bevy::prelude::{Component, Entity, Resource, World};
-use bevy::ptr::Ptr;
-use bevy::utils::{hashbrown, hashbrown::hash_map::Entry};
-use bevy::utils::{Duration, HashMap};
+use bevy::{
+    ecs::{
+        component::Tick as BevyTick,
+        entity::{EntityHash, MapEntities},
+    },
+    prelude::{Component, Entity, Resource, World},
+    ptr::Ptr,
+    utils::{hashbrown, hashbrown::hash_map::Entry, Duration, HashMap},
+};
 use bytes::Bytes;
 use tracing::{debug, info, info_span, trace, trace_span};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-use crate::channel::builder::{
-    EntityActionsChannel, EntityUpdatesChannel, PingChannel, PongChannel,
+use crate::{
+    channel::{
+        builder::{EntityActionsChannel, EntityUpdatesChannel, PingChannel, PongChannel},
+        receivers::ChannelReceive,
+        senders::ChannelSend,
+    },
+    client::message::ClientMessage,
+    connection::{id::ClientId, netcode::MAX_PACKET_SIZE},
+    packet::{
+        message_manager::MessageManager,
+        packet_builder::{Payload, RecvPayload},
+    },
+    prelude::{
+        server::DisconnectEvent, ChannelKind, Message, PreSpawnedPlayerObject, ReplicationConfig,
+        ReplicationGroup, ShouldBePredicted,
+    },
+    protocol::{
+        channel::ChannelRegistry,
+        component::{ComponentError, ComponentKind, ComponentNetId, ComponentRegistry},
+        message::{registry::MessageRegistry, MessageError},
+        registry::NetId,
+    },
+    serialize::{reader::Reader, writer::Writer, SerializationError, ToBytes},
+    server::{
+        config::PacketConfig,
+        error::ServerError,
+        events::{ConnectEvent, ServerEvents},
+    },
+    shared::{
+        events::connection::ConnectionEvents,
+        ping::{
+            manager::{PingConfig, PingManager},
+            message::{Ping, Pong},
+        },
+        replication::{
+            components::ReplicationGroupId, delta::DeltaManager, entity_map::SendEntityMap,
+            network_target::NetworkTarget, receive::ReplicationReceiver, send::ReplicationSender,
+            EntityActionsMessage, EntityUpdatesMessage, ReplicationPeer, ReplicationReceive,
+            ReplicationSend,
+        },
+        sets::ServerMarker,
+        tick_manager::{Tick, TickManager},
+        time_manager::TimeManager,
+    },
 };
-
-use crate::channel::receivers::ChannelReceive;
-use crate::channel::senders::ChannelSend;
-use crate::client::message::ClientMessage;
-use crate::connection::id::ClientId;
-use crate::connection::netcode::MAX_PACKET_SIZE;
-use crate::packet::message_manager::MessageManager;
-use crate::packet::packet_builder::{Payload, RecvPayload};
-use crate::prelude::server::DisconnectEvent;
-use crate::prelude::{
-    ChannelKind, Message, PreSpawnedPlayerObject, ReplicationConfig, ReplicationGroup,
-    ShouldBePredicted,
-};
-use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::component::{
-    ComponentError, ComponentKind, ComponentNetId, ComponentRegistry,
-};
-use crate::protocol::message::registry::MessageRegistry;
-use crate::protocol::message::MessageError;
-use crate::protocol::registry::NetId;
-use crate::serialize::reader::Reader;
-use crate::serialize::writer::Writer;
-use crate::serialize::{SerializationError, ToBytes};
-use crate::server::config::PacketConfig;
-use crate::server::error::ServerError;
-use crate::server::events::{ConnectEvent, ServerEvents};
-use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::ping::manager::{PingConfig, PingManager};
-use crate::shared::ping::message::{Ping, Pong};
-use crate::shared::replication::components::ReplicationGroupId;
-use crate::shared::replication::delta::DeltaManager;
-use crate::shared::replication::entity_map::SendEntityMap;
-use crate::shared::replication::network_target::NetworkTarget;
-use crate::shared::replication::receive::ReplicationReceiver;
-use crate::shared::replication::send::ReplicationSender;
-use crate::shared::replication::{EntityActionsMessage, EntityUpdatesMessage, ReplicationPeer};
-use crate::shared::replication::{ReplicationReceive, ReplicationSend};
-use crate::shared::sets::ServerMarker;
-use crate::shared::tick_manager::Tick;
-use crate::shared::tick_manager::TickManager;
-use crate::shared::time_manager::TimeManager;
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 

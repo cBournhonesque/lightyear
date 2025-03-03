@@ -3,12 +3,12 @@ use std::collections::{btree_map, BTreeMap};
 use bytes::Bytes;
 
 use super::error::{ChannelReceiveError, Result};
-use crate::channel::receivers::fragment_receiver::FragmentReceiver;
-use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
-use crate::prelude::Tick;
-pub use crate::shared::tick_manager::TickManager;
-pub use crate::shared::time_manager::TimeManager;
+pub use crate::shared::{tick_manager::TickManager, time_manager::TimeManager};
+use crate::{
+    channel::receivers::{fragment_receiver::FragmentReceiver, ChannelReceive},
+    packet::message::{MessageData, MessageId, ReceiveMessage},
+    prelude::Tick,
+};
 
 /// Ordered Reliable receiver: make sure that all messages are received,
 /// and return them in order
@@ -89,10 +89,11 @@ impl ChannelReceive for OrderedReliableReceiver {
 mod tests {
     use bytes::Bytes;
 
-    use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
-    use crate::channel::receivers::ChannelReceive;
-    use crate::packet::message::{MessageId, ReceiveMessage, SingleData};
-    use crate::prelude::{PacketError, Tick};
+    use crate::{
+        channel::receivers::{ordered_reliable::OrderedReliableReceiver, ChannelReceive},
+        packet::message::{MessageId, ReceiveMessage, SingleData},
+        prelude::{PacketError, Tick},
+    };
 
     #[test]
     fn test_ordered_reliable_receiver_internals() -> Result<(), PacketError> {

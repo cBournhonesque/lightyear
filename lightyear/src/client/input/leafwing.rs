@@ -33,28 +33,25 @@
 use std::fmt::Debug;
 
 use bevy::prelude::*;
-use leafwing_input_manager::plugin::InputManagerSystem;
-use leafwing_input_manager::prelude::*;
+use leafwing_input_manager::{plugin::InputManagerSystem, prelude::*};
 use tracing::{error, trace};
 
-use crate::channel::builder::InputChannel;
-use crate::client::components::Confirmed;
-use crate::client::config::ClientConfig;
-use crate::client::connection::ConnectionManager;
-use crate::client::input::{BaseInputPlugin, InputSystemSet};
-use crate::client::prediction::plugin::is_in_rollback;
-use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::Predicted;
-use crate::inputs::leafwing::input_buffer::InputBuffer;
-use crate::inputs::leafwing::input_message::InputTarget;
-use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{
-    is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage,
-    MessageRegistry, TickManager, TimeManager,
+use crate::{
+    channel::builder::InputChannel,
+    client::{
+        components::Confirmed,
+        config::ClientConfig,
+        connection::ConnectionManager,
+        input::{BaseInputPlugin, InputSystemSet},
+        prediction::{plugin::is_in_rollback, resource::PredictionManager, Predicted},
+    },
+    inputs::leafwing::{input_buffer::InputBuffer, input_message::InputTarget, LeafwingUserAction},
+    prelude::{
+        is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage,
+        MessageRegistry, TickManager, TimeManager,
+    },
+    shared::{input::InputConfig, replication::components::PrePredicted, tick_manager::TickEvent},
 };
-use crate::shared::input::InputConfig;
-use crate::shared::replication::components::PrePredicted;
-use crate::shared::tick_manager::TickEvent;
 
 // TODO: is this actually necessary? The sync happens in PostUpdate,
 //  so maybe it's ok if the InputMessages contain the pre-sync tick! (since those inputs happened
@@ -455,16 +452,20 @@ fn receive_tick_events<A: LeafwingUserAction>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use leafwing_input_manager::action_state::ActionState;
-    use leafwing_input_manager::input_map::InputMap;
     use std::time::Duration;
 
-    use crate::prelude::client::{InterpolationDelay, PredictionConfig};
-    use crate::prelude::server::Replicate;
-    use crate::prelude::{client, SharedConfig, TickConfig};
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::BevyStepper;
+    use leafwing_input_manager::{action_state::ActionState, input_map::InputMap};
+
+    use super::*;
+    use crate::{
+        prelude::{
+            client,
+            client::{InterpolationDelay, PredictionConfig},
+            server::Replicate,
+            SharedConfig, TickConfig,
+        },
+        tests::{protocol::*, stepper::BevyStepper},
+    };
 
     fn build_stepper_with_input_delay(delay_ticks: u16) -> BevyStepper {
         let frame_duration = Duration::from_millis(10);

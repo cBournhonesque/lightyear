@@ -8,21 +8,21 @@
 //! while keeping the rest of the features intact.
 //!
 //! Most plugins are truly necessary for the server functionality to work properly, but some could be disabled.
-use bevy::app::PluginGroupBuilder;
-use bevy::prelude::*;
-
-use crate::client::diagnostics::ClientDiagnosticsPlugin;
-use crate::client::events::ClientEventsPlugin;
-use crate::client::interpolation::plugin::InterpolationPlugin;
-use crate::client::message::ClientMessagePlugin;
-use crate::client::networking::ClientNetworkingPlugin;
-use crate::client::prediction::plugin::PredictionPlugin;
-use crate::client::replication::{
-    receive::ClientReplicationReceivePlugin, send::ClientReplicationSendPlugin,
-};
-use crate::shared::plugin::SharedPlugin;
+use bevy::{app::PluginGroupBuilder, prelude::*};
 
 use super::config::ClientConfig;
+use crate::{
+    client::{
+        diagnostics::ClientDiagnosticsPlugin,
+        events::ClientEventsPlugin,
+        interpolation::plugin::InterpolationPlugin,
+        message::ClientMessagePlugin,
+        networking::ClientNetworkingPlugin,
+        prediction::plugin::PredictionPlugin,
+        replication::{receive::ClientReplicationReceivePlugin, send::ClientReplicationSendPlugin},
+    },
+    shared::plugin::SharedPlugin,
+};
 
 /// A plugin group containing all the client plugins.
 ///

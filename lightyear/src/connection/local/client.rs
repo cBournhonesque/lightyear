@@ -1,9 +1,12 @@
-use crate::client::io::Io;
-use crate::connection::client::{ConnectionError, ConnectionState, NetClient};
-use crate::packet::packet_builder::RecvPayload;
-use crate::prelude::ClientId;
-use crate::transport::LOCAL_SOCKET;
 use std::net::SocketAddr;
+
+use crate::{
+    client::io::Io,
+    connection::client::{ConnectionError, ConnectionState, NetClient},
+    packet::packet_builder::RecvPayload,
+    prelude::ClientId,
+    transport::LOCAL_SOCKET,
+};
 
 #[derive(Default)]
 pub struct Client {

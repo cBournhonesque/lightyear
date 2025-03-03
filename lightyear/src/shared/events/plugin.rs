@@ -1,12 +1,18 @@
 //! Create the bevy [`Plugin`]
 
-use bevy::app::{App, PreUpdate};
-use bevy::prelude::{IntoSystemConfigs, Plugin};
+use bevy::{
+    app::{App, PreUpdate},
+    prelude::{IntoSystemConfigs, Plugin},
+};
 
-use crate::shared::events::components::{EntityDespawnEvent, EntitySpawnEvent};
-use crate::shared::events::systems::{clear_events, push_entity_events};
-use crate::shared::replication::ReplicationReceive;
-use crate::shared::sets::InternalMainSet;
+use crate::shared::{
+    events::{
+        components::{EntityDespawnEvent, EntitySpawnEvent},
+        systems::{clear_events, push_entity_events},
+    },
+    replication::ReplicationReceive,
+    sets::InternalMainSet,
+};
 
 pub struct EventsPlugin<R> {
     marker: std::marker::PhantomData<R>,

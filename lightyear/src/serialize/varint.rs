@@ -1,6 +1,8 @@
-use crate::serialize::SerializationError;
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::Seek;
+
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+
+use crate::serialize::SerializationError;
 
 /// Returns how many bytes it would take to encode `v` as a variable-length
 /// integer.
@@ -91,8 +93,9 @@ impl<T: ReadBytesExt + Seek> VarIntReadExt for T {}
 
 #[cfg(test)]
 mod tests {
-    use crate::serialize::varint::{VarIntReadExt, VarIntWriteExt};
     use std::io::Cursor;
+
+    use crate::serialize::varint::{VarIntReadExt, VarIntWriteExt};
 
     #[test]
     fn test_varint_len_1() {

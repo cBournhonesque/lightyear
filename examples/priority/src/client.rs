@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
-
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 

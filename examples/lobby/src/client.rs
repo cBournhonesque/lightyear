@@ -8,13 +8,14 @@ use std::net::SocketAddr;
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
-use lightyear::client::input::InputSystemSet;
 pub use lightyear::prelude::client::*;
-use lightyear::prelude::server::ServerCommandsExt;
-use lightyear::prelude::*;
+use lightyear::{
+    client::input::InputSystemSet,
+    prelude::{server::ServerCommandsExt, *},
+};
+use lightyear_examples_common::settings::{get_client_net_config, Settings};
 
 use crate::protocol::*;
-use lightyear_examples_common::settings::{get_client_net_config, Settings};
 
 pub struct ExampleClientPlugin {
     pub(crate) settings: Settings,
@@ -108,11 +109,10 @@ fn on_disconnect(
 }
 
 mod game {
-    use crate::protocol::Direction;
-    use crate::shared::shared_movement_behaviour;
     use lightyear::inputs::native::{ActionState, InputMarker};
 
     use super::*;
+    use crate::{protocol::Direction, shared::shared_movement_behaviour};
 
     /// System that reads from peripherals and adds inputs to the buffer
     /// This system must be run in the
@@ -201,17 +201,16 @@ mod lobby {
     use std::net::SocketAddr;
 
     use bevy::utils::HashMap;
-    use bevy_egui::egui::Separator;
-    use bevy_egui::{egui, EguiContexts};
+    use bevy_egui::{egui, egui::Separator, EguiContexts};
     use egui_extras::{Column, TableBuilder};
+    use lightyear::server::config::ServerConfig;
     use tracing::{error, info};
 
-    use lightyear::server::config::ServerConfig;
-
-    use crate::client::{lobby, AppState};
-    use crate::HOST_SERVER_PORT;
-
     use super::*;
+    use crate::{
+        client::{lobby, AppState},
+        HOST_SERVER_PORT,
+    };
 
     #[derive(Resource, Default, Debug)]
     pub(crate) struct LobbyTable {

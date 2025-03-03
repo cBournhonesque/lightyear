@@ -1,10 +1,14 @@
-use super::{ActionState, UserAction};
-use crate::shared::tick_manager::Tick;
+use std::{
+    collections::VecDeque,
+    fmt::{Debug, Formatter},
+};
+
 use bevy::prelude::Component;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
-use std::fmt::{Debug, Formatter};
 use tracing::trace;
+
+use super::{ActionState, UserAction};
+use crate::shared::tick_manager::Tick;
 
 #[derive(Component, Debug)]
 pub struct InputBuffer<T> {

@@ -1,26 +1,29 @@
 //! Defines the server bevy systems and run conditions
-use crate::connection::netcode::Error as NetcodeError;
-use crate::connection::server::{
-    ConnectionError, IoConfig, NetServer, ServerConnection, ServerConnections,
-};
-use crate::prelude::server::is_stopped;
-use crate::prelude::{
-    is_host_server, ChannelRegistry, ClientId, MainSet, MessageRegistry, TickManager, TimeManager,
-};
-use crate::protocol::component::ComponentRegistry;
-use crate::serialize::reader::Reader;
-use crate::server::clients::ControlledEntities;
-use crate::server::config::ServerConfig;
-use crate::server::connection::ConnectionManager;
-use crate::server::error::ServerError;
-use crate::server::io::ServerIoEvent;
-use crate::server::run_conditions::is_started_ref;
-use crate::shared::sets::{InternalMainSet, ServerMarker};
-use crate::transport::error::Error as TransportError;
 use async_channel::TryRecvError;
-use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
-use bevy::prelude::*;
+use bevy::{
+    ecs::system::{RunSystemOnce, SystemChangeTick},
+    prelude::*,
+};
 use tracing::{debug, error, trace};
+
+use crate::{
+    connection::{
+        netcode::Error as NetcodeError,
+        server::{ConnectionError, IoConfig, NetServer, ServerConnection, ServerConnections},
+    },
+    prelude::{
+        is_host_server, server::is_stopped, ChannelRegistry, ClientId, MainSet, MessageRegistry,
+        TickManager, TimeManager,
+    },
+    protocol::component::ComponentRegistry,
+    serialize::reader::Reader,
+    server::{
+        clients::ControlledEntities, config::ServerConfig, connection::ConnectionManager,
+        error::ServerError, io::ServerIoEvent, run_conditions::is_started_ref,
+    },
+    shared::sets::{InternalMainSet, ServerMarker},
+    transport::error::Error as TransportError,
+};
 
 /// Plugin handling the server networking systems: sending/receiving packets to clients
 #[derive(Default)]
@@ -490,10 +493,16 @@ impl ServerCommandsExt for World {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::server::{ControlledBy, ControlledEntities, ServerCommandsExt};
-    use crate::prelude::{client, server, ClientId, NetworkTarget, ServerConnectionManager};
-    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::prelude::{default, Entity, With};
+
+    use crate::{
+        prelude::{
+            client, server,
+            server::{ControlledBy, ControlledEntities, ServerCommandsExt},
+            ClientId, NetworkTarget, ServerConnectionManager,
+        },
+        tests::stepper::{BevyStepper, TEST_CLIENT_ID},
+    };
 
     /// Test that when the server stops:
     /// - Controlled entities are removed

@@ -1,16 +1,14 @@
 //! Contains the `LinkConditioner` struct which can be used to simulate network conditions
-use bevy::reflect::Reflect;
 use std::net::SocketAddr;
 
-use bevy::utils::Duration;
+use bevy::{reflect::Reflect, utils::Duration};
 use cfg_if::cfg_if;
-use rand;
-use rand::{thread_rng, Rng};
+use rand::{self, thread_rng, Rng};
 
-use crate::transport::error::Result;
-use crate::transport::middleware::PacketReceiverWrapper;
-use crate::transport::PacketReceiver;
-use crate::utils::ready_buffer::ReadyBuffer;
+use crate::{
+    transport::{error::Result, middleware::PacketReceiverWrapper, PacketReceiver},
+    utils::ready_buffer::ReadyBuffer,
+};
 
 cfg_if! {
     if #[cfg(test)] {

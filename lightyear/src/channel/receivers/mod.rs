@@ -1,12 +1,13 @@
 //! This module contains the various types of receivers available to receive messages over a channel
 use bytes::Bytes;
 use enum_dispatch::enum_dispatch;
-
-use crate::packet::message::ReceiveMessage;
-use crate::prelude::Tick;
-use crate::shared::tick_manager::TickManager;
-use crate::shared::time_manager::TimeManager;
 use error::Result;
+
+use crate::{
+    packet::message::ReceiveMessage,
+    prelude::Tick,
+    shared::{tick_manager::TickManager, time_manager::TimeManager},
+};
 
 /// Utilities to receive a Message from multiple fragment packets
 pub(crate) mod fragment_receiver;

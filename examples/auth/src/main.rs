@@ -11,11 +11,15 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-use crate::shared::SharedPlugin;
-use lightyear_examples_common::app::{Apps, Cli};
-use lightyear_examples_common::settings::Settings;
-use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+
+use lightyear_examples_common::{
+    app::{Apps, Cli},
+    settings::Settings,
+};
+use serde::{Deserialize, Serialize};
+
+use crate::shared::SharedPlugin;
 
 #[cfg(feature = "client")]
 mod client;

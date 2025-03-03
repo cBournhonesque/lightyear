@@ -7,14 +7,17 @@ use crossbeam_channel::{Receiver, Select, Sender};
 use self_cell::self_cell;
 use tracing::debug;
 
-use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
-use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
-use crate::transport::io::IoState;
-use crate::transport::{
-    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET,
-};
-
 use super::error::{Error, Result};
+use crate::{
+    server::io::{
+        transport::{ServerTransportBuilder, ServerTransportEnum},
+        ServerIoEventReceiver, ServerNetworkEventSender,
+    },
+    transport::{
+        io::IoState, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
+        LOCAL_SOCKET,
+    },
+};
 
 pub struct Channels {
     sender: ChannelsSender,

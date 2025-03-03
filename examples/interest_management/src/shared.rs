@@ -1,11 +1,8 @@
-use bevy::color::palettes::css::GREEN;
-use bevy::prelude::*;
-use bevy::utils::Duration;
-use leafwing_input_manager::action_state::ActionState;
 use std::ops::Deref;
 
-use lightyear::client::components::Confirmed;
-use lightyear::prelude::*;
+use bevy::{color::palettes::css::GREEN, prelude::*, utils::Duration};
+use leafwing_input_manager::action_state::ActionState;
+use lightyear::{client::components::Confirmed, prelude::*};
 
 use crate::protocol::*;
 

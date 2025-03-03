@@ -1,10 +1,10 @@
+use std::{net::Ipv4Addr, string::ToString};
+
 use lightyear::prelude::CompressionConfig;
 use lightyear_examples_common::settings::{
     ClientSettings, ClientTransports, Conditioner, ServerSettings, ServerTransports, Settings,
     SharedSettings, WebTransportCertificateSettings,
 };
-use std::net::Ipv4Addr;
-use std::string::ToString;
 
 pub(crate) fn get_settings() -> Settings {
     Settings {

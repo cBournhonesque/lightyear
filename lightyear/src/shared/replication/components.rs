@@ -1,15 +1,18 @@
 //! Components used for replication
-use bevy::ecs::reflect::ReflectComponent;
-use bevy::prelude::{Component, Entity, Reflect};
-use bevy::time::{Timer, TimerMode};
+use bevy::{
+    ecs::reflect::ReflectComponent,
+    prelude::{Component, Entity, Reflect},
+    time::{Timer, TimerMode},
+};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 
-use crate::connection::id::ClientId;
-use crate::protocol::component::ComponentKind;
-use crate::serialize::reader::Reader;
-use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::replication::network_target::NetworkTarget;
+use crate::{
+    connection::id::ClientId,
+    protocol::component::ComponentKind,
+    serialize::{reader::Reader, SerializationError, ToBytes},
+    shared::replication::network_target::NetworkTarget,
+};
 
 /// Marker component that indicates that the entity was initially spawned via replication
 /// (it was being replicated from a remote world)

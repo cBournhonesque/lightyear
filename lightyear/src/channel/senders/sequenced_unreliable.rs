@@ -1,17 +1,18 @@
-use bevy::time::{Timer, TimerMode};
-use bevy::utils::Duration;
 use std::collections::VecDeque;
 
+use bevy::{
+    time::{Timer, TimerMode},
+    utils::Duration,
+};
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
 
-use crate::channel::senders::fragment_sender::FragmentSender;
-use crate::channel::senders::ChannelSend;
-use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
-use crate::serialize::SerializationError;
-use crate::shared::ping::manager::PingManager;
-use crate::shared::tick_manager::TickManager;
-use crate::shared::time_manager::TimeManager;
+use crate::{
+    channel::senders::{fragment_sender::FragmentSender, ChannelSend},
+    packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData},
+    serialize::SerializationError,
+    shared::{ping::manager::PingManager, tick_manager::TickManager, time_manager::TimeManager},
+};
 
 /// A sender that simply sends the messages without checking if they were received
 /// Same as UnorderedUnreliableSender, but includes ordering information (MessageId)

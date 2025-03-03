@@ -1,13 +1,15 @@
 use std::ops::{Add, Mul};
 
-use bevy::app::{App, Plugin};
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, EntityMapper, Vec2};
+use bevy::{
+    app::{App, Plugin},
+    ecs::entity::MapEntities,
+    prelude::{default, Bundle, Color, Component, Deref, DerefMut, EntityMapper, Vec2},
+};
+use lightyear::{
+    client::components::ComponentSyncMode,
+    prelude::{client::Replicate, *},
+};
 use serde::{Deserialize, Serialize};
-
-use lightyear::client::components::ComponentSyncMode;
-use lightyear::prelude::client::Replicate;
-use lightyear::prelude::*;
 
 use crate::shared::color_from_id;
 

@@ -1,6 +1,7 @@
 //! Common run conditions
-use crate::shared::identity::NetworkIdentityState;
 use bevy::prelude::{Res, State};
+
+use crate::shared::identity::NetworkIdentityState;
 
 /// Returns true if the peer is a client (host-server counts as a server)
 pub fn is_client(identity: Option<Res<State<NetworkIdentityState>>>) -> bool {

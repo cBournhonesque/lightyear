@@ -1,20 +1,24 @@
 use avian2d::prelude::*;
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{prelude::*, utils::Duration};
 use leafwing_input_manager::prelude::*;
+use lightyear::{
+    client::{
+        components::{ComponentSyncMode, LerpFn},
+        interpolation::LinearInterpolator,
+    },
+    prelude::{
+        client::{self},
+        server::{Replicate, SyncTarget},
+        *,
+    },
+    shared::input::InputConfig,
+    utils::{avian2d::*, bevy::TransformLinearInterpolation},
+};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use serde::{Deserialize, Serialize};
+use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::shared::color_from_id;
-use lightyear::client::components::{ComponentSyncMode, LerpFn};
-use lightyear::client::interpolation::LinearInterpolator;
-use lightyear::prelude::client::{self};
-use lightyear::prelude::server::{Replicate, SyncTarget};
-use lightyear::prelude::*;
-use lightyear::shared::input::InputConfig;
-use lightyear::utils::avian2d::*;
-use lightyear::utils::bevy::TransformLinearInterpolation;
-use tracing_subscriber::util::SubscriberInitExt;
 
 pub const BULLET_SIZE: f32 = 1.5;
 pub const SHIP_WIDTH: f32 = 19.0;

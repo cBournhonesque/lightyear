@@ -1,13 +1,15 @@
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{prelude::*, utils::Duration};
+use lightyear::{
+    client::prediction::Predicted,
+    prelude::{
+        client::{Confirmed, Interpolated},
+        server::ReplicationTarget,
+        *,
+    },
+};
 use tracing::Level;
 
-use crate::protocol::Direction;
-use crate::protocol::*;
-use lightyear::client::prediction::Predicted;
-use lightyear::prelude::client::{Confirmed, Interpolated};
-use lightyear::prelude::server::ReplicationTarget;
-use lightyear::prelude::*;
+use crate::protocol::{Direction, *};
 
 #[derive(Clone)]
 pub struct SharedPlugin;

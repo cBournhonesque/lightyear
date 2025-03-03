@@ -1,38 +1,49 @@
-use bevy::ecs::component::ComponentId;
-use bevy::ecs::entity::{EntityHash, MapEntities};
-use bevy::prelude::{
-    App, Component, Entity, EntityWorldMut, Mut, Reflect, Resource, TypePath, World,
+use std::{
+    alloc::Layout,
+    any::TypeId,
+    fmt::Debug,
+    hash::Hash,
+    ops::{Add, Mul},
+    ptr::NonNull,
 };
-use bevy::ptr::{OwningPtr, Ptr};
-use bevy::utils::{hashbrown, HashMap};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use std::alloc::Layout;
-use std::any::TypeId;
-use std::fmt::Debug;
-use std::hash::Hash;
-use std::ops::{Add, Mul};
-use std::ptr::NonNull;
 
+use bevy::{
+    ecs::{
+        component::ComponentId,
+        entity::{EntityHash, MapEntities},
+    },
+    prelude::{App, Component, Entity, EntityWorldMut, Mut, Reflect, Resource, TypePath, World},
+    ptr::{OwningPtr, Ptr},
+    utils::{hashbrown, HashMap},
+};
+use serde::{de::DeserializeOwned, Serialize};
 use tracing::{debug, error, trace};
 
-use crate::client::components::ComponentSyncMode;
-use crate::client::config::ClientConfig;
-use crate::client::interpolation::{add_interpolation_systems, add_prepare_interpolation_systems};
-use crate::client::prediction::plugin::{
-    add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
+use crate::{
+    client::{
+        components::ComponentSyncMode,
+        config::ClientConfig,
+        interpolation::{add_interpolation_systems, add_prepare_interpolation_systems},
+        prediction::plugin::{
+            add_non_networked_rollback_systems, add_prediction_systems,
+            add_resource_rollback_systems,
+        },
+    },
+    prelude::{client::SyncComponent, server::ServerConfig, ChannelDirection, Message, Tick},
+    protocol::{
+        delta::ErasedDeltaFns,
+        registry::{NetId, TypeKind, TypeMapper},
+        serialize::{ErasedSerializeFns, SerializeFns},
+    },
+    serialize::{reader::Reader, SerializationError},
+    shared::{
+        events::connection::ConnectionEvents,
+        replication::{
+            delta::{DeltaMessage, Diffable},
+            entity_map::{EntityMap, ReceiveEntityMap},
+        },
+    },
 };
-use crate::prelude::client::SyncComponent;
-use crate::prelude::server::ServerConfig;
-use crate::prelude::{ChannelDirection, Message, Tick};
-use crate::protocol::delta::ErasedDeltaFns;
-use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
-use crate::protocol::serialize::{ErasedSerializeFns, SerializeFns};
-use crate::serialize::reader::Reader;
-use crate::serialize::SerializationError;
-use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::replication::delta::{DeltaMessage, Diffable};
-use crate::shared::replication::entity_map::{EntityMap, ReceiveEntityMap};
 
 pub type ComponentNetId = NetId;
 
@@ -366,10 +377,10 @@ impl ComponentRegistry {
 
 mod serialize {
     use super::*;
-    use crate::serialize::reader::Reader;
-    use crate::serialize::writer::Writer;
-    use crate::serialize::ToBytes;
-    use crate::shared::replication::entity_map::SendEntityMap;
+    use crate::{
+        serialize::{reader::Reader, writer::Writer, ToBytes},
+        shared::replication::entity_map::SendEntityMap,
+    };
 
     impl ComponentRegistry {
         pub(crate) fn try_add_map_entities<C: Clone + MapEntities + 'static>(&mut self) {
@@ -492,10 +503,12 @@ mod serialize {
 }
 
 mod prediction {
-    use super::*;
-    use crate::client::prediction::predicted_history::PredictionHistory;
-    use crate::client::prediction::resource::PredictionManager;
     use bevy::prelude::Entity;
+
+    use super::*;
+    use crate::client::prediction::{
+        predicted_history::PredictionHistory, resource::PredictionManager,
+    };
 
     impl ComponentRegistry {
         pub(crate) fn predicted_component_ids(
@@ -736,12 +749,14 @@ mod interpolation {
 }
 
 mod replication {
-    use super::*;
-    use crate::prelude::{DeltaCompression, OverrideTargetComponent, ReplicateOnceComponent};
-    use crate::serialize::reader::Reader;
-    use crate::serialize::ToBytes;
-    use crate::shared::replication::entity_map::ReceiveEntityMap;
     use bytes::Bytes;
+
+    use super::*;
+    use crate::{
+        prelude::{DeltaCompression, OverrideTargetComponent, ReplicateOnceComponent},
+        serialize::{reader::Reader, ToBytes},
+        shared::replication::entity_map::ReceiveEntityMap,
+    };
 
     type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
@@ -982,13 +997,16 @@ mod replication {
 }
 
 mod delta {
-    use super::*;
-
-    use crate::shared::replication::delta::{DeltaComponentHistory, DeltaType};
-
-    use crate::serialize::writer::Writer;
-    use crate::shared::replication::entity_map::SendEntityMap;
     use std::ptr::NonNull;
+
+    use super::*;
+    use crate::{
+        serialize::writer::Writer,
+        shared::replication::{
+            delta::{DeltaComponentHistory, DeltaType},
+            entity_map::SendEntityMap,
+        },
+    };
 
     impl ComponentRegistry {
         /// Register delta compression functions for a component
@@ -1610,11 +1628,13 @@ impl From<TypeId> for ComponentKind {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::serialize::writer::Writer;
-    use crate::shared::replication::entity_map::SendEntityMap;
-    use crate::tests::protocol::*;
     use bevy::prelude::{Commands, OnAdd, OnInsert, Query, Trigger};
+
+    use super::*;
+    use crate::{
+        serialize::writer::Writer, shared::replication::entity_map::SendEntityMap,
+        tests::protocol::*,
+    };
 
     #[test]
     fn test_custom_serde() {

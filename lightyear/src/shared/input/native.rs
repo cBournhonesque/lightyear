@@ -1,13 +1,18 @@
 //! Plugin to register and handle user inputs.
 
-use crate::client::config::ClientConfig;
-use crate::inputs::native::input_message::InputMessage;
-use crate::prelude::{ChannelDirection, UserAction};
-use crate::protocol::message::registry::AppMessageInternalExt;
-use crate::server::config::ServerConfig;
-use crate::shared::input::InputConfig;
-use bevy::app::{App, Plugin};
-use bevy::ecs::entity::MapEntities;
+use bevy::{
+    app::{App, Plugin},
+    ecs::entity::MapEntities,
+};
+
+use crate::{
+    client::config::ClientConfig,
+    inputs::native::input_message::InputMessage,
+    prelude::{ChannelDirection, UserAction},
+    protocol::message::registry::AppMessageInternalExt,
+    server::config::ServerConfig,
+    shared::input::InputConfig,
+};
 
 pub struct InputPlugin<A: UserAction> {
     pub config: InputConfig<A>,

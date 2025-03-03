@@ -1,17 +1,19 @@
-use bevy::app::App;
-use bevy::prelude::{Resource, TypePath};
-use bevy::utils::Duration;
-use std::any::TypeId;
-use std::collections::HashMap;
+use std::{any::TypeId, collections::HashMap};
 
-use crate::channel::builder::{
-    AuthorityChannel, Channel, ChannelBuilder, ChannelSettings, PongChannel,
+use bevy::{
+    app::App,
+    prelude::{Resource, TypePath},
+    utils::Duration,
 };
-use crate::channel::builder::{
-    ChannelContainer, EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel,
+
+use crate::{
+    channel::builder::{
+        AuthorityChannel, Channel, ChannelBuilder, ChannelContainer, ChannelSettings,
+        EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel, PongChannel,
+    },
+    prelude::{ChannelMode, ReliableSettings},
+    protocol::registry::{NetId, TypeKind, TypeMapper},
 };
-use crate::prelude::{ChannelMode, ReliableSettings};
-use crate::protocol::registry::{NetId, TypeKind, TypeMapper};
 
 // TODO: derive Reflect once we reach bevy 0.14
 /// ChannelKind - internal wrapper around the type of the channel
@@ -198,9 +200,8 @@ mod tests {
     use bevy::prelude::{default, TypePath};
     use lightyear_macros::ChannelInternal;
 
-    use crate::channel::builder::{ChannelMode, ChannelSettings};
-
     use super::*;
+    use crate::channel::builder::{ChannelMode, ChannelSettings};
 
     #[derive(ChannelInternal, TypePath)]
     pub struct MyChannel;

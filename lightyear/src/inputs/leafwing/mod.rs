@@ -1,9 +1,8 @@
 //! Handles buffering and networking of inputs from client to server, using `leafwing_input_manager`
 
-use crate::inputs::native::UserActionState;
-use crate::prelude::UserAction;
-use leafwing_input_manager::prelude::ActionState;
-use leafwing_input_manager::Actionlike;
+use leafwing_input_manager::{prelude::ActionState, Actionlike};
+
+use crate::{inputs::native::UserActionState, prelude::UserAction};
 
 pub(crate) mod action_diff;
 pub mod input_buffer;

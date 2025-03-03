@@ -1,20 +1,27 @@
 use avian3d::prelude::*;
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{prelude::*, utils::Duration};
 use leafwing_input_manager::prelude::*;
+use lightyear::{
+    client::{
+        components::{ComponentSyncMode, LerpFn},
+        interpolation::LinearInterpolator,
+    },
+    prelude::{
+        client::{self},
+        server::{Replicate, SyncTarget},
+        *,
+    },
+    shared::input::InputConfig,
+    utils::{
+        avian3d::{position, rotation},
+        bevy::TransformLinearInterpolation,
+    },
+};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use serde::{Deserialize, Serialize};
+use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::shared::color_from_id;
-use lightyear::client::components::{ComponentSyncMode, LerpFn};
-use lightyear::client::interpolation::LinearInterpolator;
-use lightyear::prelude::client::{self};
-use lightyear::prelude::server::{Replicate, SyncTarget};
-use lightyear::prelude::*;
-use lightyear::shared::input::InputConfig;
-use lightyear::utils::avian3d::{position, rotation};
-use lightyear::utils::bevy::TransformLinearInterpolation;
-use tracing_subscriber::util::SubscriberInitExt;
 
 // For prediction, we want everything entity that is predicted to be part of
 // the same replication group This will make sure that they will be replicated

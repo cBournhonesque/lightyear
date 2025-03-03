@@ -1,16 +1,21 @@
-use std::ops::Deref;
 use std::{
     future::Future,
     io::BufReader,
     net::{SocketAddr, SocketAddrV4},
+    ops::Deref,
     sync::Arc,
 };
 
 use async_compat::Compat;
-use bevy::tasks::{futures_lite, IoTaskPool};
-use bevy::utils::hashbrown::HashMap;
-use futures_util::stream::FusedStream;
-use futures_util::{future, pin_mut, stream::TryStreamExt, SinkExt, StreamExt, TryFutureExt};
+use bevy::{
+    tasks::{futures_lite, IoTaskPool},
+    utils::hashbrown::HashMap,
+};
+use futures_util::{
+    future, pin_mut,
+    stream::{FusedStream, TryStreamExt},
+    SinkExt, StreamExt, TryFutureExt,
+};
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{
@@ -27,12 +32,16 @@ use tokio_tungstenite::{
 use tracing::{debug, info, trace};
 use tracing_log::log::error;
 
-use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
-use crate::client::io::{ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender};
-use crate::transport::error::{Error, Result};
-use crate::transport::io::IoState;
-use crate::transport::{
-    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET, MTU,
+use crate::{
+    client::io::{
+        transport::{ClientTransportBuilder, ClientTransportEnum},
+        ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender,
+    },
+    transport::{
+        error::{Error, Result},
+        io::IoState,
+        BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET, MTU,
+    },
 };
 
 pub(crate) struct WebSocketClientSocketBuilder {

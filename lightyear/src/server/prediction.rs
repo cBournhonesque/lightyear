@@ -1,8 +1,11 @@
 //! Handles logic related to prespawning entities
 
-use crate::prelude::server::{AuthorityCommandExt, AuthorityPeer};
-use crate::prelude::{PrePredicted, Replicated, ServerConnectionManager};
 use bevy::prelude::*;
+
+use crate::prelude::{
+    server::{AuthorityCommandExt, AuthorityPeer},
+    PrePredicted, Replicated, ServerConnectionManager,
+};
 
 /// When we receive an entity that a clients wants PrePredicted,
 /// we immediately transfer authority back to the server. The server will replicate the PrePredicted
