@@ -51,7 +51,6 @@ pub enum InputSystemSet {
     CleanUp,
 }
 
-
 use bevy::prelude::*;
 use std::marker::PhantomData;
 use tracing::trace;
@@ -65,7 +64,7 @@ use crate::client::sync::SyncSet;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::InputMessage;
 use crate::inputs::native::{UserAction, UserActionState};
-use crate::prelude::{is_host_server, NetworkIdentityState, TickManager};
+use crate::prelude::{is_host_server, TickManager};
 use crate::shared::input::InputConfig;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 
@@ -102,7 +101,6 @@ impl<A, F> Default for BaseInputPlugin<A, F> {
 #[derive(Debug, Resource)]
 struct MessageBuffer<A>(Vec<InputMessage<A>>);
 
-
 impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
     fn build(&self, app: &mut App) {
         // in host-server mode, we don't need to handle inputs in any way, because the player's entity
@@ -119,7 +117,7 @@ impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
             InputSystemSet::ReceiveInputMessages
                 .before(RunFixedMainLoopSystem::FixedMainLoop)
                 .after(RunFixedMainLoopSystem::BeforeFixedMainLoop)
-                .run_if(should_run.clone())
+                .run_if(should_run.clone()),
         );
 
         app.configure_sets(
@@ -129,10 +127,9 @@ impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
                 InputSystemSet::WriteClientInputs,
                 // NOTE: we could not buffer inputs in host-server mode, but it's required if
                 //  we want the host-server client to broadcast its inputs to other clients
-                InputSystemSet::BufferClientInputs
-                    // .run_if(should_run.clone())
+                InputSystemSet::BufferClientInputs, // .run_if(should_run.clone())
             )
-                .chain()
+                .chain(),
         );
         app.configure_sets(
             FixedPostUpdate,
@@ -178,25 +175,16 @@ impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
             //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
             // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
             get_delayed_action_state::<A, F>
-                    .run_if(
-                        is_input_delay
-                            .and(not(is_in_rollback)),
-                    )
-                    .in_set(InputSystemSet::RestoreInputs),
+                .run_if(is_input_delay.and(not(is_in_rollback)))
+                .in_set(InputSystemSet::RestoreInputs),
         );
 
         app.add_systems(
             PostUpdate,
-            (
-                clean_buffers::<A>.in_set(InputSystemSet::CleanUp),
-            ),
+            (clean_buffers::<A>.in_set(InputSystemSet::CleanUp),),
         );
     }
 }
-
-
-
-
 
 /// Write the value of the ActionState in the InputBuffer.
 /// (so that we can pull it for rollback or for delayed inputs)
@@ -229,7 +217,7 @@ fn buffer_action_state<A: UserActionState, F: Component>(
                 std::any::type_name::<A>(),
                 entity
             ))
-                .set(input_buffer.len() as f64);
+            .set(input_buffer.len() as f64);
         }
     }
 }
@@ -244,9 +232,7 @@ fn get_non_rollback_action_state<A: UserActionState>(
     // - local player: we need to get the input from the InputBuffer because of input delay
     // - remote player: we want to reduce the amount of rollbacks by updating the ActionState
     //   as fast as possible (the inputs are broadcasted with no delay)
-    mut action_state_query: Query<
-        (Entity, &mut A, &InputBuffer<A>),
-    >,
+    mut action_state_query: Query<(Entity, &mut A, &InputBuffer<A>)>,
 ) {
     let tick = tick_manager.tick();
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
@@ -286,9 +272,7 @@ fn get_non_rollback_action_state<A: UserActionState>(
 /// for the remote inputs that we can use to have a higher precision rollback.
 /// TODO: implement some decay for the rollback ActionState of other players?
 fn get_rollback_action_state<A: UserActionState>(
-    mut player_action_state_query: Query<
-        (Entity, &mut A, &InputBuffer<A>),
-    >,
+    mut player_action_state_query: Query<(Entity, &mut A, &InputBuffer<A>)>,
     rollback: Res<Rollback>,
 ) {
     let tick = rollback
@@ -315,7 +299,7 @@ fn get_delayed_action_state<A: UserActionState, F: Component>(
     mut action_state_query: Query<
         (Entity, &mut A, &InputBuffer<A>),
         // Filter so that this is only for directly controlled players, not remote players
-        With<F>
+        With<F>,
     >,
 ) {
     let input_delay_ticks = connection_manager.input_delay_ticks() as i16;
@@ -337,7 +321,6 @@ fn get_delayed_action_state<A: UserActionState, F: Component>(
         // TODO: if we don't find an ActionState in the buffer, should we reset the delayed one to default?
     }
 }
-
 
 /// System that removes old entries from the InputBuffer
 fn clean_buffers<A: UserAction>(

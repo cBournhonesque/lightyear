@@ -112,9 +112,7 @@ pub struct Message1(pub usize);
 
 // Inputs
 
-#[derive(
-    Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Reflect, Clone, Copy, Actionlike,
-)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Reflect, Clone, Copy, Actionlike)]
 pub enum Inputs {
     Up,
     Down,

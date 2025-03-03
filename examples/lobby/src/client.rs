@@ -147,7 +147,6 @@ mod game {
         }
     }
 
-
     /// The client input only gets applied to predicted entities that we own
     /// This works because we only predict the user's controlled entity.
     /// If we were predicting more entities, we would have to only apply movement to the player owned one.
@@ -166,17 +165,21 @@ mod game {
     /// When the predicted copy of the client-owned entity is spawned, do stuff
     /// - assign it a different saturation
     /// - add an InputMarker so that we can control the entity
-    pub(crate) fn handle_predicted_spawn(mut predicted: Query<(Entity, &mut PlayerColor), Added<Predicted>>, mut commands: Commands) {
+    pub(crate) fn handle_predicted_spawn(
+        mut predicted: Query<(Entity, &mut PlayerColor), Added<Predicted>>,
+        mut commands: Commands,
+    ) {
         for (entity, mut color) in predicted.iter_mut() {
             let hsva = Hsva {
                 saturation: 0.4,
                 ..Hsva::from(color.0)
             };
             color.0 = Color::from(hsva);
-            commands.entity(entity).insert(InputMarker::<Inputs>::default());
+            commands
+                .entity(entity)
+                .insert(InputMarker::<Inputs>::default());
         }
     }
-
 
     /// When the predicted copy of the client-owned entity is spawned, do stuff
     /// - assign it a different saturation

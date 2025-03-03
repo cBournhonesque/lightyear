@@ -112,8 +112,7 @@ pub enum Inputs {
 }
 
 impl MapEntities for Inputs {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-    }
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
 }
 
 // Protocol

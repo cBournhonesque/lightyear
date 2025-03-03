@@ -3,7 +3,6 @@ use crate::shared::tick_manager::Tick;
 use bevy::prelude::Component;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::fmt;
 use std::fmt::{Debug, Formatter};
 use tracing::trace;
 
@@ -39,7 +38,6 @@ impl<T: Debug> std::fmt::Display for InputBuffer<T> {
     }
 }
 
-
 /// We use this structure to efficiently compress the inputs that we send to the server
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub(crate) enum InputData<T> {
@@ -72,11 +70,7 @@ impl<T: UserAction> InputBuffer<ActionState<T>> {
     /// included in the message.
     /// TODO: disallow overwriting inputs for ticks we've already received inputs for?
     ///
-    pub(crate) fn update_from_message(
-        &mut self,
-        end_tick: Tick,
-        values: &Vec<InputData<T>>,
-    ) {
+    pub(crate) fn update_from_message(&mut self, end_tick: Tick, values: &Vec<InputData<T>>) {
         let start_tick = end_tick + 1 - values.len() as u16;
         // the first value is guaranteed to not be SameAsPrecedent
         for (delta, input) in values.iter().enumerate() {
@@ -90,13 +84,17 @@ impl<T: UserAction> InputBuffer<ActionState<T>> {
                 }
                 InputData::Input(input) => {
                     // do not set the value if it's equal to what's already in the buffer
-                    if self
-                        .get(tick)
-                        .is_some_and(|existing_value| existing_value.value.as_ref().is_some_and(|v| v == input))
-                    {
+                    if self.get(tick).is_some_and(|existing_value| {
+                        existing_value.value.as_ref().is_some_and(|v| v == input)
+                    }) {
                         continue;
                     }
-                    self.set(tick, ActionState::<T> { value: Some(input.clone())});
+                    self.set(
+                        tick,
+                        ActionState::<T> {
+                            value: Some(input.clone()),
+                        },
+                    );
                 }
             }
         }
@@ -211,13 +209,13 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
 
     pub(crate) fn get_raw(&self, tick: Tick) -> &InputData<T> {
         let Some(start_tick) = self.start_tick else {
-            return &InputData::Absent
+            return &InputData::Absent;
         };
         if self.buffer.is_empty() {
-            return &InputData::Absent
+            return &InputData::Absent;
         }
         if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
-            return &InputData::Absent
+            return &InputData::Absent;
         }
         self.buffer.get((tick - start_tick) as usize).unwrap()
     }

@@ -5,14 +5,16 @@ use crate::connection::client::ClientConnection;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::inputs::native::{InputMarker, UserActionState};
 use crate::prelude::client::NetClient;
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel, InputConfig, InputMessage, MessageRegistry, NetworkTarget, ServerReceiveMessage, ServerSendMessage, TickManager, UserAction};
+use crate::prelude::{
+    is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel,
+    InputConfig, InputMessage, MessageRegistry, NetworkTarget, ServerReceiveMessage,
+    ServerSendMessage, TickManager,
+};
 use crate::server::connection::ConnectionManager;
 use crate::server::input::InputSystemSet;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
-use std::cmp::min;
 
 pub struct LeafwingInputPlugin<A> {
     pub(crate) rebroadcast_inputs: bool,
@@ -28,7 +30,6 @@ impl<A> Default for LeafwingInputPlugin<A> {
     }
 }
 
-
 impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     fn build(&self, app: &mut App) {
         app.add_plugins(super::BaseInputPlugin::<ActionState<A>> {
@@ -41,7 +42,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
         app.add_observer(add_action_state_buffer::<A>);
         app.add_systems(
             PreUpdate,
-                receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputs)
+            receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputs),
         );
 
         // TODO: make this changeable dynamically by putting this in a resource?
@@ -50,12 +51,12 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
                 PostUpdate,
                 (
                     send_host_server_input_message::<A>.run_if(is_host_server),
-                    rebroadcast_inputs::<A>
-                ).chain()
-                    .in_set(InputSystemSet::RebroadcastInputs)
+                    rebroadcast_inputs::<A>,
+                )
+                    .chain()
+                    .in_set(InputSystemSet::RebroadcastInputs),
             );
         }
-
     }
 
     // TODO: this doesn't work! figure out how to make sure that InputManagerPlugin is called
@@ -73,9 +74,9 @@ fn add_action_state_buffer<A: LeafwingUserAction>(
     query: Query<(), Without<InputBuffer<A>>>,
 ) {
     if let Ok(()) = query.get(trigger.entity()) {
-        commands.entity(trigger.entity()).insert((
-            InputBuffer::<A>::default(),
-        ));
+        commands
+            .entity(trigger.entity())
+            .insert((InputBuffer::<A>::default(),));
     }
 }
 
@@ -164,13 +165,7 @@ fn send_host_server_input_message<A: LeafwingUserAction>(
     config: Res<ClientConfig>,
     input_config: Res<InputConfig<A>>,
     tick_manager: Res<TickManager>,
-    mut input_buffer_query: Query<
-        (
-            Entity,
-            &mut InputBuffer<A>,
-        ),
-        With<InputMap<A>>,
-    >,
+    mut input_buffer_query: Query<(Entity, &mut InputBuffer<A>), With<InputMap<A>>>,
 ) {
     // we send a message from the latest tick that we have available, which is the delayed tick
     let current_tick = tick_manager.tick();
@@ -193,7 +188,7 @@ fn send_host_server_input_message<A: LeafwingUserAction>(
             .unwrap();
     num_tick *= input_config.packet_redundancy;
     let mut message = InputMessage::<A>::new(tick);
-    for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
+    for (entity, input_buffer) in input_buffer_query.iter_mut() {
         trace!(
             ?tick,
             ?current_tick,
@@ -215,12 +210,7 @@ fn send_host_server_input_message<A: LeafwingUserAction>(
         "Sending host-server input message"
     );
 
-    events.send(
-        ServerReceiveMessage::new(
-            message,
-            netclient.id(),
-        )
-    );
+    events.send(ServerReceiveMessage::new(message, netclient.id()));
 }
 
 pub(crate) fn rebroadcast_inputs<A: LeafwingUserAction>(
@@ -237,8 +227,6 @@ pub(crate) fn rebroadcast_inputs<A: LeafwingUserAction>(
         )
     }));
 }
-
-
 
 #[cfg(test)]
 mod tests {

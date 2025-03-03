@@ -48,12 +48,13 @@ use crate::client::prediction::Predicted;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
 use crate::inputs::leafwing::LeafwingUserAction;
-use crate::inputs::native::UserActionState;
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage, MessageRegistry, TickManager, TimeManager};
+use crate::prelude::{
+    is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage,
+    MessageRegistry, TickManager, TimeManager,
+};
 use crate::shared::input::InputConfig;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::tick_manager::TickEvent;
-
 
 // TODO: is this actually necessary? The sync happens in PostUpdate,
 //  so maybe it's ok if the InputMessages contain the pre-sync tick! (since those inputs happened
@@ -91,7 +92,6 @@ impl<A> Default for LeafwingInputPlugin<A> {
     }
 }
 
-
 impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
 // FLOW WITH INPUT DELAY
 // - pre-update: run leafwing to update the current ActionState, which is the action-state for tick T + delay
@@ -122,7 +122,10 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         app.init_resource::<MessageBuffer<A>>();
 
         // SETS
-        app.configure_sets(FixedPostUpdate, InputSystemSet::RestoreInputs.before(InputManagerSystem::Tick));
+        app.configure_sets(
+            FixedPostUpdate,
+            InputSystemSet::RestoreInputs.before(InputManagerSystem::Tick),
+        );
 
         // SYSTEMS
         // we use required components for native inputs; here let's use observers
@@ -145,7 +148,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         );
         app.add_systems(
             PostUpdate,
-                send_input_messages::<A>.in_set(InputSystemSet::SendInputMessage),
+            send_input_messages::<A>.in_set(InputSystemSet::SendInputMessage),
         );
         // if the client tick is updated because of a desync, update the ticks in the input buffers
         app.add_observer(receive_tick_events::<A>);
@@ -161,9 +164,9 @@ fn add_input_buffer<A: LeafwingUserAction>(
     // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
     //  maybe provide the "controlled" component? or just use With<InputMap>?
     if let Ok(()) = query.get(trigger.entity()) {
-        commands.entity(trigger.entity()).insert((
-            InputBuffer::<A>::default(),
-        ));
+        commands
+            .entity(trigger.entity())
+            .insert((InputBuffer::<A>::default(),));
     }
 }
 
@@ -176,12 +179,11 @@ fn add_action_state<A: LeafwingUserAction>(
     // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
     //  maybe provide the "controlled" component? or just use With<InputMap>?
     if let Ok(()) = query.get(trigger.entity()) {
-        commands.entity(trigger.entity()).insert((
-            ActionState::<A>::default(),
-        ));
+        commands
+            .entity(trigger.entity())
+            .insert((ActionState::<A>::default(),));
     }
 }
-
 
 /// Send a message to the server containing the ActionDiffs for the last few ticks
 fn prepare_input_message<A: LeafwingUserAction>(
@@ -328,7 +330,6 @@ fn send_input_messages<A: LeafwingUserAction>(
             });
     }
 }
-
 
 /// Read the InputMessages of other clients from the server to update their InputBuffer and ActionState.
 /// This is useful if we want to do client-prediction for remote players.

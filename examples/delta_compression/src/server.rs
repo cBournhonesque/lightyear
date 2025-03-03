@@ -95,9 +95,7 @@ pub(crate) fn handle_disconnections(
 }
 
 /// Read client inputs and move players in server therefore giving a basis for other clients
-fn movement(
-    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>,
-) {
+fn movement(mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>) {
     for (position, inputs) in position_query.iter_mut() {
         if let Some(inputs) = &inputs.value {
             shared::shared_movement_behaviour(position, inputs);

@@ -31,7 +31,10 @@ impl Plugin for ExampleClientPlugin {
             buffer_input.in_set(InputSystemSet::WriteClientInputs),
         );
         app.add_systems(FixedUpdate, player_movement);
-        app.add_systems(Update, (change_ball_color_on_authority, handle_predicted_spawn));
+        app.add_systems(
+            Update,
+            (change_ball_color_on_authority, handle_predicted_spawn),
+        );
         app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
 
         app.add_systems(PostUpdate, interpolation_debug_log);
@@ -67,7 +70,7 @@ pub(crate) fn buffer_input(
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
     query.iter_mut().for_each(|mut action_state| {
-         let mut input = None;
+        let mut input = None;
         let mut direction = Direction {
             up: false,
             down: false,
@@ -96,9 +99,7 @@ pub(crate) fn buffer_input(
 /// The client input only gets applied to predicted entities that we own
 /// This works because we only predict the user's controlled entity.
 /// If we were predicting more entities, we would have to only apply movement to the player owned one.
-fn player_movement(
-    mut position_query: Query<(&mut Position, &ActionState<Inputs>)>,
-) {
+fn player_movement(mut position_query: Query<(&mut Position, &ActionState<Inputs>)>) {
     for (position, input) in position_query.iter_mut() {
         if let Some(inputs) = &input.value {
             shared::shared_movement_behaviour(position, inputs);
@@ -167,13 +168,18 @@ pub(crate) fn interpolation_debug_log(
 /// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
-pub(crate) fn handle_predicted_spawn(mut predicted: Query<(Entity, &mut PlayerColor), Added<Predicted>>, mut commands: Commands) {
+pub(crate) fn handle_predicted_spawn(
+    mut predicted: Query<(Entity, &mut PlayerColor), Added<Predicted>>,
+    mut commands: Commands,
+) {
     for (entity, mut color) in predicted.iter_mut() {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        commands.entity(entity).insert(InputMarker::<Inputs>::default());
+        commands
+            .entity(entity)
+            .insert(InputMarker::<Inputs>::default());
     }
 }

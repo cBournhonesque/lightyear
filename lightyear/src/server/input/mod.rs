@@ -5,7 +5,6 @@ pub mod native;
 #[cfg(feature = "leafwing")]
 pub mod leafwing;
 
-
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserActionState;
 use crate::prelude::{server::is_started, TickManager};
@@ -46,19 +45,23 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
         app.configure_sets(
             PreUpdate,
             (
-
                 InternalMainSet::<ServerMarker>::ReceiveEvents,
-                InputSystemSet::ReceiveInputs
+                InputSystemSet::ReceiveInputs,
             )
                 .chain()
                 .run_if(is_started),
         );
-        app.configure_sets(FixedPreUpdate, InputSystemSet::UpdateActionState.run_if(is_started));
+        app.configure_sets(
+            FixedPreUpdate,
+            InputSystemSet::UpdateActionState.run_if(is_started),
+        );
         // TODO: maybe put this in a Fixed schedule to avoid sending multiple host-server identical
         //  messages per frame if we didn't run FixedUpdate at all?
-        app.configure_sets(PostUpdate, InputSystemSet::RebroadcastInputs
-            .run_if(is_started)
-            .before(InternalMainSet::<ServerMarker>::SendEvents)
+        app.configure_sets(
+            PostUpdate,
+            InputSystemSet::RebroadcastInputs
+                .run_if(is_started)
+                .before(InternalMainSet::<ServerMarker>::SendEvents),
         );
 
         // SYSTEMS
@@ -68,8 +71,6 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
         );
     }
 }
-
-
 
 /// Read the InputState for the current tick from the buffer, and use them to update the ActionState
 fn update_action_state<A: UserActionState>(
@@ -83,7 +84,12 @@ fn update_action_state<A: UserActionState>(
         // This is equivalent to considering that the player will keep playing the last action they played.
         if let Some(action) = input_buffer.get(tick) {
             *action_state = action.clone();
-            trace!(?tick, ?entity, "action state after update. Input Buffer: {}", input_buffer.as_ref());
+            trace!(
+                ?tick,
+                ?entity,
+                "action state after update. Input Buffer: {}",
+                input_buffer.as_ref()
+            );
 
             #[cfg(feature = "metrics")]
             {

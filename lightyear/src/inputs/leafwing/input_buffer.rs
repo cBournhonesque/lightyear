@@ -16,14 +16,11 @@ use tracing::trace;
 
 use super::LeafwingUserAction;
 
-
 /// The InputBuffer contains a history of the ActionState for each tick between
 /// `start_tick` and `end_tick`. All ticks between `start_tick` and `end_tick` must be included in the buffer.
 pub type InputBuffer<A> = crate::inputs::native::input_buffer::InputBuffer<ActionState<A>>;
 
-
 impl<T: LeafwingUserAction> InputBuffer<T> {
-
     /// Upon receiving an [`InputMessage`](super::input_message::InputMessage), update the InputBuffer with all the inputs
     /// included in the message.
     /// TODO: disallow overwriting inputs for ticks we've already received inputs for?

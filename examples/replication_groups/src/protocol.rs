@@ -246,8 +246,7 @@ pub enum Direction {
 }
 
 impl MapEntities for Direction {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-    }
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
 }
 
 impl Direction {
@@ -291,8 +290,7 @@ pub enum Inputs {
 }
 
 impl MapEntities for Inputs {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-    }
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
 }
 
 // Protocol

@@ -5,12 +5,15 @@ use crate::connection::client::{ClientConnection, NetClient};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::{InputMessage, InputTarget};
 use crate::inputs::native::{ActionState, InputMarker};
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel, MessageRegistry, NetworkTarget, ServerReceiveMessage, ServerSendMessage, TickManager, UserAction};
+use crate::prelude::{
+    is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel,
+    MessageRegistry, NetworkTarget, ServerReceiveMessage, ServerSendMessage, TickManager,
+    UserAction,
+};
 use crate::server::connection::ConnectionManager;
 use crate::server::input::InputSystemSet;
 use crate::shared::input::InputConfig;
 use bevy::prelude::*;
-use std::cmp::min;
 
 pub struct InputPlugin<A> {
     /// If True, the server will rebroadcast a client's inputs to all other clients.
@@ -30,7 +33,6 @@ impl<A> Default for InputPlugin<A> {
     }
 }
 
-
 impl<A: UserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
         app.add_plugins(super::BaseInputPlugin::<ActionState<A>> {
@@ -40,9 +42,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         // SYSTEMS
         app.add_systems(
             PreUpdate,
-            (
-                receive_input_message::<A>,
-            ).in_set(InputSystemSet::ReceiveInputs)
+            (receive_input_message::<A>,).in_set(InputSystemSet::ReceiveInputs),
         );
 
         // TODO: make this changeable dynamically by putting this in a resource?
@@ -51,14 +51,14 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
                 PostUpdate,
                 (
                     send_host_server_input_message::<A>.run_if(is_host_server),
-                    rebroadcast_inputs::<A>
-                ).chain()
-                    .in_set(InputSystemSet::RebroadcastInputs)
+                    rebroadcast_inputs::<A>,
+                )
+                    .chain()
+                    .in_set(InputSystemSet::RebroadcastInputs),
             );
         }
     }
 }
-
 
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<A: UserAction>(
@@ -138,13 +138,7 @@ fn send_host_server_input_message<A: UserAction>(
     config: Res<ClientConfig>,
     input_config: Res<InputConfig<A>>,
     tick_manager: Res<TickManager>,
-    mut input_buffer_query: Query<
-        (
-            Entity,
-            &mut InputBuffer<ActionState<A>>,
-        ),
-        With<InputMarker<A>>,
-    >,
+    mut input_buffer_query: Query<(Entity, &mut InputBuffer<ActionState<A>>), With<InputMarker<A>>>,
 ) {
     // we send a message from the latest tick that we have available, which is the delayed tick
     let current_tick = tick_manager.tick();
@@ -168,7 +162,7 @@ fn send_host_server_input_message<A: UserAction>(
             .unwrap();
     num_tick *= input_config.packet_redundancy;
     let mut message = InputMessage::<A>::new(tick);
-    for (entity, mut input_buffer) in input_buffer_query.iter_mut() {
+    for (entity, input_buffer) in input_buffer_query.iter_mut() {
         trace!(
             ?tick,
             ?current_tick,
@@ -184,17 +178,12 @@ fn send_host_server_input_message<A: UserAction>(
         );
     }
 
-    events.send(
-        ServerReceiveMessage::new(
-            message,
-            netclient.id(),
-        )
-    );
+    events.send(ServerReceiveMessage::new(message, netclient.id()));
 }
 
 pub(crate) fn rebroadcast_inputs<A: UserAction>(
-        mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<A>>>>,
-        mut send_inputs: EventWriter<ServerSendMessage<InputMessage<A>>>,
+    mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<A>>>>,
+    mut send_inputs: EventWriter<ServerSendMessage<InputMessage<A>>>,
 ) {
     // rebroadcast the input to other clients
     // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
@@ -206,4 +195,3 @@ pub(crate) fn rebroadcast_inputs<A: UserAction>(
         )
     }));
 }
-

@@ -184,8 +184,7 @@ pub(crate) fn deserialize_resource2(reader: &mut Reader) -> Result<Resource2, Se
 pub struct MyInput(pub i16);
 
 impl MapEntities for MyInput {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-    }
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
 }
 
 // Protocol
@@ -227,7 +226,7 @@ impl Plugin for ProtocolPlugin {
             config: InputConfig::<MyInput> {
                 rebroadcast_inputs: true,
                 ..default()
-            }
+            },
         });
         // components
         app.register_component::<ComponentSyncModeFull>(ChannelDirection::Bidirectional)

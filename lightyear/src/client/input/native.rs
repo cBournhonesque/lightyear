@@ -60,10 +60,12 @@ use crate::client::prediction::Predicted;
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::{InputMessage, InputTarget};
 use crate::inputs::native::{ActionState, InputMarker, UserAction};
-use crate::prelude::{ChannelKind, ChannelRegistry, ClientReceiveMessage, MessageRegistry, PrePredicted, TickManager, TimeManager};
+use crate::prelude::{
+    ChannelKind, ChannelRegistry, ClientReceiveMessage, MessageRegistry, PrePredicted, TickManager,
+    TimeManager,
+};
 use crate::shared::input::InputConfig;
 use crate::shared::tick_manager::TickEvent;
-
 
 pub struct InputPlugin<A> {
     config: InputConfig<A>,
@@ -71,9 +73,7 @@ pub struct InputPlugin<A> {
 
 impl<A: UserAction> InputPlugin<A> {
     pub(crate) fn new(config: InputConfig<A>) -> Self {
-        Self {
-            config,
-        }
+        Self { config }
     }
 }
 
@@ -102,7 +102,6 @@ impl<A> Default for MessageBuffer<A> {
     }
 }
 
-
 impl<A: UserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
         app.add_plugins(BaseInputPlugin::<ActionState<A>, InputMarker<A>>::default());
@@ -121,20 +120,19 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         }
         app.add_systems(
             FixedPostUpdate,
-                prepare_input_message::<A>
-                    .in_set(InputSystemSet::PrepareInputMessage)
-                    // no need to prepare messages to send if in rollback
-                    .run_if(not(is_in_rollback)),
+            prepare_input_message::<A>
+                .in_set(InputSystemSet::PrepareInputMessage)
+                // no need to prepare messages to send if in rollback
+                .run_if(not(is_in_rollback)),
         );
         app.add_systems(
             PostUpdate,
-                send_input_messages::<A>.in_set(InputSystemSet::SendInputMessage),
+            send_input_messages::<A>.in_set(InputSystemSet::SendInputMessage),
         );
         // if the client tick is updated because of a desync, update the ticks in the input buffers
         app.add_observer(receive_tick_events::<A>);
     }
 }
-
 
 /// Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<A: UserAction>(
@@ -251,7 +249,6 @@ fn prepare_input_message<A: UserAction>(
     // NOTE: keep the older input values in the InputBuffer! because they might be needed when we rollback for client prediction
 }
 
-
 /// Read the InputMessages of other clients from the server to update their InputBuffer and ActionState.
 /// This is useful if we want to do client-prediction for remote players.
 ///
@@ -269,7 +266,7 @@ fn receive_remote_player_input_messages<A: UserAction>(
     confirmed_query: Query<&Confirmed, Without<InputMarker<A>>>,
     mut predicted_query: Query<
         Option<&mut InputBuffer<ActionState<A>>>,
-        (With<Predicted>, Without<InputMarker<A>>)
+        (With<Predicted>, Without<InputMarker<A>>),
     >,
 ) {
     let tick = tick_manager.tick();
@@ -343,7 +340,6 @@ fn receive_remote_player_input_messages<A: UserAction>(
     });
 }
 
-
 /// Drain the messages from the buffer and send them to the server
 fn send_input_messages<A: UserAction>(
     mut connection: ResMut<ConnectionManager>,
@@ -401,7 +397,6 @@ fn receive_tick_events<A: UserAction>(
     }
 }
 
-
 // #[cfg(test)]
 // mod tests {
 //     use crate::client::input::native::InputSystemSet;
@@ -449,7 +444,6 @@ fn receive_tick_events<A: UserAction>(
 //     }
 // }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,7 +451,6 @@ mod tests {
     use crate::prelude::{client, NetworkTarget};
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::MyInput;
-
 
     // Test with no input delay:
     // 1. remote client replicated entity sending inputs to server
@@ -475,41 +468,58 @@ mod tests {
 
         // SETUP START
         // entity controlled by the local client
-        let local_entity = stepper.server_app.world_mut().spawn((
-            Replicate {
-                sync: SyncTarget {
-                    prediction: NetworkTarget::All,
+        let local_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                Replicate {
+                    sync: SyncTarget {
+                        prediction: NetworkTarget::All,
+                        ..default()
+                    },
                     ..default()
                 },
-                ..default()
-            },
-            InputMarker::<MyInput>::default(),
-        )).id();
+                InputMarker::<MyInput>::default(),
+            ))
+            .id();
         // entity controlled by the remote client
-        let remote_entity = stepper.server_app.world_mut().spawn(Replicate::default()).id();
-        let remote_entity_2 = stepper.server_app.world_mut().spawn(Replicate {
+        let remote_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn(Replicate::default())
+            .id();
+        let remote_entity_2 = stepper
+            .server_app
+            .world_mut()
+            .spawn(Replicate {
                 sync: SyncTarget {
                     prediction: NetworkTarget::All,
                     ..default()
                 },
                 ..default()
-            },).id();
-        let remote_entity_3 = stepper.server_app.world_mut().spawn(Replicate {
-            sync: SyncTarget {
-                prediction: NetworkTarget::All,
+            })
+            .id();
+        let remote_entity_3 = stepper
+            .server_app
+            .world_mut()
+            .spawn(Replicate {
+                sync: SyncTarget {
+                    prediction: NetworkTarget::All,
+                    ..default()
+                },
                 ..default()
-            },
-            ..default()
-        },).id();
-        let client_pre_predicted_entity = stepper.client_app.world_mut().spawn((
-            client::Replicate::default(),
-            PrePredicted::default()
-        )).id();
+            })
+            .id();
+        let client_pre_predicted_entity = stepper
+            .client_app
+            .world_mut()
+            .spawn((client::Replicate::default(), PrePredicted::default()))
+            .id();
         for _ in 0..10 {
             stepper.frame_step();
         }
 
-       let local_confirmed = stepper
+        let local_confirmed = stepper
             .client_app
             .world()
             .resource::<client::ConnectionManager>()
@@ -520,54 +530,83 @@ mod tests {
         let local_predicted = stepper
             .client_app
             .world()
-            .get::<Confirmed>(local_confirmed).unwrap().predicted.unwrap();
+            .get::<Confirmed>(local_confirmed)
+            .unwrap()
+            .predicted
+            .unwrap();
         let client_entity = stepper
-                .client_app
-                .world()
-                .resource::<client::ConnectionManager>()
-                .replication_receiver
-                .remote_entity_map
-                .get_local(remote_entity)
-                .expect("entity was not replicated to client");
-        let client_entity_2_confirmed = stepper
-                .client_app
-                .world()
-                .resource::<client::ConnectionManager>()
-                .replication_receiver
-                .remote_entity_map
-                .get_local(remote_entity_2)
-                .expect("entity was not replicated to client");
-         let client_entity_2_predicted = stepper
             .client_app
             .world()
-            .get::<Confirmed>(client_entity_2_confirmed).unwrap().predicted.unwrap();
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(remote_entity)
+            .expect("entity was not replicated to client");
+        let client_entity_2_confirmed = stepper
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(remote_entity_2)
+            .expect("entity was not replicated to client");
+        let client_entity_2_predicted = stepper
+            .client_app
+            .world()
+            .get::<Confirmed>(client_entity_2_confirmed)
+            .unwrap()
+            .predicted
+            .unwrap();
         let client_entity_3_confirmed = stepper
-                .client_app
-                .world()
-                .resource::<client::ConnectionManager>()
-                .replication_receiver
-                .remote_entity_map
-                .get_local(remote_entity_3)
-                .expect("entity was not replicated to client");
-        let server_pre_predicted_entity = stepper.server_app.world_mut().query_filtered::<Entity, With<PrePredicted>>().single(stepper.server_app.world());
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(remote_entity_3)
+            .expect("entity was not replicated to client");
+        let server_pre_predicted_entity = stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<PrePredicted>>()
+            .single(stepper.server_app.world());
         // replicate back the pre-predicted entity
-        stepper.server_app.world_mut().entity_mut(server_pre_predicted_entity).insert(Replicate::default());
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_pre_predicted_entity)
+            .insert(Replicate::default());
         stepper.frame_step();
         stepper.frame_step();
         // SETUP END
 
         // 1. remote client replicated entity send to server
-        stepper.client_app.world_mut().entity_mut(client_entity).insert(
-            InputMarker::<MyInput>::default(),
-        );
-        stepper.client_app.world_mut().get_mut::<ActionState<MyInput>>(client_entity).unwrap().value = Some(MyInput(1));
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(client_entity)
+            .insert(InputMarker::<MyInput>::default());
+        stepper
+            .client_app
+            .world_mut()
+            .get_mut::<ActionState<MyInput>>(client_entity)
+            .unwrap()
+            .value = Some(MyInput(1));
         stepper.frame_step();
         let server_tick = stepper.server_tick();
         let client_tick = stepper.client_tick();
 
         assert_eq!(
-            stepper.server_app.world().get::<InputBuffer<ActionState<MyInput>>>(remote_entity).unwrap().get(client_tick).unwrap(),
-            &ActionState { value: Some(MyInput(1))}
+            stepper
+                .server_app
+                .world()
+                .get::<InputBuffer<ActionState<MyInput>>>(remote_entity)
+                .unwrap()
+                .get(client_tick)
+                .unwrap(),
+            &ActionState {
+                value: Some(MyInput(1))
+            }
         );
 
         // we want to advance by the tick difference, so that the server is on the same
@@ -576,22 +615,43 @@ mod tests {
             stepper.frame_step();
         }
         assert_eq!(
-            stepper.server_app.world().get::<ActionState<MyInput>>(remote_entity).unwrap(),
-            &ActionState { value: Some(MyInput(1))}
+            stepper
+                .server_app
+                .world()
+                .get::<ActionState<MyInput>>(remote_entity)
+                .unwrap(),
+            &ActionState {
+                value: Some(MyInput(1))
+            }
         );
 
         // 2. remote client predicted entity send inputs to server
-       stepper.client_app.world_mut().entity_mut(client_entity_2_predicted).insert(
-            InputMarker::<MyInput>::default(),
-        );
-        stepper.client_app.world_mut().get_mut::<ActionState<MyInput>>(client_entity_2_predicted).unwrap().value = Some(MyInput(2));
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(client_entity_2_predicted)
+            .insert(InputMarker::<MyInput>::default());
+        stepper
+            .client_app
+            .world_mut()
+            .get_mut::<ActionState<MyInput>>(client_entity_2_predicted)
+            .unwrap()
+            .value = Some(MyInput(2));
         stepper.frame_step();
         let server_tick = stepper.server_tick();
         let client_tick = stepper.client_tick();
 
         assert_eq!(
-            stepper.server_app.world().get::<InputBuffer<ActionState<MyInput>>>(remote_entity_2).unwrap().get(client_tick).unwrap(),
-            &ActionState { value: Some(MyInput(2))}
+            stepper
+                .server_app
+                .world()
+                .get::<InputBuffer<ActionState<MyInput>>>(remote_entity_2)
+                .unwrap()
+                .get(client_tick)
+                .unwrap(),
+            &ActionState {
+                value: Some(MyInput(2))
+            }
         );
 
         // we want to advance by the tick difference, so that the server is on the same
@@ -600,22 +660,43 @@ mod tests {
             stepper.frame_step();
         }
         assert_eq!(
-            stepper.server_app.world().get::<ActionState<MyInput>>(remote_entity_2).unwrap(),
-            &ActionState { value: Some(MyInput(2))}
+            stepper
+                .server_app
+                .world()
+                .get::<ActionState<MyInput>>(remote_entity_2)
+                .unwrap(),
+            &ActionState {
+                value: Some(MyInput(2))
+            }
         );
 
         // 3. remote client confirmed entity send inputs to server
-        stepper.client_app.world_mut().entity_mut(client_entity_3_confirmed).insert(
-            InputMarker::<MyInput>::default(),
-        );
-        stepper.client_app.world_mut().get_mut::<ActionState<MyInput>>(client_entity_3_confirmed).unwrap().value = Some(MyInput(3));
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(client_entity_3_confirmed)
+            .insert(InputMarker::<MyInput>::default());
+        stepper
+            .client_app
+            .world_mut()
+            .get_mut::<ActionState<MyInput>>(client_entity_3_confirmed)
+            .unwrap()
+            .value = Some(MyInput(3));
         stepper.frame_step();
         let server_tick = stepper.server_tick();
         let client_tick = stepper.client_tick();
 
         assert_eq!(
-            stepper.server_app.world().get::<InputBuffer<ActionState<MyInput>>>(remote_entity_3).unwrap().get(client_tick).unwrap(),
-            &ActionState { value: Some(MyInput(3))}
+            stepper
+                .server_app
+                .world()
+                .get::<InputBuffer<ActionState<MyInput>>>(remote_entity_3)
+                .unwrap()
+                .get(client_tick)
+                .unwrap(),
+            &ActionState {
+                value: Some(MyInput(3))
+            }
         );
 
         // we want to advance by the tick difference, so that the server is on the same
@@ -624,22 +705,43 @@ mod tests {
             stepper.frame_step();
         }
         assert_eq!(
-            stepper.server_app.world().get::<ActionState<MyInput>>(remote_entity_3).unwrap(),
-            &ActionState { value: Some(MyInput(3))}
+            stepper
+                .server_app
+                .world()
+                .get::<ActionState<MyInput>>(remote_entity_3)
+                .unwrap(),
+            &ActionState {
+                value: Some(MyInput(3))
+            }
         );
 
         // 4. remote client pre-predicted entity send inputs to server
-        stepper.client_app.world_mut().entity_mut(client_pre_predicted_entity).insert(
-            InputMarker::<MyInput>::default(),
-        );
-        stepper.client_app.world_mut().get_mut::<ActionState<MyInput>>(client_pre_predicted_entity).unwrap().value = Some(MyInput(4));
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(client_pre_predicted_entity)
+            .insert(InputMarker::<MyInput>::default());
+        stepper
+            .client_app
+            .world_mut()
+            .get_mut::<ActionState<MyInput>>(client_pre_predicted_entity)
+            .unwrap()
+            .value = Some(MyInput(4));
         stepper.frame_step();
         let server_tick = stepper.server_tick();
         let client_tick = stepper.client_tick();
 
         assert_eq!(
-            stepper.server_app.world().get::<InputBuffer<ActionState<MyInput>>>(server_pre_predicted_entity).unwrap().get(client_tick).unwrap(),
-            &ActionState { value: Some(MyInput(4))}
+            stepper
+                .server_app
+                .world()
+                .get::<InputBuffer<ActionState<MyInput>>>(server_pre_predicted_entity)
+                .unwrap()
+                .get(client_tick)
+                .unwrap(),
+            &ActionState {
+                value: Some(MyInput(4))
+            }
         );
 
         // we want to advance by the tick difference, so that the server is on the same
@@ -648,10 +750,15 @@ mod tests {
             stepper.frame_step();
         }
         assert_eq!(
-            stepper.server_app.world().get::<ActionState<MyInput>>(server_pre_predicted_entity).unwrap(),
-            &ActionState { value: Some(MyInput(4))}
+            stepper
+                .server_app
+                .world()
+                .get::<ActionState<MyInput>>(server_pre_predicted_entity)
+                .unwrap(),
+            &ActionState {
+                value: Some(MyInput(4))
+            }
         );
-
 
         // 5. local client inputs sent to server
         // we get this for free because the ActionState is updated in InputSystemSet::WriteClientInputs
@@ -659,7 +766,12 @@ mod tests {
 
         // 6. local host-server client inputs sent to remote client for prediction
         // i.e. the host-server inputs are being broadcasted to other clients
-        stepper.server_app.world_mut().get_mut::<ActionState<MyInput>>(local_entity).unwrap().value = Some(MyInput(6));
+        stepper
+            .server_app
+            .world_mut()
+            .get_mut::<ActionState<MyInput>>(local_entity)
+            .unwrap()
+            .value = Some(MyInput(6));
         // we run server first, then client, so that the server's rebroadcasted inputs can be read by the client
         stepper.advance_time(stepper.frame_duration);
         stepper.server_app.update();
@@ -669,9 +781,16 @@ mod tests {
 
         // for input broadcasting, we write the remote client inputs to the Predicted entity only
         assert_eq!(
-            stepper.client_app.world().get::<InputBuffer<ActionState<MyInput>>>(local_predicted).unwrap().get(server_tick).unwrap(),
-            &ActionState { value: Some(MyInput(6))}
+            stepper
+                .client_app
+                .world()
+                .get::<InputBuffer<ActionState<MyInput>>>(local_predicted)
+                .unwrap()
+                .get(server_tick)
+                .unwrap(),
+            &ActionState {
+                value: Some(MyInput(6))
+            }
         );
     }
-
 }

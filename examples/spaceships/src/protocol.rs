@@ -242,7 +242,7 @@ impl Plugin for ProtocolPlugin {
             config: InputConfig::<PlayerActions> {
                 rebroadcast_inputs: true,
                 ..default()
-            }
+            },
         });
 
         // Player is synced as Simple, because we periodically update rtt ping stats

@@ -21,7 +21,6 @@ impl<A: UserAction> Default for InputPlugin<A> {
     }
 }
 
-
 impl<A: UserAction + MapEntities> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
         // TODO: this adds a receive_message fn that is never used! Because we have custom handling
@@ -36,7 +35,9 @@ impl<A: UserAction + MapEntities> Plugin for InputPlugin<A> {
         let is_server = app.world().get_resource::<ServerConfig>().is_some();
         assert!(is_client || is_server, "Either ClientConfig or ServerConfig must be present! Make sure that your SharedPlugin is registered after the ClientPlugins/ServerPlugins");
         if is_client {
-            app.add_plugins(crate::client::input::native::InputPlugin::<A>::new(self.config.clone()));
+            app.add_plugins(crate::client::input::native::InputPlugin::<A>::new(
+                self.config.clone(),
+            ));
         }
         if is_server {
             app.add_plugins(crate::server::input::native::InputPlugin::<A> {

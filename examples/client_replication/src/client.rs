@@ -41,7 +41,6 @@ pub(crate) fn init(mut commands: Commands) {
     commands.connect_client();
 }
 
-
 /// Listen for events to know when the client is connected;
 /// - spawn a text entity to display the client id
 /// - spawn a client-owned cursor entity that will be replicated to the server
@@ -127,7 +126,7 @@ fn spawn_player(
         }
     }
     if keypress.just_pressed(KeyCode::Space) {
-         commands.spawn((
+        commands.spawn((
             PlayerBundle::new(client_id, Vec2::ZERO),
             // add a marker to specify that we will be writing Inputs on this entity
             InputMarker::<Inputs>::default(),
@@ -151,9 +150,9 @@ fn delete_player(
         ),
     >,
 ) {
-    for (entity, inputs, ) in players.iter() {
+    for (entity, inputs) in players.iter() {
         if inputs.value.as_ref().is_some_and(|v| v == &Inputs::Delete) {
-             if let Some(mut entity_mut) = commands.get_entity(entity) {
+            if let Some(mut entity_mut) = commands.get_entity(entity) {
                 // we need to use this special function to despawn prediction entity
                 // the reason is that we actually keep the entity around for a while,
                 // in case we need to re-store it for rollback

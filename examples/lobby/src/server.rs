@@ -129,16 +129,13 @@ mod game {
     }
 
     /// Read client inputs and move players
-    pub(crate) fn movement(
-        mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>,
-    ) {
+    pub(crate) fn movement(mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>) {
         for (position, inputs) in position_query.iter_mut() {
             if let Some(inputs) = &inputs.value {
                 shared_movement_behaviour(position, inputs);
             }
         }
     }
-
 }
 
 mod lobby {

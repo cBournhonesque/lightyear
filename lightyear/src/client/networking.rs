@@ -390,7 +390,9 @@ fn on_connect_host_server(
 ) {
     // TODO: put this elsewhere! Maybe the SyncPlugin should have a startup function that runs if in host-server?
     // set the input delay value (since SyncPlugin does not run)
-    connection_manager.sync_manager.current_input_delay = config.prediction.input_delay_ticks(Duration::default(), config.shared.tick.tick_duration);
+    connection_manager.sync_manager.current_input_delay = config
+        .prediction
+        .input_delay_ticks(Duration::default(), config.shared.tick.tick_duration);
     // spawn an entity for the client
     let client_entity = commands.spawn(ControlledEntities::default()).id();
     // start a server connection for that client (which will also send a ConnectEvent on the server)

@@ -53,10 +53,12 @@ pub(crate) fn handle_connections(
 
 /// Read client inputs and move players
 pub(crate) fn movement(
-    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>),
+    mut position_query: Query<
+        (&mut PlayerPosition, &ActionState<Inputs>),
         // if we run in host-server mode, we don't want to apply this system to the local client's entities
         // because they are already moved by the client plugin
-        (Without<Confirmed>, Without<Predicted>)>,
+        (Without<Confirmed>, Without<Predicted>),
+    >,
 ) {
     for (position, inputs) in position_query.iter_mut() {
         if let Some(input) = &inputs.value {

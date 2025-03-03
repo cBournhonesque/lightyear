@@ -35,12 +35,15 @@ pub(crate) mod input_message;
 #[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize, Reflect)]
 #[require(InputBuffer<ActionState<A>>)]
 pub struct ActionState<A: Send + Sync> {
-    pub value: Option<A>
+    pub value: Option<A>,
 }
 
 impl<A: UserAction> From<&ActionState<A>> for InputData<A> {
     fn from(value: &ActionState<A>) -> Self {
-        value.value.as_ref().map_or(InputData::Absent, |v| InputData::Input(v.clone()))
+        value
+            .value
+            .as_ref()
+            .map_or(InputData::Absent, |v| InputData::Input(v.clone()))
     }
 }
 
@@ -65,9 +68,6 @@ impl<A: UserAction> Default for InputMarker<A> {
         }
     }
 }
-
-
-
 
 pub trait UserAction:
     Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static

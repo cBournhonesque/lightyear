@@ -243,7 +243,6 @@ pub(crate) fn player_movement(
 ) {
     let tick = tick_manager.tick();
     for (action_state, mut aiq) in q.iter_mut() {
-
         if !action_state.get_pressed().is_empty() {
             error!(
                 "🎹 {:?} {tick:?} = {:?}",

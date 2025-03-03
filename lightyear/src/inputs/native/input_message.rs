@@ -80,7 +80,6 @@ impl<A: UserAction> std::fmt::Display for InputMessage<A> {
     }
 }
 
-
 impl<T: UserAction> InputMessage<T> {
     pub fn new(end_tick: Tick) -> Self {
         Self {
@@ -92,7 +91,11 @@ impl<T: UserAction> InputMessage<T> {
 
     pub fn is_empty(&self) -> bool {
         self.inputs.iter().all(|data| {
-            data.states.is_empty() || data.states.iter().all(|s| matches!(s, InputData::Absent | InputData::SameAsPrecedent) )
+            data.states.is_empty()
+                || data
+                    .states
+                    .iter()
+                    .all(|s| matches!(s, InputData::Absent | InputData::SameAsPrecedent))
         })
     }
 
@@ -101,43 +104,41 @@ impl<T: UserAction> InputMessage<T> {
     /// If we don't have a starting `ActionState` from the `input_buffer`, we start from the first tick for which
     /// we have an `ActionState`.
     pub fn add_inputs(
-            &mut self,
-            num_ticks: u16,
-            target: InputTarget,
-            input_buffer: &InputBuffer<ActionState<T>>,
+        &mut self,
+        num_ticks: u16,
+        target: InputTarget,
+        input_buffer: &InputBuffer<ActionState<T>>,
     ) {
         let Some(buffer_start_tick) = input_buffer.start_tick else {
-            return
+            return;
         };
         // find the first tick for which we have an `ActionState` buffered
         let start_tick = max(self.end_tick - num_ticks + 1, buffer_start_tick);
 
         // find the initial state, (which we convert out of SameAsPrecedent)
-        let start_state = input_buffer.get(start_tick).map_or(
-            InputData::Absent,
-            |input| input.into()
-        );
+        let start_state = input_buffer
+            .get(start_tick)
+            .map_or(InputData::Absent, |input| input.into());
         let mut states = vec![start_state];
 
         // append the other states until the end tick
         let buffer_start = (start_tick + 1 - buffer_start_tick) as usize;
         let buffer_end = (self.end_tick + 1 - buffer_start_tick) as usize;
         for idx in buffer_start..buffer_end {
-            let state = input_buffer.buffer.get(idx)
-                .map_or(InputData::Absent, |input| match input {
-                    InputData::Absent => InputData::Absent,
-                    InputData::SameAsPrecedent => InputData::SameAsPrecedent,
-                    InputData::Input(v) => {v.into()}
-                });
+            let state =
+                input_buffer
+                    .buffer
+                    .get(idx)
+                    .map_or(InputData::Absent, |input| match input {
+                        InputData::Absent => InputData::Absent,
+                        InputData::SameAsPrecedent => InputData::SameAsPrecedent,
+                        InputData::Input(v) => v.into(),
+                    });
             states.push(state);
         }
-        self.inputs.push(PerTargetData::<T> {
-            target,
-            states
-        });
+        self.inputs.push(PerTargetData::<T> { target, states });
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -151,9 +152,9 @@ mod tests {
     fn test_create_message() {
         let mut input_buffer = InputBuffer::default();
 
-        input_buffer.set(Tick(4), ActionState{value: Some(0)});
-        input_buffer.set(Tick(6), ActionState{value: Some(1)});
-        input_buffer.set(Tick(7), ActionState{value: Some(1)});
+        input_buffer.set(Tick(4), ActionState { value: Some(0) });
+        input_buffer.set(Tick(6), ActionState { value: Some(1) });
+        input_buffer.set(Tick(7), ActionState { value: Some(1) });
 
         let mut message = InputMessage::<u8> {
             interpolation_delay: None,
@@ -166,20 +167,18 @@ mod tests {
             InputMessage {
                 interpolation_delay: None,
                 end_tick: Tick(10),
-                inputs: vec![
-                    PerTargetData {
-                        target: InputTarget::Entity(Entity::PLACEHOLDER),
-                        states: vec![
-                            InputData::Input(0),
-                            InputData::SameAsPrecedent,
-                            InputData::Input(1),
-                            InputData::SameAsPrecedent,
-                            InputData::Absent,
-                            InputData::Absent,
-                            InputData::Absent,
-                        ]
-                    },
-                ],
+                inputs: vec![PerTargetData {
+                    target: InputTarget::Entity(Entity::PLACEHOLDER),
+                    states: vec![
+                        InputData::Input(0),
+                        InputData::SameAsPrecedent,
+                        InputData::Input(1),
+                        InputData::SameAsPrecedent,
+                        InputData::Absent,
+                        InputData::Absent,
+                        InputData::Absent,
+                    ]
+                },],
             }
         );
     }
@@ -187,7 +186,9 @@ mod tests {
     #[test]
     fn test_update_from_message() {
         let mut input_buffer = InputBuffer::default();
-        input_buffer.update_from_message(Tick(20), &vec![
+        input_buffer.update_from_message(
+            Tick(20),
+            &vec![
                 InputData::Absent,
                 InputData::Input(0),
                 InputData::SameAsPrecedent,
@@ -196,16 +197,39 @@ mod tests {
                 InputData::Absent,
                 InputData::SameAsPrecedent,
                 InputData::SameAsPrecedent,
-        ]);
-        assert_eq!(input_buffer.get(Tick(20)), Some(&ActionState::<i32> { value: None}));
-        assert_eq!(input_buffer.get(Tick(19)), Some(&ActionState::<i32> { value: None}));
-        assert_eq!(input_buffer.get(Tick(18)), Some(&ActionState::<i32> { value: None}));
-        assert_eq!(input_buffer.get(Tick(17)), Some(&ActionState::<i32> { value: Some(1)}));
-        assert_eq!(input_buffer.get(Tick(16)), Some(&ActionState::<i32> { value: Some(1)}));
-        assert_eq!(input_buffer.get(Tick(15)), Some(&ActionState::<i32> { value: Some(0)}));
-        assert_eq!(input_buffer.get(Tick(14)), Some(&ActionState::<i32> { value: Some(0)}));
-        assert_eq!(input_buffer.get(Tick(13)), Some(&ActionState::<i32> { value: None}));
+            ],
+        );
+        assert_eq!(
+            input_buffer.get(Tick(20)),
+            Some(&ActionState::<i32> { value: None })
+        );
+        assert_eq!(
+            input_buffer.get(Tick(19)),
+            Some(&ActionState::<i32> { value: None })
+        );
+        assert_eq!(
+            input_buffer.get(Tick(18)),
+            Some(&ActionState::<i32> { value: None })
+        );
+        assert_eq!(
+            input_buffer.get(Tick(17)),
+            Some(&ActionState::<i32> { value: Some(1) })
+        );
+        assert_eq!(
+            input_buffer.get(Tick(16)),
+            Some(&ActionState::<i32> { value: Some(1) })
+        );
+        assert_eq!(
+            input_buffer.get(Tick(15)),
+            Some(&ActionState::<i32> { value: Some(0) })
+        );
+        assert_eq!(
+            input_buffer.get(Tick(14)),
+            Some(&ActionState::<i32> { value: Some(0) })
+        );
+        assert_eq!(
+            input_buffer.get(Tick(13)),
+            Some(&ActionState::<i32> { value: None })
+        );
     }
 }
-
-

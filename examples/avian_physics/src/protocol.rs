@@ -165,7 +165,7 @@ impl Plugin for ProtocolPlugin {
             config: InputConfig::<PlayerActions> {
                 rebroadcast_inputs: true,
                 ..default()
-            }
+            },
         });
         app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());
         // components

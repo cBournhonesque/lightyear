@@ -31,7 +31,6 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-
 /// Start the server
 fn start_server(mut commands: Commands) {
     commands.start_server();
@@ -56,7 +55,9 @@ pub(crate) fn handle_connections(
             },
             ..default()
         };
-        let entity = commands.spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate)).id();
+        let entity = commands
+            .spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate))
+            .id();
         info!("Create entity {:?} for client {:?}", entity, client_id);
     }
 }
@@ -95,7 +96,8 @@ fn movement(
         (&mut PlayerPosition, &ActionState<Inputs>),
         // if we run in host-server mode, we don't want to apply this system to the local client's entities
         // because they are already moved by the client plugin
-        (Without<Confirmed>, Without<Predicted>)>,
+        (Without<Confirmed>, Without<Predicted>),
+    >,
 ) {
     for (position, inputs) in position_query.iter_mut() {
         if let Some(inputs) = &inputs.value {
@@ -103,7 +105,6 @@ fn movement(
         }
     }
 }
-
 
 // only run this in dedicated server mode
 #[cfg(not(feature = "client"))]

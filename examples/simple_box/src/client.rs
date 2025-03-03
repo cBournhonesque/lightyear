@@ -131,14 +131,19 @@ pub(crate) fn receive_player_id_insert(mut reader: EventReader<ComponentInsertEv
 /// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
-pub(crate) fn handle_predicted_spawn(mut predicted: Query<(Entity, &mut PlayerColor), Added<Predicted>>, mut commands: Commands) {
+pub(crate) fn handle_predicted_spawn(
+    mut predicted: Query<(Entity, &mut PlayerColor), Added<Predicted>>,
+    mut commands: Commands,
+) {
     for (entity, mut color) in predicted.iter_mut() {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        commands.entity(entity).insert(InputMarker::<Inputs>::default());
+        commands
+            .entity(entity)
+            .insert(InputMarker::<Inputs>::default());
     }
 }
 

@@ -82,7 +82,6 @@ pub(crate) fn movement(
     }
 }
 
-
 // Replicate the pre-predicted entities back to the client
 // We have to use `InitialReplicated` instead of `Replicated`, because
 // the server has already assumed authority over the entity so the `Replicated` component

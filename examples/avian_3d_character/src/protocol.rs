@@ -56,11 +56,11 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(LeafwingInputPlugin::<CharacterAction>{
+        app.add_plugins(LeafwingInputPlugin::<CharacterAction> {
             config: InputConfig::<CharacterAction> {
                 rebroadcast_inputs: true,
                 ..default()
-            }
+            },
         });
 
         app.register_component::<ColorComponent>(ChannelDirection::ServerToClient)
