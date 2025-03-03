@@ -16,6 +16,7 @@
 //! You can then add the input type by adding the [`InputPlugin<InputType>`](crate::prelude::InputPlugin) to your app.
 //!
 //! ```rust
+//! use bevy::ecs::entity::MapEntities;
 //! use bevy::prelude::*;
 //! use lightyear::prelude::client::*;
 //! use lightyear::prelude::*;
@@ -26,6 +27,12 @@
 //!     Jump,
 //!     // we need a variant for "no input", to differentiate between "no input" and "missing input packet"
 //!     None,
+//! }
+//!
+//! // every input must implement MapEntities
+//! impl MapEntities for MyInput {
+//!     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+//!     }
 //! }
 //!
 //! let mut app = App::new();

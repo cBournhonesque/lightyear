@@ -152,7 +152,7 @@ fn player_movement(
 
     for (action_state, input_buffer, mut aiq) in q.iter_mut() {
         if !action_state.get_pressed().is_empty() {
-            error!(
+            trace!(
                 "🎹 {:?} {tick:?} = {:?}",
                 aiq.player.client_id,
                 action_state.get_pressed(),

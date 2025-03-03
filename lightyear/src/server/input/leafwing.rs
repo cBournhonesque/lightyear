@@ -120,7 +120,7 @@ fn receive_input_message<A: LeafwingUserAction>(
 
                     if let Ok(buffer) = query.get_mut(entity) {
                         if let Some(mut buffer) = buffer {
-                            error!(
+                            trace!(
                                 "Update InputBuffer: {} using InputMessage: {}",
                                 buffer.as_ref(),
                                 message
