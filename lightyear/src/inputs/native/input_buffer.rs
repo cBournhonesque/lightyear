@@ -1,20 +1,43 @@
-use std::collections::VecDeque;
-use std::fmt::Debug;
-
-use bevy::prelude::{Reflect, Resource};
-use serde::{Deserialize, Serialize};
-
+use super::{ActionState, UserAction};
 use crate::shared::tick_manager::Tick;
+use bevy::prelude::Component;
+use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::fmt::{Debug, Formatter};
+use tracing::trace;
 
-use super::UserAction;
-
-#[derive(Resource, Debug)]
+#[derive(Component, Debug)]
 pub struct InputBuffer<T> {
-    pub buffer: VecDeque<Option<T>>,
-    pub start_tick: Option<Tick>,
+    pub(crate) start_tick: Option<Tick>,
+    pub(crate) buffer: VecDeque<InputData<T>>,
 }
 
-// TODO: add encode directive to encode even more efficiently
+impl<T: Debug> std::fmt::Display for InputBuffer<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let ty = std::any::type_name::<T>();
+
+        let Some(tick) = self.start_tick else {
+            return write!(f, "EmptyInputBuffer");
+        };
+
+        let buffer_str = self
+            .buffer
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let str = match item {
+                    InputData::Absent => "Absent".to_string(),
+                    InputData::SameAsPrecedent => "SameAsPrecedent".to_string(),
+                    InputData::Input(data) => format!("{:?}", data),
+                };
+                format!("{:?}: {}\n", tick + i as i16, str)
+            })
+            .collect::<Vec<String>>()
+            .join("");
+        write!(f, "InputBuffer<{:?}>:\n {}", ty, buffer_str)
+    }
+}
+
 /// We use this structure to efficiently compress the inputs that we send to the server
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub(crate) enum InputData<T> {
@@ -23,51 +46,133 @@ pub(crate) enum InputData<T> {
     Input(T),
 }
 
-// TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
-/// Message that we use to send the client inputs to the server
-/// We will store the last N inputs starting from start_tick (in case of packet loss)
-pub struct InputMessage<T> {
-    pub(crate) end_tick: Tick,
-    // first element is tick end_tick-N+1, last element is end_tick
-    pub(crate) inputs: Vec<InputData<T>>,
-}
-
-impl<T: UserAction> InputMessage<T> {
-    pub fn is_empty(&self) -> bool {
-        if self.inputs.len() == 0 {
-            return true;
+impl<T> From<Option<T>> for InputData<T> {
+    fn from(value: Option<T>) -> Self {
+        if let Some(value) = value {
+            InputData::Input(value)
+        } else {
+            InputData::Absent
         }
-        let mut iter = self.inputs.iter();
-        if iter.next().unwrap() == &InputData::Absent {
-            return iter.all(|x| x == &InputData::SameAsPrecedent);
-        }
-        false
     }
 }
 
 impl<T> Default for InputBuffer<T> {
     fn default() -> Self {
         Self {
-            // buffer: SequenceBuffer::new(),
             buffer: VecDeque::new(),
             start_tick: None,
-            // end_tick: Tick(0),
         }
     }
 }
 
-impl<T: UserAction> InputBuffer<T> {
-    // pub(crate) fn remove(&mut self, tick: Tick) -> Option<T> {
-    //     if tick < self.start_tick || tick > self.end_tick {
-    //         return None;
-    //     }
-    //     self.buffer.remove(&tick)
-    // }
+impl<T: UserAction> InputBuffer<ActionState<T>> {
+    /// Upon receiving an [`InputMessage`](super::input_message::InputMessage), update the InputBuffer with all the inputs
+    /// included in the message.
+    /// TODO: disallow overwriting inputs for ticks we've already received inputs for?
+    ///
+    pub(crate) fn update_from_message(&mut self, end_tick: Tick, values: &Vec<InputData<T>>) {
+        let start_tick = end_tick + 1 - values.len() as u16;
+        // the first value is guaranteed to not be SameAsPrecedent
+        for (delta, input) in values.iter().enumerate() {
+            let tick = start_tick + Tick(delta as u16);
+            match input {
+                InputData::Absent => {
+                    self.set_raw(tick, InputData::Input(ActionState::<T> { value: None }));
+                }
+                InputData::SameAsPrecedent => {
+                    self.set_raw(tick, InputData::SameAsPrecedent);
+                }
+                InputData::Input(input) => {
+                    // do not set the value if it's equal to what's already in the buffer
+                    if self.get(tick).is_some_and(|existing_value| {
+                        existing_value.value.as_ref().is_some_and(|v| v == input)
+                    }) {
+                        continue;
+                    }
+                    self.set(
+                        tick,
+                        ActionState::<T> {
+                            value: Some(input.clone()),
+                        },
+                    );
+                }
+            }
+        }
+    }
+}
+
+impl<T: Clone + PartialEq> InputBuffer<T> {
+    /// Number of elements in the buffer
+    pub(crate) fn len(&self) -> usize {
+        self.buffer.len()
+    }
+
+    // Note: we expect this to be set every tick?
+    //  i.e. there should be an ActionState for every tick, even if the action is None
+    /// Set the ActionState for the given tick in the InputBuffer
+    ///
+    /// This should be called every tick.
+    pub fn set(&mut self, tick: Tick, value: T) {
+        if let Some(precedent) = self.get(tick - 1) {
+            if precedent == &value {
+                self.set_raw(tick, InputData::SameAsPrecedent);
+                return;
+            }
+        }
+        self.set_raw(tick, InputData::Input(value));
+    }
+
+    // Note: we expect this to be set every tick?
+    //  i.e. there should be an ActionState for every tick, even if the action is None
+    /// Set the ActionState for the given tick in the InputBuffer
+    ///
+    /// This should be called every tick.
+    pub fn set_empty(&mut self, tick: Tick) {
+        self.set_raw(tick, InputData::Absent);
+    }
+
+    pub(crate) fn set_raw(&mut self, tick: Tick, value: InputData<T>) {
+        let Some(start_tick) = self.start_tick else {
+            // initialize the buffer
+            self.start_tick = Some(tick);
+            self.buffer.push_back(value);
+            return;
+        };
+
+        // cannot set lower values than start_tick
+        if tick < start_tick {
+            return;
+        }
+
+        let end_tick = start_tick + (self.buffer.len() as i16 - 1);
+
+        // NOTE: we fill the value for the given tick, and we fill the ticks between start_tick and tick
+        // with InputData::SameAsPrecedent (i.e. if there are any gaps, we consider that the user repeated
+        // their last action)
+        if tick > end_tick {
+            // TODO: Think about how to fill the buffer between ticks
+            //  - we want: if an input is missing, we consider that the user did the same action (RocketLeague or Overwatch GDC)
+
+            // TODO: think about whether this is correct or not, it is correct if we always call set()
+            //  with monotonically increasing ticks, which I think is the case
+            //  maybe that's not correct because the timing information should be different? (i.e. I should tick the action-states myself and set them)
+            // fill the ticks between end_tick and tick with a copy of the current ActionState
+            for _ in 0..(tick - end_tick - 1) {
+                trace!("fill ticks");
+                self.buffer.push_back(InputData::SameAsPrecedent);
+            }
+            // add a new value to the buffer, which we will override below
+            self.buffer.push_back(InputData::Absent);
+        }
+
+        // safety: we are guaranteed that the tick is in the buffer
+        let entry = self.buffer.get_mut((tick - start_tick) as usize).unwrap();
+        *entry = value;
+    }
 
     /// Remove all the inputs that are older than the given tick, then return the input
     /// for the given tick
-    pub(crate) fn pop(&mut self, tick: Tick) -> Option<T> {
+    pub fn pop(&mut self, tick: Tick) -> Option<T> {
         let start_tick = self.start_tick?;
         if tick < start_tick {
             return None;
@@ -78,18 +183,45 @@ impl<T: UserAction> InputBuffer<T> {
             self.start_tick = Some(tick + 1);
             return None;
         }
-        // info!(
-        //     "buffer: {:?}. start_tick: {:?}, tick: {:?}",
-        //     self.buffer, self.start_tick, tick
-        // );
-        for _ in 0..(tick - start_tick) {
-            self.buffer.pop_front();
+
+        // popped will represent the last value popped
+        let mut popped = InputData::Absent;
+        for _ in 0..(tick + 1 - start_tick) {
+            // front is the oldest value
+            let data = self.buffer.pop_front();
+            if let Some(InputData::Input(value)) = data {
+                popped = InputData::Input(value);
+            }
         }
         self.start_tick = Some(tick + 1);
-        self.buffer.pop_front().unwrap()
+
+        // if the next value after we popped was 'SameAsPrecedent', we need to override it with an actual value
+        if let Some(InputData::SameAsPrecedent) = self.buffer.front() {
+            *self.buffer.front_mut().unwrap() = popped.clone();
+        }
+
+        if let InputData::Input(value) = popped {
+            Some(value)
+        } else {
+            None
+        }
     }
 
-    pub(crate) fn get(&self, tick: Tick) -> Option<&T> {
+    pub(crate) fn get_raw(&self, tick: Tick) -> &InputData<T> {
+        let Some(start_tick) = self.start_tick else {
+            return &InputData::Absent;
+        };
+        if self.buffer.is_empty() {
+            return &InputData::Absent;
+        }
+        if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
+            return &InputData::Absent;
+        }
+        self.buffer.get((tick - start_tick) as usize).unwrap()
+    }
+
+    /// Get the [`ActionState`] for the given tick
+    pub fn get(&self, tick: Tick) -> Option<&T> {
         let start_tick = self.start_tick?;
         if self.buffer.is_empty() {
             return None;
@@ -97,90 +229,41 @@ impl<T: UserAction> InputBuffer<T> {
         if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
             return None;
         }
-        self.buffer
-            .get((tick - start_tick) as usize)
-            .unwrap()
-            .as_ref()
+        let data = self.buffer.get((tick - start_tick) as usize).unwrap();
+        match data {
+            InputData::Absent => None,
+            InputData::SameAsPrecedent => {
+                // get the data from the preceding tick
+                self.get(tick - 1)
+            }
+            InputData::Input(data) => Some(data),
+        }
     }
 
-    pub(crate) fn set(&mut self, tick: Tick, value: Option<T>) {
-        let Some(start_tick) = self.start_tick else {
-            // initialize the buffer
-            self.start_tick = Some(tick);
-            self.buffer.push_back(value);
-            return;
-        };
-        // cannot set lower values than start_tick
-        if tick < start_tick {
-            return;
+    /// Get latest ActionState present in the buffer
+    pub fn get_last(&self) -> Option<&T> {
+        let start_tick = self.start_tick?;
+        if self.buffer.is_empty() {
+            return None;
+        }
+        self.get(start_tick + (self.buffer.len() as i16 - 1))
+    }
+
+    /// Get latest ActionState present in the buffer, along with the associated Tick
+    pub fn get_last_with_tick(&self) -> Option<(Tick, &T)> {
+        let start_tick = self.start_tick?;
+        if self.buffer.is_empty() {
+            return None;
         }
         let end_tick = start_tick + (self.buffer.len() as i16 - 1);
-        if tick > end_tick {
-            for _ in 0..(tick - end_tick - 1) {
-                self.buffer.push_back(None);
-            }
-            self.buffer.push_back(value);
-            return;
-        }
-        // safety: we are guaranteed that the tick is in the buffer
-        *self.buffer.get_mut((tick - start_tick) as usize).unwrap() = value;
+        self.get(end_tick)
+            .map(|action_state| (end_tick, action_state))
     }
 
-    /// We received a new input message from the user, and use it to update the input buffer
-    /// TODO: should we keep track of which inputs in the input buffer are absent and only update those?
-    ///  The current tick is the current server tick, no need to update the buffer for ticks that are older than that
-    pub(crate) fn update_from_message(&mut self, message: &InputMessage<T>) {
-        let message_start_tick = Tick(message.end_tick.0) - message.inputs.len() as u16 + 1;
-
-        for (delta, input) in message.inputs.iter().enumerate() {
-            let tick = message_start_tick + Tick(delta as u16);
-            match input {
-                InputData::Absent => {
-                    self.set(tick, None);
-                }
-                InputData::SameAsPrecedent => {
-                    self.set(tick, self.get(tick - 1).cloned());
-                }
-                InputData::Input(input) => {
-                    if self
-                        .get(tick)
-                        .is_some_and(|existing_value| existing_value == input)
-                    {
-                        continue;
-                    }
-                    self.set(tick, Some(input.clone()));
-                }
-            }
-        }
-    }
-
-    // Convert the last N ticks up to end_tick included into a compressed message that we can send to the server
-    // Return None if the last N inputs are all Absent
-    pub(crate) fn create_message(&self, end_tick: Tick, num_ticks: u16) -> InputMessage<T> {
-        let mut inputs = Vec::new();
-        // start with the first value
-        let start_tick = Tick(end_tick.0) - num_ticks + 1;
-        inputs.push(
-            self.get(start_tick)
-                .map_or(InputData::Absent, |input| InputData::Input(input.clone())),
-        );
-        // keep track of the previous value to avoid sending the same value multiple times
-        let mut prev_value_idx = 0;
-        for delta in 1..num_ticks {
-            let tick = start_tick + Tick(delta);
-            // safe because we keep pushing elements
-            let value = self
-                .get(tick)
-                .map_or(InputData::Absent, |input| InputData::Input(input.clone()));
-            // safe before prev_value_idx is always present
-            if inputs.get(prev_value_idx).unwrap() == &value {
-                inputs.push(InputData::SameAsPrecedent);
-            } else {
-                prev_value_idx = inputs.len();
-                inputs.push(value);
-            }
-        }
-        InputMessage { inputs, end_tick }
+    /// Get the last tick in the buffer
+    pub fn end_tick(&self) -> Option<Tick> {
+        self.start_tick
+            .map(|start_tick| start_tick + (self.buffer.len() as i16 - 1))
     }
 }
 
@@ -192,75 +275,32 @@ mod tests {
     fn test_get_set_pop() {
         let mut input_buffer = InputBuffer::default();
 
-        input_buffer.set(Tick(4), Some(0));
-        input_buffer.set(Tick(6), Some(1));
-        input_buffer.set(Tick(7), Some(1));
+        input_buffer.set(Tick(4), 0);
+        input_buffer.set(Tick(6), 1);
+        input_buffer.set(Tick(7), 1);
+        input_buffer.set(Tick(8), 1);
 
         assert_eq!(input_buffer.get(Tick(4)), Some(&0));
-        assert_eq!(input_buffer.get(Tick(5)), None);
+        // missing ticks are filled with SameAsPrecedent
+        assert_eq!(input_buffer.get(Tick(5)), Some(&0));
+        assert_eq!(input_buffer.get_raw(Tick(5)), &InputData::SameAsPrecedent);
         assert_eq!(input_buffer.get(Tick(6)), Some(&1));
-        assert_eq!(input_buffer.get(Tick(8)), None);
+        // similar values are compressed
+        assert_eq!(input_buffer.get_raw(Tick(7)), &InputData::SameAsPrecedent);
+        assert_eq!(input_buffer.get_raw(Tick(8)), &InputData::SameAsPrecedent);
+        // we get None if we try to get a value outside the buffer
+        assert_eq!(input_buffer.get(Tick(9)), None);
 
-        assert_eq!(input_buffer.pop(Tick(5)), None);
+        // we get the correct value even if we pop SameAsPrecedent
+        assert_eq!(input_buffer.pop(Tick(5)), Some(0));
         assert_eq!(input_buffer.start_tick, Some(Tick(6)));
+
+        // if the next value in the buffer after we pop is SameAsPrecedent, it should
+        // get replaced with a real value
         assert_eq!(input_buffer.pop(Tick(7)), Some(1));
         assert_eq!(input_buffer.start_tick, Some(Tick(8)));
-        assert_eq!(input_buffer.buffer.len(), 0);
-    }
-
-    #[test]
-    fn test_create_message() {
-        let mut input_buffer = InputBuffer::default();
-
-        input_buffer.set(Tick(4), Some(0));
-        input_buffer.set(Tick(6), Some(1));
-        input_buffer.set(Tick(7), Some(1));
-
-        let message = input_buffer.create_message(Tick(10), 8);
-        assert_eq!(
-            message,
-            InputMessage {
-                end_tick: Tick(10),
-                inputs: vec![
-                    InputData::Absent,
-                    InputData::Input(0),
-                    InputData::Absent,
-                    InputData::Input(1),
-                    InputData::SameAsPrecedent,
-                    InputData::Absent,
-                    InputData::SameAsPrecedent,
-                    InputData::SameAsPrecedent,
-                ],
-            }
-        );
-    }
-
-    #[test]
-    fn test_update_from_message() {
-        let mut input_buffer = InputBuffer::default();
-
-        let message = InputMessage {
-            end_tick: Tick(20),
-            inputs: vec![
-                InputData::Absent,
-                InputData::Input(0),
-                InputData::Absent,
-                InputData::Input(1),
-                InputData::SameAsPrecedent,
-                InputData::Absent,
-                InputData::SameAsPrecedent,
-                InputData::SameAsPrecedent,
-            ],
-        };
-        input_buffer.update_from_message(&message);
-
-        assert_eq!(input_buffer.get(Tick(20)), None);
-        assert_eq!(input_buffer.get(Tick(19)), None);
-        assert_eq!(input_buffer.get(Tick(18)), None);
-        assert_eq!(input_buffer.get(Tick(17)), Some(&1));
-        assert_eq!(input_buffer.get(Tick(16)), Some(&1));
-        assert_eq!(input_buffer.get(Tick(15)), None);
-        assert_eq!(input_buffer.get(Tick(14)), Some(&0));
-        assert_eq!(input_buffer.get(Tick(13)), None);
+        assert_eq!(input_buffer.get(Tick(8)), Some(&1));
+        assert_eq!(input_buffer.get_raw(Tick(8)), &InputData::Input(1));
+        assert_eq!(input_buffer.buffer.len(), 1);
     }
 }

@@ -8,9 +8,10 @@ use serde::{Deserialize, Serialize};
 use crate::shared::color_from_id;
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
 use lightyear::client::interpolation::LinearInterpolator;
-use lightyear::prelude::client::{self, LeafwingInputConfig};
+use lightyear::prelude::client::{self};
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
+use lightyear::shared::input::InputConfig;
 use lightyear::utils::avian3d::{position, rotation};
 use lightyear::utils::bevy::TransformLinearInterpolation;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -55,7 +56,12 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(LeafwingInputPlugin::<CharacterAction>::default());
+        app.add_plugins(LeafwingInputPlugin::<CharacterAction> {
+            config: InputConfig::<CharacterAction> {
+                rebroadcast_inputs: true,
+                ..default()
+            },
+        });
 
         app.register_component::<ColorComponent>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);

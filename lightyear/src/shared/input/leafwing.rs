@@ -1,16 +1,15 @@
 //! Plugin to register and handle user inputs.
 
 use bevy::app::{App, Plugin};
-use leafwing_input_manager::prelude::ActionState;
 
 use crate::client::config::ClientConfig;
-use crate::client::input::leafwing::LeafwingInputConfig;
-use crate::prelude::{AppComponentExt, ChannelDirection, InputMessage, LeafwingUserAction};
+use crate::prelude::{ChannelDirection, InputMessage, LeafwingUserAction};
 use crate::protocol::message::registry::AppMessageInternalExt;
 use crate::server::config::ServerConfig;
+use crate::shared::input::InputConfig;
 
 pub struct LeafwingInputPlugin<A> {
-    pub config: LeafwingInputConfig<A>,
+    pub config: InputConfig<A>,
 }
 
 impl<A> Default for LeafwingInputPlugin<A> {
@@ -35,7 +34,10 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
             );
         }
         if is_server {
-            app.add_plugins(crate::server::input::leafwing::LeafwingInputPlugin::<A>::default());
+            app.add_plugins(crate::server::input::leafwing::LeafwingInputPlugin::<A> {
+                rebroadcast_inputs: self.config.rebroadcast_inputs,
+                marker: std::marker::PhantomData,
+            });
         }
     }
 
@@ -52,11 +54,14 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
             // - client receiving other players' inputs
             .add_map_entities();
 
-        // Note: this is necessary because
-        // - so that the server entity has an ActionState on the server when the ActionState is added on the client
-        //   (we only replicate it once when ActionState is first added)
-        // - we don't need to replicate from server->client because we will add ActionState on any entity
-        //   where the client adds an InputMap
-        app.register_component::<ActionState<A>>(ChannelDirection::ClientToServer);
+        // NOTE: no need to replicate ActionState because we will insert the ActionState + InputBuffer on server
+        //   as soon as we receive an InputMessage!
+
+        // // Note: this is necessary because
+        // // - so that the server entity has an ActionState on the server when the ActionState is added on the client
+        // //   (we only replicate it once when ActionState is first added)
+        // // - we don't need to replicate from server->client because we will add ActionState on any entity
+        // //   where the client adds an InputMap
+        // app.register_component::<ActionState<A>>(ChannelDirection::ClientToServer);
     }
 }

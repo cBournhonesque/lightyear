@@ -151,6 +151,13 @@ fn player_movement(
         .unwrap_or(tick_manager.tick());
 
     for (action_state, input_buffer, mut aiq) in q.iter_mut() {
+        if !action_state.get_pressed().is_empty() {
+            trace!(
+                "🎹 {:?} {tick:?} = {:?}",
+                aiq.player.client_id,
+                action_state.get_pressed(),
+            );
+        }
         // is the current ActionState for real?
         if input_buffer.get(tick).is_some() {
             // Got an exact input for this tick, staleness = 0, the happy path.

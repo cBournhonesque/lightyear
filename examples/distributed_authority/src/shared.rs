@@ -5,12 +5,9 @@
 //! mispredictions/rollbacks.
 
 use bevy::prelude::*;
-use bevy::utils::Duration;
-use std::ops::{Deref, DerefMut};
 
-use lightyear::prelude::client::{Confirmed, Interpolated};
+use lightyear::prelude::client::Interpolated;
 use lightyear::prelude::*;
-use lightyear::shared::config::Mode;
 
 use crate::protocol::*;
 
