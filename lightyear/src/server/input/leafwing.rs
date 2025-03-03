@@ -207,12 +207,8 @@ fn send_host_server_input_message<A: LeafwingUserAction>(
             InputTarget::PrePredictedEntity(entity),
             input_buffer.as_ref(),
         );
-
-        // // clean older ticks for the buffer
-        // // (but be careful not to erase the values for the current tick from the buffer!)
-        // input_buffer.pop(min(tick - num_tick - 1, current_tick - 1));
     }
-    error!(
+    trace!(
         ?tick,
         ?current_tick,
         %message,

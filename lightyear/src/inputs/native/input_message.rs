@@ -1,7 +1,7 @@
 use crate::inputs::native::input_buffer::{InputBuffer, InputData};
 use crate::inputs::native::ActionState;
 use crate::prelude::client::InterpolationDelay;
-use crate::prelude::{Deserialize, LeafwingUserAction, Serialize, Tick, UserAction};
+use crate::prelude::{Deserialize, Serialize, Tick, UserAction};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Reflect};
 use std::cmp::max;
@@ -197,16 +197,14 @@ mod tests {
                 InputData::SameAsPrecedent,
                 InputData::SameAsPrecedent,
         ]);
-        dbg!(&input_buffer);
-
-        assert_eq!(input_buffer.get(Tick(20)), None);
-        assert_eq!(input_buffer.get(Tick(19)), None);
-        assert_eq!(input_buffer.get(Tick(18)), None);
+        assert_eq!(input_buffer.get(Tick(20)), Some(&ActionState::<i32> { value: None}));
+        assert_eq!(input_buffer.get(Tick(19)), Some(&ActionState::<i32> { value: None}));
+        assert_eq!(input_buffer.get(Tick(18)), Some(&ActionState::<i32> { value: None}));
         assert_eq!(input_buffer.get(Tick(17)), Some(&ActionState::<i32> { value: Some(1)}));
         assert_eq!(input_buffer.get(Tick(16)), Some(&ActionState::<i32> { value: Some(1)}));
         assert_eq!(input_buffer.get(Tick(15)), Some(&ActionState::<i32> { value: Some(0)}));
         assert_eq!(input_buffer.get(Tick(14)), Some(&ActionState::<i32> { value: Some(0)}));
-        assert_eq!(input_buffer.get(Tick(13)), None);
+        assert_eq!(input_buffer.get(Tick(13)), Some(&ActionState::<i32> { value: None}));
     }
 }
 

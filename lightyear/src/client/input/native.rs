@@ -239,7 +239,7 @@ fn prepare_input_message<A: UserAction>(
     }
 
     // we send a message even when there are 0 inputs because that itself is information
-    error!(
+    trace!(
         ?tick,
         ?num_tick,
         "sending input message for {:?}: {:?}",

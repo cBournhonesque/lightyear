@@ -285,7 +285,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
         }
     }
 
-    error!(
+    trace!(
         ?tick,
         ?num_tick,
         "sending input message for {:?}: {}",
@@ -353,7 +353,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
     let tick = tick_manager.tick();
     received_inputs.drain().for_each(|event| {
         let message = event.message;
-        error!(?tick, action = ?A::short_type_path(), ?message.end_tick, %message, "received remote input message");
+        trace!(?tick, action = ?A::short_type_path(), ?message.end_tick, %message, "received remote input message");
         for target_data in &message.diffs {
             // - the input target has already been set to the server entity in the InputMessage
             // - it has been mapped to a client-entity on the client during deserialization
@@ -384,7 +384,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                                     &target_data.start_state,
                                     &target_data.diffs,
                                 );
-                                error!("input buffer after update: {:?}", input_buffer);
+                                trace!("input buffer after update: {:?}", input_buffer);
                                 #[cfg(feature = "metrics")]
                                 {
                                     let margin = input_buffer.end_tick().unwrap() - tick;

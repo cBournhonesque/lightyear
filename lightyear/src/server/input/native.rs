@@ -77,7 +77,7 @@ fn receive_input_message<A: UserAction>(
         if client_id.is_local() {
             return
         }
-        error!(?client_id, action = ?std::any::type_name::<A>(), ?message.end_tick, ?message.inputs, "received input message");
+        trace!(?client_id, action = ?std::any::type_name::<A>(), ?message.end_tick, ?message.inputs, "received input message");
 
         // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
         //  that the message was intended for?
@@ -182,10 +182,6 @@ fn send_host_server_input_message<A: UserAction>(
             InputTarget::PrePredictedEntity(entity),
             input_buffer.as_ref(),
         );
-
-        // // clean older ticks for the buffer
-        // // (but be careful not to erase the values for the current tick from the buffer!)
-        // input_buffer.pop(min(tick - num_tick - 1, current_tick - 1));
     }
 
     events.send(
