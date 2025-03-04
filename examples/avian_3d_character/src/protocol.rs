@@ -91,9 +91,6 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ExternalImpulse>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full);
 
-        app.register_component::<Transform>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full);
-
         app.register_component::<ComputedMass>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full);
 
