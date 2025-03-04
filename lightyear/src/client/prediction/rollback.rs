@@ -822,9 +822,7 @@ mod tests {
     use crate::client::prediction::resource::PredictionManager;
     use crate::client::prediction::rollback::{check_rollback, DisableRollback};
     use crate::prelude::server::SyncTarget;
-    use crate::prelude::{
-        client::*, AppComponentExt, ChannelDirection, NetworkTarget, SharedConfig, TickConfig,
-    };
+    use crate::prelude::{client::*, AppComponentExt, ChannelDirection, NetworkTarget, SharedConfig, TickConfig, TimeManager};
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
     use bevy::ecs::entity::MapEntities;
@@ -1220,6 +1218,7 @@ mod tests {
 
         let time_before_next_tick = *stepper.client_app.world().resource::<Time<Fixed>>();
 
+
         stepper.frame_step();
 
         // Verify that the 2 rollback ticks and regular tick occurred with the
@@ -1608,5 +1607,34 @@ mod tests {
                 .0,
             2.0
         );
+    }
+
+    /// I don't understand why the time gets modified by the relative speed here, but not in
+    /// the visual interpolation tests!
+    #[test]
+    fn test_time_manager_rollback() {
+        let tick_duration = Duration::from_millis(12);
+        let frame_duration = Duration::from_millis(9);
+        let shared_config = SharedConfig {
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let client_config = ClientConfig::default();
+        // we create the stepper manually to not run init()
+        let mut stepper = BevyStepper::new(shared_config, client_config, frame_duration);
+        stepper.build();
+        stepper.init();
+
+        let first = stepper.client_app.world().resource::<TimeManager>().clone();
+        dbg!(stepper.client_app.world().resource::<Time>());
+        dbg!(first);
+        stepper.frame_step();
+        let second = stepper.client_app.world().resource::<TimeManager>().clone();
+        dbg!(stepper.client_app.world().resource::<Time>());
+        dbg!(second);
+        stepper.frame_step();
+        let third = stepper.client_app.world().resource::<TimeManager>().clone();
+        dbg!(stepper.client_app.world().resource::<Time>());
+        dbg!(third);
     }
 }
