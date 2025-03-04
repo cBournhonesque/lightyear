@@ -1,5 +1,5 @@
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
-use crate::client::prediction::correction::{get_corrected_state, restore_corrected_state};
+use crate::client::prediction::correction::{get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback};
 use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
     restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
@@ -191,6 +191,7 @@ pub enum PredictionSet {
     PrepareRollback,
     /// Perform rollback
     Rollback,
+    PostRollback,
     // NOTE: no need to add RollbackFlush because running a schedule (which we do for rollback) will flush all commands at the end of each run
 
     // FixedPostUpdate Sets
@@ -298,6 +299,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
                     check_rollback::<C>.in_set(PredictionSet::CheckRollback),
                     (prepare_rollback::<C>, prepare_rollback_prespawn::<C>)
                         .in_set(PredictionSet::PrepareRollback),
+                    set_original_prediction_post_rollback::<C>.in_set(PredictionSet::PostRollback)
                 ),
             );
             app.add_systems(
@@ -379,6 +381,7 @@ impl Plugin for PredictionPlugin {
                     PredictionSet::CheckRollback,
                     PredictionSet::PrepareRollback.run_if(is_in_rollback),
                     PredictionSet::Rollback.run_if(is_in_rollback),
+                    PredictionSet::PostRollback.run_if(is_in_rollback),
                 )
                     .chain()
                     .in_set(PredictionSet::All),

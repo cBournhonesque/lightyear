@@ -22,7 +22,7 @@
 //!   - if there is a rollback, restart correction from the current corrected value
 //! - FixedUpdate: run the simulation to compute C(T+2).
 //! - FixedPostUpdate: set the component value to the interpolation between PT (predicted value at rollback start T) and C(T+2)
-use bevy::prelude::{Commands, Component, DetectChangesMut, Entity, Query, Res};
+use bevy::prelude::{Added, Commands, Component, DetectChangesMut, Entity, Query, Res};
 use tracing::{debug, warn};
 
 use crate::client::components::SyncComponent;
@@ -88,6 +88,28 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
             correction.current_visual = Some(visual.clone());
             // set the component value to the visual value
             *component.bypass_change_detection() = visual;
+        }
+    }
+}
+
+/// The flow is:
+/// [PreUpdate] C = OriginalC, receive NewC, check_rollback, prepare_rollback: add Correction, set C = NewC, rollback, set C = CorrectedC
+/// [PreUpdate] C = CorrectedC
+/// [PreUpdate] C = CorrectedC
+/// [FixedUpdate] Correction, C = CorrectInterpolatedC
+/// i.e. if PreUpdate runs a few times in a row without any FixedUpdate step, the component stays in the CorrectedC state.
+/// Instead, right after the rollback, we need to reset the component to the original state
+pub(crate) fn set_original_prediction_post_rollback<C: SyncComponent>(
+    mut query: Query<(Entity, &mut C, &Correction<C>), Added<Correction<C>>>,
+) {
+    for (entity, mut component, correction) in query.iter_mut() {
+        // correction has not started (even if a correction happens while a previous correction was going on, current_visual is None)
+        if correction.current_visual.is_none() {
+            // TODO: this is very inefficient.
+            //  1. we only do the clone() once but if there's multiple frames before a FixedUpdate, we clone multiple times (mitigated by Added filter)
+            //        although Added probably  doesn't work if we have nested Corrections..
+            //  2. if there was a FixedUpdate right after the rollback, we wouldn't need to call this at all!
+            *component.bypass_change_detection() = correction.original_prediction.clone();
         }
     }
 }
