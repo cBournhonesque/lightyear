@@ -84,7 +84,7 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     return false;
                 };
                 let parent = parent_component.get();
-                info!("Broadphase hit with {child:?}");
+                debug!("Broadphase hit with {child:?}");
                 let (collider, history) = self
                     .parent_query
                     .get(parent)
@@ -123,7 +123,7 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     if !predicate(parent) {
                         return false;
                     }
-                    info!(
+                    debug!(
                         ?tick,
                         ?interpolation_tick,
                         ?interpolation_overstep,
