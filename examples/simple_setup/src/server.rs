@@ -6,9 +6,11 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
-use bevy::log::{Level, LogPlugin};
-use bevy::prelude::*;
-use bevy::state::app::StatesPlugin;
+use bevy::{
+    log::{Level, LogPlugin},
+    prelude::*,
+    state::app::StatesPlugin,
+};
 use lightyear::prelude::server::*;
 
 use crate::shared::{shared_config, SharedPlugin, SERVER_ADDR};

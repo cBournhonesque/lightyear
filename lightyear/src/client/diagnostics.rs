@@ -1,15 +1,18 @@
-use crate::client::connection::ConnectionManager;
-use crate::client::prediction::diagnostics::PredictionDiagnosticsPlugin;
-use bevy::app::{App, Plugin, PostUpdate};
-use bevy::diagnostic::Diagnostics;
-use bevy::prelude::{not, Condition, IntoSystemConfigs, Real, Res, ResMut, Time};
-use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
+use bevy::{
+    app::{App, Plugin, PostUpdate},
+    diagnostic::Diagnostics,
+    prelude::{not, Condition, IntoSystemConfigs, Real, Res, ResMut, Time},
+    time::common_conditions::on_timer,
+    utils::Duration,
+};
 
-use crate::connection::client::{ClientConnection, NetClient};
-use crate::prelude::{client::is_disconnected, is_host_server};
-use crate::shared::ping::diagnostics::PingDiagnosticsPlugin;
-use crate::transport::io::IoDiagnosticsPlugin;
+use crate::{
+    client::{connection::ConnectionManager, prediction::diagnostics::PredictionDiagnosticsPlugin},
+    connection::client::{ClientConnection, NetClient},
+    prelude::{client::is_disconnected, is_host_server},
+    shared::ping::diagnostics::PingDiagnosticsPlugin,
+    transport::io::IoDiagnosticsPlugin,
+};
 
 // TODO: ideally make this a plugin group? but nested plugin groups are not supported
 #[derive(Debug)]

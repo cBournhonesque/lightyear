@@ -8,21 +8,20 @@
 //! while keeping the rest of the features intact.
 //!
 //! Most plugins are truly necessary for the server functionality to work properly, but some could be disabled.
-use crate::server::clients::ClientsMetadataPlugin;
-use bevy::app::PluginGroupBuilder;
-use bevy::prelude::*;
-
-use crate::server::events::ServerEventsPlugin;
-use crate::server::message::ServerMessagePlugin;
-use crate::server::networking::ServerNetworkingPlugin;
-use crate::server::relevance::immediate::NetworkRelevancePlugin;
-use crate::server::relevance::room::RoomPlugin;
-use crate::server::replication::{
-    receive::ServerReplicationReceivePlugin, send::ServerReplicationSendPlugin,
-};
-use crate::shared::plugin::SharedPlugin;
+use bevy::{app::PluginGroupBuilder, prelude::*};
 
 use super::config::ServerConfig;
+use crate::{
+    server::{
+        clients::ClientsMetadataPlugin,
+        events::ServerEventsPlugin,
+        message::ServerMessagePlugin,
+        networking::ServerNetworkingPlugin,
+        relevance::{immediate::NetworkRelevancePlugin, room::RoomPlugin},
+        replication::{receive::ServerReplicationReceivePlugin, send::ServerReplicationSendPlugin},
+    },
+    shared::plugin::SharedPlugin,
+};
 
 /// A plugin group containing all the server plugins.
 ///

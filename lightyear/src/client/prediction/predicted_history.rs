@@ -1,19 +1,20 @@
 //! Managed the history buffer, which is a buffer of the past predicted component states,
 //! so that whenever we receive an update from the server we can compare the predicted entity's history with the server update.
-use bevy::app::App;
-use bevy::ecs::component::ComponentId;
-use bevy::prelude::*;
 use std::ops::Deref;
 
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
-use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::rollback::Rollback;
-use crate::client::prediction::Predicted;
-use crate::prelude::client::{Correction, PredictionSet};
-use crate::prelude::{
-    ComponentRegistry, HistoryBuffer, PrePredicted, PreSpawnedPlayerObject, TickManager,
+use bevy::{app::App, ecs::component::ComponentId, prelude::*};
+
+use crate::{
+    client::{
+        components::{ComponentSyncMode, Confirmed, SyncComponent},
+        prediction::{resource::PredictionManager, rollback::Rollback, Predicted},
+    },
+    prelude::{
+        client::{Correction, PredictionSet},
+        ComponentRegistry, HistoryBuffer, PrePredicted, PreSpawnedPlayerObject, TickManager,
+    },
+    shared::tick_manager::TickEvent,
 };
-use crate::shared::tick_manager::TickEvent;
 
 pub(crate) type PredictionHistory<C> = HistoryBuffer<C>;
 
@@ -303,12 +304,13 @@ pub(crate) fn add_sync_systems(app: &mut App) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::prelude::client::RollbackState;
-    use crate::prelude::{HistoryState, ShouldBePredicted, Tick};
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::BevyStepper;
     use bevy::ecs::system::RunSystemOnce;
+
+    use super::*;
+    use crate::{
+        prelude::{client::RollbackState, HistoryState, ShouldBePredicted, Tick},
+        tests::{protocol::*, stepper::BevyStepper},
+    };
 
     /// Test that components are synced from Confirmed to Predicted and that PredictionHistory is
     /// added correctly

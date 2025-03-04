@@ -191,12 +191,10 @@ impl<K: Ord, T> Ord for ItemWithReadyKey<K, T> {
 #[cfg(test)]
 mod tests {
     use bevy::utils::Duration;
-    use mock_instant::global::Instant;
-    use mock_instant::global::MockClock;
-
-    use crate::shared::tick_manager::Tick;
+    use mock_instant::global::{Instant, MockClock};
 
     use super::*;
+    use crate::shared::tick_manager::Tick;
 
     #[test]
     fn test_peek_max_item() {

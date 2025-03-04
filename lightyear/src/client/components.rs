@@ -3,8 +3,10 @@ Defines components that are used for the client-side prediction and interpolatio
 */
 use std::fmt::Debug;
 
-use bevy::prelude::{Component, Entity, ReflectComponent};
-use bevy::reflect::Reflect;
+use bevy::{
+    prelude::{Component, Entity, ReflectComponent},
+    reflect::Reflect,
+};
 
 use crate::prelude::{Message, Tick};
 

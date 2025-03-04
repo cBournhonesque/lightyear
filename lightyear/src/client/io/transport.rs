@@ -1,8 +1,5 @@
-use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
-use crate::transport::dummy::DummyIo;
-use crate::transport::error::Error as TransportError;
-use crate::transport::io::IoState;
-use crate::transport::local::{LocalChannel, LocalChannelBuilder};
+use enum_dispatch::enum_dispatch;
+
 #[cfg(not(target_family = "wasm"))]
 use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
 #[cfg(feature = "websocket")]
@@ -11,7 +8,15 @@ use crate::transport::websocket::client::{WebSocketClientSocket, WebSocketClient
 use crate::transport::webtransport::client::{
     WebTransportClientSocket, WebTransportClientSocketBuilder,
 };
-use enum_dispatch::enum_dispatch;
+use crate::{
+    client::io::{ClientIoEventReceiver, ClientNetworkEventSender},
+    transport::{
+        dummy::DummyIo,
+        error::Error as TransportError,
+        io::IoState,
+        local::{LocalChannel, LocalChannelBuilder},
+    },
+};
 
 /// Transport combines a PacketSender and a PacketReceiver
 ///

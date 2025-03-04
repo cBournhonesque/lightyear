@@ -37,21 +37,21 @@ it just caches the room metadata to keep track of the relevance of entities.
 
 */
 
-use bevy::app::App;
-use bevy::ecs::entity::EntityHash;
-use bevy::prelude::*;
-use bevy::reflect::Reflect;
-use bevy::utils::{Entry, HashMap, HashSet};
-
+use bevy::{
+    app::App,
+    ecs::entity::EntityHash,
+    prelude::*,
+    reflect::Reflect,
+    utils::{hashbrown, Entry, HashMap, HashSet},
+};
 use serde::{Deserialize, Serialize};
 
-use crate::connection::id::ClientId;
-use crate::prelude::server::is_started;
-
-use crate::server::relevance::immediate::{NetworkRelevanceSet, RelevanceEvents, RelevanceManager};
-use crate::shared::sets::{InternalReplicationSet, ServerMarker};
-
-use bevy::utils::hashbrown;
+use crate::{
+    connection::id::ClientId,
+    prelude::server::is_started,
+    server::relevance::immediate::{NetworkRelevanceSet, RelevanceEvents, RelevanceManager},
+    shared::sets::{InternalReplicationSet, ServerMarker},
+};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
@@ -326,10 +326,10 @@ impl RoomManager {
 }
 
 pub(super) mod systems {
-    use super::*;
-    use crate::prelude::ReplicationGroup;
-    use crate::server::events::DisconnectEvent;
     use bevy::prelude::Trigger;
+
+    use super::*;
+    use crate::{prelude::ReplicationGroup, server::events::DisconnectEvent};
 
     /// Clear the internal room buffers when a client disconnects
     pub fn handle_client_disconnect(
@@ -362,24 +362,21 @@ pub(super) mod systems {
 
 #[cfg(test)]
 mod tests {
-    use bevy::ecs::system::RunSystemOnce;
-    use bevy::prelude::Events;
-    use bevy::utils::HashMap;
+    use bevy::{ecs::system::RunSystemOnce, prelude::Events, utils::HashMap};
 
-    use crate::prelude::client::*;
-    use crate::prelude::server::Replicate;
-    use crate::prelude::*;
-    use crate::server::relevance::immediate::systems::{
-        add_cached_network_relevance, update_relevance_from_events,
+    use super::{systems::buffer_room_relevance_events, *};
+    use crate::{
+        prelude::{client::*, server::Replicate, *},
+        server::relevance::immediate::{
+            systems::{add_cached_network_relevance, update_relevance_from_events},
+            CachedNetworkRelevance, ClientRelevance,
+        },
+        shared::replication::components::NetworkRelevanceMode,
+        tests::{
+            multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2},
+            stepper::BevyStepper,
+        },
     };
-    use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
-    use crate::shared::replication::components::NetworkRelevanceMode;
-    use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
-    use crate::tests::stepper::BevyStepper;
-
-    use super::systems::buffer_room_relevance_events;
-
-    use super::*;
 
     #[test]
     // client is in a room

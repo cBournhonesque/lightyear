@@ -1,17 +1,25 @@
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour};
 use avian2d::prelude::*;
-use bevy::color::palettes::css;
-use bevy::prelude::*;
-use bevy::utils::Duration;
-use bevy::utils::HashMap;
+use bevy::{
+    color::palettes::css,
+    prelude::*,
+    utils::{Duration, HashMap},
+};
 use leafwing_input_manager::prelude::*;
-use lightyear::prelude::client::{Confirmed, Predicted};
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
-use lightyear::server::input::InputSystemSet;
-use lightyear::shared::replication::components::InitialReplicated;
+use lightyear::{
+    prelude::{
+        client::{Confirmed, Predicted},
+        server::*,
+        *,
+    },
+    server::input::InputSystemSet,
+    shared::replication::components::InitialReplicated,
+};
+
+use crate::{
+    protocol::*,
+    shared,
+    shared::{color_from_id, shared_movement_behaviour},
+};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin {

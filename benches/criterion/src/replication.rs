@@ -1,32 +1,34 @@
 //! Benchmark to measure the performance of replicating Entity spawns
 #![allow(unused_imports)]
 
-use bevy::log::tracing_subscriber::fmt::format::FmtSpan;
-use bevy::log::{info, tracing_subscriber};
-use bevy::prelude::{default, error, Events, With};
-use bevy::utils::tracing;
-use bevy::utils::tracing::Level;
-use bevy::utils::Duration;
-use divan::{AllocProfiler, Bencher};
-use lightyear::client::sync::SyncConfig;
-use lightyear::prelude::client::{
-    ClientConnection, InterpolationConfig, NetClient, PredictionConfig,
-};
-use lightyear::prelude::server::Replicate;
-use lightyear::prelude::{
-    client, server, MessageRegistry, Replicating, ReplicationGroup, Tick, TickManager,
-};
-use lightyear::prelude::{ClientId, SharedConfig, TickConfig};
-use lightyear::server::input::native::InputBuffers;
-use lightyear::shared::replication::network_target::NetworkTarget;
-use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
-use lightyear_benches::profiler::FlamegraphProfiler;
-use lightyear_benches::protocol::*;
 use std::time::Instant;
 
+use bevy::{
+    log::{info, tracing_subscriber, tracing_subscriber::fmt::format::FmtSpan},
+    prelude::{default, error, Events, With},
+    utils::{tracing, tracing::Level, Duration},
+};
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use lightyear::channel::builder::EntityActionsChannel;
-use lightyear::server::connection::ConnectionManager;
+use divan::{AllocProfiler, Bencher};
+use lightyear::{
+    channel::builder::EntityActionsChannel,
+    client::sync::SyncConfig,
+    prelude::{
+        client,
+        client::{ClientConnection, InterpolationConfig, NetClient, PredictionConfig},
+        server,
+        server::Replicate,
+        ClientId, MessageRegistry, Replicating, ReplicationGroup, SharedConfig, Tick, TickConfig,
+        TickManager,
+    },
+    server::{connection::ConnectionManager, input::native::InputBuffers},
+    shared::replication::network_target::NetworkTarget,
+};
+use lightyear_benches::{
+    local_stepper::{LocalBevyStepper, Step as LocalStep},
+    profiler::FlamegraphProfiler,
+    protocol::*,
+};
 
 criterion_group!(
     name = replication_benches;

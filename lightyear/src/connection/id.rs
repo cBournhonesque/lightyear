@@ -1,10 +1,11 @@
 //! Module to handle the various possible ClientIds
-use crate::serialize::reader::Reader;
-use crate::serialize::{SerializationError, ToBytes};
+use std::fmt::Formatter;
+
 use bevy::reflect::Reflect;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
-use std::fmt::Formatter;
+
+use crate::serialize::{reader::Reader, SerializationError, ToBytes};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum ClientId {

@@ -1,12 +1,15 @@
-use bevy::app::{App, Plugin};
-use bevy::prelude::Component;
-use bevy::utils::default;
-use lightyear::client::components::ComponentSyncMode;
-use lightyear::client::prediction::plugin::add_prediction_systems;
-use serde::{Deserialize, Serialize};
 use std::ops::{Add, Mul};
 
-use lightyear::prelude::*;
+use bevy::{
+    app::{App, Plugin},
+    prelude::Component,
+    utils::default,
+};
+use lightyear::{
+    client::{components::ComponentSyncMode, prediction::plugin::add_prediction_systems},
+    prelude::*,
+};
+use serde::{Deserialize, Serialize};
 
 // Messages
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]

@@ -2,18 +2,23 @@
 
 use std::marker::PhantomData;
 
-use bevy::app::App;
-use bevy::prelude::{
-    Commands, DetectChanges, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate,
-    PreUpdate, Res, ResMut, Resource,
+use bevy::{
+    app::App,
+    prelude::{
+        Commands, DetectChanges, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate,
+        PreUpdate, Res, ResMut, Resource,
+    },
 };
 pub use command::{ReplicateResourceExt, StopReplicateResourceExt};
 use serde::{Deserialize, Serialize};
 
-use crate::prelude::{ChannelKind, Message};
-use crate::shared::replication::network_target::NetworkTarget;
-use crate::shared::replication::ReplicationSend;
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
+use crate::{
+    prelude::{ChannelKind, Message},
+    shared::{
+        replication::{network_target::NetworkTarget, ReplicationSend},
+        sets::{InternalMainSet, InternalReplicationSet},
+    },
+};
 
 mod command {
     use super::*;
@@ -76,12 +81,14 @@ impl<R> Default for DespawnResource<R> {
 }
 
 pub(crate) mod send {
-    use super::*;
-
-    use crate::connection::client::{ClientConnection, NetClient};
-    use crate::shared::message::MessageSend;
     use bevy::prelude::resource_removed;
     use tracing::trace;
+
+    use super::*;
+    use crate::{
+        connection::client::{ClientConnection, NetClient},
+        shared::message::MessageSend,
+    };
 
     pub(crate) struct ResourceSendPlugin<R> {
         _marker: PhantomData<R>,
@@ -180,14 +187,13 @@ pub(crate) mod send {
 }
 
 pub(crate) mod receive {
-    use crate::shared::events::message::ReceiveMessage;
-    use crate::shared::message::MessageSend;
-
-    use crate::shared::replication::ReplicationPeer;
     use bevy::prelude::{DetectChangesMut, EventReader, Events};
     use tracing::trace;
 
     use super::*;
+    use crate::shared::{
+        events::message::ReceiveMessage, message::MessageSend, replication::ReplicationPeer,
+    };
 
     pub(crate) struct ResourceReceivePlugin<R> {
         _marker: PhantomData<R>,
@@ -303,13 +309,17 @@ pub(crate) mod receive {
 
 #[cfg(test)]
 mod tests {
-    use super::StopReplicateResourceExt;
-    use crate::shared::replication::network_target::NetworkTarget;
-    use crate::shared::replication::resources::ReplicateResourceExt;
-    use crate::tests::host_server_stepper::HostServerStepper;
-    use crate::tests::protocol::{Channel1, Resource1, Resource2};
-    use crate::tests::stepper::BevyStepper;
     use bevy::prelude::*;
+
+    use super::StopReplicateResourceExt;
+    use crate::{
+        shared::replication::{network_target::NetworkTarget, resources::ReplicateResourceExt},
+        tests::{
+            host_server_stepper::HostServerStepper,
+            protocol::{Channel1, Resource1, Resource2},
+            stepper::BevyStepper,
+        },
+    };
 
     #[test]
     fn test_resource_replication_via_commands() {

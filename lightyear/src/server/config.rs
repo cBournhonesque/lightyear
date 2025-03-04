@@ -1,16 +1,18 @@
 //! Defines server-specific configuration options
+use std::sync::Arc;
+
 use bevy::prelude::Resource;
 use governor::Quota;
 use nonzero_ext::nonzero;
-use std::sync::Arc;
 
-use crate::connection::netcode::{Key, PRIVATE_KEY_BYTES};
-use crate::connection::server::{
-    ConnectionRequestHandler, DefaultConnectionRequestHandler, NetConfig,
+use crate::{
+    connection::{
+        netcode::{Key, PRIVATE_KEY_BYTES},
+        server::{ConnectionRequestHandler, DefaultConnectionRequestHandler, NetConfig},
+    },
+    prelude::ReplicationConfig,
+    shared::{config::SharedConfig, ping::manager::PingConfig},
 };
-use crate::prelude::ReplicationConfig;
-use crate::shared::config::SharedConfig;
-use crate::shared::ping::manager::PingConfig;
 
 #[derive(Debug, Clone)]
 pub struct NetcodeConfig {
@@ -117,15 +119,17 @@ pub struct ServerConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::client::networking::NetworkingState;
-    use crate::connection::server::DeniedReason;
-    use crate::prelude::ClientId;
+    use std::{fmt::Debug, sync::Arc};
 
-    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::prelude::State;
-    use std::fmt::Debug;
-    use std::sync::Arc;
+
+    use super::*;
+    use crate::{
+        client::networking::NetworkingState,
+        connection::server::DeniedReason,
+        prelude::ClientId,
+        tests::stepper::{BevyStepper, TEST_CLIENT_ID},
+    };
 
     #[derive(Debug, Clone)]
     struct CustomConnectionRequestHandler;

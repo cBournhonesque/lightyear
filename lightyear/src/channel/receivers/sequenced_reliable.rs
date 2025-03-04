@@ -3,13 +3,12 @@ use std::collections::{btree_map, BTreeMap};
 use bytes::Bytes;
 
 use super::error::{ChannelReceiveError, Result};
-
-use crate::channel::receivers::fragment_receiver::FragmentReceiver;
-use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
-use crate::prelude::Tick;
-use crate::shared::tick_manager::TickManager;
-use crate::shared::time_manager::TimeManager;
+use crate::{
+    channel::receivers::{fragment_receiver::FragmentReceiver, ChannelReceive},
+    packet::message::{MessageData, MessageId, ReceiveMessage},
+    prelude::Tick,
+    shared::{tick_manager::TickManager, time_manager::TimeManager},
+};
 
 /// Sequenced Reliable receiver: make sure that all messages are received,
 /// do not return them in order, but ignore the messages that are older than the most recent one received
@@ -88,10 +87,8 @@ impl ChannelReceive for SequencedReliableReceiver {
 mod tests {
     use bytes::Bytes;
 
-    use crate::channel::receivers::ChannelReceive;
-    use crate::packet::message::SingleData;
-
     use super::*;
+    use crate::{channel::receivers::ChannelReceive, packet::message::SingleData};
 
     // TODO: check that the fragment receiver correctly removes items from the buffer, so they dont accumulate!
 

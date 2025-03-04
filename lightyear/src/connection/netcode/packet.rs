@@ -7,9 +7,6 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use chacha20poly1305::XNonce;
 use tracing::debug;
 
-use crate::connection::netcode::ClientId;
-use crate::connection::server::DeniedReason;
-
 use super::{
     bytes::Bytes,
     crypto::{self, Key},
@@ -18,6 +15,7 @@ use super::{
     token::{ChallengeToken, ConnectTokenPrivate},
     MAC_BYTES, MAX_PKT_BUF_SIZE, NETCODE_VERSION,
 };
+use crate::connection::{netcode::ClientId, server::DeniedReason};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -559,11 +557,10 @@ pub fn sequence_len(sequence: u64) -> u8 {
 mod tests {
     use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305};
 
+    use super::*;
     use crate::connection::netcode::{
         crypto::generate_key, token::AddressList, MAX_PACKET_SIZE, USER_DATA_BYTES,
     };
-
-    use super::*;
 
     #[test]
     fn sequence_number_bytes_required() {

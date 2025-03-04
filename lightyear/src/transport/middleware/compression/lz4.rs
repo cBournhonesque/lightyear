@@ -1,18 +1,21 @@
 //! Zstd compression
 
-use crate::connection::netcode::MAX_PKT_BUF_SIZE;
-use crate::transport::error::{Error, Result};
 use std::net::SocketAddr;
 
 pub(crate) use compression::Compressor;
 pub(crate) use decompression::Decompressor;
 
+use crate::{
+    connection::netcode::MAX_PKT_BUF_SIZE,
+    transport::error::{Error, Result},
+};
+
 pub(crate) mod compression {
-    use super::*;
-    use crate::transport::middleware::PacketSenderWrapper;
-    use crate::transport::PacketSender;
     use lz4_flex::block::compress_into;
     use tracing::error;
+
+    use super::*;
+    use crate::transport::{middleware::PacketSenderWrapper, PacketSender};
 
     pub(crate) struct Compressor {
         result: Vec<u8>,
@@ -63,10 +66,10 @@ pub(crate) mod compression {
 }
 
 pub(crate) mod decompression {
-    use super::*;
-    use crate::transport::middleware::PacketReceiverWrapper;
-    use crate::transport::PacketReceiver;
     use lz4_flex::block::decompress_into;
+
+    use super::*;
+    use crate::transport::{middleware::PacketReceiverWrapper, PacketReceiver};
 
     pub(crate) struct Decompressor {
         result: Vec<u8>,
@@ -116,10 +119,12 @@ pub(crate) mod decompression {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::io::config::ClientTransport;
-    use crate::transport::config::SharedIoConfig;
-    use crate::transport::middleware::compression::CompressionConfig;
-    use crate::transport::LOCAL_SOCKET;
+    use crate::{
+        client::io::config::ClientTransport,
+        transport::{
+            config::SharedIoConfig, middleware::compression::CompressionConfig, LOCAL_SOCKET,
+        },
+    };
 
     #[test]
     fn test_compression() {

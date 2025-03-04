@@ -1,34 +1,36 @@
 use std::f32::consts::TAU;
 
 use avian3d::prelude::*;
-use bevy::color::palettes::css;
-use bevy::math::VectorSpace;
-use bevy::prelude::*;
-use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
-use bevy::utils::HashMap;
+use bevy::{
+    color::palettes::css,
+    math::VectorSpace,
+    prelude::*,
+    time::common_conditions::on_timer,
+    utils::{Duration, HashMap},
+};
 use client::Rollback;
-use leafwing_input_manager::action_diff::ActionDiff;
-use leafwing_input_manager::prelude::*;
-use lightyear::client::connection;
-use lightyear::prelude::client::{Confirmed, Predicted};
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
-use lightyear::server::input::InputSystemSet;
-use lightyear::shared::tick_manager;
+use leafwing_input_manager::{action_diff::ActionDiff, prelude::*};
+use lightyear::{
+    client::connection,
+    prelude::{
+        client::{Confirmed, Predicted},
+        server::*,
+        *,
+    },
+    server::input::InputSystemSet,
+    shared::tick_manager,
+};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::apply_character_action;
-use crate::shared::BlockPhysicsBundle;
-use crate::shared::CharacterPhysicsBundle;
-use crate::shared::CharacterQuery;
-use crate::shared::FloorPhysicsBundle;
-use crate::shared::CHARACTER_CAPSULE_HEIGHT;
-use crate::shared::CHARACTER_CAPSULE_RADIUS;
-use crate::shared::FLOOR_HEIGHT;
-use crate::shared::FLOOR_WIDTH;
+use crate::{
+    protocol::*,
+    shared,
+    shared::{
+        apply_character_action, BlockPhysicsBundle, CharacterPhysicsBundle, CharacterQuery,
+        FloorPhysicsBundle, CHARACTER_CAPSULE_HEIGHT, CHARACTER_CAPSULE_RADIUS, FLOOR_HEIGHT,
+        FLOOR_WIDTH,
+    },
+};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;

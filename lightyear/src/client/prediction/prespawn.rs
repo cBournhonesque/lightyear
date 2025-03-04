@@ -1,19 +1,23 @@
 //! Handles spawning entities that are predicted
 
-use bevy::ecs::component::{Components, StorageType};
-use bevy::prelude::*;
+use bevy::{
+    ecs::component::{Components, StorageType},
+    prelude::*,
+};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
 
-use crate::client::components::Confirmed;
-use crate::client::connection::ConnectionManager;
-use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::rollback::Rollback;
-use crate::client::prediction::Predicted;
-use crate::prelude::client::PredictionSet;
-use crate::prelude::{ComponentRegistry, Replicated, ShouldBePredicted, TickManager};
-
-use crate::shared::replication::prespawn::compute_default_hash;
+use crate::{
+    client::{
+        components::Confirmed,
+        connection::ConnectionManager,
+        prediction::{resource::PredictionManager, rollback::Rollback, Predicted},
+    },
+    prelude::{
+        client::PredictionSet, ComponentRegistry, Replicated, ShouldBePredicted, TickManager,
+    },
+    shared::replication::prespawn::compute_default_hash,
+};
 
 #[derive(Default)]
 pub(crate) struct PreSpawnedPlayerObjectPlugin;
@@ -366,17 +370,23 @@ impl Component for PreSpawnedPlayerObject {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::prediction::predicted_history::PredictionHistory;
-    use crate::client::prediction::resource::PredictionManager;
-    use crate::prelude::client::{is_in_rollback, PredictionDespawnCommandsExt, PredictionSet};
-    use crate::prelude::client::{Confirmed, Predicted};
-    use crate::prelude::server::{Replicate, SyncTarget};
-    use crate::prelude::*;
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::BevyStepper;
-    use crate::utils::ready_buffer::ItemWithReadyKey;
-    use bevy::app::PreUpdate;
-    use bevy::prelude::{default, Entity, IntoSystemConfigs, With};
+    use bevy::{
+        app::PreUpdate,
+        prelude::{default, Entity, IntoSystemConfigs, With},
+    };
+
+    use crate::{
+        client::prediction::{predicted_history::PredictionHistory, resource::PredictionManager},
+        prelude::{
+            client::{
+                is_in_rollback, Confirmed, Predicted, PredictionDespawnCommandsExt, PredictionSet,
+            },
+            server::{Replicate, SyncTarget},
+            *,
+        },
+        tests::{protocol::*, stepper::BevyStepper},
+        utils::ready_buffer::ItemWithReadyKey,
+    };
 
     #[test]
     fn test_compute_hash() {

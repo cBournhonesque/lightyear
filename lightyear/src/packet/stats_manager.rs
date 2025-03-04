@@ -1,11 +1,14 @@
 /// Statistics for packets
 pub(crate) mod packet {
-    use bevy::utils::Duration;
     use std::ops::{AddAssign, SubAssign};
+
+    use bevy::utils::Duration;
     use tracing::trace;
 
-    use crate::shared::time_manager::{TimeManager, WrappedTime};
-    use crate::utils::ready_buffer::ReadyBuffer;
+    use crate::{
+        shared::time_manager::{TimeManager, WrappedTime},
+        utils::ready_buffer::ReadyBuffer,
+    };
     type PacketStatsBuffer = ReadyBuffer<WrappedTime, PacketStats>;
 
     #[derive(Default, Copy, Clone, Debug, PartialEq)]

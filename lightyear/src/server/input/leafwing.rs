@@ -1,20 +1,19 @@
 //! Handles client-generated inputs
 
-use crate::client::config::ClientConfig;
-use crate::connection::client::ClientConnection;
-use crate::inputs::leafwing::input_buffer::InputBuffer;
-use crate::inputs::leafwing::input_message::InputTarget;
-use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::client::NetClient;
-use crate::prelude::{
-    is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel,
-    InputConfig, InputMessage, MessageRegistry, NetworkTarget, ServerReceiveMessage,
-    ServerSendMessage, TickManager,
-};
-use crate::server::connection::ConnectionManager;
-use crate::server::input::InputSystemSet;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
+
+use crate::{
+    client::config::ClientConfig,
+    connection::client::ClientConnection,
+    inputs::leafwing::{input_buffer::InputBuffer, input_message::InputTarget, LeafwingUserAction},
+    prelude::{
+        client::NetClient, is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager,
+        InputChannel, InputConfig, InputMessage, MessageRegistry, NetworkTarget,
+        ServerReceiveMessage, ServerSendMessage, TickManager,
+    },
+    server::{connection::ConnectionManager, input::InputSystemSet},
+};
 
 pub struct LeafwingInputPlugin<A> {
     pub(crate) rebroadcast_inputs: bool,
@@ -230,14 +229,14 @@ pub(crate) fn rebroadcast_inputs<A: LeafwingUserAction>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::inputs::leafwing::input_buffer::InputBuffer;
     use leafwing_input_manager::prelude::ActionState;
 
-    use crate::prelude::client;
-    use crate::prelude::server::*;
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::BevyStepper;
+    use super::*;
+    use crate::{
+        inputs::leafwing::input_buffer::InputBuffer,
+        prelude::{client, server::*},
+        tests::{protocol::*, stepper::BevyStepper},
+    };
 
     #[test]
     fn test_leafwing_inputs() {

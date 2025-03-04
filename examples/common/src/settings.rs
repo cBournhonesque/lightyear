@@ -3,22 +3,17 @@
 #![allow(unused_variables)]
 use std::net::{Ipv4Addr, SocketAddr};
 
-use bevy::asset::ron;
-use bevy::prelude::*;
-use bevy::utils::Duration;
-
 #[cfg(not(target_family = "wasm"))]
 use async_compat::Compat;
 #[cfg(not(target_family = "wasm"))]
 use bevy::tasks::IoTaskPool;
-
-use lightyear::connection::netcode::PRIVATE_KEY_BYTES;
-use lightyear::prelude::client::Authentication;
+use bevy::{asset::ron, prelude::*, utils::Duration};
 #[cfg(feature = "steam")]
 use lightyear::prelude::client::{SocketConfig, SteamConfig};
-use lightyear::prelude::{CompressionConfig, LinkConditionerConfig};
-
-use lightyear::prelude::{client, server};
+use lightyear::{
+    connection::netcode::PRIVATE_KEY_BYTES,
+    prelude::{client, client::Authentication, server, CompressionConfig, LinkConditionerConfig},
+};
 
 /// Read certificate digest from alternate sources, for WASM builds.
 #[cfg(target_family = "wasm")]

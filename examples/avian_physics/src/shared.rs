@@ -1,18 +1,14 @@
 use avian2d::prelude::*;
-use bevy::color::palettes::css;
-use bevy::diagnostic::LogDiagnosticsPlugin;
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{color::palettes::css, diagnostic::LogDiagnosticsPlugin, prelude::*, utils::Duration};
 use leafwing_input_manager::prelude::ActionState;
-use tracing::Level;
-
-use lightyear::client::prediction::diagnostics::PredictionDiagnosticsPlugin;
-use lightyear::prelude::client::*;
-use lightyear::prelude::TickManager;
-use lightyear::prelude::*;
-use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
-use lightyear::transport::io::IoDiagnosticsPlugin;
+use lightyear::{
+    client::prediction::diagnostics::PredictionDiagnosticsPlugin,
+    prelude::{client::*, TickManager, *},
+    shared::ping::diagnostics::PingDiagnosticsPlugin,
+    transport::io::IoDiagnosticsPlugin,
+};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
+use tracing::Level;
 
 use crate::protocol::*;
 pub(crate) const MAX_VELOCITY: f32 = 200.0;

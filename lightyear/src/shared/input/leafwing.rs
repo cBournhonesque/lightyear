@@ -2,11 +2,13 @@
 
 use bevy::app::{App, Plugin};
 
-use crate::client::config::ClientConfig;
-use crate::prelude::{ChannelDirection, InputMessage, LeafwingUserAction};
-use crate::protocol::message::registry::AppMessageInternalExt;
-use crate::server::config::ServerConfig;
-use crate::shared::input::InputConfig;
+use crate::{
+    client::config::ClientConfig,
+    prelude::{ChannelDirection, InputMessage, LeafwingUserAction},
+    protocol::message::registry::AppMessageInternalExt,
+    server::config::ServerConfig,
+    shared::input::InputConfig,
+};
 
 pub struct LeafwingInputPlugin<A> {
     pub config: InputConfig<A>,

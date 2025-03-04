@@ -1,18 +1,15 @@
-use bevy::ecs::query::QueryFilter;
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{ecs::query::QueryFilter, prelude::*, utils::Duration};
 
-use crate::client::components::Confirmed;
-use crate::client::interpolation::Interpolated;
-use crate::client::prediction::Predicted;
-use crate::connection::client::NetClient;
-use crate::prelude::client::ClientConnection;
-use crate::prelude::{server::is_started, PrePredicted};
-use crate::server::config::ServerConfig;
-use crate::server::connection::ConnectionManager;
-use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
-use crate::shared::replication::plugin::send::ReplicationSendPlugin;
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
+use crate::{
+    client::{components::Confirmed, interpolation::Interpolated, prediction::Predicted},
+    connection::client::NetClient,
+    prelude::{client::ClientConnection, server::is_started, PrePredicted},
+    server::{config::ServerConfig, connection::ConnectionManager},
+    shared::{
+        replication::plugin::{receive::ReplicationReceivePlugin, send::ReplicationSendPlugin},
+        sets::{InternalMainSet, InternalReplicationSet, ServerMarker},
+    },
+};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ServerReplicationSet {
@@ -49,31 +46,36 @@ pub(crate) mod receive {
 }
 
 pub(crate) mod send {
+    use bevy::{
+        ecs::{component::ComponentTicks, system::SystemChangeTick},
+        ptr::Ptr,
+    };
+
     use super::*;
-    use crate::prelude::server::AuthorityCommandExt;
-    use crate::prelude::{
-        is_host_server, ClientId, ComponentRegistry, DisabledComponents, NetworkRelevanceMode,
-        OverrideTargetComponent, ReplicateHierarchy, ReplicationGroup, ShouldBePredicted,
-        TargetEntity, Tick, TickManager, TimeManager,
+    use crate::{
+        prelude::{
+            is_host_server, server::AuthorityCommandExt, ClientId, ComponentRegistry,
+            DisabledComponents, NetworkRelevanceMode, OverrideTargetComponent, ReplicateHierarchy,
+            ReplicationGroup, ShouldBePredicted, TargetEntity, Tick, TickManager, TimeManager,
+        },
+        protocol::component::ComponentKind,
+        server::{
+            error::ServerError,
+            prediction::handle_pre_predicted,
+            relevance::immediate::{CachedNetworkRelevance, ClientRelevance},
+        },
+        shared,
+        shared::replication::{
+            archetypes::{get_erased_component, ServerReplicatedArchetypes},
+            authority::{AuthorityPeer, HasAuthority},
+            components::{
+                Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId,
+                ShouldBeInterpolated,
+            },
+            network_target::NetworkTarget,
+            ReplicationSend,
+        },
     };
-    use crate::protocol::component::ComponentKind;
-    use crate::server::error::ServerError;
-    use crate::server::prediction::handle_pre_predicted;
-    use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
-    use crate::shared;
-    use crate::shared::replication::archetypes::{
-        get_erased_component, ServerReplicatedArchetypes,
-    };
-    use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
-    use crate::shared::replication::components::{
-        Cached, Controlled, InitialReplicated, Replicating, ReplicationGroupId,
-        ShouldBeInterpolated,
-    };
-    use crate::shared::replication::network_target::NetworkTarget;
-    use crate::shared::replication::ReplicationSend;
-    use bevy::ecs::component::ComponentTicks;
-    use bevy::ecs::system::SystemChangeTick;
-    use bevy::ptr::Ptr;
 
     #[derive(Default)]
     pub struct ServerReplicationSendPlugin {
@@ -1076,24 +1078,35 @@ pub(crate) mod send {
 
     #[cfg(test)]
     mod tests {
-        use super::*;
-        use crate::client::events::ComponentUpdateEvent;
-        use crate::prelude::client::Confirmed;
-        use crate::prelude::server::{ControlledBy, NetConfig, RelevanceManager, Replicate};
-        use crate::prelude::{
-            client, server, ChannelDirection, DeltaCompression, LinkConditionerConfig,
-            ReplicateOnceComponent, Replicated,
+        use bevy::{
+            ecs::system::RunSystemOnce,
+            prelude::{default, EventReader, Resource, Update},
+            utils::HashSet,
         };
-        use crate::server::replication::send::SyncTarget;
-        use crate::shared::replication::components::{Controlled, ReplicationGroupId};
-        use crate::shared::replication::delta::DeltaComponentHistory;
-        use crate::shared::replication::systems;
-        use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
-        use crate::tests::protocol::*;
-        use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
-        use bevy::ecs::system::RunSystemOnce;
-        use bevy::prelude::{default, EventReader, Resource, Update};
-        use bevy::utils::HashSet;
+
+        use super::*;
+        use crate::{
+            client::events::ComponentUpdateEvent,
+            prelude::{
+                client,
+                client::Confirmed,
+                server,
+                server::{ControlledBy, NetConfig, RelevanceManager, Replicate},
+                ChannelDirection, DeltaCompression, LinkConditionerConfig, ReplicateOnceComponent,
+                Replicated,
+            },
+            server::replication::send::SyncTarget,
+            shared::replication::{
+                components::{Controlled, ReplicationGroupId},
+                delta::DeltaComponentHistory,
+                systems,
+            },
+            tests::{
+                multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2},
+                protocol::*,
+                stepper::{BevyStepper, TEST_CLIENT_ID},
+            },
+        };
 
         // TODO: test entity spawn newly connected client
 
@@ -3217,15 +3230,23 @@ pub(crate) mod send {
 }
 
 pub(crate) mod commands {
-    use crate::channel::builder::AuthorityChannel;
-    use crate::prelude::server::{ReplicationTarget, SyncTarget};
-    use crate::prelude::{
-        ClientId, PrePredicted, Replicated, Replicating, ReplicationGroup, ServerConnectionManager,
+    use bevy::{
+        ecs::system::EntityCommands,
+        prelude::{Entity, World},
     };
-    use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
-    use crate::shared::replication::components::{InitialReplicated, ReplicationGroupId};
-    use bevy::ecs::system::EntityCommands;
-    use bevy::prelude::{Entity, World};
+
+    use crate::{
+        channel::builder::AuthorityChannel,
+        prelude::{
+            server::{ReplicationTarget, SyncTarget},
+            ClientId, PrePredicted, Replicated, Replicating, ReplicationGroup,
+            ServerConnectionManager,
+        },
+        shared::replication::{
+            authority::{AuthorityChange, AuthorityPeer, HasAuthority},
+            components::{InitialReplicated, ReplicationGroupId},
+        },
+    };
 
     pub trait AuthorityCommandExt {
         /// This command is used to transfer the authority of an entity to a different peer.
@@ -3467,11 +3488,11 @@ pub(crate) mod commands {
     mod tests {
         use bevy::prelude::With;
 
-        use crate::prelude::server::Replicate;
-        use crate::tests::protocol::*;
-        use crate::tests::stepper::BevyStepper;
-
         use super::*;
+        use crate::{
+            prelude::server::Replicate,
+            tests::{protocol::*, stepper::BevyStepper},
+        };
 
         #[test]
         fn test_despawn() {

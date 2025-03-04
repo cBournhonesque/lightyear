@@ -5,15 +5,18 @@ use bevy::prelude::{
 };
 use tracing::{debug, trace};
 
-use crate::client::components::Confirmed;
-use crate::client::components::{ComponentSyncMode, SyncComponent};
-use crate::client::connection::ConnectionManager;
-use crate::client::interpolation::interpolate::InterpolateStatus;
-use crate::client::interpolation::resource::InterpolationManager;
-use crate::client::interpolation::Interpolated;
-use crate::prelude::{ComponentRegistry, HasAuthority, TickManager};
-use crate::shared::tick_manager::Tick;
-use crate::utils::ready_buffer::ReadyBuffer;
+use crate::{
+    client::{
+        components::{ComponentSyncMode, Confirmed, SyncComponent},
+        connection::ConnectionManager,
+        interpolation::{
+            interpolate::InterpolateStatus, resource::InterpolationManager, Interpolated,
+        },
+    },
+    prelude::{ComponentRegistry, HasAuthority, TickManager},
+    shared::tick_manager::Tick,
+    utils::ready_buffer::ReadyBuffer,
+};
 
 /// To know if we need to do rollback, we need to compare the interpolated entity's history with the server's state updates
 #[derive(Component, Debug)]

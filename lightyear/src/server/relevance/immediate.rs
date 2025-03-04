@@ -23,12 +23,13 @@ fn my_system(
 }
 ```
 */
-use crate::prelude::{server::is_started, ClientId};
-use crate::shared::sets::{InternalReplicationSet, ServerMarker};
-use bevy::ecs::entity::EntityHashSet;
-use bevy::prelude::*;
-use bevy::utils::HashMap;
+use bevy::{ecs::entity::EntityHashSet, prelude::*, utils::HashMap};
 use tracing::trace;
+
+use crate::{
+    prelude::{server::is_started, ClientId},
+    shared::sets::{InternalReplicationSet, ServerMarker},
+};
 
 /// Event related to [`Entities`](Entity) which are relevant to a client
 #[derive(Debug, PartialEq, Clone, Copy, Reflect)]
@@ -120,11 +121,10 @@ impl RelevanceManager {
 }
 
 pub(super) mod systems {
-    use super::*;
-
-    use crate::prelude::NetworkRelevanceMode;
-
     use bevy::prelude::DetectChanges;
+
+    use super::*;
+    use crate::prelude::NetworkRelevanceMode;
 
     // NOTE: this might not be needed because we drain the event cache every Send update
     // /// Clear the internal room buffers when a client disconnects
@@ -295,12 +295,14 @@ impl Plugin for NetworkRelevancePlugin {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::prelude::server::Replicate;
-    use crate::prelude::{client, ClientConnectionManager, NetworkRelevanceMode};
-    use crate::shared::replication::components::ReplicationGroupId;
-    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::ecs::system::RunSystemOnce;
+
+    use super::*;
+    use crate::{
+        prelude::{client, server::Replicate, ClientConnectionManager, NetworkRelevanceMode},
+        shared::replication::components::ReplicationGroupId,
+        tests::stepper::{BevyStepper, TEST_CLIENT_ID},
+    };
 
     /// Multiple entities gain relevance for a given client
     /// Check that interest management works correctly

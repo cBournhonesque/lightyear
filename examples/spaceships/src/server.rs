@@ -1,27 +1,34 @@
 use std::f32::consts::TAU;
 
 use avian2d::prelude::*;
-use bevy::color::palettes::css;
-use bevy::prelude::*;
-use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
-use bevy::utils::HashMap;
+use bevy::{
+    color::palettes::css,
+    prelude::*,
+    time::common_conditions::on_timer,
+    utils::{Duration, HashMap},
+};
 use client::Rollback;
-use leafwing_input_manager::action_diff::ActionDiff;
-use leafwing_input_manager::prelude::*;
-use lightyear::client::connection;
-use lightyear::prelude::client::{Confirmed, Predicted};
-use lightyear::prelude::server::*;
-use lightyear::prelude::*;
-use lightyear::server::input::InputSystemSet;
-use lightyear::shared::tick_manager;
+use leafwing_input_manager::{action_diff::ActionDiff, prelude::*};
+use lightyear::{
+    client::connection,
+    prelude::{
+        client::{Confirmed, Predicted},
+        server::*,
+        *,
+    },
+    server::input::InputSystemSet,
+    shared::tick_manager,
+};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::ApplyInputsQuery;
-use crate::shared::ApplyInputsQueryItem;
-use crate::shared::{apply_action_state_to_player_movement, color_from_id};
+use crate::{
+    protocol::*,
+    shared,
+    shared::{
+        apply_action_state_to_player_movement, color_from_id, ApplyInputsQuery,
+        ApplyInputsQueryItem,
+    },
+};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin {

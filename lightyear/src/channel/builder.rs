@@ -1,22 +1,26 @@
 //! This module contains the [`Channel`] trait
 use bevy::utils::Duration;
-
 use lightyear_macros::ChannelInternal;
 
-use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
-use crate::channel::receivers::sequenced_reliable::SequencedReliableReceiver;
-use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
-use crate::channel::receivers::unordered_reliable::UnorderedReliableReceiver;
-use crate::channel::receivers::unordered_unreliable::UnorderedUnreliableReceiver;
-use crate::channel::receivers::ChannelReceiver;
-use crate::channel::senders::reliable::ReliableSender;
-use crate::channel::senders::sequenced_unreliable::SequencedUnreliableSender;
-use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
-use crate::channel::senders::unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender;
-use crate::channel::senders::ChannelSender;
 #[cfg(feature = "trace")]
 use crate::channel::stats::send::ChannelSendStats;
-use crate::prelude::ChannelKind;
+use crate::{
+    channel::{
+        receivers::{
+            ordered_reliable::OrderedReliableReceiver,
+            sequenced_reliable::SequencedReliableReceiver,
+            sequenced_unreliable::SequencedUnreliableReceiver,
+            unordered_reliable::UnorderedReliableReceiver,
+            unordered_unreliable::UnorderedUnreliableReceiver, ChannelReceiver,
+        },
+        senders::{
+            reliable::ReliableSender, sequenced_unreliable::SequencedUnreliableSender,
+            unordered_unreliable::UnorderedUnreliableSender,
+            unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender, ChannelSender,
+        },
+    },
+    prelude::ChannelKind,
+};
 
 /// A ChannelContainer is a struct that implements the [`Channel`] trait
 #[derive(Debug)]

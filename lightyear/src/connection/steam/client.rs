@@ -1,21 +1,30 @@
-use crate::connection::client::{ConnectionError, ConnectionState, NetClient};
-use crate::connection::id::ClientId;
-use crate::packet::packet_builder::RecvPayload;
-use crate::prelude::client::Io;
-use crate::prelude::LinkConditionerConfig;
-use crate::transport::LOCAL_SOCKET;
-use parking_lot::RwLock;
-use std::collections::VecDeque;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::sync::Arc;
-use steamworks::networking_sockets::{InvalidHandle, NetConnection};
-use steamworks::networking_types::{
-    NetConnectionEnd, NetConnectionInfo, NetworkingConnectionState, NetworkingIdentity, SendFlags,
+use std::{
+    collections::VecDeque,
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    sync::Arc,
 };
-use steamworks::{ClientManager, SteamError, SteamId};
+
+use parking_lot::RwLock;
+use steamworks::{
+    networking_sockets::{InvalidHandle, NetConnection},
+    networking_types::{
+        NetConnectionEnd, NetConnectionInfo, NetworkingConnectionState, NetworkingIdentity,
+        SendFlags,
+    },
+    ClientManager, SteamError, SteamId,
+};
 use tracing::info;
 
 use super::steamworks_client::SteamworksClient;
+use crate::{
+    connection::{
+        client::{ConnectionError, ConnectionState, NetClient},
+        id::ClientId,
+    },
+    packet::packet_builder::RecvPayload,
+    prelude::{client::Io, LinkConditionerConfig},
+    transport::LOCAL_SOCKET,
+};
 
 const MAX_MESSAGE_BATCH_SIZE: usize = 512;
 

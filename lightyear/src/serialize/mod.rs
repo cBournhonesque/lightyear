@@ -1,11 +1,15 @@
 //! Serialization and deserialization of types
 
-use crate::serialize::reader::Reader;
-use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
+use std::hash::{BuildHasher, Hash};
+
 use bevy::utils::hashbrown::HashMap;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
-use std::hash::{BuildHasher, Hash};
+
+use crate::serialize::{
+    reader::Reader,
+    varint::{varint_len, VarIntReadExt, VarIntWriteExt},
+};
 
 pub mod reader;
 pub(crate) mod varint;

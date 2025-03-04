@@ -1,10 +1,15 @@
-use crate::prelude::Tick;
-use crate::protocol::component::ComponentKind;
-use crate::shared::replication::delta::{DeltaMessage, DeltaType, Diffable};
-use bevy::prelude::Component;
-use bevy::ptr::{Ptr, PtrMut};
-use std::any::TypeId;
-use std::ptr::NonNull;
+use std::{any::TypeId, ptr::NonNull};
+
+use bevy::{
+    prelude::Component,
+    ptr::{Ptr, PtrMut},
+};
+
+use crate::{
+    prelude::Tick,
+    protocol::component::ComponentKind,
+    shared::replication::delta::{DeltaMessage, DeltaType, Diffable},
+};
 
 type ErasedCloneFn = unsafe fn(data: Ptr) -> NonNull<u8>;
 type ErasedDiffFn = unsafe fn(start_tick: Tick, start: Ptr, present: Ptr) -> NonNull<u8>;

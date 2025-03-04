@@ -1,21 +1,24 @@
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{prelude::*, utils::Duration};
 
 use super::interpolation_history::{
     add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,
 };
-use crate::client::components::{ComponentSyncMode, SyncComponent};
-use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};
-use crate::client::interpolation::interpolate::{
-    insert_interpolated_component, interpolate, update_interpolate_status,
+use crate::{
+    client::{
+        components::{ComponentSyncMode, SyncComponent},
+        interpolation::{
+            despawn::{despawn_interpolated, removed_components},
+            interpolate::{insert_interpolated_component, interpolate, update_interpolate_status},
+            resource::InterpolationManager,
+            spawn::spawn_interpolated_entity,
+            Interpolated,
+        },
+        run_conditions::is_synced,
+        sync::SyncSet,
+    },
+    prelude::{is_host_server, Deserialize, Serialize, Tick},
+    shared::time_manager::WrappedTime,
 };
-use crate::client::interpolation::resource::InterpolationManager;
-use crate::client::interpolation::spawn::spawn_interpolated_entity;
-use crate::client::interpolation::Interpolated;
-use crate::client::run_conditions::is_synced;
-use crate::client::sync::SyncSet;
-use crate::prelude::{is_host_server, Deserialize, Serialize, Tick};
-use crate::shared::time_manager::WrappedTime;
 
 /// Interpolation delay of the client at the time the message is sent
 ///

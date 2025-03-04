@@ -1,6 +1,8 @@
-use crate::transport::middleware::compression::CompressionConfig;
-use crate::transport::middleware::conditioner::LinkConditionerConfig;
 use bevy::prelude::Reflect;
+
+use crate::transport::middleware::{
+    compression::CompressionConfig, conditioner::LinkConditionerConfig,
+};
 
 #[derive(Clone, Debug, Default, Reflect)]
 #[reflect(from_reflect = false)]

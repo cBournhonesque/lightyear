@@ -1,9 +1,13 @@
 use bytes::Bytes;
 
-use crate::packet::message::{FragmentData, FragmentIndex, MessageId};
-use crate::packet::packet::FRAGMENT_SIZE;
-use crate::serialize::SerializationError;
-use crate::shared::tick_manager::Tick;
+use crate::{
+    packet::{
+        message::{FragmentData, FragmentIndex, MessageId},
+        packet::FRAGMENT_SIZE,
+    },
+    serialize::SerializationError,
+    shared::tick_manager::Tick,
+};
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
 #[derive(Debug)]
@@ -50,9 +54,8 @@ impl FragmentSender {
 mod tests {
     use bytes::Bytes;
 
-    use crate::packet::packet::FRAGMENT_SIZE;
-
     use super::*;
+    use crate::packet::packet::FRAGMENT_SIZE;
 
     #[test]
     fn test_build_fragments() {

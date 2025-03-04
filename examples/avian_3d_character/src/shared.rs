@@ -1,21 +1,21 @@
-use bevy::ecs::query::QueryData;
-use bevy::math::VectorSpace;
-use bevy::prelude::*;
-use bevy::utils::Duration;
-use lightyear::inputs::leafwing::input_buffer::InputBuffer;
-use server::ControlledEntities;
 use std::hash::{Hash, Hasher};
 
 use avian3d::prelude::*;
-use bevy::prelude::TransformSystem::TransformPropagate;
+use bevy::{
+    ecs::query::QueryData,
+    math::VectorSpace,
+    prelude::{TransformSystem::TransformPropagate, *},
+    utils::Duration,
+};
 use leafwing_input_manager::prelude::ActionState;
-use lightyear::shared::replication::components::Controlled;
-use tracing::Level;
-
-use lightyear::prelude::client::*;
-use lightyear::prelude::TickManager;
-use lightyear::prelude::*;
+use lightyear::{
+    inputs::leafwing::input_buffer::InputBuffer,
+    prelude::{client::*, TickManager, *},
+    shared::replication::components::Controlled,
+};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
+use server::ControlledEntities;
+use tracing::Level;
 
 use crate::protocol::*;
 

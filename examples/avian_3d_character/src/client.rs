@@ -1,17 +1,14 @@
 use avian3d::prelude::*;
-use bevy::app::PluginGroupBuilder;
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{app::PluginGroupBuilder, prelude::*, utils::Duration};
 use leafwing_input_manager::prelude::*;
-use lightyear::inputs::leafwing::input_buffer::InputBuffer;
-use lightyear::prelude::client::*;
-use lightyear::prelude::*;
-use lightyear::shared::replication::components::Controlled;
-use lightyear::shared::tick_manager;
+use lightyear::{
+    inputs::leafwing::input_buffer::InputBuffer,
+    prelude::{client::*, *},
+    shared::{replication::components::Controlled, tick_manager},
+};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
-use crate::protocol::*;
-use crate::shared::*;
+use crate::{protocol::*, shared::*};
 
 pub struct ExampleClientPlugin;
 

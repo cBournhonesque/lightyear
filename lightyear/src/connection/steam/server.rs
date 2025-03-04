@@ -1,22 +1,31 @@
-use crate::connection::id::ClientId;
-use crate::connection::netcode::MAX_PACKET_SIZE;
-use crate::connection::server::{
-    ConnectionError, ConnectionRequestHandler, DefaultConnectionRequestHandler, NetServer,
+use std::{
+    collections::VecDeque,
+    net::{Ipv4Addr, SocketAddr},
+    sync::Arc,
 };
-use crate::packet::packet_builder::RecvPayload;
-use crate::prelude::LinkConditionerConfig;
-use crate::server::io::Io;
+
 use bevy::utils::HashMap;
 use parking_lot::RwLock;
-use std::collections::VecDeque;
-use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::Arc;
-use steamworks::networking_sockets::{ListenSocket, NetConnection};
-use steamworks::networking_types::{ListenSocketEvent, NetConnectionEnd, SendFlags};
-use steamworks::{ClientManager, ServerMode, SteamError};
+use steamworks::{
+    networking_sockets::{ListenSocket, NetConnection},
+    networking_types::{ListenSocketEvent, NetConnectionEnd, SendFlags},
+    ClientManager, ServerMode, SteamError,
+};
 use tracing::{error, info};
 
 use super::steamworks_client::SteamworksClient;
+use crate::{
+    connection::{
+        id::ClientId,
+        netcode::MAX_PACKET_SIZE,
+        server::{
+            ConnectionError, ConnectionRequestHandler, DefaultConnectionRequestHandler, NetServer,
+        },
+    },
+    packet::packet_builder::RecvPayload,
+    prelude::LinkConditionerConfig,
+    server::io::Io,
+};
 
 #[derive(Debug, Clone)]
 pub struct SteamConfig {

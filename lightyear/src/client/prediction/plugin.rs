@@ -1,36 +1,42 @@
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
-use crate::client::prediction::correction::{get_corrected_state, restore_corrected_state};
-use crate::client::prediction::despawn::{
-    despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
-    restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
-};
-use crate::client::prediction::predicted_history::{
-    add_prediction_history, add_sync_systems, apply_component_removal_confirmed,
-    apply_component_removal_predicted, handle_tick_event_prediction_history,
-    update_prediction_history,
-};
-use crate::client::prediction::prespawn::PreSpawnedPlayerObjectPlugin;
-use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::Predicted;
-use crate::prelude::{is_host_server, PreSpawnedPlayerObject};
-use crate::shared::sets::{ClientMarker, InternalMainSet};
-use bevy::prelude::*;
-use bevy::reflect::Reflect;
-use bevy::utils::Duration;
 use std::fmt::Debug;
 
-use super::pre_prediction::PrePredictionPlugin;
-use super::predicted_history::apply_confirmed_update;
-use super::resource_history::{
-    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
-};
-use super::rollback::{
-    check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
-    prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
-};
-use super::spawn::spawn_predicted_entity;
+use bevy::{prelude::*, reflect::Reflect, utils::Duration};
 
-use crate::prelude::client::is_connected;
+use super::{
+    pre_prediction::PrePredictionPlugin,
+    predicted_history::apply_confirmed_update,
+    resource_history::{
+        handle_tick_event_resource_history, update_resource_history, ResourceHistory,
+    },
+    rollback::{
+        check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
+        prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback,
+        RollbackState,
+    },
+    spawn::spawn_predicted_entity,
+};
+use crate::{
+    client::{
+        components::{ComponentSyncMode, Confirmed, SyncComponent},
+        prediction::{
+            correction::{get_corrected_state, restore_corrected_state},
+            despawn::{
+                despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
+                restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
+            },
+            predicted_history::{
+                add_prediction_history, add_sync_systems, apply_component_removal_confirmed,
+                apply_component_removal_predicted, handle_tick_event_prediction_history,
+                update_prediction_history,
+            },
+            prespawn::PreSpawnedPlayerObjectPlugin,
+            resource::PredictionManager,
+            Predicted,
+        },
+    },
+    prelude::{client::is_connected, is_host_server, PreSpawnedPlayerObject},
+    shared::sets::{ClientMarker, InternalMainSet},
+};
 
 /// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Reflect)]

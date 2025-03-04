@@ -1,7 +1,9 @@
 //! Map between local and remote entities
-use bevy::ecs::entity::{EntityHashMap, EntityMapper};
-use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
-use bevy::reflect::Reflect;
+use bevy::{
+    ecs::entity::{EntityHashMap, EntityMapper},
+    prelude::{Deref, DerefMut, Entity, EntityWorldMut, World},
+    reflect::Reflect,
+};
 use tracing::{debug, error, trace};
 
 const MARKED: u64 = 1 << 62;
@@ -191,12 +193,16 @@ impl RemoteEntityMap {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::components::Confirmed;
-    use crate::prelude::server::{Replicate, SyncTarget};
-    use crate::prelude::*;
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::BevyStepper;
     use bevy::prelude::{default, Entity};
+
+    use crate::{
+        client::components::Confirmed,
+        prelude::{
+            server::{Replicate, SyncTarget},
+            *,
+        },
+        tests::{protocol::*, stepper::BevyStepper},
+    };
 
     /// Test marking entities as mapped or not
     #[test]

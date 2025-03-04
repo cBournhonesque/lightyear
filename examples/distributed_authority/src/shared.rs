@@ -5,9 +5,7 @@
 //! mispredictions/rollbacks.
 
 use bevy::prelude::*;
-
-use lightyear::prelude::client::Interpolated;
-use lightyear::prelude::*;
+use lightyear::prelude::{client::Interpolated, *};
 
 use crate::protocol::*;
 

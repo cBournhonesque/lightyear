@@ -8,13 +8,11 @@
 //!   Therefore, we will store the computed ActionState at tick t + delay, but then we load the ActionState at tick t
 //!   from the buffer
 use bevy::utils::Instant;
-
-use crate::inputs::leafwing::action_diff::ActionDiff;
-use crate::shared::tick_manager::Tick;
 use leafwing_input_manager::prelude::ActionState;
 use tracing::trace;
 
 use super::LeafwingUserAction;
+use crate::{inputs::leafwing::action_diff::ActionDiff, shared::tick_manager::Tick};
 
 /// The InputBuffer contains a history of the ActionState for each tick between
 /// `start_tick` and `end_tick`. All ticks between `start_tick` and `end_tick` must be included in the buffer.
@@ -57,11 +55,12 @@ impl<T: LeafwingUserAction> InputBuffer<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::inputs::native::input_buffer::InputData;
     use bevy::prelude::Reflect;
     use leafwing_input_manager::Actionlike;
     use serde::{Deserialize, Serialize};
+
+    use super::*;
+    use crate::inputs::native::input_buffer::InputData;
 
     #[derive(
         Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash, Reflect, Actionlike,

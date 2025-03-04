@@ -1,6 +1,7 @@
 //! Common server-related run conditions
-use crate::prelude::server::NetworkingState;
 use bevy::prelude::{Ref, Res, State};
+
+use crate::prelude::server::NetworkingState;
 
 /// Returns true if the server is started.
 ///

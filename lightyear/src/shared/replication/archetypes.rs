@@ -1,21 +1,22 @@
 //! Keep track of the archetypes that should be replicated
 use std::mem;
 
-use crate::client::replication::send::ReplicateToServer;
-use crate::prelude::{ChannelDirection, ComponentRegistry, Replicating};
-use crate::protocol::component::ComponentKind;
-use crate::server::replication::send::ReplicationTarget;
-use crate::shared::replication::authority::HasAuthority;
-use bevy::ecs::archetype::ArchetypeEntity;
-use bevy::ecs::component::{ComponentTicks, StorageType};
-use bevy::ecs::storage::{SparseSets, Table};
-use bevy::ptr::Ptr;
 use bevy::{
     ecs::{
-        archetype::{ArchetypeGeneration, ArchetypeId},
-        component::ComponentId,
+        archetype::{ArchetypeEntity, ArchetypeGeneration, ArchetypeId},
+        component::{ComponentId, ComponentTicks, StorageType},
+        storage::{SparseSets, Table},
     },
     prelude::*,
+    ptr::Ptr,
+};
+
+use crate::{
+    client::replication::send::ReplicateToServer,
+    prelude::{ChannelDirection, ComponentRegistry, Replicating},
+    protocol::component::ComponentKind,
+    server::replication::send::ReplicationTarget,
+    shared::replication::authority::HasAuthority,
 };
 
 /// Cached information about all replicated archetypes.

@@ -1,9 +1,12 @@
 //! Compute Diagnostics based on ping statistics (jitter, RTT)
 
+use bevy::{
+    app::{App, Plugin},
+    diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic},
+    utils::Duration,
+};
+
 use crate::shared::ping::manager::PingManager;
-use bevy::app::{App, Plugin};
-use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
-use bevy::utils::Duration;
 
 /// Plugin to compute some network diagnostics related to pings
 pub struct PingDiagnosticsPlugin {

@@ -6,14 +6,16 @@
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
 use std::ops::{Add, Mul};
 
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{
-    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Transform, Vec2,
+use bevy::{
+    ecs::entity::MapEntities,
+    prelude::{
+        default, App, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Plugin,
+        Transform, Vec2,
+    },
 };
-use bevy::prelude::{App, Plugin};
-use lightyear::client::components::ComponentSyncMode;
-use lightyear::prelude::*;
-use lightyear::shared::replication::delta::Diffable;
+use lightyear::{
+    client::components::ComponentSyncMode, prelude::*, shared::replication::delta::Diffable,
+};
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace};
 

@@ -1,20 +1,18 @@
-use avian2d::collision::ColliderHierarchyPlugin;
-use avian2d::prelude::*;
-use avian2d::PhysicsPlugins;
-use bevy::diagnostic::LogDiagnosticsPlugin;
-use bevy::prelude::*;
-use bevy::time::Stopwatch;
-use bevy::utils::Duration;
-use leafwing_input_manager::prelude::ActionState;
-use server::ControlledBy;
 use std::ops::DerefMut;
 
-use lightyear::client::prediction::plugin::is_in_rollback;
-use lightyear::prelude::client::*;
-use lightyear::prelude::server::{Replicate, ReplicationTarget, SyncTarget};
-use lightyear::prelude::TickManager;
-use lightyear::prelude::*;
-use lightyear::transport::io::IoDiagnosticsPlugin;
+use avian2d::{collision::ColliderHierarchyPlugin, prelude::*, PhysicsPlugins};
+use bevy::{diagnostic::LogDiagnosticsPlugin, prelude::*, time::Stopwatch, utils::Duration};
+use leafwing_input_manager::prelude::ActionState;
+use lightyear::{
+    client::prediction::plugin::is_in_rollback,
+    prelude::{
+        client::*,
+        server::{Replicate, ReplicationTarget, SyncTarget},
+        TickManager, *,
+    },
+    transport::io::IoDiagnosticsPlugin,
+};
+use server::ControlledBy;
 
 use crate::protocol::*;
 

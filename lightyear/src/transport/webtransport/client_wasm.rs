@@ -1,22 +1,27 @@
 #![cfg(target_family = "wasm")]
 //! WebTransport client implementation.
-use std::net::SocketAddr;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::{net::SocketAddr, rc::Rc, sync::Arc};
 
 use bevy::tasks::{IoTaskPool, TaskPool};
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::{mpsc, mpsc::error::TryRecvError};
 use tracing::{debug, error, info, trace};
 use xwt_core::prelude::*;
 
-use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
-use crate::client::io::{ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender};
-use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
-use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
-use crate::transport::error::{Error, Result};
-use crate::transport::io::IoState;
-use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
+use crate::{
+    client::io::{
+        transport::{ClientTransportBuilder, ClientTransportEnum},
+        ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender,
+    },
+    server::io::{
+        transport::{ServerTransportBuilder, ServerTransportEnum},
+        ServerIoEventReceiver, ServerNetworkEventSender,
+    },
+    transport::{
+        error::{Error, Result},
+        io::IoState,
+        BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU,
+    },
+};
 
 // Adapted from https://github.com/briansmith/ring/blob/befdc87ac7cbca615ab5d68724f4355434d3a620/src/test.rs#L364-L393
 pub fn from_hex(hex_str: &str) -> std::result::Result<Vec<u8>, String> {

@@ -3,14 +3,6 @@ use std::{collections::VecDeque, net::SocketAddr};
 use bevy::prelude::Resource;
 use tracing::{debug, error, info, trace};
 
-use crate::client::io::Io;
-use crate::connection::client::{ConnectionError, ConnectionState, IoConfig, NetClient};
-use crate::connection::id;
-use crate::packet::packet_builder::RecvPayload;
-use crate::transport::io::IoState;
-use crate::transport::{PacketReceiver, PacketSender, LOCAL_SOCKET};
-use crate::utils::pool::Pool;
-
 use super::{
     bytes::Bytes,
     error::{Error, Result},
@@ -20,6 +12,16 @@ use super::{
     replay::ReplayProtection,
     token::{ChallengeToken, ConnectToken},
     utils, ClientId, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
+};
+use crate::{
+    client::io::Io,
+    connection::{
+        client::{ConnectionError, ConnectionState, IoConfig, NetClient},
+        id,
+    },
+    packet::packet_builder::RecvPayload,
+    transport::{io::IoState, PacketReceiver, PacketSender, LOCAL_SOCKET},
+    utils::pool::Pool,
 };
 
 type Callback<Ctx> = Box<dyn FnMut(ClientState, ClientState, &mut Ctx) + Send + Sync + 'static>;
@@ -652,8 +654,9 @@ impl<Ctx> NetcodeClient<Ctx> {
 }
 
 pub(crate) mod connection {
-    use super::*;
     use core::result::Result;
+
+    use super::*;
 
     /// Client that can establish a connection to the Server
     #[derive(Resource)]
@@ -735,13 +738,18 @@ pub(crate) mod connection {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::networking::ClientCommandsExt;
-    use crate::connection::server::ServerConnections;
-    use crate::prelude::client;
-    use crate::prelude::server::{NetServer, ServerCommandsExt};
-    use crate::tests::stepper::BevyStepper;
     use bevy::prelude::State;
     use tracing::trace;
+
+    use crate::{
+        client::networking::ClientCommandsExt,
+        connection::server::ServerConnections,
+        prelude::{
+            client,
+            server::{NetServer, ServerCommandsExt},
+        },
+        tests::stepper::BevyStepper,
+    };
 
     // TODO: investigate why this test is not working!
     /// Check that if the client disconnects during the handshake, the server

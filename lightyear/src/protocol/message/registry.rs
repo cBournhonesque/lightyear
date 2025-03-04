@@ -1,20 +1,20 @@
+use bevy::{ecs::entity::MapEntities, prelude::*, utils::HashMap};
+use serde::{de::DeserializeOwned, Serialize};
+
 use super::{client, server};
-use crate::client::config::ClientConfig;
-use crate::prelude::{ChannelDirection, Message};
-use crate::protocol::message::{MessageError, MessageKind};
-use crate::protocol::registry::{NetId, TypeMapper};
-use crate::protocol::serialize::ErasedSerializeFns;
-use crate::protocol::SerializeFns;
-use crate::serialize::reader::Reader;
-use crate::serialize::writer::Writer;
-use crate::serialize::ToBytes;
-use crate::server::config::ServerConfig;
-use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::*;
-use bevy::utils::HashMap;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
+use crate::{
+    client::config::ClientConfig,
+    prelude::{ChannelDirection, Message},
+    protocol::{
+        message::{MessageError, MessageKind},
+        registry::{NetId, TypeMapper},
+        serialize::ErasedSerializeFns,
+        SerializeFns,
+    },
+    serialize::{reader::Reader, writer::Writer, ToBytes},
+    server::config::ServerConfig,
+    shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap},
+};
 
 pub struct MessageRegistration<'a, M> {
     pub(crate) app: &'a mut App,
@@ -301,17 +301,17 @@ impl MessageRegistry {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::MessageRegistry;
-    use crate::protocol::message::MessageKind;
-    use crate::protocol::serialize::ErasedSerializeFns;
-    use crate::protocol::SerializeFns;
-    use crate::serialize::reader::Reader;
-    use crate::serialize::writer::Writer;
-    use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
-    use crate::tests::protocol::{
-        deserialize_resource2, serialize_resource2, ComponentMapEntities, Resource1, Resource2,
-    };
     use bevy::prelude::Entity;
+
+    use crate::{
+        prelude::MessageRegistry,
+        protocol::{message::MessageKind, serialize::ErasedSerializeFns, SerializeFns},
+        serialize::{reader::Reader, writer::Writer},
+        shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap},
+        tests::protocol::{
+            deserialize_resource2, serialize_resource2, ComponentMapEntities, Resource1, Resource2,
+        },
+    };
 
     #[test]
     fn test_serde() {

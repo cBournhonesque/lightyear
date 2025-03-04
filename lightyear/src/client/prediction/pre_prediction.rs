@@ -3,18 +3,22 @@
 
 use bevy::prelude::*;
 
-use crate::client::components::Confirmed;
-use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::Predicted;
-use crate::client::replication::send::ReplicateToServer;
-use crate::prelude::client::is_synced;
-use crate::prelude::{
-    is_host_server, HasAuthority, NetworkIdentityState, ReplicateHierarchy, Replicating,
-    ReplicationGroup, ShouldBePredicted, TickManager,
+use crate::{
+    client::{
+        components::Confirmed,
+        prediction::{resource::PredictionManager, Predicted},
+        replication::send::ReplicateToServer,
+    },
+    prelude::{
+        client::is_synced, is_host_server, HasAuthority, NetworkIdentityState, ReplicateHierarchy,
+        Replicating, ReplicationGroup, ShouldBePredicted, TickManager,
+    },
+    server::replication::send::ReplicationTarget,
+    shared::{
+        replication::components::PrePredicted,
+        sets::{ClientMarker, InternalReplicationSet},
+    },
 };
-use crate::server::replication::send::ReplicationTarget;
-use crate::shared::replication::components::PrePredicted;
-use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
 #[derive(Default)]
 pub(crate) struct PrePredictionPlugin;
@@ -149,13 +153,15 @@ impl PrePredictionPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::client::prediction::predicted_history::PredictionHistory;
-    use crate::prelude::server;
-    use crate::prelude::server::AuthorityPeer;
-    use crate::prelude::{client, ClientId};
-    use crate::tests::host_server_stepper::HostServerStepper;
-    use crate::tests::protocol::{ComponentClientToServer, ComponentSyncModeFull};
-    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
+    use crate::{
+        client::prediction::predicted_history::PredictionHistory,
+        prelude::{client, server, server::AuthorityPeer, ClientId},
+        tests::{
+            host_server_stepper::HostServerStepper,
+            protocol::{ComponentClientToServer, ComponentSyncModeFull},
+            stepper::{BevyStepper, TEST_CLIENT_ID},
+        },
+    };
 
     /// Simple preprediction case
     /// Also check that the PredictionHistory is correctly added to the PrePredicted entity

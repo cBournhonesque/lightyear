@@ -4,16 +4,10 @@
 use std::net::SocketAddr;
 
 use enum_dispatch::enum_dispatch;
-
 use error::Result;
 
 // required import for enum dispatch to work
 use crate::client::io::transport::ClientTransportEnum;
-use crate::server::io::transport::ServerTransportEnum;
-use crate::transport::channels::Channels;
-use crate::transport::dummy::DummyIo;
-use crate::transport::local::LocalChannel;
-use crate::transport::udp::UdpSocket;
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::client::{WebSocketClientSocket, WebSocketClientSocketBuilder};
 #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
@@ -25,6 +19,10 @@ use crate::transport::webtransport::client::{
 #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
 use crate::transport::webtransport::server::{
     WebTransportServerSocket, WebTransportServerSocketBuilder,
+};
+use crate::{
+    server::io::transport::ServerTransportEnum,
+    transport::{channels::Channels, dummy::DummyIo, local::LocalChannel, udp::UdpSocket},
 };
 
 /// io is a wrapper around the underlying transport layer

@@ -1,24 +1,23 @@
 #![cfg(not(target_family = "wasm"))]
 //! WebTransport client implementation.
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use async_compat::Compat;
 use bevy::tasks::IoTaskPool;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::{mpsc, mpsc::error::TryRecvError};
 use tracing::{debug, error, info, trace};
-use wtransport;
-use wtransport::datagram::Datagram;
-use wtransport::error::ConnectingError;
-use wtransport::ClientConfig;
+use wtransport::{self, datagram::Datagram, error::ConnectingError, ClientConfig};
 
-use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
-use crate::client::io::{ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender};
-use crate::transport::error::{Error, Result};
-use crate::transport::io::IoState;
-use crate::transport::{
-    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MIN_MTU, MTU,
+use crate::{
+    client::io::{
+        transport::{ClientTransportBuilder, ClientTransportEnum},
+        ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender,
+    },
+    transport::{
+        error::{Error, Result},
+        io::IoState,
+        BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MIN_MTU, MTU,
+    },
 };
 
 pub(crate) struct WebTransportClientSocketBuilder {

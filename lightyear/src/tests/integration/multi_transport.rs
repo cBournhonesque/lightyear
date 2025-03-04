@@ -1,10 +1,14 @@
 //! Tests related to the server using multiple transports at the same time to connect to clients
-use crate::client::sync::SyncConfig;
-use crate::prelude::client::{InterpolationConfig, PredictionConfig};
-use crate::prelude::{SharedConfig, TickConfig};
-use crate::tests::multi_stepper::MultiBevyStepper;
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{prelude::*, utils::Duration};
+
+use crate::{
+    client::sync::SyncConfig,
+    prelude::{
+        client::{InterpolationConfig, PredictionConfig},
+        SharedConfig, TickConfig,
+    },
+    tests::multi_stepper::MultiBevyStepper,
+};
 
 #[test]
 fn test_multi_transport() {

@@ -1,7 +1,8 @@
 //! Store the latest pings sent to remote
-use crate::shared::time_manager::WrappedTime;
-use crate::utils::sequence_buffer::SequenceBuffer;
-use crate::utils::wrapping_id::wrapping_id;
+use crate::{
+    shared::time_manager::WrappedTime,
+    utils::{sequence_buffer::SequenceBuffer, wrapping_id::wrapping_id},
+};
 
 wrapping_id!(PingId);
 

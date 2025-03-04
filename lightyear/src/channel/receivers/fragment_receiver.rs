@@ -3,10 +3,14 @@ use std::collections::HashMap;
 use bytes::Bytes;
 use tracing::trace;
 
-use crate::packet::message::{FragmentData, MessageId};
-use crate::packet::packet::FRAGMENT_SIZE;
-use crate::prelude::Tick;
-use crate::shared::time_manager::WrappedTime;
+use crate::{
+    packet::{
+        message::{FragmentData, MessageId},
+        packet::FRAGMENT_SIZE,
+    },
+    prelude::Tick,
+    shared::time_manager::WrappedTime,
+};
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
 #[derive(Debug)]
@@ -127,9 +131,8 @@ impl FragmentConstructor {
 
 #[cfg(test)]
 mod tests {
-    use crate::channel::senders::fragment_sender::FragmentSender;
-
     use super::*;
+    use crate::channel::senders::fragment_sender::FragmentSender;
 
     #[test]
     fn test_receiver() {

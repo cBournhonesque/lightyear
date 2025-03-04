@@ -1,9 +1,10 @@
-use bevy::picking::prelude::{Click, Pointer};
-use bevy::prelude::*;
+use bevy::{
+    picking::prelude::{Click, Pointer},
+    prelude::*,
+};
 #[cfg(feature = "bevygap_client")]
 use bevygap_client_plugin::prelude::*;
-use lightyear::prelude::client::*;
-use lightyear::prelude::MainSet;
+use lightyear::prelude::{client::*, MainSet};
 
 pub struct ExampleClientRendererPlugin {
     /// The name of the example, which must also match the edgegap application name.

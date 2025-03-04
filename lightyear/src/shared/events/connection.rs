@@ -2,13 +2,16 @@
  */
 use std::iter;
 
-use bevy::prelude::{Component, Entity, Resource};
-use bevy::utils::HashMap;
+use bevy::{
+    prelude::{Component, Entity, Resource},
+    utils::HashMap,
+};
 use tracing::trace;
 
-use crate::prelude::Tick;
-use crate::protocol::component::ComponentKind;
-use crate::protocol::EventContext;
+use crate::{
+    prelude::Tick,
+    protocol::{component::ComponentKind, EventContext},
+};
 
 // TODO: don't make fields pub but instead make accessors
 #[derive(Debug, Resource)]

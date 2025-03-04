@@ -1,15 +1,21 @@
 //! Dummy io for connections that provide their own way of sending and receiving raw bytes (for example steamworks).
-use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
-use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
-use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
-use crate::server::io::{ServerIoEventReceiver, ServerNetworkEventSender};
-use crate::transport::io::IoState;
-use crate::transport::{
-    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET,
-};
 use std::net::SocketAddr;
 
 use super::error::Result;
+use crate::{
+    client::io::{
+        transport::{ClientTransportBuilder, ClientTransportEnum},
+        ClientIoEventReceiver, ClientNetworkEventSender,
+    },
+    server::io::{
+        transport::{ServerTransportBuilder, ServerTransportEnum},
+        ServerIoEventReceiver, ServerNetworkEventSender,
+    },
+    transport::{
+        io::IoState, BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport,
+        LOCAL_SOCKET,
+    },
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DummyIo;

@@ -4,12 +4,16 @@ use std::fmt::Debug;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 
-use crate::protocol::EventContext;
-use crate::serialize::reader::Reader;
-use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
-use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::tick_manager::Tick;
-use crate::utils::wrapping_id::wrapping_id;
+use crate::{
+    protocol::EventContext,
+    serialize::{
+        reader::Reader,
+        varint::{varint_len, VarIntReadExt, VarIntWriteExt},
+        SerializationError, ToBytes,
+    },
+    shared::tick_manager::Tick,
+    utils::wrapping_id::wrapping_id,
+};
 
 // Internal id that we assign to each message sent over the network
 wrapping_id!(MessageId);

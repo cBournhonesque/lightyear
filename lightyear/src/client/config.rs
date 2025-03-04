@@ -1,16 +1,18 @@
 //! Defines client-specific configuration options
-use bevy::prelude::Resource;
-use bevy::reflect::Reflect;
+use bevy::{prelude::Resource, reflect::Reflect};
 use governor::Quota;
 use nonzero_ext::nonzero;
 
-use crate::client::interpolation::plugin::InterpolationConfig;
-use crate::client::prediction::plugin::PredictionConfig;
-use crate::client::sync::SyncConfig;
-use crate::connection::client::NetConfig;
-use crate::shared::config::SharedConfig;
-use crate::shared::ping::manager::PingConfig;
-use crate::shared::replication::plugin::ReplicationConfig;
+use crate::{
+    client::{
+        interpolation::plugin::InterpolationConfig, prediction::plugin::PredictionConfig,
+        sync::SyncConfig,
+    },
+    connection::client::NetConfig,
+    shared::{
+        config::SharedConfig, ping::manager::PingConfig, replication::plugin::ReplicationConfig,
+    },
+};
 
 #[derive(Clone, Reflect)]
 /// Config related to the netcode protocol (abstraction of a connection over raw UDP-like transport)

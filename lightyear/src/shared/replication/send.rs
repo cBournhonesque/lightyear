@@ -1,35 +1,36 @@
 //! General struct handling replication
 use std::iter::Extend;
 
-use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
-use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::EntityHash;
-use bevy::prelude::Entity;
-use bevy::ptr::Ptr;
-use bevy::utils::{hashbrown, HashMap};
+use bevy::{
+    ecs::{component::Tick as BevyTick, entity::EntityHash},
+    prelude::Entity,
+    ptr::Ptr,
+    utils::{hashbrown, HashMap},
+};
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
-
-use super::{EntityActions, SendEntityActionsMessage, SendEntityUpdatesMessage, SpawnAction};
-use crate::packet::message::MessageId;
-use crate::packet::message_manager::MessageManager;
-use crate::prelude::{
-    ChannelKind, ComponentRegistry, PacketError, RemoteEntityMap, Tick, TimeManager,
-};
-use crate::protocol::component::{ComponentKind, ComponentNetId};
-use crate::serialize::writer::Writer;
-use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::replication::components::ReplicationGroupId;
-use crate::shared::replication::delta::DeltaManager;
-use crate::shared::replication::error::ReplicationError;
-use crate::shared::replication::plugin::{ReplicationConfig, SendUpdatesMode};
 #[cfg(test)]
 use {
     super::{EntityActionsMessage, EntityUpdatesMessage},
     crate::utils::captures::Captures,
+};
+
+use super::{EntityActions, SendEntityActionsMessage, SendEntityUpdatesMessage, SpawnAction};
+use crate::{
+    channel::builder::{EntityActionsChannel, EntityUpdatesChannel},
+    packet::{message::MessageId, message_manager::MessageManager},
+    prelude::{ChannelKind, ComponentRegistry, PacketError, RemoteEntityMap, Tick, TimeManager},
+    protocol::component::{ComponentKind, ComponentNetId},
+    serialize::{writer::Writer, SerializationError, ToBytes},
+    shared::replication::{
+        components::ReplicationGroupId,
+        delta::DeltaManager,
+        error::ReplicationError,
+        plugin::{ReplicationConfig, SendUpdatesMode},
+    },
 };
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
@@ -857,15 +858,17 @@ impl Default for GroupChannel {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::server::Replicate;
-    use crate::prelude::ClientId;
-    use crate::server::connection::ConnectionManager;
-
-    use crate::tests::protocol::ComponentSyncModeFull;
-    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::prelude::*;
 
     use super::*;
+    use crate::{
+        prelude::{server::Replicate, ClientId},
+        server::connection::ConnectionManager,
+        tests::{
+            protocol::ComponentSyncModeFull,
+            stepper::{BevyStepper, TEST_CLIENT_ID},
+        },
+    };
 
     #[test]
     fn test_delta_compression() {

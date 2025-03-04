@@ -1,13 +1,14 @@
-use bevy::prelude::*;
-use bevy::utils::Duration;
-use lightyear::client::input::InputSystemSet;
-use lightyear::inputs::native::{ActionState, InputMarker};
-use lightyear::prelude::client::*;
-use lightyear::prelude::*;
+use bevy::{prelude::*, utils::Duration};
+use lightyear::{
+    client::input::InputSystemSet,
+    inputs::native::{ActionState, InputMarker},
+    prelude::{client::*, *},
+};
 
-use crate::protocol::Direction;
-use crate::protocol::*;
-use crate::shared::{color_from_id, shared_movement_behaviour};
+use crate::{
+    protocol::{Direction, *},
+    shared::{color_from_id, shared_movement_behaviour},
+};
 
 pub struct ExampleClientPlugin;
 

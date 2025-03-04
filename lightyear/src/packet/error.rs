@@ -1,7 +1,6 @@
 //! Errors for building packets
 
-use crate::channel::receivers::error::ChannelReceiveError;
-use crate::serialize::SerializationError;
+use crate::{channel::receivers::error::ChannelReceiveError, serialize::SerializationError};
 
 pub type Result<T> = core::result::Result<T, PacketError>;
 #[derive(thiserror::Error, Debug)]

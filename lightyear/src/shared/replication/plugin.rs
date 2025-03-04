@@ -1,16 +1,16 @@
 //! This module contains the `ReplicationReceivePlugin` and `ReplicationSendPlugin` plugins, which control
 //! the replication of entities and resources.
 //!
-use crate::shared::replication::hierarchy::{HierarchyReceivePlugin, HierarchySendPlugin};
-use crate::shared::replication::resources::{
-    receive::ResourceReceivePlugin, send::ResourceSendPlugin,
+use bevy::{prelude::*, time::common_conditions::on_timer, utils::Duration};
+
+use crate::shared::{
+    replication::{
+        hierarchy::{HierarchyReceivePlugin, HierarchySendPlugin},
+        resources::{receive::ResourceReceivePlugin, send::ResourceSendPlugin},
+        systems, ReplicationReceive, ReplicationSend,
+    },
+    sets::{InternalMainSet, InternalReplicationSet, MainSet},
 };
-use crate::shared::replication::systems;
-use crate::shared::replication::{ReplicationReceive, ReplicationSend};
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet, MainSet};
-use bevy::prelude::*;
-use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
 
 #[derive(Clone, Copy, Debug, Reflect)]
 pub struct ReplicationConfig {
@@ -241,20 +241,25 @@ pub(crate) mod send {
 }
 
 pub(crate) mod shared {
-    use crate::client::replication::send::ReplicateToServer;
-    use crate::prelude::{
-        NetworkRelevanceMode, PrePredicted, RemoteEntityMap, ReplicateHierarchy, Replicated,
-        ReplicationConfig, ReplicationGroup, ShouldBePredicted, TargetEntity,
-    };
-    use crate::server::replication::send::ReplicationTarget;
-    use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
-    use crate::shared::replication::components::{
-        Controlled, Replicating, ReplicationGroupId, ReplicationGroupIdBuilder,
-        ShouldBeInterpolated,
-    };
-    use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
-    use crate::shared::replication::network_target::NetworkTarget;
     use bevy::prelude::{App, Plugin};
+
+    use crate::{
+        client::replication::send::ReplicateToServer,
+        prelude::{
+            NetworkRelevanceMode, PrePredicted, RemoteEntityMap, ReplicateHierarchy, Replicated,
+            ReplicationConfig, ReplicationGroup, ShouldBePredicted, TargetEntity,
+        },
+        server::replication::send::ReplicationTarget,
+        shared::replication::{
+            authority::{AuthorityPeer, HasAuthority},
+            components::{
+                Controlled, Replicating, ReplicationGroupId, ReplicationGroupIdBuilder,
+                ShouldBeInterpolated,
+            },
+            entity_map::{InterpolatedEntityMap, PredictedEntityMap},
+            network_target::NetworkTarget,
+        },
+    };
 
     pub(crate) struct SharedPlugin;
 

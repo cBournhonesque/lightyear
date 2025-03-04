@@ -1,16 +1,21 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
+use lightyear::{
+    client::{
+        components::{ComponentSyncMode, LerpFn},
+        interpolation::LinearInterpolator,
+    },
+    prelude::{
+        client,
+        server::{Replicate, SyncTarget},
+        *,
+    },
+    utils::{avian2d::*, bevy::TransformLinearInterpolation},
+};
 use serde::{Deserialize, Serialize};
 
 use crate::shared::color_from_id;
-use lightyear::client::components::{ComponentSyncMode, LerpFn};
-use lightyear::client::interpolation::LinearInterpolator;
-use lightyear::prelude::client;
-use lightyear::prelude::server::{Replicate, SyncTarget};
-use lightyear::prelude::*;
-use lightyear::utils::avian2d::*;
-use lightyear::utils::bevy::TransformLinearInterpolation;
 
 pub const BALL_SIZE: f32 = 15.0;
 pub const PLAYER_SIZE: f32 = 40.0;

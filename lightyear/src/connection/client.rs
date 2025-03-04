@@ -1,27 +1,23 @@
-use std::net::SocketAddr;
-use std::str::FromStr;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use std::sync::Arc;
+use std::{net::SocketAddr, str::FromStr};
 
 use bevy::prelude::{Reflect, Resource};
 use enum_dispatch::enum_dispatch;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use parking_lot::RwLock;
 
-use crate::client::config::NetcodeConfig;
-use crate::client::io::Io;
-use crate::connection::id::ClientId;
-use crate::connection::netcode::ConnectToken;
-
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::{client::SteamConfig, steamworks_client::SteamworksClient};
-use crate::packet::packet_builder::RecvPayload;
-
-use crate::prelude::client::ClientTransport;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::prelude::LinkConditionerConfig;
-use crate::prelude::{generate_key, Key};
-use crate::transport::config::SharedIoConfig;
+use crate::{
+    client::{config::NetcodeConfig, io::Io},
+    connection::{id::ClientId, netcode::ConnectToken},
+    packet::packet_builder::RecvPayload,
+    prelude::{client::ClientTransport, generate_key, Key},
+    transport::config::SharedIoConfig,
+};
 
 #[derive(Debug)]
 pub enum ConnectionState {

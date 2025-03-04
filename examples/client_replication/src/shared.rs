@@ -1,8 +1,5 @@
-use bevy::prelude::*;
-use bevy::utils::Duration;
-
-use lightyear::prelude::client::Confirmed;
-use lightyear::prelude::*;
+use bevy::{prelude::*, utils::Duration};
+use lightyear::prelude::{client::Confirmed, *};
 
 use crate::protocol::*;
 

@@ -1,18 +1,26 @@
 //! Wrapper around [`ConnectionEvents`] that adds server-specific functionality
 
-use bevy::ecs::entity::EntityHash;
-use bevy::prelude::*;
-use bevy::utils::{hashbrown, HashMap};
-
-use crate::connection::id::ClientId;
-use crate::server::connection::ConnectionManager;
-use crate::shared::events::connection::{
-    ConnectionEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
-    IterEntityDespawnEvent, IterEntitySpawnEvent,
+use bevy::{
+    ecs::entity::EntityHash,
+    prelude::*,
+    utils::{hashbrown, HashMap},
 };
-use crate::shared::events::plugin::EventsPlugin;
-use crate::shared::events::systems::push_component_events;
-use crate::shared::sets::{InternalMainSet, ServerMarker};
+
+use crate::{
+    connection::id::ClientId,
+    server::connection::ConnectionManager,
+    shared::{
+        events::{
+            connection::{
+                ConnectionEvents, IterComponentInsertEvent, IterComponentRemoveEvent,
+                IterComponentUpdateEvent, IterEntityDespawnEvent, IterEntitySpawnEvent,
+            },
+            plugin::EventsPlugin,
+            systems::push_component_events,
+        },
+        sets::{InternalMainSet, ServerMarker},
+    },
+};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
@@ -279,11 +287,12 @@ pub type ComponentRemoveEvent<C> =
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::Tick;
-    use crate::protocol::channel::ChannelKind;
-    use crate::protocol::component::ComponentKind;
-    use crate::tests::protocol::{
-        Channel1, Channel2, ComponentSyncModeFull, ComponentSyncModeOnce, StringMessage,
+    use crate::{
+        prelude::Tick,
+        protocol::{channel::ChannelKind, component::ComponentKind},
+        tests::protocol::{
+            Channel1, Channel2, ComponentSyncModeFull, ComponentSyncModeOnce, StringMessage,
+        },
     };
 
     #[test]

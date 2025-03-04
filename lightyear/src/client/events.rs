@@ -13,14 +13,20 @@
 //! }
 //! ```
 
-use crate::client::connection::ConnectionManager;
-use crate::connection::client::ConnectionError;
-use crate::prelude::ClientId;
-use crate::shared::events::plugin::EventsPlugin;
-use crate::shared::events::systems::push_component_events;
-use crate::shared::sets::{ClientMarker, InternalMainSet};
-use bevy::app::{App, Plugin, PreUpdate};
-use bevy::prelude::{Component, Event, IntoSystemConfigs};
+use bevy::{
+    app::{App, Plugin, PreUpdate},
+    prelude::{Component, Event, IntoSystemConfigs},
+};
+
+use crate::{
+    client::connection::ConnectionManager,
+    connection::client::ConnectionError,
+    prelude::ClientId,
+    shared::{
+        events::{plugin::EventsPlugin, systems::push_component_events},
+        sets::{ClientMarker, InternalMainSet},
+    },
+};
 
 /// Plugin that handles generating bevy [`Events`](Event) related to networking and replication
 #[derive(Default)]

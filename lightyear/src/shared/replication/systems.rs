@@ -2,8 +2,10 @@
 
 use bevy::prelude::{Res, ResMut};
 
-use crate::prelude::TickManager;
-use crate::shared::replication::{ReplicationReceive, ReplicationSend};
+use crate::{
+    prelude::TickManager,
+    shared::replication::{ReplicationReceive, ReplicationSend},
+};
 
 /// Systems that runs internal clean-up on the ReplicationSender
 /// (handle tick wrapping, etc.)

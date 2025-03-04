@@ -3,34 +3,34 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::time::Duration;
+use std::{net::SocketAddr, str::FromStr, time::Duration};
 
-use bevy::asset::ron;
-use bevy::log::{Level, LogPlugin};
-use bevy::prelude::*;
-
-use bevy::diagnostic::{DiagnosticsPlugin, LogDiagnosticsPlugin};
-use bevy::state::app::StatesPlugin;
-use bevy::DefaultPlugins;
+#[cfg(feature = "gui")]
+use bevy::window::PresentMode;
+use bevy::{
+    asset::ron,
+    diagnostic::{DiagnosticsPlugin, LogDiagnosticsPlugin},
+    log::{Level, LogPlugin},
+    prelude::*,
+    state::app::StatesPlugin,
+    DefaultPlugins,
+};
 use clap::{Parser, Subcommand, ValueEnum};
-use lightyear::prelude::client::ClientConfig;
-use lightyear::prelude::*;
-use lightyear::prelude::{client, server};
-use lightyear::server::config::ServerConfig;
-use lightyear::transport::LOCAL_SOCKET;
+use lightyear::{
+    prelude::{client, client::ClientConfig, server, *},
+    server::config::ServerConfig,
+    transport::LOCAL_SOCKET,
+};
 use serde::{Deserialize, Serialize};
-
-use crate::settings::*;
-use crate::shared::{shared_config, REPLICATION_INTERVAL};
 
 #[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
 #[cfg(all(feature = "gui", feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
-#[cfg(feature = "gui")]
-use bevy::window::PresentMode;
+use crate::{
+    settings::*,
+    shared::{shared_config, REPLICATION_INTERVAL},
+};
 
 /// CLI options to create an [`App`]
 #[derive(Parser, Debug)]

@@ -1,12 +1,8 @@
 //! Provides a system parameter for performing spatial queries while doing lag compensation.
 use std::cell::RefCell;
 
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::*;
-
-use super::history::{AabbEnvelopeHolder, LagCompensationConfig, LagCompensationHistory};
-use lightyear::prelude::client::InterpolationDelay;
-use lightyear::prelude::TickManager;
+use bevy::{ecs::system::SystemParam, prelude::*};
+use lightyear::prelude::{client::InterpolationDelay, TickManager};
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use {
     avian2d::{math::*, prelude::*},
@@ -17,6 +13,8 @@ use {
     avian3d::{math::*, prelude::*},
     bevy::math::Dir3 as Dir,
 };
+
+use super::history::{AabbEnvelopeHolder, LagCompensationConfig, LagCompensationHistory};
 
 /// A system parameter for performing [spatial queries](spatial_query) while doing
 /// lag compensation.
@@ -86,7 +84,7 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     return false;
                 };
                 let parent = parent_component.get();
-                info!("Broadphase hit with {child:?}");
+                debug!("Broadphase hit with {child:?}");
                 let (collider, history) = self
                     .parent_query
                     .get(parent)
@@ -125,7 +123,7 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     if !predicate(parent) {
                         return false;
                     }
-                    info!(
+                    debug!(
                         ?tick,
                         ?interpolation_tick,
                         ?interpolation_overstep,

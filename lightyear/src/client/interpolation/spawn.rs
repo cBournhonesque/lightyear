@@ -1,12 +1,14 @@
 use bevy::prelude::{Added, Commands, Entity, Query, Res};
 use tracing::trace;
 
-use crate::client::components::Confirmed;
-use crate::client::config::ClientConfig;
-use crate::client::connection::ConnectionManager;
-use crate::client::interpolation::Interpolated;
-use crate::prelude::TickManager;
-use crate::shared::replication::components::ShouldBeInterpolated;
+use crate::{
+    client::{
+        components::Confirmed, config::ClientConfig, connection::ConnectionManager,
+        interpolation::Interpolated,
+    },
+    prelude::TickManager,
+    shared::replication::components::ShouldBeInterpolated,
+};
 
 /// Spawn an interpolated entity for each confirmed entity that has the `ShouldBeInterpolated` component added
 pub(crate) fn spawn_interpolated_entity(

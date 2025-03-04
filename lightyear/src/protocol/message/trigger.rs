@@ -1,13 +1,15 @@
-use crate::client::config::ClientConfig;
-use crate::prelude::server::ServerConfig;
-use crate::prelude::{ChannelDirection, Deserialize, Message, MessageRegistry};
-use crate::protocol::message::registry::AppMessageInternalExt;
-use crate::protocol::SerializeFns;
-use bevy::app::App;
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Entity, EntityMapper, Event};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
+use bevy::{
+    app::App,
+    ecs::entity::MapEntities,
+    prelude::{Entity, EntityMapper, Event},
+};
+use serde::{de::DeserializeOwned, Serialize};
+
+use crate::{
+    client::config::ClientConfig,
+    prelude::{server::ServerConfig, ChannelDirection, Deserialize, Message, MessageRegistry},
+    protocol::{message::registry::AppMessageInternalExt, SerializeFns},
+};
 
 pub trait AppTriggerExt {
     /// Registers an [`Event`] that can be triggered over the network

@@ -2,30 +2,39 @@
 use std::ops::DerefMut;
 
 use async_channel::TryRecvError;
-use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
-use bevy::prelude::ResMut;
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{
+    ecs::system::{RunSystemOnce, SystemChangeTick},
+    prelude::{ResMut, *},
+    utils::Duration,
+};
 use tracing::{error, trace};
 
-use crate::client::config::ClientConfig;
-use crate::client::connection::ConnectionManager;
-use crate::client::events::{ConnectEvent, DisconnectEvent};
-use crate::client::io::ClientIoEvent;
-use crate::client::replication::send::ReplicateToServer;
-use crate::client::run_conditions::is_disconnected;
-use crate::client::sync::SyncSet;
-use crate::connection::client::{ClientConnection, ConnectionError, ConnectionState, NetClient};
-use crate::connection::server::IoConfig;
-use crate::prelude::client::NetConfig;
-use crate::prelude::{
-    is_host_server, server, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
+use crate::{
+    client::{
+        config::ClientConfig,
+        connection::ConnectionManager,
+        events::{ConnectEvent, DisconnectEvent},
+        io::ClientIoEvent,
+        replication::send::ReplicateToServer,
+        run_conditions::is_disconnected,
+        sync::SyncSet,
+    },
+    connection::{
+        client::{ClientConnection, ConnectionError, ConnectionState, NetClient},
+        server::IoConfig,
+    },
+    prelude::{
+        client::NetConfig, is_host_server, server, ChannelRegistry, MainSet, MessageRegistry,
+        TickManager, TimeManager,
+    },
+    protocol::component::ComponentRegistry,
+    server::clients::ControlledEntities,
+    shared::{
+        replication::components::Replicated,
+        sets::{ClientMarker, InternalMainSet},
+    },
+    transport::io::IoState,
 };
-use crate::protocol::component::ComponentRegistry;
-use crate::server::clients::ControlledEntities;
-use crate::shared::replication::components::Replicated;
-use crate::shared::sets::{ClientMarker, InternalMainSet};
-use crate::transport::io::IoState;
 
 #[derive(Default)]
 pub(crate) struct ClientNetworkingPlugin;

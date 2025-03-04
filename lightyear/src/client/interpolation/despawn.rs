@@ -1,8 +1,9 @@
 use bevy::prelude::{Commands, DespawnRecursiveExt, OnRemove, Query, Trigger};
 
-use crate::client::components::{Confirmed, SyncComponent};
-use crate::client::interpolation::interpolate::InterpolateStatus;
-use crate::client::interpolation::interpolation_history::ConfirmedHistory;
+use crate::client::{
+    components::{Confirmed, SyncComponent},
+    interpolation::{interpolate::InterpolateStatus, interpolation_history::ConfirmedHistory},
+};
 
 /// Remove the component from interpolated entities when it gets removed from confirmed
 pub(crate) fn removed_components<C: SyncComponent>(

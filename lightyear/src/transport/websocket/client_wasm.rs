@@ -17,12 +17,16 @@ use web_sys::{
     BinaryType, CloseEvent, ErrorEvent, MessageEvent, WebSocket,
 };
 
-use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
-use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
-use crate::transport::error::{Error, Result};
-use crate::transport::io::IoState;
-use crate::transport::{
-    BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET, MTU,
+use crate::{
+    client::io::{
+        transport::{ClientTransportBuilder, ClientTransportEnum},
+        ClientIoEventReceiver, ClientNetworkEventSender,
+    },
+    transport::{
+        error::{Error, Result},
+        io::IoState,
+        BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET, MTU,
+    },
 };
 
 pub(crate) struct WebSocketClientSocketBuilder {

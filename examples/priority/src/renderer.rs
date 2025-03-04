@@ -1,8 +1,11 @@
-use crate::protocol::*;
-use bevy::color::palettes::basic::{BLUE, GREEN, RED};
-use bevy::prelude::*;
-use bevy::render::RenderPlugin;
+use bevy::{
+    color::palettes::basic::{BLUE, GREEN, RED},
+    prelude::*,
+    render::RenderPlugin,
+};
 use lightyear::client::components::Confirmed;
+
+use crate::protocol::*;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;

@@ -1,8 +1,10 @@
 use bevy::utils::HashMap;
 use tracing::{error, trace};
 
-use crate::packet::message::{FragmentIndex, MessageId};
-use crate::shared::time_manager::WrappedTime;
+use crate::{
+    packet::message::{FragmentIndex, MessageId},
+    shared::time_manager::WrappedTime,
+};
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
 #[derive(Debug, PartialEq)]

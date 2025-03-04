@@ -1,9 +1,11 @@
 //! The client plugin.
-use crate::shared::{shared_config, SharedPlugin, SERVER_ADDR};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
 use bevy::prelude::*;
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+use crate::shared::{shared_config, SharedPlugin, SERVER_ADDR};
 
 pub struct ExampleClientPlugin;
 

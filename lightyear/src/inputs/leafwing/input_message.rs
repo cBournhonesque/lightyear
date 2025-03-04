@@ -1,12 +1,16 @@
-use crate::client::interpolation::plugin::InterpolationDelay;
-use crate::inputs::leafwing::action_diff::ActionDiff;
-use crate::inputs::leafwing::input_buffer::InputBuffer;
-use crate::prelude::{Deserialize, LeafwingUserAction, Serialize, Tick};
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Entity, EntityMapper, Reflect};
-use leafwing_input_manager::action_state::ActionState;
-use leafwing_input_manager::Actionlike;
 use std::fmt::{Formatter, Write};
+
+use bevy::{
+    ecs::entity::MapEntities,
+    prelude::{Entity, EntityMapper, Reflect},
+};
+use leafwing_input_manager::{action_state::ActionState, Actionlike};
+
+use crate::{
+    client::interpolation::plugin::InterpolationDelay,
+    inputs::leafwing::{action_diff::ActionDiff, input_buffer::InputBuffer},
+    prelude::{Deserialize, LeafwingUserAction, Serialize, Tick},
+};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub(crate) struct PerTargetData<A: Actionlike> {
@@ -156,8 +160,9 @@ impl<A: LeafwingUserAction> InputMessage<A> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use leafwing_input_manager::Actionlike;
+
+    use super::*;
 
     #[derive(
         Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash, Reflect, Actionlike,

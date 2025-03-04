@@ -4,24 +4,22 @@
 //! - sending inputs to the server
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //! predicted entity and the server entity)
-use async_compat::Compat;
-use std::io::Read;
-use std::net::SocketAddr;
-use std::str::FromStr;
+use std::{io::Read, net::SocketAddr, str::FromStr};
 
-use bevy::prelude::*;
-use bevy::tasks::futures_lite::future;
-use bevy::tasks::{block_on, IoTaskPool, Task};
-use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
-use lightyear::connection::netcode::CONNECT_TOKEN_BYTES;
+use async_compat::Compat;
+use bevy::{
+    prelude::*,
+    tasks::{block_on, futures_lite::future, IoTaskPool, Task},
+    time::common_conditions::on_timer,
+    utils::Duration,
+};
+use lightyear::{
+    connection::netcode::CONNECT_TOKEN_BYTES,
+    prelude::{client::*, *},
+};
 use tokio::io::AsyncReadExt;
 
-use lightyear::prelude::client::*;
-use lightyear::prelude::*;
-
-use crate::protocol::*;
-use crate::shared;
+use crate::{protocol::*, shared};
 
 pub struct ExampleClientPlugin {
     pub auth_backend_address: SocketAddr,

@@ -1,10 +1,12 @@
 //! Defines bevy resources needed for Interpolation
-use crate::prelude::ComponentRegistry;
-use crate::protocol::component::ComponentError;
-use bevy::prelude::Resource;
 use std::cell::UnsafeCell;
 
-use crate::shared::replication::entity_map::InterpolatedEntityMap;
+use bevy::prelude::Resource;
+
+use crate::{
+    prelude::ComponentRegistry, protocol::component::ComponentError,
+    shared::replication::entity_map::InterpolatedEntityMap,
+};
 
 #[derive(Resource, Default)]
 pub struct InterpolationManager {

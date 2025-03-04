@@ -1,5 +1,6 @@
-use crate::prelude::LinkConditionerConfig;
 use steamworks::networking_types::{NetworkingConfigEntry, NetworkingConfigValue};
+
+use crate::prelude::LinkConditionerConfig;
 
 pub(crate) mod client;
 pub(crate) mod server;

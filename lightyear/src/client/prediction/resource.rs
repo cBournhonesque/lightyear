@@ -1,14 +1,19 @@
 //! Defines bevy resources needed for Prediction
 
-use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{Entity, Resource};
 use std::cell::UnsafeCell;
 
-use crate::prelude::{ComponentRegistry, Tick};
-use crate::protocol::component::ComponentError;
-use crate::shared::replication::entity_map::PredictedEntityMap;
-use crate::utils::ready_buffer::ReadyBuffer;
-use bevy::utils::hashbrown;
+use bevy::{
+    ecs::entity::EntityHash,
+    prelude::{Entity, Resource},
+    utils::hashbrown,
+};
+
+use crate::{
+    prelude::{ComponentRegistry, Tick},
+    protocol::component::ComponentError,
+    shared::replication::entity_map::PredictedEntityMap,
+    utils::ready_buffer::ReadyBuffer,
+};
 
 type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 

@@ -1,20 +1,24 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
-use crate::client::replication::send::ReplicateToServer;
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::*;
+use bevy::{ecs::entity::MapEntities, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::prelude::client::{InterpolationSet, PredictionSet};
-use crate::prelude::server::ControlledBy;
-use crate::prelude::{
-    NetworkRelevanceMode, PrePredicted, Replicated, Replicating, ReplicationGroup,
+use crate::{
+    client::replication::send::ReplicateToServer,
+    prelude::{
+        client::{InterpolationSet, PredictionSet},
+        server::ControlledBy,
+        NetworkRelevanceMode, PrePredicted, Replicated, Replicating, ReplicationGroup,
+    },
+    server::replication::send::{ReplicationTarget, SyncTarget},
+    shared::{
+        replication::{
+            authority::{AuthorityPeer, HasAuthority},
+            components::ReplicateHierarchy,
+            ReplicationPeer, ReplicationSend,
+        },
+        sets::{InternalMainSet, InternalReplicationSet},
+    },
 };
-use crate::server::replication::send::ReplicationTarget;
-use crate::server::replication::send::SyncTarget;
-use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
-use crate::shared::replication::components::ReplicateHierarchy;
-use crate::shared::replication::{ReplicationPeer, ReplicationSend};
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 
 /// This component can be added to an entity to replicate the entity's hierarchy to the remote world.
 /// The `ParentSync` component will be updated automatically when the `Parent` component changes,
@@ -334,17 +338,24 @@ impl<R: ReplicationPeer> Plugin for HierarchyReceivePlugin<R> {
 mod tests {
     use std::ops::Deref;
 
-    use bevy::hierarchy::{BuildChildren, Children, Parent};
-    use bevy::prelude::{default, Entity, With};
+    use bevy::{
+        hierarchy::{BuildChildren, Children, Parent},
+        prelude::{default, Entity, With},
+    };
 
-    use crate::prelude::server::{Replicate, ReplicationTarget};
-    use crate::prelude::ReplicationGroup;
-    use crate::prelude::{client, server, ClientId, NetworkTarget};
-    use crate::shared::replication::components::ReplicateHierarchy;
-    use crate::shared::replication::hierarchy::ParentSync;
-    use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::BevyStepper;
+    use crate::{
+        prelude::{
+            client, server,
+            server::{Replicate, ReplicationTarget},
+            ClientId, NetworkTarget, ReplicationGroup,
+        },
+        shared::replication::{components::ReplicateHierarchy, hierarchy::ParentSync},
+        tests::{
+            multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2},
+            protocol::*,
+            stepper::BevyStepper,
+        },
+    };
 
     fn setup_hierarchy() -> (BevyStepper, Entity, Entity, Entity) {
         let mut stepper = BevyStepper::default();

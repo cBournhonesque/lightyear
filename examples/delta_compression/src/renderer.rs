@@ -1,5 +1,4 @@
-use bevy::prelude::*;
-use bevy::render::RenderPlugin;
+use bevy::{prelude::*, render::RenderPlugin};
 
 use crate::protocol::*;
 

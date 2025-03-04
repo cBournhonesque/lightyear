@@ -1,20 +1,27 @@
 //! Stepper to run tests in host-server mode (client and server are in the same app)
 
-use crate::client::networking::ClientCommandsExt;
-use crate::connection::netcode::generate_key;
-use crate::prelude::client::{Authentication, ClientConfig, ClientTransport, NetConfig};
-use crate::prelude::server::{NetcodeConfig, ServerCommandsExt, ServerConfig, ServerTransport};
-use crate::prelude::*;
-use crate::shared::time_manager::WrappedTime;
-use crate::tests::protocol::*;
-use crate::transport::LOCAL_SOCKET;
-use bevy::ecs::system::RunSystemOnce;
-use bevy::input::InputPlugin;
-use bevy::prelude::{default, App, Commands, Mut, Real, Time, World};
-use bevy::state::app::StatesPlugin;
-use bevy::time::TimeUpdateStrategy;
-use bevy::utils::Duration;
-use bevy::MinimalPlugins;
+use bevy::{
+    ecs::system::RunSystemOnce,
+    input::InputPlugin,
+    prelude::{default, App, Commands, Mut, Real, Time, World},
+    state::app::StatesPlugin,
+    time::TimeUpdateStrategy,
+    utils::Duration,
+    MinimalPlugins,
+};
+
+use crate::{
+    client::networking::ClientCommandsExt,
+    connection::netcode::generate_key,
+    prelude::{
+        client::{Authentication, ClientConfig, ClientTransport, NetConfig},
+        server::{NetcodeConfig, ServerCommandsExt, ServerConfig, ServerTransport},
+        *,
+    },
+    shared::time_manager::WrappedTime,
+    tests::protocol::*,
+    transport::LOCAL_SOCKET,
+};
 
 pub const LOCAL_CLIENT_ID: u64 = 111;
 pub const EXTERNAL_CLIENT_ID: u64 = 112;

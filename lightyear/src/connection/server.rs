@@ -1,23 +1,22 @@
-use bevy::prelude::Resource;
-use bevy::utils::HashMap;
+use std::{fmt::Debug, net::SocketAddr, sync::Arc};
+
+use bevy::{prelude::Resource, utils::HashMap};
 use enum_dispatch::enum_dispatch;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
-use std::net::SocketAddr;
-use std::sync::Arc;
 
-use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::connection::steam::{server::SteamConfig, steamworks_client::SteamworksClient};
-use crate::packet::packet_builder::RecvPayload;
-use crate::prelude::server::ServerTransport;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use crate::prelude::LinkConditionerConfig;
-use crate::server::config::NetcodeConfig;
-use crate::server::io::Io;
-use crate::transport::config::SharedIoConfig;
+use crate::{
+    connection::id::ClientId,
+    packet::packet_builder::RecvPayload,
+    prelude::server::ServerTransport,
+    server::{config::NetcodeConfig, io::Io},
+    transport::config::SharedIoConfig,
+};
 
 /// Reasons for denying a connection request
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -261,10 +260,12 @@ pub enum ConnectionError {
 
 #[cfg(test)]
 mod tests {
-    use crate::connection::server::{NetServer, ServerConnections};
-    use crate::prelude::ClientId;
-    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
-    use crate::transport::LOCAL_SOCKET;
+    use crate::{
+        connection::server::{NetServer, ServerConnections},
+        prelude::ClientId,
+        tests::stepper::{BevyStepper, TEST_CLIENT_ID},
+        transport::LOCAL_SOCKET,
+    };
 
     // Check that the server can successfully disconnect a client
     // and that there aren't any excessive logs afterwards

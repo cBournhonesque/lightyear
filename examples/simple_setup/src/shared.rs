@@ -1,9 +1,8 @@
 //! This module contains the shared code between the client and the server.
 
-use bevy::prelude::*;
-use bevy::utils::Duration;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use bevy::{prelude::*, utils::Duration};
 use lightyear::prelude::*;
 
 pub const FIXED_TIMESTEP_HZ: f64 = 64.0;

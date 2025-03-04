@@ -1,11 +1,20 @@
-use crate::inputs::native::input_buffer::{InputBuffer, InputData};
-use crate::inputs::native::ActionState;
-use crate::prelude::client::InterpolationDelay;
-use crate::prelude::{Deserialize, Serialize, Tick, UserAction};
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Entity, EntityMapper, Reflect};
-use std::cmp::max;
-use std::fmt::{Formatter, Write};
+use std::{
+    cmp::max,
+    fmt::{Formatter, Write},
+};
+
+use bevy::{
+    ecs::entity::MapEntities,
+    prelude::{Entity, EntityMapper, Reflect},
+};
+
+use crate::{
+    inputs::native::{
+        input_buffer::{InputBuffer, InputData},
+        ActionState,
+    },
+    prelude::{client::InterpolationDelay, Deserialize, Serialize, Tick, UserAction},
+};
 
 // TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
@@ -142,11 +151,16 @@ impl<T: UserAction> InputMessage<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::inputs::native::input_buffer::{InputBuffer, InputData};
-    use crate::inputs::native::input_message::{InputMessage, InputTarget, PerTargetData};
-    use crate::inputs::native::ActionState;
-    use crate::prelude::Tick;
     use bevy::prelude::Entity;
+
+    use crate::{
+        inputs::native::{
+            input_buffer::{InputBuffer, InputData},
+            input_message::{InputMessage, InputTarget, PerTargetData},
+            ActionState,
+        },
+        prelude::Tick,
+    };
 
     #[test]
     fn test_create_message() {

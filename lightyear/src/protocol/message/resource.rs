@@ -1,13 +1,13 @@
-use crate::client::config::ClientConfig;
-use crate::prelude::{ChannelDirection, Message};
-use crate::protocol::message::registry::AppMessageExt;
-use crate::protocol::SerializeFns;
-use crate::server::config::ServerConfig;
-use crate::shared::replication::resources::DespawnResource;
-use bevy::app::App;
-use bevy::prelude::Resource;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
+use bevy::{app::App, prelude::Resource};
+use serde::{de::DeserializeOwned, Serialize};
+
+use crate::{
+    client::config::ClientConfig,
+    prelude::{ChannelDirection, Message},
+    protocol::{message::registry::AppMessageExt, SerializeFns},
+    server::config::ServerConfig,
+    shared::replication::resources::DespawnResource,
+};
 
 fn register_resource_send<R: Resource + Message>(app: &mut App, direction: ChannelDirection) {
     let is_client = app.world().get_resource::<ClientConfig>().is_some();

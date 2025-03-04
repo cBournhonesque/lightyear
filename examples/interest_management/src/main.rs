@@ -2,8 +2,7 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 use bevy::prelude::*;
-use lightyear_examples_common::app::Apps;
-use lightyear_examples_common::settings::Settings;
+use lightyear_examples_common::{app::Apps, settings::Settings};
 
 #[cfg(feature = "client")]
 mod client;

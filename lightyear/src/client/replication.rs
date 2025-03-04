@@ -1,23 +1,33 @@
 //! Client replication plugins
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{prelude::*, utils::Duration};
 
-use crate::client::connection::ConnectionManager;
-use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
-use crate::shared::replication::plugin::send::ReplicationSendPlugin;
-use crate::shared::sets::{ClientMarker, InternalReplicationSet};
+use crate::{
+    client::connection::ConnectionManager,
+    shared::{
+        replication::plugin::{receive::ReplicationReceivePlugin, send::ReplicationSendPlugin},
+        sets::{ClientMarker, InternalReplicationSet},
+    },
+};
 
 pub(crate) mod receive {
-    use super::*;
-    use crate::client::message::ReceiveMessage;
-    use crate::prelude::{
-        client::{is_connected, is_synced},
-        is_host_server, ClientConnectionManager, Replicated, ReplicationGroup, ShouldBePredicted,
-    };
-    use crate::shared::replication::authority::{AuthorityChange, HasAuthority};
-    use crate::shared::replication::components::{ReplicationGroupId, ShouldBeInterpolated};
-    use crate::shared::sets::InternalMainSet;
     use bevy::ecs::entity::Entities;
+
+    use super::*;
+    use crate::{
+        client::message::ReceiveMessage,
+        prelude::{
+            client::{is_connected, is_synced},
+            is_host_server, ClientConnectionManager, Replicated, ReplicationGroup,
+            ShouldBePredicted,
+        },
+        shared::{
+            replication::{
+                authority::{AuthorityChange, HasAuthority},
+                components::{ReplicationGroupId, ShouldBeInterpolated},
+            },
+            sets::InternalMainSet,
+        },
+    };
 
     #[derive(Default)]
     pub struct ClientReplicationReceivePlugin {
@@ -133,31 +143,27 @@ pub(crate) mod receive {
 }
 
 pub(crate) mod send {
+    use bevy::{
+        ecs::{component::ComponentTicks, system::SystemChangeTick},
+        ptr::Ptr,
+    };
+
     use super::*;
-    use bevy::ecs::component::ComponentTicks;
-
-    use crate::connection::client::ClientConnection;
-
-    use crate::prelude::client::{ClientConfig, NetClient};
-
-    use crate::prelude::{
-        client::{is_connected, is_synced},
-        is_host_server, ComponentRegistry, DisabledComponents, ReplicateHierarchy, Replicated,
-        ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
+    use crate::{
+        connection::client::ClientConnection,
+        prelude::{
+            client::{is_connected, is_synced, ClientConfig, NetClient},
+            is_host_server, ComponentRegistry, DisabledComponents, ReplicateHierarchy, Replicated,
+            ReplicationGroup, TargetEntity, Tick, TickManager, TimeManager,
+        },
+        protocol::component::ComponentKind,
+        shared::replication::{
+            archetypes::{get_erased_component, ClientReplicatedArchetypes},
+            authority::HasAuthority,
+            components::{InitialReplicated, Replicating, ReplicationGroupId},
+            error::ReplicationError,
+        },
     };
-    use crate::protocol::component::ComponentKind;
-
-    use crate::shared::replication::components::{
-        InitialReplicated, Replicating, ReplicationGroupId,
-    };
-
-    use crate::shared::replication::archetypes::{
-        get_erased_component, ClientReplicatedArchetypes,
-    };
-    use crate::shared::replication::authority::HasAuthority;
-    use crate::shared::replication::error::ReplicationError;
-    use bevy::ecs::system::SystemChangeTick;
-    use bevy::ptr::Ptr;
 
     #[derive(Default)]
     pub struct ClientReplicationSendPlugin {
@@ -689,15 +695,18 @@ pub(crate) mod send {
 
     #[cfg(test)]
     mod tests {
-        use crate::client::replication::send::ReplicateToServer;
-        use crate::prelude::client::Replicate;
-        use crate::prelude::{
-            server, ChannelDirection, ClientId, ComponentRegistry, DisabledComponents,
-            ReplicateOnceComponent, Replicated, TargetEntity,
+        use crate::{
+            client::replication::send::ReplicateToServer,
+            prelude::{
+                client::Replicate, server, ChannelDirection, ClientId, ComponentRegistry,
+                DisabledComponents, ReplicateOnceComponent, Replicated, TargetEntity,
+            },
+            protocol::component::ComponentKind,
+            tests::{
+                protocol::{ComponentSyncModeFull, ComponentSyncModeOnce},
+                stepper::{BevyStepper, TEST_CLIENT_ID},
+            },
         };
-        use crate::protocol::component::ComponentKind;
-        use crate::tests::protocol::{ComponentSyncModeFull, ComponentSyncModeOnce};
-        use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
 
         #[test]
         fn test_entity_spawn() {
@@ -1298,9 +1307,12 @@ pub(crate) mod send {
 }
 
 pub(crate) mod commands {
+    use bevy::{
+        ecs::system::EntityCommands,
+        prelude::{Entity, World},
+    };
+
     use crate::prelude::Replicating;
-    use bevy::ecs::system::EntityCommands;
-    use bevy::prelude::{Entity, World};
 
     fn despawn_without_replication(entity: Entity, world: &mut World) {
         // remove replicating separately so that when we despawn the entity and trigger the observer

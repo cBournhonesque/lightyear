@@ -1,9 +1,11 @@
 //! There's a lot of overlap with `client::prediction_history` because resources are components in ECS so rollback is going to look similar.
-use crate::prelude::{HistoryBuffer, HistoryState, TickManager};
 use bevy::prelude::*;
 
 use super::rollback::Rollback;
-use crate::shared::tick_manager::TickEvent;
+use crate::{
+    prelude::{HistoryBuffer, HistoryState, TickManager},
+    shared::tick_manager::TickEvent,
+};
 
 pub(crate) type ResourceHistory<R> = HistoryBuffer<R>;
 
@@ -51,12 +53,13 @@ pub(crate) fn update_resource_history<R: Resource + Clone>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::prelude::client::RollbackState;
-    use crate::prelude::AppComponentExt;
-    use crate::prelude::Tick;
-    use crate::tests::stepper::BevyStepper;
     use bevy::ecs::system::RunSystemOnce;
+
+    use super::*;
+    use crate::{
+        prelude::{client::RollbackState, AppComponentExt, Tick},
+        tests::stepper::BevyStepper,
+    };
 
     #[derive(Resource, Clone, PartialEq, Debug)]
     struct TestResource(f32);

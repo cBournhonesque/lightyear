@@ -25,8 +25,10 @@
 use bevy::prelude::{Commands, Component, DetectChangesMut, Entity, Query, Res};
 use tracing::debug;
 
-use crate::client::components::SyncComponent;
-use crate::prelude::{ComponentRegistry, Tick, TickManager};
+use crate::{
+    client::components::SyncComponent,
+    prelude::{ComponentRegistry, Tick, TickManager},
+};
 
 #[derive(Component, Debug, PartialEq)]
 pub struct Correction<C: Component> {
@@ -112,20 +114,24 @@ pub(crate) fn restore_corrected_state<C: SyncComponent>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::client::components::Confirmed;
-    use crate::client::config::ClientConfig;
-    use crate::client::prediction::predicted_history::PredictionHistory;
-    use crate::client::prediction::rollback::test_utils::received_confirmed_update;
-    use crate::client::prediction::Predicted;
-    use crate::prelude::client::PredictionConfig;
-    use crate::prelude::{SharedConfig, TickConfig};
-    use crate::tests::protocol::ComponentCorrection;
-    use crate::tests::stepper::BevyStepper;
-    use approx::assert_relative_eq;
-    use bevy::app::FixedUpdate;
-    use bevy::prelude::default;
     use std::time::Duration;
+
+    use approx::assert_relative_eq;
+    use bevy::{app::FixedUpdate, prelude::default};
+
+    use super::*;
+    use crate::{
+        client::{
+            components::Confirmed,
+            config::ClientConfig,
+            prediction::{
+                predicted_history::PredictionHistory,
+                rollback::test_utils::received_confirmed_update, Predicted,
+            },
+        },
+        prelude::{client::PredictionConfig, SharedConfig, TickConfig},
+        tests::{protocol::ComponentCorrection, stepper::BevyStepper},
+    };
 
     fn increment_component_system(mut query: Query<(Entity, &mut ComponentCorrection)>) {
         for (entity, mut component) in query.iter_mut() {

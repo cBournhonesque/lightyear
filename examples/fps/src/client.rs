@@ -1,17 +1,19 @@
-use bevy::prelude::*;
-use bevy::utils::Duration;
-use leafwing_input_manager::action_state::ActionData;
-use leafwing_input_manager::buttonlike::ButtonState::Pressed;
-use leafwing_input_manager::plugin::InputManagerSystem;
-use leafwing_input_manager::prelude::*;
-use lightyear::client::input::InputSystemSet;
-use lightyear::inputs::native::input_buffer::InputBuffer;
-use lightyear::prelude::client::*;
-use lightyear::prelude::*;
+use bevy::{prelude::*, utils::Duration};
+use leafwing_input_manager::{
+    action_state::ActionData, buttonlike::ButtonState::Pressed, plugin::InputManagerSystem,
+    prelude::*,
+};
+use lightyear::{
+    client::input::InputSystemSet,
+    inputs::native::input_buffer::InputBuffer,
+    prelude::{client::*, *},
+};
 
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, shared_player_movement};
+use crate::{
+    protocol::*,
+    shared,
+    shared::{color_from_id, shared_player_movement},
+};
 
 pub struct ExampleClientPlugin;
 

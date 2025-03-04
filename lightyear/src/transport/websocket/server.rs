@@ -4,27 +4,37 @@ use std::{
 };
 
 use async_compat::Compat;
-use bevy::tasks::{futures_lite, IoTaskPool};
-use bevy::utils::HashMap;
+use bevy::{
+    tasks::{futures_lite, IoTaskPool},
+    utils::HashMap,
+};
 use futures_util::{
     future, pin_mut,
     stream::{SplitSink, TryStreamExt},
     SinkExt, StreamExt, TryFutureExt,
 };
-use tokio::sync::mpsc;
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
+    sync::{
+        mpsc,
+        mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
+    },
 };
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 use tracing::{debug, info, trace};
 use tracing_log::log::error;
 
-use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
-use crate::server::io::{ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender};
-use crate::transport::error::{Error, Result};
-use crate::transport::io::IoState;
-use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
+use crate::{
+    server::io::{
+        transport::{ServerTransportBuilder, ServerTransportEnum},
+        ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender,
+    },
+    transport::{
+        error::{Error, Result},
+        io::IoState,
+        BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU,
+    },
+};
 
 pub(crate) struct WebSocketServerSocketBuilder {
     pub(crate) server_addr: SocketAddr,

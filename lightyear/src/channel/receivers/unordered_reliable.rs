@@ -3,13 +3,12 @@ use std::collections::{btree_map, BTreeMap, HashSet};
 use bytes::Bytes;
 
 use super::error::ChannelReceiveError;
-
-use crate::channel::receivers::fragment_receiver::FragmentReceiver;
-use crate::channel::receivers::ChannelReceive;
-use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
-use crate::prelude::Tick;
-use crate::shared::tick_manager::TickManager;
-use crate::shared::time_manager::TimeManager;
+use crate::{
+    channel::receivers::{fragment_receiver::FragmentReceiver, ChannelReceive},
+    packet::message::{MessageData, MessageId, ReceiveMessage},
+    prelude::Tick,
+    shared::{tick_manager::TickManager, time_manager::TimeManager},
+};
 
 /// Unordered Reliable receiver: make sure that all messages are received,
 /// and return them in any order
@@ -108,10 +107,8 @@ impl ChannelReceive for UnorderedReliableReceiver {
 mod tests {
     use bytes::Bytes;
 
-    use crate::channel::receivers::ChannelReceive;
-    use crate::packet::message::SingleData;
-
     use super::*;
+    use crate::{channel::receivers::ChannelReceive, packet::message::SingleData};
 
     #[test]
     fn test_unordered_reliable_receiver_internals() -> Result<(), ChannelReceiveError> {

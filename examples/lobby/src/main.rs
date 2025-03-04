@@ -10,12 +10,14 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-use crate::settings::get_settings;
-use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use lightyear::prelude::{Deserialize, Serialize};
-use lightyear_examples_common::app::{Apps, Cli, Mode};
-use lightyear_examples_common::settings::ServerTransports;
+use lightyear_examples_common::{
+    app::{Apps, Cli, Mode},
+    settings::ServerTransports,
+};
+
+use crate::{settings::get_settings, shared::SharedPlugin};
 
 #[cfg(feature = "client")]
 mod client;

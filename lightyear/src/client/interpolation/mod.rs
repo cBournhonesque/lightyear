@@ -1,16 +1,16 @@
 //! Handles interpolation of entities between server updates
-use bevy::ecs::component::StorageType;
-use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
 use std::ops::{Add, Mul};
 
+use bevy::{
+    ecs::{component::StorageType, world::DeferredWorld},
+    prelude::{Component, Entity, Reflect, ReflectComponent},
+};
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
 pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 pub use visual_interpolation::{VisualInterpolateStatus, VisualInterpolationPlugin};
 
-use crate::client::components::LerpFn;
-use crate::client::interpolation::resource::InterpolationManager;
+use crate::client::{components::LerpFn, interpolation::resource::InterpolationManager};
 
 mod despawn;
 pub mod interpolate;

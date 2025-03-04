@@ -1,19 +1,24 @@
-use crate::client::networking::ClientCommandsExt;
-use crate::connection::netcode::generate_key;
-use crate::prelude::client::{
-    Authentication, ClientConfig, ClientTransport, NetConfig, NetworkingState,
+use bevy::{
+    input::InputPlugin,
+    prelude::{default, App, Mut, PluginGroup, Real, State, Time, World},
+    state::app::StatesPlugin,
+    time::TimeUpdateStrategy,
+    utils::Duration,
+    MinimalPlugins,
 };
-use crate::prelude::server::{NetcodeConfig, ServerCommandsExt, ServerConfig, ServerTransport};
-use crate::prelude::*;
-use crate::shared::time_manager::WrappedTime;
-use crate::tests::protocol::*;
-use crate::transport::LOCAL_SOCKET;
-use bevy::input::InputPlugin;
-use bevy::prelude::{default, App, Mut, PluginGroup, Real, State, Time, World};
-use bevy::state::app::StatesPlugin;
-use bevy::time::TimeUpdateStrategy;
-use bevy::utils::Duration;
-use bevy::MinimalPlugins;
+
+use crate::{
+    client::networking::ClientCommandsExt,
+    connection::netcode::generate_key,
+    prelude::{
+        client::{Authentication, ClientConfig, ClientTransport, NetConfig, NetworkingState},
+        server::{NetcodeConfig, ServerCommandsExt, ServerConfig, ServerTransport},
+        *,
+    },
+    shared::time_manager::WrappedTime,
+    tests::protocol::*,
+    transport::LOCAL_SOCKET,
+};
 
 pub const TEST_CLIENT_ID: u64 = 111;
 

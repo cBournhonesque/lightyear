@@ -51,22 +51,28 @@ pub enum InputSystemSet {
     CleanUp,
 }
 
-use bevy::prelude::*;
 use std::marker::PhantomData;
+
+use bevy::prelude::*;
 use tracing::trace;
 
-use crate::client::config::ClientConfig;
-use crate::client::connection::ConnectionManager;
-use crate::client::prediction::plugin::is_in_rollback;
-use crate::client::prediction::rollback::Rollback;
-use crate::client::run_conditions::is_synced;
-use crate::client::sync::SyncSet;
-use crate::inputs::native::input_buffer::InputBuffer;
-use crate::inputs::native::input_message::InputMessage;
-use crate::inputs::native::{UserAction, UserActionState};
-use crate::prelude::{is_host_server, TickManager};
-use crate::shared::input::InputConfig;
-use crate::shared::sets::{ClientMarker, InternalMainSet};
+use crate::{
+    client::{
+        config::ClientConfig,
+        connection::ConnectionManager,
+        prediction::{plugin::is_in_rollback, rollback::Rollback},
+        run_conditions::is_synced,
+        sync::SyncSet,
+    },
+    inputs::native::{
+        input_buffer::InputBuffer, input_message::InputMessage, UserAction, UserActionState,
+    },
+    prelude::{is_host_server, TickManager},
+    shared::{
+        input::InputConfig,
+        sets::{ClientMarker, InternalMainSet},
+    },
+};
 
 pub(crate) struct BaseInputPlugin<A, F> {
     config: InputConfig<A>,

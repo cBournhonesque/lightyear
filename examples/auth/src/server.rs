@@ -6,22 +6,22 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
+use std::{
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+};
+
 use anyhow::Context;
 use async_compat::Compat;
-use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
-
-use bevy::prelude::*;
-use bevy::tasks::IoTaskPool;
-use bevy::utils::{Duration, HashSet};
+use bevy::{
+    prelude::*,
+    tasks::IoTaskPool,
+    utils::{Duration, HashSet},
+};
+use lightyear::prelude::{server::*, ClientId::Netcode, *};
 use tokio::io::AsyncWriteExt;
 
-use lightyear::prelude::server::*;
-use lightyear::prelude::ClientId::Netcode;
-use lightyear::prelude::*;
-
-use crate::protocol::*;
-use crate::shared;
+use crate::{protocol::*, shared};
 
 pub struct ExampleServerPlugin {
     pub protocol_id: u64,

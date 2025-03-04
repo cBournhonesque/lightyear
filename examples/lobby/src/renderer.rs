@@ -1,9 +1,8 @@
-use crate::protocol::*;
-use bevy::prelude::*;
-use bevy::render::RenderPlugin;
+use bevy::{prelude::*, render::RenderPlugin};
 use bevy_egui::EguiPlugin;
-use lightyear::client::interpolation::Interpolated;
-use lightyear::client::prediction::Predicted;
+use lightyear::client::{interpolation::Interpolated, prediction::Predicted};
+
+use crate::protocol::*;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;

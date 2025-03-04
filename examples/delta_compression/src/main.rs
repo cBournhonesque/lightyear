@@ -11,8 +11,10 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 use bevy::prelude::*;
-use lightyear_examples_common::app::{Apps, Cli};
-use lightyear_examples_common::settings::Settings;
+use lightyear_examples_common::{
+    app::{Apps, Cli},
+    settings::Settings,
+};
 use protocol::ProtocolPlugin;
 
 #[cfg(feature = "client")]

@@ -56,23 +56,26 @@
 use bevy::prelude::*;
 use tracing::{error, trace};
 
-use crate::channel::builder::InputChannel;
-use crate::client::components::Confirmed;
-use crate::client::config::ClientConfig;
-use crate::client::connection::ConnectionManager;
-use crate::client::input::{BaseInputPlugin, InputSystemSet};
-use crate::client::prediction::plugin::is_in_rollback;
-use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::Predicted;
-use crate::inputs::native::input_buffer::InputBuffer;
-use crate::inputs::native::input_message::{InputMessage, InputTarget};
-use crate::inputs::native::{ActionState, InputMarker, UserAction};
-use crate::prelude::{
-    ChannelKind, ChannelRegistry, ClientReceiveMessage, MessageRegistry, PrePredicted, TickManager,
-    TimeManager,
+use crate::{
+    channel::builder::InputChannel,
+    client::{
+        components::Confirmed,
+        config::ClientConfig,
+        connection::ConnectionManager,
+        input::{BaseInputPlugin, InputSystemSet},
+        prediction::{plugin::is_in_rollback, resource::PredictionManager, Predicted},
+    },
+    inputs::native::{
+        input_buffer::InputBuffer,
+        input_message::{InputMessage, InputTarget},
+        ActionState, InputMarker, UserAction,
+    },
+    prelude::{
+        ChannelKind, ChannelRegistry, ClientReceiveMessage, MessageRegistry, PrePredicted,
+        TickManager, TimeManager,
+    },
+    shared::{input::InputConfig, tick_manager::TickEvent},
 };
-use crate::shared::input::InputConfig;
-use crate::shared::tick_manager::TickEvent;
 
 pub struct InputPlugin<A> {
     config: InputConfig<A>,
@@ -454,10 +457,14 @@ fn receive_tick_events<A: UserAction>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::server::{Replicate, SyncTarget};
-    use crate::prelude::{client, NetworkTarget};
-    use crate::tests::host_server_stepper::HostServerStepper;
-    use crate::tests::protocol::MyInput;
+    use crate::{
+        prelude::{
+            client,
+            server::{Replicate, SyncTarget},
+            NetworkTarget,
+        },
+        tests::{host_server_stepper::HostServerStepper, protocol::MyInput},
+    };
 
     // Test with no input delay:
     // 1. remote client replicated entity sending inputs to server

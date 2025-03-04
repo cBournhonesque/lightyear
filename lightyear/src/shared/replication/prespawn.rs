@@ -1,15 +1,21 @@
 //! Shared logic to handle prespawning entities
 
-use crate::prelude::{
-    ComponentRegistry, ParentSync, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, Tick,
+use std::{
+    any::TypeId,
+    hash::{Hash, Hasher},
 };
-use crate::protocol::component::ComponentKind;
-use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
-use bevy::ecs::archetype::Archetype;
-use bevy::ecs::component::Components;
-use std::any::TypeId;
-use std::hash::{Hash, Hasher};
+
+use bevy::ecs::{archetype::Archetype, component::Components};
 use tracing::trace;
+
+use crate::{
+    prelude::{
+        ComponentRegistry, ParentSync, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted,
+        Tick,
+    },
+    protocol::component::ComponentKind,
+    shared::replication::components::{Controlled, ShouldBeInterpolated},
+};
 
 /// Compute the default PreSpawnedPlayerObject hash used to match server entities with prespawned client entities
 pub(crate) fn compute_default_hash(

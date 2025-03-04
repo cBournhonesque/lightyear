@@ -1,12 +1,12 @@
 //! Module to handle the [`Tick`], a sequence number incremented at each [`bevy::prelude::FixedUpdate`] schedule run
-use bevy::prelude::*;
-use bevy::utils::Duration;
+use bevy::{prelude::*, utils::Duration};
 use tracing::trace;
 
-use crate::client::prediction::plugin::is_in_rollback;
-use crate::client::prediction::rollback::Rollback;
-use crate::prelude::FixedUpdateSet;
-use crate::utils::wrapping_id::wrapping_id;
+use crate::{
+    client::prediction::{plugin::is_in_rollback, rollback::Rollback},
+    prelude::FixedUpdateSet,
+    utils::wrapping_id::wrapping_id,
+};
 
 // Internal id that tracks the Tick value for the server and the client
 wrapping_id!(Tick);

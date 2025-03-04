@@ -1,6 +1,9 @@
+use bevy::{
+    ecs::system::SystemParam,
+    prelude::{ComputedStates, Res, State, World},
+};
+
 use crate::prelude::{client, server};
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::{ComputedStates, Res, State, World};
 
 /// State that will contain the current role of the peer. This state is only active if the peer is connected
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]

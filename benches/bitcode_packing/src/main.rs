@@ -1,9 +1,7 @@
 //! Benchmark for how to use bitcode to pack messages into packets of MTU bytes
 #![allow(unused_variables)]
-use divan::counter::ItemsCount;
-use divan::Bencher;
-use rand::distributions::Standard;
-use rand::prelude::*;
+use divan::{counter::ItemsCount, Bencher};
+use rand::{distributions::Standard, prelude::*};
 
 trait Packer {
     /// packet the messages into packets (preferably of size <=MAX_SIZE)

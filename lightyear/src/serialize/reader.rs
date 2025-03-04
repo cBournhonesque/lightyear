@@ -1,5 +1,6 @@
-use bytes::{Buf, Bytes};
 use std::io::{Cursor, Read, Seek, SeekFrom};
+
+use bytes::{Buf, Bytes};
 
 #[derive(Clone)]
 pub struct Reader(Cursor<Bytes>);

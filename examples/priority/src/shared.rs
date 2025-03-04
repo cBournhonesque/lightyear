@@ -1,12 +1,15 @@
-use bevy::color::palettes::css::{BLUE, GREEN, RED};
-use bevy::prelude::*;
-use bevy::utils::Duration;
-use leafwing_input_manager::action_state::ActionState;
 use std::ops::Deref;
 
-use lightyear::prelude::client::Confirmed;
-use lightyear::prelude::*;
-use lightyear::transport::io::IoDiagnosticsPlugin;
+use bevy::{
+    color::palettes::css::{BLUE, GREEN, RED},
+    prelude::*,
+    utils::Duration,
+};
+use leafwing_input_manager::action_state::ActionState;
+use lightyear::{
+    prelude::{client::Confirmed, *},
+    transport::io::IoDiagnosticsPlugin,
+};
 
 use crate::protocol::*;
 

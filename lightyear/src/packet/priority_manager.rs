@@ -1,7 +1,6 @@
-use bevy::utils::HashMap;
-use std::collections::VecDeque;
-use std::num::NonZeroU32;
+use std::{collections::VecDeque, num::NonZeroU32};
 
+use bevy::utils::HashMap;
 use crossbeam_channel::{Receiver, Sender};
 use governor::{DefaultDirectRateLimiter, Quota};
 use nonzero_ext::*;
@@ -9,10 +8,11 @@ use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-use crate::packet::message::{FragmentData, MessageData, MessageId, SendMessage, SingleData};
-use crate::prelude::{ChannelRegistry, Tick};
-use crate::protocol::channel::ChannelId;
-use crate::protocol::registry::NetId;
+use crate::{
+    packet::message::{FragmentData, MessageData, MessageId, SendMessage, SingleData},
+    prelude::{ChannelRegistry, Tick},
+    protocol::{channel::ChannelId, registry::NetId},
+};
 
 const BYPASS_QUOTA_PRIORITY: f32 = 100000.0;
 

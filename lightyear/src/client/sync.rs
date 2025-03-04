@@ -1,18 +1,23 @@
 /*! Handles syncing the time between the client and the server
 */
-use bevy::prelude::{Reflect, SystemSet};
-use bevy::utils::Duration;
+use bevy::{
+    prelude::{Reflect, SystemSet},
+    utils::Duration,
+};
 use chrono::Duration as ChronoDuration;
 use tracing::{debug, trace};
 
-use crate::client::interpolation::plugin::InterpolationConfig;
-use crate::packet::packet::PacketId;
-use crate::prelude::client::{InterpolationDelay, PredictionConfig};
-use crate::shared::ping::manager::PingManager;
-use crate::shared::tick_manager::TickManager;
-use crate::shared::tick_manager::{Tick, TickEvent};
-use crate::shared::time_manager::{TimeManager, WrappedTime};
-use crate::utils::ready_buffer::ReadyBuffer;
+use crate::{
+    client::interpolation::plugin::InterpolationConfig,
+    packet::packet::PacketId,
+    prelude::client::{InterpolationDelay, PredictionConfig},
+    shared::{
+        ping::manager::PingManager,
+        tick_manager::{Tick, TickEvent, TickManager},
+        time_manager::{TimeManager, WrappedTime},
+    },
+    utils::ready_buffer::ReadyBuffer,
+};
 
 /// SystemSet that holds systems that update the client's tick/time to match the server's tick/time
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -589,12 +594,11 @@ impl SyncManager {
 mod tests {
     use bevy::utils::Duration;
 
-    use crate::prelude::server::Replicate;
-    use crate::prelude::*;
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::BevyStepper;
-
     use super::*;
+    use crate::{
+        prelude::{server::Replicate, *},
+        tests::{protocol::*, stepper::BevyStepper},
+    };
 
     /// Check that after a big tick discrepancy between server/client, the client tick gets updated
     /// to match the server tick

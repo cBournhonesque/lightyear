@@ -1,18 +1,24 @@
-use crate::prelude::server::{is_stopped, RoomId, RoomManager, ServerError};
-use crate::prelude::{
-    is_host_server, Channel, ChannelKind, ClientId, MainSet, Message, MessageRegistry, MessageSend,
+use bevy::{
+    ecs::system::{FilteredResourcesMutParamBuilder, ParamBuilder},
+    prelude::*,
 };
-use crate::serialize::reader::Reader;
-use crate::server::connection::ConnectionManager;
-use crate::server::relevance::error::RelevanceError;
-use crate::shared::message::private::InternalMessageSend;
-use crate::shared::replication::entity_map::SendEntityMap;
-use crate::shared::replication::network_target::NetworkTarget;
-use crate::shared::sets::{InternalMainSet, ServerMarker};
-use bevy::ecs::system::{FilteredResourcesMutParamBuilder, ParamBuilder};
-use bevy::prelude::*;
 use bytes::Bytes;
 use tracing::error;
+
+use crate::{
+    prelude::{
+        is_host_server,
+        server::{is_stopped, RoomId, RoomManager, ServerError},
+        Channel, ChannelKind, ClientId, MainSet, Message, MessageRegistry, MessageSend,
+    },
+    serialize::reader::Reader,
+    server::{connection::ConnectionManager, relevance::error::RelevanceError},
+    shared::{
+        message::private::InternalMessageSend,
+        replication::{entity_map::SendEntityMap, network_target::NetworkTarget},
+        sets::{InternalMainSet, ServerMarker},
+    },
+};
 
 /// Bevy [`Event`] emitted on the server on the frame where a (non-replication) message is received
 #[allow(type_alias_bounds)]
@@ -359,13 +365,21 @@ impl InternalMessageSend for ConnectionManager {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::server::ServerTriggerExt;
-    use crate::prelude::{ClientReceiveMessage, NetworkTarget, ServerSendMessage};
-    use crate::shared::message::MessageSend;
-    use crate::tests::host_server_stepper::HostServerStepper;
-    use crate::tests::protocol::{Channel1, IntegerEvent, StringMessage};
-    use bevy::app::Update;
-    use bevy::prelude::{EventReader, Events, ResMut, Resource, Trigger};
+    use bevy::{
+        app::Update,
+        prelude::{EventReader, Events, ResMut, Resource, Trigger},
+    };
+
+    use crate::{
+        prelude::{
+            server::ServerTriggerExt, ClientReceiveMessage, NetworkTarget, ServerSendMessage,
+        },
+        shared::message::MessageSend,
+        tests::{
+            host_server_stepper::HostServerStepper,
+            protocol::{Channel1, IntegerEvent, StringMessage},
+        },
+    };
 
     #[derive(Resource, Default)]
     struct Counter(usize);
