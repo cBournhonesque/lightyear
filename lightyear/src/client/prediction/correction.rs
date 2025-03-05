@@ -26,6 +26,7 @@ use bevy::prelude::{Added, Commands, Component, DetectChangesMut, Entity, Query,
 use tracing::{debug, error, warn};
 
 use crate::client::components::SyncComponent;
+use crate::client::easings::ease_out_quad;
 use crate::prelude::{ComponentRegistry, Tick, TickManager};
 
 #[derive(Component, Debug, PartialEq)]
@@ -69,7 +70,7 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
         t = t.clamp(0.0, 1.0);
 
         // TODO: make the easing configurable
-        //  let t = ease_out_quad(t);
+        let t = ease_out_quad(t);
         if t == 1.0 {
             warn!(
                 ?t,
