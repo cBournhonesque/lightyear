@@ -7,12 +7,12 @@ use crate::{
 };
 use avian3d::{math::AsF32, prelude::*};
 use bevy::{color::palettes::css::MAGENTA, prelude::*};
-use lightyear::{client::prediction::rollback::DisableRollback, prelude::server::ReplicationTarget};
 use lightyear::{
     client::prediction::diagnostics::PredictionDiagnosticsPlugin,
     prelude::{client::*, *},
     transport::io::IoDiagnosticsPlugin,
 };
+use lightyear::{client::prediction::rollback::DisableRollback, prelude::server::ReplicationTarget};
 
 pub struct ExampleRendererPlugin;
 
@@ -25,8 +25,14 @@ impl Plugin for ExampleRendererPlugin {
                 add_character_cosmetics,
                 add_floor_cosmetics,
                 add_block_cosmetics,
-                add_projectile_cosmetics
             ),
+        );
+
+        app.add_systems(
+            PreUpdate,
+            (add_projectile_cosmetics)
+                .after(PredictionSet::Sync)
+                .before(PredictionSet::CheckRollback),
         );
 
         app.add_systems(

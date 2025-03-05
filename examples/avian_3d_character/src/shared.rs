@@ -120,6 +120,10 @@ impl Plugin for SharedPlugin {
             // TODO: disabling sleeping plugin causes the player to fall through the floor
             // .disable::<SleepingPlugin>(),
         );
+        app.add_systems(FixedLast, fixed_last_log
+            .before(PredictionSet::IncrementRollbackTick)
+            .after(InterpolationSet::UpdateVisualInterpolationState));
+        app.add_systems(Last, last_log);
     }
 }
 
@@ -155,6 +159,78 @@ pub(crate) fn after_physics_log(
     //         "Block after physics update"
     //     );
     // }
+}
+
+pub(crate) fn fixed_last_log(
+    tick_manager: Res<TickManager>,
+    rollback: Option<Res<Rollback>>,
+    // collisions: Option<Res<Collisions>>,
+    query: Query<
+        (
+            Entity,
+            &Position,
+            Option<&Correction<Position>>,
+        ),
+        (Without<Confirmed>, With<ProjectileMarker>),
+    >,
+) {
+    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
+        tick_manager.tick_or_rollback_tick(r.as_ref())
+    });
+    // info!(?tick, ?collisions, "collisions");
+    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
+
+    // if is_rollback {
+    //     println!("rollback tick {}", tick.0);
+    // }
+    for (entity, position, correction) in query.iter() {
+        warn!(
+            ?is_rollback,
+            ?tick,
+            ?entity,
+            ?position,
+            ?correction,
+            "Bullet in fixed-last"
+        );
+    }
+}
+pub(crate) fn last_log(
+    time_manager: Res<TimeManager>,
+    tick_manager: Res<TickManager>,
+    rollback: Option<Res<Rollback>>,
+    // collisions: Option<Res<Collisions>>,
+    query: Query<
+        (
+            Entity,
+            &Transform,
+            Option<&Correction<Position>>,
+            Option<&VisualInterpolateStatus<Transform>>
+        ),
+        (Without<Confirmed>, With<ProjectileMarker>),
+    >,
+) {
+    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
+        tick_manager.tick_or_rollback_tick(r.as_ref())
+    });
+    let overstep = time_manager.overstep();
+    // info!(?tick, ?collisions, "collisions");
+    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
+
+    // if is_rollback {
+    //     println!("rollback tick {}", tick.0);
+    // }
+    for (entity, transform, correction, visual_interpolate) in query.iter() {
+        warn!(
+            ?is_rollback,
+            ?tick,
+            ?entity,
+            ?transform,
+            ?correction,
+            ?visual_interpolate,
+            ?overstep,
+            "Bullet in last"
+        );
+    }
 }
 
 /// Generate pseudo-random color based on `client_id`.

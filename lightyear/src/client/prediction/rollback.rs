@@ -335,7 +335,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
 
         // if rollback is disabled, we will restore the component to its past value from the prediction history
         let correct_value = if disable_rollback {
-            warn!(?predicted_entity, "Get correct value from PredictionHistory");
+            warn!(?predicted_entity, "DisableRollback is present! Get confirmed value from PredictionHistory");
             original_predicted_value.as_ref().and_then(|v| match v {
                 HistoryState::Updated(v) => Some(v),
                 _ => None,
@@ -407,7 +407,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                                 correction.final_correction_tick = final_correction_tick;
                                 correction.current_correction = None;
                             } else {
-                                trace!("inserting new correction");
+                                error!(?current_tick, ?final_correction_tick, "inserting new correction");
                                 entity_mut.insert(Correction {
                                     original_prediction: predicted_component.clone(),
                                     original_tick: current_tick,

@@ -182,7 +182,7 @@ pub enum PredictionSet {
     /// Sync components from the Confirmed entity to the Predicted entity, and potentially
     /// insert PredictedHistory components
     Sync,
-    RestoreVisualCorrection,
+
     /// Check if rollback is needed
     CheckRollback,
     /// Prepare rollback by snapping the current state to the confirmed state and clearing histories
@@ -191,8 +191,10 @@ pub enum PredictionSet {
     PrepareRollback,
     /// Perform rollback
     Rollback,
-    PostRollback,
     // NOTE: no need to add RollbackFlush because running a schedule (which we do for rollback) will flush all commands at the end of each run
+
+    // FixedPreUpdate Sets
+    RestoreVisualCorrection,
 
     // FixedPostUpdate Sets
     /// Set to deal with predicted/confirmed entities getting despawned
@@ -299,8 +301,24 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
                     check_rollback::<C>.in_set(PredictionSet::CheckRollback),
                     (prepare_rollback::<C>, prepare_rollback_prespawn::<C>)
                         .in_set(PredictionSet::PrepareRollback),
-                    set_original_prediction_post_rollback::<C>.in_set(PredictionSet::PostRollback)
                 ),
+            );
+            // we want this to run every frame.
+            // If we have a Correction and we have 2 consecutive frames without FixedUpdate running
+            // the component would be set to the corrected state, instead of the original prediction!
+            app.add_systems(RunFixedMainLoop, set_original_prediction_post_rollback::<C>.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop));
+            // we need this in case the FixedUpdate schedule runs multiple times in a row.
+            // Otherwise we would have
+            // [PreUpdate] RestoreCorrectValue
+            // [FixedUpdate] Step -> Correction = UpdateCorrectValue, InterpolateVisualValue, SetC=Visual, Sync, UpdateVisualInterpolation
+            // [FixedUpdate] Step (from C=Visual!!)
+            // We still need the RestoreVisualCorrection in PreUpdate because we need the correct state when checking for rollbacks
+            // Maybe the rollback systems should be in FixedUpdate?
+            app.add_systems(
+                FixedPreUpdate,
+                // restore to the corrected state (as the visual state might be interpolating
+                // between the predicted and corrected state)
+                restore_corrected_state::<C>.in_set(PredictionSet::RestoreVisualCorrection),
             );
             app.add_systems(
                 FixedPostUpdate,
@@ -381,7 +399,6 @@ impl Plugin for PredictionPlugin {
                     PredictionSet::CheckRollback,
                     PredictionSet::PrepareRollback.run_if(is_in_rollback),
                     PredictionSet::Rollback.run_if(is_in_rollback),
-                    PredictionSet::PostRollback.run_if(is_in_rollback),
                 )
                     .chain()
                     .in_set(PredictionSet::All),
@@ -410,6 +427,13 @@ impl Plugin for PredictionPlugin {
             ),
         );
         app.add_observer(despawn_confirmed);
+
+        // FixedPreUpdate
+        app.configure_sets(FixedPreUpdate, PredictionSet::RestoreVisualCorrection.in_set(PredictionSet::All))
+        .configure_sets(
+            FixedPreUpdate,
+            PredictionSet::All.run_if(should_prediction_run.clone()),
+        );
 
         // FixedUpdate systems
         // 1. Update client tick (don't run in rollback)
