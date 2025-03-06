@@ -69,7 +69,10 @@ impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
         // - in case of rollback, that would mean we repeatedly interpolate the component for no reason
         // - in case of correction, we would be interpolating between CorrectedValue (last value during rollback) and CorrectInterpolatedValue (first value
         //   after Correction)
-        app.configure_sets(FixedLast, InterpolationSet::UpdateVisualInterpolationState.run_if(not(is_in_rollback)));
+        app.configure_sets(
+            FixedLast,
+            InterpolationSet::UpdateVisualInterpolationState.run_if(not(is_in_rollback)),
+        );
         app.configure_sets(
             PostUpdate,
             InterpolationSet::VisualInterpolation
@@ -242,12 +245,11 @@ mod tests {
         (stepper, entity)
     }
 
-
-
     fn fixed_update_increment(
         mut query: Query<&mut ComponentSyncModeFull>,
         mut query_correction: Query<&mut ComponentCorrection>,
-        enabled: Res<Toggle>) {
+        enabled: Res<Toggle>,
+    ) {
         if enabled.0 {
             for mut component in query.iter_mut() {
                 component.0 += 1.0;
@@ -979,7 +981,10 @@ mod tests {
         );
     }
 
-    fn setup_predicted(tick_duration: Duration, frame_duration: Duration) -> (BevyStepper, Entity, Entity) {
+    fn setup_predicted(
+        tick_duration: Duration,
+        frame_duration: Duration,
+    ) -> (BevyStepper, Entity, Entity) {
         let shared_config = SharedConfig {
             tick: TickConfig::new(tick_duration),
             ..Default::default()
@@ -1015,10 +1020,11 @@ mod tests {
         let predicted = stepper
             .client_app
             .world_mut()
-            .spawn((Predicted {
-                confirmed_entity: Some(confirmed),
-            },
-                VisualInterpolateStatus::<ComponentCorrection>::default()
+            .spawn((
+                Predicted {
+                    confirmed_entity: Some(confirmed),
+                },
+                VisualInterpolateStatus::<ComponentCorrection>::default(),
             ))
             .id();
         stepper
@@ -1036,7 +1042,8 @@ mod tests {
     /// that get corrected
     #[test]
     fn test_visual_interpolation_and_correction() {
-        let (mut stepper, confirmed, predicted) = setup_predicted(Duration::from_millis(12), Duration::from_millis(9));
+        let (mut stepper, confirmed, predicted) =
+            setup_predicted(Duration::from_millis(12), Duration::from_millis(9));
 
         // create a rollback situation (component absent from predicted history)
         let original_tick = stepper.client_tick();

@@ -74,7 +74,8 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
         if t == 1.0 {
             trace!(
                 ?t,
-                "Correction is over. Removing Correction for: {:?}", kind
+                "Correction is over. Removing Correction for: {:?}",
+                kind
             );
             commands.entity(entity).remove::<Correction<C>>();
         } else {

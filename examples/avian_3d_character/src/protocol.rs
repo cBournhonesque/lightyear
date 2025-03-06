@@ -51,7 +51,7 @@ impl Actionlike for CharacterAction {
         match self {
             Self::Move => InputControlKind::DualAxis,
             Self::Jump => InputControlKind::Button,
-            Self::Shoot => InputControlKind::Button
+            Self::Shoot => InputControlKind::Button,
         }
     }
 }
@@ -69,7 +69,6 @@ impl Plugin for ProtocolPlugin {
                 ..default()
             },
         });
-
 
         app.register_component::<ColorComponent>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)

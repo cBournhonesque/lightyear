@@ -32,7 +32,7 @@ use crate::shared::FLOOR_WIDTH;
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin {
-    pub(crate) predict_all: bool
+    pub(crate) predict_all: bool,
 }
 
 #[derive(Resource)]
@@ -46,7 +46,10 @@ impl Plugin for ExampleServerPlugin {
             predict_all: self.predict_all,
         });
         app.add_systems(Startup, init);
-        app.add_systems(FixedUpdate, (handle_character_actions, player_shoot, despawn_system));
+        app.add_systems(
+            FixedUpdate,
+            (handle_character_actions, player_shoot, despawn_system),
+        );
         app.add_systems(Update, handle_connections);
     }
 }
@@ -98,7 +101,7 @@ fn player_shoot(
                     RigidBody::Dynamic,
                     position.clone(),
                     Rotation::default(),
-                    LinearVelocity(Vec3::Z * 10.),  // arbitrary direction since we are just testing rollbacks
+                    LinearVelocity(Vec3::Z * 10.), // arbitrary direction since we are just testing rollbacks
                     Replicate {
                         group: REPLICATION_GROUP,
                         controlled_by: ControlledBy {
@@ -111,7 +114,7 @@ fn player_shoot(
                             prediction: NetworkTarget::All,
                             interpolation: NetworkTarget::None,
                         },
-                       ..default()
+                        ..default()
                     },
                     // we don't want clients to receive any replication updates after the initial spawn
                     ReplicateOnceComponent::<Position>::default(),
@@ -123,7 +126,6 @@ fn player_shoot(
                     ReplicateOnceComponent::<ExternalImpulse>::default(),
                 ));
             }
-
         }
     }
 }

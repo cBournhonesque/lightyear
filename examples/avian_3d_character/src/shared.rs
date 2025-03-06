@@ -131,8 +131,9 @@ impl Plugin for SharedPlugin {
         // - in RunFixedMainLoop, we set C=Original
         // - FixedUpdate doesn't run because frame rate is too high!
         // - then the Transform that we show is C=Correct instead of C=Original!
-        app.add_systems(PostUpdate,
-             position_to_transform
+        app.add_systems(
+            PostUpdate,
+            position_to_transform
                 .in_set(PhysicsSet::Sync)
                 .run_if(|config: Res<avian3d::sync::SyncConfig>| config.position_to_transform),
         );
@@ -147,14 +148,7 @@ pub(crate) fn after_physics_log(
     tick_manager: Res<TickManager>,
     rollback: Option<Res<Rollback>>,
     // collisions: Option<Res<Collisions>>,
-    query: Query<
-        (
-            Entity,
-            &Position,
-            &Rotation,
-        ),
-        (Without<Confirmed>, With<CharacterMarker>),
-    >,
+    query: Query<(Entity, &Position, &Rotation), (Without<Confirmed>, With<CharacterMarker>)>,
 ) {
     let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
         tick_manager.tick_or_rollback_tick(r.as_ref())
@@ -182,11 +176,7 @@ pub(crate) fn fixed_last_log(
     rollback: Option<Res<Rollback>>,
     // collisions: Option<Res<Collisions>>,
     query: Query<
-        (
-            Entity,
-            &Position,
-            Option<&Correction<Position>>,
-        ),
+        (Entity, &Position, Option<&Correction<Position>>),
         (Without<Confirmed>, With<ProjectileMarker>),
     >,
 ) {
@@ -220,7 +210,7 @@ pub(crate) fn last_log(
             Entity,
             &Transform,
             Option<&Correction<Position>>,
-            Option<&VisualInterpolateStatus<Transform>>
+            Option<&VisualInterpolateStatus<Transform>>,
         ),
         (Without<Confirmed>, With<ProjectileMarker>),
     >,

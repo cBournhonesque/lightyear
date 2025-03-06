@@ -30,11 +30,11 @@ fn main() {
 
     apps.add_lightyear_plugins();
     apps.add_user_shared_plugin(SharedPlugin {
-        predict_all: settings.predict_all
+        predict_all: settings.predict_all,
     });
     #[cfg(feature = "server")]
     apps.add_user_server_plugin(server::ExampleServerPlugin {
-        predict_all: settings.predict_all
+        predict_all: settings.predict_all,
     });
     #[cfg(feature = "client")]
     apps.add_user_client_plugin(client::ExampleClientPlugin);

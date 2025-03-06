@@ -1,5 +1,7 @@
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
-use crate::client::prediction::correction::{get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback};
+use crate::client::prediction::correction::{
+    get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback,
+};
 use crate::client::prediction::despawn::{
     despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
     restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
@@ -311,7 +313,11 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             // we want this to run every frame.
             // If we have a Correction and we have 2 consecutive frames without FixedUpdate running
             // the component would be set to the corrected state, instead of the original prediction!
-            app.add_systems(RunFixedMainLoop, set_original_prediction_post_rollback::<C>.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop));
+            app.add_systems(
+                RunFixedMainLoop,
+                set_original_prediction_post_rollback::<C>
+                    .in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
+            );
             // we need this in case the FixedUpdate schedule runs multiple times in a row.
             // Otherwise we would have
             // [PreUpdate] RestoreCorrectValue
@@ -434,7 +440,10 @@ impl Plugin for PredictionPlugin {
         app.add_observer(despawn_confirmed);
 
         // FixedPreUpdate
-        app.configure_sets(FixedPreUpdate, PredictionSet::RestoreVisualCorrection.in_set(PredictionSet::All))
+        app.configure_sets(
+            FixedPreUpdate,
+            PredictionSet::RestoreVisualCorrection.in_set(PredictionSet::All),
+        )
         .configure_sets(
             FixedPreUpdate,
             PredictionSet::All.run_if(should_prediction_run.clone()),
