@@ -104,7 +104,7 @@ fn player_movement(
     >,
 ) {
     for (transform, action_state, player_id) in player_query.iter_mut() {
-        // info!(tick = ?tick_manager.tick(), action = ?action_state.dual_axis_data(&PlayerActions::MoveCursor), "Data in Movement (FixedUpdate)");
+        trace!(tick = ?tick_manager.tick(), action = ?action_state.dual_axis_data(&PlayerActions::MoveCursor), "Data in Movement (FixedUpdate)");
         shared_player_movement(transform, action_state);
         // info!(tick = ?tick_manager.tick(), ?transform, actions = ?action_state.get_pressed(), "applying movement to predicted player");
     }

@@ -46,7 +46,7 @@ pub struct Correction<C: Component> {
     pub current_correction: Option<C>,
 }
 
-impl <C: Component> Correction<C> {
+impl<C: Component> Correction<C> {
     /// In case of a TickEvent where the client tick is changed, we need to update the ticks in the buffer
     pub(crate) fn update_ticks(&mut self, delta: i16) {
         self.original_tick = self.original_tick + delta;

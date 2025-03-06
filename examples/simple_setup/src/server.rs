@@ -10,10 +10,8 @@ use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use lightyear::prelude::server::*;
-use lightyear::prelude::*;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use crate::shared::{shared_config, SharedPlugin, SERVER_ADDR, SERVER_REPLICATION_INTERVAL};
+use crate::shared::{shared_config, SharedPlugin, SERVER_ADDR};
 
 pub struct ExampleServerPlugin;
 
@@ -38,11 +36,6 @@ fn build_server_plugin() -> ServerPlugins {
         // we can specify multiple net configs here, and the server will listen on all of them
         // at the same time. Here we will only use one
         net: vec![net_config],
-        replication: ReplicationConfig {
-            // we will send updates to the clients every 100ms
-            send_interval: SERVER_REPLICATION_INTERVAL,
-            ..default()
-        },
         ..default()
     };
     ServerPlugins::new(config)

@@ -14,7 +14,7 @@ use lightyear::client::connection;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::server::input::leafwing::InputSystemSet;
+use lightyear::server::input::InputSystemSet;
 use lightyear::shared::tick_manager;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
@@ -36,13 +36,7 @@ pub struct ExampleServerPlugin;
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
-        // app.add_systems(
-        //     PreUpdate,
-        //     // This system will replicate the inputs of a client to other
-        //     // clients so that a client can predict other clients.
-        //     replicate_inputs.after(InputSystemSet::ReceiveInputs),
-        // );
-        app.add_systems(FixedUpdate, (handle_character_actions, player_shoot, despawn_system));
+        app.add_systems(FixedUpdate, handle_character_actions);
         app.add_systems(Update, handle_connections);
     }
 }
@@ -91,7 +85,7 @@ fn player_shoot(
                         spawned_at: time.elapsed_secs(),
                         lifetime: Duration::from_millis(10000),
                     },
-                    RigidBody::Dynamic, 
+                    RigidBody::Dynamic,
                     position.clone(),
                     Rotation::default(),
                     LinearVelocity(Vec3::Z * 10.),  // arbitrary direction since we are just testing rollbacks
@@ -164,23 +158,6 @@ fn init(mut commands: Commands) {
     //     Position::new(Vec3::new(-1.0, 1.0, 0.0)),
     //     block_replicate_component.clone(),
     // ));
-}
-
-/// When we receive the input of a client, broadcast it to other clients
-/// so that they can predict this client's movements accurately
-pub(crate) fn replicate_inputs(
-    mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<CharacterAction>>>>,
-    mut send_inputs: EventWriter<ServerSendMessage<InputMessage<CharacterAction>>>,
-) {
-    // rebroadcast the input to other clients
-    // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
-    // so that the server had the time to process the inputs
-    send_inputs.send_batch(receive_inputs.drain().map(|ev| {
-        ServerSendMessage::new_with_target::<InputChannel>(
-            ev.message,
-            NetworkTarget::AllExceptSingle(ev.from),
-        )
-    }));
 }
 
 /// Spawn a character whenever a new client has connected.

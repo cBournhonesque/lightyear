@@ -59,9 +59,6 @@ impl PlayerBundle {
             (Inputs::Up, KeyCode::KeyW),
             (Inputs::Down, KeyCode::ArrowDown),
             (Inputs::Down, KeyCode::KeyS),
-            (Inputs::Delete, KeyCode::Backspace),
-            (Inputs::Spawn, KeyCode::Space),
-            (Inputs::Message, KeyCode::KeyM),
         ])
     }
 }
@@ -115,19 +112,13 @@ pub struct Message1(pub usize);
 
 // Inputs
 
-#[derive(
-    Serialize, Deserialize, Debug, Default, PartialEq, Eq, Hash, Reflect, Clone, Copy, Actionlike,
-)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Reflect, Clone, Copy, Actionlike)]
 pub enum Inputs {
     Up,
     Down,
     Left,
     Right,
     Delete,
-    Spawn,
-    Message,
-    #[default]
-    None,
 }
 
 // Protocol
