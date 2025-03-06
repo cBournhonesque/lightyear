@@ -36,7 +36,7 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystem::TransformPropagate;
 
 use crate::client::components::SyncComponent;
-use crate::prelude::client::{Correction, InterpolationSet, PredictionSet};
+use crate::prelude::client::{is_in_rollback, Correction, InterpolationSet, PredictionSet};
 use crate::prelude::{ComponentRegistry, MainSet, TickManager, TimeManager};
 
 pub struct VisualInterpolationPlugin<C: SyncComponent> {
@@ -65,7 +65,14 @@ impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
             )
                 .chain(),
         );
-        app.configure_sets(FixedLast, InterpolationSet::UpdateVisualInterpolationState);
+        // We don't run UpdateVisualInterpolationState in rollback because:
+        // - in case of rollback, that would mean we repeatedly interpolate the component for no reason
+        // - in case of correction, we would be interpolating between CorrectedValue (last value during rollback) and CorrectInterpolatedValue (first value
+        //   after Correction)
+        app.configure_sets(
+            FixedLast,
+            InterpolationSet::UpdateVisualInterpolationState.run_if(not(is_in_rollback)),
+        );
         app.configure_sets(
             PostUpdate,
             InterpolationSet::VisualInterpolation
@@ -195,14 +202,17 @@ pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
 
 #[cfg(test)]
 mod tests {
+    use crate::client::components::Confirmed;
     use crate::client::config::ClientConfig;
-    use approx::assert_relative_eq;
-    use bevy::prelude::*;
-    use bevy::utils::Duration;
-
+    use crate::client::prediction::rollback::test_utils::received_confirmed_update;
+    use crate::client::prediction::Predicted;
+    use crate::prelude::client::PredictionConfig;
     use crate::prelude::{SharedConfig, TickConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
+    use approx::assert_relative_eq;
+    use bevy::prelude::*;
+    use bevy::utils::Duration;
 
     use super::*;
 
@@ -235,10 +245,17 @@ mod tests {
         (stepper, entity)
     }
 
-    fn fixed_update_increment(mut query: Query<&mut ComponentSyncModeFull>, enabled: Res<Toggle>) {
+    fn fixed_update_increment(
+        mut query: Query<&mut ComponentSyncModeFull>,
+        mut query_correction: Query<&mut ComponentCorrection>,
+        enabled: Res<Toggle>,
+    ) {
         if enabled.0 {
-            for mut component1 in query.iter_mut() {
-                component1.0 += 1.0;
+            for mut component in query.iter_mut() {
+                component.0 += 1.0;
+            }
+            for mut component in query_correction.iter_mut() {
+                component.0 += 1.0;
             }
         }
     }
@@ -961,6 +978,125 @@ mod tests {
                 .overstep(),
             0.5,
             max_relative = 0.1
+        );
+    }
+
+    fn setup_predicted(
+        tick_duration: Duration,
+        frame_duration: Duration,
+    ) -> (BevyStepper, Entity, Entity) {
+        let shared_config = SharedConfig {
+            tick: TickConfig::new(tick_duration),
+            ..Default::default()
+        };
+        let client_config = ClientConfig {
+            prediction: PredictionConfig {
+                correction_ticks_factor: 1.0,
+                ..default()
+            },
+            ..default()
+        };
+        // we create the stepper manually to not run init()
+        let mut stepper = BevyStepper::new(shared_config, client_config, frame_duration);
+        stepper.client_app.world_mut().insert_resource(Toggle(true));
+        stepper
+            .client_app
+            .add_systems(FixedUpdate, fixed_update_increment);
+        stepper
+            .client_app
+            .add_plugins(VisualInterpolationPlugin::<ComponentCorrection>::default());
+        stepper.build();
+        stepper.init();
+        let tick = stepper.client_tick();
+
+        let confirmed = stepper
+            .client_app
+            .world_mut()
+            .spawn(Confirmed {
+                tick,
+                ..Default::default()
+            })
+            .id();
+        let predicted = stepper
+            .client_app
+            .world_mut()
+            .spawn((
+                Predicted {
+                    confirmed_entity: Some(confirmed),
+                },
+                VisualInterpolateStatus::<ComponentCorrection>::default(),
+            ))
+            .id();
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed)
+            .get_mut::<Confirmed>()
+            .unwrap()
+            .predicted = Some(predicted);
+        stepper.frame_step();
+        (stepper, confirmed, predicted)
+    }
+
+    /// Test that visual interpolation works with predicted entities
+    /// that get corrected
+    #[test]
+    fn test_visual_interpolation_and_correction() {
+        let (mut stepper, confirmed, predicted) =
+            setup_predicted(Duration::from_millis(12), Duration::from_millis(9));
+
+        // create a rollback situation (component absent from predicted history)
+        let original_tick = stepper.client_tick();
+        let rollback_tick = original_tick - 5;
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(confirmed)
+            .insert(ComponentCorrection(1.0));
+        let tick = stepper.client_tick();
+        received_confirmed_update(&mut stepper, confirmed, rollback_tick);
+
+        stepper.frame_step();
+
+        // 1. component gets synced from confirmed to predicted
+        // 2. check rollback is triggered because Confirmed changed
+        // 3. on prepare_rollback, we insert the component with Correction
+        // 4. we do a rollback to update the component to the correct value
+        //    - the predicted value is 1.0
+        //    - the corrected value is 7.0
+        //    - the correct_interpolation value is 20% of the way, so we should see 1.0 + 0.2 * (7.0 - 1.0) = 2.2
+        // 5. visual interpolation should record the 2 values, so 1.0 and 2.2, and visually interpolate between them
+        //    Rollback saves the overstep from before the rollback, so the overstep should still be 0.75
+        //    NOTE: actually the overstep might not be 0.75 because the SyncPlugin modifies the virtual time!!!
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<Correction<ComponentCorrection>>(predicted)
+                .unwrap(),
+            &Correction::<ComponentCorrection> {
+                original_prediction: ComponentCorrection(1.0),
+                original_tick,
+                final_correction_tick: original_tick + (original_tick - rollback_tick),
+                // interpolate 20% of the way
+                current_visual: Some(ComponentCorrection(2.2)),
+                current_correction: Some(ComponentCorrection(7.0)),
+            }
+        );
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .entity(predicted)
+                .get::<VisualInterpolateStatus<ComponentCorrection>>()
+                .unwrap(),
+            &VisualInterpolateStatus::<ComponentCorrection> {
+                trigger_change_detection: false,
+                // TODO: maybe we'd like to interpolate from 1.0 here? we could have custom logic where
+                //  post-rollback if previous_value is None and Correction is enabled, we set previous_value to original_prediction?
+                previous_value: None,
+                current_value: Some(ComponentCorrection(2.2)),
+            }
         );
     }
 }
