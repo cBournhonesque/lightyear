@@ -58,14 +58,14 @@ impl Actionlike for CharacterAction {
 
 // Protocol
 pub(crate) struct ProtocolPlugin {
-    predict_all: bool,
+    pub(crate) predict_all: bool,
 }
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(LeafwingInputPlugin::<CharacterAction> {
             config: InputConfig::<CharacterAction> {
-                rebroadcast_inputs: true,
+                rebroadcast_inputs: self.predict_all,
                 ..default()
             },
         });

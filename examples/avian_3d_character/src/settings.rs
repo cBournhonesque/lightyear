@@ -22,6 +22,9 @@ pub struct MySettings {
     /// This controls the duration of the interpolation; the higher it is, the longer the interpolation
     /// will take
     pub(crate) correction_ticks_factor: f32,
+
+    /// If true, all clients will be predicted
+    pub(crate) predict_all: bool,
 }
 
 pub(crate) fn get_settings() -> MySettings {
@@ -78,5 +81,6 @@ pub(crate) fn get_settings() -> MySettings {
         },
         input_delay_ticks: 0,
         correction_ticks_factor: 4.0,
+        predict_all: false,
     }
 }

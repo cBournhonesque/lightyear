@@ -86,11 +86,15 @@ impl Default for BlockPhysicsBundle {
 }
 
 #[derive(Clone)]
-pub struct SharedPlugin;
+pub struct SharedPlugin {
+    pub predict_all: bool,
+}
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ProtocolPlugin);
+        app.add_plugins(ProtocolPlugin {
+            predict_all: self.predict_all,
+        });
 
         // Physics
 
@@ -121,6 +125,7 @@ impl Plugin for SharedPlugin {
             // TODO: disabling sleeping plugin causes the player to fall through the floor
             // .disable::<SleepingPlugin>(),
         );
+
         // add an extra sync for cases where:
         // - we receive a Position, do a rollback and set C=Correct, apply sync
         // - in RunFixedMainLoop, we set C=Original
@@ -131,10 +136,10 @@ impl Plugin for SharedPlugin {
                 .in_set(PhysicsSet::Sync)
                 .run_if(|config: Res<avian3d::sync::SyncConfig>| config.position_to_transform),
         );
-        app.add_systems(FixedLast, fixed_last_log
-            .before(PredictionSet::IncrementRollbackTick)
-            .after(InterpolationSet::UpdateVisualInterpolationState));
-        app.add_systems(Last, last_log);
+        // app.add_systems(FixedLast, fixed_last_log
+        //     .before(PredictionSet::IncrementRollbackTick)
+        //     .after(InterpolationSet::UpdateVisualInterpolationState));
+        // app.add_systems(Last, last_log);
     }
 }
 

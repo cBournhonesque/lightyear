@@ -23,7 +23,7 @@
 //! - FixedUpdate: run the simulation to compute C(T+2).
 //! - FixedPostUpdate: set the component value to the interpolation between PT (predicted value at rollback start T) and C(T+2)
 use bevy::prelude::{Added, Commands, Component, DetectChangesMut, Entity, Query, Res};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::client::components::SyncComponent;
 use crate::client::easings::ease_out_quad;
@@ -72,13 +72,13 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
         // TODO: make the easing configurable
         let t = ease_out_quad(t);
         if t == 1.0 {
-            warn!(
+            trace!(
                 ?t,
                 "Correction is over. Removing Correction for: {:?}", kind
             );
             commands.entity(entity).remove::<Correction<C>>();
         } else {
-            warn!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", kind);
+            trace!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", kind);
             // store the current corrected value so that we can restore it at the start of the next frame
             correction.current_correction = Some(component.clone());
             // TODO: avoid all these clones
@@ -106,7 +106,7 @@ pub(crate) fn set_original_prediction_post_rollback<C: SyncComponent>(
     for (entity, mut component, correction) in query.iter_mut() {
         // correction has not started (even if a correction happens while a previous correction was going on, current_visual is None)
         if correction.current_visual.is_none() {
-            error!(component = ?std::any::type_name::<C>(), "reset value post-rollback, before first correction");
+            trace!(component = ?std::any::type_name::<C>(), "reset value post-rollback, before first correction");
             // TODO: this is very inefficient.
             //  1. we only do the clone() once but if there's multiple frames before a FixedUpdate, we clone multiple times (mitigated by Added filter)
             //        although Added probably  doesn't work if we have nested Corrections..

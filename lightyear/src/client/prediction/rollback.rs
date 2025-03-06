@@ -247,7 +247,7 @@ pub(crate) fn check_rollback<C: SyncComponent>(
                 ),
             };
             if should_rollback {
-                warn!(
+                debug!(
                    ?predicted_exist, ?confirmed_exist,
                    "Rollback check: mismatch for component between predicted {:?} and confirmed {:?} on tick {:?} for component {:?}. Current tick: {:?}",
                    p, confirmed_entity, tick, kind, current_tick
@@ -335,7 +335,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
 
         // if rollback is disabled, we will restore the component to its past value from the prediction history
         let correct_value = if disable_rollback {
-            warn!(?predicted_entity, "DisableRollback is present! Get confirmed value from PredictionHistory");
+            trace!(?predicted_entity, "DisableRollback is present! Get confirmed value from PredictionHistory");
             original_predicted_value.as_ref().and_then(|v| match v {
                 HistoryState::Updated(v) => Some(v),
                 _ => None,
@@ -407,7 +407,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                                 correction.final_correction_tick = final_correction_tick;
                                 correction.current_correction = None;
                             } else {
-                                error!(?current_tick, ?final_correction_tick, "inserting new correction");
+                                trace!(?current_tick, ?final_correction_tick, "inserting new correction");
                                 entity_mut.insert(Correction {
                                     original_prediction: predicted_component.clone(),
                                     original_tick: current_tick,
@@ -822,7 +822,7 @@ mod tests {
     use crate::client::prediction::resource::PredictionManager;
     use crate::client::prediction::rollback::{check_rollback, DisableRollback};
     use crate::prelude::server::SyncTarget;
-    use crate::prelude::{client::*, AppComponentExt, ChannelDirection, NetworkTarget, SharedConfig, TickConfig, TimeManager};
+    use crate::prelude::{client::*, AppComponentExt, ChannelDirection, NetworkTarget, SharedConfig, TickConfig};
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
     use bevy::ecs::entity::MapEntities;
@@ -1607,34 +1607,5 @@ mod tests {
                 .0,
             2.0
         );
-    }
-
-    /// I don't understand why the time gets modified by the relative speed here, but not in
-    /// the visual interpolation tests!
-    #[test]
-    fn test_time_manager_rollback() {
-        let tick_duration = Duration::from_millis(12);
-        let frame_duration = Duration::from_millis(9);
-        let shared_config = SharedConfig {
-            tick: TickConfig::new(tick_duration),
-            ..Default::default()
-        };
-        let client_config = ClientConfig::default();
-        // we create the stepper manually to not run init()
-        let mut stepper = BevyStepper::new(shared_config, client_config, frame_duration);
-        stepper.build();
-        stepper.init();
-
-        let first = stepper.client_app.world().resource::<TimeManager>().clone();
-        dbg!(stepper.client_app.world().resource::<Time>());
-        dbg!(first);
-        stepper.frame_step();
-        let second = stepper.client_app.world().resource::<TimeManager>().clone();
-        dbg!(stepper.client_app.world().resource::<Time>());
-        dbg!(second);
-        stepper.frame_step();
-        let third = stepper.client_app.world().resource::<TimeManager>().clone();
-        dbg!(stepper.client_app.world().resource::<Time>());
-        dbg!(third);
     }
 }

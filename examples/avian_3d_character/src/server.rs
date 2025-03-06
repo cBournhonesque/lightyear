@@ -31,12 +31,22 @@ use crate::shared::FLOOR_HEIGHT;
 use crate::shared::FLOOR_WIDTH;
 
 // Plugin for server-specific logic
-pub struct ExampleServerPlugin;
+pub struct ExampleServerPlugin {
+    pub(crate) predict_all: bool
+}
+
+#[derive(Resource)]
+pub struct Global {
+    predict_all: bool,
+}
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(Global {
+            predict_all: self.predict_all,
+        });
         app.add_systems(Startup, init);
-        app.add_systems(FixedUpdate, handle_character_actions);
+        app.add_systems(FixedUpdate, (handle_character_actions, player_shoot, despawn_system));
         app.add_systems(Update, handle_connections);
     }
 }
@@ -96,11 +106,14 @@ fn player_shoot(
                             lifetime: Lifetime::SessionBased,
                         },
                         sync: SyncTarget {
+                            // even remote interpolated players shoot predicted projectiles, so that they can visually
+                            // hit our (local player) own predicted entity
                             prediction: NetworkTarget::All,
                             interpolation: NetworkTarget::None,
                         },
                        ..default()
                     },
+                    // we don't want clients to receive any replication updates after the initial spawn
                     ReplicateOnceComponent::<Position>::default(),
                     ReplicateOnceComponent::<Rotation>::default(),
                     ReplicateOnceComponent::<LinearVelocity>::default(),
@@ -162,6 +175,7 @@ fn init(mut commands: Commands) {
 
 /// Spawn a character whenever a new client has connected.
 pub(crate) fn handle_connections(
+    global: Res<Global>,
     mut connections: EventReader<ConnectEvent>,
     mut commands: Commands,
     character_query: Query<Entity, With<CharacterMarker>>,
@@ -173,12 +187,7 @@ pub(crate) fn handle_connections(
         let client_id = connection.client_id;
         info!("Client connected with client-id {client_id:?}. Spawning character entity.");
         // Replicate newly connected clients to all players
-        let replicate = Replicate {
-            sync: SyncTarget {
-                prediction: NetworkTarget::Single(connection.client_id),
-                interpolation: NetworkTarget::AllExceptSingle(connection.client_id),
-                ..default()
-            },
+        let mut replicate = Replicate {
             controlled_by: ControlledBy {
                 target: NetworkTarget::Single(client_id),
                 ..default()
@@ -188,6 +197,12 @@ pub(crate) fn handle_connections(
             group: REPLICATION_GROUP,
             ..default()
         };
+        if global.predict_all {
+            replicate.sync.prediction = NetworkTarget::All;
+        } else {
+            replicate.sync.prediction = NetworkTarget::Single(connection.client_id);
+            replicate.sync.interpolation = NetworkTarget::AllExceptSingle(client_id);
+        }
 
         // Pick color and position for player.
         let available_colors = [

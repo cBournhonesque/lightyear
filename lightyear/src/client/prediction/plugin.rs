@@ -182,7 +182,12 @@ pub enum PredictionSet {
     /// Sync components from the Confirmed entity to the Predicted entity, and potentially
     /// insert PredictedHistory components
     Sync,
-
+    /// Restore the Correct value instead of the VisualCorrected value
+    /// - we need this here because we want the correct value before the rollback check
+    /// - we are also careful to add this set to FixedPreUpdate as well, so that if FixedUpdate
+    ///   runs multiple times in a row, we still correctly reset the component to the Correct value
+    ///   before running a Simulation step. It's ok to have a duplicate system because we use std::mem::take
+    RestoreVisualCorrection,
     /// Check if rollback is needed
     CheckRollback,
     /// Prepare rollback by snapping the current state to the confirmed state and clearing histories
@@ -194,7 +199,7 @@ pub enum PredictionSet {
     // NOTE: no need to add RollbackFlush because running a schedule (which we do for rollback) will flush all commands at the end of each run
 
     // FixedPreUpdate Sets
-    RestoreVisualCorrection,
+    // RestoreVisualCorrection
 
     // FixedPostUpdate Sets
     /// Set to deal with predicted/confirmed entities getting despawned
@@ -219,7 +224,7 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
 }
 
 /// Enable rollbacking a component even if the component is not networked
-pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone + Debug>(app: &mut App) {
+pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app: &mut App) {
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(add_prediction_history::<C>);
     app.add_systems(
