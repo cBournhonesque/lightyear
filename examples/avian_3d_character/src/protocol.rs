@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::shared::color_from_id;
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
 use lightyear::client::interpolation::LinearInterpolator;
-use lightyear::prelude::client::{self, LeafwingInputConfig};
+use lightyear::prelude::client::{self, InputConfig, LeafwingInputConfig};
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
 use lightyear::utils::avian3d::{position, rotation};
@@ -56,11 +56,18 @@ impl Actionlike for CharacterAction {
 }
 
 // Protocol
-pub(crate) struct ProtocolPlugin;
+pub(crate) struct ProtocolPlugin {
+    predict_all: bool,
+}
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(LeafwingInputPlugin::<CharacterAction>::default());
+        app.add_plugins(LeafwingInputPlugin::<CharacterAction> {
+            config: InputConfig::<CharacterAction> {
+                packet_redundancy: 0,
+                send_interval: Default::default(),
+            },
+        });
 
         app.register_component::<ColorComponent>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once)
@@ -96,6 +103,8 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ExternalImpulse>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full);
 
+        // Do not replicate Transform when we are replicating Position/Rotation!
+        // See https://github.com/cBournhonesque/lightyear/discussions/941
         // app.register_component::<Transform>(ChannelDirection::ServerToClient)
         //     .add_prediction(ComponentSyncMode::Full);
 

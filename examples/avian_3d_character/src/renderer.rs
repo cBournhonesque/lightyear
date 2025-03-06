@@ -28,6 +28,10 @@ impl Plugin for ExampleRendererPlugin {
             ),
         );
 
+        // This is to test a setup where:
+        // - enemies are interpolated
+        // - they spawn Predicted bullets
+        // - we use ReplicateOnce and DisableRollback to stop replicating any packets for these bullets
         app.add_systems(
             PreUpdate,
             (add_projectile_cosmetics)
@@ -48,6 +52,7 @@ impl Plugin for ExampleRendererPlugin {
         // which receive a Position and are predicted
         app.add_observer(add_visual_interpolation_components);
 
+        // We disable rollbacks for projectiles after the initial rollbacks which brings them to the predicted timeline
         app.add_systems(Last, disable_projectile_rollback);
     }
 }
@@ -81,6 +86,7 @@ type PosToTransformComponents = (
 );
 
 
+// Avian's sync plugin only runs for entities with RigidBody, but we want to also apply it for interpolated entities
 pub fn position_to_transform_for_interpolated(
     mut query: Query<PosToTransformComponents, With<Interpolated>>,
     parents: Query<ParentComponents, With<Children>>,

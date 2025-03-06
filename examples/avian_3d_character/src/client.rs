@@ -1,6 +1,5 @@
 use avian3d::prelude::*;
 use bevy::app::PluginGroupBuilder;
-use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::input::keyboard::Key;
 use bevy::prelude::*;
 use bevy::utils::Duration;
@@ -19,8 +18,6 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // app.add_plugins(FrameTimeDiagnosticsPlugin);
-        // app.add_plugins(LogDiagnosticsPlugin::default());
         app.add_systems(Startup, connect_to_server);
         app.add_systems(
             FixedUpdate,
