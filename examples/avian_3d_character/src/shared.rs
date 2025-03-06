@@ -7,6 +7,7 @@ use server::ControlledEntities;
 use std::hash::{Hash, Hasher};
 
 use avian3d::prelude::*;
+use avian3d::sync::{position_to_transform, SyncSet};
 use bevy::prelude::TransformSystem::TransformPropagate;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::shared::replication::components::Controlled;
@@ -119,6 +120,16 @@ impl Plugin for SharedPlugin {
             // disable Sleeping plugin as it can mess up physics rollbacks
             // TODO: disabling sleeping plugin causes the player to fall through the floor
             // .disable::<SleepingPlugin>(),
+        );
+        // add an extra sync for cases where:
+        // - we receive a Position, do a rollback and set C=Correct, apply sync
+        // - in RunFixedMainLoop, we set C=Original
+        // - FixedUpdate doesn't run because frame rate is too high!
+        // - then the Transform that we show is C=Correct instead of C=Original!
+        app.add_systems(PostUpdate,
+             position_to_transform
+                .in_set(PhysicsSet::Sync)
+                .run_if(|config: Res<avian3d::sync::SyncConfig>| config.position_to_transform),
         );
         app.add_systems(FixedLast, fixed_last_log
             .before(PredictionSet::IncrementRollbackTick)
