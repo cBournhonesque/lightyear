@@ -227,6 +227,9 @@ mod tests {
 
         stepper.frame_step();
         // check that a correction is applied
+
+        // interpolate 20% of the way
+        let current_visual = Some(ComponentCorrection(2.0 + ease_out_quad(0.2) * (10.0 - 2.0)));
         assert_eq!(
             stepper
                 .client_app
@@ -237,8 +240,7 @@ mod tests {
                 original_prediction: ComponentCorrection(2.0),
                 original_tick,
                 final_correction_tick: original_tick + (original_tick - rollback_tick),
-                // interpolate 20% of the way
-                current_visual: Some(ComponentCorrection(3.6)),
+                current_visual,
                 current_correction: Some(ComponentCorrection(10.0)),
             }
         );
@@ -250,7 +252,8 @@ mod tests {
             .world()
             .get::<Correction<ComponentCorrection>>(predicted)
             .unwrap();
-        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, 5.6);
+        let current_visual = Some(ComponentCorrection(2.0 + ease_out_quad(0.4) * (11.0 - 2.0)));
+        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, current_visual.as_ref().unwrap().0);
         assert_eq!(correction.current_correction.as_ref().unwrap().0, 11.0);
 
         // trigger a new rollback while the correction is under way
@@ -266,14 +269,16 @@ mod tests {
             .get::<Correction<ComponentCorrection>>(predicted)
             .unwrap();
         // the new correction starts from the previous visual value
-        assert_relative_eq!(correction.original_prediction.0, 5.6);
+        let previous_visual = current_visual.as_ref().unwrap().0;
+        assert_relative_eq!(correction.original_prediction.0, previous_visual);
         assert_eq!(correction.original_tick, original_tick);
         assert_eq!(
             correction.final_correction_tick,
             original_tick + (original_tick - rollback_tick)
         );
         // interpolate 20% of the way
-        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, 7.88);
+        let current_visual = Some(ComponentCorrection(previous_visual + ease_out_quad(0.2) * (17.0 - previous_visual)));
+        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, current_visual.as_ref().unwrap().0);
         assert_eq!(correction.current_correction.as_ref().unwrap().0, 17.0);
         stepper.frame_step();
         stepper.frame_step();
@@ -284,7 +289,8 @@ mod tests {
             .get::<Correction<ComponentCorrection>>(predicted)
             .unwrap();
         // interpolate 80% of the way
-        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, 17.12);
+        let current_visual = Some(ComponentCorrection(previous_visual + ease_out_quad(0.8) * (20.0 - previous_visual)));
+        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, current_visual.as_ref().unwrap().0);
         assert_eq!(correction.current_correction.as_ref().unwrap().0, 20.0);
     }
 
@@ -397,6 +403,8 @@ mod tests {
 
         stepper.frame_step();
         // check that a correction is applied
+        // interpolate 20% of the way
+        let current_visual = Some(ComponentCorrection(2.0 + ease_out_quad(0.2) * (10.0 - 2.0)));
         assert_eq!(
             stepper
                 .client_app
@@ -407,8 +415,7 @@ mod tests {
                 original_prediction: ComponentCorrection(2.0),
                 original_tick,
                 final_correction_tick: original_tick + (original_tick - rollback_tick),
-                // interpolate 20% of the way
-                current_visual: Some(ComponentCorrection(3.6)),
+                current_visual,
                 current_correction: Some(ComponentCorrection(10.0)),
             }
         );

@@ -202,8 +202,10 @@ pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::client::components::Confirmed;
     use crate::client::config::ClientConfig;
+    use crate::client::easings::ease_out_quad;
     use crate::client::prediction::rollback::test_utils::received_confirmed_update;
     use crate::client::prediction::Predicted;
     use crate::prelude::client::PredictionConfig;
@@ -213,8 +215,6 @@ mod tests {
     use approx::assert_relative_eq;
     use bevy::prelude::*;
     use bevy::utils::Duration;
-
-    use super::*;
 
     #[derive(Resource, Debug)]
     pub struct Toggle(bool);
@@ -1068,6 +1068,9 @@ mod tests {
         // 5. visual interpolation should record the 2 values, so 1.0 and 2.2, and visually interpolate between them
         //    Rollback saves the overstep from before the rollback, so the overstep should still be 0.75
         //    NOTE: actually the overstep might not be 0.75 because the SyncPlugin modifies the virtual time!!!
+
+        // interpolate 20% of the way
+        let current_visual = Some(ComponentCorrection(1.0 + ease_out_quad(0.2) * (7.0 - 1.0)));
         assert_eq!(
             stepper
                 .client_app
@@ -1078,8 +1081,7 @@ mod tests {
                 original_prediction: ComponentCorrection(1.0),
                 original_tick,
                 final_correction_tick: original_tick + (original_tick - rollback_tick),
-                // interpolate 20% of the way
-                current_visual: Some(ComponentCorrection(2.2)),
+                current_visual: current_visual.clone(),
                 current_correction: Some(ComponentCorrection(7.0)),
             }
         );
@@ -1095,7 +1097,7 @@ mod tests {
                 // TODO: maybe we'd like to interpolate from 1.0 here? we could have custom logic where
                 //  post-rollback if previous_value is None and Correction is enabled, we set previous_value to original_prediction?
                 previous_value: None,
-                current_value: Some(ComponentCorrection(2.2)),
+                current_value: current_visual,
             }
         );
     }
