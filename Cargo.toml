@@ -174,9 +174,11 @@ approx = "0.5.1"
 
 # Bevy
 # (we add back features needed for gui clients if desired)
-
 bevy = { git = "https://github.com/bevyengine/bevy.git", branch = "main", default-features = false, features = [
-  "multi_threaded",
+  # needed for bevy_transform parallel
+  "std",
+  # needed for bevy_transform parallel
+  "async_executor",
   "bevy_state",
   "serialize",
   "bevy_asset",
