@@ -72,8 +72,8 @@ pub struct InterpolationConfig {
 impl Default for InterpolationConfig {
     fn default() -> Self {
         Self {
-            min_delay: Duration::from_millis(0),
-            send_interval_ratio: 1.2,
+            min_delay: Duration::from_millis(5),
+            send_interval_ratio: 1.3,
         }
     }
 }

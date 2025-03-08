@@ -11,7 +11,7 @@ use super::rollback::{
 use super::spawn::spawn_predicted_entity;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
-    get_visually_corrected_state, restore_corrected_state,
+    get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback,
 };
 use crate::client::prediction::despawn::{despawn_confirmed, PredictionDisable};
 use crate::client::prediction::predicted_history::{
@@ -29,7 +29,6 @@ use bevy::ecs::component::Mutable;
 use bevy::ecs::entity_disabling::DefaultQueryFilters;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
-use bevy::transform::TransformSystem;
 use core::time::Duration;
 
 /// Configuration to specify how the prediction plugin should behave
@@ -182,6 +181,11 @@ pub enum PredictionSet {
     /// Sync components from the Confirmed entity to the Predicted entity, and potentially
     /// insert PredictedHistory components
     Sync,
+    /// Restore the Correct value instead of the VisualCorrected value
+    /// - we need this here because we want the correct value before the rollback check
+    /// - we are also careful to add this set to FixedPreUpdate as well, so that if FixedUpdate
+    ///   runs multiple times in a row, we still correctly reset the component to the Correct value
+    ///   before running a Simulation step. It's ok to have a duplicate system because we use std::mem::take
     RestoreVisualCorrection,
     /// Check if rollback is needed
     CheckRollback,
@@ -198,18 +202,21 @@ pub enum PredictionSet {
     Rollback,
     // NOTE: no need to add RollbackFlush because running a schedule (which we do for rollback) will flush all commands at the end of each run
 
+    // FixedPreUpdate Sets
+    // RestoreVisualCorrection
+
     // FixedPostUpdate Sets
-    /// Increment the rollback tick after the main fixed-update physics loop has run
-    IncrementRollbackTick,
     /// Set to deal with predicted/confirmed entities getting despawned
     /// In practice, the entities aren't despawned but all their components are removed
     EntityDespawn,
     /// Update the client's predicted history; runs after each physics step in the FixedUpdate Schedule
     UpdateHistory,
-
-    // PostUpdate Sets
     /// Visually interpolate the predicted components to the corrected state
     VisualCorrection,
+
+    // FixedLast Sets
+    /// Increment the rollback tick after the main fixed-update physics loop has run
+    IncrementRollbackTick,
 
     /// General set encompassing all other system sets
     All,
@@ -309,16 +316,34 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
                         .in_set(PredictionSet::PrepareRollback),
                 ),
             );
+            // we want this to run every frame.
+            // If we have a Correction and we have 2 consecutive frames without FixedUpdate running
+            // the component would be set to the corrected state, instead of the original prediction!
+            app.add_systems(
+                RunFixedMainLoop,
+                set_original_prediction_post_rollback::<C>
+                    .in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
+            );
+            // we need this in case the FixedUpdate schedule runs multiple times in a row.
+            // Otherwise we would have
+            // [PreUpdate] RestoreCorrectValue
+            // [FixedUpdate] Step -> Correction = UpdateCorrectValue, InterpolateVisualValue, SetC=Visual, Sync, UpdateVisualInterpolation
+            // [FixedUpdate] Step (from C=Visual!!)
+            // We still need the RestoreVisualCorrection in PreUpdate because we need the correct state when checking for rollbacks
+            // Maybe the rollback systems should be in FixedUpdate?
+            app.add_systems(
+                FixedPreUpdate,
+                // restore to the corrected state (as the visual state might be interpolating
+                // between the predicted and corrected state)
+                restore_corrected_state::<C>.in_set(PredictionSet::RestoreVisualCorrection),
+            );
             app.add_systems(
                 FixedPostUpdate,
                 (
+                    get_corrected_state::<C>.in_set(PredictionSet::VisualCorrection),
                     // we need to run this during fixed update to know accurately the history for each tick
                     update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
                 ),
-            );
-            app.add_systems(
-                PostUpdate,
-                get_visually_corrected_state::<C>.in_set(PredictionSet::VisualCorrection),
             );
         }
         ComponentSyncMode::Simple => {
@@ -410,6 +435,16 @@ impl Plugin for PredictionPlugin {
         );
         app.add_observer(despawn_confirmed);
 
+        // FixedPreUpdate
+        app.configure_sets(
+            FixedPreUpdate,
+            PredictionSet::RestoreVisualCorrection.in_set(PredictionSet::All),
+        )
+        .configure_sets(
+            FixedPreUpdate,
+            PredictionSet::All.run_if(should_prediction_run.clone()),
+        );
+
         // FixedUpdate systems
         // 1. Update client tick (don't run in rollback)
         // 2. Run main physics/game fixed-update loop
@@ -423,7 +458,8 @@ impl Plugin for PredictionPlugin {
                 // right away to avoid rollbacks
                 PredictionSet::Sync,
                 PredictionSet::UpdateHistory,
-                PredictionSet::IncrementRollbackTick.run_if(is_in_rollback),
+                // no need to update the visual state during rollbacks
+                PredictionSet::VisualCorrection.run_if(not(is_in_rollback)),
             )
                 .in_set(PredictionSet::All)
                 .chain(),
@@ -432,20 +468,39 @@ impl Plugin for PredictionPlugin {
             FixedPostUpdate,
             PredictionSet::All.run_if(should_prediction_run.clone()),
         );
-        app.add_systems(
-            FixedPostUpdate,
-            (increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),),
-        );
 
-        // PostUpdate systems
-        // 1. Visually interpolate the prediction to the corrected state
+        // NOTE: this needs to run in FixedPostUpdate because the order we want is (if we replicate Position):
+        // - Physics update
+        // - UpdateHistory
+        // - Correction: update Position
+        // - Sync: update Transform
+        // - VisualInterpolation::UpdateVisualInterpolationState
+
+        // FixedPostUpdate systems
+        // 1. Interpolate between the confirmed state and the incorrect predicted state
+        // app.configure_sets(
+        //     FixedPostUpdate,
+        //     PredictionSet::VisualCorrection
+        //         // we want visual interpolation to use the corrected state
+        //         .before(InterpolationSet::UpdateVisualInterpolationState)
+        //         // no need to update the visual state during rollbacks
+        //         .run_if(not(is_in_rollback))
+        //         .in_set(PredictionSet::All),
+        // );
+        app.add_systems(
+            FixedLast,
+            increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
+        );
         app.configure_sets(
-            PostUpdate,
-            PredictionSet::VisualCorrection
-                .in_set(PredictionSet::All)
-                .before(TransformSystem::TransformPropagate),
+            FixedLast,
+            PredictionSet::IncrementRollbackTick
+                .run_if(is_in_rollback)
+                .in_set(PredictionSet::All),
         )
-        .configure_sets(PostUpdate, PredictionSet::All.run_if(should_prediction_run));
+        .configure_sets(
+            FixedLast,
+            PredictionSet::All.run_if(should_prediction_run.clone()),
+        );
 
         // PLUGINS
         app.add_plugins((

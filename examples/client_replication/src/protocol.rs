@@ -1,12 +1,12 @@
 use std::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
-use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Vec2};
+use bevy::ecs::entity::MapEntities;
+use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, EntityMapper, Vec2};
 use serde::{Deserialize, Serialize};
 
 use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::client::Replicate;
-use lightyear::prelude::server::SyncTarget;
 use lightyear::prelude::*;
 
 use crate::shared::color_from_id;
@@ -128,8 +128,11 @@ impl Direction {
 pub enum Inputs {
     Direction(Direction),
     Delete,
-    Spawn,
-    None,
+}
+
+// Inputs must all implement MapEntities
+impl MapEntities for Inputs {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
 }
 
 // Protocol

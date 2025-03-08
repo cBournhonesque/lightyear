@@ -587,34 +587,14 @@ impl SyncManager {
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::*;
     use core::time::Duration;
 
-    use crate::client::input::native::InputManager;
     use crate::prelude::server::Replicate;
     use crate::prelude::*;
-    use crate::server::events::InputEvent;
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
 
     use super::*;
-
-    fn press_input(
-        mut input_manager: ResMut<InputManager<MyInput>>,
-        tick_manager: Res<TickManager>,
-    ) {
-        input_manager.add_input(MyInput(0), tick_manager.tick());
-    }
-    fn increment(
-        mut query: Query<&mut ComponentSyncModeFull>,
-        mut ev: EventReader<InputEvent<MyInput>>,
-    ) {
-        for _ in ev.read() {
-            for mut c in query.iter_mut() {
-                c.0 += 1.0;
-            }
-        }
-    }
 
     /// Check that after a big tick discrepancy between server/client, the client tick gets updated
     /// to match the server tick

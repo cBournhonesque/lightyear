@@ -172,8 +172,8 @@ pub(crate) mod send {
             let send_interval = app
                 .world()
                 .resource::<ClientConfig>()
-                .replication
-                .send_interval;
+                .shared
+                .client_replication_send_interval;
 
             app
                 // REFLECTION

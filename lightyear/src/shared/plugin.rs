@@ -1,5 +1,4 @@
 //! Bevy [`Plugin`] used by both the server and the client
-use crate::client::config::ClientConfig;
 use crate::prelude::*;
 use crate::shared::config::SharedConfig;
 use crate::shared::plugin::utils::AppStateExt;
@@ -28,14 +27,15 @@ impl Plugin for SharedPlugin {
 
         // RESOURCES
         // the SharedPlugin is called after the ClientConfig is inserted
-        let input_send_interval =
-            if let Some(client_config) = app.world().get_resource::<ClientConfig>() {
-                // use the input_send_interval on the client
-                client_config.input.send_interval
-            } else {
-                // on the server (when rebroadcasting inputs), send inputs every frame
-                Duration::default()
-            };
+        // let input_send_interval =
+        //     if let Some(client_config) = app.world().get_resource::<ClientConfig>() {
+        //         // use the input_send_interval on the client
+        //         client_config.input.send_interval
+        //     } else {
+        //         // on the server (when rebroadcasting inputs), send inputs every frame
+        //         Duration::default()
+        //     };
+        let input_send_interval = Duration::default();
         app.insert_resource(ChannelRegistry::new(input_send_interval));
         app.insert_resource(ComponentRegistry::default());
         app.insert_resource(MessageRegistry::default());

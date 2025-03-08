@@ -8,9 +8,10 @@ use serde::{Deserialize, Serialize};
 use crate::shared::color_from_id;
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
 use lightyear::client::interpolation::LinearInterpolator;
-use lightyear::prelude::client::{self, LeafwingInputConfig};
+use lightyear::prelude::client::{self};
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
+use lightyear::shared::input::InputConfig;
 use lightyear::utils::avian3d::{position, rotation};
 use lightyear::utils::bevy::TransformLinearInterpolation;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -33,12 +34,16 @@ pub struct CharacterMarker;
 pub struct FloorMarker;
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ProjectileMarker;
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BlockMarker;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Reflect, Serialize, Deserialize)]
 pub enum CharacterAction {
     Move,
     Jump,
+    Shoot,
 }
 
 impl Actionlike for CharacterAction {
@@ -46,25 +51,39 @@ impl Actionlike for CharacterAction {
         match self {
             Self::Move => InputControlKind::DualAxis,
             Self::Jump => InputControlKind::Button,
+            Self::Shoot => InputControlKind::Button,
         }
     }
 }
 
 // Protocol
-pub(crate) struct ProtocolPlugin;
+pub(crate) struct ProtocolPlugin {
+    pub(crate) predict_all: bool,
+}
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(LeafwingInputPlugin::<CharacterAction>::default());
+        app.add_plugins(LeafwingInputPlugin::<CharacterAction> {
+            config: InputConfig::<CharacterAction> {
+                rebroadcast_inputs: self.predict_all,
+                ..default()
+            },
+        });
 
         app.register_component::<ColorComponent>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once);
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
         app.register_component::<Name>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
 
         app.register_component::<CharacterMarker>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once);
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
+
+        app.register_component::<ProjectileMarker>(ChannelDirection::ServerToClient)
+            .add_prediction(ComponentSyncMode::Once)
+            .add_interpolation(ComponentSyncMode::Once);
 
         app.register_component::<FloorMarker>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Once);
@@ -85,8 +104,10 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ExternalImpulse>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full);
 
-        app.register_component::<Transform>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full);
+        // Do not replicate Transform when we are replicating Position/Rotation!
+        // See https://github.com/cBournhonesque/lightyear/discussions/941
+        // app.register_component::<Transform>(ChannelDirection::ServerToClient)
+        //     .add_prediction(ComponentSyncMode::Full);
 
         app.register_component::<ComputedMass>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full);
@@ -99,11 +120,13 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Position>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full)
             .add_interpolation_fn(position::lerp)
+            .add_interpolation(ComponentSyncMode::Full)
             .add_correction_fn(position::lerp);
 
         app.register_component::<Rotation>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full)
             .add_interpolation_fn(rotation::lerp)
+            .add_interpolation(ComponentSyncMode::Full)
             .add_correction_fn(rotation::lerp);
 
         // do not replicate Transform but make sure to register an interpolation function

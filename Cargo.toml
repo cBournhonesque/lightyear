@@ -50,7 +50,7 @@ clap = { version = "4.5.4", features = ["derive"] }
 chrono = "0.4.38"
 cfg-if = "1.0"
 enum_dispatch = "0.3"
-governor = "0.7.0"
+governor = "0.8.1"
 hashbrown = "0.15"
 nonzero_ext = "0.3.0"
 parking_lot = "0.12.3"

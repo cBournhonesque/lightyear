@@ -8,9 +8,10 @@ use serde::{Deserialize, Serialize};
 use crate::shared::color_from_id;
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
 use lightyear::client::interpolation::LinearInterpolator;
-use lightyear::prelude::client::{self, LeafwingInputConfig};
+use lightyear::prelude::client::{self};
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
+use lightyear::shared::input::InputConfig;
 use lightyear::utils::avian2d::*;
 use lightyear::utils::bevy::TransformLinearInterpolation;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -237,7 +238,12 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(LeafwingInputPlugin::<PlayerActions>::default());
+        app.add_plugins(LeafwingInputPlugin::<PlayerActions> {
+            config: InputConfig::<PlayerActions> {
+                rebroadcast_inputs: true,
+                ..default()
+            },
+        });
 
         // Player is synced as Simple, because we periodically update rtt ping stats
         app.register_component::<Player>(ChannelDirection::ServerToClient)

@@ -9,7 +9,7 @@ use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::rollback::Rollback;
 use crate::client::prediction::Predicted;
-use crate::prelude::client::PredictionSet;
+use crate::prelude::client::{Correction, PredictionSet};
 use crate::prelude::{ComponentRegistry, HistoryBuffer, PrePredicted, PreSpawned, TickManager};
 use crate::shared::tick_manager::TickEvent;
 
@@ -42,12 +42,15 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
 /// (i.e. X ticks in the past compared to the current tick)
 pub(crate) fn handle_tick_event_prediction_history<C: Component>(
     trigger: Trigger<TickEvent>,
-    mut query: Query<&mut PredictionHistory<C>>,
+    mut query: Query<(&mut PredictionHistory<C>, Option<&mut Correction<C>>)>,
 ) {
     match *trigger.event() {
         TickEvent::TickSnap { old_tick, new_tick } => {
-            for mut history in query.iter_mut() {
+            for (mut history, correction) in query.iter_mut() {
                 history.update_ticks(new_tick - old_tick);
+                if let Some(mut correction) = correction {
+                    correction.update_ticks(new_tick - old_tick);
+                }
             }
         }
     }
@@ -374,7 +377,7 @@ mod tests {
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .insert(ComponentSyncModeFull2(2.0));
+            .insert(ComponentCorrection(2.0));
         stepper.frame_step();
         let tick = stepper.client_tick();
         assert_eq!(
@@ -382,10 +385,10 @@ mod tests {
                 .client_app
                 .world_mut()
                 .entity_mut(predicted)
-                .get_mut::<PredictionHistory<ComponentSyncModeFull2>>()
+                .get_mut::<PredictionHistory<ComponentCorrection>>()
                 .expect("Expected prediction history to be added")
                 .pop_until_tick(tick),
-            Some(HistoryState::Updated(ComponentSyncModeFull2(2.0))),
+            Some(HistoryState::Updated(ComponentCorrection(2.0))),
             "Expected component value to be added to prediction history"
         );
         assert_eq!(
@@ -393,9 +396,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(predicted)
-                .get::<ComponentSyncModeFull2>()
+                .get::<ComponentCorrection>()
                 .expect("Expected component to be added to predicted entity"),
-            &ComponentSyncModeFull2(2.0),
+            &ComponentCorrection(2.0),
             "Expected component to be added to predicted entity"
         );
 

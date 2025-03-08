@@ -4,7 +4,7 @@ use leafwing_input_manager::action_state::ActionData;
 use leafwing_input_manager::buttonlike::ButtonState::Pressed;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
-use lightyear::client::input::leafwing::InputSystemSet;
+use lightyear::client::input::InputSystemSet;
 use lightyear::inputs::native::input_buffer::InputBuffer;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;

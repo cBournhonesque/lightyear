@@ -584,9 +584,8 @@ impl ReplicationSender {
         let priority_multiplier = 1.0;
         self.group_channels.values_mut().for_each(|channel| {
             trace!(
-                "in accumulate priority: accumulated={:?} base={:?} multiplier={:?}, send_interval={:?}, time_manager_delta={:?}",
+                "in accumulate priority: accumulated={:?} base={:?} multiplier={:?}, time_manager_delta={:?}",
                 channel.accumulated_priority, channel.base_priority, priority_multiplier,
-                self.replication_config.send_interval.as_nanos(),
                 time_manager.delta().as_nanos()
             );
             channel.accumulated_priority += channel.base_priority * priority_multiplier;

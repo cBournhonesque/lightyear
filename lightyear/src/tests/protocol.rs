@@ -2,7 +2,7 @@ use std::ops::{Add, Mul};
 
 use crate::utils::collections::HashSet;
 use bevy::app::{App, Plugin};
-use bevy::ecs::entity::MapEntities;
+use bevy::ecs::entity::{MapEntities, VisitEntities, VisitEntitiesMut};
 use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use cfg_if::cfg_if;
@@ -18,6 +18,7 @@ use crate::protocol::serialize::SerializeFns;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::SerializationError;
+use crate::shared::input::InputConfig;
 use crate::shared::replication::delta::Diffable;
 
 // Event
@@ -87,16 +88,16 @@ impl MapEntities for ComponentMapEntities {
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-pub struct ComponentSyncModeFull2(pub f32);
+pub struct ComponentCorrection(pub f32);
 
-impl Mul<f32> for &ComponentSyncModeFull2 {
-    type Output = ComponentSyncModeFull2;
+impl Mul<f32> for &ComponentCorrection {
+    type Output = ComponentCorrection;
     fn mul(self, rhs: f32) -> Self::Output {
-        ComponentSyncModeFull2(self.0 * rhs)
+        ComponentCorrection(self.0 * rhs)
     }
 }
 
-impl Add<Self> for ComponentSyncModeFull2 {
+impl Add<Self> for ComponentCorrection {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -182,6 +183,10 @@ pub(crate) fn deserialize_resource2(reader: &mut Reader) -> Result<Resource2, Se
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
 pub struct MyInput(pub i16);
 
+impl MapEntities for MyInput {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
+}
+
 // Protocol
 cfg_if! {
     if #[cfg(feature = "leafwing")] {
@@ -217,7 +222,12 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<EntityMessage>(ChannelDirection::Bidirectional)
             .add_map_entities();
         // inputs
-        app.add_plugins(InputPlugin::<MyInput>::default());
+        app.add_plugins(InputPlugin::<MyInput> {
+            config: InputConfig::<MyInput> {
+                rebroadcast_inputs: true,
+                ..default()
+            },
+        });
         // components
         app.register_component::<ComponentSyncModeFull>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Full)
@@ -240,8 +250,9 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(ComponentSyncMode::Simple)
             .add_map_entities();
 
-        app.register_component::<ComponentSyncModeFull2>(ChannelDirection::ServerToClient)
+        app.register_component::<ComponentCorrection>(ChannelDirection::ServerToClient)
             .add_prediction(ComponentSyncMode::Full)
+            .add_linear_correction_fn()
             .add_interpolation(ComponentSyncMode::Full)
             .add_linear_interpolation_fn();
 

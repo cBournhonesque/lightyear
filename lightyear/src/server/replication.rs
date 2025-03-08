@@ -88,8 +88,8 @@ pub(crate) mod send {
             let send_interval = app
                 .world()
                 .resource::<ServerConfig>()
-                .replication
-                .send_interval;
+                .shared
+                .server_replication_send_interval;
 
             app
                 // REFLECTION

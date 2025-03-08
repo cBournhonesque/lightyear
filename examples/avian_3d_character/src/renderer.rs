@@ -1,17 +1,19 @@
 use crate::{
-    protocol::{BlockMarker, CharacterMarker, ColorComponent, FloorMarker},
+    protocol::{BlockMarker, CharacterMarker, ColorComponent, FloorMarker, ProjectileMarker},
     shared::{
         BLOCK_HEIGHT, BLOCK_WIDTH, CHARACTER_CAPSULE_HEIGHT, CHARACTER_CAPSULE_RADIUS,
         FLOOR_HEIGHT, FLOOR_WIDTH,
     },
 };
-use avian3d::prelude::*;
-use bevy::prelude::*;
-use lightyear::prelude::server::ReplicateToClient;
+use avian3d::{math::AsF32, prelude::*};
+use bevy::{color::palettes::css::MAGENTA, prelude::*};
 use lightyear::{
     client::prediction::diagnostics::PredictionDiagnosticsPlugin,
     prelude::{client::*, *},
     transport::io::IoDiagnosticsPlugin,
+};
+use lightyear::{
+    client::prediction::rollback::DisableRollback, prelude::server::ReplicationTarget,
 };
 
 pub struct ExampleRendererPlugin;
@@ -28,6 +30,22 @@ impl Plugin for ExampleRendererPlugin {
             ),
         );
 
+        // This is to test a setup where:
+        // - enemies are interpolated
+        // - they spawn Predicted bullets
+        // - we use ReplicateOnce and DisableRollback to stop replicating any packets for these bullets
+        app.add_systems(
+            PreUpdate,
+            (add_projectile_cosmetics)
+                .after(PredictionSet::Sync)
+                .before(PredictionSet::CheckRollback),
+        );
+
+        app.add_systems(
+            PostUpdate,
+            position_to_transform_for_interpolated.before(TransformSystem::TransformPropagate),
+        );
+
         // Set up visual interp plugins for Transform. Transform is updated in FixedUpdate
         // by the physics plugin so we make sure that in PostUpdate we interpolate it
         app.add_plugins(VisualInterpolationPlugin::<Transform>::default());
@@ -35,6 +53,9 @@ impl Plugin for ExampleRendererPlugin {
         // Observers that add VisualInterpolationStatus components to entities
         // which receive a Position and are predicted
         app.add_observer(add_visual_interpolation_components);
+
+        // We disable rollbacks for projectiles after the initial rollbacks which brings them to the predicted timeline
+        app.add_systems(Last, disable_projectile_rollback);
     }
 }
 
@@ -51,6 +72,50 @@ fn init(mut commands: Commands) {
         },
         Transform::from_xyz(4.0, 8.0, 4.0),
     ));
+}
+
+type ParentComponents = (
+    &'static GlobalTransform,
+    Option<&'static Position>,
+    Option<&'static Rotation>,
+);
+
+type PosToTransformComponents = (
+    &'static mut Transform,
+    &'static Position,
+    &'static Rotation,
+    Option<&'static Parent>,
+);
+
+// Avian's sync plugin only runs for entities with RigidBody, but we want to also apply it for interpolated entities
+pub fn position_to_transform_for_interpolated(
+    mut query: Query<PosToTransformComponents, With<Interpolated>>,
+    parents: Query<ParentComponents, With<Children>>,
+) {
+    for (mut transform, pos, rot, parent) in &mut query {
+        if let Some(parent) = parent {
+            if let Ok((parent_transform, parent_pos, parent_rot)) = parents.get(**parent) {
+                let parent_transform = parent_transform.compute_transform();
+                let parent_pos = parent_pos.map_or(parent_transform.translation, |pos| pos.f32());
+                let parent_rot = parent_rot.map_or(parent_transform.rotation, |rot| rot.f32());
+                let parent_scale = parent_transform.scale;
+                let parent_transform = Transform::from_translation(parent_pos)
+                    .with_rotation(parent_rot)
+                    .with_scale(parent_scale);
+
+                let new_transform = GlobalTransform::from(
+                    Transform::from_translation(pos.f32()).with_rotation(rot.f32()),
+                )
+                .reparented_to(&GlobalTransform::from(parent_transform));
+
+                transform.translation = new_transform.translation;
+                transform.rotation = new_transform.rotation;
+            }
+        } else {
+            transform.translation = pos.f32();
+            transform.rotation = rot.f32();
+        }
+    }
 }
 
 /// Add the VisualInterpolateStatus::<Transform> component to non-floor entities with
@@ -89,7 +154,11 @@ fn add_character_cosmetics(
     character_query: Query<
         (Entity, &ColorComponent),
         (
-            Or<(Added<Predicted>, Added<ReplicateToClient>)>,
+            Or<(
+                Added<Predicted>,
+                Added<ReplicateToClient>,
+                Added<Interpolated>,
+            )>,
             With<CharacterMarker>,
         ),
     >,
@@ -104,6 +173,28 @@ fn add_character_cosmetics(
                 CHARACTER_CAPSULE_HEIGHT,
             ))),
             MeshMaterial3d(materials.add(color.0)),
+        ));
+    }
+}
+
+fn add_projectile_cosmetics(
+    mut commands: Commands,
+    character_query: Query<
+        (Entity),
+        (
+            Or<(Added<Predicted>, Added<ReplicationTarget>)>,
+            With<ProjectileMarker>,
+        ),
+    >,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (entity) in &character_query {
+        info!(?entity, "Adding cosmetics to character {:?}", entity);
+        commands.entity(entity).insert((
+            Mesh3d(meshes.add(Sphere::new(1.))),
+            MeshMaterial3d(materials.add(Color::from(MAGENTA))),
+            RigidBody::Dynamic, // needed to add this somewhere, lol
         ));
     }
 }
@@ -146,5 +237,21 @@ fn add_block_cosmetics(
             Mesh3d(meshes.add(Cuboid::new(BLOCK_WIDTH, BLOCK_HEIGHT, BLOCK_WIDTH))),
             MeshMaterial3d(materials.add(Color::srgb(1.0, 0.0, 1.0))),
         ));
+    }
+}
+
+fn disable_projectile_rollback(
+    mut commands: Commands,
+    q_projectile: Query<
+        Entity,
+        (
+            With<Predicted>,
+            Or<(With<ProjectileMarker>, With<CharacterMarker>)>, // disabling character rollbacks while we debug projectiles with this janky setup
+            Without<DisableRollback>,
+        ),
+    >,
+) {
+    for proj in &q_projectile {
+        commands.entity(proj).insert(DisableRollback);
     }
 }

@@ -36,18 +36,13 @@ use super::config::ServerConfig;
 ///   disabled if you don't need client to server replication.
 /// - [`ServerReplicationSendPlugin`]: Handles the replication of entities and resources from the server to the client. This can be
 ///   disabled if you don't need server to client replication.
+#[derive(Default)]
 pub struct ServerPlugins {
     pub config: ServerConfig,
 }
 
 impl ServerPlugins {
     pub fn new(config: ServerConfig) -> Self {
-        if config.shared.server_replication_send_interval != config.replication.send_interval {
-            error!(
-                "The config.shared.server_replication_send_interval {:?} is different from the config.replication.send_interval {:?}. This can cause issues. They should be set to the same value",
-                config.shared.server_replication_send_interval, config.replication.send_interval
-            );
-        }
         Self { config }
     }
 }
