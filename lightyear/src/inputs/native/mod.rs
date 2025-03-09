@@ -21,7 +21,7 @@ There are several steps to use the `InputPlugin`:
 
 use crate::inputs::native::input_buffer::{InputBuffer, InputData};
 use crate::prelude::Deserialize;
-use bevy::ecs::component::{ComponentMutability, Mutable};
+use bevy::ecs::component::Mutable;
 use bevy::prelude::{Component, Reflect};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -33,7 +33,7 @@ pub mod input_buffer;
 pub(crate) mod input_message;
 
 /// The component that will store the current status of the action for the entity
-#[derive(Component, Clone, Debug, Serialize, Deserialize, Reflect)]
+#[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize, Reflect)]
 #[require(InputBuffer<ActionState<A>>)]
 pub struct ActionState<A: Send + Sync> {
     pub value: Option<A>,
@@ -82,14 +82,4 @@ impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug +
 
 pub trait UserActionState: UserAction + Component<Mutability = Mutable> + Default {
     type UserAction: UserAction;
-}
-
-impl<A: UserAction> PartialEq for ActionState<A> {
-    fn eq(&self, other: &Self) -> bool {
-        todo!()
-    }
-}
-
-impl<A: UserAction> UserActionState for ActionState<A> {
-    type UserAction = A;
 }

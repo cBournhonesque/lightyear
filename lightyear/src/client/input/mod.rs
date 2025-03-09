@@ -235,22 +235,22 @@ fn get_non_rollback_action_state<A: UserActionState>(
     mut action_state_query: Query<(Entity, &mut A, &InputBuffer<A>)>,
 ) {
     let tick = tick_manager.tick();
-    // for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
-    //     // We only apply the ActionState from the buffer if we have one.
-    //     // If we don't (which could happen for remote inputs), we won't do anything.
-    //     // This is equivalent to considering that the remote player will keep playing the last action they played.
-    //     if let Some(action) = input_buffer.get(tick) {
-    //         *action_state = action.clone();
-    //         trace!(
-    //             ?entity,
-    //             ?tick,
-    //             "fetched action state {:?} from input buffer: {:?}",
-    //             action_state,
-    //             // action_state.get_pressed(),
-    //             input_buffer
-    //         );
-    //     }
-    // }
+    for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
+        // We only apply the ActionState from the buffer if we have one.
+        // If we don't (which could happen for remote inputs), we won't do anything.
+        // This is equivalent to considering that the remote player will keep playing the last action they played.
+        if let Some(action) = input_buffer.get(tick) {
+            *action_state = action.clone();
+            trace!(
+                ?entity,
+                ?tick,
+                "fetched action state {:?} from input buffer: {:?}",
+                action_state,
+                // action_state.get_pressed(),
+                input_buffer
+            );
+        }
+    }
 }
 
 /// During rollback, fetch the action-state from the InputBuffer for the corresponding tick and use that
@@ -278,16 +278,16 @@ fn get_rollback_action_state<A: UserActionState>(
     let tick = rollback
         .get_rollback_tick()
         .expect("we should be in rollback");
-    // for (entity, mut action_state, input_buffer) in player_action_state_query.iter_mut() {
-    //     *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
-    //     trace!(
-    //         ?entity,
-    //         ?tick,
-    //         ?action_state,
-    //         "updated action state for rollback using input_buffer: {}",
-    //         input_buffer
-    //     );
-    // }
+    for (entity, mut action_state, input_buffer) in player_action_state_query.iter_mut() {
+        *action_state = input_buffer.get(tick).cloned().unwrap_or_default();
+        trace!(
+            ?entity,
+            ?tick,
+            ?action_state,
+            "updated action state for rollback using input_buffer: {}",
+            input_buffer
+        );
+    }
 }
 
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
@@ -304,22 +304,22 @@ fn get_delayed_action_state<A: UserActionState, F: Component>(
 ) {
     let input_delay_ticks = connection_manager.input_delay_ticks() as i16;
     let delayed_tick = tick_manager.tick() + input_delay_ticks;
-    // for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
-    //     // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
-    //     //  the problem is that the Leafwing Plugin works on ActionState directly...
-    //     if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
-    //         *action_state = delayed_action_state.clone();
-    //         trace!(
-    //             ?entity,
-    //             ?delayed_tick,
-    //             "fetched delayed action state {:?} from input buffer: {:?}",
-    //             action_state,
-    //             // action_state.get_pressed(),
-    //             input_buffer
-    //         );
-    //     }
-    //     // TODO: if we don't find an ActionState in the buffer, should we reset the delayed one to default?
-    // }
+    for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
+        // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
+        //  the problem is that the Leafwing Plugin works on ActionState directly...
+        if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
+            *action_state = delayed_action_state.clone();
+            trace!(
+                ?entity,
+                ?delayed_tick,
+                "fetched delayed action state {:?} from input buffer: {:?}",
+                action_state,
+                // action_state.get_pressed(),
+                input_buffer
+            );
+        }
+        // TODO: if we don't find an ActionState in the buffer, should we reset the delayed one to default?
+    }
 }
 
 /// System that removes old entries from the InputBuffer
