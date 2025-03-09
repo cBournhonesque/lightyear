@@ -191,7 +191,7 @@ pub(crate) fn rebroadcast_inputs<A: UserAction>(
     // rebroadcast the input to other clients
     // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
     // so that the server had the time to process the inputs
-    send_inputs.send_batch(receive_inputs.drain().map(|ev| {
+    send_inputs.write_batch(receive_inputs.drain().map(|ev| {
         ServerSendMessage::new_with_target::<InputChannel>(
             ev.message,
             NetworkTarget::AllExceptSingle(ev.from),

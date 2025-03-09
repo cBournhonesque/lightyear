@@ -43,13 +43,13 @@ pub(crate) fn push_entity_events<R: ReplicationReceive>(
     mut entity_spawn_events: EventWriter<EntitySpawnEvent<R::EventContext>>,
     mut entity_despawn_events: EventWriter<EntityDespawnEvent<R::EventContext>>,
 ) {
-    entity_spawn_events.send_batch(
+    entity_spawn_events.write_batch(
         connection_manager
             .events()
             .into_iter_entity_spawn()
             .map(|(entity, ctx)| EntitySpawnEvent::new(entity, ctx)),
     );
-    entity_despawn_events.send_batch(
+    entity_despawn_events.write_batch(
         connection_manager
             .events()
             .into_iter_entity_despawn()
