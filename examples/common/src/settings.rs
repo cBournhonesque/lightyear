@@ -12,6 +12,8 @@ use async_compat::Compat;
 #[cfg(not(target_family = "wasm"))]
 use bevy::tasks::IoTaskPool;
 
+use tracing::warn;
+
 use lightyear::connection::netcode::PRIVATE_KEY_BYTES;
 use lightyear::prelude::client::Authentication;
 #[cfg(feature = "steam")]

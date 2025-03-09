@@ -52,7 +52,7 @@ impl Plugin for ExampleClientRendererPlugin {
 }
 
 fn set_window_title(mut window: Query<&mut Window>, game_name: Res<GameName>) {
-    let mut window = window.get_single_mut().unwrap();
+    let mut window = window.single_mut().unwrap();
     window.title = format!("Lightyear Example: {}", game_name.0);
 }
 
@@ -138,7 +138,7 @@ pub(crate) fn update_button_text(
     state: Res<State<NetworkingState>>,
     mut text_query: Query<&mut Text, With<Button>>,
 ) {
-    if let Ok(mut text) = text_query.get_single_mut() {
+    if let Ok(mut text) = text_query.single_mut() {
         match state.get() {
             NetworkingState::Disconnected => {
                 text.0 = "Connect".to_string();

@@ -57,12 +57,13 @@ clap.workspace = true
 crossbeam-channel.workspace = true
 rand.workspace = true
 serde.workspace = true
-bevy.workspace = true
+bevy = { workspace = true, features = ["bevy_log"]}
 bevygap_client_plugin = { workspace = true, optional = true }
 bevygap_server_plugin = { workspace = true, optional = true }
 bevy-inspector-egui = { workspace = true, optional = true }
 bevy_metrics_dashboard = { workspace = true, optional = true }
 bevy_egui = { workspace = true, optional = true }
+tracing.workspace = true
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 web-sys = { workspace = true, features = ["Window", "Location"] }

@@ -817,7 +817,7 @@ mod unit_tests {
     use crate::tests::protocol::{ComponentRollback, ComponentSyncModeFull};
     use crate::tests::stepper::BevyStepper;
     use bevy::ecs::entity::MapEntities;
-    
+
     use core::time::Duration;
     use serde::{Deserialize, Serialize};
 
@@ -886,10 +886,13 @@ mod unit_tests {
         let confirmed = stepper
             .client_app
             .world_mut()
-            .spawn((Confirmed {
-                tick,
-                ..Default::default()
-            }, ComponentSyncModeFull(1.0)))
+            .spawn((
+                Confirmed {
+                    tick,
+                    ..Default::default()
+                },
+                ComponentSyncModeFull(1.0),
+            ))
             .id();
         let predicted = stepper
             .client_app
@@ -1555,11 +1558,11 @@ mod unit_tests {
             .0 = 2.0;
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed_a, tick);
-        let num_rollbacks =             stepper
-                .client_app
-                .world()
-                .resource::<PredictionMetrics>()
-                .rollbacks;
+        let num_rollbacks = stepper
+            .client_app
+            .world()
+            .resource::<PredictionMetrics>()
+            .rollbacks;
         stepper.frame_step();
         // no rollback
         assert_eq!(
@@ -1570,7 +1573,6 @@ mod unit_tests {
                 .rollbacks,
             num_rollbacks
         );
-
 
         // 2. If a rollback happens, then we reset DisableRollback entities to their historical value
         stepper.frame_step();

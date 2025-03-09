@@ -55,7 +55,7 @@ pub(crate) fn buffer_input(
     mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
-    if let Ok(mut action_state) = query.get_single_mut() {
+    if let Ok(mut action_state) = query.single_mut() {
         let mut input = None;
         let mut direction = Direction {
             up: false,

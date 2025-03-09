@@ -49,7 +49,7 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
                 InternalMainSet::<ServerMarker>::ReceiveEvents,
                 InputSystemSet::ReceiveInputs.run_if(is_started),
             )
-                .chain()
+                .chain(),
         );
         app.configure_sets(
             FixedPreUpdate,
