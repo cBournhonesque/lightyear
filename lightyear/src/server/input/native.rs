@@ -1,5 +1,4 @@
 //! Handles client-generated inputs
-use crate::utils::collections::HashMap;
 use bevy::prelude::*;
 
 use crate::client::config::ClientConfig;
@@ -15,7 +14,6 @@ use crate::prelude::{
 use crate::server::connection::ConnectionManager;
 use crate::server::input::InputSystemSet;
 use crate::shared::input::InputConfig;
-use bevy::prelude::*;
 use tracing::{debug, trace};
 
 pub struct InputPlugin<A> {
