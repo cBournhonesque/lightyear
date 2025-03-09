@@ -163,7 +163,7 @@ pub(crate) mod send {
     use bevy::ecs::world::FilteredEntityRef;
     use bevy::ptr::Ptr;
 
-    use tracing::{debug, trace, error};
+    use tracing::{debug, error, trace};
 
     #[derive(Default)]
     pub struct ClientReplicationSendPlugin {

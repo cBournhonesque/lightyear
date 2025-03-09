@@ -22,7 +22,6 @@ pub(crate) struct PredictedArchetypes {
     pub(crate) archetypes: HashMap<ArchetypeId, Vec<PredictedComponent>>,
 }
 
-
 /// A component that is predicted
 pub(crate) struct PredictedComponent {
     pub(crate) id: ComponentId,
@@ -40,17 +39,19 @@ impl FromWorld for PredictedArchetypes {
 }
 
 impl PredictedArchetypes {
-
     /// Update the list of predicted archetypes by going through all newly-added archetypes
-    pub(crate) fn update(&mut self, archetypes: &Archetypes, components: &Components, registry: &ComponentRegistry) {
+    pub(crate) fn update(
+        &mut self,
+        archetypes: &Archetypes,
+        components: &Components,
+        registry: &ComponentRegistry,
+    ) {
         let old_generation = core::mem::replace(&mut self.generation, archetypes.generation());
 
         // iterate through the newly added archetypes
         for archetype in archetypes[old_generation..]
             .iter()
-            .filter(|archetype| {
-                archetype.contains(self.predicted_component_id)
-            })
+            .filter(|archetype| archetype.contains(self.predicted_component_id))
         {
             let mut predicted_archetype = Vec::new();
             // add all components from the registry that are predicted

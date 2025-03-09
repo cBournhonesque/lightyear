@@ -1,10 +1,10 @@
 //! Defines the plugin related to the client networking (sending and receiving packets).
-use std::ops::DerefMut;
-use std::time::Duration;
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
+use std::ops::DerefMut;
+use std::time::Duration;
 use tracing::{debug, error, trace};
 
 use crate::client::config::ClientConfig;

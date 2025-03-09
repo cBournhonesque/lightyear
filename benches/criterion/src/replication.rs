@@ -4,9 +4,7 @@
 use bevy::prelude::{default, With};
 use core::time::Duration;
 use lightyear::prelude::server::Replicate;
-use lightyear::prelude::{
-    Replicating, ReplicationGroup,
-};
+use lightyear::prelude::{Replicating, ReplicationGroup};
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
 use lightyear_benches::profiler::FlamegraphProfiler;
 use lightyear_benches::protocol::*;

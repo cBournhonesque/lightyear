@@ -43,18 +43,19 @@ pub(crate) fn handle_connections(
 ) {
     for connection in connections.read() {
         let client_id = connection.client_id;
-        let entity = commands.spawn((
-            PlayerBundle::new(client_id, Vec2::ZERO),
-            ReplicateToClient::default(),
-            SyncTarget {
-                prediction: NetworkTarget::Single(client_id),
-                interpolation: NetworkTarget::AllExceptSingle(client_id),
-            },
-            ControlledBy {
-                target: NetworkTarget::Single(client_id),
-                ..default()
-            },
-        ))
+        let entity = commands
+            .spawn((
+                PlayerBundle::new(client_id, Vec2::ZERO),
+                ReplicateToClient::default(),
+                SyncTarget {
+                    prediction: NetworkTarget::Single(client_id),
+                    interpolation: NetworkTarget::AllExceptSingle(client_id),
+                },
+                ControlledBy {
+                    target: NetworkTarget::Single(client_id),
+                    ..default()
+                },
+            ))
             .id();
         info!("Create entity {:?} for client {:?}", entity, client_id);
     }

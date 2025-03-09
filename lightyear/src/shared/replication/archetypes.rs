@@ -16,7 +16,7 @@ use bevy::{
     },
     prelude::*,
 };
-use tracing::{trace};
+use tracing::trace;
 
 /// Cached information about all replicated archetypes.
 ///

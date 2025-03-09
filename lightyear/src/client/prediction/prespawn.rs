@@ -3,7 +3,7 @@
 use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, trace, error, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;

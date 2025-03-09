@@ -5,6 +5,7 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
 use std::fmt::Debug;
 
+pub(crate) mod archetypes;
 pub mod correction;
 pub mod despawn;
 pub mod diagnostics;
@@ -16,7 +17,6 @@ pub(crate) mod resource;
 pub mod resource_history;
 pub mod rollback;
 pub mod spawn;
-pub(crate) mod archetypes;
 
 /// Marks an entity that is being predicted by the client
 #[derive(Debug, Reflect)]

@@ -6,10 +6,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 use bevy::platform_support::collections::HashMap;
-use bevy::prelude::{
-    default, App, Commands, Mut, Plugin, Real, Resource
-    , Time,
-};
+use bevy::prelude::{default, App, Commands, Mut, Plugin, Real, Resource, Time};
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 use bevy::MinimalPlugins;

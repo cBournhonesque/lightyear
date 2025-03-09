@@ -3,7 +3,7 @@
 use crate::prelude::server::{AuthorityCommandExt, AuthorityPeer};
 use crate::prelude::{PrePredicted, Replicated, ServerConnectionManager};
 use bevy::prelude::*;
-use tracing::{debug};
+use tracing::debug;
 
 /// When we receive an entity that a clients wants PrePredicted,
 /// we immediately transfer authority back to the server. The server will replicate the PrePredicted

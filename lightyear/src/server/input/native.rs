@@ -16,7 +16,7 @@ use crate::server::connection::ConnectionManager;
 use crate::server::input::InputSystemSet;
 use crate::shared::input::InputConfig;
 use bevy::prelude::*;
-use tracing::{trace, debug};
+use tracing::{debug, trace};
 
 pub struct InputPlugin<A> {
     /// If True, the server will rebroadcast a client's inputs to all other clients.
