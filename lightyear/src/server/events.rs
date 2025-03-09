@@ -13,6 +13,8 @@ use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::events::systems::push_component_events;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
+use tracing::debug;
+
 /// Plugin that adds bevy [`Events`] related to networking and replication
 #[derive(Default)]
 pub struct ServerEventsPlugin;
@@ -47,7 +49,7 @@ fn emit_connect_events(
         if connection_manager.events.has_connections() {
             for connect_event in connection_manager.events.iter_connections() {
                 debug!("Client connected event: {}", connect_event.client_id);
-                connect_events.send(connect_event);
+                connect_events.write(connect_event);
                 // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
                 // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
                 //  so a bunch of Resources have been removed from the World
@@ -59,7 +61,7 @@ fn emit_connect_events(
         if connection_manager.events.has_disconnections() {
             for disconnect_event in connection_manager.events.iter_disconnections() {
                 debug!("Client disconnected event: {}", disconnect_event.client_id);
-                disconnect_events.send(disconnect_event);
+                disconnect_events.write(disconnect_event);
                 // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
                 // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
                 //  so a bunch of Resources have been removed from the World

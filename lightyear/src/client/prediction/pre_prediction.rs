@@ -2,6 +2,7 @@
 //! then the ownership gets transferred to the server.
 
 use bevy::prelude::*;
+use tracing::debug;
 
 use crate::client::components::Confirmed;
 use crate::client::prediction::resource::PredictionManager;
@@ -157,6 +158,7 @@ mod tests {
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{ComponentClientToServer, ComponentSyncModeFull};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
+    use bevy::ecs::relationship::Relationship;
 
     /// Simple preprediction case
     /// Also check that the PredictionHistory is correctly added to the PrePredicted entity
@@ -186,7 +188,7 @@ mod tests {
             .client_app
             .world_mut()
             .query_filtered::<Entity, With<Confirmed>>()
-            .get_single(stepper.client_app.world())
+            .single(stepper.client_app.world())
             .unwrap();
 
         // need to step multiple times because the server entity doesn't handle messages from future ticks
@@ -310,13 +312,13 @@ mod tests {
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<ComponentClientToServer>>()
-            .get_single(stepper.server_app.world())
+            .single(stepper.server_app.world())
             .expect("parent entity was not replicated");
         let server_child = stepper
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<ComponentSyncModeFull>>()
-            .get_single(stepper.server_app.world())
+            .single(stepper.server_app.world())
             .expect("child entity was not replicated");
         assert_eq!(
             stepper
@@ -379,7 +381,7 @@ mod tests {
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<Predicted>>()
-            .get_single(stepper.server_app.world())
+            .single(stepper.server_app.world())
             .unwrap();
 
         // need to step multiple times because the server entity doesn't handle messages from future ticks

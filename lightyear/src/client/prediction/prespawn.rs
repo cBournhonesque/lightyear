@@ -3,7 +3,7 @@
 use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, trace};
+use tracing::{debug, error, trace, warn};
 
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
@@ -146,7 +146,7 @@ impl PreSpawnedPlayerObjectPlugin {
             // 1.a if the client_entity exists, remove the PreSpawnedPlayerObject component from the client entity
             //  and add a Predicted component to it
             let predicted_entity =
-                if let Some(mut entity_commands) = commands.get_entity(client_entity) {
+                if let Ok(mut entity_commands) = commands.get_entity(client_entity) {
                     #[cfg(feature = "metrics")]
                     {
                         metrics::counter!("prespawn::match::found").increment(1);
@@ -241,7 +241,7 @@ impl PreSpawnedPlayerObjectPlugin {
                 .iter()
                 .flatten()
                 .for_each(|entity| {
-                    if let Some(mut entity_commands) = commands.get_entity(*entity) {
+                    if let Ok(mut entity_commands) = commands.get_entity(*entity) {
                         trace!(
                             ?tick,
                             ?entity,
@@ -646,7 +646,8 @@ mod tests {
             .client_app
             .world_mut()
             .query_filtered::<(Entity, &Confirmed), With<Replicated>>()
-            .single(stepper.client_app.world());
+            .single(stepper.client_app.world())
+            .unwrap();
         let client_predicted = confirmed.predicted.unwrap();
 
         // run prespawned entity on server.

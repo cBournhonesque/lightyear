@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
-use tracing::{debug, error, trace, trace_span};
+use tracing::{debug, error, trace, trace_span, warn};
 
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
@@ -481,7 +481,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
             ?entity,
             "deleting pre-spawned entity because it was created after the rollback tick"
         );
-        if let Some(mut entity_commands) = commands.get_entity(*entity) {
+        if let Ok(mut entity_commands) = commands.get_entity(*entity) {
             entity_commands.despawn();
         }
     });
@@ -810,7 +810,9 @@ mod unit_tests {
     use super::*;
     use crate::client::prediction::rollback::test_utils::received_confirmed_update;
     use crate::prelude::server::SyncTarget;
-    use crate::prelude::{NetworkTarget, SharedConfig, TickConfig};
+    use crate::prelude::{
+        AppComponentExt, ChannelDirection, NetworkTarget, SharedConfig, TickConfig,
+    };
     use crate::tests::protocol::{ComponentRollback, ComponentSyncModeFull};
     use crate::tests::stepper::BevyStepper;
     use bevy::ecs::entity::MapEntities;
@@ -1548,7 +1550,7 @@ mod unit_tests {
         let _ = stepper
             .client_app
             .world_mut()
-            .run_system_once(check_rollback::<ComponentSyncModeFull>);
+            .run_system_once(check_rollback);
         assert_eq!(
             stepper
                 .client_app

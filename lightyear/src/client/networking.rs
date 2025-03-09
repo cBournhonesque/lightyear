@@ -1,12 +1,11 @@
 //! Defines the plugin related to the client networking (sending and receiving packets).
-use std::ops::DerefMut;
-
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
-use bevy::utils::Duration;
-use tracing::{error, trace};
+use std::ops::DerefMut;
+use std::time::Duration;
+use tracing::{debug, error, trace};
 
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -373,7 +372,7 @@ fn on_connect(
         "Running OnConnect schedule with client id: {:?}",
         netcode.id()
     );
-    connect_event_writer.send(ConnectEvent::new(netcode.id()));
+    connect_event_writer.write(ConnectEvent::new(netcode.id()));
     // also trigger the event
     commands.trigger(ConnectEvent::new(netcode.id()));
 }
@@ -402,7 +401,7 @@ fn on_connect_host_server(
         .unwrap()
         .set_local_client();
     metadata.client_entity = Some(client_entity);
-    connect_event_writer.send(ConnectEvent::new(netcode.id()));
+    connect_event_writer.write(ConnectEvent::new(netcode.id()));
     // also trigger the event
     commands.trigger(ConnectEvent::new(netcode.id()));
 }
@@ -420,7 +419,7 @@ fn on_disconnecting(
 ) {
     // despawn any entities that were spawned from replication
     received_entities.iter().for_each(|e| {
-        if let Some(mut commands) = commands.get_entity(e) {
+        if let Ok(mut commands) = commands.get_entity(e) {
             commands.despawn();
         }
     });
@@ -433,7 +432,7 @@ fn on_disconnecting(
     // no need to update the io state, because we will recreate a new `ClientConnection`
     // for the next connection attempt
     let reason = std::mem::take(&mut netclient.disconnect_reason);
-    disconnect_event_writer.send(DisconnectEvent { reason });
+    disconnect_event_writer.write(DisconnectEvent { reason });
     // TODO: how can we also provide a reason here? or do we even need to?
     // we need to also trigger the event because we sometimes react to it via observers
     commands.trigger(DisconnectEvent { reason: None });

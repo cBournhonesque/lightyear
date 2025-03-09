@@ -21,6 +21,7 @@ There are several steps to use the `InputPlugin`:
 
 use crate::inputs::native::input_buffer::{InputBuffer, InputData};
 use crate::prelude::Deserialize;
+use bevy::ecs::component::Mutable;
 use bevy::prelude::{Component, Reflect};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -79,7 +80,7 @@ impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug +
 {
 }
 
-pub trait UserActionState: UserAction + Component + Default {
+pub trait UserActionState: UserAction + Component<Mutability = Mutable> + Default {
     type UserAction: UserAction;
 }
 

@@ -10,6 +10,7 @@ use crate::inputs::native::UserActionState;
 use crate::prelude::{server::is_started, TickManager};
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use bevy::prelude::*;
+use tracing::trace;
 
 pub struct BaseInputPlugin<A> {
     rebroadcast_inputs: bool,
@@ -78,6 +79,7 @@ fn update_action_state<A: UserActionState>(
     mut action_state_query: Query<(Entity, &mut A, &mut InputBuffer<A>)>,
 ) {
     let tick = tick_manager.tick();
+
     for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
         // We only apply the ActionState from the buffer if we have one.
         // If we don't (because the input packet is late or lost), we won't do anything.

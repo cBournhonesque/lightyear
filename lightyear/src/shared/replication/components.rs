@@ -1,7 +1,7 @@
 //! Components used for replication
 
 use bevy::ecs::reflect::ReflectComponent;
-use bevy::prelude::{require, Component, Entity, Reflect};
+use bevy::prelude::{Component, Entity, Reflect};
 use bevy::time::{Timer, TimerMode};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};

@@ -78,6 +78,8 @@ pub(crate) mod send {
     use bevy::ecs::world::FilteredEntityRef;
     use bevy::ptr::Ptr;
 
+    use tracing::{debug, error, trace};
+
     #[derive(Default)]
     pub struct ServerReplicationSendPlugin {
         pub tick_interval: Duration,
@@ -1257,7 +1259,9 @@ pub(crate) mod send {
             let server_child = stepper
                 .server_app
                 .world_mut()
-                .spawn(ChildOf(server_entity))
+                .spawn(ChildOf {
+                    parent: server_entity,
+                })
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -1371,7 +1375,9 @@ pub(crate) mod send {
             let server_child = stepper
                 .server_app
                 .world_mut()
-                .spawn(ChildOf(server_entity))
+                .spawn(ChildOf {
+                    parent: server_entity,
+                })
                 .id();
 
             stepper.frame_step();
@@ -1428,7 +1434,9 @@ pub(crate) mod send {
             let server_child = stepper
                 .server_app
                 .world_mut()
-                .spawn(ChildOf(server_entity))
+                .spawn(ChildOf {
+                    parent: server_entity,
+                })
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -1597,7 +1605,9 @@ pub(crate) mod send {
             let server_child = stepper
                 .server_app
                 .world_mut()
-                .spawn(ChildOf(server_entity))
+                .spawn(ChildOf {
+                    parent: server_entity,
+                })
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -1646,10 +1656,13 @@ pub(crate) mod send {
                 .world_mut()
                 .spawn(ReplicateToClient::default())
                 .id();
+
             let server_child = stepper
                 .server_app
                 .world_mut()
-                .spawn(ChildOf(server_entity))
+                .spawn(ChildOf {
+                    parent: server_entity,
+                })
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -3279,7 +3292,12 @@ pub(crate) mod send {
             let server_child = stepper
                 .server_app
                 .world_mut()
-                .spawn((ChildOf(server_entity), ComponentSyncModeOnce(1.0)))
+                .spawn((
+                    ChildOf {
+                        parent: server_entity,
+                    },
+                    ComponentSyncModeOnce(1.0),
+                ))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -3811,7 +3829,7 @@ pub(crate) mod commands {
                 .client_app
                 .world_mut()
                 .query_filtered::<Entity, With<ComponentSyncModeFull>>()
-                .get_single(stepper.client_app.world())
+                .single(stepper.client_app.world())
                 .unwrap();
 
             // if we remove the Replicate bundle directly, and then despawn the entity
@@ -3829,7 +3847,7 @@ pub(crate) mod commands {
                 .client_app
                 .world_mut()
                 .query::<&ComponentSyncModeFull>()
-                .get_single(stepper.client_app.world())
+                .single(stepper.client_app.world())
                 .is_err());
 
             // spawn a new entity
@@ -3844,7 +3862,7 @@ pub(crate) mod commands {
                 .client_app
                 .world_mut()
                 .query::<&ComponentSyncModeFull>()
-                .get_single(stepper.client_app.world())
+                .single(stepper.client_app.world())
                 .is_ok());
 
             // apply the command to remove replicate
@@ -3856,7 +3874,7 @@ pub(crate) mod commands {
                 .client_app
                 .world_mut()
                 .query::<&ComponentSyncModeFull>()
-                .get_single(stepper.client_app.world())
+                .single(stepper.client_app.world())
                 .is_ok());
         }
     }

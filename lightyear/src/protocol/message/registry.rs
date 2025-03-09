@@ -15,6 +15,7 @@ use bevy::platform_support::collections::HashMap;
 use bevy::prelude::*;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use tracing::debug;
 
 pub struct MessageRegistration<'a, M> {
     pub(crate) app: &'a mut App,

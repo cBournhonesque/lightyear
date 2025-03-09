@@ -125,14 +125,14 @@ mod systems {
                         "Despawning entity {entity:?} controlled by disconnected client {:?}",
                         client_id
                     );
-                    if let Some(mut command) = commands.get_entity(*entity) {
+                    if let Ok(mut command) = commands.get_entity(*entity) {
                         command.despawn();
                     }
                 }
             }
         }
         // despawn the client entity itself
-        if let Some(mut command) = commands.get_entity(client_entity) {
+        if let Ok(mut command) = commands.get_entity(client_entity) {
             command.despawn();
         };
     }
@@ -374,7 +374,8 @@ mod tests {
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<Replicated>>()
-            .single(stepper.server_app.world());
+            .single(stepper.server_app.world())
+            .unwrap();
         // add ControlledBy on the entity
         stepper
             .server_app

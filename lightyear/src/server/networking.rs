@@ -20,7 +20,7 @@ use crate::transport::error::Error as TransportError;
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::*;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, info_span, trace, warn};
 
 /// Plugin handling the server networking systems: sending/receiving packets to clients
 #[derive(Default)]
@@ -521,7 +521,7 @@ mod tests {
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<ControlledEntities>>()
-            .get_single(stepper.server_app.world())
+            .single(stepper.server_app.world())
             .unwrap();
 
         stepper.frame_step();
