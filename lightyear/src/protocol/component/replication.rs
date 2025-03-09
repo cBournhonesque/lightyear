@@ -478,7 +478,11 @@ mod tests {
 
         // make sure that the ComponentSyncModeSimple was only inserted twice, not three times
         assert_eq!(
-            world.query::<&ComponentSyncModeFull>().single(&world).0,
+            world
+                .query::<&ComponentSyncModeFull>()
+                .single(&world)
+                .unwrap()
+                .0,
             2.0
         );
     }

@@ -578,7 +578,8 @@ mod tests {
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<PrePredicted>>()
-            .single(stepper.server_app.world());
+            .single(stepper.server_app.world())
+            .unwrap();
         // replicate back the pre-predicted entity
         stepper
             .server_app

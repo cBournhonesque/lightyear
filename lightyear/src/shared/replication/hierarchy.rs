@@ -817,13 +817,13 @@ mod tests {
             .client_app
             .world_mut()
             .query_filtered::<Entity, With<ComponentSyncModeFull>>()
-            .get_single(stepper.client_app.world())
+            .single(stepper.client_app.world())
             .unwrap();
         let (client_parent, client_parent_sync, client_parent_component) = stepper
             .client_app
             .world_mut()
             .query_filtered::<(Entity, &ChildOfSync, &ChildOf), With<ComponentSyncModeSimple>>()
-            .get_single(stepper.client_app.world())
+            .single(stepper.client_app.world())
             .unwrap();
 
         assert_eq!(client_parent_sync.entity, Some(client_grandparent));
@@ -906,19 +906,19 @@ mod tests {
             .client_app
             .world_mut()
             .query_filtered::<Entity, With<ComponentSyncModeFull>>()
-            .get_single(stepper.client_app.world())
+            .single(stepper.client_app.world())
             .unwrap();
         let client_parent = stepper
             .client_app
             .world_mut()
             .query_filtered::<Entity, With<ComponentSyncModeSimple>>()
-            .get_single(stepper.client_app.world())
+            .single(stepper.client_app.world())
             .unwrap();
         let client_child = stepper
             .client_app
             .world_mut()
             .query_filtered::<Entity, With<ComponentSyncModeOnce>>()
-            .get_single(stepper.client_app.world())
+            .single(stepper.client_app.world())
             .unwrap();
 
         // 2. check that the hierarchies have been replicated
@@ -985,13 +985,13 @@ mod tests {
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<ComponentSyncModeFull>>()
-            .get_single(stepper.server_app.world())
+            .single(stepper.server_app.world())
             .expect("parent entity was not replicated");
         let server_child = stepper
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<ComponentClientToServer>>()
-            .get_single(stepper.server_app.world())
+            .single(stepper.server_app.world())
             .expect("child entity was not replicated");
         assert_eq!(
             stepper

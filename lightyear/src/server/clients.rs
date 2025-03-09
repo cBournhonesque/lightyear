@@ -374,7 +374,8 @@ mod tests {
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<Replicated>>()
-            .single(stepper.server_app.world());
+            .single(stepper.server_app.world())
+            .unwrap();
         // add ControlledBy on the entity
         stepper
             .server_app

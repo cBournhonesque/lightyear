@@ -521,7 +521,7 @@ mod tests {
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<ControlledEntities>>()
-            .get_single(stepper.server_app.world())
+            .single(stepper.server_app.world())
             .unwrap();
 
         stepper.frame_step();

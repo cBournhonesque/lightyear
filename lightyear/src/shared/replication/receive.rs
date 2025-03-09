@@ -1487,7 +1487,7 @@ mod tests {
             .client_app
             .world_mut()
             .query_filtered::<(), (With<ComponentSyncModeOnce>, With<ComponentSyncModeSimple>)>()
-            .get_single(stepper.client_app.world())
+            .single(stepper.client_app.world())
             .is_ok());
     }
 
@@ -1546,7 +1546,7 @@ mod tests {
                 Without<ComponentSyncModeSimple>,
                 Without<ComponentSyncModeOnce>
             )>()
-            .get_single(stepper.client_app.world())
+            .single(stepper.client_app.world())
             .is_ok());
     }
 }

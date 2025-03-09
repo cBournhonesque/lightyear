@@ -828,7 +828,9 @@ pub(crate) mod send {
             let client_child = stepper
                 .client_app
                 .world_mut()
-                .spawn(ChildOf(client_entity))
+                .spawn(ChildOf {
+                    parent: client_entity,
+                })
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -908,7 +910,9 @@ pub(crate) mod send {
             let client_child = stepper
                 .client_app
                 .world_mut()
-                .spawn(ChildOf(client_entity))
+                .spawn(ChildOf {
+                    parent: client_entity,
+                })
                 .id();
             for _ in 0..10 {
                 stepper.frame_step();
@@ -1041,7 +1045,9 @@ pub(crate) mod send {
             let client_child = stepper
                 .client_app
                 .world_mut()
-                .spawn(ChildOf(client_entity))
+                .spawn(ChildOf {
+                    parent: client_entity,
+                })
                 .id();
             for _ in 0..10 {
                 stepper.frame_step();
@@ -1096,7 +1102,9 @@ pub(crate) mod send {
             let client_child = stepper
                 .client_app
                 .world_mut()
-                .spawn(ChildOf(client_entity))
+                .spawn(ChildOf {
+                    parent: client_entity,
+                })
                 .id();
             for _ in 0..10 {
                 stepper.frame_step();
@@ -1447,7 +1455,12 @@ pub(crate) mod send {
             let client_child = stepper
                 .client_app
                 .world_mut()
-                .spawn((ChildOf(client_entity), ComponentSyncModeFull(1.0)))
+                .spawn((
+                    ChildOf {
+                        parent: client_entity,
+                    },
+                    ComponentSyncModeFull(1.0),
+                ))
                 .id();
             for _ in 0..10 {
                 stepper.frame_step();

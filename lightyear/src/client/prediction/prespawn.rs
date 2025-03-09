@@ -646,7 +646,8 @@ mod tests {
             .client_app
             .world_mut()
             .query_filtered::<(Entity, &Confirmed), With<Replicated>>()
-            .single(stepper.client_app.world());
+            .single(stepper.client_app.world())
+            .unwrap();
         let client_predicted = confirmed.predicted.unwrap();
 
         // run prespawned entity on server.

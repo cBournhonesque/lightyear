@@ -624,7 +624,7 @@ mod tests {
                 With<ComponentSyncModeSimple>,
                 With<Predicted>
             )>()
-            .get_single(stepper.client_app.world())
+            .single(stepper.client_app.world())
             .is_ok());
     }
 

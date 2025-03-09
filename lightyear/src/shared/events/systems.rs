@@ -17,19 +17,19 @@ pub(crate) fn push_component_events<C: Component, R: ReplicationReceive>(
     mut component_remove_events: EventWriter<ComponentRemoveEvent<C, R::EventContext>>,
     mut component_update_events: EventWriter<ComponentUpdateEvent<C, R::EventContext>>,
 ) {
-    component_insert_events.send_batch(
+    component_insert_events.write_batch(
         connection_manager
             .events()
             .iter_component_insert::<C>()
             .map(|(entity, ctx)| ComponentInsertEvent::new(entity, ctx)),
     );
-    component_remove_events.send_batch(
+    component_remove_events.write_batch(
         connection_manager
             .events()
             .iter_component_remove::<C>()
             .map(|(entity, ctx)| ComponentRemoveEvent::new(entity, ctx)),
     );
-    component_update_events.send_batch(
+    component_update_events.write_batch(
         connection_manager
             .events()
             .iter_component_update::<C>()

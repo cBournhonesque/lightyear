@@ -810,7 +810,9 @@ mod unit_tests {
     use super::*;
     use crate::client::prediction::rollback::test_utils::received_confirmed_update;
     use crate::prelude::server::SyncTarget;
-    use crate::prelude::{NetworkTarget, SharedConfig, TickConfig};
+    use crate::prelude::{
+        AppComponentExt, ChannelDirection, NetworkTarget, SharedConfig, TickConfig,
+    };
     use crate::tests::protocol::{ComponentRollback, ComponentSyncModeFull};
     use crate::tests::stepper::BevyStepper;
     use bevy::ecs::entity::MapEntities;
@@ -1548,7 +1550,7 @@ mod unit_tests {
         let _ = stepper
             .client_app
             .world_mut()
-            .run_system_once(check_rollback::<ComponentSyncModeFull>);
+            .run_system_once(check_rollback);
         assert_eq!(
             stepper
                 .client_app

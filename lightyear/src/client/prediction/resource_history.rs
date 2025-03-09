@@ -57,6 +57,7 @@ mod tests {
     use crate::prelude::Tick;
     use crate::tests::stepper::BevyStepper;
     use bevy::ecs::system::RunSystemOnce;
+    use tracing::info;
 
     #[derive(Resource, Clone, PartialEq, Debug)]
     struct TestResource(f32);
