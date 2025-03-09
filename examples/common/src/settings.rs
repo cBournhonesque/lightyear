@@ -5,12 +5,14 @@ use std::net::{Ipv4Addr, SocketAddr};
 
 use bevy::asset::ron;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 #[cfg(not(target_family = "wasm"))]
 use async_compat::Compat;
 #[cfg(not(target_family = "wasm"))]
 use bevy::tasks::IoTaskPool;
+
+use tracing::warn;
 
 use lightyear::connection::netcode::PRIVATE_KEY_BYTES;
 use lightyear::prelude::client::Authentication;

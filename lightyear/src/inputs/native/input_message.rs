@@ -43,8 +43,8 @@ impl<A: UserAction + MapEntities> MapEntities for InputMessage<A> {
     // NOTE: we only map the inputs for the pre-predicted entities
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.inputs.iter_mut().for_each(|data| {
-            if let InputTarget::PrePredictedEntity(ref mut e) = data.target {
-                *e = entity_mapper.map_entity(*e);
+            if let InputTarget::PrePredictedEntity(e) = &mut data.target {
+                *e = entity_mapper.get_mapped(*e);
             }
             data.states.iter_mut().for_each(|state| {
                 if let InputData::Input(ref mut action_state) = state {

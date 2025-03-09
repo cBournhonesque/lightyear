@@ -2,7 +2,7 @@ use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use leafwing_input_manager::prelude::ActionState;
 use tracing::Level;
 

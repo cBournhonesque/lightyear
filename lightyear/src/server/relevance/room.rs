@@ -20,6 +20,7 @@ This can be useful for games where you have physical instances of rooms:
 
 ```rust
 use bevy::prelude::*;
+use bevy::ecs::entity::hash_map::EntityHashMap;
 use lightyear::prelude::*;
 use lightyear::prelude::server::*;
 
@@ -38,10 +39,10 @@ it just caches the room metadata to keep track of the relevance of entities.
 */
 
 use bevy::app::App;
-use bevy::ecs::entity::EntityHash;
+use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
+use bevy::platform_support::collections::{hash_map::Entry, HashMap, HashSet};
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
-use bevy::utils::{Entry, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -50,11 +51,6 @@ use crate::prelude::server::is_started;
 
 use crate::server::relevance::immediate::{NetworkRelevanceSet, RelevanceEvents, RelevanceManager};
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
-
-use bevy::utils::hashbrown;
-
-type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
-type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
 
 /// Id for a [`Room`], which is used to perform interest management.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq, Default, Reflect)]
@@ -83,7 +79,7 @@ struct RoomData {
     /// List of rooms that a client is in
     client_to_rooms: HashMap<ClientId, HashSet<RoomId>>,
     /// List of rooms that an entity is in
-    entity_to_rooms: EntityHashMap<Entity, HashSet<RoomId>>,
+    entity_to_rooms: EntityHashMap<HashSet<RoomId>>,
     /// Mapping from [`RoomId`] to the [`Room`]
     rooms: HashMap<RoomId, Room>,
 }
@@ -100,7 +96,7 @@ pub struct Room {
     /// list of clients that are in the room
     pub clients: HashSet<ClientId>,
     /// list of entities that are in the room
-    pub entities: EntityHashSet<Entity>,
+    pub entities: EntityHashSet,
 }
 
 impl Room {
@@ -356,15 +352,15 @@ pub(super) mod systems {
         trigger: Trigger<OnRemove, ReplicationGroup>,
         mut room_manager: ResMut<RoomManager>,
     ) {
-        room_manager.entity_despawn(trigger.entity());
+        room_manager.entity_despawn(trigger.target());
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::utils::collections::HashMap;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::Events;
-    use bevy::utils::HashMap;
 
     use crate::prelude::client::*;
     use crate::prelude::server::Replicate;
@@ -455,7 +451,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Gained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Gained)])
         );
 
         stepper.frame_step();
@@ -474,7 +470,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Maintained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
         );
 
         // Check that the entity gets replicated to client
@@ -527,7 +523,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Lost)])
+            HashMap::from_iter([(client_id, ClientRelevance::Lost)])
         );
         stepper.frame_step();
         // after bookkeeping, the entity should not have any clients in its replication cache
@@ -624,7 +620,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Gained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Gained)])
         );
 
         stepper.frame_step();
@@ -643,7 +639,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Maintained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
         );
 
         // Check that the entity gets replicated to client
@@ -696,7 +692,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Lost)])
+            HashMap::from_iter([(client_id, ClientRelevance::Lost)])
         );
         stepper.frame_step();
         // after bookkeeping, the entity should not have any clients in its replication cache
@@ -776,7 +772,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Gained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Gained)])
         );
         // apply bookkeeping
         stepper.frame_step();
@@ -788,7 +784,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Maintained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
         );
 
         let new_room_id = RoomId(1);
@@ -831,7 +827,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Maintained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
         );
     }
 
@@ -890,7 +886,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Gained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Gained)])
         );
         // apply bookkeeping
         stepper.frame_step();
@@ -902,7 +898,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Maintained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
         );
 
         // entity leaves previous room and joins new room
@@ -933,7 +929,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Maintained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
         );
     }
 
@@ -992,7 +988,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Gained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Gained)])
         );
         // apply bookkeeping
         stepper.frame_step();
@@ -1004,7 +1000,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Maintained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
         );
 
         // client leaves previous room and joins new room
@@ -1035,7 +1031,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Maintained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
         );
     }
 
@@ -1090,7 +1086,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Gained)])
+            HashMap::from_iter([(client_id, ClientRelevance::Gained)])
         );
 
         // Client and entity leave room
@@ -1121,7 +1117,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(client_id, ClientRelevance::Lost)])
+            HashMap::from_iter([(client_id, ClientRelevance::Lost)])
         );
     }
     // TODO: check that entity despawn/client disconnect cleans the room metadata
@@ -1200,7 +1196,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(c1, ClientRelevance::Gained), (c2, ClientRelevance::Gained)])
+            HashMap::from_iter([(c1, ClientRelevance::Gained), (c2, ClientRelevance::Gained)])
         );
         assert_eq!(
             stepper
@@ -1210,7 +1206,7 @@ mod tests {
                 .get::<CachedNetworkRelevance>()
                 .unwrap()
                 .clients_cache,
-            HashMap::from([(c1, ClientRelevance::Gained), (c2, ClientRelevance::Gained)])
+            HashMap::from_iter([(c1, ClientRelevance::Gained), (c2, ClientRelevance::Gained)])
         );
         stepper.frame_step();
         stepper.frame_step();

@@ -1,4 +1,4 @@
-use bevy::utils::HashMap;
+use crate::utils::collections::HashMap;
 use byteorder::NetworkEndian;
 use byteorder::ReadBytesExt;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
@@ -132,7 +132,7 @@ impl PacketHeaderManager {
             next_packet_id: PacketId(0),
             stats_manager: PacketStatsManager::default(),
             // sent_packets_not_acked: HashSet::with_capacity(MAX_SEND_PACKET_QUEUE_SIZE as usize),
-            sent_packets_not_acked: HashMap::new(),
+            sent_packets_not_acked: HashMap::default(),
             recv_buffer: ReceiveBuffer::new(),
             // ack_notification_sender,
             // ack_notification_receiver,

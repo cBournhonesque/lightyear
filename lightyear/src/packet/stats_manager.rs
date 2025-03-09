@@ -1,6 +1,6 @@
 /// Statistics for packets
 pub(crate) mod packet {
-    use bevy::utils::Duration;
+    use core::time::Duration;
     use std::ops::{AddAssign, SubAssign};
     use tracing::trace;
 

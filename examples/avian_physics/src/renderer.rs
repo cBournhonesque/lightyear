@@ -51,10 +51,10 @@ fn add_visual_interpolation_components(
     query: Query<Entity, With<Predicted>>,
     mut commands: Commands,
 ) {
-    if !query.contains(trigger.entity()) {
+    if !query.contains(trigger.target()) {
         return;
     }
-    commands.entity(trigger.entity()).insert((
+    commands.entity(trigger.target()).insert((
         VisualInterpolateStatus::<Position>::default(),
         VisualInterpolateStatus::<Rotation>::default(),
     ));

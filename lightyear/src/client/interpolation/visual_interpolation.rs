@@ -34,6 +34,7 @@
 
 use bevy::prelude::*;
 use bevy::transform::TransformSystem::TransformPropagate;
+use tracing::trace;
 
 use crate::client::components::SyncComponent;
 use crate::prelude::client::{is_in_rollback, Correction, InterpolationSet, PredictionSet};
@@ -213,8 +214,8 @@ mod tests {
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
     use approx::assert_relative_eq;
-    
-    use bevy::utils::Duration;
+
+    use core::time::Duration;
 
     #[derive(Resource, Debug)]
     pub struct Toggle(bool);

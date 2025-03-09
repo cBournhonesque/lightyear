@@ -1,20 +1,13 @@
 //! Bevy [`Plugin`] used by both the server and the client
-use crate::prelude::client::ComponentSyncMode;
-use crate::prelude::{
-    client, server, AppComponentExt, AppMessageExt, ChannelDirection, ChannelRegistry,
-    ComponentRegistry, LinkConditionerConfig, MessageRegistry, NetworkIdentityState, ParentSync,
-    PingConfig, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, TickConfig,
-};
+use crate::prelude::*;
 use crate::shared::config::SharedConfig;
 use crate::shared::plugin::utils::AppStateExt;
-use crate::shared::replication::authority::AuthorityChange;
-use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
 use crate::shared::tick_manager::TickManagerPlugin;
 use crate::shared::time_manager::TimePlugin;
 use crate::transport::io::{IoState, IoStats};
 use crate::transport::middleware::compression::CompressionConfig;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 #[derive(Default, Debug)]
 pub struct SharedPlugin {
@@ -64,8 +57,8 @@ impl Plugin for SharedPlugin {
         app.add_plugins(crate::utils::avian3d::Avian3dPlugin);
         #[cfg(feature = "visualizer")]
         {
-            if !app.is_plugin_added::<bevy_metrics_dashboard::bevy_egui::EguiPlugin>() {
-                app.add_plugins(bevy_metrics_dashboard::bevy_egui::EguiPlugin);
+            if !app.is_plugin_added::<bevy_egui::EguiPlugin>() {
+                app.add_plugins(bevy_egui::EguiPlugin);
             }
             app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default())
                 .add_plugins(bevy_metrics_dashboard::DashboardPlugin);
@@ -80,30 +73,6 @@ impl Plugin for SharedPlugin {
         app.init_state_without_entering(server::NetworkingState::Stopped);
         app.add_sub_state::<client::ConnectedState>();
         app.add_computed_state::<NetworkIdentityState>();
-        // PROTOCOL
-        // we register components here because
-        // - the SharedPlugin is built only once in HostServer mode (client and server plugins in the same app)
-        // (if we put this in the ReplicationPlugin, the components would get registered twice)
-        // - we need to run this in `finish` so that all plugins have been built (so ClientPlugin and ServerPlugin
-        // both exists)
-        app.register_component::<PreSpawnedPlayerObject>(ChannelDirection::Bidirectional);
-        app.register_component::<PrePredicted>(ChannelDirection::Bidirectional);
-        app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
-        app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
-        app.register_component::<ParentSync>(ChannelDirection::Bidirectional)
-            // to replicate ParentSync on the predicted/interpolated entities so that they spawn their own hierarchies
-            .add_prediction(ComponentSyncMode::Simple)
-            .add_interpolation(ComponentSyncMode::Simple)
-            .add_map_entities();
-        app.register_component::<Controlled>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
-
-        app.register_message::<AuthorityChange>(ChannelDirection::ServerToClient)
-            .add_map_entities();
-
-        // check that the protocol was built correctly
-        app.world().resource::<ComponentRegistry>().check();
     }
 }
 

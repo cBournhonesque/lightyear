@@ -2,9 +2,9 @@
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
+use crate::utils::collections::HashMap;
 use async_compat::Compat;
 use bevy::tasks::IoTaskPool;
-use bevy::utils::HashMap;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -43,8 +43,8 @@ impl ServerTransportBuilder for WebTransportServerSocketBuilder {
         let (close_tx, close_rx) = async_channel::unbounded();
         // channels used to check the status of the io task
         let (status_tx, status_rx) = async_channel::unbounded();
-        let to_client_senders = Arc::new(Mutex::new(HashMap::new()));
-        let addr_to_task = Arc::new(Mutex::new(HashMap::new()));
+        let to_client_senders = Arc::new(Mutex::new(HashMap::default()));
+        let addr_to_task = Arc::new(Mutex::new(HashMap::default()));
 
         let sender = WebTransportServerSocketSender {
             server_addr: self.server_addr,

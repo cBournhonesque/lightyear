@@ -1,4 +1,5 @@
 //! Handles client-generated inputs
+use bevy::prelude::*;
 
 use crate::client::config::ClientConfig;
 use crate::connection::client::{ClientConnection, NetClient};
@@ -13,7 +14,7 @@ use crate::prelude::{
 use crate::server::connection::ConnectionManager;
 use crate::server::input::InputSystemSet;
 use crate::shared::input::InputConfig;
-use bevy::prelude::*;
+use tracing::{debug, trace};
 
 pub struct InputPlugin<A> {
     /// If True, the server will rebroadcast a client's inputs to all other clients.
@@ -188,7 +189,7 @@ pub(crate) fn rebroadcast_inputs<A: UserAction>(
     // rebroadcast the input to other clients
     // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
     // so that the server had the time to process the inputs
-    send_inputs.send_batch(receive_inputs.drain().map(|ev| {
+    send_inputs.write_batch(receive_inputs.drain().map(|ev| {
         ServerSendMessage::new_with_target::<InputChannel>(
             ev.message,
             NetworkTarget::AllExceptSingle(ev.from),

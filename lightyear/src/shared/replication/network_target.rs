@@ -1,10 +1,13 @@
 use crate::prelude::ClientId;
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
+use crate::utils::collections::HashSet;
+use bevy::platform_support::hash::FixedHasher;
 use bevy::prelude::Reflect;
-use bevy::utils::HashSet;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
+
+type HS<K> = hashbrown::HashSet<K, FixedHasher>;
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect)]
 /// NetworkTarget indicated which clients should receive some message
@@ -325,7 +328,7 @@ impl NetworkTarget {
                     *self = NetworkTarget::All;
                 }
                 NetworkTarget::Only(target_client_ids) => {
-                    let mut new_targets = HashSet::from_iter(target_client_ids.clone());
+                    let mut new_targets = HS::from_iter(target_client_ids.clone());
                     new_targets.insert(*existing_client_id);
                     *self = NetworkTarget::from(Vec::from_iter(new_targets));
                 }

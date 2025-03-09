@@ -253,7 +253,10 @@ mod tests {
             .get::<Correction<ComponentCorrection>>(predicted)
             .unwrap();
         let current_visual = Some(ComponentCorrection(2.0 + ease_out_quad(0.4) * (11.0 - 2.0)));
-        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, current_visual.as_ref().unwrap().0);
+        assert_relative_eq!(
+            correction.current_visual.as_ref().unwrap().0,
+            current_visual.as_ref().unwrap().0
+        );
         assert_eq!(correction.current_correction.as_ref().unwrap().0, 11.0);
 
         // trigger a new rollback while the correction is under way
@@ -277,8 +280,13 @@ mod tests {
             original_tick + (original_tick - rollback_tick)
         );
         // interpolate 20% of the way
-        let current_visual = Some(ComponentCorrection(previous_visual + ease_out_quad(0.2) * (17.0 - previous_visual)));
-        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, current_visual.as_ref().unwrap().0);
+        let current_visual = Some(ComponentCorrection(
+            previous_visual + ease_out_quad(0.2) * (17.0 - previous_visual),
+        ));
+        assert_relative_eq!(
+            correction.current_visual.as_ref().unwrap().0,
+            current_visual.as_ref().unwrap().0
+        );
         assert_eq!(correction.current_correction.as_ref().unwrap().0, 17.0);
         stepper.frame_step();
         stepper.frame_step();
@@ -289,8 +297,13 @@ mod tests {
             .get::<Correction<ComponentCorrection>>(predicted)
             .unwrap();
         // interpolate 80% of the way
-        let current_visual = Some(ComponentCorrection(previous_visual + ease_out_quad(0.8) * (20.0 - previous_visual)));
-        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, current_visual.as_ref().unwrap().0);
+        let current_visual = Some(ComponentCorrection(
+            previous_visual + ease_out_quad(0.8) * (20.0 - previous_visual),
+        ));
+        assert_relative_eq!(
+            correction.current_visual.as_ref().unwrap().0,
+            current_visual.as_ref().unwrap().0
+        );
         assert_eq!(correction.current_correction.as_ref().unwrap().0, 20.0);
     }
 

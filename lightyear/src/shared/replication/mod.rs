@@ -3,8 +3,8 @@ use bevy::ecs::entity::EntityHash;
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use bevy::platform_support::collections::HashMap;
 use bevy::prelude::{Entity, Resource};
-use bevy::utils::hashbrown::HashMap;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 
@@ -23,9 +23,9 @@ use crate::shared::events::connection::{
 };
 use crate::shared::replication::components::ReplicationGroupId;
 
+pub(crate) mod archetypes;
 pub mod components;
 
-pub(crate) mod archetypes;
 pub(crate) mod authority;
 pub mod delta;
 pub mod entity_map;
@@ -38,8 +38,6 @@ pub(crate) mod receive;
 pub(crate) mod resources;
 pub(crate) mod send;
 pub(crate) mod systems;
-pub(crate) mod utils;
-
 /// Serialize Entity as two varints for the index and generation (because they will probably be low).
 /// Revisit this when relations comes out
 ///
