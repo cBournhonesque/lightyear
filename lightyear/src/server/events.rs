@@ -13,6 +13,8 @@ use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::events::systems::push_component_events;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
+use tracing::debug;
+
 /// Plugin that adds bevy [`Events`] related to networking and replication
 #[derive(Default)]
 pub struct ServerEventsPlugin;

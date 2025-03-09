@@ -20,7 +20,7 @@ use crate::transport::error::Error as TransportError;
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::*;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, info, warn, info_span};
 
 /// Plugin handling the server networking systems: sending/receiving packets to clients
 #[derive(Default)]

@@ -18,6 +18,7 @@ pub(crate) mod receive {
     use crate::shared::replication::components::{ReplicationGroupId, ShouldBeInterpolated};
     use crate::shared::sets::InternalMainSet;
     use bevy::ecs::entity::Entities;
+    use tracing::{debug, trace};
 
     #[derive(Default)]
     pub struct ClientReplicationReceivePlugin {
@@ -161,6 +162,8 @@ pub(crate) mod send {
     use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
     use bevy::ecs::world::FilteredEntityRef;
     use bevy::ptr::Ptr;
+
+    use tracing::{debug, trace, error};
 
     #[derive(Default)]
     pub struct ClientReplicationSendPlugin {

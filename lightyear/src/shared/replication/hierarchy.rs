@@ -13,6 +13,7 @@ use bevy::reflect::GetTypeRegistration;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::fmt::{Debug, Formatter};
+use tracing::trace;
 
 pub type ChildOfSync = RelationshipSync<ChildOf>;
 

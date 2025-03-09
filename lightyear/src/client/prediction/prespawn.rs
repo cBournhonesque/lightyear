@@ -3,7 +3,7 @@
 use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, trace};
+use tracing::{debug, trace, error, warn};
 
 use crate::client::components::Confirmed;
 use crate::client::connection::ConnectionManager;
@@ -146,7 +146,7 @@ impl PreSpawnedPlayerObjectPlugin {
             // 1.a if the client_entity exists, remove the PreSpawnedPlayerObject component from the client entity
             //  and add a Predicted component to it
             let predicted_entity =
-                if let Some(mut entity_commands) = commands.get_entity(client_entity) {
+                if let Ok(mut entity_commands) = commands.get_entity(client_entity) {
                     #[cfg(feature = "metrics")]
                     {
                         metrics::counter!("prespawn::match::found").increment(1);

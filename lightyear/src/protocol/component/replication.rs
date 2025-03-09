@@ -14,7 +14,7 @@ use bevy::ptr::OwningPtr;
 use bytes::Bytes;
 use std::alloc::Layout;
 use std::ptr::NonNull;
-use tracing::debug;
+use tracing::{debug, trace};
 
 /// Temporary buffer to store component data that we want to insert
 /// using `entity_world_mut.insert_by_ids`

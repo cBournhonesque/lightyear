@@ -84,7 +84,7 @@ pub(crate) fn apply_component_removal_confirmed<C: Component>(
     // Components that are removed from the Confirmed entity also get removed from the Predicted entity
     if let Ok(confirmed) = confirmed_query.get(trigger.target()) {
         if let Some(p) = confirmed.predicted {
-            if let Some(mut commands) = commands.get_entity(p) {
+            if let Ok(mut commands) = commands.get_entity(p) {
                 commands.remove::<C>();
             }
         }

@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
-use tracing::{debug, error, trace, trace_span};
+use tracing::{debug, error, trace, trace_span, warn};
 
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
@@ -481,7 +481,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
             ?entity,
             "deleting pre-spawned entity because it was created after the rollback tick"
         );
-        if let Some(mut entity_commands) = commands.get_entity(*entity) {
+        if let Ok(mut entity_commands) = commands.get_entity(*entity) {
             entity_commands.despawn();
         }
     });

@@ -2,6 +2,7 @@
 //! then the ownership gets transferred to the server.
 
 use bevy::prelude::*;
+use tracing::{debug};
 
 use crate::client::components::Confirmed;
 use crate::client::prediction::resource::PredictionManager;

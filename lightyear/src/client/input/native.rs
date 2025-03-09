@@ -56,7 +56,7 @@
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use core::time::Duration;
-use tracing::{error, trace};
+use tracing::{error, trace, debug};
 
 use crate::channel::builder::InputChannel;
 use crate::client::components::Confirmed;

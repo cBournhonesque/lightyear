@@ -34,6 +34,7 @@
 
 use bevy::prelude::*;
 use bevy::transform::TransformSystem::TransformPropagate;
+use tracing::trace;
 
 use crate::client::components::SyncComponent;
 use crate::prelude::client::{is_in_rollback, Correction, InterpolationSet, PredictionSet};
