@@ -22,7 +22,7 @@ pub(crate) struct PreSpawnedPlayerObjectPlugin;
 pub enum PreSpawnedPlayerObjectSet {
     // PostUpdate Sets
     /// Add the necessary information to the PrePrediction component (before replication)
-    /// Clean up the PreSpawnedPlayerObject entities for which we couldn't find a mapped server entity
+    /// Clean up the PreSpawned entities for which we couldn't find a mapped server entity
     CleanUp,
 }
 
@@ -60,7 +60,7 @@ impl PreSpawnedPlayerObjectPlugin {
         if let Ok(prespawn) = query.get(entity) {
             // get the rollback tick if the pre-spawned entity is being recreated during rollback!
             let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
-            // the hash can be None when PreSpawnedPlayerObject is inserted, but the component
+            // the hash can be None when PreSpawned is inserted, but the component
             // hook will calculate it, so it can't be None here.
             let hash = prespawn
                 .hash
@@ -98,7 +98,7 @@ impl PreSpawnedPlayerObjectPlugin {
     }
 
     // TODO: should we require that ShouldBePredicted is present on the entity?
-    /// When we receive an entity from the server that contains the PreSpawnedPlayerObject component,
+    /// When we receive an entity from the server that contains the PreSpawned component,
     /// that means that we already spawned it on the client.
     /// Try to match which client entity it is and take authority over it.
     /// TODO WARNING see duplicated logic in server/prediction.rs compute_hash
@@ -119,10 +119,10 @@ impl PreSpawnedPlayerObjectPlugin {
     ) {
         let confirmed_entity = trigger.target();
         if let Ok(server_prespawn) = query.get(confirmed_entity) {
-            // we handle the PreSpawnedPlayerObject hash in this system and don't need it afterwards
+            // we handle the PreSpawned hash in this system and don't need it afterwards
             commands.entity(confirmed_entity).remove::<PreSpawned>();
             let Some(server_hash) = server_prespawn.hash else {
-                error!("Received a PreSpawnedPlayerObject entity from the server without a hash");
+                error!("Received a PreSpawned entity from the server without a hash");
                 return;
             };
             let Some(mut client_entity_list) =
@@ -132,8 +132,8 @@ impl PreSpawnedPlayerObjectPlugin {
                 {
                     metrics::counter!("prespawn::no_match").increment(1);
                 }
-                debug!(?server_hash, "Received a PreSpawnedPlayerObject entity from the server with a hash that does not match any client entity");
-                // remove the PreSpawnedPlayerObject so that the entity can be normal-predicted
+                debug!(?server_hash, "Received a PreSpawned entity from the server with a hash that does not match any client entity");
+                // remove the PreSpawned so that the entity can be normal-predicted
                 commands.entity(confirmed_entity).remove::<PreSpawned>();
                 return;
             };
@@ -143,7 +143,7 @@ impl PreSpawnedPlayerObjectPlugin {
             debug!("found a client pre-spawned entity corresponding to server pre-spawned entity! Spawning/finding a Predicted entity for it {}", server_hash);
 
             // we found the corresponding client entity!
-            // 1.a if the client_entity exists, remove the PreSpawnedPlayerObject component from the client entity
+            // 1.a if the client_entity exists, remove the PreSpawned component from the client entity
             //  and add a Predicted component to it
             let predicted_entity =
                 if let Ok(mut entity_commands) = commands.get_entity(client_entity) {
@@ -177,7 +177,7 @@ impl PreSpawnedPlayerObjectPlugin {
                 .confirmed_to_predicted
                 .insert(confirmed_entity, predicted_entity);
 
-            // 2. assign Confirmed to the server entity's counterpart, and remove PreSpawnedPlayerObject
+            // 2. assign Confirmed to the server entity's counterpart, and remove PreSpawned
             // get the confirmed tick for the entity
             // if we don't have it, something has gone very wrong
             let confirmed_tick = connection
@@ -266,15 +266,15 @@ impl PreSpawnedPlayerObjectPlugin {
 ///
 /// ```rust,ignore
 /// // Default hashing implementation: (tick + components)
-/// PreSpawnedPlayerObject::default();
+/// PreSpawned::default();
 ///
 /// // Default hashing implementation with additional user-provided salt:
 /// let client_id: u64 = 12345;
-/// PreSpawnedPlayerObject::default_with_salt(client_id);
+/// PreSpawned::default_with_salt(client_id);
 ///
 /// // User-provided custom hash
 /// let custom_hash: u64 = compute_hash();
-/// PreSpawnedPlayerObject::new(hash);
+/// PreSpawned::new(hash);
 /// ``````
 #[reflect(Component)]
 pub struct PreSpawned {
@@ -307,9 +307,9 @@ impl PreSpawned {
     }
 }
 
-/// Hook calculates the hash (if missing), and updates the PreSpawnedPlayerObject component.
+/// Hook calculates the hash (if missing), and updates the PreSpawned component.
 /// Since this is a hook, it will calculate based on components inserted before or alongside the
-/// PreSpawnedPlayerObject component, on the same tick that PreSpawnedPlayerObject was inserted.
+/// PreSpawned component, on the same tick that PreSpawned was inserted.
 impl Component for PreSpawned {
     const STORAGE_TYPE: StorageType = StorageType::Table;
 
@@ -348,7 +348,7 @@ impl Component for PreSpawned {
                 ?entity,
                 ?tick,
                 hash = ?hash,
-                "PreSpawnedPlayerObject hook, setting the hash on the component"
+                "PreSpawned hook, setting the hash on the component"
             );
             deferred_world
                 .entity_mut(entity)
@@ -445,12 +445,12 @@ mod tests {
         let client_prespawn_a = stepper
             .client_app
             .world_mut()
-            .spawn(PreSpawnedPlayerObject::new(1))
+            .spawn(PreSpawned::new(1))
             .id();
         let client_prespawn_b = stepper
             .client_app
             .world_mut()
-            .spawn(PreSpawnedPlayerObject::new(1))
+            .spawn(PreSpawned::new(1))
             .id();
         // we want to advance by the tick difference, so that the server prespawned is spawned on the same
         // tick as the client prespawned
@@ -463,7 +463,7 @@ mod tests {
             .server_app
             .world_mut()
             .spawn((
-                PreSpawnedPlayerObject::new(1),
+                PreSpawned::new(1),
                 Replicate {
                     sync: SyncTarget {
                         prediction: NetworkTarget::All,
@@ -478,7 +478,7 @@ mod tests {
             .server_app
             .world_mut()
             .spawn((
-                PreSpawnedPlayerObject::new(1),
+                PreSpawned::new(1),
                 Replicate {
                     sync: SyncTarget {
                         prediction: NetworkTarget::All,
@@ -513,7 +513,7 @@ mod tests {
         assert!(stepper
             .client_app
             .world()
-            .get::<PreSpawnedPlayerObject>(client_prespawn_a)
+            .get::<PreSpawned>(client_prespawn_a)
             .is_none());
 
         let predicted_b = stepper
@@ -536,7 +536,7 @@ mod tests {
         assert!(stepper
             .client_app
             .world()
-            .get::<PreSpawnedPlayerObject>(client_prespawn_b)
+            .get::<PreSpawned>(client_prespawn_b)
             .is_none());
     }
 

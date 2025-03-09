@@ -420,7 +420,7 @@ impl Plugin for PredictionPlugin {
             PreUpdate,
             (
                 // - we first check via observer if:
-                //   - the entity has a matching PreSpawnedPlayerObject. If match, remove PrePredicted/ShouldBePredicted.
+                //   - the entity has a matching PreSpawned. If match, remove PrePredicted/ShouldBePredicted.
                 //     If no match we do nothing and treat this as a normal-predicted entity
                 //   - the entity has a PrePredicted component. If it does, remove ShouldBePredicted to not trigger normal prediction-spawn system
                 // - then we check via a system if we should spawn a new predicted entity

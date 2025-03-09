@@ -791,7 +791,7 @@ impl ConnectionManager {
         //         client_entity: None,
         //     }));
 
-        // same thing for PreSpawnedPlayerObject: that component should only be replicated to prediction_target
+        // same thing for PreSpawned: that component should only be replicated to prediction_target
         let mut actual_target = target;
         let should_be_predicted_kind = ComponentKind::of::<ShouldBePredicted>();
         let pre_spawned_player_object_kind = ComponentKind::of::<PreSpawned>();

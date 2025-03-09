@@ -223,7 +223,7 @@ fn draw_predicted_entities(
 ) {
     for (e, position, rotation, color, collider, prespawned, opt_action, opt_ib) in &predicted {
         // render prespawned translucent until acknowledged by the server
-        // (at which point the PreSpawnedPlayerObject component is removed)
+        // (at which point the PreSpawned component is removed)
         let col = if prespawned {
             color.0.with_alpha(0.5)
         } else {

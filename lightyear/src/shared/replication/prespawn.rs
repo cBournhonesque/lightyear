@@ -10,7 +10,7 @@ use std::any::TypeId;
 use std::hash::{Hash, Hasher};
 use tracing::trace;
 
-/// Compute the default PreSpawnedPlayerObject hash used to match server entities with prespawned client entities
+/// Compute the default PreSpawned hash used to match server entities with prespawned client entities
 pub(crate) fn compute_default_hash(
     component_registry: &ComponentRegistry,
     components: &Components,

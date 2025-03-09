@@ -178,8 +178,8 @@ pub fn apply_action_state_to_player_movement(
 ///    receive PlayerActions for remote players ahead of the server simulating the tick (lag, input delay, etc)
 ///    in which case we prespawn their bullets on the correct tick, just like we do for our own bullets.
 ///
-///    When spawning here, we add the `PreSpawnedPlayerObject` component, and when the client receives the
-///    replication packet from the server, it matches the hashes on its own `PreSpawnedPlayerObject`, allowing it to
+///    When spawning here, we add the `PreSpawned` component, and when the client receives the
+///    replication packet from the server, it matches the hashes on its own `PreSpawned`, allowing it to
 ///    treat our locally spawned one as the `Predicted` entity (and gives it the Predicted component).
 ///
 ///    This system doesn't run in rollback, so without early player inputs, their bullets will be

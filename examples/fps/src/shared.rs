@@ -176,7 +176,7 @@ pub(crate) fn fixed_update_log(
 
 /// This system runs on both the client and the server, and is used to shoot a bullet
 /// The bullet is shot from the predicted player on the client, and from the server-entity on the server.
-/// When the bullet is replicated from server to client, it will use the existing client bullet with the `PreSpawnedPlayerObject` component
+/// When the bullet is replicated from server to client, it will use the existing client bullet with the `PreSpawned` component
 /// as its `Predicted` entity
 pub(crate) fn shoot_bullet(
     mut commands: Commands,
@@ -218,7 +218,7 @@ pub(crate) fn shoot_bullet(
                 if identity.is_server() {
                     commands.spawn((
                         bullet_bundle,
-                        // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
+                        // NOTE: the PreSpawned component indicates that the entity will be spawned on both client and server
                         //  but the server will take authority as soon as the client receives the entity
                         //  it does this by matching with the client entity that has the same hash
                         //  The hash is computed automatically in PostUpdate from the entity's components + spawn tick
@@ -247,7 +247,7 @@ pub(crate) fn shoot_bullet(
                     ));
                 } else {
                     // on the client, just spawn the ball
-                    // NOTE: the PreSpawnedPlayerObject component indicates that the entity will be spawned on both client and server
+                    // NOTE: the PreSpawned component indicates that the entity will be spawned on both client and server
                     //  but the server will take authority as soon as the client receives the entity
                     commands.spawn((bullet_bundle, PreSpawned::default_with_salt(salt)));
                 }

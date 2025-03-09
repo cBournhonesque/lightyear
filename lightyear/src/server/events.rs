@@ -30,7 +30,6 @@ impl Plugin for ServerEventsPlugin {
             // SYSTEMS
             .add_systems(
                 PreUpdate,
-                // TODO: check if this should be between Receive and EmitEvents
                 emit_connect_events.in_set(InternalMainSet::<ServerMarker>::ReceiveEvents),
             );
     }
