@@ -71,7 +71,6 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
 
         // TODO: make the easing configurable
         let t = ease_out_quad(t);
-        dbg!(t);
         if t == 1.0 {
             trace!(
                 ?t,
