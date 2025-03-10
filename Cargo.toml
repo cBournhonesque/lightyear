@@ -121,7 +121,7 @@ async-channel = "2.2.0"
 # Non-WASM things
 
 steamworks = "0.11"
-wtransport = { version = "=0.5.0", features = [
+wtransport = { version = "=0.6.0", features = [
   "quinn",
   "self-signed",
   "dangerous-configuration",
