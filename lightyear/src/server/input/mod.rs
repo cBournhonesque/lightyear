@@ -7,7 +7,7 @@ pub mod leafwing;
 
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserActionState;
-use crate::prelude::{server::is_started, TickManager};
+use crate::prelude::{is_host_server, server::is_started, TickManager};
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use bevy::prelude::*;
 
@@ -33,6 +33,8 @@ pub enum InputSystemSet {
     UpdateActionState,
     /// Rebroadcast inputs to other clients
     RebroadcastInputs,
+    /// Remove old values from buffers
+    CleanBuffers,
 }
 
 impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
@@ -52,21 +54,33 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
         );
         app.configure_sets(
             FixedPreUpdate,
-            InputSystemSet::UpdateActionState.run_if(is_started),
+            // we don't want to run this in host-server because we already
+            // get the correct ActionState from the buffer using the client plugin (which takes
+            // into account input_delay)
+            InputSystemSet::UpdateActionState.run_if(is_started.and(not(is_host_server))),
         );
         // TODO: maybe put this in a Fixed schedule to avoid sending multiple host-server identical
         //  messages per frame if we didn't run FixedUpdate at all?
         app.configure_sets(
             PostUpdate,
-            InputSystemSet::RebroadcastInputs
+            (
+                // in host-server mode we don't run the InputSystemSet::UpdateActionState system set above
+                // which is responsible for cleaning the buffers, so we will clean them here
+                InputSystemSet::CleanBuffers.run_if(is_started.and(is_host_server)),
+                InputSystemSet::RebroadcastInputs
                 .run_if(is_started)
                 .before(InternalMainSet::<ServerMarker>::SendEvents),
+            )
         );
 
         // SYSTEMS
         app.add_systems(
             FixedPreUpdate,
             update_action_state::<A>.in_set(InputSystemSet::UpdateActionState),
+        );
+        app.add_systems(
+            PostUpdate,
+            clean_buffers::<A>.in_set(InputSystemSet::CleanBuffers)
         );
     }
 }
@@ -102,6 +116,20 @@ fn update_action_state<A: UserActionState>(
                 .set(input_buffer.len() as f64);
             }
         }
+        // remove all the previous values
+        // we keep the current value in the InputBuffer so that if future messages are lost, we can still
+        // fallback on the last known value
+        input_buffer.pop(tick - 1);
+    }
+}
+
+
+fn clean_buffers<A: UserActionState>(
+    tick_manager: Res<TickManager>,
+    mut action_state_query: Query<(Entity, &mut InputBuffer<A>)>,
+) {
+    let tick = tick_manager.tick();
+    for (entity, mut input_buffer) in action_state_query.iter_mut() {
         // remove all the previous values
         // we keep the current value in the InputBuffer so that if future messages are lost, we can still
         // fallback on the last known value

@@ -3,9 +3,7 @@
 #![allow(dead_code)]
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
-use lightyear::prelude::client::PredictionConfig;
 use lightyear_examples_common::app::{Apps, Cli};
-use lightyear_examples_common::settings::Settings;
 
 #[cfg(feature = "client")]
 mod client;
@@ -33,7 +31,9 @@ fn main() {
     });
 
     apps.add_lightyear_plugins();
-    apps.add_user_shared_plugin(SharedPlugin);
+    apps.add_user_shared_plugin(SharedPlugin {
+        predict_all: settings.predict_all
+    });
     #[cfg(feature = "client")]
     apps.add_user_client_plugin(client::ExampleClientPlugin);
     #[cfg(feature = "server")]

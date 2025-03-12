@@ -100,6 +100,7 @@ pub(crate) fn replicate_players(
         // for all player entities we have received, add a Replicate component so that we can start replicating it
         // to other clients
         if let Some(mut e) = commands.get_entity(entity) {
+            info!("Adding replicate");
             // we want to replicate back to the original client, since they are using a pre-predicted entity
             let mut sync_target = SyncTarget::default();
 

@@ -389,6 +389,8 @@ fn on_connect_host_server(
     mut connect_event_writer: EventWriter<ConnectEvent>,
 ) {
     // TODO: put this elsewhere! Maybe the SyncPlugin should have a startup function that runs if in host-server?
+    // make sure the `is_synced` run conditions return true
+    connection_manager.sync_manager.synced = true;
     // set the input delay value (since SyncPlugin does not run)
     connection_manager.sync_manager.current_input_delay = config
         .prediction
