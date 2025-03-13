@@ -33,8 +33,6 @@ pub enum InputSystemSet {
     UpdateActionState,
     /// Rebroadcast inputs to other clients
     RebroadcastInputs,
-    /// Remove old values from buffers
-    CleanBuffers,
 }
 
 impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
@@ -54,19 +52,13 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
         );
         app.configure_sets(
             FixedPreUpdate,
-            // we don't want to run this in host-server because we already
-            // get the correct ActionState from the buffer using the client plugin (which takes
-            // into account input_delay)
-            InputSystemSet::UpdateActionState.run_if(is_started.and(not(is_host_server))),
+            InputSystemSet::UpdateActionState.run_if(is_started),
         );
         // TODO: maybe put this in a Fixed schedule to avoid sending multiple host-server identical
         //  messages per frame if we didn't run FixedUpdate at all?
         app.configure_sets(
             PostUpdate,
             (
-                // in host-server mode we don't run the InputSystemSet::UpdateActionState system set above
-                // which is responsible for cleaning the buffers, so we will clean them here
-                InputSystemSet::CleanBuffers.run_if(is_started.and(is_host_server)),
                 InputSystemSet::RebroadcastInputs
                 .run_if(is_started)
                 .before(InternalMainSet::<ServerMarker>::SendEvents),
@@ -77,10 +69,6 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
         app.add_systems(
             FixedPreUpdate,
             update_action_state::<A>.in_set(InputSystemSet::UpdateActionState),
-        );
-        app.add_systems(
-            PostUpdate,
-            clean_buffers::<A>.in_set(InputSystemSet::CleanBuffers)
         );
     }
 }
@@ -116,7 +104,7 @@ fn update_action_state<A: UserActionState>(
                 .set(input_buffer.len() as f64);
             }
         }
-        // remove all the previous values
+        / remove all the previous values
         // we keep the current value in the InputBuffer so that if future messages are lost, we can still
         // fallback on the last known value
         input_buffer.pop(tick - 1);
