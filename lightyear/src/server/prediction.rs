@@ -16,7 +16,6 @@ pub(crate) fn handle_pre_predicted(
     q: Query<(Entity, &PrePredicted, &Replicated)>,
 ) {
     if let Ok((local_entity, pre_predicted, replicated)) = q.get(trigger.entity()) {
-        
         let sending_client = replicated.from.unwrap();
         // if the client who created the PrePredicted entity is the local client, no need to do anything!
         // (the client Observer already adds Predicted on the entity)
