@@ -7,6 +7,7 @@ use server::ControlledEntities;
 use std::hash::{Hash, Hasher};
 
 use avian3d::prelude::*;
+use avian3d::sync::{position_to_transform, SyncSet};
 use bevy::prelude::TransformSystem::TransformPropagate;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::shared::replication::components::Controlled;
@@ -85,11 +86,15 @@ impl Default for BlockPhysicsBundle {
 }
 
 #[derive(Clone)]
-pub struct SharedPlugin;
+pub struct SharedPlugin {
+    pub predict_all: bool,
+}
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ProtocolPlugin);
+        app.add_plugins(ProtocolPlugin {
+            predict_all: self.predict_all,
+        });
 
         // Physics
 
@@ -120,6 +125,22 @@ impl Plugin for SharedPlugin {
             // TODO: disabling sleeping plugin causes the player to fall through the floor
             // .disable::<SleepingPlugin>(),
         );
+
+        // add an extra sync for cases where:
+        // - we receive a Position, do a rollback and set C=Correct, apply sync
+        // - in RunFixedMainLoop, we set C=Original
+        // - FixedUpdate doesn't run because frame rate is too high!
+        // - then the Transform that we show is C=Correct instead of C=Original!
+        app.add_systems(
+            PostUpdate,
+            position_to_transform
+                .in_set(PhysicsSet::Sync)
+                .run_if(|config: Res<avian3d::sync::SyncConfig>| config.position_to_transform),
+        );
+        // app.add_systems(FixedLast, fixed_last_log
+        //     .before(PredictionSet::IncrementRollbackTick)
+        //     .after(InterpolationSet::UpdateVisualInterpolationState));
+        // app.add_systems(Last, last_log);
     }
 }
 
@@ -127,15 +148,36 @@ pub(crate) fn after_physics_log(
     tick_manager: Res<TickManager>,
     rollback: Option<Res<Rollback>>,
     // collisions: Option<Res<Collisions>>,
-    blocks: Query<
-        (
-            Entity,
-            &Position,
-            &Rotation,
-            &LinearVelocity,
-            &AngularVelocity,
-        ),
-        (Without<Confirmed>, With<BlockMarker>),
+    query: Query<(Entity, &Position, &Rotation), (Without<Confirmed>, With<CharacterMarker>)>,
+) {
+    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
+        tick_manager.tick_or_rollback_tick(r.as_ref())
+    });
+    // info!(?tick, ?collisions, "collisions");
+    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
+
+    // if is_rollback {
+    //     println!("rollback tick {}", tick.0);
+    // }
+    // for (entity, position, rotation) in query.iter() {
+    //     warn!(
+    //         ?is_rollback,
+    //         ?tick,
+    //         ?entity,
+    //         ?position,
+    //         ?rotation,
+    //         "Block after physics update"
+    //     );
+    // }
+}
+
+pub(crate) fn fixed_last_log(
+    tick_manager: Res<TickManager>,
+    rollback: Option<Res<Rollback>>,
+    // collisions: Option<Res<Collisions>>,
+    query: Query<
+        (Entity, &Position, Option<&Correction<Position>>),
+        (Without<Confirmed>, With<ProjectileMarker>),
     >,
 ) {
     let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
@@ -143,16 +185,56 @@ pub(crate) fn after_physics_log(
     });
     // info!(?tick, ?collisions, "collisions");
     let is_rollback = rollback.map_or(false, |r| r.is_rollback());
-    for (entity, position, rotation, lv, av) in blocks.iter() {
-        debug!(
+
+    // if is_rollback {
+    //     println!("rollback tick {}", tick.0);
+    // }
+    for (entity, position, correction) in query.iter() {
+        warn!(
             ?is_rollback,
             ?tick,
             ?entity,
             ?position,
-            ?rotation,
-            ?lv,
-            ?av,
-            "Block after physics update"
+            ?correction,
+            "Bullet in fixed-last"
+        );
+    }
+}
+pub(crate) fn last_log(
+    time_manager: Res<TimeManager>,
+    tick_manager: Res<TickManager>,
+    rollback: Option<Res<Rollback>>,
+    // collisions: Option<Res<Collisions>>,
+    query: Query<
+        (
+            Entity,
+            &Transform,
+            Option<&Correction<Position>>,
+            Option<&VisualInterpolateStatus<Transform>>,
+        ),
+        (Without<Confirmed>, With<ProjectileMarker>),
+    >,
+) {
+    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
+        tick_manager.tick_or_rollback_tick(r.as_ref())
+    });
+    let overstep = time_manager.overstep();
+    // info!(?tick, ?collisions, "collisions");
+    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
+
+    // if is_rollback {
+    //     println!("rollback tick {}", tick.0);
+    // }
+    for (entity, transform, correction, visual_interpolate) in query.iter() {
+        warn!(
+            ?is_rollback,
+            ?tick,
+            ?entity,
+            ?transform,
+            ?correction,
+            ?visual_interpolate,
+            ?overstep,
+            "Bullet in last"
         );
     }
 }

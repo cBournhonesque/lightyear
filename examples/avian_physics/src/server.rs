@@ -10,7 +10,7 @@ use leafwing_input_manager::prelude::*;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::server::input::leafwing::InputSystemSet;
+use lightyear::server::input::InputSystemSet;
 use lightyear::shared::replication::components::InitialReplicated;
 
 // Plugin for server-specific logic
@@ -30,12 +30,7 @@ impl Plugin for ExampleServerPlugin {
         });
 
         app.add_systems(Startup, (start_server, init));
-        app.add_systems(
-            PreUpdate,
-            // this system will replicate the inputs of a client to other clients
-            // so that a client can predict other clients
-            replicate_inputs.after(InputSystemSet::ReceiveInputs),
-        );
+
         // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
         app.add_systems(
             PreUpdate,
@@ -85,23 +80,6 @@ pub(crate) fn movement(
             trace!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action.get_pressed(), "applying movement to player");
         }
     }
-}
-
-/// When we receive the input of a client, broadcast it to other clients
-/// so that they can predict this client's movements accurately
-pub(crate) fn replicate_inputs(
-    mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<PlayerActions>>>>,
-    mut send_inputs: EventWriter<ServerSendMessage<InputMessage<PlayerActions>>>,
-) {
-    // rebroadcast the input to other clients
-    // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
-    // so that the server had the time to process the inputs
-    send_inputs.send_batch(receive_inputs.drain().map(|ev| {
-        ServerSendMessage::new_with_target::<InputChannel>(
-            ev.message,
-            NetworkTarget::AllExceptSingle(ev.from),
-        )
-    }));
 }
 
 // Replicate the pre-predicted entities back to the client

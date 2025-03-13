@@ -1,69 +1,62 @@
 //! Handles client-generated inputs
+
+use crate::client::config::ClientConfig;
+use crate::connection::client::ClientConnection;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::inputs::leafwing::input_message::InputTarget;
+use crate::inputs::leafwing::LeafwingUserAction;
+use crate::prelude::client::NetClient;
+use crate::prelude::{
+    is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel,
+    InputConfig, InputMessage, MessageRegistry, NetworkTarget, ServerReceiveMessage,
+    ServerSendMessage, TickManager,
+};
+use crate::server::connection::ConnectionManager;
+use crate::server::input::InputSystemSet;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{
-    server::is_started, InputMessage, MessageRegistry, ServerReceiveMessage, TickManager,
-};
-use crate::server::connection::ConnectionManager;
-use crate::shared::sets::{InternalMainSet, ServerMarker};
-
 pub struct LeafwingInputPlugin<A> {
-    marker: std::marker::PhantomData<A>,
+    pub(crate) rebroadcast_inputs: bool,
+    pub(crate) marker: std::marker::PhantomData<A>,
 }
 
 impl<A> Default for LeafwingInputPlugin<A> {
     fn default() -> Self {
         Self {
+            rebroadcast_inputs: false,
             marker: std::marker::PhantomData,
         }
     }
 }
 
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum InputSystemSet {
-    /// Add the ActionDiffBuffers to new entities that have an [`ActionState`]
-    AddBuffers,
-    /// Receive the latest ActionDiffs from the client
-    ReceiveInputs,
-    /// Use the ActionDiff received from the client to update the [`ActionState`]
-    Update,
-}
-
 impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     fn build(&self, app: &mut App) {
-        // RESOURCES
-        // app.init_resource::<GlobalActions<A>>();
-        // TODO: (global action states) add a resource tracking the action-state of all clients
-        // SETS
-        app.configure_sets(
-            PreUpdate,
-            (
-                InternalMainSet::<ServerMarker>::Receive,
-                InputSystemSet::AddBuffers,
-                InputSystemSet::ReceiveInputs,
-            )
-                .chain()
-                .run_if(is_started),
-        );
-        app.configure_sets(FixedPreUpdate, InputSystemSet::Update.run_if(is_started));
+        app.add_plugins(super::BaseInputPlugin::<ActionState<A>> {
+            rebroadcast_inputs: self.rebroadcast_inputs,
+            marker: std::marker::PhantomData,
+        });
+
         // SYSTEMS
+        // TODO: this runs twice in host-server mode. How to avoid this?
+        app.add_observer(add_action_state_buffer::<A>);
         app.add_systems(
             PreUpdate,
-            (
-                // TODO: ideally we have a Flush between add_action_diff_buffer and Tick?
-                add_action_diff_buffer::<A>.in_set(InputSystemSet::AddBuffers),
-                // TODO: can disable this in host-server mode!
-                receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputs),
-            ),
+            receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputs),
         );
-        app.add_systems(
-            FixedPreUpdate,
-            update_action_state::<A>.in_set(InputSystemSet::Update),
-        );
+
+        // TODO: make this changeable dynamically by putting this in a resource?
+        if self.rebroadcast_inputs {
+            app.add_systems(
+                PostUpdate,
+                (
+                    send_host_server_input_message::<A>.run_if(is_host_server),
+                    rebroadcast_inputs::<A>,
+                )
+                    .chain()
+                    .in_set(InputSystemSet::RebroadcastInputs),
+            );
+        }
     }
 
     // TODO: this doesn't work! figure out how to make sure that InputManagerPlugin is called
@@ -74,17 +67,20 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     }
 }
 
-/// For each entity that has an action-state, insert an InputBuffer, to store
-/// the values of the ActionState for the ticks of the message
-fn add_action_diff_buffer<A: LeafwingUserAction>(
+/// For each entity that has the Action component, insert an input buffer.
+fn add_action_state_buffer<A: LeafwingUserAction>(
+    trigger: Trigger<OnAdd, ActionState<A>>,
     mut commands: Commands,
-    action_state: Query<Entity, (Added<ActionState<A>>, Without<InputMap<A>>)>,
+    query: Query<(), Without<InputBuffer<A>>>,
 ) {
-    for entity in action_state.iter() {
-        commands.entity(entity).insert(InputBuffer::<A>::default());
+    if let Ok(()) = query.get(trigger.entity()) {
+        commands
+            .entity(trigger.entity())
+            .insert((InputBuffer::<A>::default(),));
     }
 }
 
+// TODO? is this correct? maybe she would update the FixedUpdate state! not the Update state?
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<A: LeafwingUserAction>(
     message_registry: Res<MessageRegistry>,
@@ -94,7 +90,9 @@ fn receive_input_message<A: LeafwingUserAction>(
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<Option<&mut InputBuffer<A>>>,
     mut commands: Commands,
+    tick_manager: Res<TickManager>,
 ) {
+    let tick = tick_manager.tick();
     received_inputs.read().for_each(|event| {
         let message = &event.message;
         let client_id = event.from;
@@ -109,7 +107,6 @@ fn receive_input_message<A: LeafwingUserAction>(
             }
         }
 
-        // TODO: UPDATE THIS
         for data in &message.diffs {
             match data.target {
                 // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
@@ -128,15 +125,21 @@ fn receive_input_message<A: LeafwingUserAction>(
                                 buffer.as_ref(),
                                 message
                             );
-                            buffer.update_from_message(
+                            buffer.update_from_diffs(
                                 message.end_tick,
                                 &data.start_state,
                                 &data.diffs,
                             );
                         } else {
                             debug!("Adding InputBuffer and ActionState which are missing on the entity");
+                            let mut buffer = InputBuffer::<A>::default();
+                            buffer.update_from_diffs(
+                                message.end_tick,
+                                &data.start_state,
+                                &data.diffs,
+                            );
                             commands.entity(entity).insert((
-                                InputBuffer::<A>::default(),
+                                buffer,
                                 ActionState::<A>::default(),
                             ));
                         }
@@ -144,52 +147,85 @@ fn receive_input_message<A: LeafwingUserAction>(
                         debug!(?entity, ?data.diffs, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                     }
                 }
-                InputTarget::Global => {
-                    // TODO: handle global diffs for each client! How? create one entity per client?
-                    //  or have a resource containing the global ActionState for each client?
-                    // if let Some(ref mut buffer) = global {
-                    //     buffer.update_from_message(message.end_tick, std::mem::take(&mut message.global_diffs))
-                    // }
-                }
             }
         }
     });
 }
 
-/// Read the InputState for the current tick from the buffer, and use them to update the ActionState
-fn update_action_state<A: LeafwingUserAction>(
+/// In host-server mode, we usually don't need to send any input messages because any update
+/// to the ActionState is immediately visible to the server.
+/// However we might want other clients to see the inputs of the host client, in which case we will create
+/// a InputMessage and send it to the server. The user can then have a `replicate_inputs` system that takes this
+/// message and propagates it to other clients
+fn send_host_server_input_message<A: LeafwingUserAction>(
+    connection: Res<ClientConnectionManager>,
+    netclient: Res<ClientConnection>,
+    mut events: ResMut<Events<ServerReceiveMessage<InputMessage<A>>>>,
+    channel_registry: Res<ChannelRegistry>,
+    config: Res<ClientConfig>,
+    input_config: Res<InputConfig<A>>,
     tick_manager: Res<TickManager>,
-    // global_input_buffer: Res<InputBuffer<A>>,
-    // global_action_state: Option<ResMut<ActionState<A>>>,
-    mut action_state_query: Query<(Entity, &mut ActionState<A>, &mut InputBuffer<A>)>,
+    mut input_buffer_query: Query<(Entity, &mut InputBuffer<A>), With<InputMap<A>>>,
 ) {
-    let tick = tick_manager.tick();
-
-    for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
-        // We only apply the ActionState from the buffer if we have one.
-        // If we don't (because the input packet is late or lost), we won't do anything.
-        // This is equivalent to considering that the player will keep playing the last action they played.
-        if let Some(action) = input_buffer.get(tick) {
-            *action_state = action.clone();
-            trace!(?tick, ?entity, pressed = ?action_state.get_pressed(), "action state after update. Input Buffer: {}", input_buffer.as_ref());
-            // remove all the previous values
-            // we keep the current value in the InputBuffer so that if future messages are lost, we can still
-            // fallback on the last known value
-            input_buffer.pop(tick - 1);
-
-            #[cfg(feature = "metrics")]
-            {
-                // The size of the buffer should always bet at least 1, and hopefully be a bit more than that
-                // so that we can handle lost messages
-                metrics::gauge!(format!(
-                    "inputs::{}::{}::buffer_size",
-                    std::any::type_name::<A>(),
-                    entity
-                ))
-                .set(input_buffer.len() as f64);
-            }
-        }
+    // we send a message from the latest tick that we have available, which is the delayed tick
+    let current_tick = tick_manager.tick();
+    let input_delay_ticks = connection.input_delay_ticks() as i16;
+    let tick = current_tick + input_delay_ticks;
+    // TODO: the number of messages should be in SharedConfig
+    // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
+    //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
+    //  this system what the latest acked input tick is?
+    let input_send_interval = channel_registry
+        .get_builder_from_kind(&ChannelKind::of::<InputChannel>())
+        .unwrap()
+        .settings
+        .send_frequency;
+    // we send redundant inputs, so that if a packet is lost, we can still recover
+    // A redundancy of 2 means that we can recover from 1 lost packet
+    let mut num_tick: u16 =
+        ((input_send_interval.as_nanos() / config.shared.tick.tick_duration.as_nanos()) + 1)
+            .try_into()
+            .unwrap();
+    num_tick *= input_config.packet_redundancy;
+    let mut message = InputMessage::<A>::new(tick);
+    for (entity, input_buffer) in input_buffer_query.iter_mut() {
+        trace!(
+            ?tick,
+            ?current_tick,
+            ?entity,
+            "Preparing host-server input message with buffer: {:?}",
+            input_buffer
+        );
+        // we are using PrePredictedEntity to make sure that MapEntities will be used on the client receiving side
+        message.add_inputs(
+            num_tick,
+            InputTarget::PrePredictedEntity(entity),
+            input_buffer.as_ref(),
+        );
     }
+    trace!(
+        ?tick,
+        ?current_tick,
+        %message,
+        "Sending host-server input message"
+    );
+
+    events.send(ServerReceiveMessage::new(message, netclient.id()));
+}
+
+pub(crate) fn rebroadcast_inputs<A: LeafwingUserAction>(
+    mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<A>>>>,
+    mut send_inputs: EventWriter<ServerSendMessage<InputMessage<A>>>,
+) {
+    // rebroadcast the input to other clients
+    // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
+    // so that the server had the time to process the inputs
+    send_inputs.send_batch(receive_inputs.drain().map(|ev| {
+        ServerSendMessage::new_with_target::<InputChannel>(
+            ev.message,
+            NetworkTarget::AllExceptSingle(ev.from),
+        )
+    }));
 }
 
 #[cfg(test)]

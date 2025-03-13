@@ -116,7 +116,7 @@ impl MessageRegistry {
             );
     }
 
-    pub(crate) fn register_server_trigger_receive<E: Event + Message>(app: &mut App) {
+    pub(crate) fn register_server_trigger_receive<E: Message>(app: &mut App) {
         let message_kind = MessageKind::of::<TriggerMessage<E>>();
         let component_id = app
             .world_mut()
@@ -352,7 +352,7 @@ impl MessageRegistry {
         (receive_metadata.receive_trigger_fn)(receive_events, commands)
     }
 
-    pub(crate) fn server_receive_trigger_typed<E: Event + Message>(
+    pub(crate) fn server_receive_trigger_typed<E: Message>(
         server_receive_events: MutUntyped,
         commands: &mut Commands,
     ) {

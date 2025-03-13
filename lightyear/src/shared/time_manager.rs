@@ -43,7 +43,7 @@ fn update_overstep(mut time_manager: ResMut<TimeManager>, fixed_time: Res<Time<F
     time_manager.update_overstep(fixed_time.overstep_fraction());
 }
 
-#[derive(Resource)]
+#[derive(Resource, Debug, PartialEq, Clone)]
 pub struct TimeManager {
     /// The virtual time
     wrapped_time: WrappedTime,

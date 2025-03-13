@@ -62,8 +62,6 @@ impl PlayerBundle {
             (Inputs::Up, KeyCode::KeyW),
             (Inputs::Down, KeyCode::ArrowDown),
             (Inputs::Down, KeyCode::KeyS),
-            (Inputs::Delete, KeyCode::Backspace),
-            (Inputs::Spawn, KeyCode::Space),
         ])
     }
 }
@@ -117,8 +115,6 @@ pub enum Inputs {
     Down,
     Left,
     Right,
-    Delete,
-    Spawn,
 }
 
 // Protocol

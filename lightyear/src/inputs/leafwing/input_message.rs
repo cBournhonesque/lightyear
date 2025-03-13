@@ -67,8 +67,6 @@ impl<A: LeafwingUserAction> std::fmt::Display for InputMessage<A> {
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
 pub enum InputTarget {
-    /// the input is for a global resource
-    Global,
     /// the input is for a predicted or confirmed entity: on the client, the server's local entity is mapped to the client's confirmed entity
     Entity(Entity),
     /// the input is for a pre-predicted entity: on the server, the server's local entity is mapped to the client's pre-predicted entity
@@ -172,7 +170,7 @@ mod tests {
     fn test_generate_input_message_no_start_input() {
         let input_buffer = InputBuffer::default();
         let mut input_message = InputMessage::<Action>::new(Tick(10));
-        input_message.add_inputs(5, InputTarget::Global, &input_buffer);
+        input_message.add_inputs(5, InputTarget::Entity(Entity::PLACEHOLDER), &input_buffer);
         assert_eq!(
             input_message,
             InputMessage {

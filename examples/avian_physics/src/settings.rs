@@ -40,8 +40,8 @@ pub(crate) fn get_settings() -> MySettings {
                 headless: false,
                 inspector: true,
                 conditioner: Some(Conditioner {
-                    latency_ms: 200,
-                    jitter_ms: 20,
+                    latency_ms: 50,
+                    jitter_ms: 5,
                     packet_loss: 0.05,
                 }),
                 transport: vec![

@@ -19,19 +19,56 @@ There are several steps to use the `InputPlugin`:
 
 */
 
-use std::fmt::Debug;
-
+use crate::inputs::native::input_buffer::{InputBuffer, InputData};
+use crate::prelude::Deserialize;
+use bevy::prelude::{Component, Reflect};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-
-pub use input_buffer::InputMessage;
+use std::fmt::Debug;
+use std::marker::PhantomData;
 
 /// Defines an [`InputBuffer`](input_buffer::InputBuffer) buffer to store the inputs of a player for each tick
 pub mod input_buffer;
+pub(crate) mod input_message;
 
-// TODO: should we request that a user input is a message?
-// TODO: the bound should be `BitSerializable`, not `Serialize + DeserializeOwned`
-//  but it causes the derive macro for InputMessage to fail
+/// The component that will store the current status of the action for the entity
+#[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize, Reflect)]
+#[require(InputBuffer<ActionState<A>>)]
+pub struct ActionState<A: Send + Sync> {
+    pub value: Option<A>,
+}
+
+impl<A: UserAction> From<&ActionState<A>> for InputData<A> {
+    fn from(value: &ActionState<A>) -> Self {
+        value
+            .value
+            .as_ref()
+            .map_or(InputData::Absent, |v| InputData::Input(v.clone()))
+    }
+}
+
+impl<A: UserAction> Default for ActionState<A> {
+    fn default() -> Self {
+        Self { value: None }
+    }
+}
+
+/// Marker component to identify the ActionState that the player is actively updating
+/// (as opposed to the ActionState of other players, for instance)
+#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+#[require(ActionState<A>)]
+pub struct InputMarker<A: UserAction> {
+    marker: PhantomData<A>,
+}
+
+impl<A: UserAction> Default for InputMarker<A> {
+    fn default() -> Self {
+        Self {
+            marker: PhantomData,
+        }
+    }
+}
+
 pub trait UserAction:
     Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static
 {
@@ -40,4 +77,12 @@ pub trait UserAction:
 impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static> UserAction
     for A
 {
+}
+
+pub trait UserActionState: UserAction + Component + Default {
+    type UserAction: UserAction;
+}
+
+impl<A: UserAction> UserActionState for ActionState<A> {
+    type UserAction = A;
 }

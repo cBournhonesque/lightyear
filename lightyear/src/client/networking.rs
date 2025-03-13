@@ -5,6 +5,7 @@ use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::ResMut;
 use bevy::prelude::*;
+use bevy::utils::Duration;
 use tracing::{error, trace};
 
 use crate::client::config::ClientConfig;
@@ -381,10 +382,17 @@ fn on_connect(
 fn on_connect_host_server(
     mut commands: Commands,
     netcode: Res<ClientConnection>,
+    config: Res<ClientConfig>,
+    mut connection_manager: ResMut<ConnectionManager>,
     mut metadata: ResMut<HostServerMetadata>,
     mut server_manager: ResMut<crate::server::connection::ConnectionManager>,
     mut connect_event_writer: EventWriter<ConnectEvent>,
 ) {
+    // TODO: put this elsewhere! Maybe the SyncPlugin should have a startup function that runs if in host-server?
+    // set the input delay value (since SyncPlugin does not run)
+    connection_manager.sync_manager.current_input_delay = config
+        .prediction
+        .input_delay_ticks(Duration::default(), config.shared.tick.tick_duration);
     // spawn an entity for the client
     let client_entity = commands.spawn(ControlledEntities::default()).id();
     // start a server connection for that client (which will also send a ConnectEvent on the server)

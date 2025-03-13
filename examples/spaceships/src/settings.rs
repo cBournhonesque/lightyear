@@ -1,4 +1,4 @@
-use lightyear::prelude::{CompressionConfig, Deserialize, Serialize};
+use lightyear::prelude::CompressionConfig;
 use lightyear_examples_common::settings::{
     ClientSettings, ClientTransports, Conditioner, ServerSettings, ServerTransports, Settings,
     SharedSettings, WebTransportCertificateSettings,

@@ -1,12 +1,10 @@
 use bevy::prelude::*;
-use bevy::utils::Duration;
-use bevy::utils::HashMap;
-
+use lightyear::client::components::Confirmed;
+use lightyear::client::prediction::Predicted;
+use lightyear::inputs::native::ActionState;
 use lightyear::prelude::server::*;
-use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared;
 use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
 
 // Plugin for server-specific logic
@@ -55,26 +53,18 @@ pub(crate) fn handle_connections(
 
 /// Read client inputs and move players
 pub(crate) fn movement(
-    mut position_query: Query<(&ControlledBy, &mut PlayerPosition)>,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
-    tick_manager: Res<TickManager>,
+    mut position_query: Query<
+        (&mut PlayerPosition, &ActionState<Inputs>),
+        // if we run in host-server mode, we don't want to apply this system to the local client's entities
+        // because they are already moved by the client plugin
+        (Without<Confirmed>, Without<Predicted>),
+    >,
 ) {
-    for input in input_reader.read() {
-        let client_id = input.from();
-        if let Some(input) = input.input() {
-            debug!(
-                "Receiving input: {:?} from client: {:?} on tick: {:?}",
-                input,
-                client_id,
-                tick_manager.tick()
-            );
-            // NOTE: you can define a mapping from client_id to entity_id to avoid iterating through all
-            //  entities here
-            for (controlled_by, position) in position_query.iter_mut() {
-                if controlled_by.targets(&client_id) {
-                    shared::shared_movement_behaviour(position, input);
-                }
-            }
+    for (position, inputs) in position_query.iter_mut() {
+        if let Some(input) = &inputs.value {
+            // NOTE: be careful to directly pass Mut<PlayerPosition>
+            // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+            shared_movement_behaviour(position, input);
         }
     }
 }

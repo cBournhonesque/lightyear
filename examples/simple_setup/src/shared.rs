@@ -16,6 +16,7 @@ pub const SERVER_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHO
 pub fn shared_config() -> SharedConfig {
     SharedConfig {
         // send an update every 100ms
+        client_replication_send_interval: SERVER_REPLICATION_INTERVAL,
         server_replication_send_interval: SERVER_REPLICATION_INTERVAL,
         tick: TickConfig {
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),

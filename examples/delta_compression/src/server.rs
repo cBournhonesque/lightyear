@@ -6,15 +6,15 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
+use crate::protocol::*;
+use crate::shared;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::utils::HashMap;
+use lightyear::inputs::native::ActionState;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use std::sync::Arc;
-
-use crate::protocol::*;
-use crate::shared;
 
 pub struct ExampleServerPlugin;
 
@@ -95,32 +95,10 @@ pub(crate) fn handle_disconnections(
 }
 
 /// Read client inputs and move players in server therefore giving a basis for other clients
-fn movement(
-    mut position_query: Query<&mut PlayerPosition>,
-    entity_map: Res<ClientEntityMap>,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
-    tick_manager: Res<TickManager>,
-) {
-    for input in input_reader.read() {
-        let client_id = input.from();
-        if let Some(input) = input.input() {
-            trace!(
-                "Receiving input: {:?} from client: {:?} on tick: {:?}",
-                input,
-                client_id,
-                tick_manager.tick()
-            );
-
-            if let Some(player) = entity_map.0.get(&client_id) {
-                if let Ok(position) = position_query.get_mut(*player) {
-                    shared::shared_movement_behaviour(position, input);
-                }
-            } else {
-                debug!(
-                    "Couldnt find player in client entity map for client_id: {:?}",
-                    client_id
-                )
-            }
+fn movement(mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>) {
+    for (position, inputs) in position_query.iter_mut() {
+        if let Some(inputs) = &inputs.value {
+            shared::shared_movement_behaviour(position, inputs);
         }
     }
 }

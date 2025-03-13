@@ -1,7 +1,7 @@
 use std::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
-use bevy::ecs::entity::MapEntities;
+use bevy::ecs::entity::{MapEntities, VisitEntities, VisitEntitiesMut};
 use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
 use bevy::utils::HashSet;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
@@ -18,6 +18,7 @@ use crate::protocol::serialize::SerializeFns;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::SerializationError;
+use crate::shared::input::InputConfig;
 use crate::shared::replication::delta::Diffable;
 
 // Event
@@ -182,6 +183,10 @@ pub(crate) fn deserialize_resource2(reader: &mut Reader) -> Result<Resource2, Se
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
 pub struct MyInput(pub i16);
 
+impl MapEntities for MyInput {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
+}
+
 // Protocol
 cfg_if! {
     if #[cfg(feature = "leafwing")] {
@@ -217,7 +222,12 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<EntityMessage>(ChannelDirection::Bidirectional)
             .add_map_entities();
         // inputs
-        app.add_plugins(InputPlugin::<MyInput>::default());
+        app.add_plugins(InputPlugin::<MyInput> {
+            config: InputConfig::<MyInput> {
+                rebroadcast_inputs: true,
+                ..default()
+            },
+        });
         // components
         app.register_component::<ComponentSyncModeFull>(ChannelDirection::Bidirectional)
             .add_prediction(ComponentSyncMode::Full)

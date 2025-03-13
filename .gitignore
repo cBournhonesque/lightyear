@@ -7,3 +7,6 @@
 /examples/target/
 /examples/Cargo.lock
 .aider*
+**/CL1
+**/CL2
+**/SL

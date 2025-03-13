@@ -22,10 +22,11 @@
 //!   - if there is a rollback, restart correction from the current corrected value
 //! - FixedUpdate: run the simulation to compute C(T+2).
 //! - FixedPostUpdate: set the component value to the interpolation between PT (predicted value at rollback start T) and C(T+2)
-use bevy::prelude::{Commands, Component, DetectChangesMut, Entity, Query, Res};
-use tracing::{debug, warn};
+use bevy::prelude::{Added, Commands, Component, DetectChangesMut, Entity, Query, Res};
+use tracing::{debug, trace};
 
 use crate::client::components::SyncComponent;
+use crate::client::easings::ease_out_quad;
 use crate::prelude::{ComponentRegistry, Tick, TickManager};
 
 #[derive(Component, Debug, PartialEq)]
@@ -45,6 +46,14 @@ pub struct Correction<C: Component> {
     pub current_correction: Option<C>,
 }
 
+impl<C: Component> Correction<C> {
+    /// In case of a TickEvent where the client tick is changed, we need to update the ticks in the buffer
+    pub(crate) fn update_ticks(&mut self, delta: i16) {
+        self.original_tick = self.original_tick + delta;
+        self.final_correction_tick = self.final_correction_tick + delta;
+    }
+}
+
 /// Perform the correction: we interpolate between the original (incorrect) prediction and the final confirmed value
 /// over a period of time. The intermediary state is called the Corrected state.
 pub(crate) fn get_corrected_state<C: SyncComponent>(
@@ -61,15 +70,16 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
         t = t.clamp(0.0, 1.0);
 
         // TODO: make the easing configurable
-        //  let t = ease_out_quad(t);
-        if t == 1.0 || &correction.original_prediction == component.as_ref() {
-            debug!(
+        let t = ease_out_quad(t);
+        if t == 1.0 {
+            trace!(
                 ?t,
-                "Correction is over. Removing Correction for: {:?}", kind
+                "Correction is over. Removing Correction for: {:?}",
+                kind
             );
             commands.entity(entity).remove::<Correction<C>>();
         } else {
-            debug!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", kind);
+            trace!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", kind);
             // store the current corrected value so that we can restore it at the start of the next frame
             correction.current_correction = Some(component.clone());
             // TODO: avoid all these clones
@@ -80,6 +90,33 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
             correction.current_visual = Some(visual.clone());
             // set the component value to the visual value
             *component.bypass_change_detection() = visual;
+        }
+    }
+}
+
+/// The flow is:
+/// [PreUpdate] C = OriginalC, receive NewC, check_rollback, prepare_rollback: add Correction, set C = NewC, rollback, set C = CorrectedC
+/// [PreUpdate] C = CorrectedC
+/// [PreUpdate] C = CorrectedC
+/// [FixedUpdate] Correction, C = CorrectInterpolatedC
+/// i.e. if PreUpdate runs a few times in a row without any FixedUpdate step, the component stays in the CorrectedC state.
+/// Instead, right after the rollback, we need to reset the component to the original state
+pub(crate) fn set_original_prediction_post_rollback<C: SyncComponent>(
+    mut query: Query<(Entity, &mut C, &mut Correction<C>), Added<Correction<C>>>,
+) {
+    for (entity, mut component, mut correction) in query.iter_mut() {
+        // correction has not started (even if a correction happens while a previous correction was going on, current_visual is None)
+        if correction.current_visual.is_none() {
+            trace!(component = ?std::any::type_name::<C>(), "reset value post-rollback, before first correction");
+            // TODO: this is very inefficient.
+            //  1. we only do the clone() once but if there's multiple frames before a FixedUpdate, we clone multiple times (mitigated by Added filter)
+            //        although Added probably  doesn't work if we have nested Corrections..
+            //  2. if there was a FixedUpdate right after the rollback, we wouldn't need to call this at all!
+            // If multiple Updates run in a row, we want to show the original_prediction value at the end of the frame,
+            // but we also need to keep track of the correct value! We will put it in `correction.current_correction`, since this is what
+            // is used to restore the correct value at the start of the next frame
+            correction.current_correction = Some(component.clone());
+            *component.bypass_change_detection() = correction.original_prediction.clone();
         }
     }
 }
@@ -125,13 +162,10 @@ mod tests {
         }
     }
 
-    /// Test:
-    /// - normal correction
-    /// - rollback that happens while correction was under way
-    #[test]
-    fn test_correction() {
-        let frame_duration = Duration::from_millis(10);
-        let tick_duration = Duration::from_millis(10);
+    fn setup(
+        tick_duration: Duration,
+        frame_duration: Duration,
+    ) -> (BevyStepper, Entity, Entity, Entity, Entity) {
         let shared_config = SharedConfig {
             tick: TickConfig::new(tick_duration),
             ..Default::default()
@@ -143,147 +177,15 @@ mod tests {
             },
             ..default()
         };
+        // we create the stepper manually to not run init()
         let mut stepper = BevyStepper::new(shared_config, client_config, frame_duration);
         stepper
             .client_app
             .add_systems(FixedUpdate, increment_component_system);
         stepper.build();
         stepper.init();
-
-        // add predicted/confirmed entities
         let tick = stepper.client_tick();
-        let confirmed = stepper
-            .client_app
-            .world_mut()
-            .spawn((
-                Confirmed {
-                    tick,
-                    ..Default::default()
-                },
-                ComponentCorrection(2.0),
-            ))
-            .id();
-        let predicted = stepper
-            .client_app
-            .world_mut()
-            .spawn(Predicted {
-                confirmed_entity: Some(confirmed),
-            })
-            .id();
-        stepper
-            .client_app
-            .world_mut()
-            .entity_mut(confirmed)
-            .get_mut::<Confirmed>()
-            .unwrap()
-            .predicted = Some(predicted);
-        stepper.frame_step();
 
-        // we insert the component at a different frame to not trigger an early rollback
-        stepper
-            .client_app
-            .world_mut()
-            .entity_mut(predicted)
-            .insert(ComponentCorrection(1.0));
-        stepper.frame_step();
-
-        // trigger a rollback (the predicted value doesn't exist in the prediction history)
-        let original_tick = stepper.client_tick();
-        let rollback_tick = original_tick - 5;
-        received_confirmed_update(&mut stepper, confirmed, rollback_tick);
-
-        stepper.frame_step();
-        // check that a correction is applied
-        assert_eq!(
-            stepper
-                .client_app
-                .world()
-                .get::<Correction<ComponentCorrection>>(predicted)
-                .unwrap(),
-            &Correction::<ComponentCorrection> {
-                original_prediction: ComponentCorrection(2.0),
-                original_tick,
-                final_correction_tick: original_tick + (original_tick - rollback_tick),
-                // interpolate 20% of the way
-                current_visual: Some(ComponentCorrection(3.6)),
-                current_correction: Some(ComponentCorrection(10.0)),
-            }
-        );
-
-        // check that the correction value has been incremented and that the visual value has been updated correctly
-        stepper.frame_step();
-        let correction = stepper
-            .client_app
-            .world()
-            .get::<Correction<ComponentCorrection>>(predicted)
-            .unwrap();
-        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, 5.6);
-        assert_eq!(correction.current_correction.as_ref().unwrap().0, 11.0);
-
-        // trigger a new rollback while the correction is under way
-        let original_tick = stepper.client_tick();
-        let rollback_tick = original_tick - 5;
-        received_confirmed_update(&mut stepper, confirmed, rollback_tick);
-        stepper.frame_step();
-
-        // check that the correction has been updated
-        let correction = stepper
-            .client_app
-            .world()
-            .get::<Correction<ComponentCorrection>>(predicted)
-            .unwrap();
-        // the new correction starts from the previous visual value
-        assert_relative_eq!(correction.original_prediction.0, 5.6);
-        assert_eq!(correction.original_tick, original_tick);
-        assert_eq!(
-            correction.final_correction_tick,
-            original_tick + (original_tick - rollback_tick)
-        );
-        // interpolate 20% of the way
-        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, 7.88);
-        assert_eq!(correction.current_correction.as_ref().unwrap().0, 17.0);
-        stepper.frame_step();
-        stepper.frame_step();
-        stepper.frame_step();
-        let correction = stepper
-            .client_app
-            .world()
-            .get::<Correction<ComponentCorrection>>(predicted)
-            .unwrap();
-        // interpolate 80% of the way
-        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, 17.12);
-        assert_eq!(correction.current_correction.as_ref().unwrap().0, 20.0);
-    }
-
-    /// Test that if:
-    /// - entity A gets mispredicted
-    /// - entity B is correctly predicted
-    /// then:
-    /// - a rollback happens, but we only add correction for entity A
-    #[test]
-    fn test_no_correction_if_no_misprediction() {
-        let frame_duration = Duration::from_millis(10);
-        let tick_duration = Duration::from_millis(10);
-        let shared_config = SharedConfig {
-            tick: TickConfig::new(tick_duration),
-            ..Default::default()
-        };
-        let client_config = ClientConfig {
-            prediction: PredictionConfig {
-                correction_ticks_factor: 1.0,
-                ..default()
-            },
-            ..default()
-        };
-        let mut stepper = BevyStepper::new(shared_config, client_config, frame_duration);
-        stepper
-            .client_app
-            .add_systems(FixedUpdate, increment_component_system);
-        stepper.build();
-        stepper.init();
-
-        // add predicted/confirmed entities
-        let tick = stepper.client_tick();
         let confirmed_a = stepper
             .client_app
             .world_mut()
@@ -335,6 +237,110 @@ mod tests {
             .unwrap()
             .predicted = Some(predicted_b);
         stepper.frame_step();
+        (stepper, confirmed_a, predicted_a, confirmed_b, predicted_b)
+    }
+
+    /// Test:
+    /// - normal correction
+    /// - rollback that happens while correction was under way
+    #[test]
+    fn test_correction() {
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let (mut stepper, confirmed, predicted, _, _) = setup(frame_duration, tick_duration);
+
+        // we insert the component at a different frame to not trigger an early rollback
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted)
+            .insert(ComponentCorrection(1.0));
+        stepper.frame_step();
+
+        // trigger a rollback (the predicted value doesn't exist in the prediction history)
+        let original_tick = stepper.client_tick();
+        let rollback_tick = original_tick - 5;
+        received_confirmed_update(&mut stepper, confirmed, rollback_tick);
+
+        stepper.frame_step();
+        // check that a correction is applied
+
+        // interpolate 20% of the way
+        let current_visual = Some(ComponentCorrection(2.0 + ease_out_quad(0.2) * (10.0 - 2.0)));
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<Correction<ComponentCorrection>>(predicted)
+                .unwrap(),
+            &Correction::<ComponentCorrection> {
+                original_prediction: ComponentCorrection(2.0),
+                original_tick,
+                final_correction_tick: original_tick + (original_tick - rollback_tick),
+                current_visual,
+                current_correction: Some(ComponentCorrection(10.0)),
+            }
+        );
+
+        // check that the correction value has been incremented and that the visual value has been updated correctly
+        stepper.frame_step();
+        let correction = stepper
+            .client_app
+            .world()
+            .get::<Correction<ComponentCorrection>>(predicted)
+            .unwrap();
+        let current_visual = Some(ComponentCorrection(2.0 + ease_out_quad(0.4) * (11.0 - 2.0)));
+        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, current_visual.as_ref().unwrap().0);
+        assert_eq!(correction.current_correction.as_ref().unwrap().0, 11.0);
+
+        // trigger a new rollback while the correction is under way
+        let original_tick = stepper.client_tick();
+        let rollback_tick = original_tick - 5;
+        received_confirmed_update(&mut stepper, confirmed, rollback_tick);
+        stepper.frame_step();
+
+        // check that the correction has been updated
+        let correction = stepper
+            .client_app
+            .world()
+            .get::<Correction<ComponentCorrection>>(predicted)
+            .unwrap();
+        // the new correction starts from the previous visual value
+        let previous_visual = current_visual.as_ref().unwrap().0;
+        assert_relative_eq!(correction.original_prediction.0, previous_visual);
+        assert_eq!(correction.original_tick, original_tick);
+        assert_eq!(
+            correction.final_correction_tick,
+            original_tick + (original_tick - rollback_tick)
+        );
+        // interpolate 20% of the way
+        let current_visual = Some(ComponentCorrection(previous_visual + ease_out_quad(0.2) * (17.0 - previous_visual)));
+        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, current_visual.as_ref().unwrap().0);
+        assert_eq!(correction.current_correction.as_ref().unwrap().0, 17.0);
+        stepper.frame_step();
+        stepper.frame_step();
+        stepper.frame_step();
+        let correction = stepper
+            .client_app
+            .world()
+            .get::<Correction<ComponentCorrection>>(predicted)
+            .unwrap();
+        // interpolate 80% of the way
+        let current_visual = Some(ComponentCorrection(previous_visual + ease_out_quad(0.8) * (20.0 - previous_visual)));
+        assert_relative_eq!(correction.current_visual.as_ref().unwrap().0, current_visual.as_ref().unwrap().0);
+        assert_eq!(correction.current_correction.as_ref().unwrap().0, 20.0);
+    }
+
+    /// Test that if:
+    /// - entity A gets mispredicted
+    /// - entity B is correctly predicted
+    /// then:
+    /// - a rollback happens, but we only add correction for entity A
+    #[test]
+    fn test_no_correction_if_no_misprediction() {
+        let frame_duration = Duration::from_millis(10);
+        let tick_duration = Duration::from_millis(10);
+        let (mut stepper, confirmed_a, predicted_a, confirmed_b, predicted_b) = setup(frame_duration, tick_duration);
 
         // we insert the component at a different frame to not trigger an early rollback
         stepper
@@ -364,6 +370,8 @@ mod tests {
 
         stepper.frame_step();
         // check that a correction is applied
+        // interpolate 20% of the way
+        let current_visual = Some(ComponentCorrection(2.0 + ease_out_quad(0.2) * (10.0 - 2.0)));
         assert_eq!(
             stepper
                 .client_app
@@ -374,8 +382,7 @@ mod tests {
                 original_prediction: ComponentCorrection(2.0),
                 original_tick,
                 final_correction_tick: original_tick + (original_tick - rollback_tick),
-                // interpolate 20% of the way
-                current_visual: Some(ComponentCorrection(3.6)),
+                current_visual,
                 current_correction: Some(ComponentCorrection(10.0)),
             }
         );
@@ -386,4 +393,59 @@ mod tests {
             .get::<Correction<ComponentCorrection>>(predicted_b)
             .is_none());
     }
+
+    /// Check that correction still works even if Update runs twice in a row (i.e. we don't have a FixedUpdate on the frame of the rollback)
+    #[test]
+    fn test_two_consecutive_frame_updates() {
+        let frame_duration = Duration::from_millis(10);
+        // very long tick duration to guarantee that we have 2 consecutive frames without a tick
+        let tick_duration = Duration::from_millis(25);
+        let (mut stepper, confirmed, predicted, _, _) = setup(tick_duration, frame_duration);
+
+        // we insert the component at a different frame to not trigger an early rollback
+        // (here a rollback isn't triggered because we didn't receive any server packets)
+        stepper
+            .client_app
+            .world_mut()
+            .entity_mut(predicted)
+            .insert(ComponentCorrection(1.0));
+        stepper.frame_step();
+
+        // trigger a rollback (the predicted value doesn't exist in the prediction history)
+        let original_tick = stepper.client_tick();
+        let rollback_tick = original_tick - 5;
+        received_confirmed_update(&mut stepper, confirmed, rollback_tick);
+
+        stepper.frame_step();
+        // check that a correction Component is added, however no Correction is applied yet because FixedUpdate didn't run
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<Correction<ComponentCorrection>>(predicted)
+                .unwrap(),
+            &Correction::<ComponentCorrection> {
+                original_prediction: ComponentCorrection(2.0),
+                original_tick,
+                final_correction_tick: original_tick + (original_tick - rollback_tick),
+                current_visual: None,
+                // the value is 8.0 because multiple frames ran without FixedUpdate running
+                current_correction: Some(ComponentCorrection(8.0)),
+            }
+        );
+        // check that the component is still visually the original prediction at the end of the frame
+        assert_eq!(stepper.client_app.world().get::<ComponentCorrection>(predicted), Some(&ComponentCorrection(2.0)));
+        stepper.frame_step();
+        // check that this time we ran FixedUpdate, but that we use the Corrected value as the final value to correct towards
+        // not the original prediction! If that were the case, we would correct towards ComponentCorrection(3.0)
+        assert_eq!(
+            stepper
+                .client_app
+                .world()
+                .get::<Correction<ComponentCorrection>>(predicted)
+                .unwrap().current_correction,
+            Some(ComponentCorrection(9.0)),
+        );
+    }
+
 }

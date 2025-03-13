@@ -5,13 +5,13 @@ use crate::protocol::message::registry::AppMessageInternalExt;
 use crate::protocol::SerializeFns;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Entity, EntityMapper, Event};
+use bevy::prelude::{Entity, EntityMapper};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 pub trait AppTriggerExt {
     /// Registers an [`Event`] that can be triggered over the network
-    fn register_trigger<E: Event + Message + Serialize + DeserializeOwned>(
+    fn register_trigger<E: Message + Serialize + DeserializeOwned>(
         &mut self,
         direction: ChannelDirection,
     );
@@ -19,7 +19,7 @@ pub trait AppTriggerExt {
     /// Registers an [`Event`] that can be triggered over the network
     ///
     /// You need to provide your own [`SerializeFns`] for this message
-    fn register_trigger_custom_serde<E: Event + Message>(
+    fn register_trigger_custom_serde<E: Message>(
         &mut self,
         direction: ChannelDirection,
         serialize_fns: SerializeFns<TriggerMessage<E>>,
@@ -59,7 +59,7 @@ impl<E> MapEntities for TriggerMessage<E> {
 // }
 
 impl AppTriggerExt for App {
-    fn register_trigger<E: Event + Message + Serialize + DeserializeOwned>(
+    fn register_trigger<E: Message + Serialize + DeserializeOwned>(
         &mut self,
         direction: ChannelDirection,
     ) {
@@ -69,7 +69,7 @@ impl AppTriggerExt for App {
     // TODO: register_trigger_mapped?
 
     /// Register a resource to be automatically replicated over the network
-    fn register_trigger_custom_serde<E: Event + Message>(
+    fn register_trigger_custom_serde<E: Message>(
         &mut self,
         direction: ChannelDirection,
         serialize_fns: SerializeFns<TriggerMessage<E>>,
@@ -81,7 +81,7 @@ impl AppTriggerExt for App {
 }
 
 /// Register the trigger-receive metadata for a given message E
-pub(crate) fn register_trigger<E: Event + Message>(app: &mut App, direction: ChannelDirection) {
+pub(crate) fn register_trigger<E: Message>(app: &mut App, direction: ChannelDirection) {
     let is_client = app.world().get_resource::<ClientConfig>().is_some();
     let is_server = app.world().get_resource::<ServerConfig>().is_some();
     match direction {
