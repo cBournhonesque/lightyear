@@ -63,7 +63,7 @@ impl Plugin for SharedPlugin {
         #[cfg(feature = "avian3d")]
         app.add_plugins(crate::utils::avian3d::Avian3dPlugin);
         #[cfg(feature = "visualizer")]
-        if self.visualizer {
+        if self.config.visualizer {
             if !app.is_plugin_added::<bevy_metrics_dashboard::bevy_egui::EguiPlugin>() {
                 app.add_plugins(bevy_metrics_dashboard::bevy_egui::EguiPlugin);
             }
