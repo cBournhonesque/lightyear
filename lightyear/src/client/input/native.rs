@@ -118,6 +118,9 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         app.init_resource::<MessageBuffer<A>>();
 
         // SYSTEMS
+        // we don't need this for native inputs because it's handled by required components
+        // app.add_observer(add_action_state::<A>);
+        // app.add_observer(add_input_buffer::<A>);
         if self.config.rebroadcast_inputs {
             app.add_systems(
                 RunFixedMainLoop,

@@ -79,7 +79,7 @@ impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug +
 {
 }
 
-pub trait UserActionState: UserAction + Component + Default {
+pub trait UserActionState: UserAction + Component + Default + Debug {
     type UserAction: UserAction;
 }
 

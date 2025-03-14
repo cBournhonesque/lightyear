@@ -1,3 +1,12 @@
+# BEVY
+
+I noticed that when system ordering is ambiguous, once my app is compiled, the system order is completely fixed (i.e. all the ambiguous systems get ordered in a given fixed order). Is there a way to get what that fixed system order is?
+Is it the cached topsort of the schedule?
+Does bevy_mod_debugdump show that 'fixed' system order?
+It would be immensely useful to know what the exact system order being used is, so that I can debug which ambiguity is causing a given bug.
+Should I create an issue for something like this? I would love the editor to somehow provide tools to help me debug ambiguities 
+
+
 # PrePrediction
 
 - Current situation:

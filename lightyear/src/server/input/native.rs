@@ -5,11 +5,7 @@ use crate::connection::client::{ClientConnection, NetClient};
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::{InputMessage, InputTarget};
 use crate::inputs::native::{ActionState, InputMarker};
-use crate::prelude::{
-    is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel,
-    MessageRegistry, NetworkTarget, ServerReceiveMessage, ServerSendMessage, TickManager,
-    UserAction,
-};
+use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel, LeafwingUserAction, MessageRegistry, NetworkTarget, ServerReceiveMessage, ServerSendMessage, TickManager, UserAction};
 use crate::server::connection::ConnectionManager;
 use crate::server::input::InputSystemSet;
 use crate::shared::input::InputConfig;
@@ -40,6 +36,8 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
             marker: std::marker::PhantomData,
         });
         // SYSTEMS
+        // we don't need this for native inputs because InputBuffer is required by ActionState
+        // app.add_observer(add_action_state_buffer::<A>);
         app.add_systems(
             PreUpdate,
             (receive_input_message::<A>,).in_set(InputSystemSet::ReceiveInputs),
