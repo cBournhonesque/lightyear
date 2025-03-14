@@ -5,9 +5,7 @@ use tracing::{debug, error, trace};
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::Predicted;
-use crate::prelude::{
-    AppIdentityExt, ComponentRegistry, PreSpawnedPlayerObject, ShouldBePredicted, TickManager,
-};
+use crate::prelude::{is_server_ref, AppIdentityExt, ComponentRegistry, NetworkIdentityState, PreSpawnedPlayerObject, ShouldBePredicted, TickManager};
 use crate::shared::tick_manager::Tick;
 
 // - TODO: despawning another client entity as a consequence from prediction, but we want to roll that back:
@@ -68,10 +66,17 @@ impl Command for PredictionDespawnCommand {
 pub trait PredictionDespawnCommandsExt {
     fn prediction_despawn(&mut self);
 }
+
 impl PredictionDespawnCommandsExt for EntityCommands<'_> {
     fn prediction_despawn(&mut self) {
         let entity = self.id();
-        self.commands().queue(PredictionDespawnCommand { entity })
+        self.queue(move |entity_mut: EntityWorldMut| {
+            if is_server_ref(entity_mut.world().get_resource_ref::<State<NetworkIdentityState>>()) {
+                entity_mut.despawn_recursive();
+            } else {
+                PredictionDespawnCommand { entity }.apply(entity_mut.into_world_mut());
+            }
+        });
     }
 }
 
