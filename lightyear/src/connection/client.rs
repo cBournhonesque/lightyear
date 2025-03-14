@@ -156,9 +156,9 @@ impl NetConfig {
             } => {
                 let client = super::steam::client::Client::new(
                     steamworks_client.unwrap_or_else(|| {
-                        Arc::new(RwLock::new(SteamworksClient::new_with_app_id(
-                            config.app_id,
-                        )))
+                        Arc::new(RwLock::new(
+                            SteamworksClient::new_with_app_id(config.app_id).unwrap(),
+                        ))
                     }),
                     config,
                     conditioner,

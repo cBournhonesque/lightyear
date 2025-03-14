@@ -19,11 +19,15 @@ pub(crate) const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
 
 #[derive(Clone)]
-pub struct SharedPlugin;
+pub struct SharedPlugin {
+    pub predict_all: bool,
+}
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ProtocolPlugin);
+        app.add_plugins(ProtocolPlugin {
+            predict_all: self.predict_all,
+        });
         // bundles
         app.add_systems(Startup, init);
 

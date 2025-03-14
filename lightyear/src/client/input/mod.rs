@@ -155,11 +155,17 @@ impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
             FixedPreUpdate,
             (
                 (
-                    // update_action_state_remote_players::<A>,
+                    // We run this even in host-server mode because there might be input-delay.
+                    // Also we want to buffer inputs in the InputBuffer so that we can broadcast
+                    // the host-server client's inputs to other clients
                     buffer_action_state::<A, F>,
                     // If InputDelay is enabled, we get the ActionState for the current tick
                     // from the InputBuffer (which was added to the InputBuffer input_delay ticks ago)
-                    get_non_rollback_action_state::<A>.run_if(is_input_delay),
+                    //
+                    // In host-server mode, we run the server's UpdateActionState which basically does this,
+                    // but also removes old inputs from the buffer!
+                    get_non_rollback_action_state::<A>
+                        .run_if(is_input_delay.and(should_run.clone())),
                 )
                     .chain()
                     .run_if(not(is_in_rollback)),

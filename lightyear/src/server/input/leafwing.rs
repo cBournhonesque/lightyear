@@ -155,8 +155,8 @@ fn receive_input_message<A: LeafwingUserAction>(
 /// In host-server mode, we usually don't need to send any input messages because any update
 /// to the ActionState is immediately visible to the server.
 /// However we might want other clients to see the inputs of the host client, in which case we will create
-/// a InputMessage and send it to the server. The user can then have a `replicate_inputs` system that takes this
-/// message and propagates it to other clients
+/// a InputMessage and send it to the server.
+/// Then the 'rebroadcast_inputs' system will be able to rebroadcast the host-server's inputs to other clients.
 fn send_host_server_input_message<A: LeafwingUserAction>(
     connection: Res<ClientConnectionManager>,
     netclient: Res<ClientConnection>,
