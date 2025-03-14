@@ -164,7 +164,8 @@ impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
                     //
                     // In host-server mode, we run the server's UpdateActionState which basically does this,
                     // but also removes old inputs from the buffer!
-                    get_non_rollback_action_state::<A>.run_if(is_input_delay.and(should_run.clone())),
+                    get_non_rollback_action_state::<A>
+                        .run_if(is_input_delay.and(should_run.clone())),
                 )
                     .chain()
                     .run_if(not(is_in_rollback)),

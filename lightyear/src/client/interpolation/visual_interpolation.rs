@@ -213,7 +213,7 @@ mod tests {
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
     use approx::assert_relative_eq;
-    
+
     use bevy::utils::Duration;
 
     #[derive(Resource, Debug)]

@@ -154,7 +154,7 @@ pub enum AdminActions {
 }
 
 // Protocol
-pub(crate) struct ProtocolPlugin  {
+pub(crate) struct ProtocolPlugin {
     pub(crate) predict_all: bool,
 }
 

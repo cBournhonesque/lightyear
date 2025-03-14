@@ -48,7 +48,7 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
                 InternalMainSet::<ServerMarker>::ReceiveEvents,
                 InputSystemSet::ReceiveInputs.run_if(is_started),
             )
-                .chain()
+                .chain(),
         );
         app.configure_sets(
             FixedPreUpdate,
@@ -59,8 +59,8 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
         app.configure_sets(
             PostUpdate,
             InputSystemSet::RebroadcastInputs
-            .run_if(is_started)
-            .before(InternalMainSet::<ServerMarker>::SendEvents)
+                .run_if(is_started)
+                .before(InternalMainSet::<ServerMarker>::SendEvents),
         );
 
         // SYSTEMS
