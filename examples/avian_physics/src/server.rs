@@ -119,7 +119,6 @@ pub(crate) fn replicate_players(
                 group: REPLICATION_GROUP,
                 ..default()
             };
-            info!("Adding replicate");
             e.insert((
                 replicate,
                 // if we receive a pre-predicted entity, only send the prepredicted component back

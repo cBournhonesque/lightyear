@@ -388,9 +388,15 @@ fn on_connect_host_server(
     mut server_manager: ResMut<crate::server::connection::ConnectionManager>,
     mut connect_event_writer: EventWriter<ConnectEvent>,
 ) {
-    // TODO: put this elsewhere! Maybe the SyncPlugin should have a startup function that runs if in host-server?
     // make sure the `is_synced` run conditions return true
-    connection_manager.sync_manager.synced = true;
+    // TODO: for some reason, enabling this breaks a LOT of things. I think we use the `is_synced` condition
+    //  too liberally in the code-base, normally it should just mean that SyncPlugin is done, but in a lot cases
+    //  we use it to mean: 'client is connected'. Investigate why this breaks things.
+    //  For example in host-server mode in AvianPhysics example, the ReplicationTarget component is not added
+    //   on the entity!
+    // connection_manager.sync_manager.synced = true;
+
+    // TODO: put this elsewhere! Maybe the SyncPlugin should have a startup function that runs if in host-server?
     // set the input delay value (since SyncPlugin does not run)
     connection_manager.sync_manager.current_input_delay = config
         .prediction

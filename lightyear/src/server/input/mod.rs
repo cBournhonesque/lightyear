@@ -58,11 +58,9 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
         //  messages per frame if we didn't run FixedUpdate at all?
         app.configure_sets(
             PostUpdate,
-            (
-                InputSystemSet::RebroadcastInputs
-                .run_if(is_started)
-                .before(InternalMainSet::<ServerMarker>::SendEvents),
-            )
+            InputSystemSet::RebroadcastInputs
+            .run_if(is_started)
+            .before(InternalMainSet::<ServerMarker>::SendEvents)
         );
 
         // SYSTEMS
@@ -104,20 +102,6 @@ fn update_action_state<A: UserActionState>(
                 .set(input_buffer.len() as f64);
             }
         }
-        / remove all the previous values
-        // we keep the current value in the InputBuffer so that if future messages are lost, we can still
-        // fallback on the last known value
-        input_buffer.pop(tick - 1);
-    }
-}
-
-
-fn clean_buffers<A: UserActionState>(
-    tick_manager: Res<TickManager>,
-    mut action_state_query: Query<(Entity, &mut InputBuffer<A>)>,
-) {
-    let tick = tick_manager.tick();
-    for (entity, mut input_buffer) in action_state_query.iter_mut() {
         // remove all the previous values
         // we keep the current value in the InputBuffer so that if future messages are lost, we can still
         // fallback on the last known value
