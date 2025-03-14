@@ -126,7 +126,8 @@ impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
                 // we still need to be able to update inputs in host-server mode!
                 InputSystemSet::WriteClientInputs,
                 // NOTE: we could not buffer inputs in host-server mode, but it's required if
-                //  we want the host-server client to broadcast its inputs to other clients
+                //  we want the host-server client to broadcast its inputs to other clients!
+                //  Also it's useful so that the host-server can have input-delay
                 InputSystemSet::BufferClientInputs, // .run_if(should_run.clone())
             )
                 .chain(),
@@ -155,11 +156,17 @@ impl<A: UserActionState, F: Component> Plugin for BaseInputPlugin<A, F> {
             FixedPreUpdate,
             (
                 (
-                    // update_action_state_remote_players::<A>,
+                    // We run this even in host-server mode because there might be input-delay.
+                    // Also we want to buffer inputs in the InputBuffer so that we can broadcast
+                    // the host-server client's inputs to other clients
                     buffer_action_state::<A, F>,
                     // If InputDelay is enabled, we get the ActionState for the current tick
                     // from the InputBuffer (which was added to the InputBuffer input_delay ticks ago)
-                    get_non_rollback_action_state::<A>.run_if(is_input_delay),
+                    //
+                    // In host-server mode, we run the server's UpdateActionState which basically does this,
+                    // but also removes old inputs from the buffer!
+                    get_non_rollback_action_state::<A>
+                        .run_if(is_input_delay.and(should_run.clone())),
                 )
                     .chain()
                     .run_if(not(is_in_rollback)),
@@ -205,10 +212,11 @@ fn buffer_action_state<A: UserActionState, F: Component>(
         input_buffer.set(tick, action_state.clone());
         trace!(
             ?entity,
+            action_state = ?action_state.clone(),
             current_tick = ?tick_manager.tick(),
             delayed_tick = ?tick,
-            "set action state in input buffer: {}",
-            input_buffer.as_ref()
+            input_buffer = %input_buffer.as_ref(),
+            "set action state in input buffer",
         );
         #[cfg(feature = "metrics")]
         {
@@ -312,9 +320,8 @@ fn get_delayed_action_state<A: UserActionState, F: Component>(
             trace!(
                 ?entity,
                 ?delayed_tick,
-                "fetched delayed action state {:?} from input buffer: {:?}",
+                "fetched delayed action state {:?} from input buffer: {}",
                 action_state,
-                // action_state.get_pressed(),
                 input_buffer
             );
         }

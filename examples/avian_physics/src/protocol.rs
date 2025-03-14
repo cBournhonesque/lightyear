@@ -154,7 +154,9 @@ pub enum AdminActions {
 }
 
 // Protocol
-pub(crate) struct ProtocolPlugin;
+pub(crate) struct ProtocolPlugin {
+    pub(crate) predict_all: bool,
+}
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
@@ -163,7 +165,7 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(LeafwingInputPlugin::<PlayerActions> {
             config: InputConfig::<PlayerActions> {
-                rebroadcast_inputs: true,
+                rebroadcast_inputs: self.predict_all,
                 ..default()
             },
         });

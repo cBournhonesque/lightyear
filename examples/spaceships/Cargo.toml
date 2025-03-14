@@ -34,11 +34,9 @@ avian2d = { workspace = true, features = [
 ] }
 lightyear = { workspace = true, features = ["leafwing", "avian2d"] }
 serde.workspace = true
-anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 bevy.workspace = true
-rand.workspace = true
 bevygap_client_plugin = { workspace = true, optional = true, features = [
   "matchmaker-tls",
 ] }
