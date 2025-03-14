@@ -50,6 +50,8 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
             app.add_systems(
                 PostUpdate,
                 (
+                    // TODO: is this necessary? why don't we just use the client's SendInputMessage?
+                    //  now messages work seamlessly in host-server mode, so it should work!
                     send_host_server_input_message::<A>.run_if(is_host_server),
                     rebroadcast_inputs::<A>,
                 )

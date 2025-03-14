@@ -128,6 +128,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         );
 
         // SYSTEMS
+        // TODO: should we have an observer that adds ActionState if InputBuffer is added?
         // we use required components for native inputs; here let's use observers
         app.add_observer(add_action_state::<A>);
         app.add_observer(add_input_buffer::<A>);
@@ -371,14 +372,14 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                 InputTarget::PrePredictedEntity(entity) => Some(entity),
             };
             if let Some(entity) = entity {
-                debug!(
+                trace!(
                     "received input message for entity: {:?}. Applying to diff buffer.",
                     entity
                 );
                 if let Ok(confirmed) = confirmed_query.get(entity) {
                     if let Some(predicted) = confirmed.predicted {
                         if let Ok(input_buffer) = predicted_query.get_mut(predicted) {
-                            debug!(?entity, ?target_data.diffs, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
+                            trace!(?entity, ?target_data.diffs, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
                             if let Some(mut input_buffer) = input_buffer {
                                 input_buffer.update_from_diffs(
                                     message.end_tick,
@@ -403,6 +404,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                                         .set(input_buffer.len() as f64);
                                 }
                             } else {
+                                debug!(?entity, "Inserting input buffer for remote player!");
                                 // add the ActionState or InputBuffer if they are missing
                                 let mut input_buffer = InputBuffer::<A>::default();
                                 input_buffer.update_from_diffs(

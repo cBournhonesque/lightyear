@@ -52,7 +52,8 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
         );
         app.configure_sets(
             FixedPreUpdate,
-            InputSystemSet::UpdateActionState.run_if(is_started),
+            InputSystemSet::UpdateActionState.run_if(is_started)
+                .after(crate::client::input::InputSystemSet::BufferClientInputs),
         );
         // TODO: maybe put this in a Fixed schedule to avoid sending multiple host-server identical
         //  messages per frame if we didn't run FixedUpdate at all?
@@ -102,6 +103,8 @@ fn update_action_state<A: UserActionState>(
                 .set(input_buffer.len() as f64);
             }
         }
+        // TODO: in host-server mode, if we rebroadcast inputs, we might want to keep a bit of a history
+        //  in the buffer so that we have redundancy when we broadcast to other clients
         // remove all the previous values
         // we keep the current value in the InputBuffer so that if future messages are lost, we can still
         // fallback on the last known value
