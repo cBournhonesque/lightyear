@@ -266,7 +266,7 @@ pub(crate) fn sync_update(
         {
             metrics::counter!("sync::resync_event").increment(1);
         }
-        debug!("Triggering TickSync event: {tick_event:?}");
+        info!("Triggering TickSync event: {tick_event:?}");
         commands.trigger(tick_event);
     }
 
