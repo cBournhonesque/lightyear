@@ -120,9 +120,12 @@ impl PreSpawnedPlayerObjectPlugin {
         let confirmed_entity = trigger.entity();
         if let Ok(server_prespawn) = query.get(confirmed_entity) {
             // we handle the PreSpawnedPlayerObject hash in this system and don't need it afterwards
+            // Also by removing PreSpawnedPlayerObject, we make sure that the entity can be normal-predicted
+            // if there is no match
             commands
                 .entity(confirmed_entity)
                 .remove::<PreSpawnedPlayerObject>();
+
             let Some(server_hash) = server_prespawn.hash else {
                 error!("Received a PreSpawnedPlayerObject entity from the server without a hash");
                 return;
@@ -135,10 +138,7 @@ impl PreSpawnedPlayerObjectPlugin {
                     metrics::counter!("prespawn::no_match").increment(1);
                 }
                 debug!(?server_hash, "Received a PreSpawnedPlayerObject entity from the server with a hash that does not match any client entity");
-                // remove the PreSpawnedPlayerObject so that the entity can be normal-predicted
-                commands
-                    .entity(confirmed_entity)
-                    .remove::<PreSpawnedPlayerObject>();
+                // PreSpawnedPlayerObject has been removed, so the entity can be normal-predicted
                 return;
             };
 
@@ -146,7 +146,7 @@ impl PreSpawnedPlayerObjectPlugin {
             let client_entity = client_entity_list.pop().unwrap();
             debug!("found a client pre-spawned entity corresponding to server pre-spawned entity! Spawning/finding a Predicted entity for it {}", server_hash);
 
-            // we found the corresponding client entity!
+            // we found the corresponding client PreSpawned entity!
             // 1.a if the client_entity exists, remove the PreSpawnedPlayerObject component from the client entity
             //  and add a Predicted component to it
             let predicted_entity =
@@ -190,6 +190,7 @@ impl PreSpawnedPlayerObjectPlugin {
                 .replication_receiver
                 .get_confirmed_tick(confirmed_entity)
                 .unwrap();
+
             commands
                 .entity(confirmed_entity)
                 .insert(Confirmed {
@@ -200,6 +201,7 @@ impl PreSpawnedPlayerObjectPlugin {
                 // remove ShouldBePredicted so that we don't spawn another Predicted entity
                 .remove::<(PreSpawnedPlayerObject, ShouldBePredicted)>();
             debug!(
+                ?confirmed_tick,
                 "Added/Spawned the Predicted entity: {:?} for the confirmed entity: {:?}",
                 predicted_entity, confirmed_entity
             );
