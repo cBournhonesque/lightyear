@@ -88,7 +88,7 @@ impl ReplicationReceiver {
         // NOTE: this is valid even after tick wrapping because we keep clamping the latest_tick values for each channel
         // if we have already applied a more recent update for this group, no need to keep this one (or should we keep it for history?)
         if channel.latest_tick.is_some_and(|t| remote_tick <= t) {
-            error!("discard because the update is older than the latest tick");
+            trace!("discard because the update is older than the latest tick");
             return;
         }
 
