@@ -613,7 +613,7 @@ impl GroupChannel {
         events: &mut ConnectionEvents,
     ) {
         let group_id = message.group_id;
-        warn!(
+        debug!(
             ?remote_tick,
             ?message,
             "Received replication actions from remote: {remote:?}"
@@ -826,7 +826,7 @@ impl GroupChannel {
         if is_history {
             return;
         }
-        warn!(
+        debug!(
             ?remote_tick,
             ?message,
             "Received replication updates from remote: {:?}",
