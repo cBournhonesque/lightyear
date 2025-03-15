@@ -121,7 +121,7 @@ fn spawn_broad_phase_aabb_envelope(
 /// Update the collision layers of the child AabbEnvelopeHolder to match the parent
 fn update_collision_layers(
     mut child_query: Query<&mut CollisionLayers, With<AabbEnvelopeHolder>>,
-    mut parent_query: Query<(&mut CollisionLayers, &Children), Without<AabbEnvelopeHolder>>,
+    mut parent_query: Query<(&mut CollisionLayers, &Children), (Without<AabbEnvelopeHolder>, Without<Sensor>)>,
 ) {
     parent_query.iter_mut().for_each(|(layers, children)| {
         if layers.is_changed() || !layers.is_added() {
@@ -151,7 +151,7 @@ fn update_collider_history(
         ),
         (Without<AabbEnvelopeHolder>, Without<Sensor>),
     >,
-    mut children_query: Query<(&Parent, &mut Collider, &mut Position), With<AabbEnvelopeHolder>>,
+    mut children_query: Query<(&Parent, &mut Collider, &mut Position), (With<AabbEnvelopeHolder>, Without<Sensor>)>,
 ) {
     let tick = tick_manager.tick();
     children_query
