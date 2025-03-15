@@ -335,9 +335,24 @@ impl ReplicationReceiver {
                     return;
                 };
 
+                // At this point we know that at least one Action message was applied, otherwise the
+                // earlier check would have returned None
+                debug_assert!(channel.latest_tick.is_some(), "channel latest tick is None");
+
+
                 // pop the oldest until we reach the max applicable index
                 while channel.buffered_updates.len() > max_applicable_idx {
                     let (remote_tick, message) = channel.buffered_updates.pop_oldest().unwrap();
+
+                    // We restricted the updates only to those that have a last_action_tick <= latest_tick,
+                    // but we also need to make sure that we don't apply updates that are too old!
+                    // (older than the latest_tick applied from any Actions message above!)
+                    if remote_tick <= channel.latest_tick.unwrap() {
+                        // TODO: those ticks could be history and could be interesting. They are older than the latest_tick though
+                        continue;
+                    }
+
+                    // These ticks are more recent than the latest_tick, but only the most recent one is interesting to us
                     let is_history = channel.buffered_updates.len() != max_applicable_idx;
                     // most recent tick.
                     if !is_history {
@@ -482,8 +497,8 @@ impl UpdatesBuffer {
     ///
     /// or None if there are None
     fn max_index_to_apply(&self, latest_tick: Option<Tick>) -> Option<usize> {
-        // we can use partition point because we know that all the non-ready elements will be on the left
-        // and the ready elements will be on the right.
+        // we can use partition point because we know that all the non-ready elements (too recent, we haven't reached their last_action_tick)
+        // will be on the left and the ready elements (we have reached their last_action_tick) will be on the right.
         // Returning false means that the element is ready to be applied
         let idx = self.0.partition_point(|(_, message)| {
             let Some(last_action_tick) = message.last_action_tick else {
@@ -769,6 +784,11 @@ impl GroupChannel {
             }
         }
 
+        // Flush commands because the entities that were inserted might have triggered some observers
+        // In particular, the PreSpawned component triggers an observer that inserts Confirmed, and
+        // we want Confirmed to be added so that it can be updated with the correct tick!
+        world.flush();
+
         // TODO: apply authority check for the update confirmed tick?
         self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
     }
@@ -840,6 +860,11 @@ impl GroupChannel {
                     });
             }
         }
+
+        // Flush commands because the entities that were inserted might have triggered some observers
+        // In particular, the PreSpawned component triggers an observer that inserts Confirmed, and
+        // we want Confirmed to be added so that it can be updated with the correct tick!
+        world.flush();
 
         // TODO: should the update_confirmed_tick only be for entities in the group for which
         //  we have authority?
