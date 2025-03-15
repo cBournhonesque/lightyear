@@ -102,7 +102,7 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     .find(|(_, (history_tick, _))| *history_tick == interpolation_tick)
                     .unwrap();
                 let (_, (target_position, target_rotation, _)) =
-                    history.into_iter().skip(source_idx + 1).next().unwrap();
+                    history.into_iter().nth(source_idx + 1).unwrap();
                 // we assume that the collider itself doesn't change so we don't need to interpolate it
                 let interpolated_position =
                     start_position.lerp(**target_position, interpolation_overstep);
