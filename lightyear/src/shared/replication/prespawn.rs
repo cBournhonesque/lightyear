@@ -9,7 +9,7 @@ use bevy::ecs::archetype::Archetype;
 use bevy::ecs::component::Components;
 use std::any::TypeId;
 use std::hash::{Hash, Hasher};
-use tracing::trace;
+use tracing::{info, trace};
 
 /// Compute the default PreSpawnedPlayerObject hash used to match server entities with prespawned client entities
 pub(crate) fn compute_default_hash(
@@ -33,6 +33,7 @@ pub(crate) fn compute_default_hash(
     //  if we want the tick to be valid, compute_hash should also be run at the end of FixedUpdate::Main
     //  so that we have the exact spawn tick! Solutions: run compute_hash in post-update as well?
     // we include the spawn tick in the hash
+    info!("hash tick {:?}",tick);
     tick.hash(&mut hasher);
 
     // NOTE: we cannot call hash() multiple times because the components in the archetype
@@ -62,12 +63,13 @@ pub(crate) fn compute_default_hash(
         .collect::<Vec<_>>();
     kinds_to_hash.sort();
     kinds_to_hash.into_iter().for_each(|kind| {
-        trace!(?kind, "using kind for hash");
+        info!("hash kind {:?}",kind);
         kind.hash(&mut hasher)
     });
 
     // if a user salt is provided, hash after the sorted component list
     if let Some(salt) = salt {
+        info!("hash salt {:?}",salt);
         salt.hash(&mut hasher);
     }
 
