@@ -899,12 +899,12 @@ impl GroupChannel {
         );
         self.local_entities.iter().for_each(|local_entity| {
             if let Ok(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
-                trace!(
-                    ?remote_tick,
-                    ?local_entity,
-                    "updating confirmed tick for entity"
-                );
                 if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
+                    trace!(
+                        ?remote_tick,
+                        ?local_entity,
+                        "updating confirmed tick for entity"
+                    );
                     confirmed.tick = remote_tick;
                 }
             }
