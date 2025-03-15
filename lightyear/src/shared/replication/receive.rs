@@ -769,6 +769,11 @@ impl GroupChannel {
             }
         }
 
+        // Flush commands because the entities that were inserted might have triggered some observers
+        // In particular, the PreSpawned component triggers an observer that inserts Confirmed, and
+        // we want Confirmed to be added so that it can be updated with the correct tick!
+        world.flush();
+
         // TODO: apply authority check for the update confirmed tick?
         self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
     }
@@ -840,6 +845,11 @@ impl GroupChannel {
                     });
             }
         }
+
+        // Flush commands because the entities that were inserted might have triggered some observers
+        // In particular, the PreSpawned component triggers an observer that inserts Confirmed, and
+        // we want Confirmed to be added so that it can be updated with the correct tick!
+        world.flush();
 
         // TODO: should the update_confirmed_tick only be for entities in the group for which
         //  we have authority?
