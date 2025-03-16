@@ -128,10 +128,6 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         );
 
         // SYSTEMS
-        // TODO: should we have an observer that adds ActionState if InputBuffer is added?
-        // we use required components for native inputs; here let's use observers
-        app.add_observer(add_action_state::<A>);
-        app.add_observer(add_input_buffer::<A>);
         if self.config.rebroadcast_inputs {
             app.add_systems(
                 RunFixedMainLoop,
@@ -153,36 +149,6 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         );
         // if the client tick is updated because of a desync, update the ticks in the input buffers
         app.add_observer(receive_tick_events::<A>);
-    }
-}
-
-/// For each entity that has the Action component, insert an input buffer.
-fn add_input_buffer<A: LeafwingUserAction>(
-    trigger: Trigger<OnAdd, ActionState<A>>,
-    mut commands: Commands,
-    query: Query<(), Without<InputBuffer<A>>>,
-) {
-    // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
-    //  maybe provide the "controlled" component? or just use With<InputMap>?
-    if let Ok(()) = query.get(trigger.entity()) {
-        commands
-            .entity(trigger.entity())
-            .insert((InputBuffer::<A>::default(),));
-    }
-}
-
-/// For each entity that has the Action component, insert an input buffer.
-fn add_action_state<A: LeafwingUserAction>(
-    trigger: Trigger<OnAdd, InputMap<A>>,
-    mut commands: Commands,
-    query: Query<(), Without<ActionState<A>>>,
-) {
-    // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
-    //  maybe provide the "controlled" component? or just use With<InputMap>?
-    if let Ok(()) = query.get(trigger.entity()) {
-        commands
-            .entity(trigger.entity())
-            .insert((ActionState::<A>::default(),));
     }
 }
 

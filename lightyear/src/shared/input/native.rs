@@ -1,7 +1,9 @@
 //! Plugin to register and handle user inputs.
 
 use crate::client::config::ClientConfig;
+use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::input_message::InputMessage;
+use crate::inputs::native::ActionState;
 use crate::prelude::{ChannelDirection, UserAction};
 use crate::protocol::message::registry::AppMessageInternalExt;
 use crate::server::config::ServerConfig;
@@ -34,6 +36,9 @@ impl<A: UserAction + MapEntities> Plugin for InputPlugin<A> {
         let is_client = app.world().get_resource::<ClientConfig>().is_some();
         let is_server = app.world().get_resource::<ServerConfig>().is_some();
         assert!(is_client || is_server, "Either ClientConfig or ServerConfig must be present! Make sure that your SharedPlugin is registered after the ClientPlugins/ServerPlugins");
+
+        app.register_required_components::<InputBuffer<ActionState<A>>, ActionState<A>>();
+
         if is_client {
             app.add_plugins(crate::client::input::native::InputPlugin::<A>::new(
                 self.config.clone(),

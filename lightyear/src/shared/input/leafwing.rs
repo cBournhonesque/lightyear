@@ -1,12 +1,13 @@
 //! Plugin to register and handle user inputs.
 
-use bevy::app::{App, Plugin};
-
 use crate::client::config::ClientConfig;
+use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::prelude::{ChannelDirection, InputMessage, LeafwingUserAction};
 use crate::protocol::message::registry::AppMessageInternalExt;
 use crate::server::config::ServerConfig;
 use crate::shared::input::InputConfig;
+use bevy::app::{App, Plugin};
+use leafwing_input_manager::prelude::{ActionState, InputMap};
 
 pub struct LeafwingInputPlugin<A> {
     pub config: InputConfig<A>,
@@ -24,10 +25,15 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     fn build(&self, app: &mut App) {
         let is_client = app.world().get_resource::<ClientConfig>().is_some();
         let is_server = app.world().get_resource::<ServerConfig>().is_some();
+
         assert!(
             is_client || is_server,
             "LeafwingInputPlugin must be added after the Client/Server plugins have been added"
         );
+
+        app.register_required_components::<ActionState<A>, InputBuffer<A>>();
+        app.register_required_components::<InputBuffer<A>, ActionState<A>>();
+        app.register_required_components::<InputMap<A>, ActionState<A>>();
         if is_client {
             app.add_plugins(
                 crate::client::input::leafwing::LeafwingInputPlugin::<A>::new(self.config),
