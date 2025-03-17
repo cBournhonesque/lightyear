@@ -102,7 +102,7 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     .find(|(_, (history_tick, _))| *history_tick == interpolation_tick) else {
                     let oldest_tick = history.front().map(|(tick, _)| *tick);
                     let recent_tick = history.back().map(|(tick, _)| *tick);
-                    error!(?oldest_tick, ?recent_tick, "Could not find history tick matching interpolation_tick {interpolation_tick}.");
+                    error!(?oldest_tick, ?recent_tick, ?interpolation_tick, "Could not find history tick matching interpolation_tick");
                     return false;
                 };
                 let (_, (target_position, target_rotation, _)) =
