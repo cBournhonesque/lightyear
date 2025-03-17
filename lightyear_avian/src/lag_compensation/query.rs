@@ -86,7 +86,7 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     return false;
                 };
                 let parent = parent_component.get();
-                info!("Broadphase hit with {child:?}");
+                debug!("Broadphase hit with {child:?}");
                 let (collider, history) = self
                     .parent_query
                     .get(parent)
@@ -96,11 +96,15 @@ impl LagCompensationSpatialQuery<'_, '_> {
 
                 // find the collider position at that time in history
                 // the start corresponds to tick `interpolation_tick` (we interpolate between `interpolation_tick` and `interpolation_tick + 1`)
-                let (source_idx, (_, (start_position, start_rotation, _))) = history
+                let Some((source_idx, (_, (start_position, start_rotation, _)))) = history
                     .into_iter()
                     .enumerate()
-                    .find(|(_, (history_tick, _))| *history_tick == interpolation_tick)
-                    .unwrap();
+                    .find(|(_, (history_tick, _))| *history_tick == interpolation_tick) else {
+                    let oldest_tick = history.front().map(|(tick, _)| *tick);
+                    let recent_tick = history.back().map(|(tick, _)| *tick);
+                    error!(?oldest_tick, ?recent_tick, "Could not find history tick matching interpolation_tick {interpolation_tick}.");
+                    return false;
+                };
                 let (_, (target_position, target_rotation, _)) =
                     history.into_iter().skip(source_idx + 1).next().unwrap();
                 // we assume that the collider itself doesn't change so we don't need to interpolate it
@@ -125,7 +129,7 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     if !predicate(parent) {
                         return false;
                     }
-                    info!(
+                    debug!(
                         ?tick,
                         ?interpolation_tick,
                         ?interpolation_overstep,
