@@ -53,6 +53,17 @@ impl<R> PartialEq for HistoryBuffer<R> {
 }
 
 impl<R> HistoryBuffer<R> {
+
+    /// Oldest value in the buffer
+    pub fn front(&self) -> Option<&(Tick, HistoryState<R>)> {
+        self.buffer.front()
+    }
+
+    /// Most recent value in the buffer
+    pub fn back(&self) -> Option<&(Tick, HistoryState<R>)> {
+        self.buffer.back()
+    }
+
     /// Reset the history for this resource
     pub fn clear(&mut self) {
         self.buffer.clear();

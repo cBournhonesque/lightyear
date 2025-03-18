@@ -2,7 +2,7 @@
 
 pub(crate) mod free_list;
 
-pub(crate) mod ready_buffer;
+pub mod ready_buffer;
 
 pub(crate) mod sequence_buffer;
 
