@@ -129,9 +129,6 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         );
 
         // SYSTEMS
-        // we use required components for native inputs; here let's use observers
-        app.add_observer(add_action_state::<A>);
-        app.add_observer(add_input_buffer::<A>);
         if self.config.rebroadcast_inputs {
             app.add_systems(
                 RunFixedMainLoop,
@@ -153,36 +150,6 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         );
         // if the client tick is updated because of a desync, update the ticks in the input buffers
         app.add_observer(receive_tick_events::<A>);
-    }
-}
-
-/// For each entity that has the Action component, insert an input buffer.
-fn add_input_buffer<A: LeafwingUserAction>(
-    trigger: Trigger<OnAdd, ActionState<A>>,
-    mut commands: Commands,
-    query: Query<(), Without<InputBuffer<A>>>,
-) {
-    // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
-    //  maybe provide the "controlled" component? or just use With<InputMap>?
-    if let Ok(()) = query.get(trigger.entity()) {
-        commands
-            .entity(trigger.entity())
-            .insert((InputBuffer::<A>::default(),));
-    }
-}
-
-/// For each entity that has the Action component, insert an input buffer.
-fn add_action_state<A: LeafwingUserAction>(
-    trigger: Trigger<OnAdd, InputMap<A>>,
-    mut commands: Commands,
-    query: Query<(), Without<ActionState<A>>>,
-) {
-    // TODO: find a way to add input-buffer/action-diff-buffer only for controlled entity
-    //  maybe provide the "controlled" component? or just use With<InputMap>?
-    if let Ok(()) = query.get(trigger.entity()) {
-        commands
-            .entity(trigger.entity())
-            .insert((ActionState::<A>::default(),));
     }
 }
 
@@ -372,14 +339,14 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                 InputTarget::PrePredictedEntity(entity) => Some(entity),
             };
             if let Some(entity) = entity {
-                debug!(
+                trace!(
                     "received input message for entity: {:?}. Applying to diff buffer.",
                     entity
                 );
                 if let Ok(confirmed) = confirmed_query.get(entity) {
                     if let Some(predicted) = confirmed.predicted {
                         if let Ok(input_buffer) = predicted_query.get_mut(predicted) {
-                            debug!(?entity, ?target_data.diffs, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
+                            trace!(?entity, ?target_data.diffs, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
                             if let Some(mut input_buffer) = input_buffer {
                                 input_buffer.update_from_diffs(
                                     message.end_tick,
@@ -404,6 +371,7 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                                         .set(input_buffer.len() as f64);
                                 }
                             } else {
+                                debug!(?entity, "Inserting input buffer for remote player!");
                                 // add the ActionState or InputBuffer if they are missing
                                 let mut input_buffer = InputBuffer::<A>::default();
                                 input_buffer.update_from_diffs(

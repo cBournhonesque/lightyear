@@ -163,6 +163,11 @@ impl ConnectionManager {
         }
     }
 
+    /// Returns the current interpolation tick of the client
+    pub fn interpolation_tick(&self, tick_manager: &TickManager) -> Tick {
+        self.sync_manager.interpolation_tick(tick_manager)
+    }
+
     #[doc(hidden)]
     /// Returns true if the connection is synced with the server
     pub fn is_synced(&self) -> bool {

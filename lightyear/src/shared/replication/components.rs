@@ -153,6 +153,8 @@ impl DeltaCompression {
     }
 }
 
+// TODO: maybe this can be merged with OverrideTargetComponent?
+//  we could think that Target=None means Disabled?
 /// If this component is present, we won't replicate the component
 ///
 /// (By default, all components that are present in the [`ComponentRegistry`](crate::prelude::ComponentRegistry) will be replicated.)

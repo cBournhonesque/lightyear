@@ -80,7 +80,7 @@ impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug +
 {
 }
 
-pub trait UserActionState: UserAction + Component<Mutability = Mutable> + Default {
+pub trait UserActionState: UserAction + Component<Mutability = Mutable> + Default + Debug {
     type UserAction: UserAction;
 }
 

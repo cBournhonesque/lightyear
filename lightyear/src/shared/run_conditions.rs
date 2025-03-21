@@ -1,6 +1,6 @@
 //! Common run conditions
 use crate::shared::identity::NetworkIdentityState;
-use bevy::prelude::{Res, State};
+use bevy::prelude::{Ref, Res, State};
 
 /// Returns true if the peer is a client (host-server counts as a server)
 pub fn is_client(identity: Option<Res<State<NetworkIdentityState>>>) -> bool {
@@ -19,5 +19,19 @@ pub fn is_server(identity: Option<Res<State<NetworkIdentityState>>>) -> bool {
 /// (checking if the mode is set to HostServer is not enough, it just means that the server plugin
 /// and client plugin are running in the same App)
 pub fn is_host_server(identity: Option<Res<State<NetworkIdentityState>>>) -> bool {
+    identity.is_some_and(|i| i.get() == &NetworkIdentityState::HostServer)
+}
+
+
+/// Returns true if the peer is a client (host-server counts as a server)
+pub(crate) fn is_client_ref(identity: Option<Ref<State<NetworkIdentityState>>>) -> bool {
+    identity.is_some_and(|i| i.get() == &NetworkIdentityState::Client)
+}
+
+pub(crate) fn is_server_ref(identity: Option<Ref<State<NetworkIdentityState>>>) -> bool {
+    identity.is_some_and(|i| i.get() != &NetworkIdentityState::Client)
+}
+
+pub(crate) fn is_host_server_ref(identity: Option<Ref<State<NetworkIdentityState>>>) -> bool {
     identity.is_some_and(|i| i.get() == &NetworkIdentityState::HostServer)
 }

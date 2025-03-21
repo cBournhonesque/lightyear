@@ -38,8 +38,6 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
         });
 
         // SYSTEMS
-        // TODO: this runs twice in host-server mode. How to avoid this?
-        app.add_observer(add_action_state_buffer::<A>);
         app.add_systems(
             PreUpdate,
             receive_input_message::<A>.in_set(InputSystemSet::ReceiveInputs),
@@ -50,6 +48,8 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
             app.add_systems(
                 PostUpdate,
                 (
+                    // TODO: is this necessary? why don't we just use the client's SendInputMessage?
+                    //  now messages work seamlessly in host-server mode, so it should work!
                     send_host_server_input_message::<A>.run_if(is_host_server),
                     rebroadcast_inputs::<A>,
                 )
@@ -67,18 +67,6 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     }
 }
 
-/// For each entity that has the Action component, insert an input buffer.
-fn add_action_state_buffer<A: LeafwingUserAction>(
-    trigger: Trigger<OnAdd, ActionState<A>>,
-    mut commands: Commands,
-    query: Query<(), Without<InputBuffer<A>>>,
-) {
-    if let Ok(()) = query.get(trigger.entity()) {
-        commands
-            .entity(trigger.entity())
-            .insert((InputBuffer::<A>::default(),));
-    }
-}
 
 // TODO? is this correct? maybe she would update the FixedUpdate state! not the Update state?
 /// Read the input messages from the server events to update the InputBuffers
