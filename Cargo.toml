@@ -118,9 +118,11 @@ futures = "0.3.30"
 async-compat = "0.2.3"
 async-channel = "2.2.0"
 
-# Non-WASM things
-
+# Non-WASM thingjs
 steamworks = "0.11"
+# temporary fix because of https://github.com/BiagioFesta/wtransport/pull/256
+quinn = { version = "=0.11.6"}
+quinn-proto = { version = "=0.11.9"}
 wtransport = { version = "=0.5.0", features = [
   "quinn",
   "self-signed",
