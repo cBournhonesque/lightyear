@@ -566,7 +566,7 @@ pub(crate) fn prepare_rollback_non_networked<C: Component + PartialEq + Clone>(
 
     let current_tick = tick_manager.tick();
     let Some(rollback_tick_plus_one) = rollback.get_rollback_tick() else {
-        error!("prepare_rollback_non_networked_components should only be called when we are in rollback");
+        error!("prepare_rollback_non_networked should only be called when we are in rollback");
         return;
     };
 

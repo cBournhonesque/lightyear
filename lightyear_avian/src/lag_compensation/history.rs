@@ -113,7 +113,7 @@ fn spawn_broad_phase_aabb_envelope(
         ));
         // the aabb_envelope has the same collision_layers as the parent
         if let Ok(Some(collision_layers)) = query.get(trigger.entity()) {
-            child_commands.insert(collision_layers.clone());
+            child_commands.insert(*collision_layers);
         }
     });
 }
@@ -161,14 +161,7 @@ fn update_collider_history(
                 parent_query.get_mut(parent.get()).unwrap();
 
             // step 1. update the history buffer of the parent
-            history.add_update(
-                tick,
-                (
-                    parent_position.clone(),
-                    parent_rotation.clone(),
-                    parent_aabb.clone(),
-                ),
-            );
+            history.add_update(tick, (*parent_position, *parent_rotation, *parent_aabb));
             history.clear_until_tick(tick - (config.max_collider_history_ticks as u16));
 
             // step 2. update the child's Position, Rotation, Collider so that the avian spatial query
