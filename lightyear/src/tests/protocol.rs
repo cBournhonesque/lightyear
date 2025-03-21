@@ -2,7 +2,7 @@ use std::ops::{Add, Mul};
 
 use crate::utils::collections::HashSet;
 use bevy::app::{App, Plugin};
-use bevy::ecs::entity::{MapEntities, VisitEntities, VisitEntitiesMut};
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use cfg_if::cfg_if;

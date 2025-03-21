@@ -14,7 +14,7 @@ use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 
 use bevy::app::{App, RunFixedMainLoop, RunFixedMainLoopSystem};
 use bevy::platform_support::time::Instant;
-use bevy::prelude::{IntoSystemConfigs, Plugin, Res, ResMut, Resource, Time};
+use bevy::prelude::*;
 use bevy::time::Fixed;
 use chrono::Duration as ChronoDuration;
 use core::time::Duration;

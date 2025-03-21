@@ -2,7 +2,7 @@ use crate::client::connection::ConnectionManager;
 use crate::client::prediction::diagnostics::PredictionDiagnosticsPlugin;
 use bevy::app::{App, Plugin, PostUpdate};
 use bevy::diagnostic::Diagnostics;
-use bevy::prelude::{not, Condition, IntoSystemConfigs, Real, Res, ResMut, Time};
+use bevy::prelude::{not, Condition, IntoScheduleConfigs, Real, Res, ResMut, Time};
 use bevy::time::common_conditions::on_timer;
 use core::time::Duration;
 

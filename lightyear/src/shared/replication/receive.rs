@@ -333,11 +333,6 @@ impl ReplicationReceiver {
                     return;
                 };
 
-                // At this point we know that at least one Action message was applied, otherwise the
-                // earlier check would have returned None
-                debug_assert!(channel.latest_tick.is_some(), "channel latest tick is None");
-
-
                 // pop the oldest until we reach the max applicable index
                 while channel.buffered_updates.len() > max_applicable_idx {
                     let (remote_tick, message) = channel.buffered_updates.pop_oldest().unwrap();
@@ -345,7 +340,9 @@ impl ReplicationReceiver {
                     // We restricted the updates only to those that have a last_action_tick <= latest_tick,
                     // but we also need to make sure that we don't apply updates that are too old!
                     // (older than the latest_tick applied from any Actions message above!)
-                    if remote_tick <= channel.latest_tick.unwrap() {
+                    //
+                    // Note that the channel.latest tick could still be done in case of authority-transfer!
+                    if channel.latest_tick.is_some_and(|latest_tick| remote_tick <= latest_tick) {
                         // TODO: those ticks could be history and could be interesting. They are older than the latest_tick though
                         continue;
                     }

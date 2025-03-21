@@ -6,7 +6,7 @@ use avian2d::prelude::*;
 use bevy::app::{RunFixedMainLoop, RunFixedMainLoopSystem};
 use bevy::prelude::TransformSystem::TransformPropagate;
 use bevy::prelude::{App, FixedPostUpdate, Plugin};
-use bevy::prelude::{IntoSystemSetConfigs, PostUpdate};
+use bevy::prelude::{IntoScheduleConfigs, PostUpdate};
 use tracing::trace;
 
 pub(crate) struct Avian2dPlugin;

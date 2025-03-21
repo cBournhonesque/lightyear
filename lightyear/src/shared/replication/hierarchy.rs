@@ -5,8 +5,8 @@ use crate::prelude::PrePredicted;
 use crate::shared::replication::components::{DisableReplicateHierarchy, ReplicationMarker};
 use crate::shared::replication::ReplicationPeer;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
-use bevy::ecs::entity::{MapEntities, VisitEntities, VisitEntitiesMut};
-use bevy::ecs::reflect::{ReflectMapEntities, ReflectVisitEntities, ReflectVisitEntitiesMut};
+use bevy::ecs::entity::{MapEntities};
+use bevy::ecs::reflect::{ReflectMapEntities};
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use bevy::reflect::GetTypeRegistration;
@@ -201,12 +201,10 @@ impl<P: ReplicationPeer, R: Relationship + Debug + GetTypeRegistration + TypePat
 ///
 /// This will be inserted automaticallyk
 // TODO: should we make this immutable?
-#[derive(Component, Clone, Copy, VisitEntities, VisitEntitiesMut, Reflect, PartialEq, Debug)]
+#[derive(Component, Clone, Copy, MapEntities, Reflect, PartialEq, Debug)]
 #[reflect(
     Component,
     MapEntities,
-    VisitEntities,
-    VisitEntitiesMut,
     PartialEq,
     Debug
 )]

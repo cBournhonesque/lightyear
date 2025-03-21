@@ -4,8 +4,7 @@ use tracing::{error, trace};
 
 use crate::client::components::Confirmed;
 use crate::client::prediction::Predicted;
-use crate::prelude::{is_server_ref, AppIdentityExt, PreSpawned, NetworkIdentityState, ShouldBePredicted, TickManager};
-use crate::shared::tick_manager::Tick;
+use crate::prelude::{is_server_ref, AppIdentityExt, NetworkIdentityState, PreSpawned, ShouldBePredicted, TickManager};
 
 /// This command must be used to despawn Predicted entities.
 /// The reason is that we might want to not completely despawn the entity in case it gets 'restored' during a rollback.
@@ -71,7 +70,7 @@ impl PredictionDespawnCommandsExt for EntityCommands<'_> {
         let entity = self.id();
         self.queue(move |entity_mut: EntityWorldMut| {
             if is_server_ref(entity_mut.world().get_resource_ref::<State<NetworkIdentityState>>()) {
-                entity_mut.despawn_recursive();
+                entity_mut.despawn();
             } else {
                 PredictionDespawnCommand { entity }.apply(entity_mut.into_world_mut());
             }

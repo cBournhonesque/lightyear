@@ -372,7 +372,7 @@ mod tests {
     use crate::tests::stepper::BevyStepper;
     use crate::utils::ready_buffer::ItemWithReadyKey;
     use bevy::app::PreUpdate;
-    use bevy::prelude::{default, Entity, IntoSystemConfigs, With};
+    use bevy::prelude::{default, Entity, IntoScheduleConfigs, With};
 
     #[test]
     fn test_compute_hash() {

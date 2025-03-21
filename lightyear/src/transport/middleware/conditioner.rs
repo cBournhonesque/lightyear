@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use cfg_if::cfg_if;
 use core::time::Duration;
 use rand;
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
 
 use crate::transport::error::Result;
 use crate::transport::middleware::PacketReceiverWrapper;
@@ -53,8 +53,8 @@ impl<P: Eq> LinkConditioner<P> {
 
     /// Add latency/jitter/loss to a packet
     fn condition_packet(&mut self, packet: P) {
-        let mut rng = thread_rng();
-        if rng.gen_range(0.0..1.0) <= self.config.incoming_loss {
+        let mut rng = rng();
+        if rng.random_range(0.0..1.0) <= self.config.incoming_loss {
             return;
         }
         let mut latency: i32 = self.config.incoming_latency.as_millis() as i32;
@@ -62,7 +62,7 @@ impl<P: Eq> LinkConditioner<P> {
         let mut packet_timestamp = Instant::now();
         if self.config.incoming_jitter > Duration::default() {
             let jitter: i32 = self.config.incoming_jitter.as_millis() as i32;
-            latency += rng.gen_range(-jitter..jitter);
+            latency += rng.random_range(-jitter..jitter);
         }
         if latency > 0 {
             packet_timestamp += Duration::from_millis(latency as u64);

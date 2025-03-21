@@ -5,7 +5,7 @@ use avian3d::math::Scalar;
 use avian3d::prelude::*;
 use bevy::app::{App, FixedPostUpdate, Plugin};
 use bevy::prelude::TransformSystem::TransformPropagate;
-use bevy::prelude::{IntoSystemSetConfigs, PostUpdate, RunFixedMainLoop, RunFixedMainLoopSystem};
+use bevy::prelude::{IntoScheduleConfigs, PostUpdate, RunFixedMainLoop, RunFixedMainLoopSystem};
 use tracing::trace;
 
 pub(crate) struct Avian3dPlugin;
