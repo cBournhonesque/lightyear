@@ -1,9 +1,7 @@
-#[cfg(feature = "std")]
-use std::io;
+use no_std_io2::io as io;
 #[cfg(not(feature = "std"))]
 use {
     alloc::string::{String, ToString},
-    no_std_io2::io,
 };
 pub type Result<T> = core::result::Result<T, Error>;
 

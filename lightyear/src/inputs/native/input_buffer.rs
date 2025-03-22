@@ -2,7 +2,7 @@ use super::{ActionState, UserAction};
 use crate::shared::tick_manager::Tick;
 use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::{String, ToString}, vec, vec::Vec};
+use alloc::{format, string::{String, ToString}, vec::Vec};
 use bevy::prelude::Component;
 use core::fmt::{Debug, Formatter};
 use serde::{Deserialize, Serialize};

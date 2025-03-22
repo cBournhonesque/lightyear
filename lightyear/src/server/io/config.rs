@@ -23,7 +23,7 @@ use crate::transport::webtransport::server::WebTransportServerSocketBuilder;
 use crate::transport::BoxedReceiver;
 use crate::transport::Transport;
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 use bevy::prelude::TypePath;
 use core::net::{SocketAddr};
 #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]

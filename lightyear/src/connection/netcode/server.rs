@@ -1,9 +1,8 @@
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, vec, vec::Vec};
+use alloc::{boxed::Box, format, string::ToString, vec, vec::Vec};
 use bevy::platform_support::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(feature = "std")]
 use std::{io};
 #[cfg(not(feature = "std"))]
@@ -815,8 +814,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         sender: &mut impl PacketSender,
         receiver: &mut impl PacketReceiver,
     ) -> Result<()> {
-        // TODO: how to make this no_std?
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        let now = super::utils::now()?;
 
         // process every packet regardless of success/failure
         loop {

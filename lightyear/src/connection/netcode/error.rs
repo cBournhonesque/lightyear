@@ -1,10 +1,5 @@
 use core::array::TryFromSliceError;
-#[cfg(feature = "std")]
-use std::{io};
-#[cfg(not(feature = "std"))]
-use {
-    no_std_io2::io,
-};
+use no_std_io2::io as io;
 use core::net::SocketAddr;
 
 use thiserror::Error;
@@ -36,6 +31,8 @@ pub enum Error {
     ConnectTokenDecryptionFailure,
     #[error(transparent)]
     UnindexableConnectToken(#[from] TryFromSliceError),
+    #[error("could not parse the socket addr: {0}")]
+    AddressParseError(#[from] core::net::AddrParseError),
     #[error("a client with address {0} is already connected")]
     ClientAddressInUse(SocketAddr),
     #[error("client_id {0} a client with this id is already connected")]
@@ -48,6 +45,7 @@ pub enum Error {
     Denied(ClientId),
     #[error("client_id {0} server ignored non-connection-request packet")]
     Ignored(SocketAddr),
+    #[cfg(feature = "std")]
     #[error("clock went backwards (did you invent a time machine?): {0}")]
     SystemTime(#[from] std::time::SystemTimeError),
     #[error("invalid connect token: {0}")]

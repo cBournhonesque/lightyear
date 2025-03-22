@@ -266,6 +266,8 @@ pub enum ConnectionError {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
     use crate::connection::server::{NetServer, ServerConnections};
     use crate::prelude::ClientId;
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};

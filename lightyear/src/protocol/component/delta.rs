@@ -8,7 +8,7 @@ use crate::serialize::writer::Writer;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
+use alloc::{boxed::Box, format};
 use bevy::ecs::component::Mutable;
 use bevy::prelude::{Component, EntityWorldMut, World};
 use bevy::ptr::{Ptr, PtrMut};
@@ -363,6 +363,8 @@ impl ErasedDeltaFns {
 mod tests {
     use super::*;
     use crate::tests::protocol::ComponentDeltaCompression;
+    #[cfg(not(feature = "std"))]
+    use alloc::{vec, vec::Vec};
 
     #[test]
     fn test_erased_clone() {

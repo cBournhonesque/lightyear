@@ -4,7 +4,7 @@ use core::iter::Extend;
 use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
 use crate::utils::collections::HashMap;
 #[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use alloc::{string::ToString, vec::Vec};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::Entity;
@@ -104,34 +104,7 @@ impl ReplicationSender {
         }
     }
 
-    /// Keep track of the message_id/bevy_tick/tick where a replication-update message has been sent
-    /// for a given group
-    #[cfg(test)]
-    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn buffer_replication_update_message(
-        &mut self,
-        group_id: ReplicationGroupId,
-        message_id: MessageId,
-        bevy_tick: BevyTick,
-        tick: Tick,
-    ) {
-        self.updates_message_id_to_group_id.insert(
-            message_id,
-            UpdateMessageMetadata {
-                group_id,
-                bevy_tick,
-                tick,
-                delta: vec![],
-            },
-        );
-        // If we don't have a bandwidth cap, buffering a message is equivalent to sending it
-        // so we can set the `send_tick` right away
-        if !self.bandwidth_cap_enabled {
-            if let Some(channel) = self.group_channels.get_mut(&group_id) {
-                channel.send_tick = Some(bevy_tick);
-            }
-        }
-    }
+
 
     /// Get the `send_tick` for a given group.
     ///
@@ -867,6 +840,36 @@ mod tests {
     use bevy::prelude::*;
 
     use super::*;
+
+    impl ReplicationSender {
+        /// Keep track of the message_id/bevy_tick/tick where a replication-update message has been sent
+        /// for a given group
+        #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
+        pub(crate) fn buffer_replication_update_message(
+            &mut self,
+            group_id: ReplicationGroupId,
+            message_id: MessageId,
+            bevy_tick: BevyTick,
+            tick: Tick,
+        ) {
+            self.updates_message_id_to_group_id.insert(
+                message_id,
+                UpdateMessageMetadata {
+                    group_id,
+                    bevy_tick,
+                    tick,
+                    delta: Vec::new(),
+                },
+            );
+            // If we don't have a bandwidth cap, buffering a message is equivalent to sending it
+            // so we can set the `send_tick` right away
+            if !self.bandwidth_cap_enabled {
+                if let Some(channel) = self.group_channels.get_mut(&group_id) {
+                    channel.send_tick = Some(bevy_tick);
+                }
+            }
+        }
+    }
 
     #[test]
     fn test_delta_compression() {

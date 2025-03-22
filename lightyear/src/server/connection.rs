@@ -614,6 +614,7 @@ impl Connection {
                         //  instead just read the bytes for the target!!
                         let ClientMessage { message, target } =
                             ClientMessage::from_bytes(&mut reader)?;
+                        // dbg!(message.as_ref());
 
                         let mut reader = Reader::from(message);
                         let net_id = NetId::from_bytes(&mut reader)?;

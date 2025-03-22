@@ -1,6 +1,6 @@
 //! Specify how a Client sends/receives messages with a Server
 #[cfg(not(feature = "std"))]
-use alloc::{format, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Resource, World};
@@ -209,7 +209,7 @@ impl ConnectionManager {
 
     fn send_ping(&mut self, ping: Ping) -> Result<(), ClientError> {
         trace!("Sending ping {:?}", ping);
-        let mut writer = Writer::with_capacity(ping.len());
+        let mut writer = Writer::with_capacity(ping.bytes_len());
         ping.to_bytes(&mut writer)?;
         let message_bytes = writer.to_bytes();
         self.message_manager
@@ -218,7 +218,7 @@ impl ConnectionManager {
     }
 
     fn send_pong(&mut self, pong: Pong) -> Result<(), ClientError> {
-        let mut writer = Writer::with_capacity(pong.len());
+        let mut writer = Writer::with_capacity(pong.bytes_len());
         pong.to_bytes(&mut writer)?;
         let message_bytes = writer.to_bytes();
         self.message_manager

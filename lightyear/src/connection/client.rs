@@ -1,12 +1,7 @@
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use alloc::sync::Arc;
 use core::str::FromStr;
-#[cfg(feature = "std")]
-use std::{io};
-#[cfg(not(feature = "std"))]
-use {
-    no_std_io2::io,
-};
+use no_std_io2::io as io;
 use core::net::SocketAddr;
 
 use bevy::prelude::{Reflect, Resource};

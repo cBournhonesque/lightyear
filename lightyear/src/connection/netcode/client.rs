@@ -4,7 +4,7 @@ use std::{io};
 #[cfg(not(feature = "std"))]
 use {
     alloc::{boxed::Box, vec, vec::Vec},
-    no_std_io2::{io, io::Cursor},
+    no_std_io2::io,
 };
 use core::net::SocketAddr;
 
@@ -512,7 +512,7 @@ impl<Ctx> NetcodeClient<Ctx> {
 
     fn recv_packets(&mut self, io: &mut Io) -> Result<()> {
         // number of seconds since unix epoch
-        let now = utils::now();
+        let now = utils::now()?;
         while let Some((buf, addr)) = io
             .recv()
             .map_err(|e| Error::AddressTransport(self.server_addr(), e))?

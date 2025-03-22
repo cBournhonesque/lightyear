@@ -1252,7 +1252,7 @@ mod unit_tests {
             ]
         );
 
-        println!("{:?}", stepper.client_app.world().resource::<TimeTracker>());
+        // println!("{:?}", stepper.client_app.world().resource::<TimeTracker>());
     }
 
     /// Test that:

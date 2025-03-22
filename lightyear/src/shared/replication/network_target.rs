@@ -1,13 +1,13 @@
 use crate::prelude::ClientId;
-use crate::serialize::reader::Reader;
+use crate::serialize::reader::{ReadInteger, Reader};
 use crate::serialize::{SerializationError, ToBytes};
 use crate::utils::collections::HashSet;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use bevy::platform_support::hash::FixedHasher;
 use bevy::prelude::Reflect;
-use byteorder::{ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
+use crate::serialize::writer::WriteInteger;
 
 type HS<K> = hashbrown::HashSet<K, FixedHasher>;
 
@@ -31,18 +31,18 @@ pub enum NetworkTarget {
 }
 
 impl ToBytes for NetworkTarget {
-    fn len(&self) -> usize {
+    fn bytes_len(&self) -> usize {
         match self {
             NetworkTarget::None => 1,
-            NetworkTarget::AllExceptSingle(client_id) => 1 + client_id.len(),
-            NetworkTarget::AllExcept(client_ids) => 1 + client_ids.len(),
+            NetworkTarget::AllExceptSingle(client_id) => 1 + client_id.bytes_len(),
+            NetworkTarget::AllExcept(client_ids) => 1 + client_ids.bytes_len(),
             NetworkTarget::All => 1,
-            NetworkTarget::Only(client_ids) => 1 + client_ids.len(),
-            NetworkTarget::Single(client_id) => 1 + client_id.len(),
+            NetworkTarget::Only(client_ids) => 1 + client_ids.bytes_len(),
+            NetworkTarget::Single(client_id) => 1 + client_id.bytes_len(),
         }
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         match self {
             NetworkTarget::None => {
                 buffer.write_u8(0)?;

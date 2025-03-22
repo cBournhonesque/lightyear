@@ -2,13 +2,11 @@ use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use bevy::platform_support::collections::HashMap;
-use byteorder::ReadBytesExt;
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
 use tracing::trace;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
-
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
@@ -25,7 +23,7 @@ use crate::packet::packet_type::PacketType;
 use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
 use crate::protocol::channel::{ChannelId, ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
-use crate::serialize::reader::Reader;
+use crate::serialize::reader::{ReadInteger, Reader};
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::ping::manager::PingManager;

@@ -143,14 +143,13 @@ impl TimeManager {
 }
 
 mod wrapped_time {
-    use crate::serialize::reader::Reader;
+    use crate::serialize::reader::{ReadInteger, Reader};
     use crate::serialize::{SerializationError, ToBytes};
-    use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
     use serde::{
         de::{Error, Visitor},
         Deserialize, Deserializer, Serialize, Serializer,
     };
-
+    use crate::serialize::writer::WriteInteger;
     use super::*;
 
     /// Time since start of server, in milliseconds
@@ -194,13 +193,13 @@ mod wrapped_time {
     }
 
     impl ToBytes for WrappedTime {
-        fn len(&self) -> usize {
+        fn bytes_len(&self) -> usize {
             4
         }
 
         // NOTE: we only encode the milliseconds up to u32, which is 46 days
-        fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-            buffer.write_u32::<NetworkEndian>(self.millis())?;
+        fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+            buffer.write_u32(self.millis())?;
             Ok(())
         }
 
@@ -208,7 +207,7 @@ mod wrapped_time {
         where
             Self: Sized,
         {
-            let millis = buffer.read_u32::<NetworkEndian>()?;
+            let millis = buffer.read_u32()?;
             Ok(Self {
                 elapsed: Duration::from_millis(millis as u64),
             })

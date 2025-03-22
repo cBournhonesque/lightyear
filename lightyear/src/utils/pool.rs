@@ -187,9 +187,8 @@ impl<T> Drop for Reusable<'_, T> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use core::mem::drop;
-
-    use super::{Pool, Reusable};
 
     #[test]
     fn detach() {

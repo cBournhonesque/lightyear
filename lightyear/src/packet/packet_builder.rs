@@ -12,11 +12,11 @@ use crate::serialize::{SerializationError, ToBytes};
 use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use byteorder::WriteBytesExt;
 use bytes::Bytes;
 use tracing::trace;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
+use crate::serialize::writer::WriteInteger;
 
 pub type Payload = Vec<u8>;
 
@@ -206,8 +206,8 @@ impl PacketBuilder {
                                 break;
                             }
 
-                            if packet.can_fit(single_messages[num_messages].len()) {
-                                packet.prewritten_size += single_messages[num_messages].len();
+                            if packet.can_fit(single_messages[num_messages].bytes_len()) {
+                                packet.prewritten_size += single_messages[num_messages].bytes_len();
                                 num_messages += 1;
                             } else {
                                 // can't add any more messages (since we sorted messages from smallest to largest)
@@ -267,8 +267,8 @@ impl PacketBuilder {
                     break;
                 }
 
-                if packet.can_fit(single_messages[num_messages].len()) {
-                    packet.prewritten_size += single_messages[num_messages].len();
+                if packet.can_fit(single_messages[num_messages].bytes_len()) {
+                    packet.prewritten_size += single_messages[num_messages].bytes_len();
                     num_messages += 1;
                 } else {
                     // can't add any more messages (since we sorted messages from smallest to largest)
@@ -316,7 +316,7 @@ impl PacketBuilder {
                 message.to_bytes(&mut packet.payload)?;
                 packet.prewritten_size = packet
                     .prewritten_size
-                    .checked_sub(message.len())
+                    .checked_sub(message.bytes_len())
                     .ok_or(SerializationError::SubstractionOverflow)?;
                 // only send a MessageAck when the message has an id (otherwise we don't expect an ack)
                 if let Some(id) = message.id {

@@ -9,11 +9,10 @@ use crate::shared::message::private::InternalMessageSend;
 use crate::shared::replication::entity_map::SendEntityMap;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
-#[cfg(not(feature = "std"))]
-use alloc::{string::ToString, vec, vec::Vec};
 use bevy::ecs::system::{FilteredResourcesMutParamBuilder, ParamBuilder};
 use bevy::prelude::*;
 use bytes::Bytes;
+use libc_print::libc_dbg;
 use tracing::error;
 
 /// Bevy [`Event`] emitted on the server on the frame where a (non-replication) message is received
@@ -353,6 +352,7 @@ impl InternalMessageSend for ConnectionManager {
                 &mut SendEntityMap::default(),
             )?;
             let message_bytes = self.writer.split();
+            libc_dbg!(message_bytes.as_ref());
             self.buffer_message_bytes(message_bytes, channel_kind, target)?;
         }
         Ok(())
@@ -369,6 +369,7 @@ mod tests {
     use crate::tests::protocol::{Channel1, IntegerEvent, StringMessage};
     use bevy::app::Update;
     use bevy::prelude::{EventReader, Events, Observer, ResMut, Resource, Trigger};
+    use libc_print::libc_dbg;
 
     #[derive(Resource, Default)]
     struct Counter(usize);
@@ -406,6 +407,7 @@ mod tests {
         stepper.client_app.add_systems(Update, count_messages);
 
         // send a message from the host-server server to all clients
+        libc_dbg!("write");
         stepper
             .server_app
             .world_mut()

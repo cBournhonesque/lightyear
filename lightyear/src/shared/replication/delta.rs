@@ -221,6 +221,8 @@ impl DeltaComponentStore {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
     use super::*;
     use crate::tests::protocol::ComponentDeltaCompression;
     use bevy::prelude::World;

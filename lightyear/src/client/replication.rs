@@ -809,6 +809,8 @@ pub(crate) mod send {
 
     #[cfg(test)]
     mod tests {
+        #[cfg(not(feature = "std"))]
+        use alloc::vec;
         use crate::client::replication::send::ReplicateToServer;
         use crate::prelude::{
             server, ChannelDirection, ClientId, ComponentRegistry, DisabledComponents,

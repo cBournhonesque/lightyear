@@ -209,6 +209,8 @@ impl<R: Clone> HistoryBuffer<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
 
     #[derive(Clone, PartialEq, Debug)]
     struct TestValue(f32);

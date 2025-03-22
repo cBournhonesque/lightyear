@@ -913,6 +913,8 @@ impl GroupChannel {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
     use super::*;
     use crate::prelude::ServerReplicate;
     use crate::shared::replication::EntityActions;

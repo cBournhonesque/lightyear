@@ -306,7 +306,7 @@ pub(crate) fn send(
                     metrics::counter!("transport::send::packets").increment(packets);
                     metrics::counter!("transport::send::kb").increment(bytes);
                 }
-                if let Err(e) = netserver.send(packet_byte.as_slice(), *client_id) {
+                if let Err(e) = netserver.send(packet_byte.as_ref(), *client_id) {
                     log_client_error(e);
                 }
             }

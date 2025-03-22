@@ -1,20 +1,20 @@
-use crate::serialize::reader::Reader;
-use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
+use crate::serialize::reader::{ReadVarInt, Reader};
+use crate::serialize::varint::{varint_len};
 use crate::serialize::{SerializationError, ToBytes};
 use crate::utils::collections::HashMap;
-use byteorder::WriteBytesExt;
 use core::any::TypeId;
 use core::hash::Hash;
+use crate::serialize::writer::WriteInteger;
 
 /// ID used to serialize IDs over the network efficiently
 pub(crate) type NetId = u16;
 
 impl ToBytes for NetId {
-    fn len(&self) -> usize {
+    fn bytes_len(&self) -> usize {
         varint_len(*self as u64)
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         buffer.write_varint(*self as u64)?;
         Ok(())
     }

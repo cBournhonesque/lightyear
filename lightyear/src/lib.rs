@@ -174,7 +174,6 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 // the `docsrs` configuration attribute is defined
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-#![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
 // re-exports

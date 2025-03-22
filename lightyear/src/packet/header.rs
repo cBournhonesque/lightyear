@@ -1,8 +1,6 @@
 use crate::utils::collections::HashMap;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use byteorder::NetworkEndian;
-use byteorder::ReadBytesExt;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use tracing::trace;
 
@@ -10,8 +8,9 @@ use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
 use crate::packet::stats_manager::packet::PacketStatsManager;
 use crate::prelude::TimeManager;
-use crate::serialize::reader::Reader;
+use crate::serialize::reader::{ReadInteger, Reader};
 use crate::serialize::{SerializationError, ToBytes};
+use crate::serialize::writer::WriteInteger;
 use crate::shared::ping::manager::PingManager;
 use crate::shared::tick_manager::Tick;
 use crate::shared::time_manager::WrappedTime;
@@ -35,19 +34,19 @@ pub(crate) struct PacketHeader {
 }
 
 impl ToBytes for PacketHeader {
-    fn len(&self) -> usize {
-        11
+    fn bytes_len(&self) -> usize {
+        1 + self.packet_id.bytes_len() + self.last_ack_packet_id.bytes_len() + 4 + self.tick.bytes_len()
     }
 
-    fn to_bytes<T: byteorder::WriteBytesExt>(
+    fn to_bytes(
         &self,
-        buffer: &mut T,
+        buffer: &mut impl WriteInteger,
     ) -> Result<(), SerializationError> {
         buffer.write_u8(self.packet_type as u8)?;
-        buffer.write_u16::<NetworkEndian>(self.packet_id.0)?;
-        buffer.write_u16::<NetworkEndian>(self.last_ack_packet_id.0)?;
-        buffer.write_u32::<NetworkEndian>(self.ack_bitfield)?;
-        buffer.write_u16::<NetworkEndian>(self.tick.0)?;
+        buffer.write_u16(self.packet_id.0)?;
+        buffer.write_u16(self.last_ack_packet_id.0)?;
+        buffer.write_u32(self.ack_bitfield)?;
+        buffer.write_u16(self.tick.0)?;
         Ok(())
     }
 
@@ -56,10 +55,10 @@ impl ToBytes for PacketHeader {
         Self: Sized,
     {
         let packet_type = buffer.read_u8()?;
-        let packet_id = buffer.read_u16::<NetworkEndian>()?;
-        let last_ack_packet_id = buffer.read_u16::<NetworkEndian>()?;
-        let ack_bitfield = buffer.read_u32::<NetworkEndian>()?;
-        let tick = buffer.read_u16::<NetworkEndian>()?;
+        let packet_id = buffer.read_u16()?;
+        let last_ack_packet_id = buffer.read_u16()?;
+        let ack_bitfield = buffer.read_u32()?;
+        let tick = buffer.read_u16()?;
         Ok(Self {
             packet_type: PacketType::try_from(packet_type)?,
             packet_id: PacketId(packet_id),
@@ -414,7 +413,7 @@ mod tests {
         };
         let mut writer = Vec::new();
         header.to_bytes(&mut writer)?;
-        assert_eq!(writer.len(), header.len());
+        assert_eq!(writer.len(), header.bytes_len());
 
         let mut reader = writer.into();
         let read_header = PacketHeader::from_bytes(&mut reader)?;

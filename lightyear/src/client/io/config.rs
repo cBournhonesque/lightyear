@@ -21,12 +21,8 @@ use crate::transport::webtransport::client::WebTransportClientSocketBuilder;
 use crate::transport::{BoxedReceiver, Transport};
 use bevy::prelude::TypePath;
 use crossbeam_channel::{Receiver, Sender};
-use core::net::SocketAddr;
 #[cfg(not(feature = "std"))]
-use {
-    alloc::{boxed::Box, vec::{self, Vec}},
-    no_std_io2::io,
-};
+use alloc::{boxed::Box, vec::{Vec}};
 // only with WebTransport, UDP or WebSocket
 #[allow(unused_imports)]
 #[cfg(feature = "std")]

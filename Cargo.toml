@@ -64,15 +64,15 @@ variadics_please = "1.1.0"
 zstd = "0.13.1"
 
 # no_std
-no_std_io2 = "0.9.0"
+libc-print = "0.1.22"
+no_std_io2 = { version = "0.9.0", features = ["alloc"] }
 
 # serialization
 
-bincode = { version = "2.0.0-rc.3", default-features = false, features = ["serde"] }
-byteorder = { version = "1.5.0", default-features = false }
+bincode = { version = "2.0.0-rc.3", default-features = false, features = ["serde", "alloc"] }
 bytes = { version = "1.8", default-features = false, features = ["serde"] }
 self_cell = "1.0"
-serde = { version = "1", default-features = false, features = ["derive"] }
+serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
 
 # netcode
 
@@ -179,10 +179,6 @@ approx = "0.5.1"
 # Bevy
 # (we add back features needed for gui clients if desired)
 bevy = { git = "https://github.com/bevyengine/bevy.git", branch = "main", default-features = false, features = [
-  # needed for bevy_transform parallel
-  "std",
-  # needed for bevy_transform parallel
-  "async_executor",
   "bevy_state",
   "serialize",
   "bevy_asset",

@@ -8,7 +8,6 @@ use core::any::TypeId;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-
 /// Stores function pointers related to serialization and deserialization
 #[derive(Clone, Debug, PartialEq)]
 pub struct ErasedSerializeFns {
@@ -88,6 +87,7 @@ unsafe fn erased_serialize_fn<M: Message>(
     }
 }
 
+#[cfg(feature = "std")]
 /// Default serialize function using bincode
 fn default_serialize<M: Message + Serialize>(
     message: &M,
@@ -97,11 +97,32 @@ fn default_serialize<M: Message + Serialize>(
     Ok(())
 }
 
+
+#[cfg(not(feature = "std"))]
+/// Default serialize function using bincode
+fn default_serialize<M: Message + Serialize>(
+    message: &M,
+    buffer: &mut Writer,
+) -> Result<(), SerializationError> {
+    let _ = bincode::serde::encode_into_writer(message, buffer, bincode::config::standard())?;
+    Ok(())
+}
+
+#[cfg(feature = "std")]
 /// Default deserialize function using bincode
 fn default_deserialize<M: Message + DeserializeOwned>(
     buffer: &mut Reader,
 ) -> Result<M, SerializationError> {
     let data = bincode::serde::decode_from_std_read(buffer, bincode::config::standard())?;
+    Ok(data)
+}
+
+#[cfg(not(feature = "std"))]
+/// Default deserialize function using bincode
+fn default_deserialize<M: Message + DeserializeOwned>(
+    buffer: &mut Reader,
+) -> Result<M, SerializationError> {
+    let data = bincode::serde::decode_from_reader(buffer, bincode::config::standard())?;
     Ok(data)
 }
 

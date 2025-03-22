@@ -3,7 +3,7 @@ use crate::inputs::native::ActionState;
 use crate::prelude::client::InterpolationDelay;
 use crate::prelude::{Deserialize, Serialize, Tick, UserAction};
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::{String, ToString}, vec, vec::Vec};
+use alloc::{format, string::String, vec, vec::Vec};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Reflect};
 use core::cmp::max;

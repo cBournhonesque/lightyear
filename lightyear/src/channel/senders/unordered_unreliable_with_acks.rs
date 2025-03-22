@@ -170,6 +170,8 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
 #[cfg(test)]
 mod tests {
     use crate::packet::packet::FRAGMENT_SIZE;
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
 
     use super::*;
 
