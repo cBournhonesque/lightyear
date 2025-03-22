@@ -120,10 +120,7 @@ async-channel = "2.2.0"
 
 # Non-WASM thingjs
 steamworks = "0.11"
-# temporary fix because of https://github.com/BiagioFesta/wtransport/pull/256
-quinn = { version = "=0.11.6"}
-quinn-proto = { version = "=0.11.9"}
-wtransport = { version = "=0.5.0", features = [
+wtransport = { version = "0.6.1", features = [
   "quinn",
   "self-signed",
   "dangerous-configuration",
