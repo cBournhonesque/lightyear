@@ -1,4 +1,6 @@
 //! Manages sending/receiving pings and computing network statistics
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 use bevy::reflect::Reflect;
 use bevy::time::Stopwatch;
 use core::time::Duration;
@@ -269,7 +271,7 @@ impl PingManager {
         })
     }
     pub(crate) fn take_pending_pongs(&mut self) -> Vec<Pong> {
-        std::mem::take(&mut self.pongs_to_send)
+        core::mem::take(&mut self.pongs_to_send)
     }
 }
 

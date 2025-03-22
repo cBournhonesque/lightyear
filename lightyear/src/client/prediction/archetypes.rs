@@ -2,6 +2,8 @@ use crate::client::prediction::Predicted;
 use crate::prelude::ComponentRegistry;
 use crate::protocol::component::ComponentKind;
 use crate::utils::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::ecs::archetype::{ArchetypeGeneration, ArchetypeId, Archetypes};
 use bevy::ecs::component::{ComponentId, Components};
 use bevy::prelude::{FromWorld, Resource, World};

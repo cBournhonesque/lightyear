@@ -33,7 +33,7 @@ pub enum InternalReplicationSet<M> {
     SendMessages,
     /// SystemSet that encompasses all send replication systems
     All,
-    _Marker(std::marker::PhantomData<M>),
+    _Marker(core::marker::PhantomData<M>),
     SendMessage,
     EmitEvents,
 }
@@ -56,7 +56,7 @@ pub(crate) enum InternalMainSet<M> {
     ///
     /// Runs in `PostUpdate`
     Send,
-    _Marker(std::marker::PhantomData<M>),
+    _Marker(core::marker::PhantomData<M>),
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

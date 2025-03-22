@@ -14,6 +14,14 @@ exclude = ["/tests"]
 publish = true
 
 [features]
+default = ["std"]
+std = [
+  "serde/std",
+  "bincode/std",
+  "bytes/std",
+  "byteorder/std",
+  "chacha20poly1305/std",
+]
 trace = []
 metrics = [
   "dep:metrics",
@@ -24,6 +32,7 @@ metrics = [
 visualizer = ["dep:bevy_metrics_dashboard", "metrics"]
 mock_time = ["dep:mock_instant"]
 webtransport = [
+  "std",
   "dep:wtransport",
   "dep:xwt-core",
   "dep:xwt-web",
@@ -35,14 +44,16 @@ leafwing = ["dep:leafwing-input-manager"]
 #       enable essential features (like f32 or f64).
 avian2d = ["dep:avian2d"]
 avian3d = ["dep:avian3d", "avian3d/3d"]
+udp = ["std"]
 websocket = [
+  "std",
   "dep:tokio-tungstenite",
   "dep:futures-util",
   "dep:web-sys",
   "dep:wasm-bindgen",
   "dep:wasm-bindgen-futures",
 ]
-steam = ["dep:steamworks"]
+steam = ["dep:steamworks", "std"]
 track_location = ["bevy/track_location"]
 
 # compression
@@ -66,6 +77,10 @@ thiserror.workspace = true
 seahash.workspace = true
 smallvec.workspace = true
 variadics_please.workspace = true
+
+# no_std
+# TODO: only enable in no_std
+no_std_io2.workspace = true
 
 # input
 leafwing-input-manager = { workspace = true, optional = true }
@@ -158,5 +173,5 @@ tokio = { workspace = true, features = ["time"] }
 # we cannot use all-features = true, because we need to provide additional features for avian
 # when building the docs
 # NOTE: building docs.rs doesn't work if I include avian
-features = ["metrics", "webtransport", "leafwing", "websocket", "steam", "zstd"]
+features = ["metrics", "udp", "webtransport", "leafwing", "websocket", "steam", "zstd"]
 rustdoc-args = ["--cfg", "docsrs"]

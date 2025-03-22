@@ -1,5 +1,5 @@
 //! General struct handling replication
-use std::collections::BTreeMap;
+use alloc::collections::BTreeMap;
 
 use super::entity_map::RemoteEntityMap;
 use super::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
@@ -14,6 +14,8 @@ use crate::shared::replication::components::{InitialReplicated, Replicated, Repl
 #[cfg(test)]
 use crate::utils::captures::Captures;
 use crate::utils::collections::HashSet;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, EntityWorldMut, World};
 use tracing::{debug, error, info, trace, warn};

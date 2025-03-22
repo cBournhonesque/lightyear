@@ -66,9 +66,11 @@
 //!
 //! [`std::sync::Arc`]: https://doc.rust-lang.org/stable/std/sync/struct.Arc.html
 
-use std::iter::FromIterator;
-use std::mem::{forget, ManuallyDrop};
-use std::ops::{Deref, DerefMut};
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+use core::iter::FromIterator;
+use core::mem::{forget, ManuallyDrop};
+use core::ops::{Deref, DerefMut};
 
 use parking_lot::Mutex;
 
@@ -185,7 +187,7 @@ impl<T> Drop for Reusable<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::mem::drop;
+    use core::mem::drop;
 
     use super::{Pool, Reusable};
 

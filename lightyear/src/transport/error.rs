@@ -1,11 +1,18 @@
-pub type Result<T> = std::result::Result<T, Error>;
+#[cfg(feature = "std")]
+use std::io;
+#[cfg(not(feature = "std"))]
+use {
+    alloc::string::{String, ToString},
+    no_std_io2::io,
+};
+pub type Result<T> = core::result::Result<T, Error>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("transport is not connected. Did you call connect()?")]
     NotConnected,
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
     #[error(transparent)]
     WebTransport(#[from] wtransport::error::ConnectingError),

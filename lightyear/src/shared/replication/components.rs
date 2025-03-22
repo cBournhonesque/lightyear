@@ -1,5 +1,7 @@
 //! Components used for replication
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::{Component, Entity, Reflect};
 use bevy::time::{Timer, TimerMode};

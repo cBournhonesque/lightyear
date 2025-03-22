@@ -1,12 +1,18 @@
 use crate::utils::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+use alloc::sync::Arc;
 use bevy::prelude::Resource;
+use core::fmt::Debug;
 use enum_dispatch::enum_dispatch;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
-use std::net::SocketAddr;
-use std::sync::Arc;
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{vec, vec::Vec},
+};
+use core::net::SocketAddr;
 
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]

@@ -1,9 +1,11 @@
 use super::{ActionState, UserAction};
 use crate::shared::tick_manager::Tick;
+use alloc::collections::VecDeque;
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::{String, ToString}, vec, vec::Vec};
 use bevy::prelude::Component;
+use core::fmt::{Debug, Formatter};
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
-use std::fmt::{Debug, Formatter};
 use tracing::trace;
 
 #[derive(Component, Debug)]
@@ -12,9 +14,9 @@ pub struct InputBuffer<T> {
     pub(crate) buffer: VecDeque<InputData<T>>,
 }
 
-impl<T: Debug> std::fmt::Display for InputBuffer<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let ty = std::any::type_name::<T>();
+impl<T: Debug> core::fmt::Display for InputBuffer<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        let ty = core::any::type_name::<T>();
 
         let Some(tick) = self.start_tick else {
             return write!(f, "EmptyInputBuffer");

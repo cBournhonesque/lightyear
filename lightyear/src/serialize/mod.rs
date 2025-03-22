@@ -5,7 +5,14 @@ use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use bevy::platform_support::collections::HashMap;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
-use std::hash::{BuildHasher, Hash};
+use core::hash::{BuildHasher, Hash};
+#[cfg(feature = "std")]
+use std::io;
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{vec, vec::Vec},
+    no_std_io2::{io, io::Write},
+};
 
 pub mod reader;
 pub(crate) mod varint;
@@ -17,7 +24,7 @@ pub type RawData = Vec<u8>;
 #[derive(thiserror::Error, Debug)]
 pub enum SerializationError {
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error("Invalid packet type")]
     InvalidPacketType,
     #[error("Invalid value")]
@@ -33,7 +40,7 @@ pub enum SerializationError {
 #[allow(clippy::len_without_is_empty)]
 pub trait ToBytes {
     fn len(&self) -> usize;
-    fn to_bytes<T: byteorder::WriteBytesExt>(
+    fn to_bytes<T: WriteBytesExt>(
         &self,
         buffer: &mut T,
     ) -> Result<(), SerializationError>;

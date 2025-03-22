@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use core::ops::Deref;
 
 use bevy::prelude::*;
 use tracing::{debug, trace};
@@ -146,7 +146,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
     >,
     confirmed_entities: Query<(Entity, &Confirmed, Ref<C>, Has<HasAuthority>)>,
 ) {
-    let kind = std::any::type_name::<C>();
+    let kind = core::any::type_name::<C>();
     for (confirmed_entity, confirmed, confirmed_component, has_authority) in
         confirmed_entities.iter()
     {

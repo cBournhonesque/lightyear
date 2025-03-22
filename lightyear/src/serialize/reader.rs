@@ -1,5 +1,10 @@
-use bytes::{Buf, Bytes};
-use std::io::{Cursor, Read, Seek, SeekFrom};
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+use bytes::Bytes;
+#[cfg(not(feature = "std"))]
+use no_std_io2::io::{Cursor, Read, Result, Seek, SeekFrom};
+#[cfg(feature = "std")]
+use std::io::{Cursor, Read, Result, Seek, SeekFrom};
 
 #[derive(Clone)]
 pub struct Reader(Cursor<Bytes>);
@@ -18,13 +23,13 @@ impl From<Vec<u8>> for Reader {
 }
 
 impl Seek for Reader {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
         self.0.seek(pos)
     }
 }
 
 impl Read for Reader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         self.0.read(buf)
     }
 }
@@ -53,10 +58,20 @@ impl Reader {
     }
 
     pub(crate) fn has_remaining(&self) -> bool {
-        self.0.has_remaining()
+        self.remaining() > 0
     }
 
     pub(crate) fn remaining(&self) -> usize {
-        self.0.remaining()
+        // bytes::Buf is only implemented for std::io::Cursor, not no_std
+        // so we copy the implementation here
+        let len = self.0.get_ref().as_ref().len();
+        let pos = self.0.position();
+
+        if pos >= len as u64 {
+            return 0;
+        }
+
+        len - pos as usize
+        // self.0.remaining()
     }
 }

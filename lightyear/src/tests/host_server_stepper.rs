@@ -8,6 +8,8 @@ use crate::prelude::*;
 use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;
 use crate::transport::LOCAL_SOCKET;
+#[cfg(not(feature = "std"))]
+use alloc::vec;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::input::InputPlugin;
 use bevy::prelude::{default, App, Commands, Mut, Real, Time, World};

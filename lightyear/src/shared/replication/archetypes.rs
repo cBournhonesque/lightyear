@@ -1,5 +1,5 @@
 //! Keep track of the archetypes that should be replicated
-use std::mem;
+use core::mem;
 
 use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::{ChannelDirection, ComponentRegistry, ReplicateLike, Replicating};
@@ -49,7 +49,7 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
 
     /// Archetypes marked as replicated.
     pub(crate) archetypes: HashMap<ArchetypeId, Vec<ReplicatedComponent>>,
-    marker: std::marker::PhantomData<C>,
+    marker: core::marker::PhantomData<C>,
 }
 
 pub type SendDirectionFn = fn(ChannelDirection) -> bool;

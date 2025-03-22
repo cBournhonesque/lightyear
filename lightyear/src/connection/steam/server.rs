@@ -7,10 +7,12 @@ use crate::packet::packet_builder::RecvPayload;
 use crate::prelude::LinkConditionerConfig;
 use crate::server::io::Io;
 use crate::utils::collections::HashMap;
+use alloc::collections::VecDeque;
+use alloc::sync::Arc;
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec, vec::Vec};
 use parking_lot::RwLock;
-use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::Arc;
 use steamworks::networking_sockets::{ListenSocket, NetConnection};
 use steamworks::networking_types::{ListenSocketEvent, NetConnectionEnd, SendFlags};
 use steamworks::{ClientManager, ServerMode, SteamError};

@@ -22,8 +22,8 @@ macro_rules! wrapping_id {
         mod [<$struct_name:lower _module>] {
             use serde::{Deserialize, Serialize};
             use byteorder::{NetworkEndian, WriteBytesExt};
-            use std::ops::{Add, AddAssign, Deref, Sub};
-            use std::cmp::Ordering;
+            use core::ops::{Add, AddAssign, Deref, Sub};
+            use core::cmp::Ordering;
             use bevy::reflect::Reflect;
             use byteorder::ReadBytesExt;
             use crate::serialize::{SerializationError, reader::Reader, ToBytes};
@@ -157,7 +157,7 @@ pub fn wrapping_diff(a: u16, b: u16) -> i16 {
 
 #[cfg(test)]
 mod sequence_compare_tests {
-    use super::wrapping_id;
+    use super::*;
 
     wrapping_id!(Id);
 

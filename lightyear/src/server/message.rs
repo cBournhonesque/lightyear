@@ -9,6 +9,8 @@ use crate::shared::message::private::InternalMessageSend;
 use crate::shared::replication::entity_map::SendEntityMap;
 use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
+#[cfg(not(feature = "std"))]
+use alloc::{string::ToString, vec, vec::Vec};
 use bevy::ecs::system::{FilteredResourcesMutParamBuilder, ParamBuilder};
 use bevy::prelude::*;
 use bytes::Bytes;
@@ -359,6 +361,7 @@ impl InternalMessageSend for ConnectionManager {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::prelude::server::{ReplicateToClient, ServerTriggerExt};
     use crate::prelude::{client, ClientReceiveMessage, NetworkTarget, ServerSendMessage};
     use crate::shared::message::MessageSend;

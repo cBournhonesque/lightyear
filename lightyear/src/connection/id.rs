@@ -3,8 +3,8 @@ use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use bevy::reflect::Reflect;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use core::fmt::Formatter;
 use serde::{Deserialize, Serialize};
-use std::fmt::Formatter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum ClientId {
@@ -76,7 +76,7 @@ impl ClientId {
 }
 
 impl core::fmt::Display for ClientId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         core::fmt::Debug::fmt(self, f)
         // match self {
         //     ClientId::Netcode(id) => write!(f, "NetcodeClientId({})", id),

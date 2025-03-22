@@ -1,6 +1,10 @@
-use std::{
-    io::{self, Read, Write},
-    mem::size_of,
+use core::mem::size_of;
+#[cfg(feature = "std")]
+use std::io::{self, Read, Write};
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{boxed::Box, format, string::String, vec, vec::Vec},
+    no_std_io2::{io, io::{Read, Write}}
 };
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -122,7 +126,7 @@ impl RequestPacket {
             self.token_nonce,
             &private_key,
         )?;
-        let mut token_data = std::io::Cursor::new(&mut self.token_data[..]);
+        let mut token_data = io::Cursor::new(&mut self.token_data[..]);
         decrypted.write_to(&mut token_data)?;
         Ok(())
     }
@@ -379,8 +383,8 @@ pub enum Packet<'p> {
     Disconnect(DisconnectPacket),
 }
 
-impl std::fmt::Display for Packet<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for Packet<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Packet::Request(_) => write!(f, "connection request"),
             Packet::Response(_) => write!(f, "connection response"),
@@ -425,7 +429,7 @@ impl<'p> Packet<'p> {
         // Encrypt the per-packet packet written with the prefix byte, protocol id and version as the associated data.
         // This must match to decrypt.
         let mut aead = [0u8; NETCODE_VERSION.len() + size_of::<u64>() + size_of::<u8>()];
-        let mut cursor = std::io::Cursor::new(&mut aead[..]);
+        let mut cursor = io::Cursor::new(&mut aead[..]);
         cursor.write_all(NETCODE_VERSION).unwrap();
         cursor.write_u64::<LittleEndian>(protocol_id).unwrap();
         cursor.write_u8(prefix).unwrap();
@@ -442,7 +446,7 @@ impl<'p> Packet<'p> {
         protocol_id: u64,
     ) -> Result<usize, NetcodeError> {
         let len = out.len();
-        let mut cursor = std::io::Cursor::new(&mut out[..]);
+        let mut cursor = io::Cursor::new(&mut out[..]);
         if let Packet::Request(pkt) = self {
             cursor.write_u8(Packet::REQUEST)?;
             pkt.write_to(&mut cursor)?;
@@ -489,7 +493,7 @@ impl<'p> Packet<'p> {
         if buf_len > MAX_PKT_BUF_SIZE {
             return Err(Error::TooLarge.into());
         }
-        let mut cursor = std::io::Cursor::new(&mut buf[..]);
+        let mut cursor = io::Cursor::new(&mut buf[..]);
         let prefix_byte = cursor.read_u8()?;
         let (sequence_len, pkt_kind) = Packet::get_prefix(prefix_byte);
         if allowed_packets & (1 << pkt_kind) == 0 {
@@ -552,7 +556,7 @@ impl<'p> Packet<'p> {
 }
 
 pub fn sequence_len(sequence: u64) -> u8 {
-    std::cmp::max(8 - sequence.leading_zeros() as u8 / 8, 1)
+    core::cmp::max(8 - sequence.leading_zeros() as u8 / 8, 1)
 }
 
 #[cfg(test)]
@@ -579,7 +583,7 @@ mod tests {
         assert_eq!(sequence_len(0x80_00_00_00_00_00_00_00), 8);
 
         let sequence = 1u64 << 63;
-        let cursor = &mut std::io::Cursor::new(Vec::new());
+        let cursor = &mut io::Cursor::new(Vec::new());
         cursor.write_sequence(sequence).unwrap();
         assert_eq!(cursor.get_ref().len(), 8);
         cursor.set_position(0);
@@ -644,7 +648,7 @@ mod tests {
         assert_eq!(req_pkt.expire_timestamp, expire_timestamp);
         assert_eq!(req_pkt.token_nonce, nonce);
 
-        let mut reader = std::io::Cursor::new(&req_pkt.token_data[..]);
+        let mut reader = io::Cursor::new(&req_pkt.token_data[..]);
         let connect_token_private = ConnectTokenPrivate::read_from(&mut reader).unwrap();
         assert_eq!(connect_token_private.client_id, client_id);
         assert_eq!(connect_token_private.timeout_seconds, timeout_seconds);

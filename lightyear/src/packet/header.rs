@@ -1,4 +1,6 @@
 use crate::utils::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 use byteorder::NetworkEndian;
 use byteorder::ReadBytesExt;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
@@ -239,10 +241,7 @@ impl PacketHeaderManager {
     pub(crate) fn prepare_send_packet_header(&mut self, packet_type: PacketType) -> PacketHeader {
         // if we didn't have a last packet id, start with the maximum value
         // (so that receiving 0 counts as an update)
-        let last_ack_packet_id = match self.recv_buffer.last_recv_packet_id {
-            Some(id) => id,
-            None => PacketId(u16::MAX),
-        };
+        let last_ack_packet_id = self.recv_buffer.last_recv_packet_id.unwrap_or_else(|| PacketId(u16::MAX));
         let outgoing_header = PacketHeader {
             packet_type,
             packet_id: self.next_packet_id,

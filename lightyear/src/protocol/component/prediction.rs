@@ -42,7 +42,7 @@ impl PredictionMetadata {
             sync_mode: mode,
             correction: None,
             should_rollback: unsafe {
-                std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
+                core::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
                     should_rollback,
                 )
             },
@@ -92,7 +92,7 @@ impl ComponentRegistry {
                 .get_mut(&ComponentKind::of::<C>())
                 .expect("The component has not been registered for prediction. Did you call `.add_prediction(ComponentSyncMode::Full)`")
                 .should_rollback = unsafe {
-                std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
+                core::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
                     should_rollback,
                 )
             };
@@ -107,7 +107,7 @@ impl ComponentRegistry {
                 .get_mut(&ComponentKind::of::<C>())
                 .expect("The component has not been registered for prediction. Did you call `.add_prediction(ComponentSyncMode::Full)`")
                 .correction = Some(unsafe {
-                std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C, f32) -> C, unsafe fn()>(
+                core::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C, f32) -> C, unsafe fn()>(
                     correction_fn,
                 )
             });
@@ -149,7 +149,7 @@ impl ComponentRegistry {
             .get(&kind)
             .expect("the component is not part of the protocol");
         let should_rollback_fn: ShouldRollbackFn<C> =
-            unsafe { std::mem::transmute(prediction_metadata.should_rollback) };
+            unsafe { core::mem::transmute(prediction_metadata.should_rollback) };
         should_rollback_fn(this, that)
     }
 
@@ -160,7 +160,7 @@ impl ComponentRegistry {
             .get(&kind)
             .expect("the component is not part of the protocol");
         let correction_fn: LerpFn<C> =
-            unsafe { std::mem::transmute(prediction_metadata.correction.unwrap()) };
+            unsafe { core::mem::transmute(prediction_metadata.correction.unwrap()) };
         correction_fn(predicted, corrected, t)
     }
 
@@ -260,7 +260,7 @@ impl ComponentRegistry {
         #[cfg(feature = "metrics")]
         metrics::gauge!(format!(
             "prediction::rollbacks::history::{:?}::num_values",
-            std::any::type_name::<C>()
+            core::any::type_name::<C>()
         ))
         .set(predicted_history.buffer.len() as f64);
 
@@ -277,7 +277,7 @@ impl ComponentRegistry {
                     #[cfg(feature = "metrics")]
                     metrics::counter!(format!(
                         "prediction::rollbacks::causes::{}::missing_on_confirmed",
-                        std::any::type_name::<C>()
+                        core::any::type_name::<C>()
                     ))
                     .increment(1)
                 }
@@ -289,7 +289,7 @@ impl ComponentRegistry {
                     #[cfg(feature = "metrics")]
                     metrics::counter!(format!(
                         "prediction::rollbacks::causes::{}::missing_on_predicted",
-                        std::any::type_name::<C>()
+                        core::any::type_name::<C>()
                     ))
                     .increment(1);
                     true
@@ -301,7 +301,7 @@ impl ComponentRegistry {
                             #[cfg(feature = "metrics")]
                             metrics::counter!(format!(
                                 "prediction::rollbacks::causes::{}::value_mismatch",
-                                std::any::type_name::<C>()
+                                core::any::type_name::<C>()
                             ))
                             .increment(1);
                         }
@@ -311,7 +311,7 @@ impl ComponentRegistry {
                         #[cfg(feature = "metrics")]
                         metrics::counter!(format!(
                             "prediction::rollbacks::causes::{}::removed_on_predicted",
-                            std::any::type_name::<C>()
+                            core::any::type_name::<C>()
                         ))
                         .increment(1);
                         true

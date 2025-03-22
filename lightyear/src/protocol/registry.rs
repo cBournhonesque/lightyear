@@ -3,8 +3,8 @@ use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
 use crate::serialize::{SerializationError, ToBytes};
 use crate::utils::collections::HashMap;
 use byteorder::WriteBytesExt;
-use std::any::TypeId;
-use std::hash::Hash;
+use core::any::TypeId;
+use core::hash::Hash;
 
 /// ID used to serialize IDs over the network efficiently
 pub(crate) type NetId = u16;
@@ -56,7 +56,7 @@ impl<K: TypeKind> TypeMapper<K> {
     pub fn add<T: 'static>(&mut self) -> K {
         let kind = K::from(TypeId::of::<T>());
         if self.kind_map.contains_key(&kind) {
-            panic!("Type {:?} already registered", std::any::type_name::<T>());
+            panic!("Type {:?} already registered", core::any::type_name::<T>());
         }
         let net_id = self.next_net_id;
         self.kind_map.insert(kind, net_id);

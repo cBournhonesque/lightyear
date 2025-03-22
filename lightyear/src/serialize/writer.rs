@@ -5,18 +5,22 @@
 //!
 //! The idea is that we have one allocation under the [`BytesMut`], when we finish writing a message,
 //! we can split the message of as a separate [`Bytes`], but
+
 use bytes::{BufMut, Bytes, BytesMut};
-use std::io::Write;
+#[cfg(not(feature = "std"))]
+use no_std_io2::io::{Result, Write};
+#[cfg(feature = "std")]
+use std::io::{Result, Write};
 
 #[derive(Debug)]
 pub struct Writer(bytes::buf::Writer<BytesMut>);
 
 impl Write for Writer {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
         self.0.write(buf)
     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> Result<()> {
         self.0.flush()
     }
 }

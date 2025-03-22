@@ -1,5 +1,8 @@
 //! Wrapper around a min-heap
-use std::{cmp::Ordering, collections::BinaryHeap};
+use alloc::collections::BinaryHeap;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+use core::cmp::Ordering;
 
 /// A buffer that contains items associated with a key (a Tick, Instant, etc.)
 ///

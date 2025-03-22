@@ -1,8 +1,10 @@
 //! General struct handling replication
-use std::iter::Extend;
+use core::iter::Extend;
 
 use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
 use crate::utils::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::Entity;
@@ -526,7 +528,7 @@ impl ReplicationSender {
             .map(|group_id| {
                 // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
                 let channel = self.group_channels.get_mut(&group_id).unwrap();
-                let mut actions = std::mem::take(&mut channel.pending_actions);
+                let mut actions = core::mem::take(&mut channel.pending_actions);
                 // add any updates for that group
                 if self.group_with_updates.remove(&group_id) {
                     for (entity, components) in channel.pending_updates.drain() {
@@ -605,7 +607,7 @@ impl ReplicationSender {
         self.group_with_actions.drain().try_for_each(|group_id| {
             // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
             let channel = self.group_channels.get_mut(&group_id).unwrap();
-            let mut actions = std::mem::take(&mut channel.pending_actions);
+            let mut actions = core::mem::take(&mut channel.pending_actions);
 
             // TODO: should we be careful about not mapping entities for actions if it's a Spawn action?
             //  how could that happen?
@@ -695,7 +697,7 @@ impl ReplicationSender {
     ) -> impl Iterator<Item = (EntityUpdatesMessage, f32)> + Captures<&()> {
         self.group_with_updates.drain().map(|group_id| {
             let channel = self.group_channels.get_mut(&group_id).unwrap();
-            let updates = std::mem::take(&mut channel.pending_updates);
+            let updates = core::mem::take(&mut channel.pending_updates);
 
             trace!(?group_id, "pending updates: {:?}", updates);
             let priority = channel.accumulated_priority;
@@ -725,7 +727,7 @@ impl ReplicationSender {
     ) -> Result<(), PacketError> {
         self.group_with_updates.drain().try_for_each(|group_id| {
             let channel = self.group_channels.get_mut(&group_id).unwrap();
-            let updates = std::mem::take(&mut channel.pending_updates);
+            let updates = core::mem::take(&mut channel.pending_updates);
             trace!(?group_id, "pending updates: {:?}", updates);
             let priority = channel.accumulated_priority;
             let message = SendEntityUpdatesMessage {
@@ -765,7 +767,7 @@ impl ReplicationSender {
                     group_id,
                     bevy_tick,
                     tick,
-                    delta: std::mem::take(&mut channel.pending_delta_updates),
+                    delta: core::mem::take(&mut channel.pending_delta_updates),
                 },
             );
             // If we don't have a bandwidth cap, buffering a message is equivalent to sending it

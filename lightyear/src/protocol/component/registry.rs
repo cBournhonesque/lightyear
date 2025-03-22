@@ -144,7 +144,7 @@ impl ComponentRegistry {
         self.kind_map
             .net_id(&ComponentKind::of::<C>())
             .copied()
-            .unwrap_or_else(|| panic!("Component {} is not registered", std::any::type_name::<C>()))
+            .unwrap_or_else(|| panic!("Component {} is not registered", core::any::type_name::<C>()))
     }
     pub fn get_net_id<C: 'static>(&self) -> Option<ComponentNetId> {
         self.kind_map.net_id(&ComponentKind::of::<C>()).copied()
@@ -222,7 +222,7 @@ impl ComponentRegistry {
         let erased_fns = self.serialize_fns_map.get_mut(&kind).unwrap_or_else(|| {
             panic!(
                 "Component {} is not part of the protocol",
-                std::any::type_name::<C>()
+                core::any::type_name::<C>()
             )
         });
         erased_fns.add_map_entities::<C>();
@@ -400,7 +400,7 @@ impl AppComponentExt for App {
         self.world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
                 if !registry.is_registered::<C>() {
-                    debug!("register component {}", std::any::type_name::<C>());
+                    debug!("register component {}", core::any::type_name::<C>());
                     registry.register_component::<C>(world);
                     registry.set_replication_fns::<C>(world, direction);
                 }
@@ -408,7 +408,7 @@ impl AppComponentExt for App {
         register_component_send::<C>(self, direction);
         ComponentRegistration {
             app: self,
-            _phantom: std::marker::PhantomData,
+            _phantom: core::marker::PhantomData,
         }
     }
 
@@ -423,12 +423,12 @@ impl AppComponentExt for App {
                     registry.register_component_custom_serde::<C>(world, serialize_fns);
                 }
                 registry.set_replication_fns::<C>(world, direction);
-                debug!("register component {}", std::any::type_name::<C>());
+                debug!("register component {}", core::any::type_name::<C>());
             });
         register_component_send::<C>(self, direction);
         ComponentRegistration {
             app: self,
-            _phantom: std::marker::PhantomData,
+            _phantom: core::marker::PhantomData,
         }
     }
 
@@ -537,7 +537,7 @@ impl AppComponentExt for App {
 
 pub struct ComponentRegistration<'a, C> {
     app: &'a mut App,
-    _phantom: std::marker::PhantomData<C>,
+    _phantom: core::marker::PhantomData<C>,
 }
 
 impl<C> ComponentRegistration<'_, C> {

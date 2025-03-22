@@ -93,7 +93,7 @@ impl InterpolationConfig {
     pub(crate) fn to_duration(self, server_send_interval: Duration) -> Duration {
         // TODO: deal with server_send_interval = 0 (set to frame rate)
         let ratio_value = server_send_interval.mul_f32(self.send_interval_ratio);
-        std::cmp::max(ratio_value, self.min_delay)
+        core::cmp::max(ratio_value, self.min_delay)
     }
 }
 

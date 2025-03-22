@@ -23,12 +23,12 @@ use crate::inputs::native::input_buffer::{InputBuffer, InputData};
 use crate::prelude::Deserialize;
 use bevy::ecs::component::Mutable;
 use bevy::prelude::{Component, Reflect};
+use core::fmt::Debug;
+use core::marker::PhantomData;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::fmt::Debug;
-use std::marker::PhantomData;
 
-/// Defines an [`InputBuffer`](input_buffer::InputBuffer) buffer to store the inputs of a player for each tick
+/// Defines an [`InputBuffer`](InputBuffer) buffer to store the inputs of a player for each tick
 pub mod input_buffer;
 pub(crate) mod input_message;
 

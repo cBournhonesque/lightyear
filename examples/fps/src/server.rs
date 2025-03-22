@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
-use std::ops::DerefMut;
+use core::ops::DerefMut;
 
 use crate::protocol::*;
 use crate::shared;

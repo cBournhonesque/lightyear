@@ -1,6 +1,8 @@
 use crate::utils::collections::HashMap;
-use std::collections::VecDeque;
-use std::num::NonZeroU32;
+use alloc::collections::VecDeque;
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
+use core::num::NonZeroU32;
 
 use crossbeam_channel::{Receiver, Sender};
 use governor::{DefaultDirectRateLimiter, Quota};

@@ -9,8 +9,8 @@ It will interact with bevy's [`Time`] resource, and potentially change the relat
 The network serialization uses a u32 which can only represent times up to 46 days.
 This module contains some helper functions to compute the difference between two times.
 */
-use std::fmt::Formatter;
-use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
+use core::fmt::Formatter;
+use core::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 
 use bevy::app::{App, RunFixedMainLoop, RunFixedMainLoopSystem};
 use bevy::platform_support::time::Instant;
@@ -173,7 +173,7 @@ mod wrapped_time {
     impl Visitor<'_> for WrappedTimeVisitor {
         type Value = WrappedTime;
 
-        fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+        fn expecting(&self, formatter: &mut Formatter) -> core::fmt::Result {
             formatter.write_str("a u32 representing the time in milliseconds")
         }
 
@@ -215,9 +215,9 @@ mod wrapped_time {
         }
     }
 
-    impl std::fmt::Display for WrappedTime {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            std::fmt::Debug::fmt(self, f)
+    impl core::fmt::Display for WrappedTime {
+        fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+            core::fmt::Debug::fmt(self, f)
         }
     }
 

@@ -47,7 +47,7 @@ impl<A: UserAction + MapEntities> Plugin for InputPlugin<A> {
         if is_server {
             app.add_plugins(crate::server::input::native::InputPlugin::<A> {
                 rebroadcast_inputs: self.config.rebroadcast_inputs,
-                marker: std::marker::PhantomData,
+                marker: core::marker::PhantomData,
             });
         }
     }

@@ -18,6 +18,12 @@ use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::*;
 use tracing::{debug, error, info, info_span, trace, warn};
+#[cfg(feature = "std")]
+use std::{io};
+#[cfg(not(feature = "std"))]
+use {
+    no_std_io2::io,
+};
 
 /// Plugin handling the server networking systems: sending/receiving packets to clients
 #[derive(Default)]
@@ -119,7 +125,7 @@ pub(crate) fn receive_packets(
                                 );
                                 // only netcode can have io failures
                                 #[allow(irrefutable_let_patterns)]
-                                if let ServerConnection::Netcode(server) = netserver {
+                                if let ServerConnection::Netcode(ref mut server) = netserver {
                                     error!(
                                         "Disconnecting client {client_addr:?} because of io error"
                                     );
@@ -316,7 +322,7 @@ pub(crate) fn send(
 fn log_client_error(error: ConnectionError) {
     let suppress_error = match &error {
         ConnectionError::Netcode(NetcodeError::Transport(transport_error)) => {
-            matches!(transport_error, TransportError::Io(io_error) if io_error.kind() == std::io::ErrorKind::ConnectionReset)
+            matches!(transport_error, TransportError::Io(io_error) if io_error.kind() == io::ErrorKind::ConnectionReset)
         }
         _ => false,
     };
@@ -384,7 +390,7 @@ fn rebuild_server_connections(world: &mut World) -> Result {
     // // make sure the previous replication metadata is ported over to the new manager
     // if let Some(mut previous_manager) = world.get_resource_mut::<ConnectionManager>() {
     //     connection_manager.replicate_component_cache =
-    //         std::mem::take(&mut previous_manager.replicate_component_cache);
+    //         core::mem::take(&mut previous_manager.replicate_component_cache);
     // }
     world.insert_resource(connection_manager);
 

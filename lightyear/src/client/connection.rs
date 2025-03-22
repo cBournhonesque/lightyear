@@ -1,4 +1,6 @@
 //! Specify how a Client sends/receives messages with a Server
+#[cfg(not(feature = "std"))]
+use alloc::{format, vec, vec::Vec};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Resource, World};

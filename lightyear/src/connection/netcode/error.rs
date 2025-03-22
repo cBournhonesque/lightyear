@@ -1,11 +1,18 @@
-use std::{array::TryFromSliceError, net::SocketAddr};
+use core::array::TryFromSliceError;
+#[cfg(feature = "std")]
+use std::{io};
+#[cfg(not(feature = "std"))]
+use {
+    no_std_io2::io,
+};
+use core::net::SocketAddr;
 
 use thiserror::Error;
 
 use crate::prelude::ClientId;
 
 /// The result type for all the public methods that can return an error in this crate.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Error>;
 
 /// An error that can occur in the `netcode` crate.
 #[derive(Error, Debug)]
@@ -50,7 +57,7 @@ pub enum Error {
     #[error("invalid packet: {0}")]
     Packet(#[from] super::packet::Error),
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error(transparent)]
     Transport(#[from] crate::transport::error::Error),
     #[error("client_id {0} client specific transport error {1}")]

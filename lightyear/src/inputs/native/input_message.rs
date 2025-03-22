@@ -2,10 +2,12 @@ use crate::inputs::native::input_buffer::{InputBuffer, InputData};
 use crate::inputs::native::ActionState;
 use crate::prelude::client::InterpolationDelay;
 use crate::prelude::{Deserialize, Serialize, Tick, UserAction};
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::{String, ToString}, vec, vec::Vec};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Reflect};
-use std::cmp::max;
-use std::fmt::{Formatter, Write};
+use core::cmp::max;
+use core::fmt::{Formatter, Write};
 
 // TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
@@ -55,9 +57,9 @@ impl<A: UserAction + MapEntities> MapEntities for InputMessage<A> {
     }
 }
 
-impl<A: UserAction> std::fmt::Display for InputMessage<A> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let ty = std::any::type_name::<A>();
+impl<A: UserAction> core::fmt::Display for InputMessage<A> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        let ty = core::any::type_name::<A>();
 
         if self.inputs.is_empty() {
             return write!(f, "EmptyInputMessage");
@@ -142,11 +144,7 @@ impl<T: UserAction> InputMessage<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::inputs::native::input_buffer::{InputBuffer, InputData};
-    use crate::inputs::native::input_message::{InputMessage, InputTarget, PerTargetData};
-    use crate::inputs::native::ActionState;
-    use crate::prelude::Tick;
-    use bevy::prelude::Entity;
+    use super::*;
 
     #[test]
     fn test_create_message() {

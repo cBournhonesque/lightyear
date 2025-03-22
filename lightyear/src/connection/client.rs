@@ -1,7 +1,13 @@
-use std::net::SocketAddr;
-use std::str::FromStr;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-use std::sync::Arc;
+use alloc::sync::Arc;
+use core::str::FromStr;
+#[cfg(feature = "std")]
+use std::{io};
+#[cfg(not(feature = "std"))]
+use {
+    no_std_io2::io,
+};
+use core::net::SocketAddr;
 
 use bevy::prelude::{Reflect, Resource};
 use enum_dispatch::enum_dispatch;
@@ -299,8 +305,8 @@ impl Authentication {
     }
 }
 
-impl std::fmt::Debug for Authentication {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for Authentication {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Authentication::Token(_) => write!(f, "Token(<connect_token>)"),
             Authentication::Manual {
@@ -326,7 +332,7 @@ pub enum ConnectionError {
     #[error("io is not initialized")]
     IoNotInitialized,
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error("connection not found")]
     NotFound,
     #[error("client is not connected")]

@@ -1,6 +1,13 @@
 //! Contains the `LinkConditioner` struct which can be used to simulate network conditions
 use bevy::reflect::Reflect;
-use std::net::SocketAddr;
+#[cfg(feature = "std")]
+use std::{io};
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{boxed::Box, format, string::String, vec, vec::Vec},
+    no_std_io2::io,
+};
+use core::net::SocketAddr;
 
 use cfg_if::cfg_if;
 use core::time::Duration;

@@ -5,14 +5,14 @@ use crate::prelude::PrePredicted;
 use crate::shared::replication::components::{DisableReplicateHierarchy, ReplicationMarker};
 use crate::shared::replication::ReplicationPeer;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
-use bevy::ecs::entity::{MapEntities};
-use bevy::ecs::reflect::{ReflectMapEntities};
+use bevy::ecs::entity::MapEntities;
+use bevy::ecs::reflect::ReflectMapEntities;
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use bevy::reflect::GetTypeRegistration;
+use core::fmt::{Debug, Formatter};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use std::fmt::{Debug, Formatter};
 use tracing::trace;
 
 pub type ChildOfSync = RelationshipSync<ChildOf>;
@@ -30,7 +30,7 @@ pub type ChildOfSync = RelationshipSync<ChildOf>;
 pub struct RelationshipSync<R: Relationship> {
     entity: Option<Entity>,
     #[reflect(ignore)]
-    marker: std::marker::PhantomData<R>,
+    marker: core::marker::PhantomData<R>,
 }
 
 // We implement these traits manually because R might not have them
@@ -38,7 +38,7 @@ impl<R: Relationship> Default for RelationshipSync<R> {
     fn default() -> Self {
         Self {
             entity: None,
-            marker: std::marker::PhantomData,
+            marker: core::marker::PhantomData,
         }
     }
 }
@@ -58,7 +58,7 @@ impl<R: Relationship> PartialEq for RelationshipSync<R> {
 }
 
 impl<R: Relationship> Debug for RelationshipSync<R> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "RelationshipSync {{ entity: {:?} }}", self.entity)
     }
 }
@@ -67,7 +67,7 @@ impl<R: Relationship> From<Option<Entity>> for RelationshipSync<R> {
     fn from(value: Option<Entity>) -> Self {
         Self {
             entity: value,
-            marker: std::marker::PhantomData,
+            marker: core::marker::PhantomData,
         }
     }
 }
@@ -82,13 +82,13 @@ impl<R: Relationship> MapEntities for RelationshipSync<R> {
 
 /// Plugin that lets you send replication updates for a given [`Relationship`] `R`
 pub struct RelationshipSendPlugin<R> {
-    _marker: std::marker::PhantomData<R>,
+    _marker: core::marker::PhantomData<R>,
 }
 
 impl<R: Relationship> Default for RelationshipSendPlugin<R> {
     fn default() -> Self {
         Self {
-            _marker: std::marker::PhantomData,
+            _marker: core::marker::PhantomData,
         }
     }
 }
@@ -134,13 +134,13 @@ impl<R: Relationship> Plugin for RelationshipSendPlugin<R> {
 
 /// Plugin that lets you apply replication updates for a given [`Relationship`] `R`
 pub struct RelationshipReceivePlugin<P, R> {
-    _marker: std::marker::PhantomData<(P, R)>,
+    _marker: core::marker::PhantomData<(P, R)>,
 }
 
 impl<P, R> Default for RelationshipReceivePlugin<P, R> {
     fn default() -> Self {
         Self {
-            _marker: std::marker::PhantomData,
+            _marker: core::marker::PhantomData,
         }
     }
 }
@@ -230,13 +230,13 @@ pub struct ReplicateLike(pub(crate) Entity);
 /// replicate the `ChildOf` relationship) have the same logic. They use the same `DisableReplicateHierarchy` to
 /// determine when to stop the propagation.
 pub struct HierarchySendPlugin<R: ReplicationPeer> {
-    marker: std::marker::PhantomData<R>,
+    marker: core::marker::PhantomData<R>,
 }
 
 impl<R: ReplicationPeer> Default for HierarchySendPlugin<R> {
     fn default() -> Self {
         Self {
-            marker: std::marker::PhantomData,
+            marker: core::marker::PhantomData,
         }
     }
 }

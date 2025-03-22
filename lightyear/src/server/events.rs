@@ -123,7 +123,7 @@ impl ServerEvents {
     // {
     //     self.events.iter_mut().flat_map(|(client_id, events)| {
     //         let messages = events.into_iter_messages::<M>();
-    //         let client_ids = std::iter::once(client_id.clone()).cycle();
+    //         let client_ids = core::iter::once(client_id.clone()).cycle();
     //         return messages.zip(client_ids);
     //     })
     // }
@@ -136,7 +136,7 @@ impl ServerEvents {
 
     // TODO: should we consume connections?
     pub fn iter_connections(&mut self) -> Vec<ConnectEvent> {
-        std::mem::take(&mut self.connections)
+        core::mem::take(&mut self.connections)
     }
 
     pub fn has_connections(&self) -> bool {
@@ -144,7 +144,7 @@ impl ServerEvents {
     }
 
     pub fn iter_disconnections(&mut self) -> Vec<DisconnectEvent> {
-        std::mem::take(&mut self.disconnections)
+        core::mem::take(&mut self.disconnections)
     }
 
     pub fn has_disconnections(&self) -> bool {
@@ -174,7 +174,7 @@ impl IterEntitySpawnEvent<ClientId> for ServerEvents {
     fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let entities = events.into_iter_entity_spawn().map(|(entity, _)| entity);
-            let client_ids = std::iter::once(*client_id).cycle();
+            let client_ids = core::iter::once(*client_id).cycle();
             entities.zip(client_ids)
         }))
     }
@@ -190,7 +190,7 @@ impl IterEntityDespawnEvent<ClientId> for ServerEvents {
     fn into_iter_entity_despawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let entities = events.into_iter_entity_despawn().map(|(entity, _)| entity);
-            let client_ids = std::iter::once(*client_id).cycle();
+            let client_ids = core::iter::once(*client_id).cycle();
             entities.zip(client_ids)
         }))
     }
@@ -210,7 +210,7 @@ impl IterComponentUpdateEvent<ClientId> for ServerEvents {
             let updates = events
                 .iter_component_update::<C>()
                 .map(|(entity, _)| entity);
-            let client_ids = std::iter::once(*client_id).cycle();
+            let client_ids = core::iter::once(*client_id).cycle();
             updates.zip(client_ids)
         }))
     }
@@ -224,7 +224,7 @@ impl IterComponentRemoveEvent<ClientId> for ServerEvents {
             let updates = events
                 .iter_component_remove::<C>()
                 .map(|(entity, _)| entity);
-            let client_ids = std::iter::once(*client_id).cycle();
+            let client_ids = core::iter::once(*client_id).cycle();
             updates.zip(client_ids)
         }))
     }
@@ -238,7 +238,7 @@ impl IterComponentInsertEvent<ClientId> for ServerEvents {
             let updates = events
                 .iter_component_insert::<C>()
                 .map(|(entity, _)| entity);
-            let client_ids = std::iter::once(*client_id).cycle();
+            let client_ids = core::iter::once(*client_id).cycle();
             updates.zip(client_ids)
         }))
     }

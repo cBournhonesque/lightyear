@@ -1,4 +1,4 @@
-use std::collections::{btree_map, BTreeMap};
+use alloc::collections::{btree_map, BTreeMap};
 
 use bytes::Bytes;
 

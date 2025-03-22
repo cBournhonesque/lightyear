@@ -217,7 +217,7 @@ impl Default for ReliableSettings {
 impl ReliableSettings {
     pub(crate) fn resend_delay(&self, rtt: Duration) -> Duration {
         let delay = rtt.mul_f32(self.rtt_resend_factor);
-        std::cmp::max(delay, self.rtt_resend_min_delay)
+        core::cmp::max(delay, self.rtt_resend_min_delay)
     }
 }
 

@@ -1,6 +1,9 @@
 use crate::serialize::SerializationError;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use std::io::Seek;
+#[cfg(not(feature = "std"))]
+use no_std_io2::{io, io::Seek};
+#[cfg(feature = "std")]
+use std::{io, io::Seek};
 
 /// Returns how many bytes it would take to encode `v` as a variable-length
 /// integer.
@@ -50,7 +53,7 @@ pub trait VarIntWriteExt: WriteBytesExt {
                 let val = value | 0xc0_0000_0000_0000;
                 self.write_u64::<NetworkEndian>(val)?;
             }
-            _ => return Err(std::io::Error::other("value is too large for varint").into()),
+            _ => return Err(io::Error::other("value is too large for varint").into()),
         };
 
         Ok(())
@@ -70,18 +73,18 @@ pub trait VarIntReadExt: ReadBytesExt + Seek {
             2 => {
                 // TODO: we actually don't need seek, no? we can just read the next few bytes ...
                 // go back 1 byte because we read the first byte above
-                self.seek(std::io::SeekFrom::Current(-1))?;
+                self.seek(io::SeekFrom::Current(-1))?;
                 u64::from(self.read_u16::<NetworkEndian>()? & 0x3fff)
             }
             4 => {
-                self.seek(std::io::SeekFrom::Current(-1))?;
+                self.seek(io::SeekFrom::Current(-1))?;
                 u64::from(self.read_u32::<NetworkEndian>()? & 0x3fffffff)
             }
             8 => {
-                self.seek(std::io::SeekFrom::Current(-1))?;
+                self.seek(io::SeekFrom::Current(-1))?;
                 self.read_u64::<NetworkEndian>()? & 0x3fffffffffffffff
             }
-            _ => return Err(std::io::Error::other("value is too large for varint").into()),
+            _ => return Err(io::Error::other("value is too large for varint").into()),
         };
         Ok(out)
     }
@@ -92,7 +95,14 @@ impl<T: ReadBytesExt + Seek> VarIntReadExt for T {}
 #[cfg(test)]
 mod tests {
     use crate::serialize::varint::{VarIntReadExt, VarIntWriteExt};
+    #[cfg(not(feature = "std"))]
+    use {
+        alloc::vec,
+        no_std_io2::{io::Cursor}
+    };
+    #[cfg(feature = "std")]
     use std::io::Cursor;
+    use super::*;
 
     #[test]
     fn test_varint_len_1() {

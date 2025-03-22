@@ -2,9 +2,13 @@
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::*;
-use std::ops::DerefMut;
-use std::time::Duration;
+use core::ops::DerefMut;
+use core::time::Duration;
+#[cfg(feature = "std")]
+use std::io;
 use tracing::{debug, error, trace};
+#[cfg(not(feature = "std"))]
+use no_std_io2::io;
 
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -212,7 +216,7 @@ pub(crate) fn send(
         });
     }
 
-    // no need to clear the connection, because we already std::mem::take it
+    // no need to clear the connection, because we already core::mem::take it
     // client.connection.clear();
     Ok(())
 }
@@ -336,7 +340,7 @@ fn listen_io_state(
                 Err(TryRecvError::Closed) => {
                     error!("Io status channel has been closed when it shouldn't be");
                     netclient.disconnect_reason = Some(ConnectionError::Transport(
-                        std::io::Error::other("Io status channel has been closed").into(),
+                        io::Error::other("Io status channel has been closed").into(),
                     ));
                     disconnect = true;
                 }
@@ -441,7 +445,7 @@ fn on_disconnecting(
 
     // no need to update the io state, because we will recreate a new `ClientConnection`
     // for the next connection attempt
-    let reason = std::mem::take(&mut netclient.disconnect_reason);
+    let reason = core::mem::take(&mut netclient.disconnect_reason);
     disconnect_event_writer.write(DisconnectEvent { reason });
     // TODO: how can we also provide a reason here? or do we even need to?
     // we need to also trigger the event because we sometimes react to it via observers
@@ -458,7 +462,7 @@ fn on_disconnecting_host_server(
     mut networking_state: ResMut<NextState<NetworkingState>>,
 ) {
     let client_id = netcode.id();
-    if let Some(client_entity) = std::mem::take(&mut metadata.client_entity) {
+    if let Some(client_entity) = core::mem::take(&mut metadata.client_entity) {
         // removing the client from the server's connection list also emits the server DisconnectEvent
         connection_manager.remove(client_id);
     }

@@ -2,6 +2,8 @@ use crate::prelude::ClientId;
 use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::utils::collections::HashSet;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 use bevy::platform_support::hash::FixedHasher;
 use bevy::prelude::Reflect;
 use byteorder::{ReadBytesExt, WriteBytesExt};

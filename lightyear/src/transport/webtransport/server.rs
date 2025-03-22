@@ -1,6 +1,9 @@
 //! WebTransport client implementation.
-use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use alloc::sync::Arc;
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, format, vec, vec::Vec};
+use core::net::SocketAddr;
+use std::sync::Mutex;
 
 use crate::utils::collections::HashMap;
 use async_compat::Compat;

@@ -3,9 +3,9 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
+use core::time::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::time::Duration;
 
 use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};

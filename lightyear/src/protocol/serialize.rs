@@ -4,9 +4,10 @@ use crate::shared::replication::entity_map::{EntityMap, ReceiveEntityMap, SendEn
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
 use bevy::ptr::{Ptr, PtrMut};
+use core::any::TypeId;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::any::TypeId;
+
 
 /// Stores function pointers related to serialization and deserialization
 #[derive(Clone, Debug, PartialEq)]
@@ -74,7 +75,7 @@ unsafe fn erased_serialize_fn<M: Message>(
     let typed_serialize_fns = erased_serialize_fn.typed::<M>();
     if let Some(map_entities) = erased_serialize_fn.send_map_entities {
         let message = message.deref::<M>();
-        let clone_fn: CloneFn<M> = std::mem::transmute(erased_serialize_fn.erased_clone.unwrap());
+        let clone_fn: CloneFn<M> = core::mem::transmute(erased_serialize_fn.erased_clone.unwrap());
         let mut new_message = clone_fn(message);
         unsafe {
             map_entities(PtrMut::from(&mut new_message), entity_map);
@@ -143,10 +144,10 @@ impl ErasedSerializeFns {
     pub(crate) fn new_custom_serde<M: Message>(serialize_fns: SerializeFns<M>) -> Self {
         Self {
             type_id: TypeId::of::<M>(),
-            type_name: std::any::type_name::<M>(),
+            type_name: core::any::type_name::<M>(),
             erased_serialize: erased_serialize_fn::<M>,
-            serialize: unsafe { std::mem::transmute(serialize_fns.serialize) },
-            deserialize: unsafe { std::mem::transmute(serialize_fns.deserialize) },
+            serialize: unsafe { core::mem::transmute(serialize_fns.serialize) },
+            deserialize: unsafe { core::mem::transmute(serialize_fns.deserialize) },
             erased_clone: None,
             map_entities: None,
             send_map_entities: None,
@@ -160,11 +161,11 @@ impl ErasedSerializeFns {
             TypeId::of::<M>(),
             "The erased message fns were created for type {}, but we are trying to convert to type {}",
             self.type_name,
-            std::any::type_name::<M>(),
+            core::any::type_name::<M>(),
         );
         SerializeFns {
-            serialize: unsafe { std::mem::transmute(self.serialize) },
-            deserialize: unsafe { std::mem::transmute(self.deserialize) },
+            serialize: unsafe { core::mem::transmute(self.serialize) },
+            deserialize: unsafe { core::mem::transmute(self.deserialize) },
         }
     }
 
@@ -180,7 +181,7 @@ impl ErasedSerializeFns {
         self.send_map_entities = Some(erased_send_map_entities::<M>);
         self.receive_map_entities = Some(erased_receive_map_entities::<M>);
         let clone_fn: fn(&M) -> M = erased_clone::<M>;
-        self.erased_clone = Some(unsafe { std::mem::transmute(clone_fn) });
+        self.erased_clone = Some(unsafe { core::mem::transmute(clone_fn) });
     }
 
     pub(crate) fn map_entities<M: 'static>(&self, message: &mut M, entity_map: &mut EntityMap) {

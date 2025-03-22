@@ -1,8 +1,15 @@
+use core::mem::size_of;
+#[cfg(feature = "std")]
 use std::{
     io::{self, Write},
-    mem::size_of,
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
+    net::ToSocketAddrs
 };
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{format, vec::Vec},
+    no_std_io2::io::{self, Write},
+};
+use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305, XNonce};
@@ -69,7 +76,7 @@ impl AddressList {
     }
 }
 
-impl std::ops::Index<usize> for AddressList {
+impl core::ops::Index<usize> for AddressList {
     type Output = SocketAddr;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -145,8 +152,8 @@ impl ConnectTokenPrivate {
     fn aead(
         protocol_id: u64,
         expire_timestamp: u64,
-    ) -> Result<[u8; NETCODE_VERSION.len() + std::mem::size_of::<u64>() * 2], Error> {
-        let mut aead = [0; NETCODE_VERSION.len() + std::mem::size_of::<u64>() * 2];
+    ) -> Result<[u8; NETCODE_VERSION.len() + core::mem::size_of::<u64>() * 2], Error> {
+        let mut aead = [0; NETCODE_VERSION.len() + core::mem::size_of::<u64>() * 2];
         let mut cursor = io::Cursor::new(&mut aead[..]);
         cursor.write_all(NETCODE_VERSION)?;
         cursor.write_u64::<LittleEndian>(protocol_id)?;
@@ -435,7 +442,7 @@ impl ConnectToken {
         self.write_to(&mut cursor).map_err(|e| {
             io::Error::new(
                 io::ErrorKind::Other,
-                format!("failed to write token to buffer: {}", e),
+                format!("failed to write token to buffer: {}", e).as_str(),
             )
         })?;
         Ok(buf)

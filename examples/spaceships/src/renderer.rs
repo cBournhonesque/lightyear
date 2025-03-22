@@ -9,6 +9,7 @@ use bevy::core_pipeline::bloom::Bloom;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
+use core::time::Duration;
 use leafwing_input_manager::action_state::ActionState;
 use lightyear::client::prediction::prespawn::PreSpawned;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
@@ -27,7 +28,6 @@ use lightyear::{
 };
 use std::f32::consts::PI;
 use std::f32::consts::TAU;
-use std::time::Duration;
 
 pub struct SpaceshipsRendererPlugin;
 

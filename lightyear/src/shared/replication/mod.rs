@@ -1,7 +1,9 @@
 //! Module to handle replicating entities and components from server to client
+#[cfg(not(feature = "std"))]
+use alloc::{string::ToString, vec::Vec};
 use bevy::ecs::entity::EntityHash;
-use std::fmt::Debug;
-use std::hash::Hash;
+use core::fmt::Debug;
+use core::hash::Hash;
 
 use bevy::platform_support::collections::HashMap;
 use bevy::prelude::{Entity, Resource};
@@ -333,7 +335,7 @@ pub(crate) trait ReplicationReceive: Resource + ReplicationPeer {
 ///
 /// The trait is made public because it is needed in the macros
 pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
-    type Error: std::error::Error;
+    type Error: core::error::Error;
     fn writer(&mut self) -> &mut Writer;
 
     /// Return the list of clients that connected to the server since we last sent any replication messages

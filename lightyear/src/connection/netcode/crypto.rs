@@ -1,4 +1,7 @@
+#[cfg(feature = "std")]
 use std::io;
+#[cfg(not(feature = "std"))]
+use no_std_io2::io;
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use chacha20poly1305::{
@@ -11,7 +14,7 @@ use super::{MAC_BYTES, PRIVATE_KEY_BYTES};
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error("buffer size mismatch")]
     BufferSizeMismatch,
     #[error("failed to encrypt: {0}")]
@@ -22,7 +25,7 @@ pub enum Error {
 
 /// A 32-byte array, used as a key for encrypting and decrypting packets and connect tokens.
 pub type Key = [u8; PRIVATE_KEY_BYTES];
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Error>;
 
 /// Generates a random key for encrypting and decrypting packets and connect tokens.
 ///

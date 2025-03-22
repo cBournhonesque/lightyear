@@ -1,6 +1,8 @@
-use std::ops::{Add, Mul};
+use core::ops::{Add, Mul};
 
 use crate::utils::collections::HashSet;
+#[cfg(not(feature = "std"))]
+use alloc::{string::{String, ToString}, vec, vec::Vec};
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};

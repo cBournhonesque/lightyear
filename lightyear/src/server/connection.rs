@@ -1,4 +1,6 @@
 //! Specify how a Server sends/receives messages with a Client
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, vec, vec::Vec};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
 use bevy::platform_support::collections::hash_map::{Entry, HashMap};
@@ -179,7 +181,7 @@ impl ConnectionManager {
                     .values()
                     .filter(move |c| client_ids.contains(&c.client_id)),
             ),
-            NetworkTarget::None => Box::new(std::iter::empty()),
+            NetworkTarget::None => Box::new(core::iter::empty()),
         }
     }
 
@@ -292,7 +294,7 @@ impl ConnectionManager {
 
                 // rebroadcast messages
                 messages_to_rebroadcast
-                    .extend(std::mem::take(&mut connection.messages_to_rebroadcast));
+                    .extend(core::mem::take(&mut connection.messages_to_rebroadcast));
                 Ok::<(), ServerError>(())
             })?;
         for (message, target, channel_kind) in messages_to_rebroadcast {
@@ -350,7 +352,7 @@ pub(crate) fn connected_targets_mut<'a: 'b, 'b>(
                 .values_mut()
                 .filter(move |c| client_ids.contains(&c.client_id)),
         ),
-        NetworkTarget::None => Box::new(std::iter::empty()),
+        NetworkTarget::None => Box::new(core::iter::empty()),
     }
 }
 
@@ -641,7 +643,7 @@ impl Connection {
         // TODO: do i really need this? I could just create events in this function directly?
         //  why do i need to make events a field of the connection?
         //  is it because of push_connection?
-        Ok(std::mem::replace(&mut self.events, ConnectionEvents::new()))
+        Ok(core::mem::replace(&mut self.events, ConnectionEvents::new()))
     }
 
     /// Receive bytes for a single message.

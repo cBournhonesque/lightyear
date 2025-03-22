@@ -5,6 +5,9 @@ use crate::packet::packet_builder::Payload;
 use crate::protocol::channel::ChannelId;
 use crate::serialize::ToBytes;
 use crate::utils::wrapping_id::wrapping_id;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 
 cfg_if::cfg_if!(
     if #[cfg(test)] {

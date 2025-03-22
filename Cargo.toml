@@ -63,18 +63,20 @@ smallvec = { version = "1", features = ["union", "const_generics"] }
 variadics_please = "1.1.0"
 zstd = "0.13.1"
 
+# no_std
+no_std_io2 = "0.9.0"
 
 # serialization
 
-bincode = { version = "2.0.0-rc.3", features = ["serde"] }
-byteorder = "1.5.0"
-bytes = { version = "1.8", features = ["serde"] }
+bincode = { version = "2.0.0-rc.3", default-features = false, features = ["serde"] }
+byteorder = { version = "1.5.0", default-features = false }
+bytes = { version = "1.8", default-features = false, features = ["serde"] }
 self_cell = "1.0"
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", default-features = false, features = ["derive"] }
 
 # netcode
 
-chacha20poly1305 = { version = "0.10", features = ["std"] }
+chacha20poly1305 = { version = "0.10" }
 
 # derive
 
@@ -222,3 +224,6 @@ bevygap_client_plugin = { version = "0.3.1" }
 
 [workspace.lints.clippy]
 type_complexity = "allow"
+alloc_instead_of_core = "warn"
+std_instead_of_alloc = "warn"
+std_instead_of_core = "warn"

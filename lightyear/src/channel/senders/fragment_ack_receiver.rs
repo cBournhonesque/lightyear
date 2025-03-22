@@ -1,4 +1,6 @@
 use crate::utils::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 use tracing::{error, trace};
 
 use crate::packet::message::{FragmentIndex, MessageId};

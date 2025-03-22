@@ -2,7 +2,7 @@
 
 use crate::serialize::SerializationError;
 
-pub type Result<T> = std::result::Result<T, ClientError>;
+pub type Result<T> = core::result::Result<T, ClientError>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
