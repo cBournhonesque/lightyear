@@ -1,7 +1,6 @@
 //! Defines the plugin related to the client networking (sending and receiving packets).
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
-use bevy::prelude::ResMut;
 use bevy::prelude::*;
 use std::ops::DerefMut;
 use std::time::Duration;
@@ -127,7 +126,7 @@ pub(crate) fn receive_packets(
     component_registry: Res<ComponentRegistry>,
     message_registry: Res<MessageRegistry>,
     system_change_tick: SystemChangeTick,
-) {
+) -> Result {
     trace!("Receive server packets");
     let delta = virtual_time.delta();
     // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
@@ -164,14 +163,15 @@ pub(crate) fn receive_packets(
 
     // RECV PACKETS: buffer packets into message managers
     while let Some(packet) = netclient.recv() {
+        // TODO: should we just ignore the erroring-packet instead of exiting the system? probably..
         connection
-            .recv_packet(packet, tick_manager.as_ref(), component_registry.as_ref())
-            .unwrap();
+            .recv_packet(packet, tick_manager.as_ref(), component_registry.as_ref())?
     }
+    Ok(())
 }
 
 /// Read from internal buffers and apply the changes to the world
-pub(crate) fn receive(world: &mut World) {
+pub(crate) fn receive(world: &mut World) -> Result {
     let unsafe_world = world.as_unsafe_world_cell();
 
     // TODO: an alternative would be to use `Commands + EntityMut` which both don't conflict with resources
@@ -184,14 +184,15 @@ pub(crate) fn receive(world: &mut World) {
     let time_manager = unsafe { unsafe_world.get_resource::<TimeManager>() }.unwrap();
     let tick_manager = unsafe { unsafe_world.get_resource::<TickManager>() }.unwrap();
     // RECEIVE: read messages and parse them into events
-    let _ = connection_manager
+    connection_manager
         .receive(
             unsafe { unsafe_world.world_mut() },
             component_registry.as_mut(),
             time_manager,
             tick_manager,
         )
-        .inspect_err(|e| error!("Error receiving packets: {}", e));
+        .inspect_err(|e| error!("Error receiving packets: {}", e))?;
+    Ok(())
 }
 
 pub(crate) fn send(
@@ -200,12 +201,11 @@ pub(crate) fn send(
     tick_manager: Res<TickManager>,
     time_manager: Res<TimeManager>,
     mut connection: ResMut<ConnectionManager>,
-) {
+) -> Result {
     trace!("Send packets to server");
     // SEND_PACKETS: send buffered packets to io
     let packet_bytes = connection
-        .send_packets(time_manager.as_ref(), tick_manager.as_ref())
-        .unwrap();
+        .send_packets(time_manager.as_ref(), tick_manager.as_ref())?;
     for packet_byte in packet_bytes {
         let _ = netcode.send(packet_byte.as_slice()).map_err(|e| {
             error!("Error sending packet: {}", e);
@@ -214,6 +214,7 @@ pub(crate) fn send(
 
     // no need to clear the connection, because we already std::mem::take it
     // client.connection.clear();
+    Ok(())
 }
 
 /// Send messages in host-server mode
@@ -222,15 +223,16 @@ pub(crate) fn send_host_server(
     netcode: Res<ClientConnection>,
     mut client_manager: ResMut<ConnectionManager>,
     mut server_manager: ResMut<crate::server::connection::ConnectionManager>,
-) {
-    let _ = client_manager
+) -> Result {
+    client_manager
         .send_packets_host_server(netcode.id(), server_manager.as_mut())
         .inspect_err(|e| {
             error!(
                 "Error sending messages from local client to server in host-server mode: {}",
                 e
             )
-        });
+        })?;
+    Ok(())
 }
 
 /// Update the sync manager.
@@ -469,7 +471,7 @@ fn on_disconnecting_host_server(
 /// This has several benefits:
 /// - the client connection's internal time is up-to-date (otherwise it might not be, since we don't call `update` while disconnected)
 /// - we can take into account any changes to the client config
-fn rebuild_client_connection(world: &mut World) {
+fn rebuild_client_connection(world: &mut World) -> Result {
     let client_config = world.resource::<ClientConfig>().clone();
 
     // if the server is started, that means we're planning to run in host-server mode
@@ -494,8 +496,9 @@ fn rebuild_client_connection(world: &mut World) {
     // drop the previous client connection to make sure we release any resources before creating the new one
     world.remove_resource::<ClientConnection>();
     // insert the new client connection
-    let client_connection = client_config.net.build_client();
+    let client_connection = client_config.net.build_client()?;
     world.insert_resource(client_connection);
+    Ok(())
 }
 
 // TODO: the design where the user has to call world.connect_client() is better because the user can handle the Error however they want!
@@ -505,7 +508,7 @@ fn rebuild_client_connection(world: &mut World) {
 /// - rebuild the client connection manager
 /// - start the connection process
 /// - set the networking state to `Connecting`
-fn connect(world: &mut World) {
+fn connect(world: &mut World) -> Result {
     // TODO: should we prevent running Connect if we're already Connected?
     // if world.resource::<ClientConnection>().state() == NetworkingState::Connected {
     //     error!("The client is already started. The client can only start connecting when it is disconnected.");
@@ -516,7 +519,7 @@ fn connect(world: &mut World) {
     // - this allows us to take into account any changes to the client config (when building a
     // new client connection and connection manager, which want to do because we need to reset
     // the internal time, sync, priority, message numbers, etc.)
-    rebuild_client_connection(world);
+    rebuild_client_connection(world)?;
     if let Err(e) = world.resource_mut::<ClientConnection>().connect() {
         error!("Error connecting client: {}", e);
         world.resource_mut::<ClientConnection>().disconnect_reason = Some(e);
@@ -525,6 +528,7 @@ fn connect(world: &mut World) {
             .resource_mut::<NextState<NetworkingState>>()
             .set(NetworkingState::Disconnected);
     }
+    Ok(())
 }
 
 pub trait ClientCommandsExt {

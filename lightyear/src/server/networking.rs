@@ -4,10 +4,7 @@ use crate::connection::server::{
     ConnectionError, IoConfig, NetServer, ServerConnection, ServerConnections,
 };
 use crate::prelude::server::is_stopped;
-use crate::prelude::{
-    is_host_server, ChannelRegistry, ClientId, ComponentRegistry, MainSet, MessageRegistry,
-    TickManager, TimeManager,
-};
+use crate::prelude::*;
 use crate::serialize::reader::Reader;
 use crate::server::clients::ControlledEntities;
 use crate::server::config::ServerConfig;
@@ -98,7 +95,7 @@ pub(crate) fn receive_packets(
     message_registry: Res<MessageRegistry>,
     system_change_tick: SystemChangeTick,
     aggregate_client_errors: Local<Vec<(usize, ConnectionError)>>,
-) {
+) -> Result {
     trace!("Receive client packets");
     let delta = virtual_time.delta();
     // UPDATE: update server state, send keep-alives, receive packets from io
@@ -168,9 +165,9 @@ pub(crate) fn receive_packets(
         //  to avoid duplicate logic for host-server in client/networking.rs
         // disconnects because we received a disconnect message
         for client_id in netserver.new_disconnections() {
+            connection_manager.remove(client_id);
             if netservers.client_server_map.remove(&client_id).is_some() {
                 debug!("removing connection from connection manager");
-                connection_manager.remove(client_id);
                 // NOTE: we don't despawn the entity right away to let the user react to
                 // the disconnect event
             } else {
@@ -207,14 +204,14 @@ pub(crate) fn receive_packets(
             // packets from a client
             // TODO: use connection to apply on BOTH message manager and replication manager
             if let Some(connection) = connection_manager.connections.get_mut(&client_id) {
+                // TODO: do not exit the system here, just ignore that one packet..
                 connection
                     .recv_packet(
                         payload,
                         tick_manager.as_ref(),
                         component_registry.as_ref(),
                         &mut connection_manager.delta_manager,
-                    )
-                    .expect("could not receive packet");
+                    )?;
             } else {
                 // it's still possible to receive some packets from a client that just disconnected.
                 // (multiple packets arrived at the same time from that client)
@@ -229,6 +226,7 @@ pub(crate) fn receive_packets(
             }
         }
     }
+    Ok(())
 }
 
 /// Read from internal buffers and apply the changes to the world
@@ -238,7 +236,7 @@ pub(crate) fn receive(
     // message_registry: Res<MessageRegistry>,
     // time_manager: Res<TimeManager>,
     // tick_manager: Res<TickManager>,
-) {
+) -> Result {
     let unsafe_world = world.as_unsafe_world_cell();
 
     // TODO: an alternative would be to use `Commands + EntityMut` which both don't conflict with resources
@@ -259,10 +257,8 @@ pub(crate) fn receive(
             message_registry,
             time_manager,
             tick_manager,
-        )
-        .unwrap_or_else(|e| {
-            error!("Error during receive: {}", e);
-        });
+        )?;
+    Ok(())
 }
 
 // or do additional send stuff here
@@ -309,8 +305,10 @@ pub(crate) fn send(
                 }
             }
             Ok(())
-        })
-        .unwrap_or_else(|e: ServerError| {
+            // TODO: we cannot use bevy's error handler because we get an error here
+            //   when we disconnect a client (because it's not in the client_server_map anymore)
+            //   and we have a one-frame delay so we still r
+        }).unwrap_or_else(|e: ServerError| {
             error!("Error sending packets: {}", e);
         });
 }
@@ -335,8 +333,8 @@ fn log_client_error(error: ConnectionError) {
 pub(crate) fn send_host_server(
     mut connection_manager: ResMut<ConnectionManager>,
     mut client_manager: ResMut<crate::client::connection::ConnectionManager>,
-) {
-    let _ = connection_manager
+) -> Result {
+    connection_manager
         .connections
         .iter_mut()
         .filter(|(_, connection)| connection.is_local_client())
@@ -346,7 +344,8 @@ pub(crate) fn send_host_server(
                 .drain(..)
                 .try_for_each(|message| client_manager.receive_message(Reader::from(message)))
         })
-        .inspect_err(|e| error!("Error sending messages to local client: {:?}", e));
+        .inspect_err(|e| error!("Error sending messages to local client: {:?}", e))?;
+    Ok(())
 }
 
 /// Bevy [`State`] representing the networking state of the server.
@@ -370,7 +369,7 @@ pub enum NetworkingState {
 /// This has several benefits:
 /// - the server connection's internal time is up-to-date (otherwise it might not be, since we don't run any server systems while the server is stopped)
 /// - we can take into account any changes to the server config
-fn rebuild_server_connections(world: &mut World) {
+fn rebuild_server_connections(world: &mut World) -> Result {
     debug!("Rebuild server connection");
     let server_config = world.resource::<ServerConfig>().clone();
 
@@ -390,38 +389,41 @@ fn rebuild_server_connections(world: &mut World) {
     world.insert_resource(connection_manager);
 
     // rebuild the server connections and insert them
-    let server_connections = ServerConnections::new(server_config.net);
+    let server_connections = ServerConnections::new(server_config.net)?;
     world.insert_resource(server_connections);
+    Ok(())
 }
 
 /// System that runs when we enter the Started state
 /// - rebuild the server connections resource from the latest `ServerConfig`
 /// - rebuild the server connection manager
 /// - start listening on the server connections
-fn on_starting(world: &mut World) {
+fn on_starting(world: &mut World) -> Result {
     if is_started_ref(world.get_resource_ref::<State<NetworkingState>>()) {
         error!("The server is already started. The server can only be started when it is stopped.");
-        return;
+        return Ok(());
     }
 
-    rebuild_server_connections(world);
-    let _ = world
+    rebuild_server_connections(world)?;
+    world
         .resource_mut::<ServerConnections>()
         .start()
-        .inspect_err(|e| error!("Error starting server connections: {:?}", e));
+        .inspect_err(|e| error!("Error starting server connections: {:?}", e))?;
     world.insert_resource(NextState::Pending(NetworkingState::Started));
     info!("Server is started.");
+    Ok(())
 }
 
 /// System that runs when we enter the Stopped state
 fn on_stopping(
     mut server_connections: ResMut<ServerConnections>,
     mut server_state: ResMut<NextState<NetworkingState>>,
-) {
-    let _ = server_connections
+) -> Result {
+    server_connections
         .stop()
-        .inspect_err(|e| error!("Error stopping server connections: {:?}", e));
+        .inspect_err(|e| error!("Error stopping server connections: {:?}", e))?;
     server_state.set(NetworkingState::Stopped);
+    Ok(())
 }
 
 fn on_stopped() {

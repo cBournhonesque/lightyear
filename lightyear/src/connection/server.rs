@@ -141,8 +141,8 @@ impl Default for NetConfig {
 }
 
 impl NetConfig {
-    pub fn build_server(self) -> ServerConnection {
-        match self {
+    pub fn build_server(self) -> Result<ServerConnection, ConnectionError> {
+        Ok(match self {
             NetConfig::Netcode { config, io } => {
                 let server = super::netcode::Server::new(config, io);
                 ServerConnection::Netcode(server)
@@ -158,17 +158,16 @@ impl NetConfig {
                 // TODO: handle errors
                 let server = super::steam::server::Server::new(
                     steamworks_client.unwrap_or_else(|| {
-                        Arc::new(RwLock::new(
-                            SteamworksClient::new_with_app_id(config.app_id).unwrap(),
-                        ))
-                    }),
+                        Ok(Arc::new(RwLock::new(
+                            SteamworksClient::new_with_app_id(config.app_id)?,
+                        )))
+                    })?,
                     config,
                     conditioner,
-                )
-                .expect("could not create steam server");
+                )?;
                 ServerConnection::Steam(server)
             }
-        }
+        })
     }
 }
 
@@ -186,16 +185,16 @@ pub struct ServerConnections {
 }
 
 impl ServerConnections {
-    pub(crate) fn new(config: Vec<NetConfig>) -> Self {
+    pub(crate) fn new(config: Vec<NetConfig>) -> Result<Self, ConnectionError> {
         let mut servers = vec![];
         for config in config {
-            let server = config.build_server();
+            let server = config.build_server()?;
             servers.push(server);
         }
-        ServerConnections {
+        Ok(ServerConnections {
             servers,
             client_server_map: HashMap::default(),
-        }
+        })
     }
 
     /// Start listening for client connections on all internal servers

@@ -83,12 +83,13 @@ pub(crate) fn despawn_confirmed(
     trigger: Trigger<OnRemove, Confirmed>,
     query: Query<&Confirmed>,
     mut commands: Commands,
-) {
-    if let Some(predicted) = query.get(trigger.target()).unwrap().predicted {
+) -> Result {
+    if let Some(predicted) = query.get(trigger.target())?.predicted {
         if let Ok(mut entity_mut) = commands.get_entity(predicted) {
             entity_mut.despawn();
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
