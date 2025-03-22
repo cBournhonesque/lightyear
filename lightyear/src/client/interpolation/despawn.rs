@@ -1,4 +1,4 @@
-use bevy::prelude::{Commands, OnRemove, Query, Trigger};
+use bevy::prelude::*;
 
 use crate::client::components::{Confirmed, SyncComponent};
 use crate::client::interpolation::interpolate::InterpolateStatus;
@@ -27,10 +27,11 @@ pub(crate) fn despawn_interpolated(
     trigger: Trigger<OnRemove, Confirmed>,
     query: Query<&Confirmed>,
     mut commands: Commands,
-) {
-    if let Some(interpolated) = query.get(trigger.target()).unwrap().interpolated {
+) -> Result {
+    if let Some(interpolated) = query.get(trigger.target())?.interpolated {
         if let Ok(mut entity_mut) = commands.get_entity(interpolated) {
             entity_mut.despawn();
         }
     }
+    Ok(())
 }

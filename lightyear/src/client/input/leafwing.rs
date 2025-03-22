@@ -170,7 +170,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
         ),
         With<InputMap<A>>,
     >,
-) {
+) -> Result {
     // we send a message from the latest tick that we have available, which is the delayed tick
     let input_delay_ticks = connection.input_delay_ticks() as i16;
     let tick = tick_manager.tick() + input_delay_ticks;
@@ -188,8 +188,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
     // A redundancy of 2 means that we can recover from 1 lost packet
     let mut num_tick: u16 =
         ((input_send_interval.as_nanos() / config.shared.tick.tick_duration.as_nanos()) + 1)
-            .try_into()
-            .unwrap();
+            .try_into()?;
     num_tick *= input_config.packet_redundancy;
     let mut message = InputMessage::<A>::new(tick);
     for (entity, input_buffer, predicted, pre_predicted) in input_buffer_query.iter() {
@@ -264,6 +263,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
     );
     message_buffer.0.push(message);
 
+    Ok(())
     // NOTE: keep the older input values in the InputBuffer! because they might be needed when we rollback for client prediction
 }
 
@@ -274,7 +274,7 @@ fn send_input_messages<A: LeafwingUserAction>(
     mut message_buffer: ResMut<MessageBuffer<A>>,
     time_manager: Res<TimeManager>,
     tick_manager: Res<TickManager>,
-) {
+) -> Result {
     trace!(
         "Number of input messages to send: {:?}",
         message_buffer.0.len()
@@ -292,11 +292,9 @@ fn send_input_messages<A: LeafwingUserAction>(
             );
         }
         connection
-            .send_message::<InputChannel, InputMessage<A>>(&message)
-            .unwrap_or_else(|err| {
-                error!("Error while sending input message: {:?}", err);
-            });
+            .send_message::<InputChannel, InputMessage<A>>(&message)?;
     }
+    Ok(())
 }
 
 /// Read the InputMessages of other clients from the server to update their InputBuffer and ActionState.

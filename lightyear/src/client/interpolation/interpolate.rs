@@ -1,5 +1,5 @@
 use bevy::ecs::component::Mutable;
-use bevy::prelude::{Commands, Component, Entity, Query, Res, Without};
+use bevy::prelude::*;
 use tracing::{debug, trace};
 
 use crate::client::components::SyncComponent;
