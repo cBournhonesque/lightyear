@@ -485,7 +485,7 @@ mod tests {
         let payloads = client_message_manager.send_packets(Tick(0))?;
         assert_eq!(
             client_message_manager.packet_to_message_ack_map,
-            HashMap::from([(
+            HashMap::from_iter([(
                 PacketId(0),
                 vec![(
                     channel_kind_2,
@@ -661,7 +661,7 @@ mod tests {
         let payloads = client_message_manager.send_packets(Tick(0))?;
         assert_eq!(
             client_message_manager.packet_to_message_ack_map,
-            HashMap::from([(
+            HashMap::from_iter([(
                 PacketId(0),
                 vec![(
                     Channel2::kind(),

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use lightyear::client::input::InputSystemSet;
 use lightyear::inputs::native::{ActionState, InputMarker};
 use lightyear::prelude::client::*;

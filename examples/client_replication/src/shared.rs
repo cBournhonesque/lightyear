@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;

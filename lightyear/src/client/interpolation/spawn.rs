@@ -1,4 +1,4 @@
-use bevy::prelude::{Added, Commands, Entity, Query, Res};
+use bevy::prelude::*;
 use tracing::trace;
 
 use crate::client::components::Confirmed;
@@ -15,7 +15,7 @@ pub(crate) fn spawn_interpolated_entity(
     connection: Res<ConnectionManager>,
     mut commands: Commands,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBeInterpolated>>,
-) {
+) -> Result {
     for (confirmed_entity, confirmed) in confirmed_entities.iter_mut() {
         // skip if the entity already has an interpolated entity
         if confirmed.as_ref().is_some_and(|c| c.interpolated.is_some()) {
@@ -25,7 +25,7 @@ pub(crate) fn spawn_interpolated_entity(
 
         // add Confirmed to the confirmed entity
         // safety: we know the entity exists
-        let mut confirmed_entity_mut = commands.get_entity(confirmed_entity).unwrap();
+        let mut confirmed_entity_mut = commands.get_entity(confirmed_entity)?;
         if let Some(mut confirmed) = confirmed {
             confirmed.interpolated = Some(interpolated);
         } else {
@@ -58,4 +58,5 @@ pub(crate) fn spawn_interpolated_entity(
             metrics::counter!("spawn_interpolated_entity").increment(1);
         }
     }
+    Ok(())
 }

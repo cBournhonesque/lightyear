@@ -1,4 +1,5 @@
-use bevy::prelude::{Commands, Component, Entity, Query, Res, Without};
+use bevy::ecs::component::Mutable;
+use bevy::prelude::*;
 use tracing::{debug, trace};
 
 use crate::client::components::SyncComponent;
@@ -251,7 +252,7 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent>(
 }
 
 /// Update the component value on the Interpolate entity
-pub(crate) fn interpolate<C: Component + Clone>(
+pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
     component_registry: Res<ComponentRegistry>,
     mut query: Query<(&mut C, &InterpolateStatus<C>)>,
 ) {

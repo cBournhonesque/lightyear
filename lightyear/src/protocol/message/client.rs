@@ -14,8 +14,8 @@ use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
 use bevy::app::App;
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::ComponentId;
+use bevy::platform_support::collections::HashMap;
 use bevy::prelude::{Commands, Entity, Event, Events, FilteredResourcesMut, TypePath, World};
-use bevy::utils::HashMap;
 
 /// Metadata needed to receive/send messages
 ///
@@ -251,7 +251,7 @@ impl MessageRegistry {
         let message = unsafe { serialize_metadata.deserialize::<M>(reader, entity_map)? };
         let events = events
             .get_mut_by_id(receive_metadata.component_id)
-            .ok_or(MessageError::NotRegistered)?;
+            .map_err(|_| MessageError::NotRegistered)?;
         // SAFETY: the component_id corresponds to the Events<MessageEvent<M>> resource
         let mut events = unsafe { events.with_type::<Events<ClientReceiveMessage<M>>>() };
         events.send(ClientReceiveMessage::new(message, from));

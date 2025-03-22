@@ -124,20 +124,18 @@ impl Default for NetConfig {
 }
 
 impl NetConfig {
-    pub fn build_client(self) -> ClientConnection {
-        match self {
+    pub fn build_client(self) -> Result<ClientConnection, ConnectionError> {
+        Ok(match self {
             NetConfig::Netcode {
                 auth,
                 config,
                 io: io_config,
             } => {
                 let token = auth
-                    .get_token(config.client_timeout_secs, config.token_expire_secs)
-                    .expect("could not generate token");
-                let token_bytes = token.try_into_bytes().unwrap();
+                    .get_token(config.client_timeout_secs, config.token_expire_secs)?;
+                let token_bytes = token.try_into_bytes()?;
                 let netcode =
-                    super::netcode::NetcodeClient::with_config(&token_bytes, config.build())
-                        .expect("could not create netcode client");
+                    super::netcode::NetcodeClient::with_config(&token_bytes, config.build())?;
                 let client = super::netcode::Client {
                     client: netcode,
                     io_config,
@@ -156,10 +154,10 @@ impl NetConfig {
             } => {
                 let client = super::steam::client::Client::new(
                     steamworks_client.unwrap_or_else(|| {
-                        Arc::new(RwLock::new(
-                            SteamworksClient::new_with_app_id(config.app_id).unwrap(),
-                        ))
-                    }),
+                        Ok(Arc::new(RwLock::new(
+                            SteamworksClient::new_with_app_id(config.app_id)?,
+                        )))
+                    })?,
                     config,
                     conditioner,
                 );
@@ -175,7 +173,7 @@ impl NetConfig {
                     disconnect_reason: None,
                 }
             }
-        }
+        })
     }
 }
 
@@ -274,9 +272,9 @@ impl Authentication {
         self,
         client_timeout_secs: i32,
         token_expire_secs: i32,
-    ) -> Option<ConnectToken> {
-        match self {
-            Authentication::Token(token) => Some(token),
+    ) -> Result<ConnectToken, ConnectionError> {
+        Ok(match self {
+            Authentication::Token(token) => token,
             Authentication::Manual {
                 server_addr,
                 client_id,
@@ -285,8 +283,7 @@ impl Authentication {
             } => ConnectToken::build(server_addr, protocol_id, client_id, private_key)
                 .timeout_seconds(client_timeout_secs)
                 .expire_seconds(token_expire_secs)
-                .generate()
-                .ok(),
+                .generate()?,
             Authentication::None => {
                 // create a fake connect token so that we can build a NetcodeClient
                 ConnectToken::build(
@@ -296,10 +293,9 @@ impl Authentication {
                     generate_key(),
                 )
                 .timeout_seconds(client_timeout_secs)
-                .generate()
-                .ok()
+                .generate()?
             }
-        }
+        })
     }
 }
 
@@ -329,6 +325,8 @@ impl std::fmt::Debug for Authentication {
 pub enum ConnectionError {
     #[error("io is not initialized")]
     IoNotInitialized,
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
     #[error("connection not found")]
     NotFound,
     #[error("client is not connected")]
@@ -348,6 +346,8 @@ pub enum ConnectionError {
     #[error(transparent)]
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     SteamError(#[from] steamworks::SteamError),
+    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
+    SteamInitError(#[from] steamworks::SteamAPIInitError),
     #[error("client was disconnected")]
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     SteamDisconnection(steamworks::networking_types::NetConnectionEnd),

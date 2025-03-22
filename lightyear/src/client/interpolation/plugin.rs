@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 use super::interpolation_history::{
     add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,

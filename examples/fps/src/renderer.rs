@@ -7,8 +7,8 @@ use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use lightyear::client::interpolation::VisualInterpolationPlugin;
 use lightyear::prelude::client::{Interpolated, Predicted, VisualInterpolateStatus};
-use lightyear::prelude::server::ReplicationTarget;
-use lightyear::prelude::{NetworkIdentity, PreSpawnedPlayerObject, Replicated};
+use lightyear::prelude::server::ReplicateToClient;
+use lightyear::prelude::{NetworkIdentity, PreSpawned, Replicated};
 use lightyear_avian::prelude::AabbEnvelopeHolder;
 
 #[derive(Clone)]
@@ -90,9 +90,9 @@ pub struct VisibleFilter {
     a: Or<(
         With<Predicted>,
         // to show prespawned entities
-        With<PreSpawnedPlayerObject>,
+        With<PreSpawned>,
         With<Interpolated>,
-        With<ReplicationTarget>,
+        With<ReplicateToClient>,
     )>,
     // we don't show any replicated (confirmed) entities
     b: Without<Replicated>,
@@ -106,8 +106,8 @@ fn add_player_visuals(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((is_predicted, color)) = query.get(trigger.entity()) {
-        commands.entity(trigger.entity()).insert((
+    if let Ok((is_predicted, color)) = query.get(trigger.target()) {
+        commands.entity(trigger.target()).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(PLAYER_SIZE)))),
             MeshMaterial2d(materials.add(ColorMaterial {
@@ -117,7 +117,7 @@ fn add_player_visuals(
         ));
         if is_predicted {
             commands
-                .entity(trigger.entity())
+                .entity(trigger.target())
                 .insert(VisualInterpolateStatus::<Transform>::default());
         }
     }
@@ -131,8 +131,8 @@ fn add_bullet_visuals(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok(color) = query.get(trigger.entity()) {
-        commands.entity(trigger.entity()).insert((
+    if let Ok(color) = query.get(trigger.target()) {
+        commands.entity(trigger.target()).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
                 radius: BULLET_SIZE,
@@ -154,7 +154,7 @@ fn add_interpolated_bot_visuals(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let entity = trigger.entity();
+    let entity = trigger.target();
     if query.get(entity).is_ok() {
         // add visibility
         commands.entity(entity).insert((
@@ -175,7 +175,7 @@ fn add_predicted_bot_visuals(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let entity = trigger.entity();
+    let entity = trigger.target();
     if query.get(entity).is_ok() {
         // add visibility
         commands.entity(entity).insert((

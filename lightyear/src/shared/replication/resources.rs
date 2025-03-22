@@ -3,10 +3,7 @@
 use std::marker::PhantomData;
 
 use bevy::app::App;
-use bevy::prelude::{
-    Commands, DetectChanges, IntoSystemConfigs, IntoSystemSetConfigs, Plugin, PostUpdate,
-    PreUpdate, Res, ResMut, Resource,
-};
+use bevy::prelude::*;
 pub use command::{ReplicateResourceExt, StopReplicateResourceExt};
 use serde::{Deserialize, Serialize};
 

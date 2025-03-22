@@ -1,7 +1,7 @@
 //! Create the bevy [`Plugin`]
 
 use bevy::app::{App, PreUpdate};
-use bevy::prelude::{IntoSystemConfigs, Plugin};
+use bevy::prelude::*;
 
 use crate::shared::events::components::{EntityDespawnEvent, EntitySpawnEvent};
 use crate::shared::events::systems::{clear_events, push_entity_events};
