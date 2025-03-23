@@ -358,16 +358,16 @@ pub mod prelude {
     pub use crate::connection::steam::steamworks_client::SteamworksClient;
 }
 
-// Re-export from the sub-crates
-pub use lightyear_io as io;
-pub use lightyear_packet as packet;
-pub use lightyear_connection as connection;
 
 pub mod channel;
 
 pub mod client;
 
+pub mod connection;
+
 pub mod inputs;
+
+pub mod packet;
 
 pub mod protocol;
 
@@ -379,6 +379,8 @@ pub mod shared;
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+pub mod transport;
 
 /// Extra utilities
 pub mod utils;

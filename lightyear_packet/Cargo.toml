@@ -1,0 +1,42 @@
+[package]
+name = "lightyear_packet"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Packet handling for the lightyear networking library"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = ["std"]
+std = ["lightyear_link/std"]
+
+[dependencies]
+# local crates
+lightyear_core.workspace = true
+lightyear_link.workspace = true
+lightyear_macros.workspace = true
+lightyear_serde.workspace = true
+lightyear_utils.workspace = true
+
+
+# bevy
+bevy.workspace = true
+
+# serde
+serde.workspace = true
+
+# utils
+bytes.workspace = true
+chrono.workspace = true
+crossbeam-channel.workspace = true
+enum_dispatch.workspace = true
+governor.workspace = true
+nonzero_ext.workspace = true
+ringbuffer.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

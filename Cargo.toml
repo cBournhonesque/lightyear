@@ -2,11 +2,15 @@
 resolver = "2"
 members = [
   "lightyear",
-  "lightyear-io",
-  "lightyear-packet",
-  "lightyear-connection",
+  "lightyear_core",
+  "lightyear_link",
+  "lightyear_packet",
+  "lightyear_connection",
+  "lightyear_macros",
+  "lightyear_serde",
+  "lightyear_udp",
+  "lightyear_utils",
   "lightyear_avian",
-  "macros",
   # internal
   "benches/*",
   "examples/*",
@@ -46,6 +50,13 @@ debug = false
 lightyear_avian = { path = "./lightyear_avian", version = "0.19.0", default-features = false }
 lightyear_examples_common = { path = "./examples/common", default-features = false }
 lightyear = { path = "./lightyear", version = "0.19.0", default-features = false }
+lightyear_macros = { path = "./lightyear_macros", version = "0.19.0", default-features = false}
+lightyear_core = { path = "./lightyear_core", version = "0.19.0", default-features = false }
+lightyear_packet = { path = "./lightyear_packet", version = "0.19.0", default-features = false }
+lightyear_link = { path = "./lightyear_link", version = "0.19.0", default-features = false }
+lightyear_serde = { path = "./lightyear_serde", version = "0.19.0", default-features = false }
+lightyear_udp = { path = "./lightyear_udp", version = "0.19.0", default-features = false }
+lightyear_utils = { path = "./lightyear_utils", version = "0.19.0", default-features = false }
 
 # utils
 anyhow = { version = "1.0.75", features = [] }
@@ -68,6 +79,7 @@ zstd = "0.13.1"
 
 # no_std
 no_std_io2 = { version = "0.9.0", features = ["alloc"] }
+spin = { version = "0.9.8", default-features = false }
 
 # serialization
 
@@ -80,9 +92,7 @@ serde = { version = "1", default-features = false, features = ["alloc", "derive"
 
 chacha20poly1305 = { version = "0.10" }
 
-# derive
 
-lightyear_macros = { version = "0.19.0", path = "./macros" }
 
 # tracing
 

@@ -65,9 +65,7 @@ zstd = ["dep:zstd"]
 
 [dependencies]
 # local crates
-lightyear-io = { path = "../lightyear-io", default-features = false }
-lightyear-packet = { path = "../lightyear-packet", default-features = false }
-lightyear-connection = { path = "../lightyear-connection", default-features = false }
+lightyear_macros.workspace = true
 
 # utils
 chrono.workspace = true
@@ -105,9 +103,6 @@ serde.workspace = true
 
 # netcode
 chacha20poly1305.workspace = true
-
-# derive
-lightyear_macros.workspace = true
 
 # tracing
 tracing.workspace = true

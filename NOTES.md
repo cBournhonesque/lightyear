@@ -1,3 +1,60 @@
+# Refactoring
+
+- Io: raw io (channels, WebTransport, Websocket)
+- Link/Transport: component that will store raw bytes that we receive/send from the network (webtransport, udp, etc.). Link between two peers to send data.
+- Channel: component adds reliability by allowing you to specify multiple channels depending on the the channel_id, we buffer the stuff to be processed on the channels
+- Session: component that tracks the long-term state of the link.
+
+
+WITHOUT CONNECTION
+When we receive:
+- we poll from the io and store the result in the Session which stores the packets
+- we read from the Session to get packets, and process them in the Transport buffer (which adds reliability, fragmentation, etc.)
+- from the Transport we receive Messages (ChannelKind + Tick + Bytes)
+
+When we send:
+- We buffer a message in the Channel
+- the Transport will flush all ready packets into the Link
+- the raw Io takes from the Session and sends it through the network
+
+WITH CONNECTION
+When we receive on client:
+- we poll the IOs to add all received network packets in the Link
+- we poll the connection, which gives us packets.
+    - the connection could be using the Link to get packets (for example Netcode, i.e. which takes
+      the buffer from the link)
+      or it could just provide the packets from some internal mechanism (for example Steam)
+
+When we receive on server:
+- we poll any IOs that are linked via ConnectedOn to a ServerConnection, those packets are stored on the Link
+- the connection will receive():
+  - either internal mechanism
+  - either it looks at all entities that are ConnectedOn and takes from their Link
+
+When we send:
+- we buffer a message in the Channel (an entity can have multiple channels so you can write to them in parallel). They are distinguished by `Channel<C>`.
+- we Channel will flush all ready packets
+- for each of these packets, we call Connection::send
+  - steam will just buffer them with an internal mechanism
+  - Netcode will do extra processing
+
+COMPONENTS
+- we store Channel<C> as that's what users buffer messages into.
+  - do we store the Channel<C> components on the same entity as the Link? or do we make a relationship between them? A relationship means that we could iterate in parallel
+  - we store a separate ChannelSender<C> on each entity so that users can send messages in parallel, and a Channel<C>
+  - or do we create a Transport component that contains multiple Channels? (the problem is that if you want to write to one channel it blocks the others)
+- do we store both the Link and the Session?
+
+ENTITIES
+- Client:
+  - one entity per link that stores the Io, Link, Transport (Channel<C>), ClientConnection
+  - this means we could be connected to multiple remote peers at the same time
+- Server:
+  - we want to be able to support multiple connections at the same time, so one entity per ServerConnection. Each ServerConnection can have a relationship with multiple entities, which are each of
+    the entities connected on that connection. Each of the entities have a `ConnectedOn(ServerConnection entity)` component
+  - one entity per client, with the ConnectedOn component, an Io component, a Link component, a Channel component
+
+
 # BEVY
 
 I noticed that when system ordering is ambiguous, once my app is compiled, the system order is completely fixed (i.e. all the ambiguous systems get ordered in a given fixed order). Is there a way to get what that fixed system order is?

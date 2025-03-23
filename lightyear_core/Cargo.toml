@@ -1,0 +1,38 @@
+[package]
+name = "lightyear_core"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Core types shared by lightyear crates"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = ["std"]
+std = [
+    "bevy/std",
+    "serde/std",
+]
+
+[dependencies]
+lightyear_utils.workspace = true
+lightyear_serde.workspace = true
+
+# utils
+chrono.workspace = true
+paste.workspace = true
+parking_lot.workspace = true
+tracing.workspace = true
+
+# bevy
+bevy.workspace = true
+
+# serde
+serde.workspace = true
+
+# no_std
+spin = { workspace = true, features = ["rwlock"] }
+
+[lints]
+workspace = true

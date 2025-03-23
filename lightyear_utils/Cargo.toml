@@ -1,0 +1,33 @@
+[package]
+name = "lightyear_utils"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Utils shared by lightyear crates"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+lightyear_serde.workspace = true
+
+# utils
+hashbrown.workspace = true
+paste.workspace = true
+tracing.workspace = true
+
+# bevy
+bevy.workspace = true
+
+# serde
+serde.workspace = true
+
+# no_std
+no_std_io2 = { workspace = true, optional = true }
+
+[lints]
+workspace = true
