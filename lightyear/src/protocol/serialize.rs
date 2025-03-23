@@ -71,10 +71,12 @@ unsafe fn erased_serialize_fn<M: Message>(
     writer: &mut Writer,
     entity_map: &mut SendEntityMap,
 ) -> Result<(), SerializationError> {
-    let typed_serialize_fns = erased_serialize_fn.typed::<M>();
+    // SAFETY: the typed serialize functions are created for the message of type M
+    let typed_serialize_fns = unsafe { erased_serialize_fn.typed::<M>() };
     if let Some(map_entities) = erased_serialize_fn.send_map_entities {
-        let message = message.deref::<M>();
-        let clone_fn: CloneFn<M> = core::mem::transmute(erased_serialize_fn.erased_clone.unwrap());
+        // SAFETY: the Ptr was created for the message of type M
+        let message = unsafe { message.deref::<M>() };
+        let clone_fn: CloneFn<M> = unsafe{ core::mem::transmute(erased_serialize_fn.erased_clone.unwrap()) } ;
         let mut new_message = clone_fn(message);
         unsafe {
             map_entities(PtrMut::from(&mut new_message), entity_map);
@@ -82,7 +84,7 @@ unsafe fn erased_serialize_fn<M: Message>(
         (typed_serialize_fns.serialize)(&new_message, writer)
     } else {
         // SAFETY: the Ptr was created for the message of type M
-        let message = message.deref::<M>();
+        let message = unsafe { message.deref::<M>() };
         (typed_serialize_fns.serialize)(message, writer)
     }
 }
@@ -135,7 +137,8 @@ unsafe fn erased_map_entities<M: MapEntities + 'static>(
     message: PtrMut,
     entity_map: &mut EntityMap,
 ) {
-    let message = message.deref_mut::<M>();
+    // SAFETY: the PtrMut must be a valid pointer to a value of type M
+    let message = unsafe { message.deref_mut::<M>() };
     M::map_entities(message, entity_map);
 }
 
@@ -144,7 +147,8 @@ unsafe fn erased_send_map_entities<M: MapEntities + 'static>(
     message: PtrMut,
     entity_map: &mut SendEntityMap,
 ) {
-    let message = message.deref_mut::<M>();
+    // SAFETY: the PtrMut must be a valid pointer to a value of type M
+    let message = unsafe { message.deref_mut::<M>() };
     M::map_entities(message, entity_map);
 }
 
@@ -153,7 +157,8 @@ unsafe fn erased_receive_map_entities<M: MapEntities + 'static>(
     message: PtrMut,
     entity_map: &mut ReceiveEntityMap,
 ) {
-    let message = message.deref_mut::<M>();
+    // SAFETY: the PtrMut must be a valid pointer to a value of type M
+    let message = unsafe { message.deref_mut::<M>() };
     M::map_entities(message, entity_map);
 }
 
@@ -224,7 +229,8 @@ impl ErasedSerializeFns {
         writer: &mut Writer,
         entity_map: &mut SendEntityMap,
     ) -> Result<(), SerializationError> {
-        erased_serialize_fn::<M>(self, Ptr::from(message), writer, entity_map)
+        // SAFETY: the Ptr must be a valid pointer to a value of type M
+        unsafe { erased_serialize_fn::<M>(self, Ptr::from(message), writer, entity_map) }
     }
 
     /// Deserialize the message value from the reader
@@ -238,7 +244,8 @@ impl ErasedSerializeFns {
         let fns = unsafe { self.typed::<M>() };
         let mut message = (fns.deserialize)(reader)?;
         if let Some(map_entities) = self.receive_map_entities {
-            map_entities(PtrMut::from(&mut message), entity_map);
+            // SAFETY: the PtrMut must be a valid pointer to a value of type M
+            unsafe { map_entities(PtrMut::from(&mut message), entity_map); }
         }
         Ok(message)
     }

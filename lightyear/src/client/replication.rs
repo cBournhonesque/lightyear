@@ -399,7 +399,7 @@ pub(crate) mod send {
                 replicate_once,
                 replication_target_ticks,
                 is_replicate_like_added,
-            ) = if let Some(replicate_like) = entity_ref.get::<ReplicateLike>() {
+            ) = match entity_ref.get::<ReplicateLike>() { Some(replicate_like) => {
                 // root entity does not exist
                 let Ok(root_entity_ref) = query.get(replicate_like.0) else {
                     return;
@@ -457,7 +457,7 @@ pub(crate) mod send {
                             .is_changed(system_ticks.last_run(), system_ticks.this_run())
                     },
                 )
-            } else {
+            } _ => {
                 let (group_id, priority, group_ready) = entity_ref
                     .get::<ReplicationGroup>()
                     .map(|g| (g.group_id(Some(entity)), g.priority(), g.should_send))
@@ -479,7 +479,7 @@ pub(crate) mod send {
                     },
                     false,
                 )
-            };
+            }};
 
             // the update will be 'insert' instead of update if the ReplicateToServer component is new
             // or the HasAuthority component is new. That's because the remote cannot receive update

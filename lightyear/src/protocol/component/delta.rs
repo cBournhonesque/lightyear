@@ -64,7 +64,7 @@ impl ComponentRegistry {
             .delta_fns_map
             .get(&kind)
             .ok_or(ComponentError::MissingDeltaFns)?;
-        Ok((delta_fns.clone)(data))
+        Ok(unsafe { (delta_fns.clone)(data) })
     }
 
     /// # Safety
@@ -78,7 +78,7 @@ impl ComponentRegistry {
             .delta_fns_map
             .get(&kind)
             .ok_or(ComponentError::MissingDeltaFns)?;
-        (delta_fns.drop)(data);
+        unsafe { (delta_fns.drop)(data) };
         Ok(())
     }
 
@@ -99,10 +99,10 @@ impl ComponentRegistry {
             .get(&kind)
             .ok_or(ComponentError::MissingDeltaFns)?;
 
-        let delta = (delta_fns.diff)(start_tick, start, new);
-        self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind, entity_map)?;
+        let delta = unsafe { (delta_fns.diff)(start_tick, start, new) };
+        self.erased_serialize( unsafe { Ptr::new(delta) }, writer, delta_fns.delta_kind, entity_map)?;
         // drop the delta message
-        (delta_fns.drop_delta_message)(delta);
+        unsafe { (delta_fns.drop_delta_message)(delta) };
         Ok(())
     }
 
@@ -120,10 +120,11 @@ impl ComponentRegistry {
             .delta_fns_map
             .get(&kind)
             .ok_or(ComponentError::MissingDeltaFns)?;
-        let delta = (delta_fns.diff_from_base)(component_data);
-        self.erased_serialize(Ptr::new(delta), writer, delta_fns.delta_kind, entity_map)?;
+        let delta = unsafe { (delta_fns.diff_from_base)(component_data)};
+        // SAFETY: the delta is a valid pointer to a DeltaMessage<C::Delta>
+        self.erased_serialize(unsafe { Ptr::new(delta) }, writer, delta_fns.delta_kind, entity_map)?;
         // drop the delta message
-        (delta_fns.drop_delta_message)(delta);
+        unsafe { (delta_fns.drop_delta_message)(delta) };
         Ok(())
     }
 
@@ -281,11 +282,11 @@ type ErasedApplyDiffFn = unsafe fn(data: PtrMut, delta: Ptr);
 type ErasedDropFn = unsafe fn(data: NonNull<u8>);
 
 /// SAFETY: the Ptr must be a valid pointer to a value of type C
-unsafe fn erased_clone<C: Clone>(data: Ptr) -> NonNull<u8> {
+unsafe fn erased_clone<C: Clone>(data: Ptr) -> NonNull<u8> { unsafe {
     let cloned: C = data.deref::<C>().clone();
     let leaked_data = Box::leak(Box::new(cloned));
     NonNull::from(leaked_data).cast()
-}
+}}
 
 /// Get two Ptrs to a component C and compute the diff between them.
 ///
@@ -295,7 +296,8 @@ unsafe fn erased_diff<C: Diffable>(
     previous: Ptr,
     present: Ptr,
 ) -> NonNull<u8> {
-    let delta = C::diff(previous.deref::<C>(), present.deref::<C>());
+    // SAFETY: the data Ptr must be a valid pointer to a value of type C
+    let delta = unsafe { C::diff(previous.deref::<C>(), present.deref::<C>()) };
     let delta_message = DeltaMessage {
         delta_type: DeltaType::Normal { previous_tick },
         delta,
@@ -307,7 +309,8 @@ unsafe fn erased_diff<C: Diffable>(
 
 unsafe fn erased_base_diff<C: Diffable>(other: Ptr) -> NonNull<u8> {
     let base = C::base_value();
-    let delta = C::diff(&base, other.deref::<C>());
+    // SAFETY: the data Ptr must be a valid pointer to a value of type C
+    let delta = C::diff(&base, unsafe { other.deref::<C>() });
     let delta_message = DeltaMessage {
         delta_type: DeltaType::FromBase,
         delta,
@@ -320,13 +323,13 @@ unsafe fn erased_base_diff<C: Diffable>(other: Ptr) -> NonNull<u8> {
 /// - the data PtrMut must be a valid pointer to a value of type C
 /// - the delta Ptr must be a valid pointer to a value of type C::Delta
 unsafe fn erased_apply_diff<C: Diffable>(data: PtrMut, delta: Ptr) {
-    C::apply_diff(data.deref_mut::<C>(), delta.deref::<C::Delta>());
+    unsafe { C::apply_diff(data.deref_mut::<C>(), delta.deref::<C::Delta>()) } ;
 }
 
 unsafe fn erased_drop<C>(data: NonNull<u8>) {
     // reclaim the memory inside the box
     // the box's destructor will then free the memory and run drop
-    let _ = Box::from_raw(data.cast::<C>().as_ptr());
+    let _ = unsafe { Box::from_raw(data.cast::<C>().as_ptr()) } ;
 }
 
 #[derive(Debug, Clone, PartialEq)]

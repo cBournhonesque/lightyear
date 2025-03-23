@@ -50,11 +50,11 @@ pub(crate) enum InputData<T> {
 
 impl<T> From<Option<T>> for InputData<T> {
     fn from(value: Option<T>) -> Self {
-        if let Some(value) = value {
+        match value { Some(value) => {
             InputData::Input(value)
-        } else {
+        } _ => {
             InputData::Absent
-        }
+        }}
     }
 }
 
@@ -202,11 +202,11 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
             *self.buffer.front_mut().unwrap() = popped.clone();
         }
 
-        if let InputData::Input(value) = popped {
+        match popped { InputData::Input(value) => {
             Some(value)
-        } else {
+        } _ => {
             None
-        }
+        }}
     }
 
     pub(crate) fn get_raw(&self, tick: Tick) -> &InputData<T> {

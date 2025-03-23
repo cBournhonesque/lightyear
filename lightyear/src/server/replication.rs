@@ -532,7 +532,7 @@ pub(crate) mod send {
                 override_target,
                 replication_target,
                 is_replicate_like_added,
-            ) = if let Some(replicate_like) = entity_ref.get::<ReplicateLike>() {
+            ) = match entity_ref.get::<ReplicateLike>() { Some(replicate_like) => {
                 // root entity does not exist
                 let Ok(root_entity_ref) = query.get(replicate_like.0) else {
                     return;
@@ -601,7 +601,7 @@ pub(crate) mod send {
                         .unwrap_or_else(|| root_entity_ref.get_ref::<ReplicateToClient>().unwrap()),
                     entity_ref.get_ref::<ReplicateLike>().unwrap().is_added(),
                 )
-            } else {
+            } _ => {
                 if entity_ref.get::<ReplicateToClient>().is_none() {
                     // Skip entities with no ReplicateToClient
                     return;
@@ -628,7 +628,7 @@ pub(crate) mod send {
                     entity_ref.get_ref::<ReplicateToClient>().unwrap(),
                     false,
                 )
-            };
+            }};
 
             // add entity despawns from visibility or target change
             // (but not from entity despawn)

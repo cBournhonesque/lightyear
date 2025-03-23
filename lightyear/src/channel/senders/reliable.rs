@@ -202,7 +202,7 @@ impl ChannelSend for ReliableSender {
             match &mut unacked_message_with_priority.unacked_message {
                 UnackedMessage::Single {
                     bytes,
-                    ref mut last_sent,
+                    last_sent,
                 } => {
                     if should_send(last_sent) {
                         trace!("Should send message {:?}", message_id);

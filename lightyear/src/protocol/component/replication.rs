@@ -83,15 +83,17 @@ impl TempWriteBuffer {
         component_id: ComponentId,
     ) {
         let layout = Layout::new::<C>();
-        let ptr = NonNull::new_unchecked(&mut component).cast::<u8>();
+        // SAFETY: we are creating a pointer to the component data, which is non-null
+        let ptr = unsafe { NonNull::new_unchecked(&mut component).cast::<u8>() };
         // make sure the Drop trait is not called when the `component` variable goes out of scope
         core::mem::forget(component);
         let count = layout.size();
         self.raw_bytes.reserve(count);
-        let space = NonNull::new_unchecked(self.raw_bytes.spare_capacity_mut()).cast::<u8>();
-        space.copy_from_nonoverlapping(ptr, count);
+        let space = unsafe { NonNull::new_unchecked(self.raw_bytes.spare_capacity_mut()).cast::<u8>() };
+        unsafe { space.copy_from_nonoverlapping(ptr, count) } ;
         let length = self.raw_bytes.len();
-        self.raw_bytes.set_len(length + count);
+        // SAFETY: we are using the spare capacity of the Vec, so we know that the length is correct
+        unsafe { self.raw_bytes.set_len(length + count) };
         self.component_ptrs_indices.push(length);
         self.component_ids.push(component_id);
     }

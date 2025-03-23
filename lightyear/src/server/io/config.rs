@@ -141,12 +141,12 @@ impl SharedIoConfig<ServerTransport> {
         #[allow(unused_mut)]
         let (mut sender, receiver) = transport.split();
         #[allow(unused_mut)]
-        let mut receiver: BoxedReceiver = if let Some(conditioner_config) = self.conditioner {
+        let mut receiver: BoxedReceiver = match self.conditioner { Some(conditioner_config) => {
             let conditioner = LinkConditioner::new(conditioner_config);
             Box::new(conditioner.wrap(receiver))
-        } else {
+        } _ => {
             Box::new(receiver)
-        };
+        }};
         match self.compression {
             CompressionConfig::None => {}
             #[cfg(feature = "zstd")]

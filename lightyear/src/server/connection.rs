@@ -210,7 +210,7 @@ impl ConnectionManager {
 
     /// Add a new [`Connection`] to the list of connections with the given [`ClientId`]
     pub(crate) fn add(&mut self, client_id: ClientId, client_entity: Entity) {
-        if let Entry::Vacant(e) = self.connections.entry(client_id) {
+        match self.connections.entry(client_id) { Entry::Vacant(e) => {
             #[cfg(feature = "metrics")]
             metrics::gauge!("server::connected_clients").increment(1.0);
 
@@ -229,9 +229,9 @@ impl ConnectionManager {
             });
             self.new_clients.push(client_id);
             e.insert(connection);
-        } else {
+        } _ => {
             info!("Client {} was already in the connections list", client_id);
-        }
+        }}
     }
 
     /// Remove the connection associated with the given [`ClientId`]

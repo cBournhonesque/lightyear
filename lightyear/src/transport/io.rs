@@ -40,7 +40,7 @@ impl<T: Send + Sync> BaseIo<T> {
     }
 
     // TODO: no stats are being computed here!
-    pub fn split(&mut self) -> (&mut impl PacketSender, &mut impl PacketReceiver) {
+    pub fn split(&mut self) -> (&mut (impl PacketSender + use<T>), &mut (impl PacketReceiver + use<T>)) {
         (&mut self.sender, &mut self.receiver)
     }
 

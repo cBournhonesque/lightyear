@@ -158,7 +158,7 @@ impl<'a, T> Reusable<'a, T> {
     }
 
     unsafe fn take(&mut self) -> T {
-        ManuallyDrop::take(&mut self.data)
+        unsafe { ManuallyDrop::take(&mut self.data) }
     }
 }
 
