@@ -26,8 +26,7 @@ use tokio::{
 use tokio_tungstenite::{
     connect_async, connect_async_with_config, tungstenite::Message, MaybeTlsStream,
 };
-use tracing::{debug, info, trace};
-use tracing_log::log::error;
+use tracing::{debug, info, trace, error};
 
 use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
 use crate::client::io::{ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender};

@@ -84,7 +84,7 @@ variadics_please.workspace = true
 # no_std
 # TODO: only enable in no_std
 no_std_io2.workspace = true
-libc-print.workspace = true
+
 # input
 leafwing-input-manager = { workspace = true, optional = true }
 
@@ -106,8 +106,7 @@ lightyear_macros.workspace = true
 
 # tracing
 tracing.workspace = true
-tracing-log.workspace = true
-tracing-subscriber.workspace = true
+
 
 # server
 crossbeam-channel.workspace = true

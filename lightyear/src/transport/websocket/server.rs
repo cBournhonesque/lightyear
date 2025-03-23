@@ -16,8 +16,7 @@ use tokio::{
     sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
-use tracing::{debug, info, trace};
-use tracing_log::log::error;
+use tracing::{debug, info, trace, error};
 
 use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
 use crate::server::io::{ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender};
