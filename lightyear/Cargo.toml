@@ -4,7 +4,7 @@ version.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 edition.workspace = true
-description = "Server-client networking library for the Bevy game engine"
+description = "Server-client networking library for the Bevy game engine with modular architecture"
 readme = "../README.md"
 repository = "https://github.com/cBournhonesque/lightyear"
 keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
@@ -64,6 +64,11 @@ lz4 = ["dep:lz4_flex"]
 zstd = ["dep:zstd"]
 
 [dependencies]
+# local crates
+lightyear-io = { path = "../lightyear-io", default-features = false }
+lightyear-packet = { path = "../lightyear-packet", default-features = false }
+lightyear-connection = { path = "../lightyear-connection", default-features = false }
+
 # utils
 chrono.workspace = true
 cfg-if.workspace = true
