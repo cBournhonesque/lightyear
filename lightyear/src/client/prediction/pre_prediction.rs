@@ -95,7 +95,7 @@ impl PrePredictionPlugin {
         // PrePredicted was replicated from the server:
         // When we receive an update from the server that confirms a pre-predicted entity,
         // we will add the Predicted component
-        if let Some(&predicted) = predicted_map.confirmed_to_predicted.get(&trigger.target()) {
+        match predicted_map.confirmed_to_predicted.get(&trigger.target()) { Some(&predicted) => {
             let confirmed = trigger.target();
             debug!("Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}");
             commands.queue(move |world: &mut World| {
@@ -106,7 +106,7 @@ impl PrePredictionPlugin {
                     })
                     .remove::<ShouldBePredicted>();
             });
-        } else {
+        } _ => {
             let predicted_entity = trigger.target();
             if is_host_server(identity) {
                 // for host-server, we don't want to spawn a separate entity because
@@ -144,7 +144,7 @@ impl PrePredictionPlugin {
                         .insert(confirmed_entity, predicted_entity);
                 });
             }
-        }
+        }}
     }
 }
 

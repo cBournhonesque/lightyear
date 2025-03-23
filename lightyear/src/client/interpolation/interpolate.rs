@@ -233,20 +233,20 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent>(
         if let Some((start_tick, start_value)) = &status.start {
             trace!(is_end = ?status.end.is_some(), "start tick exists, checking if we need to insert the component");
             // we have two updates!, add the component
-            if let Some((end_tick, end_value)) = &status.end {
+            match &status.end { Some((end_tick, end_value)) => {
                 assert!(status.current_tick < *end_tick);
                 assert_ne!(start_tick, end_tick);
                 trace!("insert interpolated comp value because we have 2 updates");
                 let t = status.interpolation_fraction().unwrap();
                 let value = component_registry.interpolate(start_value, end_value, t);
                 entity_commands.insert(value);
-            } else {
+            } _ => {
                 // we only have one update, but enough time has passed that we should add the component anyway
                 if tick - *start_tick >= send_interval_delta_tick {
                     trace!("insert interpolated comp value because enough time has passed");
                     entity_commands.insert(start_value.clone());
                 }
-            }
+            }}
         }
     }
 }

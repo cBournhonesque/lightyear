@@ -125,14 +125,14 @@ impl ReplicationSender {
         // 1. handle all nack update messages
         while let Ok(message_id) = self.updates_nack_receiver.try_recv() {
             // remember to remove the entry from the map to avoid memory leakage
-            if let Some(UpdateMessageMetadata {
+            match self.updates_message_id_to_group_id.remove(&message_id)
+            { Some(UpdateMessageMetadata {
                 group_id,
                 bevy_tick,
                 ..
-            }) = self.updates_message_id_to_group_id.remove(&message_id)
-            {
+            }) => {
                 if let SendUpdatesMode::SinceLastSend = self.replication_config.send_updates_mode {
-                    if let Some(channel) = self.group_channels.get_mut(&group_id) {
+                    match self.group_channels.get_mut(&group_id) { Some(channel) => {
                         // when we know an update message has been lost, we need to reset our send_tick
                         // to our previous ack_tick
                         trace!(
@@ -150,14 +150,14 @@ impl ReplicationSender {
 
                         // TODO: if all clients lost a given message, than we can immediately drop the
                         //  delta-compression data for that tick
-                    } else {
+                    } _ => {
                         error!("Received an update message-id nack but the corresponding group channel does not exist");
-                    }
+                    }}
                 }
-            } else {
+            } _ => {
                 // NOTE: this happens when a message-id is split between multiple packets (fragmented messages)
                 trace!("Received an update message-id nack ({message_id:?}) but we don't know the corresponding group id");
-            }
+            }}
         }
     }
 
@@ -174,13 +174,13 @@ impl ReplicationSender {
         }
         // TODO: handle errors that are not channel::isEmpty
         while let Ok(message_id) = self.message_send_receiver.try_recv() {
-            if let Some(UpdateMessageMetadata {
+            match self.updates_message_id_to_group_id.get(&message_id)
+            { Some(UpdateMessageMetadata {
                 group_id,
                 bevy_tick,
                 ..
-            }) = self.updates_message_id_to_group_id.get(&message_id)
-            {
-                if let Some(channel) = self.group_channels.get_mut(group_id) {
+            }) => {
+                match self.group_channels.get_mut(group_id) { Some(channel) => {
                     // TODO: should we also reset the priority for replication-action messages?
                     // reset the priority
                     debug!(
@@ -190,14 +190,14 @@ impl ReplicationSender {
                     );
                     channel.send_tick = Some(*bevy_tick);
                     channel.accumulated_priority = 0.0;
-                } else {
+                } _ => {
                     error!(?message_id, ?group_id, "Received a send message-id notification but the corresponding group channel does not exist");
-                }
-            } else {
+                }}
+            } _ => {
                 error!(?message_id,
                     "Received an send message-id notification but we don't know the corresponding group id"
                 );
-            }
+            }}
         }
     }
 
@@ -215,14 +215,14 @@ impl ReplicationSender {
         // TODO: handle errors that are not channel::isEmpty
         while let Ok(message_id) = self.updates_ack_receiver.try_recv() {
             // remember to remove the entry from the map to avoid memory leakage
-            if let Some(UpdateMessageMetadata {
+            match self.updates_message_id_to_group_id.remove(&message_id)
+            { Some(UpdateMessageMetadata {
                 group_id,
                 bevy_tick,
                 tick,
                 delta,
-            }) = self.updates_message_id_to_group_id.remove(&message_id)
-            {
-                if let Some(channel) = self.group_channels.get_mut(&group_id) {
+            }) => {
+                match self.group_channels.get_mut(&group_id) { Some(channel) => {
                     // update the ack tick for the channel
                     debug!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
                     channel.ack_bevy_tick = Some(bevy_tick);
@@ -235,12 +235,12 @@ impl ReplicationSender {
 
                     // update the acks for the delta manager
                     delta_manager.receive_ack(tick, group_id, component_registry);
-                } else {
+                } _ => {
                     error!("Received an update message-id ack but the corresponding group channel does not exist");
-                }
-            } else {
+                }}
+            } _ => {
                 error!("Received an update message-id ack but we don't know the corresponding group id");
-            }
+            }}
         }
     }
 

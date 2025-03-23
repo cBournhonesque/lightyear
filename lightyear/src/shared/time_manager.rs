@@ -268,7 +268,7 @@ mod wrapped_time {
         pub fn tick_generation(&self, tick_duration: Duration, tick: Tick) -> u16 {
             let period = tick_duration * (u16::MAX as u32 + 1);
             // TODO: use try into instead of as, to avoid wrapping?
-            let gen = (self.elapsed.as_nanos() / period.as_nanos()) as u16;
+            let generation = (self.elapsed.as_nanos() / period.as_nanos()) as u16;
             let remainder =
                 ((self.elapsed.as_nanos() % period.as_nanos()) / tick_duration.as_nanos()) as u16;
 
@@ -276,13 +276,13 @@ mod wrapped_time {
             let tick_from_tick = tick.0 as i32;
             // case 1: tick |G| tick_from_time
             if tick_from_time - tick_from_tick > i16::MAX as i32 {
-                gen.saturating_add(1)
+                generation.saturating_add(1)
             // case 2: tick_from_time |G| tick
             } else if tick_from_time - tick_from_tick < i16::MIN as i32 {
-                gen.saturating_sub(1)
+                generation.saturating_sub(1)
             // case 3: |G| tick_from_time tick |G+1|
             } else {
-                gen
+                generation
             }
         }
     }

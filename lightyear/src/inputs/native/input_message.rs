@@ -49,7 +49,7 @@ impl<A: UserAction + MapEntities> MapEntities for InputMessage<A> {
                 *e = entity_mapper.get_mapped(*e);
             }
             data.states.iter_mut().for_each(|state| {
-                if let InputData::Input(ref mut action_state) = state {
+                if let InputData::Input(action_state) = state {
                     action_state.map_entities(entity_mapper);
                 }
             });

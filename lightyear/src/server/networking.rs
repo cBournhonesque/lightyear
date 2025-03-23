@@ -125,7 +125,7 @@ pub(crate) fn receive_packets(
                                 );
                                 // only netcode can have io failures
                                 #[allow(irrefutable_let_patterns)]
-                                if let ServerConnection::Netcode(ref mut server) = netserver {
+                                if let ServerConnection::Netcode(server) = netserver {
                                     error!(
                                         "Disconnecting client {client_addr:?} because of io error"
                                     );
@@ -209,7 +209,7 @@ pub(crate) fn receive_packets(
             // Note: the client_id might not be present in the connection_manager if we receive
             // packets from a client
             // TODO: use connection to apply on BOTH message manager and replication manager
-            if let Some(connection) = connection_manager.connections.get_mut(&client_id) {
+            match connection_manager.connections.get_mut(&client_id) { Some(connection) => {
                 // TODO: do not exit the system here, just ignore that one packet..
                 connection
                     .recv_packet(
@@ -218,7 +218,7 @@ pub(crate) fn receive_packets(
                         component_registry.as_ref(),
                         &mut connection_manager.delta_manager,
                     )?;
-            } else {
+            } _ => {
                 // it's still possible to receive some packets from a client that just disconnected.
                 // (multiple packets arrived at the same time from that client)
                 if netserver.new_disconnections().contains(&client_id) {
@@ -229,7 +229,7 @@ pub(crate) fn receive_packets(
                 } else {
                     error!("Received packet from unknown client: {}", client_id);
                 }
-            }
+            }}
         }
     }
     Ok(())

@@ -127,15 +127,15 @@ pub(crate) fn restore_corrected_state<C: SyncComponent>(
 ) {
     let kind = core::any::type_name::<C>();
     for (mut component, mut correction) in query.iter_mut() {
-        if let Some(correction) = core::mem::take(&mut correction.current_correction) {
+        match core::mem::take(&mut correction.current_correction) { Some(correction) => {
             debug!("restoring corrected component: {:?}", kind);
             *component.bypass_change_detection() = correction;
-        } else {
+        } _ => {
             debug!(
                 "Corrected component was None so couldn't restore: {:?}",
                 kind
             );
-        }
+        }}
     }
 }
 

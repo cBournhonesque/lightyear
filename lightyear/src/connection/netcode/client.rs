@@ -679,15 +679,15 @@ pub(crate) mod connection {
         }
 
         fn disconnect(&mut self) -> Result<(), ConnectionError> {
-            if let Some(io) = self.io.as_mut() {
+            match self.io.as_mut() { Some(io) => {
                 // TODO: add context to errors?
                 self.client.disconnect(io)?;
                 // close and drop the io
                 io.close()?;
                 core::mem::take(&mut self.io);
-            } else {
+            } _ => {
                 self.client.reset(ClientState::Disconnected);
-            }
+            }}
             Ok(())
         }
 
@@ -741,6 +741,7 @@ pub(crate) mod connection {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
     use super::*;
     use crate::client::networking::ClientCommandsExt;
     use crate::connection::server::ServerConnections;
