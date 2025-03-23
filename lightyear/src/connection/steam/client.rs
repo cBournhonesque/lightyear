@@ -139,7 +139,7 @@ impl NetClient for Client {
     }
 
     fn disconnect(&mut self) -> Result<(), ConnectionError> {
-        if let Some(connection) = std::mem::take(&mut self.connection) {
+        if let Some(connection) = core::mem::take(&mut self.connection) {
             connection.close(NetConnectionEnd::AppGeneric, None, false);
         }
         Ok(())

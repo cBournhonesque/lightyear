@@ -14,14 +14,14 @@ use tracing::trace;
 
 pub struct BaseInputPlugin<A> {
     rebroadcast_inputs: bool,
-    marker: std::marker::PhantomData<A>,
+    marker: core::marker::PhantomData<A>,
 }
 
 impl<A> Default for BaseInputPlugin<A> {
     fn default() -> Self {
         Self {
             rebroadcast_inputs: false,
-            marker: std::marker::PhantomData,
+            marker: core::marker::PhantomData,
         }
     }
 }
@@ -99,7 +99,7 @@ fn update_action_state<A: UserActionState>(
                 // so that we can handle lost messages
                 metrics::gauge!(format!(
                     "inputs::{}::{}::buffer_size",
-                    std::any::type_name::<A>(),
+                    core::any::type_name::<A>(),
                     entity
                 ))
                 .set(input_buffer.len() as f64);

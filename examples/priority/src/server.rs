@@ -1,6 +1,6 @@
 use crate::utils::collections::HashMap::HashMap;
 use bevy::prelude::*;
-use std::ops::Deref;
+use core::ops::Deref;
 
 pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;

@@ -1,4 +1,6 @@
 use crate::prelude::LinkConditionerConfig;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 use steamworks::networking_types::{NetworkingConfigEntry, NetworkingConfigValue};
 
 pub(crate) mod client;

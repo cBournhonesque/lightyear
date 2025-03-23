@@ -3,7 +3,7 @@ use crate::prelude::ComponentRegistry;
 use crate::protocol::component::registry::LerpFn;
 use crate::protocol::component::ComponentKind;
 use bevy::prelude::Component;
-use std::ops::{Add, Mul};
+use core::ops::{Add, Mul};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InterpolationMetadata {
@@ -53,7 +53,7 @@ impl ComponentRegistry {
                 custom_interpolation: false,
             })
             .interpolation = Some(unsafe {
-            std::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C, f32) -> C, unsafe fn()>(
+            core::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C, f32) -> C, unsafe fn()>(
                 interpolation_fn,
             )
         });
@@ -74,7 +74,7 @@ impl ComponentRegistry {
             .get(&kind)
             .expect("the component is not part of the protocol");
         let interpolation_fn: LerpFn<C> =
-            unsafe { std::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
+            unsafe { core::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
         interpolation_fn(start, end, t)
     }
 }

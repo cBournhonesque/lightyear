@@ -794,7 +794,7 @@ pub(crate) mod send {
                 return;
             }
             let group_id = group.group_id(Some(root));
-            trace!(?entity, kind = ?std::any::type_name::<C>(), "Sending RemoveComponent");
+            trace!(?entity, kind = ?core::any::type_name::<C>(), "Sending RemoveComponent");
             let kind = registry.net_id::<C>();
             sender
                 .replication_sender
@@ -809,6 +809,8 @@ pub(crate) mod send {
 
     #[cfg(test)]
     mod tests {
+        #[cfg(not(feature = "std"))]
+        use alloc::vec;
         use crate::client::replication::send::ReplicateToServer;
         use crate::prelude::{
             server, ChannelDirection, ClientId, ComponentRegistry, DisabledComponents,

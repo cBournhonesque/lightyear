@@ -30,7 +30,7 @@
 //! Make sure that all your systems that depend on user inputs are added to the [`FixedUpdate`] [`Schedule`].
 //!
 //! Currently, global inputs (that are stored in a [`Resource`] instead of being attached to a specific [`Entity`] are not supported)
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 use bevy::prelude::*;
 use leafwing_input_manager::plugin::InputManagerSystem;
@@ -357,13 +357,13 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                                     let margin = input_buffer.end_tick().unwrap() - tick;
                                     metrics::gauge!(format!(
                                                     "inputs::{}::remote_player::{}::buffer_margin",
-                                                    std::any::type_name::<A>(),
+                                                    core::any::type_name::<A>(),
                                                     entity
                                                 ))
                                         .set(margin as f64);
                                     metrics::gauge!(format!(
                                                     "inputs::{}::remote_player::{}::buffer_size",
-                                                    std::any::type_name::<A>(),
+                                                    core::any::type_name::<A>(),
                                                     entity
                                                 ))
                                         .set(input_buffer.len() as f64);
@@ -423,13 +423,13 @@ fn receive_tick_events<A: LeafwingUserAction>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::time::Duration;
     use leafwing_input_manager::action_state::ActionState;
     use leafwing_input_manager::input_map::InputMap;
-    use std::time::Duration;
 
     use crate::prelude::client::{InterpolationDelay, PredictionConfig};
     use crate::prelude::server::{Replicate, SyncTarget};
-    use crate::prelude::{client, NetworkTarget, ServerSendMessage, SharedConfig, TickConfig};
+    use crate::prelude::{client, NetworkTarget, ServerReceiveMessage, ServerSendMessage, SharedConfig, TickConfig};
     use crate::tests::multi_stepper::MultiBevyStepper;
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;

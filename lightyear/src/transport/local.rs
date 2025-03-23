@@ -1,6 +1,16 @@
 /// Purely local io for testing
 /// Messages are sent via channels
-use std::net::SocketAddr;
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{boxed::Box, format, vec, vec::Vec},
+    no_std_io2::io,
+};
+#[cfg(feature = "std")]
+use {
+    std::io,
+};
+use core::net::SocketAddr;
+
 
 use crossbeam_channel::{Receiver, Sender};
 
@@ -74,10 +84,10 @@ impl PacketReceiver for LocalChannelReceiver {
         self.recv.try_recv().map_or_else(
             |e| match e {
                 crossbeam_channel::TryRecvError::Empty => Ok(None),
-                _ => Err(Error::Io(std::io::Error::other(format!(
+                _ => Err(Error::Io(io::Error::other(format!(
                     "error receiving packet: {:?}",
                     e
-                )))),
+                ).as_str()))),
             },
             |data| {
                 self.buffer = data;
@@ -95,6 +105,6 @@ impl PacketSender for LocalChannelSender {
     fn send(&mut self, payload: &[u8], _: &SocketAddr) -> Result<()> {
         self.send
             .try_send(payload.to_vec())
-            .map_err(|e| std::io::Error::other("error sending packet").into())
+            .map_err(|e| io::Error::other("error sending packet").into())
     }
 }

@@ -1,5 +1,5 @@
-use std::collections::VecDeque;
-use std::ops::{Add, Mul};
+use alloc::collections::VecDeque;
+use core::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;

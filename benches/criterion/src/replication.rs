@@ -80,8 +80,8 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
 /// Replicating N entity spawn from server to channel, with a local io
 fn send_float_update_one_client(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/send_float_update/1_client");
-    group.warm_up_time(std::time::Duration::from_millis(500));
-    group.measurement_time(std::time::Duration::from_millis(4000));
+    group.warm_up_time(core::time::Duration::from_millis(500));
+    group.measurement_time(core::time::Duration::from_millis(4000));
     for n in NUM_ENTITIES.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),
@@ -126,8 +126,8 @@ fn send_float_update_one_client(criterion: &mut Criterion) {
 /// Receiving N float component inserts, with a local io
 fn receive_float_insert(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/receive_float_insert/1_client");
-    group.warm_up_time(std::time::Duration::from_millis(500));
-    group.measurement_time(std::time::Duration::from_millis(4000));
+    group.warm_up_time(core::time::Duration::from_millis(500));
+    group.measurement_time(core::time::Duration::from_millis(4000));
     for n in NUM_ENTITIES.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),
@@ -219,8 +219,8 @@ const NUM_CLIENTS: &[usize] = &[0, 1, 2, 4, 8, 16];
 /// Replicating entity spawns from server to N clients, with a socket io
 fn send_float_insert_n_clients(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/send_float_inserts/n_clients");
-    group.warm_up_time(std::time::Duration::from_millis(500));
-    group.measurement_time(std::time::Duration::from_millis(4000));
+    group.warm_up_time(core::time::Duration::from_millis(500));
+    group.measurement_time(core::time::Duration::from_millis(4000));
     for n in NUM_CLIENTS.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),

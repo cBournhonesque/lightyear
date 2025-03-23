@@ -17,6 +17,7 @@ mod tests {
     use bevy::tasks::{IoTaskPool, TaskPoolBuilder};
     use core::time::Duration;
     use wtransport::Identity;
+    use crate::transport::Transport;
 
     use super::client::*;
     use super::server::*;

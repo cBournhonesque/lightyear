@@ -11,11 +11,11 @@ use crate::shared;
 use bevy::app::PluginGroupBuilder;
 use bevy::platform_support::collections::HashMap;
 use bevy::prelude::*;
+use core::time::Duration;
 use lightyear::inputs::native::ActionState;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use std::sync::Arc;
-use std::time::Duration;
 
 pub struct ExampleServerPlugin;
 

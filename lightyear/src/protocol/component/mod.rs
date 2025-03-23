@@ -1,7 +1,11 @@
 use crate::protocol::registry::{NetId, TypeKind};
 use crate::serialize::SerializationError;
 use bevy::prelude::Reflect;
-use std::any::TypeId;
+use core::any::TypeId;
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{string::String},
+};
 
 pub(crate) mod delta;
 

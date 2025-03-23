@@ -1,8 +1,10 @@
 //! Defines bevy resources needed for Prediction
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, Resource};
-use std::cell::UnsafeCell;
+use core::cell::UnsafeCell;
 
 use crate::prelude::{ComponentRegistry, Tick};
 use crate::protocol::component::ComponentError;

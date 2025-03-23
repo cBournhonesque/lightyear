@@ -163,6 +163,7 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 [`Replicating`]: prelude::Replicating
 [`SharedConfig`]: prelude::SharedConfig
  */
+#![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::missing_transmute_annotations)]
 #![allow(unused_variables)]
 #![allow(clippy::too_many_arguments)]
@@ -172,6 +173,8 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 // only enables the `doc_cfg` feature when
 // the `docsrs` configuration attribute is defined
 #![cfg_attr(docsrs, feature(doc_cfg))]
+
+extern crate alloc;
 
 // re-exports
 #[doc(hidden)]

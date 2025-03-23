@@ -1,6 +1,6 @@
 use crate::prelude::{Channel, ChannelKind, ClientId, Message, NetworkTarget};
 use bevy::prelude::Event;
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 // Note: we cannot simply use `ReceiveMessage<M>` because we would have no way of differentiating
 // between the client or the server receiving a message in host-server mode

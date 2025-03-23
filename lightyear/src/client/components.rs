@@ -4,7 +4,7 @@ Defines components that are used for the client-side prediction and interpolatio
 use bevy::ecs::component::Mutable;
 use bevy::prelude::{Component, Entity, ReflectComponent};
 use bevy::reflect::Reflect;
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 use crate::prelude::{Message, Tick};
 

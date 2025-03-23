@@ -1,5 +1,5 @@
-use std::fmt::Debug;
-use std::ops::{Deref, DerefMut};
+use core::fmt::Debug;
+use core::ops::{Deref, DerefMut};
 
 use bevy::app::FixedMain;
 use bevy::ecs::component::Mutable;
@@ -285,7 +285,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     rollback: Res<Rollback>,
     manager: Res<PredictionManager>,
 ) {
-    let kind = std::any::type_name::<C>();
+    let kind = core::any::type_name::<C>();
 
     let _span = trace_span!("client rollback prepare");
     debug!("in prepare rollback");
@@ -314,7 +314,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             debug!(
                 "Predicted entity {:?} was not found when preparing rollback for {:?}",
                 confirmed.predicted,
-                std::any::type_name::<C>()
+                core::any::type_name::<C>()
             );
             continue;
         };
@@ -394,7 +394,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                                 // if there is a correction, start the correction again from the previous
                                 // visual state to avoid glitches
                                 correction.original_prediction =
-                                    std::mem::take(&mut correction.current_visual)
+                                    core::mem::take(&mut correction.current_visual)
                                         .unwrap_or_else(|| predicted_component.clone());
                                 correction.original_tick = current_tick;
                                 correction.final_correction_tick = final_correction_tick;
@@ -451,7 +451,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
     >,
     rollback: Res<Rollback>,
 ) {
-    let kind = std::any::type_name::<C>();
+    let kind = core::any::type_name::<C>();
     let _span = trace_span!("client prepare rollback for pre-spawned entities");
 
     let current_tick = tick_manager.tick();
@@ -549,7 +549,7 @@ pub(crate) fn prepare_rollback_non_networked<
     >,
     rollback: Res<Rollback>,
 ) {
-    let kind = std::any::type_name::<C>();
+    let kind = core::any::type_name::<C>();
     let _span = trace_span!("client prepare rollback for non networked component", ?kind);
 
     let current_tick = tick_manager.tick();
@@ -602,7 +602,7 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
     resource: Option<ResMut<R>>,
     mut history: ResMut<ResourceHistory<R>>,
 ) {
-    let kind = std::any::type_name::<R>();
+    let kind = core::any::type_name::<R>();
     let _span = trace_span!("client prepare rollback for resource", ?kind);
 
     let current_tick = tick_manager.tick();
@@ -781,7 +781,7 @@ pub(crate) mod test_utils {
     use crate::prelude::Tick;
     use crate::tests::stepper::BevyStepper;
     use bevy::prelude::Entity;
-    use std::time::Duration;
+    use core::time::Duration;
 
     /// Helper function to simulate that we received a server message
     pub(crate) fn received_confirmed_update(
@@ -816,6 +816,8 @@ mod unit_tests {
     };
     use crate::tests::protocol::{ComponentRollback, ComponentSyncModeFull};
     use crate::tests::stepper::BevyStepper;
+    #[cfg(not(feature = "std"))]
+    use alloc::vec::Vec;
     use bevy::ecs::entity::MapEntities;
 
     use core::time::Duration;
@@ -1250,7 +1252,7 @@ mod unit_tests {
             ]
         );
 
-        println!("{:?}", stepper.client_app.world().resource::<TimeTracker>());
+        // println!("{:?}", stepper.client_app.world().resource::<TimeTracker>());
     }
 
     /// Test that:

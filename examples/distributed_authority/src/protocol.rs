@@ -11,7 +11,7 @@ use bevy::prelude::{
 };
 use bevy::prelude::{App, Plugin};
 use serde::{Deserialize, Serialize};
-use std::ops::{Add, Mul};
+use core::ops::{Add, Mul};
 
 use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::server::AuthorityPeer;

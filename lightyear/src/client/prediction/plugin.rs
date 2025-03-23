@@ -185,7 +185,7 @@ pub enum PredictionSet {
     /// - we need this here because we want the correct value before the rollback check
     /// - we are also careful to add this set to FixedPreUpdate as well, so that if FixedUpdate
     ///   runs multiple times in a row, we still correctly reset the component to the Correct value
-    ///   before running a Simulation step. It's ok to have a duplicate system because we use std::mem::take
+    ///   before running a Simulation step. It's ok to have a duplicate system because we use core::mem::take
     RestoreVisualCorrection,
     /// Check if rollback is needed
     CheckRollback,
@@ -278,19 +278,19 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             {
                 metrics::describe_counter!(format!(
                     "prediction::rollbacks::causes::{}::missing_on_confirmed",
-                    std::any::type_name::<C>()
+                    core::any::type_name::<C>()
                 ), metrics::Unit::Count, "Component present in the prediction history but missing on the confirmed entity");
                 metrics::describe_counter!(format!(
                     "prediction::rollbacks::causes::{}::value_mismatch",
-                    std::any::type_name::<C>()
+                    core::any::type_name::<C>()
                 ), metrics::Unit::Count, "Component present in the prediction history but with a different value than on the confirmed entity");
                 metrics::describe_counter!(format!(
                     "prediction::rollbacks::causes::{}::missing_on_predicted",
-                    std::any::type_name::<C>()
+                    core::any::type_name::<C>()
                 ), metrics::Unit::Count, "Component present in the confirmed entity but missing in the prediction history");
                 metrics::describe_counter!(format!(
                     "prediction::rollbacks::causes::{}::removed_on_predicted",
-                    std::any::type_name::<C>()
+                    core::any::type_name::<C>()
                 ), metrics::Unit::Count, "Component present in the confirmed entity but removed in the prediction history");
             }
             // TODO: register type if C is reflect

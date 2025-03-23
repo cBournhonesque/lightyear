@@ -16,6 +16,8 @@ use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::ComponentId;
 use bevy::platform_support::collections::HashMap;
 use bevy::prelude::{Commands, Entity, Event, Events, FilteredResourcesMut, TypePath, World};
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 
 /// Metadata needed to receive/send messages
 ///
@@ -198,9 +200,12 @@ impl MessageRegistry {
         // SAFETY: the PtrMut corresponds to the correct resource
         let mut reader = unsafe { send_events.with_type::<Events<ClientSendMessage<M>>>() };
         let res = reader.drain().try_for_each(|event| {
+
+            // We write the NetworkTarget bytes, and then just concatenate the message bytes
             event.to.to_bytes(&mut message_manager.writer)?;
             self.serialize::<M>(&event.message, &mut message_manager.writer, entity_map)?;
             let message_bytes = message_manager.writer.split();
+            // dbg!(&message_bytes);
             message_manager.buffer_send(message_bytes, event.channel)?;
             Ok(())
         });

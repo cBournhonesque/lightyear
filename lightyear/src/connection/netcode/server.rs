@@ -1,7 +1,15 @@
-use std::collections::{HashMap, VecDeque};
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use alloc::collections::VecDeque;
+use alloc::sync::Arc;
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, format, string::ToString, vec, vec::Vec};
+use bevy::platform_support::collections::HashMap;
+#[cfg(feature = "std")]
+use std::{io};
+#[cfg(not(feature = "std"))]
+use {
+    no_std_io2::io,
+};
+use core::net::SocketAddr;
 
 use bevy::prelude::Resource;
 use tracing::{debug, error, trace, warn};
@@ -135,9 +143,9 @@ struct ConnectionCache {
 impl ConnectionCache {
     fn new(server_time: f64) -> Self {
         Self {
-            clients: HashMap::with_capacity(MAX_CLIENTS),
-            client_id_map: HashMap::with_capacity(MAX_CLIENTS),
-            replay_protection: HashMap::with_capacity(MAX_CLIENTS),
+            clients: HashMap::default(),
+            client_id_map: HashMap::default(),
+            replay_protection: HashMap::default(),
             packet_queue: VecDeque::with_capacity(MAX_CLIENTS * 2),
             time: server_time,
         }
@@ -354,9 +362,8 @@ impl<Ctx> ServerConfig<Ctx> {
 /// # use core::time::Duration;
 /// # use std::thread;
 /// # use lightyear::prelude::server::{IoConfig, ServerTransport};
-/// let mut io = IoConfig::from_transport(ServerTransport::UdpSocket(
-///    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0)
-/// )).start().unwrap();
+/// let mut io = IoConfig::from_transport(ServerTransport::Dummy)
+///   .start().unwrap();
 /// let private_key = generate_key();
 /// let protocol_id = 0x123456789ABCDEF0;
 /// let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
@@ -568,7 +575,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         mut packet: RequestPacket,
         sender: &mut impl PacketSender,
     ) -> Result<()> {
-        let mut reader = std::io::Cursor::new(&mut packet.token_data[..]);
+        let mut reader = io::Cursor::new(&mut packet.token_data[..]);
         let token = ConnectTokenPrivate::read_from(&mut reader)?;
 
         // TODO: this doesn't work with local hosts because the local bind_addr is often 0.0.0.0, even though
@@ -807,7 +814,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         sender: &mut impl PacketSender,
         receiver: &mut impl PacketReceiver,
     ) -> Result<()> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        let now = super::utils::now()?;
 
         // process every packet regardless of success/failure
         loop {
@@ -866,11 +873,10 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// # use std::net::{SocketAddr, Ipv4Addr};
     /// # use bevy::platform_support::time::Instant;
     /// # use lightyear::prelude::server::*;
-    /// # let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
     /// # let protocol_id = 0x123456789ABCDEF0;
     /// # let private_key = [42u8; 32];
     /// # let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
-    /// # let mut io = IoConfig::from_transport(ServerTransport::UdpSocket(addr)).start().unwrap();
+    /// # let mut io = IoConfig::from_transport(ServerTransport::Dummy).start().unwrap();
     /// #
     /// let start = Instant::now();
     /// loop {

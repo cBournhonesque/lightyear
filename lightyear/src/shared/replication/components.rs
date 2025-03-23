@@ -1,15 +1,17 @@
 //! Components used for replication
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::{Component, Entity, Reflect};
 use bevy::time::{Timer, TimerMode};
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 
 use crate::connection::id::ClientId;
 use crate::protocol::component::ComponentKind;
-use crate::serialize::reader::Reader;
+use crate::serialize::reader::{ReadInteger, Reader};
 use crate::serialize::{SerializationError, ToBytes};
+use crate::serialize::writer::WriteInteger;
 
 /// Marker that indicates that this entity is to be replicated.
 ///
@@ -363,13 +365,25 @@ impl ReplicationGroup {
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub struct ReplicationGroupId(pub u64);
 
+
+// Re-use the Entity serialization since ReplicationGroupId are often entities
 impl ToBytes for ReplicationGroupId {
-    fn len(&self) -> usize {
+    fn bytes_len(&self) -> usize {
         8
+        // TODO: if it's a valid entity (generation > 0 and high-bit is 0)
+        //  optimize by serializing as an entity!
+        // Entity::try_from_bits(self.0).map_or_else(|_| 8, |entity| entity.bytes_len())
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-        buffer.write_u64::<NetworkEndian>(self.0)?;
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+        // Entity::try_from_bits(self.0).map_or_else(|_| {)
+        //     buffer.write_u64(self.0)?;
+        //     Ok(())
+        // }, |entity| {
+        //     entity.to_bytes(buffer)
+        // })?;
+        buffer.write_u64(self.0)?;
+        // Entity::to_bytes(&Entity::from_bits(self.0), buffer)?;
         Ok(())
     }
 
@@ -377,7 +391,9 @@ impl ToBytes for ReplicationGroupId {
     where
         Self: Sized,
     {
-        Ok(Self(buffer.read_u64::<NetworkEndian>()?))
+        Ok(Self(buffer.read_u64()?))
+        // let entity = Entity::from_bytes(buffer)?;
+        // Ok(Self(entity.to_bits()))
     }
 }
 

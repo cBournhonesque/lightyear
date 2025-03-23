@@ -50,7 +50,7 @@ pub(crate) mod receive {
     use super::*;
     pub(crate) struct ReplicationReceivePlugin<R> {
         clean_interval: Duration,
-        _marker: std::marker::PhantomData<R>,
+        _marker: core::marker::PhantomData<R>,
     }
 
     impl<R> ReplicationReceivePlugin<R> {
@@ -58,7 +58,7 @@ pub(crate) mod receive {
             Self {
                 // TODO: find a better constant for the clean interval?
                 clean_interval: tick_interval * (i16::MAX as u32 / 3),
-                _marker: std::marker::PhantomData,
+                _marker: core::marker::PhantomData,
             }
         }
     }
@@ -89,13 +89,13 @@ pub(crate) mod send {
     pub(crate) struct ReplicationSendPlugin<R> {
         send_interval: Duration,
         clean_interval: Duration,
-        _marker: std::marker::PhantomData<R>,
+        _marker: core::marker::PhantomData<R>,
     }
 
     #[derive(Resource, Debug)]
     pub(crate) struct SendIntervalTimer<R: Send + Sync + 'static> {
         pub(crate) timer: Option<Timer>,
-        _marker: std::marker::PhantomData<R>,
+        _marker: core::marker::PhantomData<R>,
     }
 
     impl<R: Send + Sync + 'static> ReplicationSendPlugin<R> {
@@ -104,7 +104,7 @@ pub(crate) mod send {
                 send_interval,
                 // TODO: find a better constant for the clean interval?
                 clean_interval: tick_interval * (i16::MAX as u32 / 3),
-                _marker: std::marker::PhantomData,
+                _marker: core::marker::PhantomData,
             }
         }
 
@@ -167,7 +167,7 @@ pub(crate) mod send {
                 } else {
                     Some(Timer::new(self.send_interval, TimerMode::Repeating))
                 },
-                _marker: std::marker::PhantomData,
+                _marker: core::marker::PhantomData,
             });
 
             // SETS

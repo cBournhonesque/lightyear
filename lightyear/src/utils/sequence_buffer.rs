@@ -1,5 +1,5 @@
 //! Wrapper around a list where the index is a wrapping key
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use crate::utils::wrapping_id::WrappedId;
 
@@ -25,7 +25,7 @@ impl<K: WrappedId, T, const N: usize> Default for SequenceBuffer<K, T, N> {
 impl<K: WrappedId, T, const N: usize> SequenceBuffer<K, T, N> {
     pub fn new() -> Self {
         Self {
-            buffer: std::array::from_fn(|_| None),
+            buffer: core::array::from_fn(|_| None),
             _marker: PhantomData,
         }
     }

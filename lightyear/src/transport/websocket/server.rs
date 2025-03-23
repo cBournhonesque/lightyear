@@ -1,7 +1,6 @@
-use std::{
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
+use alloc::sync::Arc;
+use core::net::SocketAddr;
+use std::sync::Mutex;
 
 use crate::utils::collections::HashMap;
 use async_compat::Compat;

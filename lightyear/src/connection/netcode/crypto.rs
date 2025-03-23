@@ -1,19 +1,19 @@
-use std::io;
+use no_std_io2::io as io;
 
-use byteorder::{LittleEndian, WriteBytesExt};
 use chacha20poly1305::{
     aead::{rand_core::RngCore, OsRng},
     AeadInPlace, ChaCha20Poly1305, KeyInit, Tag, XChaCha20Poly1305, XNonce,
 };
-
+use crate::serialize::writer::{WriteInteger};
 use super::{MAC_BYTES, PRIVATE_KEY_BYTES};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error("buffer size mismatch")]
     BufferSizeMismatch,
+    #[cfg(feature = "std")]
     #[error("failed to encrypt: {0}")]
     Failed(#[from] chacha20poly1305::aead::Error),
     #[error("failed to generate key: {0}")]
@@ -22,7 +22,7 @@ pub enum Error {
 
 /// A 32-byte array, used as a key for encrypting and decrypting packets and connect tokens.
 pub type Key = [u8; PRIVATE_KEY_BYTES];
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Error>;
 
 /// Generates a random key for encrypting and decrypting packets and connect tokens.
 ///
@@ -71,12 +71,16 @@ pub fn chacha_encrypt(
         return Err(Error::BufferSizeMismatch);
     }
     let mut final_nonce = [0; 12];
-    io::Cursor::new(&mut final_nonce[4..]).write_u64::<LittleEndian>(nonce)?;
+    io::Cursor::new(&mut final_nonce[4..]).write_u64(nonce)?;
     let mac = ChaCha20Poly1305::new(key.into()).encrypt_in_place_detached(
         &final_nonce.into(),
         associated_data.unwrap_or_default(),
         &mut buf[..size - MAC_BYTES],
-    )?;
+    );
+    #[cfg(feature = "std")]
+    let mac = mac?;
+    #[cfg(not(feature = "std"))]
+    let mac = mac.expect("could not encrypt ConnectToken");
     buf[size - MAC_BYTES..].copy_from_slice(mac.as_ref());
     Ok(())
 }
@@ -92,14 +96,18 @@ pub fn chacha_decrypt(
         return Err(Error::BufferSizeMismatch);
     }
     let mut final_nonce = [0; 12];
-    io::Cursor::new(&mut final_nonce[4..]).write_u64::<LittleEndian>(nonce)?;
+    io::Cursor::new(&mut final_nonce[4..]).write_u64(nonce)?;
     let (buf, mac) = buf.split_at_mut(buf.len() - MAC_BYTES);
-    ChaCha20Poly1305::new(key.into()).decrypt_in_place_detached(
+    let res = ChaCha20Poly1305::new(key.into()).decrypt_in_place_detached(
         &final_nonce.into(),
         associated_data.unwrap_or_default(),
         buf,
         Tag::from_slice(mac),
-    )?;
+    );
+    #[cfg(feature = "std")]
+    res?;
+    #[cfg(not(feature = "std"))]
+    res.expect("could not decrypt ConnectToken");
     Ok(())
 }
 
@@ -118,7 +126,11 @@ pub fn xchacha_encrypt(
         &nonce,
         associated_data.unwrap_or_default(),
         &mut buf[..size - MAC_BYTES],
-    )?;
+    );
+    #[cfg(feature = "std")]
+    let mac = mac?;
+    #[cfg(not(feature = "std"))]
+    let mac = mac.expect("could not encrypt ConnectToken");
     buf[size - MAC_BYTES..].copy_from_slice(mac.as_ref());
     Ok(())
 }
@@ -134,12 +146,16 @@ pub fn xchacha_decrypt(
         return Err(Error::BufferSizeMismatch);
     }
     let (buf, mac) = buf.split_at_mut(buf.len() - MAC_BYTES);
-    XChaCha20Poly1305::new(key.into()).decrypt_in_place_detached(
+    let res = XChaCha20Poly1305::new(key.into()).decrypt_in_place_detached(
         &nonce,
         associated_data.unwrap_or_default(),
         buf,
         Tag::from_slice(mac),
-    )?;
+    );
+    #[cfg(feature = "std")]
+    res?;
+    #[cfg(not(feature = "std"))]
+    res.expect("could not decrypt ConnectToken");
     Ok(())
 }
 

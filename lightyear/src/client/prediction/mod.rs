@@ -3,7 +3,7 @@ use crate::client::prediction::resource::PredictionManager;
 use bevy::ecs::component::{HookContext, Mutable, StorageType};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 pub(crate) mod archetypes;
 pub mod correction;

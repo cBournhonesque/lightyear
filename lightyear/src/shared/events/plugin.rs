@@ -9,13 +9,13 @@ use crate::shared::replication::ReplicationReceive;
 use crate::shared::sets::InternalMainSet;
 
 pub struct EventsPlugin<R> {
-    marker: std::marker::PhantomData<R>,
+    marker: core::marker::PhantomData<R>,
 }
 
 impl<R> Default for EventsPlugin<R> {
     fn default() -> Self {
         Self {
-            marker: std::marker::PhantomData,
+            marker: core::marker::PhantomData,
         }
     }
 }

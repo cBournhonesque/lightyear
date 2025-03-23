@@ -1,15 +1,19 @@
-use std::{
-    io::{self, Read, Write},
-    mem::size_of,
+use core::mem::size_of;
+#[cfg(feature = "std")]
+use std::io::{self, Read, Write};
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{borrow::ToOwned, boxed::Box, string::String, vec},
+    no_std_io2::{io, io::{Read, Write}}
 };
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use chacha20poly1305::XNonce;
 use tracing::debug;
 
 use crate::connection::netcode::ClientId;
 use crate::connection::server::DeniedReason;
-
+use crate::serialize::reader::ReadInteger;
+use crate::serialize::writer::WriteInteger;
 use super::{
     bytes::Bytes,
     crypto::{self, Key},
@@ -51,10 +55,7 @@ trait ReadSequence {
     fn read_sequence(&mut self, sequence_len: usize) -> Result<u64, io::Error>;
 }
 
-impl<W> WriteSequence for W
-where
-    W: Write,
-{
+impl<W: Write> WriteSequence for W {
     fn write_sequence(&mut self, sequence: u64) -> Result<(), io::Error> {
         let sequence_len = sequence_len(sequence);
         for shift in 0..sequence_len {
@@ -64,10 +65,7 @@ where
     }
 }
 
-impl<R> ReadSequence for R
-where
-    R: Read,
-{
+impl<R: Read> ReadSequence for R {
     fn read_sequence(&mut self, sequence_len: usize) -> Result<u64, io::Error> {
         let mut sequence = [0; 8];
         self.read_exact(&mut sequence[..sequence_len])?;
@@ -122,7 +120,7 @@ impl RequestPacket {
             self.token_nonce,
             &private_key,
         )?;
-        let mut token_data = std::io::Cursor::new(&mut self.token_data[..]);
+        let mut token_data = io::Cursor::new(&mut self.token_data[..]);
         decrypted.write_to(&mut token_data)?;
         Ok(())
     }
@@ -130,20 +128,20 @@ impl RequestPacket {
 
 impl Bytes for RequestPacket {
     type Error = io::Error;
-    fn write_to(&self, writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut impl WriteInteger) -> Result<(), Self::Error> {
         writer.write_all(&self.version_info)?;
-        writer.write_u64::<LittleEndian>(self.protocol_id)?;
-        writer.write_u64::<LittleEndian>(self.expire_timestamp)?;
+        writer.write_u64(self.protocol_id)?;
+        writer.write_u64(self.expire_timestamp)?;
         writer.write_all(&self.token_nonce)?;
         writer.write_all(&self.token_data[..])?;
         Ok(())
     }
 
-    fn read_from(reader: &mut impl byteorder::ReadBytesExt) -> Result<Self, io::Error> {
+    fn read_from(reader: &mut impl ReadInteger) -> Result<Self, io::Error> {
         let mut version_info = [0; NETCODE_VERSION.len()];
         reader.read_exact(&mut version_info)?;
-        let protocol_id = reader.read_u64::<LittleEndian>()?;
-        let expire_timestamp = reader.read_u64::<LittleEndian>()?;
+        let protocol_id = reader.read_u64()?;
+        let expire_timestamp = reader.read_u64()?;
         let mut nonce = [0; size_of::<XNonce>()];
         reader.read_exact(&mut nonce)?;
         let token_nonce = XNonce::from_slice(&nonce).to_owned();
@@ -172,7 +170,7 @@ impl DeniedPacket {
 impl Bytes for DeniedReason {
     type Error = io::Error;
 
-    fn write_to(&self, writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut impl WriteInteger) -> Result<(), Self::Error> {
         match self {
             DeniedReason::ServerFull => {
                 writer.write_u8(0)?;
@@ -214,7 +212,7 @@ impl Bytes for DeniedReason {
         Ok(())
     }
 
-    fn read_from(reader: &mut impl ReadBytesExt) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut impl ReadInteger) -> Result<Self, Self::Error> {
         let variant = reader.read_u8()?;
         if variant == 0 {
             Ok(DeniedReason::ServerFull)
@@ -246,12 +244,12 @@ impl Bytes for DeniedReason {
 
 impl Bytes for DeniedPacket {
     type Error = io::Error;
-    fn write_to(&self, writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut impl WriteInteger) -> Result<(), Self::Error> {
         self.reason.write_to(writer)?;
         Ok(())
     }
 
-    fn read_from(reader: &mut impl byteorder::ReadBytesExt) -> Result<Self, io::Error> {
+    fn read_from(reader: &mut impl ReadInteger) -> Result<Self, io::Error> {
         let reason = DeniedReason::read_from(reader)?;
         Ok(Self { reason })
     }
@@ -273,14 +271,14 @@ impl ChallengePacket {
 
 impl Bytes for ChallengePacket {
     type Error = io::Error;
-    fn write_to(&self, writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
-        writer.write_u64::<LittleEndian>(self.sequence)?;
+    fn write_to(&self, writer: &mut impl WriteInteger) -> Result<(), Self::Error> {
+        writer.write_u64(self.sequence)?;
         writer.write_all(&self.token)?;
         Ok(())
     }
 
-    fn read_from(reader: &mut impl byteorder::ReadBytesExt) -> Result<Self, io::Error> {
-        let sequence = reader.read_u64::<LittleEndian>()?;
+    fn read_from(reader: &mut impl ReadInteger) -> Result<Self, io::Error> {
+        let sequence = reader.read_u64()?;
         let mut token = [0; ChallengeToken::SIZE];
         reader.read_exact(&mut token)?;
         Ok(Self { sequence, token })
@@ -303,14 +301,14 @@ impl ResponsePacket {
 
 impl Bytes for ResponsePacket {
     type Error = io::Error;
-    fn write_to(&self, writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
-        writer.write_u64::<LittleEndian>(self.sequence)?;
+    fn write_to(&self, writer: &mut impl WriteInteger) -> Result<(), Self::Error> {
+        writer.write_u64(self.sequence)?;
         writer.write_all(&self.token)?;
         Ok(())
     }
 
-    fn read_from(reader: &mut impl byteorder::ReadBytesExt) -> Result<Self, io::Error> {
-        let sequence = reader.read_u64::<LittleEndian>()?;
+    fn read_from(reader: &mut impl ReadInteger) -> Result<Self, io::Error> {
+        let sequence = reader.read_u64()?;
         let mut token = [0; ChallengeToken::SIZE];
         reader.read_exact(&mut token)?;
         Ok(Self { sequence, token })
@@ -329,13 +327,13 @@ impl KeepAlivePacket {
 
 impl Bytes for KeepAlivePacket {
     type Error = io::Error;
-    fn write_to(&self, writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
-        writer.write_u64::<LittleEndian>(self.client_id)?;
+    fn write_to(&self, writer: &mut impl WriteInteger) -> Result<(), Self::Error> {
+        writer.write_u64(self.client_id)?;
         Ok(())
     }
 
-    fn read_from(reader: &mut impl byteorder::ReadBytesExt) -> Result<Self, io::Error> {
-        let client_id = reader.read_u64::<LittleEndian>()?;
+    fn read_from(reader: &mut impl ReadInteger) -> Result<Self, io::Error> {
+        let client_id = reader.read_u64()?;
         Ok(Self { client_id })
     }
 }
@@ -360,11 +358,11 @@ impl DisconnectPacket {
 
 impl Bytes for DisconnectPacket {
     type Error = io::Error;
-    fn write_to(&self, _writer: &mut impl WriteBytesExt) -> Result<(), Self::Error> {
+    fn write_to(&self, _writer: &mut impl WriteInteger) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn read_from(_reader: &mut impl byteorder::ReadBytesExt) -> Result<Self, io::Error> {
+    fn read_from(_reader: &mut impl ReadInteger) -> Result<Self, io::Error> {
         Ok(Self {})
     }
 }
@@ -379,8 +377,8 @@ pub enum Packet<'p> {
     Disconnect(DisconnectPacket),
 }
 
-impl std::fmt::Display for Packet<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for Packet<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Packet::Request(_) => write!(f, "connection request"),
             Packet::Response(_) => write!(f, "connection response"),
@@ -425,9 +423,9 @@ impl<'p> Packet<'p> {
         // Encrypt the per-packet packet written with the prefix byte, protocol id and version as the associated data.
         // This must match to decrypt.
         let mut aead = [0u8; NETCODE_VERSION.len() + size_of::<u64>() + size_of::<u8>()];
-        let mut cursor = std::io::Cursor::new(&mut aead[..]);
+        let mut cursor = io::Cursor::new(&mut aead[..]);
         cursor.write_all(NETCODE_VERSION).unwrap();
-        cursor.write_u64::<LittleEndian>(protocol_id).unwrap();
+        cursor.write_u64(protocol_id).unwrap();
         cursor.write_u8(prefix).unwrap();
         Ok(aead)
     }
@@ -442,7 +440,7 @@ impl<'p> Packet<'p> {
         protocol_id: u64,
     ) -> Result<usize, NetcodeError> {
         let len = out.len();
-        let mut cursor = std::io::Cursor::new(&mut out[..]);
+        let mut cursor = io::Cursor::new(&mut out[..]);
         if let Packet::Request(pkt) = self {
             cursor.write_u8(Packet::REQUEST)?;
             pkt.write_to(&mut cursor)?;
@@ -489,7 +487,7 @@ impl<'p> Packet<'p> {
         if buf_len > MAX_PKT_BUF_SIZE {
             return Err(Error::TooLarge.into());
         }
-        let mut cursor = std::io::Cursor::new(&mut buf[..]);
+        let mut cursor = io::Cursor::new(&mut buf[..]);
         let prefix_byte = cursor.read_u8()?;
         let (sequence_len, pkt_kind) = Packet::get_prefix(prefix_byte);
         if allowed_packets & (1 << pkt_kind) == 0 {
@@ -552,7 +550,7 @@ impl<'p> Packet<'p> {
 }
 
 pub fn sequence_len(sequence: u64) -> u8 {
-    std::cmp::max(8 - sequence.leading_zeros() as u8 / 8, 1)
+    core::cmp::max(8 - sequence.leading_zeros() as u8 / 8, 1)
 }
 
 #[cfg(test)]
@@ -563,6 +561,8 @@ mod tests {
         crypto::generate_key, token::AddressList, MAX_PACKET_SIZE, USER_DATA_BYTES,
     };
 
+    #[cfg(not(feature = "std"))]
+    use alloc::vec::Vec;
     use super::*;
 
     #[test]
@@ -579,7 +579,7 @@ mod tests {
         assert_eq!(sequence_len(0x80_00_00_00_00_00_00_00), 8);
 
         let sequence = 1u64 << 63;
-        let cursor = &mut std::io::Cursor::new(Vec::new());
+        let cursor = &mut io::Cursor::new(Vec::new());
         cursor.write_sequence(sequence).unwrap();
         assert_eq!(cursor.get_ref().len(), 8);
         cursor.set_position(0);
@@ -644,7 +644,7 @@ mod tests {
         assert_eq!(req_pkt.expire_timestamp, expire_timestamp);
         assert_eq!(req_pkt.token_nonce, nonce);
 
-        let mut reader = std::io::Cursor::new(&req_pkt.token_data[..]);
+        let mut reader = io::Cursor::new(&req_pkt.token_data[..]);
         let connect_token_private = ConnectTokenPrivate::read_from(&mut reader).unwrap();
         assert_eq!(connect_token_private.client_id, client_id);
         assert_eq!(connect_token_private.timeout_seconds, timeout_seconds);

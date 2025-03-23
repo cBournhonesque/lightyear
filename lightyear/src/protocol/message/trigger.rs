@@ -8,6 +8,10 @@ use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{vec::Vec},
+};
 
 pub trait AppTriggerExt {
     /// Registers an [`Event`] that can be triggered over the network

@@ -41,13 +41,13 @@ use crate::prelude::client::{is_in_rollback, Correction, InterpolationSet, Predi
 use crate::prelude::{ComponentRegistry, MainSet, TickManager, TimeManager};
 
 pub struct VisualInterpolationPlugin<C: SyncComponent> {
-    _marker: std::marker::PhantomData<C>,
+    _marker: core::marker::PhantomData<C>,
 }
 
 impl<C: SyncComponent> Default for VisualInterpolationPlugin<C> {
     fn default() -> Self {
         Self {
-            _marker: std::marker::PhantomData,
+            _marker: core::marker::PhantomData,
         }
     }
 }
@@ -140,7 +140,7 @@ pub(crate) fn visual_interpolation<C: SyncComponent>(
     time_manager: Res<TimeManager>,
     mut query: Query<(&mut C, &VisualInterpolateStatus<C>)>,
 ) {
-    let kind = std::any::type_name::<C>();
+    let kind = core::any::type_name::<C>();
     let tick = tick_manager.tick();
     let overstep = time_manager.overstep();
     for (mut component, interpolate_status) in query.iter_mut() {
@@ -192,7 +192,7 @@ pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
     // if correction is enabled, we will restore the value from the Correction component
     mut query: Query<(&mut C, &mut VisualInterpolateStatus<C>), Without<Correction<C>>>,
 ) {
-    let kind = std::any::type_name::<C>();
+    let kind = core::any::type_name::<C>();
     for (mut component, interpolate_status) in query.iter_mut() {
         if let Some(current_value) = &interpolate_status.current_value {
             trace!(?kind, "Restoring visual interpolation");

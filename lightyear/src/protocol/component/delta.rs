@@ -7,13 +7,15 @@ use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, format};
 use bevy::ecs::component::Mutable;
 use bevy::prelude::{Component, EntityWorldMut, World};
 use bevy::ptr::{Ptr, PtrMut};
+use core::any::TypeId;
+use core::ptr::NonNull;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::any::TypeId;
-use std::ptr::NonNull;
 use tracing::trace;
 
 impl ComponentRegistry {
@@ -136,7 +138,7 @@ impl ComponentRegistry {
     ) -> Result<(), ComponentError> {
         trace!(
             "Writing component delta {} to entity",
-            std::any::type_name::<C>()
+            core::any::type_name::<C>()
         );
         let kind = ComponentKind::of::<C>();
         let delta_net_id = self.net_id::<DeltaMessage<C::Delta>>();
@@ -148,13 +150,13 @@ impl ComponentRegistry {
                 else {
                     return Err(ComponentError::DeltaCompressionError(
                         format!("Entity {entity:?} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression",
-                                std::any::type_name::<C>())
+                                core::any::type_name::<C>())
                     ));
                 };
                 let Some(past_value) = history.buffer.get(&previous_tick) else {
                     return Err(ComponentError::DeltaCompressionError(
                         format!("Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
-                                std::any::type_name::<C>())
+                                core::any::type_name::<C>())
                     ));
                 };
                 // TODO: is it possible to have one clone instead of 2?
@@ -169,7 +171,7 @@ impl ComponentRegistry {
                 let Some(mut c) = entity_world_mut.get_mut::<C>() else {
                     return Err(ComponentError::DeltaCompressionError(
                         format!("Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
-                        std::any::type_name::<C>())
+                        core::any::type_name::<C>())
                     ));
                 };
                 *c = new_value;
@@ -226,7 +228,7 @@ impl ComponentRegistry {
             ?kind,
             ?component_id,
             "Writing component delta {} to entity",
-            std::any::type_name::<C>()
+            core::any::type_name::<C>()
         );
         let delta = self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, entity_map)?;
         let entity = entity_world_mut.id();
@@ -345,7 +347,7 @@ impl ErasedDeltaFns {
     pub(crate) fn new<C: Component + Diffable>() -> Self {
         Self {
             type_id: TypeId::of::<C>(),
-            type_name: std::any::type_name::<C>(),
+            type_name: core::any::type_name::<C>(),
             delta_kind: ComponentKind::of::<DeltaMessage<C::Delta>>(),
             clone: erased_clone::<C>,
             diff: erased_diff::<C>,
@@ -361,6 +363,8 @@ impl ErasedDeltaFns {
 mod tests {
     use super::*;
     use crate::tests::protocol::ComponentDeltaCompression;
+    #[cfg(not(feature = "std"))]
+    use alloc::{vec, vec::Vec};
 
     #[test]
     fn test_erased_clone() {
@@ -382,7 +386,7 @@ mod tests {
     // fn test_erased_drop() {
     //     let erased_fns = ErasedDeltaFns::new::<Component6>();
     //     let mut data = Component6(vec![1]);
-    //     assert!(std::mem::needs_drop::<Component6>());
+    //     assert!(core::mem::needs_drop::<Component6>());
     //     // drop data
     //     unsafe { (erased_fns.drop)(PtrMut::from(&mut data)) };
     //     // this panics because the memory has been freed

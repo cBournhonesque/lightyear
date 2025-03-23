@@ -4,10 +4,12 @@ use crate::prelude::{ComponentRegistry, PrePredicted, PreSpawned, ShouldBePredic
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
 use crate::shared::replication::hierarchy::ReplicateLike;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::ecs::archetype::Archetype;
 use bevy::ecs::component::Components;
-use std::any::TypeId;
-use std::hash::{Hash, Hasher};
+use core::any::TypeId;
+use core::hash::{Hash, Hasher};
 use tracing::trace;
 
 /// Compute the default PreSpawned hash used to match server entities with prespawned client entities

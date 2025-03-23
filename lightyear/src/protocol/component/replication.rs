@@ -12,8 +12,8 @@ use bevy::ecs::component::{Component, ComponentId, Mutable};
 use bevy::prelude::*;
 use bevy::ptr::OwningPtr;
 use bytes::Bytes;
-use std::alloc::Layout;
-use std::ptr::NonNull;
+use core::alloc::Layout;
+use core::ptr::NonNull;
 use tracing::{debug, trace};
 
 /// Temporary buffer to store component data that we want to insert
@@ -85,7 +85,7 @@ impl TempWriteBuffer {
         let layout = Layout::new::<C>();
         let ptr = NonNull::new_unchecked(&mut component).cast::<u8>();
         // make sure the Drop trait is not called when the `component` variable goes out of scope
-        std::mem::forget(component);
+        core::mem::forget(component);
         let count = layout.size();
         self.raw_bytes.reserve(count);
         let space = NonNull::new_unchecked(self.raw_bytes.spare_capacity_mut()).cast::<u8>();
@@ -236,7 +236,7 @@ impl ComponentRegistry {
             .ok_or(ComponentError::NotRegistered)?;
         let component = self.raw_deserialize::<C>(reader, entity_map)?;
         let entity = entity_world_mut.id();
-        debug!("Insert component {} to entity", std::any::type_name::<C>());
+        debug!("Insert component {} to entity", core::any::type_name::<C>());
 
         // if the component is already on the entity, no need to insert
         if let Some(mut c) = entity_world_mut.get_mut::<C>() {
@@ -248,7 +248,7 @@ impl ComponentRegistry {
                     metrics::counter!("replication::receive::component::update").increment(1);
                     metrics::counter!(format!(
                         "replication::receive::component::{}::update",
-                        std::any::type_name::<C>()
+                        core::any::type_name::<C>()
                     ))
                     .increment(1);
                 }
@@ -267,7 +267,7 @@ impl ComponentRegistry {
                 metrics::counter!("replication::receive::component::insert").increment(1);
                 metrics::counter!(format!(
                     "replication::receive::component::{}::insert",
-                    std::any::type_name::<C>()
+                    core::any::type_name::<C>()
                 ))
                 .increment(1);
             }
@@ -284,7 +284,7 @@ impl ComponentRegistry {
         entity_map: &mut ReceiveEntityMap,
         events: &mut ConnectionEvents,
     ) -> Result<(), ComponentError> {
-        debug!("Writing component {} to entity", std::any::type_name::<C>());
+        debug!("Writing component {} to entity", core::any::type_name::<C>());
         let kind = ComponentKind::of::<C>();
         let component = self.raw_deserialize::<C>(reader, entity_map)?;
         let entity = entity_world_mut.id();
@@ -297,7 +297,7 @@ impl ComponentRegistry {
                     metrics::counter!("replication::receive::component::update").increment(1);
                     metrics::counter!(format!(
                         "replication::receive::component::{}::update",
-                        std::any::type_name::<C>()
+                        core::any::type_name::<C>()
                     ))
                     .increment(1);
                 }
@@ -310,7 +310,7 @@ impl ComponentRegistry {
                 metrics::counter!("replication::receive::component::insert").increment(1);
                 metrics::counter!(format!(
                     "replication::receive::component::{}::insert",
-                    std::any::type_name::<C>()
+                    core::any::type_name::<C>()
                 ))
                 .increment(1);
             }
@@ -356,7 +356,7 @@ impl ComponentRegistry {
             metrics::counter!("replication::receive::component::remove").increment(1);
             metrics::counter!(format!(
                 "replication::receive::component::{}::remove",
-                std::any::type_name::<C>()
+                core::any::type_name::<C>()
             ))
             .increment(1);
         }
@@ -374,7 +374,7 @@ pub fn register_component_send<C: Component>(app: &mut App, direction: ChannelDi
             if is_server {
                 debug!(
                     "register send events on server for {}",
-                    std::any::type_name::<C>()
+                    core::any::type_name::<C>()
                 );
                 crate::server::events::emit_replication_events::<C>(app);
             }
@@ -386,7 +386,7 @@ pub fn register_component_send<C: Component>(app: &mut App, direction: ChannelDi
             if is_client {
                 debug!(
                     "register send events on client for {}",
-                    std::any::type_name::<C>()
+                    core::any::type_name::<C>()
                 );
                 crate::client::events::emit_replication_events::<C>(app);
             }

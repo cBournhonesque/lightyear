@@ -4,7 +4,7 @@ use bevy::utils::default;
 use lightyear::client::components::ComponentSyncMode;
 use lightyear::client::prediction::plugin::add_prediction_systems;
 use serde::{Deserialize, Serialize};
-use std::ops::{Add, Mul};
+use core::ops::{Add, Mul};
 
 use lightyear::prelude::*;
 

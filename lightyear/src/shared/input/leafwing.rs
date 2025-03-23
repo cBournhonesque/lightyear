@@ -42,7 +42,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
         if is_server {
             app.add_plugins(crate::server::input::leafwing::LeafwingInputPlugin::<A> {
                 rebroadcast_inputs: self.config.rebroadcast_inputs,
-                marker: std::marker::PhantomData,
+                marker: core::marker::PhantomData,
             });
         }
     }

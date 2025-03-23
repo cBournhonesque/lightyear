@@ -7,7 +7,7 @@ use bevy::time::Stopwatch;
 use core::time::Duration;
 use leafwing_input_manager::prelude::ActionState;
 use server::ControlledBy;
-use std::ops::DerefMut;
+use core::ops::DerefMut;
 
 use lightyear::client::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;

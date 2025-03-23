@@ -1,9 +1,11 @@
 use crate::prelude::Tick;
+use alloc::collections::VecDeque;
+#[cfg(not(feature = "std"))]
+use alloc::{vec::Vec};
 use bevy::prelude::{Component, Reflect, Resource};
 use bevy::prelude::{ReflectComponent, ReflectResource};
-use std::collections::VecDeque;
-use std::fmt::Debug;
-use std::iter::FilterMap;
+use core::fmt::Debug;
+use core::iter::FilterMap;
 use tracing::debug;
 
 /// Stores a past value in the history buffer
@@ -207,6 +209,8 @@ impl<R: Clone> HistoryBuffer<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
 
     #[derive(Clone, PartialEq, Debug)]
     struct TestValue(f32);

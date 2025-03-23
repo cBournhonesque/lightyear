@@ -1,9 +1,11 @@
-use std::ops::Deref;
+use alloc::sync::Arc;
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, format, vec, vec::Vec};
+use core::future::Future;
+use core::ops::Deref;
 use std::{
-    future::Future,
     io::BufReader,
     net::{SocketAddr, SocketAddrV4},
-    sync::Arc,
 };
 
 use crate::utils::collections::HashMap;

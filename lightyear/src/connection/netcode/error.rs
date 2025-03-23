@@ -1,11 +1,13 @@
-use std::{array::TryFromSliceError, net::SocketAddr};
+use core::array::TryFromSliceError;
+use no_std_io2::io as io;
+use core::net::SocketAddr;
 
 use thiserror::Error;
 
 use crate::prelude::ClientId;
 
 /// The result type for all the public methods that can return an error in this crate.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Error>;
 
 /// An error that can occur in the `netcode` crate.
 #[derive(Error, Debug)]
@@ -29,6 +31,8 @@ pub enum Error {
     ConnectTokenDecryptionFailure,
     #[error(transparent)]
     UnindexableConnectToken(#[from] TryFromSliceError),
+    #[error("could not parse the socket addr: {0}")]
+    AddressParseError(#[from] core::net::AddrParseError),
     #[error("a client with address {0} is already connected")]
     ClientAddressInUse(SocketAddr),
     #[error("client_id {0} a client with this id is already connected")]
@@ -41,6 +45,7 @@ pub enum Error {
     Denied(ClientId),
     #[error("client_id {0} server ignored non-connection-request packet")]
     Ignored(SocketAddr),
+    #[cfg(feature = "std")]
     #[error("clock went backwards (did you invent a time machine?): {0}")]
     SystemTime(#[from] std::time::SystemTimeError),
     #[error("invalid connect token: {0}")]
@@ -50,7 +55,7 @@ pub enum Error {
     #[error("invalid packet: {0}")]
     Packet(#[from] super::packet::Error),
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error(transparent)]
     Transport(#[from] crate::transport::error::Error),
     #[error("client_id {0} client specific transport error {1}")]

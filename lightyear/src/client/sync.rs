@@ -326,7 +326,7 @@ impl SyncManager {
 
         // if the ideal time is too close to the server time (probably because of input delay)
         // make sure that the client time is still ahead of the server time
-        std::cmp::max(
+        core::cmp::max(
             ideal_time,
             // TODO: create setting for this. Maybe use one Tick duration?
             self.server_time_estimate() + tick_duration,

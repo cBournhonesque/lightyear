@@ -1,6 +1,6 @@
 //! Module to handle the replication of bevy [`Resource`]s
 
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use bevy::app::App;
 use bevy::prelude::*;
@@ -141,7 +141,7 @@ pub(crate) mod send {
                 if let Some(replication_resource) = replication_resource.as_ref() {
                     trace!(
                         "sending resource replication update to new clients: {:?}",
-                        std::any::type_name::<R>()
+                        core::any::type_name::<R>()
                     );
                     let _ = connection_manager.erased_send_message_to_target(
                         resource.as_mut(),
@@ -156,7 +156,7 @@ pub(crate) mod send {
                 if let Some(replication_resource) = replication_resource {
                     trace!(
                         "sending resource replication update: {:?}",
-                        std::any::type_name::<R>()
+                        core::any::type_name::<R>()
                     );
                     let mut target = replication_resource.target.clone();
                     // no need to send a duplicate message to new clients
@@ -291,7 +291,7 @@ pub(crate) mod receive {
     //     for despawned_entity in despawned.read() {
     //         error!(
     //             "Despawning resource {:?} because the entity was despawned",
-    //             std::any::type_name::<R>()
+    //             core::any::type_name::<R>()
     //         );
     //         commands.remove_resource::<R>();
     //     }

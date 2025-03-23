@@ -1,4 +1,12 @@
-use std::{collections::VecDeque, net::SocketAddr};
+use alloc::collections::VecDeque;
+#[cfg(feature = "std")]
+use std::{io};
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{boxed::Box, vec, vec::Vec},
+    no_std_io2::io,
+};
+use core::net::SocketAddr;
 
 use bevy::prelude::Resource;
 use tracing::{debug, error, info, trace};
@@ -163,12 +171,12 @@ pub enum ClientState {
 /// # Example
 /// ```
 /// use crate::lightyear::connection::netcode::{ConnectToken, NetcodeClient, ClientConfig, ClientState, NetcodeServer};
-/// # use std::net::{Ipv4Addr, SocketAddr};
+/// # use core::net::{Ipv4Addr, SocketAddr};
 /// # use std::time::{Instant, Duration};
 /// # use std::thread;
 /// # use lightyear::prelude::client::{ClientTransport, IoConfig};
 /// # let addr =  SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-/// # let mut io = IoConfig::from_transport(ClientTransport::UdpSocket(addr)).connect().unwrap();
+/// # let mut io = IoConfig::from_transport(ClientTransport::Dummy).connect().unwrap();
 /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
 /// # let token_bytes = server.token(0, addr).generate().unwrap().try_into_bytes().unwrap();
 /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
@@ -201,7 +209,7 @@ impl<Ctx> NetcodeClient<Ctx> {
         }
         let mut buf = [0u8; ConnectToken::SIZE];
         buf.copy_from_slice(token_bytes);
-        let mut cursor = std::io::Cursor::new(&mut buf[..]);
+        let mut cursor = io::Cursor::new(&mut buf[..]);
         let token = match ConnectToken::read_from(&mut cursor) {
             Ok(token) => token,
             Err(err) => {
@@ -339,7 +347,7 @@ impl<Ctx> NetcodeClient<Ctx> {
         };
         self.send_packet(packet, io)
     }
-    fn connect_to_next_server(&mut self) -> std::result::Result<(), ()> {
+    fn connect_to_next_server(&mut self) -> core::result::Result<(), ()> {
         if self.server_addr_idx + 1 >= self.token.server_addresses.len() {
             debug!("no more servers to connect to");
             return Err(());
@@ -504,7 +512,7 @@ impl<Ctx> NetcodeClient<Ctx> {
 
     fn recv_packets(&mut self, io: &mut Io) -> Result<()> {
         // number of seconds since unix epoch
-        let now = utils::now();
+        let now = utils::now()?;
         while let Some((buf, addr)) = io
             .recv()
             .map_err(|e| Error::AddressTransport(self.server_addr(), e))?
@@ -574,11 +582,10 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// # use std::thread;
     /// # use lightyear::connection::netcode::NetcodeServer;
     /// # use lightyear::prelude::client::{ClientTransport, IoConfig};
-    /// # let client_addr = SocketAddr::from(([127, 0, 0, 1], 40000));
     /// # let server_addr = SocketAddr::from(([127, 0, 0, 1], 40001));
     /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
     /// # let token_bytes = server.token(0, server_addr).generate().unwrap().try_into_bytes().unwrap();
-    /// # let mut io = IoConfig::from_transport(ClientTransport::UdpSocket(client_addr)).connect().unwrap();
+    /// # let mut io = IoConfig::from_transport(ClientTransport::Dummy).connect().unwrap();
     /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
     /// client.connect();
     ///
@@ -677,7 +684,7 @@ pub(crate) mod connection {
                 self.client.disconnect(io)?;
                 // close and drop the io
                 io.close()?;
-                std::mem::take(&mut self.io);
+                core::mem::take(&mut self.io);
             } else {
                 self.client.reset(ClientState::Disconnected);
             }
@@ -734,6 +741,7 @@ pub(crate) mod connection {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::client::networking::ClientCommandsExt;
     use crate::connection::server::ServerConnections;
     use crate::prelude::client;

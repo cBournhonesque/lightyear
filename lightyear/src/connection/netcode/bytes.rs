@@ -1,8 +1,9 @@
-use byteorder::{ReadBytesExt, WriteBytesExt};
+use crate::serialize::reader::ReadInteger;
+use crate::serialize::writer::{WriteInteger};
 
 pub trait Bytes: Sized {
-    const SIZE: usize = std::mem::size_of::<Self>();
+    const SIZE: usize = core::mem::size_of::<Self>();
     type Error;
-    fn write_to(&self, writer: &mut impl WriteBytesExt) -> Result<(), Self::Error>;
-    fn read_from(reader: &mut impl ReadBytesExt) -> Result<Self, Self::Error>;
+    fn write_to(&self, writer: &mut impl WriteInteger) -> Result<(), Self::Error>;
+    fn read_from(reader: &mut impl ReadInteger) -> Result<Self, Self::Error>;
 }

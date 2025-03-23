@@ -1,9 +1,11 @@
 //! Managed the history buffer, which is a buffer of the past predicted component states,
 //! so that whenever we receive an update from the server we can compare the predicted entity's history with the server update.
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::app::App;
 use bevy::ecs::component::ComponentId;
 use bevy::prelude::*;
-use std::ops::Deref;
+use core::ops::Deref;
 
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::resource::PredictionManager;

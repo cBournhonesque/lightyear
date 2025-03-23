@@ -1,6 +1,14 @@
 //! Purely local io for testing
 //! Messages are sent via channels
-use std::net::SocketAddr;
+#[cfg(feature = "std")]
+use std::{io};
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{boxed::Box, format, string::String, vec, vec::Vec},
+    no_std_io2::io,
+};
+use core::net::SocketAddr;
+
 
 use crate::utils::collections::HashMap;
 use crossbeam_channel::{Receiver, Select, Sender};
@@ -110,10 +118,10 @@ impl PacketReceiver for ChannelsReceiver {
                             dependent.buffer = data;
                             Ok(Some((dependent.buffer.as_mut_slice(), *addr)))
                         }
-                        Err(e) => Err(std::io::Error::other(format!(
+                        Err(e) => Err(io::Error::other(format!(
                             "error receiving packet from channels: {:?}",
                             e
-                        ))
+                        ).as_str())
                         .into()),
                     }
                 },
@@ -132,9 +140,9 @@ impl PacketSender for ChannelsSender {
         self.send
             .get(addr)
             .ok_or::<Error>(
-                std::io::Error::other("could not find remote sender channel for address").into(),
+                io::Error::other("could not find remote sender channel for address").into(),
             )?
             .try_send(payload.to_vec())
-            .map_err(|_| std::io::Error::other("error sending packet to channels").into())
+            .map_err(|_| io::Error::other("error sending packet to channels").into())
     }
 }

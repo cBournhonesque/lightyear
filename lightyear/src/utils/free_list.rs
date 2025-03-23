@@ -63,7 +63,7 @@ impl<T: Sized, const N: usize> FreeList<T, N> {
     }
 }
 
-impl<T: Sized, const N: usize> std::ops::Index<usize> for FreeList<T, N> {
+impl<T: Sized, const N: usize> core::ops::Index<usize> for FreeList<T, N> {
     type Output = T;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -71,7 +71,7 @@ impl<T: Sized, const N: usize> std::ops::Index<usize> for FreeList<T, N> {
     }
 }
 
-impl<T: Sized, const N: usize> std::ops::IndexMut<usize> for FreeList<T, N> {
+impl<T: Sized, const N: usize> core::ops::IndexMut<usize> for FreeList<T, N> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         self.get_mut(index).expect("index out of bounds")
     }

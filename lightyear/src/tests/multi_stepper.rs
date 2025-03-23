@@ -9,6 +9,8 @@ use crate::prelude::server::{NetcodeConfig, ServerCommandsExt, ServerConfig, Ser
 use crate::prelude::*;
 use crate::tests::protocol::*;
 use crate::transport::LOCAL_SOCKET;
+#[cfg(not(feature = "std"))]
+use alloc::vec;
 use bevy::input::InputPlugin;
 use bevy::prelude::{default, App, PluginGroup, Real, Time};
 use bevy::state::app::StatesPlugin;
@@ -251,19 +253,13 @@ impl MultiBevyStepper {
         self.advance_time(self.frame_duration);
         self.client_app_1.update();
         self.client_app_2.update();
-        // sleep a bit to make sure that local io receives the packets
-        std::thread::sleep(Duration::from_millis(1));
         self.server_app.update();
-        std::thread::sleep(Duration::from_millis(1));
     }
 
     pub(crate) fn tick_step(&mut self) {
         self.advance_time(self.tick_duration);
         self.client_app_1.update();
         self.client_app_2.update();
-        // sleep a bit to make sure that local io receives the packets
-        std::thread::sleep(Duration::from_millis(1));
         self.server_app.update();
-        std::thread::sleep(Duration::from_millis(1));
     }
 }

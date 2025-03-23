@@ -62,7 +62,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
         &mut ConfirmedHistory<C>,
     )>,
 ) {
-    let kind = std::any::type_name::<C>();
+    let kind = core::any::type_name::<C>();
 
     // how many ticks between each interpolation (add 1 to roughly take the ceil)
     let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
@@ -137,7 +137,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
         // // that means that start_tick stopped chang
         // // ing because the component is fixed (we are not receiving updates)
         // // in that case we need to add a history at the correct time
-        // let mut temp_end = std::mem::take(&mut end);
+        // let mut temp_end = core::mem::take(&mut end);
         // if let (Some((start_tick, _)), Some((end_tick, end_component))) =
         //     (&mut start, &mut temp_end)
         // {
@@ -171,7 +171,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
         // Only do this when end_tick is None, otherwise it could affect the currently running
         // interpolation
         if end.is_none() {
-            let temp_start = std::mem::take(&mut start);
+            let temp_start = core::mem::take(&mut start);
             if let Some((start_tick, _)) = temp_start {
                 if current_interpolate_tick - start_tick < send_interval_delta_tick {
                     start = temp_start;
