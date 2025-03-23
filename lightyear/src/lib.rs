@@ -5,6 +5,12 @@ It is designed for server-authoritative multiplayer games; and aims to be both f
 
 You can find more information in the [book](https://cbournhonesque.github.io/lightyear/book/) or check out the [examples](https://github.com/cBournhonesque/lightyear/tree/main/examples)!
 
+Lightyear is organized into several crates:
+- `lightyear-io`: Low-level IO primitives for sending/receiving bytes
+- `lightyear-packet`: Adds support for packets, channels, and reliability
+- `lightyear-connection`: Adds support for long-term connections and authentication
+- `lightyear`: The main crate that provides the high-level API
+
 ## Getting started
 
 ### Install the plugins
@@ -352,14 +358,16 @@ pub mod prelude {
     pub use crate::connection::steam::steamworks_client::SteamworksClient;
 }
 
+// Re-export from the sub-crates
+pub use lightyear_io as io;
+pub use lightyear_packet as packet;
+pub use lightyear_connection as connection;
+
 pub mod channel;
 
 pub mod client;
 
-pub mod connection;
-
 pub mod inputs;
-pub mod packet;
 
 pub mod protocol;
 
@@ -372,7 +380,5 @@ pub mod shared;
 #[cfg(test)]
 pub(crate) mod tests;
 
-/// Provides an abstraction over an unreliable transport
-pub mod transport;
 /// Extra utilities
 pub mod utils;

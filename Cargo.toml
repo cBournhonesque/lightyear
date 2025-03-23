@@ -2,6 +2,9 @@
 resolver = "2"
 members = [
   "lightyear",
+  "lightyear-io",
+  "lightyear-packet",
+  "lightyear-connection",
   "lightyear_avian",
   "macros",
   # internal
