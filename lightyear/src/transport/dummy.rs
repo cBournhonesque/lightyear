@@ -7,8 +7,11 @@ use crate::transport::io::IoState;
 use crate::transport::{
     BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, LOCAL_SOCKET,
 };
-use std::net::SocketAddr;
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
+
+use core::net::SocketAddr;
 use super::error::Result;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -62,12 +65,12 @@ impl Transport for DummyIo {
 
 impl PacketSender for DummyIo {
     fn send(&mut self, data: &[u8], addr: &SocketAddr) -> Result<()> {
-        panic!("DummyIo::send should not be called")
+        Ok(())
     }
 }
 
 impl PacketReceiver for DummyIo {
     fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>> {
-        panic!("DummyIo::receive should not be called")
+        Ok(None)
     }
 }

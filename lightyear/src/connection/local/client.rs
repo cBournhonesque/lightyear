@@ -3,7 +3,7 @@ use crate::connection::client::{ConnectionError, ConnectionState, NetClient};
 use crate::packet::packet_builder::RecvPayload;
 use crate::prelude::ClientId;
 use crate::transport::LOCAL_SOCKET;
-use std::net::SocketAddr;
+use core::net::SocketAddr;
 
 #[derive(Default)]
 pub struct Client {

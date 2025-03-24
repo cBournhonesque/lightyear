@@ -52,7 +52,7 @@ pub enum InputSystemSet {
 }
 
 use bevy::prelude::*;
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 use tracing::trace;
 
 use crate::client::config::ClientConfig;
@@ -222,7 +222,7 @@ fn buffer_action_state<A: UserActionState, F: Component>(
         {
             metrics::gauge!(format!(
                 "inputs::{}::{}::buffer_size",
-                std::any::type_name::<A>(),
+                core::any::type_name::<A>(),
                 entity
             ))
             .set(input_buffer.len() as f64);

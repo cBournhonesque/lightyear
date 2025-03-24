@@ -139,7 +139,7 @@ impl Packer for AppendedPacker {
             // Don't use encode_compressed since compression doesn't improve tiny messages.
             let encoded = bitcode::encode(m);
             if bytes.len() + encoded.len() > Packet::MAX_SIZE {
-                packets.push(Packet(std::mem::take(&mut bytes)));
+                packets.push(Packet(core::mem::take(&mut bytes)));
             }
             bytes.extend_from_slice(&encoded);
         }

@@ -4,9 +4,9 @@ use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::prelude::{Deserialize, LeafwingUserAction, Serialize, Tick};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Reflect};
+use core::fmt::{Formatter, Write};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::Actionlike;
-use std::fmt::{Formatter, Write};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub(crate) struct PerTargetData<A: Actionlike> {
@@ -35,8 +35,8 @@ pub struct InputMessage<A: Actionlike> {
     pub(crate) diffs: Vec<PerTargetData<A>>,
 }
 
-impl<A: LeafwingUserAction> std::fmt::Display for InputMessage<A> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl<A: LeafwingUserAction> core::fmt::Display for InputMessage<A> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         let ty = A::short_type_path();
 
         if self.diffs.is_empty() {
@@ -82,7 +82,7 @@ impl<A: LeafwingUserAction> MapEntities for InputMessage<A> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.diffs.iter_mut().for_each(|data| {
             if let InputTarget::PrePredictedEntity(ref mut e) = data.target {
-                *e = entity_mapper.map_entity(*e);
+                *e = entity_mapper.get_mapped(*e);
             }
         });
     }

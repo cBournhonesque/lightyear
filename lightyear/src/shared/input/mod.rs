@@ -1,6 +1,6 @@
 use bevy::prelude::{Reflect, Resource};
-use std::marker::PhantomData;
-use std::time::Duration;
+use core::time::Duration;
+use core::marker::PhantomData;
 
 pub mod native;
 

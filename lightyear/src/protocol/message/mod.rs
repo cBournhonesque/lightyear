@@ -1,5 +1,5 @@
 use crate::protocol::registry::TypeKind;
-use std::any::TypeId;
+use core::any::TypeId;
 
 pub(crate) mod client;
 

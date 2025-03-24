@@ -1,4 +1,5 @@
-use bevy::prelude::{Commands, Component, Entity, Query, Res, Without};
+use bevy::ecs::component::Mutable;
+use bevy::prelude::*;
 use tracing::{debug, trace};
 
 use crate::client::components::SyncComponent;
@@ -61,7 +62,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
         &mut ConfirmedHistory<C>,
     )>,
 ) {
-    let kind = std::any::type_name::<C>();
+    let kind = core::any::type_name::<C>();
 
     // how many ticks between each interpolation (add 1 to roughly take the ceil)
     let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
@@ -136,7 +137,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
         // // that means that start_tick stopped chang
         // // ing because the component is fixed (we are not receiving updates)
         // // in that case we need to add a history at the correct time
-        // let mut temp_end = std::mem::take(&mut end);
+        // let mut temp_end = core::mem::take(&mut end);
         // if let (Some((start_tick, _)), Some((end_tick, end_component))) =
         //     (&mut start, &mut temp_end)
         // {
@@ -170,7 +171,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
         // Only do this when end_tick is None, otherwise it could affect the currently running
         // interpolation
         if end.is_none() {
-            let temp_start = std::mem::take(&mut start);
+            let temp_start = core::mem::take(&mut start);
             if let Some((start_tick, _)) = temp_start {
                 if current_interpolate_tick - start_tick < send_interval_delta_tick {
                     start = temp_start;
@@ -232,26 +233,26 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent>(
         if let Some((start_tick, start_value)) = &status.start {
             trace!(is_end = ?status.end.is_some(), "start tick exists, checking if we need to insert the component");
             // we have two updates!, add the component
-            if let Some((end_tick, end_value)) = &status.end {
+            match &status.end { Some((end_tick, end_value)) => {
                 assert!(status.current_tick < *end_tick);
                 assert_ne!(start_tick, end_tick);
                 trace!("insert interpolated comp value because we have 2 updates");
                 let t = status.interpolation_fraction().unwrap();
                 let value = component_registry.interpolate(start_value, end_value, t);
                 entity_commands.insert(value);
-            } else {
+            } _ => {
                 // we only have one update, but enough time has passed that we should add the component anyway
                 if tick - *start_tick >= send_interval_delta_tick {
                     trace!("insert interpolated comp value because enough time has passed");
                     entity_commands.insert(start_value.clone());
                 }
-            }
+            }}
         }
     }
 }
 
 /// Update the component value on the Interpolate entity
-pub(crate) fn interpolate<C: Component + Clone>(
+pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
     component_registry: Res<ComponentRegistry>,
     mut query: Query<(&mut C, &InterpolateStatus<C>)>,
 ) {

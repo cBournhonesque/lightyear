@@ -2,7 +2,7 @@
 use crate::prelude::ComponentRegistry;
 use crate::protocol::component::ComponentError;
 use bevy::prelude::Resource;
-use std::cell::UnsafeCell;
+use core::cell::UnsafeCell;
 
 use crate::shared::replication::entity_map::InterpolatedEntityMap;
 

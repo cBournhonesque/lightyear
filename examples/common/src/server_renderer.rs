@@ -27,7 +27,7 @@ impl Plugin for ExampleServerRendererPlugin {
 }
 
 fn set_window_title(mut window: Query<&mut Window>, game_name: Res<GameName>) {
-    let mut window = window.get_single_mut().unwrap();
+    let mut window = window.single_mut().unwrap();
     window.title = format!("Lightyear Example: {}", game_name.0);
 }
 

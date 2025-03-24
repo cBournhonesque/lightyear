@@ -1,7 +1,11 @@
 //! The transport layer is responsible for sending and receiving raw byte arrays packets through the network.
 #![allow(unused_imports)]
 
-use std::net::SocketAddr;
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
+#[cfg(not(feature = "std"))]
+use {
+    alloc::boxed::Box,
+};
 
 use enum_dispatch::enum_dispatch;
 
@@ -13,6 +17,7 @@ use crate::server::io::transport::ServerTransportEnum;
 use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
 use crate::transport::local::LocalChannel;
+#[cfg(all(feature = "udp", not(target_family = "wasm")))]
 use crate::transport::udp::UdpSocket;
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::client::{WebSocketClientSocket, WebSocketClientSocketBuilder};
@@ -34,6 +39,8 @@ pub mod io;
 pub(crate) mod local;
 
 /// The transport is a UDP socket
+#[cfg_attr(docsrs, doc(cfg(feature = "udp")))]
+#[cfg(all(feature = "udp", not(target_family = "wasm")))]
 pub(crate) mod udp;
 
 /// The transport is a map of channels (used for server, during testing)
@@ -54,7 +61,7 @@ pub(crate) mod error;
 pub(crate) mod websocket;
 
 pub const LOCAL_SOCKET: SocketAddr = SocketAddr::new(
-    std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
     0,
 );
 /// Maximum transmission units; maximum size in bytes of a UDP packet

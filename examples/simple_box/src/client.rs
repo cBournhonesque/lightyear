@@ -10,7 +10,7 @@ use std::str::FromStr;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 use lightyear::client::input::InputSystemSet;
 use lightyear::inputs::native::{ActionState, InputMarker};
@@ -55,7 +55,7 @@ pub(crate) fn buffer_input(
     mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
-    if let Ok(mut action_state) = query.get_single_mut() {
+    if let Ok(mut action_state) = query.single_mut() {
         let mut input = None;
         let mut direction = Direction {
             up: false,

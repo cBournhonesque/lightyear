@@ -54,7 +54,7 @@
 //! This module is kept for simplicity but might get removed in the future.
 
 use bevy::prelude::*;
-use tracing::{error, trace};
+use tracing::{debug, error, trace};
 
 use crate::channel::builder::InputChannel;
 use crate::client::components::Confirmed;
@@ -251,7 +251,7 @@ fn prepare_input_message<A: UserAction>(
         ?tick,
         ?num_tick,
         "sending input message for {:?}: {:?}",
-        std::any::type_name::<A>(),
+        core::any::type_name::<A>(),
         message
     );
     message_buffer.0.push(message);
@@ -282,7 +282,7 @@ fn receive_remote_player_input_messages<A: UserAction>(
     let tick = tick_manager.tick();
     received_inputs.drain().for_each(|event| {
         let message = event.message;
-        trace!(?message.end_tick, %message, "received remote input message for action: {:?}", std::any::type_name::<A>());
+        trace!(?message.end_tick, %message, "received remote input message for action: {:?}", core::any::type_name::<A>());
         for target_data in &message.inputs {
             // - the input target has already been set to the server entity in the InputMessage
             // - it has been mapped to a client-entity on the client during deserialization
@@ -314,13 +314,13 @@ fn receive_remote_player_input_messages<A: UserAction>(
                                     let margin = input_buffer.end_tick().unwrap() - tick;
                                     metrics::gauge!(format!(
                                                     "inputs::{}::remote_player::{}::buffer_margin",
-                                                    std::any::type_name::<A>(),
+                                                    core::any::type_name::<A>(),
                                                     entity
                                                 ))
                                         .set(margin as f64);
                                     metrics::gauge!(format!(
                                                     "inputs::{}::remote_player::{}::buffer_size",
-                                                    std::any::type_name::<A>(),
+                                                    core::any::type_name::<A>(),
                                                     entity
                                                 ))
                                         .set(input_buffer.len() as f64);
@@ -579,7 +579,8 @@ mod tests {
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<PrePredicted>>()
-            .single(stepper.server_app.world());
+            .single(stepper.server_app.world())
+            .unwrap();
         // replicate back the pre-predicted entity
         stepper
             .server_app

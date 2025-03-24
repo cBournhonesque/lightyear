@@ -6,7 +6,7 @@ use bevy::log::{info, tracing_subscriber};
 use bevy::prelude::{default, error, Events};
 use bevy::utils::tracing;
 use bevy::utils::tracing::Level;
-use bevy::utils::Duration;
+use core::time::Duration;
 use lightyear::client::sync::SyncConfig;
 use lightyear::prelude::client::{InterpolationConfig, PredictionConfig};
 use lightyear::prelude::{client, server, MessageRegistry, Tick, TickManager};
@@ -27,8 +27,8 @@ const NUM_MESSAGE: &[usize] = &[0, 10, 100, 1000, 10000];
 fn send_receive_simple_messages_to_one_client(criterion: &mut Criterion) {
     let mut group =
         criterion.benchmark_group("message/send_receive_simplek w_messages_to_one_client");
-    group.warm_up_time(std::time::Duration::from_millis(500));
-    group.measurement_time(std::time::Duration::from_millis(3000));
+    group.warm_up_time(core::time::Duration::from_millis(500));
+    group.measurement_time(core::time::Duration::from_millis(3000));
     for n in NUM_MESSAGE.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_messages", n),

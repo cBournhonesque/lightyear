@@ -1,7 +1,9 @@
 #![cfg(not(target_family = "wasm"))]
 //! WebTransport client implementation.
-use std::net::SocketAddr;
-use std::sync::Arc;
+use alloc::sync::Arc;
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, format, vec, vec::Vec};
+use core::net::SocketAddr;
 
 use async_compat::Compat;
 use bevy::tasks::IoTaskPool;

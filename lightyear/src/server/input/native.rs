@@ -1,4 +1,5 @@
 //! Handles client-generated inputs
+use bevy::prelude::*;
 
 use crate::client::config::ClientConfig;
 use crate::connection::client::{ClientConnection, NetClient};
@@ -9,7 +10,7 @@ use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientConnect
 use crate::server::connection::ConnectionManager;
 use crate::server::input::InputSystemSet;
 use crate::shared::input::InputConfig;
-use bevy::prelude::*;
+use tracing::{debug, trace};
 
 pub struct InputPlugin<A> {
     /// If True, the server will rebroadcast a client's inputs to all other clients.
@@ -17,14 +18,14 @@ pub struct InputPlugin<A> {
     /// It could be useful for a client to have access to other client's inputs to be able
     /// to predict their actions
     pub(crate) rebroadcast_inputs: bool,
-    pub(crate) marker: std::marker::PhantomData<A>,
+    pub(crate) marker: core::marker::PhantomData<A>,
 }
 
 impl<A> Default for InputPlugin<A> {
     fn default() -> Self {
         Self {
             rebroadcast_inputs: false,
-            marker: std::marker::PhantomData,
+            marker: core::marker::PhantomData,
         }
     }
 }
@@ -33,7 +34,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
         app.add_plugins(super::BaseInputPlugin::<ActionState<A>> {
             rebroadcast_inputs: self.rebroadcast_inputs,
-            marker: std::marker::PhantomData,
+            marker: core::marker::PhantomData,
         });
         // SYSTEMS
         // we don't need this for native inputs because InputBuffer is required by ActionState
@@ -75,7 +76,7 @@ fn receive_input_message<A: UserAction>(
         if client_id.is_local() {
             return
         }
-        trace!(?client_id, action = ?std::any::type_name::<A>(), ?message.end_tick, ?message.inputs, "received input message");
+        trace!(?client_id, action = ?core::any::type_name::<A>(), ?message.end_tick, ?message.inputs, "received input message");
 
         // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
         //  that the message was intended for?
@@ -186,7 +187,7 @@ pub(crate) fn rebroadcast_inputs<A: UserAction>(
     // rebroadcast the input to other clients
     // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
     // so that the server had the time to process the inputs
-    send_inputs.send_batch(receive_inputs.drain().map(|ev| {
+    send_inputs.write_batch(receive_inputs.drain().map(|ev| {
         ServerSendMessage::new_with_target::<InputChannel>(
             ev.message,
             NetworkTarget::AllExceptSingle(ev.from),

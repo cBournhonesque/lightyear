@@ -1,11 +1,19 @@
+use super::pre_prediction::PrePredictionPlugin;
+use super::predicted_history::apply_confirmed_update;
+use super::resource_history::{
+    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
+};
+use super::rollback::{
+    increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
+    prepare_rollback_prespawn, prepare_rollback_resource, remove_prediction_disable, run_rollback,
+    Rollback, RollbackPlugin, RollbackState,
+};
+use super::spawn::spawn_predicted_entity;
 use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
 use crate::client::prediction::correction::{
     get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback,
 };
-use crate::client::prediction::despawn::{
-    despawn_confirmed, remove_component_for_despawn_predicted, remove_despawn_marker,
-    restore_components_if_despawn_rolled_back, PredictionDespawnMarker,
-};
+use crate::client::prediction::despawn::{despawn_confirmed, PredictionDisable};
 use crate::client::prediction::predicted_history::{
     add_prediction_history, add_sync_systems, apply_component_removal_confirmed,
     apply_component_removal_predicted, handle_tick_event_prediction_history,
@@ -14,25 +22,14 @@ use crate::client::prediction::predicted_history::{
 use crate::client::prediction::prespawn::PreSpawnedPlayerObjectPlugin;
 use crate::client::prediction::resource::PredictionManager;
 use crate::client::prediction::Predicted;
-use crate::prelude::{is_host_server, PreSpawnedPlayerObject};
+use crate::prelude::client::is_connected;
+use crate::prelude::{is_host_server, PreSpawned};
 use crate::shared::sets::{ClientMarker, InternalMainSet};
+use bevy::ecs::component::Mutable;
+use bevy::ecs::entity_disabling::DefaultQueryFilters;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
-use bevy::utils::Duration;
-use std::fmt::Debug;
-
-use super::pre_prediction::PrePredictionPlugin;
-use super::predicted_history::apply_confirmed_update;
-use super::resource_history::{
-    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
-};
-use super::rollback::{
-    check_rollback, increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
-    prepare_rollback_prespawn, prepare_rollback_resource, run_rollback, Rollback, RollbackState,
-};
-use super::spawn::spawn_predicted_entity;
-
-use crate::prelude::client::is_connected;
+use core::time::Duration;
 
 /// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Reflect)]
@@ -188,10 +185,15 @@ pub enum PredictionSet {
     /// - we need this here because we want the correct value before the rollback check
     /// - we are also careful to add this set to FixedPreUpdate as well, so that if FixedUpdate
     ///   runs multiple times in a row, we still correctly reset the component to the Correct value
-    ///   before running a Simulation step. It's ok to have a duplicate system because we use std::mem::take
+    ///   before running a Simulation step. It's ok to have a duplicate system because we use core::mem::take
     RestoreVisualCorrection,
     /// Check if rollback is needed
     CheckRollback,
+
+    // ROLLBACK
+    /// If any Predicted entity was marked as despawned, instead of despawning them we simply disabled the entity.
+    /// If we do a rollback we want to restore those entities.
+    RemoveDisable,
     /// Prepare rollback by snapping the current state to the confirmed state and clearing histories
     /// For pre-spawned entities, we just roll them back to their historical state.
     /// If they didn't exist in the rollback tick, despawn them
@@ -226,7 +228,11 @@ pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
 }
 
 /// Enable rollbacking a component even if the component is not networked
-pub fn add_non_networked_rollback_systems<C: Component + PartialEq + Clone>(app: &mut App) {
+pub fn add_non_networked_rollback_systems<
+    C: Component<Mutability = Mutable> + PartialEq + Clone,
+>(
+    app: &mut App,
+) {
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(add_prediction_history::<C>);
     app.add_systems(
@@ -272,19 +278,19 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             {
                 metrics::describe_counter!(format!(
                     "prediction::rollbacks::causes::{}::missing_on_confirmed",
-                    std::any::type_name::<C>()
+                    core::any::type_name::<C>()
                 ), metrics::Unit::Count, "Component present in the prediction history but missing on the confirmed entity");
                 metrics::describe_counter!(format!(
                     "prediction::rollbacks::causes::{}::value_mismatch",
-                    std::any::type_name::<C>()
+                    core::any::type_name::<C>()
                 ), metrics::Unit::Count, "Component present in the prediction history but with a different value than on the confirmed entity");
                 metrics::describe_counter!(format!(
                     "prediction::rollbacks::causes::{}::missing_on_predicted",
-                    std::any::type_name::<C>()
+                    core::any::type_name::<C>()
                 ), metrics::Unit::Count, "Component present in the confirmed entity but missing in the prediction history");
                 metrics::describe_counter!(format!(
                     "prediction::rollbacks::causes::{}::removed_on_predicted",
-                    std::any::type_name::<C>()
+                    core::any::type_name::<C>()
                 ), metrics::Unit::Count, "Component present in the confirmed entity but removed in the prediction history");
             }
             // TODO: register type if C is reflect
@@ -305,7 +311,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
                 (
                     // for SyncMode::Full, we need to check if we need to rollback.
                     // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
-                    check_rollback::<C>.in_set(PredictionSet::CheckRollback),
+                    // check_rollback::<C>.in_set(PredictionSet::CheckRollback),
                     (prepare_rollback::<C>, prepare_rollback_prespawn::<C>)
                         .in_set(PredictionSet::PrepareRollback),
                 ),
@@ -347,28 +353,11 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
                 (
                     // for SyncMode::Simple, just copy the confirmed components
                     apply_confirmed_update::<C>.in_set(PredictionSet::CheckRollback),
-                    // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
-                    restore_components_if_despawn_rolled_back::<C>
-                        // .before(run_rollback::)
-                        .in_set(PredictionSet::PrepareRollback),
                 ),
-            );
-        }
-        ComponentSyncMode::Once => {
-            app.add_systems(
-                PreUpdate,
-                // if we are rolling back (maybe because the predicted entity despawn is getting cancelled, restore components)
-                restore_components_if_despawn_rolled_back::<C>
-                    // .before(run_rollback::)
-                    .in_set(PredictionSet::PrepareRollback),
             );
         }
         _ => {}
     };
-    app.add_systems(
-        FixedPostUpdate,
-        remove_component_for_despawn_predicted::<C>.in_set(PredictionSet::EntityDespawn),
-    );
 }
 
 impl Plugin for PredictionPlugin {
@@ -384,15 +373,21 @@ impl Plugin for PredictionPlugin {
         // REFLECTION
         app.register_type::<Predicted>()
             .register_type::<Confirmed>()
-            .register_type::<PreSpawnedPlayerObject>()
+            .register_type::<PreSpawned>()
             .register_type::<Rollback>()
             .register_type::<RollbackState>()
-            .register_type::<PredictionDespawnMarker>()
+            .register_type::<PredictionDisable>()
             .register_type::<PredictionConfig>();
 
         // RESOURCES
         app.init_resource::<PredictionManager>();
         app.insert_resource(Rollback::new(RollbackState::Default));
+
+        // Custom entity disabling
+        let prediction_disable_id = app.world_mut().register_component::<PredictionDisable>();
+        app.world_mut()
+            .resource_mut::<DefaultQueryFilters>()
+            .register_disabling_component(prediction_disable_id);
 
         // PreUpdate systems:
         // 1. Receive confirmed entities, add Confirmed and Predicted components
@@ -408,6 +403,7 @@ impl Plugin for PredictionPlugin {
                     PredictionSet::Sync,
                     PredictionSet::RestoreVisualCorrection,
                     PredictionSet::CheckRollback,
+                    PredictionSet::RemoveDisable.run_if(is_in_rollback),
                     PredictionSet::PrepareRollback.run_if(is_in_rollback),
                     PredictionSet::Rollback.run_if(is_in_rollback),
                 )
@@ -424,11 +420,12 @@ impl Plugin for PredictionPlugin {
             PreUpdate,
             (
                 // - we first check via observer if:
-                //   - the entity has a matching PreSpawnedPlayerObject. If match, remove PrePredicted/ShouldBePredicted.
+                //   - the entity has a matching PreSpawned. If match, remove PrePredicted/ShouldBePredicted.
                 //     If no match we do nothing and treat this as a normal-predicted entity
                 //   - the entity has a PrePredicted component. If it does, remove ShouldBePredicted to not trigger normal prediction-spawn system
                 // - then we check via a system if we should spawn a new predicted entity
                 spawn_predicted_entity.in_set(PredictionSet::SpawnPrediction),
+                remove_prediction_disable.in_set(PredictionSet::RemoveDisable),
                 run_rollback.in_set(PredictionSet::Rollback),
                 #[cfg(feature = "metrics")]
                 super::rollback::no_rollback
@@ -472,10 +469,6 @@ impl Plugin for PredictionPlugin {
             FixedPostUpdate,
             PredictionSet::All.run_if(should_prediction_run.clone()),
         );
-        app.add_systems(
-            FixedPostUpdate,
-            remove_despawn_marker.in_set(PredictionSet::EntityDespawn),
-        );
 
         // NOTE: this needs to run in FixedPostUpdate because the order we want is (if we replicate Position):
         // - Physics update
@@ -511,10 +504,15 @@ impl Plugin for PredictionPlugin {
         );
 
         // PLUGINS
-        app.add_plugins((PrePredictionPlugin, PreSpawnedPlayerObjectPlugin));
+        app.add_plugins((
+            PrePredictionPlugin,
+            PreSpawnedPlayerObjectPlugin,
+            RollbackPlugin,
+        ));
     }
 
     // We run this after `build` and `finish` to make sure that all components were registered before we create the observer
+    // that will trigger on all predicted components
     fn cleanup(&self, app: &mut App) {
         add_sync_systems(app);
     }

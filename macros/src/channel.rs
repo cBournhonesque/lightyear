@@ -24,7 +24,7 @@ pub fn channel_impl(
     let name = syn::LitStr::new(&struct_name.to_string(), Span::call_site());
     let (impl_generics, type_generics, where_clause) = &input.generics.split_for_impl();
 
-    let gen = quote! {
+    let tokens = quote! {
         impl #impl_generics #shared_crate_name::prelude::Channel for #struct_name #type_generics #where_clause {
             fn name() -> &'static str {
                 #name
@@ -32,5 +32,5 @@ pub fn channel_impl(
         }
     };
 
-    proc_macro::TokenStream::from(gen)
+    proc_macro::TokenStream::from(tokens)
 }

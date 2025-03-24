@@ -3,9 +3,9 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
+use core::time::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::time::Duration;
 
 use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
@@ -21,6 +21,7 @@ use lightyear::prelude::{client, server};
 use lightyear::server::config::ServerConfig;
 use lightyear::transport::LOCAL_SOCKET;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use crate::settings::*;
 use crate::shared::{shared_config, REPLICATION_INTERVAL};
@@ -483,7 +484,7 @@ pub fn new_gui_app(add_inspector: bool) -> App {
             .set(window_plugin()),
     );
     if add_inspector {
-        app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
+        // app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
     }
     app
 }
@@ -494,7 +495,6 @@ pub fn new_headless_app() -> App {
         MinimalPlugins,
         log_plugin(),
         StatesPlugin,
-        HierarchyPlugin,
         DiagnosticsPlugin,
     ));
     app

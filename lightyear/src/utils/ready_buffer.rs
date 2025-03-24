@@ -1,5 +1,8 @@
 //! Wrapper around a min-heap
-use std::{cmp::Ordering, collections::BinaryHeap};
+use alloc::collections::BinaryHeap;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+use core::cmp::Ordering;
 
 /// A buffer that contains items associated with a key (a Tick, Instant, etc.)
 ///
@@ -190,7 +193,7 @@ impl<K: Ord, T> Ord for ItemWithReadyKey<K, T> {
 
 #[cfg(test)]
 mod tests {
-    use bevy::utils::Duration;
+    use core::time::Duration;
     use mock_instant::global::Instant;
     use mock_instant::global::MockClock;
 

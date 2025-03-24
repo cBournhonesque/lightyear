@@ -1,7 +1,9 @@
 //! Zstd compression
 
 use crate::connection::netcode::MAX_PKT_BUF_SIZE;
-use crate::transport::error::{Error, Result};
+use crate::transport::error::Result;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 use std::net::SocketAddr;
 
 pub(crate) use compression::Compressor;
@@ -12,7 +14,6 @@ pub(crate) mod compression {
     use crate::transport::middleware::PacketSenderWrapper;
     use crate::transport::PacketSender;
     use lz4_flex::block::compress_into;
-    use tracing::error;
 
     pub(crate) struct Compressor {
         result: Vec<u8>,

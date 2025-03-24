@@ -1,14 +1,16 @@
-use std::ops::Deref;
+use alloc::sync::Arc;
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, format, vec, vec::Vec};
+use core::future::Future;
+use core::ops::Deref;
 use std::{
-    future::Future,
     io::BufReader,
     net::{SocketAddr, SocketAddrV4},
-    sync::Arc,
 };
 
+use crate::utils::collections::HashMap;
 use async_compat::Compat;
 use bevy::tasks::{futures_lite, IoTaskPool};
-use bevy::utils::hashbrown::HashMap;
 use futures_util::stream::FusedStream;
 use futures_util::{future, pin_mut, stream::TryStreamExt, SinkExt, StreamExt, TryFutureExt};
 use tokio::{
@@ -24,8 +26,7 @@ use tokio::{
 use tokio_tungstenite::{
     connect_async, connect_async_with_config, tungstenite::Message, MaybeTlsStream,
 };
-use tracing::{debug, info, trace};
-use tracing_log::log::error;
+use tracing::{debug, info, trace, error};
 
 use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
 use crate::client::io::{ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender};

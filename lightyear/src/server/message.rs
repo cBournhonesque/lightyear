@@ -359,13 +359,14 @@ impl InternalMessageSend for ConnectionManager {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::server::ServerTriggerExt;
-    use crate::prelude::{ClientReceiveMessage, NetworkTarget, ServerSendMessage};
+    use super::*;
+    use crate::prelude::server::{ReplicateToClient, ServerTriggerExt};
+    use crate::prelude::{client, ClientReceiveMessage, NetworkTarget, ServerSendMessage};
     use crate::shared::message::MessageSend;
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{Channel1, IntegerEvent, StringMessage};
     use bevy::app::Update;
-    use bevy::prelude::{EventReader, Events, ResMut, Resource, Trigger};
+    use bevy::prelude::{EventReader, Events, Observer, ResMut, Resource, Trigger};
 
     #[derive(Resource, Default)]
     struct Counter(usize);
@@ -457,16 +458,42 @@ mod tests {
     fn server_send_trigger_via_event() {
         let mut stepper = HostServerStepper::default();
 
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn(ReplicateToClient::default())
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_entity = stepper
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+
         stepper.server_app.init_resource::<Counter>();
         stepper.client_app.init_resource::<Counter>();
-        stepper.server_app.add_observer(count_messages_observer);
-        stepper.client_app.add_observer(count_messages_observer);
+        stepper
+            .server_app
+            .world_mut()
+            .spawn(Observer::new(count_messages_observer).with_entity(server_entity));
+        stepper
+            .client_app
+            .world_mut()
+            .spawn(Observer::new(count_messages_observer).with_entity(client_entity));
 
         // send a trigger from the host-server server to all clients
         stepper
             .server_app
             .world_mut()
-            .server_trigger::<Channel1>(IntegerEvent(10), NetworkTarget::All);
+            .server_trigger_with_targets::<Channel1>(
+                IntegerEvent(10),
+                NetworkTarget::All,
+                vec![server_entity],
+            );
 
         stepper.frame_step();
         stepper.frame_step();

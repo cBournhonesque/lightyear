@@ -1,4 +1,4 @@
-use std::ops::{Add, Mul};
+use core::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;

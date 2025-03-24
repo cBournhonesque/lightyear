@@ -1,7 +1,7 @@
 use avian2d::prelude::*;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use leafwing_input_manager::prelude::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;

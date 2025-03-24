@@ -1,5 +1,5 @@
-use std::collections::VecDeque;
-use std::ops::{Add, Mul};
+use alloc::collections::VecDeque;
+use core::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
@@ -220,7 +220,7 @@ pub struct PlayerParent(pub(crate) Entity);
 
 impl MapEntities for PlayerParent {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.map_entity(self.0);
+        self.0 = entity_mapper.get_mapped(self.0);
     }
 }
 

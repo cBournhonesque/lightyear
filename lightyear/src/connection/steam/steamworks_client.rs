@@ -1,5 +1,5 @@
 use bevy::utils::synccell::SyncCell;
-use steamworks::{ClientManager, SingleClient, SIResult};
+use steamworks::{ClientManager, SIResult, SingleClient};
 
 /// This wraps the Steamworks client. It must only be created once per
 /// application run. For convenience, Lightyear can automatically create the
@@ -10,8 +10,8 @@ pub struct SteamworksClient {
     single: SyncCell<SingleClient>, // https://github.com/Noxime/steamworks-rs/issues/159
 }
 
-impl std::fmt::Debug for SteamworksClient {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for SteamworksClient {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SteamworksClient")
             .field("app_id", &self.app_id)
             .finish()

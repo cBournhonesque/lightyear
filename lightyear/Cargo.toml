@@ -3,7 +3,7 @@ name = "lightyear"
 version.workspace = true
 authors.workspace = true
 rust-version.workspace = true
-edition = "2021"
+edition.workspace = true
 description = "Server-client networking library for the Bevy game engine"
 readme = "../README.md"
 repository = "https://github.com/cBournhonesque/lightyear"
@@ -14,6 +14,17 @@ exclude = ["/tests"]
 publish = true
 
 [features]
+default = ["std"]
+std = [
+  "bevy/std",
+  # needed for bevy_transform parallel
+  "bevy/async_executor",
+  "serde/std",
+  "bincode/std",
+  "bytes/std",
+  "chacha20poly1305/std",
+  "no_std_io2/std",
+]
 trace = []
 metrics = [
   "dep:metrics",
@@ -24,6 +35,7 @@ metrics = [
 visualizer = ["dep:bevy_metrics_dashboard", "metrics"]
 mock_time = ["dep:mock_instant"]
 webtransport = [
+  "std",
   "dep:wtransport",
   "dep:xwt-core",
   "dep:xwt-web",
@@ -35,15 +47,17 @@ leafwing = ["dep:leafwing-input-manager"]
 #       enable essential features (like f32 or f64).
 avian2d = ["dep:avian2d"]
 avian3d = ["dep:avian3d", "avian3d/3d"]
+udp = ["std"]
 websocket = [
+  "std",
   "dep:tokio-tungstenite",
   "dep:futures-util",
   "dep:web-sys",
   "dep:wasm-bindgen",
   "dep:wasm-bindgen-futures",
 ]
-steam = ["dep:steamworks"]
-track_change_detection = ["bevy/track_change_detection"]
+steam = ["dep:steamworks", "std"]
+track_location = ["bevy/track_location"]
 
 # compression
 lz4 = ["dep:lz4_flex"]
@@ -55,6 +69,7 @@ chrono.workspace = true
 cfg-if.workspace = true
 enum_dispatch.workspace = true
 governor.workspace = true
+hashbrown.workspace = true
 mock_instant = { workspace = true, optional = true }
 nonzero_ext.workspace = true
 parking_lot.workspace = true
@@ -63,6 +78,12 @@ rand.workspace = true
 ringbuffer.workspace = true
 thiserror.workspace = true
 seahash.workspace = true
+smallvec.workspace = true
+variadics_please.workspace = true
+
+# no_std
+# TODO: only enable in no_std
+no_std_io2.workspace = true
 
 # input
 leafwing-input-manager = { workspace = true, optional = true }
@@ -73,7 +94,6 @@ avian3d = { workspace = true, optional = true }
 
 # serialization
 bincode.workspace = true
-byteorder.workspace = true
 bytes.workspace = true
 self_cell.workspace = true
 serde.workspace = true
@@ -86,8 +106,7 @@ lightyear_macros.workspace = true
 
 # tracing
 tracing.workspace = true
-tracing-log.workspace = true
-tracing-subscriber.workspace = true
+
 
 # server
 crossbeam-channel.workspace = true
@@ -153,5 +172,5 @@ tokio = { workspace = true, features = ["time"] }
 # we cannot use all-features = true, because we need to provide additional features for avian
 # when building the docs
 # NOTE: building docs.rs doesn't work if I include avian
-features = ["metrics", "webtransport", "leafwing", "websocket", "steam", "zstd"]
+features = ["metrics", "udp", "webtransport", "leafwing", "websocket", "steam", "zstd"]
 rustdoc-args = ["--cfg", "docsrs"]

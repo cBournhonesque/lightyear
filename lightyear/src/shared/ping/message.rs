@@ -3,7 +3,7 @@ use crate::serialize::reader::Reader;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::ping::store::PingId;
 use crate::shared::time_manager::WrappedTime;
-use byteorder::WriteBytesExt;
+use crate::serialize::writer::WriteInteger;
 
 // TODO: do we need the ping ids? we could just re-use the message id ?
 /// Ping message; the remote should respond immediately with a pong
@@ -13,11 +13,11 @@ pub struct Ping {
 }
 
 impl ToBytes for Ping {
-    fn len(&self) -> usize {
-        2
+    fn bytes_len(&self) -> usize {
+        self.id.bytes_len()
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         self.id.to_bytes(buffer)
     }
 
@@ -43,11 +43,11 @@ pub struct Pong {
 }
 
 impl ToBytes for Pong {
-    fn len(&self) -> usize {
-        10
+    fn bytes_len(&self) -> usize {
+        self.ping_id.bytes_len() + self.ping_received_time.bytes_len() + self.pong_sent_time.bytes_len()
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         self.ping_id.to_bytes(buffer)?;
         self.ping_received_time.to_bytes(buffer)?;
         self.pong_sent_time.to_bytes(buffer)

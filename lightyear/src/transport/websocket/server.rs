@@ -1,11 +1,10 @@
-use std::{
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
+use alloc::sync::Arc;
+use core::net::SocketAddr;
+use std::sync::Mutex;
 
+use crate::utils::collections::HashMap;
 use async_compat::Compat;
 use bevy::tasks::{futures_lite, IoTaskPool};
-use bevy::utils::HashMap;
 use futures_util::{
     future, pin_mut,
     stream::{SplitSink, TryStreamExt},
@@ -17,8 +16,7 @@ use tokio::{
     sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
-use tracing::{debug, info, trace};
-use tracing_log::log::error;
+use tracing::{debug, info, trace, error};
 
 use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
 use crate::server::io::{ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender};
@@ -40,12 +38,12 @@ impl ServerTransportBuilder for WebSocketServerSocketBuilder {
         Option<ServerNetworkEventSender>,
     )> {
         let (serverbound_tx, serverbound_rx) = unbounded_channel::<(SocketAddr, Message)>();
-        let clientbound_tx_map = ClientBoundTxMap::new(Mutex::new(HashMap::new()));
+        let clientbound_tx_map = ClientBoundTxMap::new(Mutex::new(HashMap::default()));
         // channels used to cancel the task
         let (close_tx, close_rx) = async_channel::unbounded();
         // channels used to check the status of the io task
         let (status_tx, status_rx) = async_channel::unbounded();
-        let addr_to_task = Arc::new(Mutex::new(HashMap::new()));
+        let addr_to_task = Arc::new(Mutex::new(HashMap::default()));
 
         let sender = WebSocketServerSocketSender {
             server_addr: self.server_addr,

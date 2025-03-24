@@ -1,5 +1,5 @@
+use alloc::collections::VecDeque;
 use bytes::Bytes;
-use std::collections::VecDeque;
 
 use crate::channel::receivers::error::ChannelReceiveError;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;

@@ -1,6 +1,8 @@
+use alloc::collections::VecDeque;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::prelude::{Timer, TimerMode};
-use bevy::utils::Duration;
-use std::collections::VecDeque;
+use core::time::Duration;
 
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
@@ -111,10 +113,10 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
             return (VecDeque::new(), VecDeque::new());
         }
         (
-            std::mem::take(&mut self.single_messages_to_send),
-            std::mem::take(&mut self.fragmented_messages_to_send),
+            core::mem::take(&mut self.single_messages_to_send),
+            core::mem::take(&mut self.fragmented_messages_to_send),
         )
-        // let messages_to_send = std::mem::take(&mut self.messages_to_send);
+        // let messages_to_send = core::mem::take(&mut self.messages_to_send);
         // let (remaining_messages_to_send, _) =
         //     packet_manager.pack_messages_within_channel(messages_to_send);
         // self.messages_to_send = remaining_messages_to_send;
@@ -168,6 +170,8 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
 #[cfg(test)]
 mod tests {
     use crate::packet::packet::FRAGMENT_SIZE;
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
 
     use super::*;
 

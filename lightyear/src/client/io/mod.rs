@@ -3,6 +3,11 @@
 pub(crate) mod config;
 pub(crate) mod transport;
 
+#[cfg(not(feature = "std"))]
+use no_std_io2::io;
+#[cfg(feature = "std")]
+use std::io;
+
 use crate::transport::error::{Error, Result};
 use crate::transport::io::{BaseIo, IoState};
 use async_channel::{Receiver, Sender};
@@ -22,7 +27,7 @@ impl Io {
         if let Some(event_sender) = self.context.event_sender.as_mut() {
             event_sender
                 .try_send(ClientIoEvent::Disconnected(
-                    std::io::Error::other("client requested disconnection").into(),
+                    io::Error::other("client requested disconnection").into(),
                 ))
                 .map_err(Error::from)?;
         }

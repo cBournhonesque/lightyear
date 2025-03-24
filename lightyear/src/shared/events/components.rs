@@ -1,6 +1,6 @@
 //! Bevy events that will be emitted upon receiving network messages
 
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use bevy::prelude::{Component, Entity, Event};
 

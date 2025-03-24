@@ -17,10 +17,6 @@ pub enum InternalReplicationSet<M> {
     // SEND
     /// System that handles the addition/removal of the `Replicate` component
     BeforeBuffer,
-    /// Gathers entity despawns and component removals
-    /// Needs to run once per frame instead of once per send_interval
-    /// because they rely on bevy events that are cleared every frame
-    BufferDespawnsAndRemovals,
 
     /// System Set to gather all the replication updates to send
     /// These systems only run once every send_interval
@@ -37,7 +33,7 @@ pub enum InternalReplicationSet<M> {
     SendMessages,
     /// SystemSet that encompasses all send replication systems
     All,
-    _Marker(std::marker::PhantomData<M>),
+    _Marker(core::marker::PhantomData<M>),
     SendMessage,
     EmitEvents,
 }
@@ -60,7 +56,7 @@ pub(crate) enum InternalMainSet<M> {
     ///
     /// Runs in `PostUpdate`
     Send,
-    _Marker(std::marker::PhantomData<M>),
+    _Marker(core::marker::PhantomData<M>),
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

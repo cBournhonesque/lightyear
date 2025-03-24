@@ -1,5 +1,4 @@
 //! Defines the [`ClientMessage`] enum used to send messages from the client to the server
-
 use crate::client::connection::ConnectionManager;
 use crate::client::error::ClientError;
 use crate::prelude::client::{ClientConnection, NetClient};
@@ -14,9 +13,9 @@ use crate::shared::replication::network_target::NetworkTarget;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use bevy::ecs::system::{FilteredResourcesMutParamBuilder, ParamBuilder};
 use bevy::prelude::*;
-use byteorder::WriteBytesExt;
 use bytes::Bytes;
 use tracing::error;
+use crate::serialize::writer::WriteInteger;
 
 /// Bevy [`Event`] emitted on the client when a (non-replication) message is received
 #[allow(type_alias_bounds)]
@@ -192,7 +191,7 @@ impl InternalMessageSend for ConnectionManager {
         // write the target first
         // NOTE: this is ok to do because most of the time (without rebroadcast, this just adds 1 byte)
         target.to_bytes(&mut self.writer)?;
-        // then write the message
+        // then write the message directly
         self.message_registry.serialize(
             message,
             &mut self.writer,
@@ -214,23 +213,29 @@ pub struct ClientMessage {
 }
 
 impl ToBytes for ClientMessage {
-    fn len(&self) -> usize {
-        self.target.len() + self.message.len()
+    fn bytes_len(&self) -> usize {
+        // self.target.bytes_len() + self.message.bytes_len()
+        self.target.bytes_len() + self.message.len()
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         self.target.to_bytes(buffer)?;
-        // NOTE: we just write the message bytes directly! We don't provide the length
+        // TODO: find a not wasteful way to write the message bytes
+        // self.message.to_bytes(buffer)?;
+        // // NOTE: we just write the message bytes directly! We don't provide the length
         buffer.write_all(&self.message)?;
         Ok(())
     }
 
+    // NOTE: the client writes the NetworkTarget and then directly writes
+    //   the message bytes, so we cannot use Bytes::from_bytes here
     fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
         let target = NetworkTarget::from_bytes(buffer)?;
-        // NOTE: this only works if the reader only contains the ClientMessage bytes!
+        // let message = Bytes::from_bytes(buffer)?;
+        // // NOTE: this only works if the reader only contains the ClientMessage bytes!
         let remaining = buffer.remaining();
         let message = buffer.split_len(remaining);
         Ok(Self { message, target })
@@ -342,7 +347,8 @@ fn read_triggers(
 mod tests {
     use super::*;
     use crate::prelude::client::ClientTriggerExt;
-    use crate::prelude::{ClientSendMessage, ServerReceiveMessage};
+    use crate::prelude::server::ReplicateToClient;
+    use crate::prelude::{client, ClientSendMessage, ServerReceiveMessage};
     use crate::serialize::writer::Writer;
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{Channel1, IntegerEvent, StringMessage};
@@ -355,13 +361,21 @@ mod tests {
             target: NetworkTarget::None,
             message: Bytes::from_static(b"hello world"),
         };
+        // TODO: the tests fails if we write two ClientMessage in a row in the same buffer,
+        //   but in practice that's not what happens?
+        // let data2 = ClientMessage {
+        //     target: NetworkTarget::None,
+        //     message: Bytes::from_static(b"hello world2"),
+        // };
         let mut writer = Writer::default();
         data.to_bytes(&mut writer).unwrap();
-        let bytes = writer.to_bytes();
+        // data2.to_bytes(&mut writer).unwrap();
 
-        let mut reader = Reader::from(bytes);
+        let mut reader = Reader::from(writer.to_bytes());
         let result = ClientMessage::from_bytes(&mut reader).unwrap();
+        // let result2 = ClientMessage::from_bytes(&mut reader).unwrap();
         assert_eq!(data, result);
+        // assert_eq!(data2, result2);
     }
 
     #[derive(Resource, Default)]
@@ -459,14 +473,34 @@ mod tests {
     fn client_send_trigger_via_send_event() {
         let mut stepper = HostServerStepper::default();
 
-        stepper.server_app.init_resource::<Counter>();
-        stepper.server_app.add_observer(count_messages_observer);
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn(ReplicateToClient::default())
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+        let client_entity = stepper
+            .client_app
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
 
-        // Send the message by writing to the SendMessage<M> Events
+        stepper.server_app.init_resource::<Counter>();
+        // spawn observer that watches a given entity
+        stepper
+            .server_app
+            .world_mut()
+            .spawn(Observer::new(count_messages_observer).with_entity(server_entity));
+
+        // Send the message from the remote client
         stepper
             .client_app
             .world_mut()
-            .client_trigger::<Channel1>(IntegerEvent(10));
+            .client_trigger_with_targets::<Channel1>(IntegerEvent(10), vec![client_entity]);
 
         stepper.frame_step();
         stepper.frame_step();
@@ -478,8 +512,9 @@ mod tests {
         stepper
             .server_app
             .world_mut()
-            .client_trigger::<Channel1>(IntegerEvent(10));
+            .client_trigger_with_targets::<Channel1>(IntegerEvent(10), vec![server_entity]);
 
+        stepper.frame_step();
         stepper.frame_step();
         stepper.frame_step();
 

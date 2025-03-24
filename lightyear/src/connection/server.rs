@@ -1,12 +1,18 @@
+use crate::utils::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+use alloc::sync::Arc;
 use bevy::prelude::Resource;
-use bevy::utils::HashMap;
+use core::fmt::Debug;
 use enum_dispatch::enum_dispatch;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
-use std::net::SocketAddr;
-use std::sync::Arc;
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{vec, vec::Vec},
+};
+use core::net::SocketAddr;
 
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
@@ -141,8 +147,8 @@ impl Default for NetConfig {
 }
 
 impl NetConfig {
-    pub fn build_server(self) -> ServerConnection {
-        match self {
+    pub fn build_server(self) -> Result<ServerConnection, ConnectionError> {
+        Ok(match self {
             NetConfig::Netcode { config, io } => {
                 let server = super::netcode::Server::new(config, io);
                 ServerConnection::Netcode(server)
@@ -158,17 +164,16 @@ impl NetConfig {
                 // TODO: handle errors
                 let server = super::steam::server::Server::new(
                     steamworks_client.unwrap_or_else(|| {
-                        Arc::new(RwLock::new(
-                            SteamworksClient::new_with_app_id(config.app_id).unwrap(),
-                        ))
-                    }),
+                        Ok(Arc::new(RwLock::new(
+                            SteamworksClient::new_with_app_id(config.app_id)?,
+                        )))
+                    })?,
                     config,
                     conditioner,
-                )
-                .expect("could not create steam server");
+                )?;
                 ServerConnection::Steam(server)
             }
-        }
+        })
     }
 }
 
@@ -186,16 +191,16 @@ pub struct ServerConnections {
 }
 
 impl ServerConnections {
-    pub(crate) fn new(config: Vec<NetConfig>) -> Self {
+    pub(crate) fn new(config: Vec<NetConfig>) -> Result<Self, ConnectionError> {
         let mut servers = vec![];
         for config in config {
-            let server = config.build_server();
+            let server = config.build_server()?;
             servers.push(server);
         }
-        ServerConnections {
+        Ok(ServerConnections {
             servers,
             client_server_map: HashMap::default(),
-        }
+        })
     }
 
     /// Start listening for client connections on all internal servers
@@ -261,6 +266,8 @@ pub enum ConnectionError {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
     use crate::connection::server::{NetServer, ServerConnections};
     use crate::prelude::ClientId;
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};

@@ -1,13 +1,13 @@
 /// Defines the [`Message`](message::Message) struct, which is a piece of serializable data
-use std::fmt::Debug;
+use core::fmt::Debug;
 
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 
 use crate::protocol::EventContext;
-use crate::serialize::reader::Reader;
-use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
+use crate::serialize::reader::{ReadVarInt, Reader};
+use crate::serialize::varint::{varint_len};
 use crate::serialize::{SerializationError, ToBytes};
+use crate::serialize::writer::WriteInteger;
 use crate::shared::tick_manager::Tick;
 use crate::utils::wrapping_id::wrapping_id;
 
@@ -81,10 +81,10 @@ impl MessageData {
         };
     }
 
-    pub fn len(&self) -> usize {
+    pub fn bytes_len(&self) -> usize {
         match self {
-            MessageData::Single(data) => data.len(),
-            MessageData::Fragment(data) => data.len(),
+            MessageData::Single(data) => data.bytes_len(),
+            MessageData::Fragment(data) => data.bytes_len(),
         }
     }
 
@@ -116,27 +116,20 @@ impl From<SingleData> for MessageData {
 /// The message/component does not need to implement Clone anymore!
 /// Also we know the size of the message early, which is useful for fragmentation.
 pub struct SingleData {
-    // TODO: MessageId is from 1 to 65535, so that we can use 0 to represent None?
+    // TODO: MessageId is from 1 to 65535, so that we can use 0 to represent None? and do some bit-packing?
     pub id: Option<MessageId>,
     pub bytes: Bytes,
 }
 
 impl ToBytes for SingleData {
     // TODO: how to avoid the option taking 1 byte?
-    fn len(&self) -> usize {
-        varint_len(self.bytes.len() as u64) + self.bytes.len() + self.id.map_or(1, |_| 3)
+    fn bytes_len(&self) -> usize {
+        self.id.bytes_len() + self.bytes.bytes_len()
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-        if let Some(id) = self.id {
-            buffer.write_u8(1)?;
-            buffer.write_u16::<NetworkEndian>(id.0)?;
-        } else {
-            buffer.write_u8(0)?;
-        }
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+        self.id.to_bytes(buffer)?;
         self.bytes.to_bytes(buffer)?;
-        // buffer.write_varint(self.bytes.len() as u64)?;
-        // buffer.write_all(self.bytes.as_ref())?;
         Ok(())
     }
 
@@ -144,14 +137,8 @@ impl ToBytes for SingleData {
     where
         Self: Sized,
     {
-        let id = if buffer.read_u8()? == 1 {
-            Some(MessageId(buffer.read_u16::<NetworkEndian>()?))
-        } else {
-            None
-        };
+        let id = Option::<MessageId>::from_bytes(buffer)?;
         let bytes = Bytes::from_bytes(buffer)?;
-        // let len = buffer.read_varint()? as usize;
-        // let bytes = buffer.split_len(len);
         Ok(Self { id, bytes })
     }
 }
@@ -172,22 +159,37 @@ pub struct FragmentData {
     pub bytes: Bytes,
 }
 
-impl ToBytes for FragmentData {
-    fn len(&self) -> usize {
-        2 + varint_len(self.fragment_id)
-            + varint_len(self.num_fragments)
-            + varint_len(self.bytes.len() as u64)
-            + self.bytes.len()
+impl ToBytes for FragmentIndex {
+    fn bytes_len(&self) -> usize {
+        varint_len(*self)
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-        buffer.write_u16::<NetworkEndian>(self.message_id.0)?;
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+        buffer.write_varint(*self)?;
+        Ok(())
+    }
 
-        buffer.write_varint(self.fragment_id)?;
-        buffer.write_varint(self.num_fragments)?;
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized
+    {
+        Ok(buffer.read_varint()?)
+    }
+}
+
+impl ToBytes for FragmentData {
+    fn bytes_len(&self) -> usize {
+        self.message_id.bytes_len()
+        + self.fragment_id.bytes_len()
+        + self.num_fragments.bytes_len()
+        + self.bytes.bytes_len()
+    }
+
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+        self.message_id.to_bytes(buffer)?;
+        self.fragment_id.to_bytes(buffer)?;
+        self.num_fragments.to_bytes(buffer)?;
         self.bytes.to_bytes(buffer)?;
-        // buffer.write_varint(self.bytes.len() as u64)?;
-        // buffer.write_all(self.bytes.as_ref())?;
         Ok(())
     }
 
@@ -196,12 +198,10 @@ impl ToBytes for FragmentData {
     where
         Self: Sized,
     {
-        let message_id = MessageId(buffer.read_u16::<NetworkEndian>()?);
-        let fragment_id = buffer.read_varint()?;
-        let num_fragments = buffer.read_varint()?;
+        let message_id = MessageId::from_bytes(buffer)?;
+        let fragment_id = FragmentIndex::from_bytes(buffer)?;
+        let num_fragments = FragmentIndex::from_bytes(buffer)?;
         let bytes = Bytes::from_bytes(buffer)?;
-        // let len = buffer.read_varint()? as usize;
-        // let bytes = buffer.split_len(len);
         Ok(Self {
             message_id,
             fragment_id,
@@ -220,6 +220,8 @@ impl FragmentData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
 
     #[test]
     fn test_to_bytes_single_data() {
@@ -228,7 +230,7 @@ mod tests {
             let mut writer = vec![];
             data.to_bytes(&mut writer).unwrap();
 
-            assert_eq!(writer.len(), data.len());
+            assert_eq!(writer.len(), data.bytes_len());
 
             let mut reader = writer.into();
             let decoded = SingleData::from_bytes(&mut reader).unwrap();
@@ -239,7 +241,7 @@ mod tests {
             let mut writer = vec![];
             data.to_bytes(&mut writer).unwrap();
 
-            assert_eq!(writer.len(), data.len());
+            assert_eq!(writer.len(), data.bytes_len());
 
             let mut reader = writer.into();
             let decoded = SingleData::from_bytes(&mut reader).unwrap();
@@ -259,7 +261,7 @@ mod tests {
         let mut writer = vec![];
         data.to_bytes(&mut writer).unwrap();
 
-        assert_eq!(writer.len(), data.len());
+        assert_eq!(writer.len(), data.bytes_len());
 
         let mut reader = writer.into();
         let decoded = FragmentData::from_bytes(&mut reader).unwrap();

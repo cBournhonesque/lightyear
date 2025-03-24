@@ -3,6 +3,7 @@ use crate::transport::channels::Channels;
 use crate::transport::dummy::DummyIo;
 use crate::transport::error::Result;
 use crate::transport::io::IoState;
+#[cfg(all(feature = "udp", not(target_family = "wasm")))]
 use crate::transport::udp::{UdpSocket, UdpSocketBuilder};
 #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
 use crate::transport::websocket::server::{WebSocketServerSocket, WebSocketServerSocketBuilder};
@@ -27,6 +28,7 @@ pub(crate) trait ServerTransportBuilder: Send + Sync {
 
 #[enum_dispatch(ServerTransportBuilder)]
 pub(crate) enum ServerTransportBuilderEnum {
+    #[cfg(all(feature = "udp", not(target_family = "wasm")))]
     UdpSocket(UdpSocketBuilder),
     #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
     WebTransportServer(WebTransportServerSocketBuilder),
@@ -39,6 +41,7 @@ pub(crate) enum ServerTransportBuilderEnum {
 #[allow(clippy::large_enum_variant)]
 #[enum_dispatch(Transport)]
 pub(crate) enum ServerTransportEnum {
+    #[cfg(all(feature = "udp", not(target_family = "wasm")))]
     UdpSocket(UdpSocket),
     #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
     WebTransportServer(WebTransportServerSocket),
