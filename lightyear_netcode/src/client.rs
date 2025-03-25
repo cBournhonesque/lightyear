@@ -1,23 +1,8 @@
 use alloc::collections::VecDeque;
-#[cfg(feature = "std")]
-use std::{io};
 #[cfg(not(feature = "std"))]
-use {
-    alloc::{boxed::Box, vec, vec::Vec},
-    no_std_io2::io,
-};
+use alloc::{boxed::Box, vec, vec::Vec};
 use core::net::SocketAddr;
-
-use bevy::prelude::Resource;
-use tracing::{debug, error, info, trace};
-
-use crate::client::io::Io;
-use crate::connection::client::{ConnectionError, ConnectionState, IoConfig, NetClient};
-use crate::connection::id;
-use crate::packet::packet_builder::RecvPayload;
-use crate::transport::io::IoState;
-use crate::transport::{PacketReceiver, PacketSender, LOCAL_SOCKET};
-use crate::utils::pool::Pool;
+use no_std_io2::io;
 
 use super::{
     bytes::Bytes,
@@ -29,6 +14,12 @@ use super::{
     token::{ChallengeToken, ConnectToken},
     utils, ClientId, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
 };
+use bevy::prelude::Resource;
+use lightyear_connection::client::{ConnectionError, ConnectionState};
+use lightyear_connection::id;
+use lightyear_link::{Link, RecvPayload, SendPayload};
+use lightyear_serde::writer::Writer;
+use tracing::{debug, error, info, trace};
 
 type Callback<Ctx> = Box<dyn FnMut(ClientState, ClientState, &mut Ctx) + Send + Sync + 'static>;
 
@@ -41,12 +32,12 @@ type Callback<Ctx> = Box<dyn FnMut(ClientState, ClientState, &mut Ctx) + Send + 
 /// # Example
 /// ```
 /// # struct MyContext;
-/// # use crate::lightyear::connection::netcode::{generate_key, NetcodeServer};
+/// #
+/// # use lightyear_netcode::{generate_key, ClientConfig, ClientState, NetcodeClient, NetcodeServer};
 /// # let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 40007));
 /// # let private_key = generate_key();
 /// # let token = NetcodeServer::new(0x11223344, private_key).unwrap().token(123u64, addr).generate().unwrap();
 /// # let token_bytes = token.try_into_bytes().unwrap();
-/// use crate::lightyear::connection::netcode::{NetcodeClient, ClientConfig, ClientState};
 ///
 /// let cfg = ClientConfig::with_context(MyContext {})
 ///     .num_disconnect_packets(10)
@@ -170,13 +161,13 @@ pub enum ClientState {
 ///
 /// # Example
 /// ```
-/// use crate::lightyear::connection::netcode::{ConnectToken, NetcodeClient, ClientConfig, ClientState, NetcodeServer};
 /// # use core::net::{Ipv4Addr, SocketAddr};
 /// # use std::time::{Instant, Duration};
 /// # use std::thread;
-/// # use lightyear::prelude::client::{ClientTransport, IoConfig};
+/// # use lightyear_link::Link;
+/// # use lightyear_netcode::{NetcodeClient, NetcodeServer};
 /// # let addr =  SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-/// # let mut io = IoConfig::from_transport(ClientTransport::Dummy).connect().unwrap();
+/// # let mut link = Link::default();
 /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
 /// # let token_bytes = server.token(0, addr).generate().unwrap().try_into_bytes().unwrap();
 /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
@@ -198,7 +189,12 @@ pub struct NetcodeClient<Ctx = ()> {
     should_disconnect: bool,
     should_disconnect_state: ClientState,
     packet_queue: VecDeque<RecvPayload>,
-    buffer_pool: Pool<Vec<u8>>,
+    // We use a Writer (wrapper around BytesMut) here because we will keep re-using the
+    // same allocation for the bytes we send.
+    // 1. We create an array on the stack of size MAX_PACKET_SIZE
+    // 2. We copy the serialized array in the writer via `extend_from_size`
+    // 3. We split the bytes off, to recover the allocation
+    writer: Writer,
     cfg: ClientConfig<Ctx>,
 }
 
@@ -233,7 +229,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             should_disconnect: false,
             should_disconnect_state: ClientState::Disconnected,
             packet_queue: VecDeque::new(),
-            buffer_pool: Pool::new(10, || vec![0u8; MAX_PKT_BUF_SIZE]),
+            writer: Writer::with_capacity(MAX_PKT_BUF_SIZE),
             cfg,
         })
     }
@@ -244,7 +240,7 @@ impl NetcodeClient {
     ///
     /// # Example
     /// ```
-    /// # use crate::lightyear::connection::netcode::{generate_key, ConnectToken, NetcodeClient, ClientConfig, ClientState};
+    /// # use lightyear_netcode::{generate_key, ConnectToken, NetcodeClient};
     /// // Generate a connection token for the client
     /// let private_key = generate_key();
     /// let token_bytes = ConnectToken::build("127.0.0.1:0", 0, 0, private_key)
@@ -269,7 +265,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     ///
     /// # Example
     /// ```
-    /// # use crate::lightyear::connection::netcode::{generate_key, ConnectToken, NetcodeClient, ClientConfig, ClientState};
+    /// # use lightyear_netcode::{generate_key, ClientConfig, ClientState, ConnectToken, NetcodeClient};
     /// # let private_key = generate_key();
     /// # let token_bytes = ConnectToken::build("127.0.0.1:0", 0, 0, private_key)
     /// #    .generate()
@@ -286,7 +282,6 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// ```
     pub fn with_config(token_bytes: &[u8], cfg: ClientConfig<Ctx>) -> Result<Self> {
         let client = NetcodeClient::from_token(token_bytes, cfg)?;
-        // info!("client started on {}", client.io.local_addr());
         Ok(client)
     }
 }
@@ -321,7 +316,7 @@ impl<Ctx> NetcodeClient<Ctx> {
         self.reset_connection();
         debug!("client disconnected");
     }
-    fn send_packets(&mut self, io: &mut Io) -> Result<()> {
+    fn send_packets(&mut self, link: &mut Link) -> Result<()> {
         if self.last_send_time + self.cfg.packet_send_rate >= self.time {
             return Ok(());
         }
@@ -345,7 +340,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             }
             _ => return Ok(()),
         };
-        self.send_packet(packet, io)
+        self.send_packet(packet, link)
     }
     fn connect_to_next_server(&mut self) -> core::result::Result<(), ()> {
         if self.server_addr_idx + 1 >= self.token.server_addresses.len() {
@@ -356,7 +351,7 @@ impl<Ctx> NetcodeClient<Ctx> {
         self.connect();
         Ok(())
     }
-    fn send_packet(&mut self, packet: Packet, io: &mut Io) -> Result<()> {
+    fn send_packet(&mut self, packet: Packet, link: &mut Link) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(
             &mut buf,
@@ -364,8 +359,8 @@ impl<Ctx> NetcodeClient<Ctx> {
             &self.token.client_to_server_key,
             self.token.protocol_id,
         )?;
-        io.send(&buf[..size], &self.server_addr())
-            .map_err(|e| Error::AddressTransport(self.server_addr(), e))?;
+        self.writer.extend_from_slice(&buf[..size]);
+        link.send(self.writer.split());
         self.last_send_time = self.time;
         self.sequence += 1;
         Ok(())
@@ -374,11 +369,11 @@ impl<Ctx> NetcodeClient<Ctx> {
     pub fn server_addr(&self) -> SocketAddr {
         self.token.server_addresses[self.server_addr_idx]
     }
-    fn process_packet(&mut self, addr: SocketAddr, packet: Packet) -> Result<()> {
-        if addr != self.server_addr() {
-            debug!(?addr, server_addr = ?self.server_addr(), "wrong addr");
-            return Ok(());
-        }
+    fn process_packet(&mut self, packet: Packet) -> Result<()> {
+        // if addr != self.server_addr() {
+        //     debug!(?addr, server_addr = ?self.server_addr(), "wrong addr");
+        //     return Ok(());
+        // }
         match (packet, self.state) {
             (
                 Packet::Denied(pkt),
@@ -408,26 +403,8 @@ impl<Ctx> NetcodeClient<Ctx> {
             }
             (Packet::Payload(pkt), ClientState::Connected) => {
                 trace!("client received payload packet from server");
-                // // TODO: we decode the data immediately so we don't need to keep the buffer around!
-                // //  we could just
-                // // instead of allocating a new buffer, fetch one from the pool
-                // trace!("read from netcode client pre");
-                // let mut reader = self.buffer_pool.start_read(pkt.buf);
-                // let packet = crate::packet::packet::Packet::decode(&mut reader)
-                //     .map_err(|_| super::packet::Error::InvalidPayload)?;
-                // trace!(
-                //     "read from netcode client post; pool len: {}",
-                //     self.buffer_pool.0.len()
-                // );
-                // // return the buffer to the pool
-                // self.buffer_pool.attach(reader);
-
-                // let buf = self.buffer_pool.pull(|| vec![0u8; pkt.buf.len()]);
-                // TODO: COPY THE PAYLOAD INTO A BUFFER FROM THE POOL! and we allocate buffers to the pool
-                //  outside of the hotpath? we could have a static pool of buffers?
-                let buf = bytes::Bytes::copy_from_slice(pkt.buf);
-                // TODO: control the size/memory of the packet queue?
-                self.packet_queue.push_back(buf);
+                // TODO: control the size of the packet queue?
+                self.packet_queue.push_back(pkt.buf);
             }
             (Packet::Disconnect(_), ClientState::Connected) => {
                 debug!("client received disconnect packet from server");
@@ -484,7 +461,7 @@ impl<Ctx> NetcodeClient<Ctx> {
         self.reset(new_state);
     }
 
-    fn recv_packet(&mut self, buf: &mut [u8], now: u64, addr: SocketAddr) -> Result<()> {
+    fn recv_packet(&mut self, buf: RecvPayload, now: u64) -> Result<()> {
         if buf.len() <= 1 {
             // Too small to be a packet
             return Ok(());
@@ -507,18 +484,18 @@ impl<Ctx> NetcodeClient<Ctx> {
                 return Ok(());
             }
         };
-        self.process_packet(addr, packet)
+        self.process_packet(packet)
     }
 
-    fn recv_packets(&mut self, io: &mut Io) -> Result<()> {
+    fn recv_packets(&mut self, link: &mut Link) -> Result<()> {
         // number of seconds since unix epoch
         let now = utils::now()?;
-        while let Some((buf, addr)) = io
-            .recv()
-            .map_err(|e| Error::AddressTransport(self.server_addr(), e))?
-        {
-            self.recv_packet(buf, now, addr)?;
-        }
+        link
+            .recv
+            .drain(..).try_for_each(|recv_payload| {
+            // TODO: don't short-circuit errors but store them in a queue or bevy events
+            self.recv_packet(recv_payload, now)
+        })?;
         Ok(())
     }
 
@@ -552,18 +529,20 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// # Panics
     /// Panics if the client can't send or receive packets.
     /// For a non-panicking version, use [`try_update`](NetcodeClient::try_update).
-    pub fn update(&mut self, delta_ms: f64, io: &mut Io) {
-        self.try_update(delta_ms, io)
+    pub fn update(&mut self, delta_ms: f64, link: &mut Link) {
+        self.try_update(delta_ms, link)
             .expect("send/recv error while updating client")
     }
 
     /// The fallible version of [`update`](NetcodeClient::update).
     ///
     /// Returns an error if the client can't send or receive packets.
-    pub fn try_update(&mut self, delta_ms: f64, io: &mut Io) -> Result<()> {
+    pub fn try_update(&mut self, delta_ms: f64, link: &mut Link) -> Result<()> {
         self.time += delta_ms;
-        self.recv_packets(io)?;
-        self.send_packets(io)?;
+        dbg!("recv packets");
+        self.recv_packets(link)?;
+        dbg!("send packets");
+        self.send_packets(link)?;
         self.update_state();
         Ok(())
     }
@@ -577,21 +556,20 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// # Example
     /// ```
     /// # use std::net::SocketAddr;
-    /// # use lightyear::connection::netcode::{ConnectToken, NetcodeClient, ClientConfig, ClientState, Server};
     /// # use core::time::Duration;
     /// # use std::thread;
-    /// # use lightyear::connection::netcode::NetcodeServer;
-    /// # use lightyear::prelude::client::{ClientTransport, IoConfig};
+    /// # use lightyear_link::Link;
+    /// # use lightyear_netcode::{NetcodeClient, NetcodeServer};
     /// # let server_addr = SocketAddr::from(([127, 0, 0, 1], 40001));
     /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
     /// # let token_bytes = server.token(0, server_addr).generate().unwrap().try_into_bytes().unwrap();
-    /// # let mut io = IoConfig::from_transport(ClientTransport::Dummy).connect().unwrap();
+    /// # let mut link = Link::new(server_addr);
     /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
     /// client.connect();
     ///
     /// let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
     /// loop {
-    ///     client.update(tick_rate.as_secs_f64() / 1000.0, &mut io);
+    ///     client.update(tick_rate.as_secs_f64() / 1000.0, &mut link);
     ///     if let Some(packet) = client.recv() {
     ///         // ...
     ///     }
@@ -606,7 +584,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// Sends a packet to the server.
     ///
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`].
-    pub fn send(&mut self, buf: &[u8], io: &mut Io) -> Result<()> {
+    pub fn send(&mut self, buf: SendPayload, link: &mut Link) -> Result<()> {
         if self.state != ClientState::Connected {
             trace!("tried to send but not connected");
             return Ok(());
@@ -614,21 +592,20 @@ impl<Ctx> NetcodeClient<Ctx> {
         if buf.len() > MAX_PACKET_SIZE {
             return Err(Error::SizeMismatch(MAX_PACKET_SIZE, buf.len()));
         }
-        self.send_packet(PayloadPacket::create(buf), io)?;
+        self.send_packet(PayloadPacket::create(buf), link)?;
         Ok(())
     }
     /// Disconnects the client from the server.
     ///
     /// The client will send a number of redundant disconnect packets to the server before transitioning to `Disconnected`.
-    pub fn disconnect(&mut self, io: &mut Io) -> Result<()> {
+    pub fn disconnect(&mut self, link: &mut Link) -> Result<()> {
         debug!(
             "client sending {} disconnect packets to server",
             self.cfg.num_disconnect_packets
         );
-        if io.state == IoState::Connected {
-            for _ in 0..self.cfg.num_disconnect_packets {
-                self.send_packet(DisconnectPacket::create(), io)?;
-            }
+        // TODO: do this only if IoState is connected?
+        for _ in 0..self.cfg.num_disconnect_packets {
+            self.send_packet(DisconnectPacket::create(), link)?;
         }
         self.reset(ClientState::Disconnected);
         Ok(())
@@ -657,157 +634,78 @@ impl<Ctx> NetcodeClient<Ctx> {
     }
 }
 
-pub(crate) mod connection {
-    use super::*;
-    use core::result::Result;
 
-    /// Client that can establish a connection to the Server
-    #[derive(Resource)]
-    pub struct Client<Ctx> {
-        pub client: NetcodeClient<Ctx>,
-        pub io_config: IoConfig,
-        pub io: Option<Io>,
-    }
+// TODO: put this test somewhere else
 
-    impl<Ctx: Send + Sync> NetClient for Client<Ctx> {
-        fn connect(&mut self) -> Result<(), ConnectionError> {
-            let io_config = self.io_config.clone();
-            let io = io_config.connect()?;
-            self.io = Some(io);
-            self.client.connect();
-            Ok(())
-        }
-
-        fn disconnect(&mut self) -> Result<(), ConnectionError> {
-            match self.io.as_mut() { Some(io) => {
-                // TODO: add context to errors?
-                self.client.disconnect(io)?;
-                // close and drop the io
-                io.close()?;
-                core::mem::take(&mut self.io);
-            } _ => {
-                self.client.reset(ClientState::Disconnected);
-            }}
-            Ok(())
-        }
-
-        fn state(&self) -> ConnectionState {
-            match self.client.state() {
-                ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse => {
-                    ConnectionState::Connecting
-                }
-                ClientState::Connected => ConnectionState::Connected,
-                _ => ConnectionState::Disconnected {
-                    reason: Some(ConnectionError::NetcodeState(self.client.state)),
-                },
-            }
-        }
-
-        fn try_update(&mut self, delta_ms: f64) -> Result<(), ConnectionError> {
-            let io = self.io.as_mut().ok_or(ConnectionError::IoNotInitialized)?;
-            self.client
-                .try_update(delta_ms, io)
-                .inspect_err(|e| error!("error updating netcode client: {:?}", e))?;
-            Ok(())
-        }
-
-        fn recv(&mut self) -> Option<RecvPayload> {
-            self.client.recv()
-        }
-
-        fn send(&mut self, buf: &[u8]) -> Result<(), ConnectionError> {
-            let io = self.io.as_mut().ok_or(ConnectionError::IoNotInitialized)?;
-            self.client.send(buf, io)?;
-            Ok(())
-        }
-
-        fn id(&self) -> id::ClientId {
-            id::ClientId::Netcode(self.client.id())
-        }
-
-        fn local_addr(&self) -> SocketAddr {
-            self.io.as_ref().map_or(LOCAL_SOCKET, |io| io.local_addr())
-        }
-
-        fn io(&self) -> Option<&Io> {
-            self.io.as_ref()
-        }
-
-        fn io_mut(&mut self) -> Option<&mut Io> {
-            self.io.as_mut()
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[cfg(not(feature = "std"))]
-    use super::*;
-    use crate::client::networking::ClientCommandsExt;
-    use crate::connection::server::ServerConnections;
-    use crate::prelude::client;
-    use crate::prelude::server::{NetServer, ServerCommandsExt};
-    use crate::tests::stepper::BevyStepper;
-    use bevy::prelude::State;
-    use tracing::trace;
-
-    // TODO: investigate why this test is not working!
-    /// Check that if the client disconnects during the handshake, the server
-    /// gets rid of the client connection properly
-    #[test]
-    #[ignore]
-    fn test_client_disconnect_when_failing_handshake() {
-        let mut stepper = BevyStepper::default_no_init();
-
-        stepper.server_app.world_mut().start_server();
-        stepper.client_app.world_mut().connect_client();
-
-        // Wait until the server sees a single client
-        for _ in 0..100 {
-            if !stepper
-                .server_app
-                .world_mut()
-                .resource_mut::<ServerConnections>()
-                .servers[0]
-                .connected_client_ids()
-                .is_empty()
-            {
-                break;
-            }
-            stepper.frame_step();
-        }
-
-        // TODO: how come this is necessary for the client to be able to enter the Disconnecting state?
-        //  if this is commented then the client does not enter Disconnecting state!
-        for _ in 0..30 {
-            stepper.frame_step();
-        }
-
-        trace!(
-            "Client NetworkingState: {:?}",
-            stepper
-                .client_app
-                .world()
-                .resource::<State<client::NetworkingState>>()
-                .get()
-        );
-        // Immediately disconnect the client
-        stepper.client_app.world_mut().disconnect_client();
-
-        // Wait for the client to time out
-        for _ in 0..10000 {
-            stepper.frame_step();
-        }
-
-        // The server should have successfully timed out the client
-        assert_eq!(
-            stepper
-                .server_app
-                .world_mut()
-                .resource_mut::<ServerConnections>()
-                .servers[0]
-                .connected_client_ids(),
-            vec![]
-        );
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     #[cfg(not(feature = "std"))]
+//     use super::*;
+//     use crate::client::networking::ClientCommandsExt;
+//     use crate::prelude::client;
+//     use crate::prelude::server::{NetServer, ServerCommandsExt};
+//     use crate::tests::stepper::BevyStepper;
+//     use bevy::prelude::State;
+//     use lightyear_connection::server::ServerConnections;
+//     use tracing::trace;
+//
+//     // TODO: investigate why this test is not working!
+//     /// Check that if the client disconnects during the handshake, the server
+//     /// gets rid of the client connection properly
+//     #[test]
+//     #[ignore]
+//     fn test_client_disconnect_when_failing_handshake() {
+//         let mut stepper = BevyStepper::default_no_init();
+//
+//         stepper.server_app.world_mut().start_server();
+//         stepper.client_app.world_mut().connect_client();
+//
+//         // Wait until the server sees a single client
+//         for _ in 0..100 {
+//             if !stepper
+//                 .server_app
+//                 .world_mut()
+//                 .resource_mut::<ServerConnections>()
+//                 .servers[0]
+//                 .connected_client_ids()
+//                 .is_empty()
+//             {
+//                 break;
+//             }
+//             stepper.frame_step();
+//         }
+//
+//         // TODO: how come this is necessary for the client to be able to enter the Disconnecting state?
+//         //  if this is commented then the client does not enter Disconnecting state!
+//         for _ in 0..30 {
+//             stepper.frame_step();
+//         }
+//
+//         trace!(
+//             "Client NetworkingState: {:?}",
+//             stepper
+//                 .client_app
+//                 .world()
+//                 .resource::<State<client::NetworkingState>>()
+//                 .get()
+//         );
+//         // Immediately disconnect the client
+//         stepper.client_app.world_mut().disconnect_client();
+//
+//         // Wait for the client to time out
+//         for _ in 0..10000 {
+//             stepper.frame_step();
+//         }
+//
+//         // The server should have successfully timed out the client
+//         assert_eq!(
+//             stepper
+//                 .server_app
+//                 .world_mut()
+//                 .resource_mut::<ServerConnections>()
+//                 .servers[0]
+//                 .connected_client_ids(),
+//             vec![]
+//         );
+//     }
+// }

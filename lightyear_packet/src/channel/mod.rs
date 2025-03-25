@@ -9,7 +9,7 @@ pub(crate) mod senders;
 
 #[cfg(feature = "trace")]
 pub mod stats;
-mod plugin;
+pub(crate) mod plugin;
 pub(crate) mod registry;
 
 

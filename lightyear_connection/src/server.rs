@@ -1,29 +1,39 @@
-use crate::utils::collections::HashMap;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
-use alloc::sync::Arc;
-use bevy::prelude::Resource;
-use core::fmt::Debug;
-use enum_dispatch::enum_dispatch;
-#[cfg(all(feature = "steam", not(target_family = "wasm")))]
-use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "std"))]
-use {
-    alloc::{vec, vec::Vec},
-};
-use core::net::SocketAddr;
+use alloc::{vec, vec::Vec};
+use bevy::ecs::entity::EntitySetIterator;
+use bevy::prelude::{Component, Entity, RelationshipTarget, Resource};
+use core::fmt::Debug;
+use serde::{Deserialize, Serialize};
 
-use crate::connection::id::ClientId;
-#[cfg(all(feature = "steam", not(target_family = "wasm")))]
-use crate::connection::steam::{server::SteamConfig, steamworks_client::SteamworksClient};
-use crate::packet::packet_builder::RecvPayload;
-use crate::prelude::server::ServerTransport;
-#[cfg(all(feature = "steam", not(target_family = "wasm")))]
-use crate::prelude::LinkConditionerConfig;
-use crate::server::config::NetcodeConfig;
-use crate::server::io::Io;
-use crate::transport::config::SharedIoConfig;
+use crate::id::ClientId;
+
+
+#[derive(Component, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(
+    feature = "bevy_reflect",
+    reflect(Component, PartialEq, Debug, FromWorld, Clone)
+)]
+#[relationship(relationship_target = Clients)]
+pub struct ClientOf {
+    /// The server entity that this client is connected to
+    #[relationship]
+    pub server: Entity,
+    /// The client id of the client
+    pub id: ClientId,
+}
+
+#[derive(Component, Default, Debug, PartialEq, Eq)]
+#[relationship_target(relationship = ClientOf, linked_spawn)]
+#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
+#[cfg_attr(feature = "bevy_reflect", reflect(Component, FromWorld, Default))]
+pub struct Clients(Vec<Entity>);
+
+
+#[derive(Component)]
+struct ConnectedOn;
 
 /// Reasons for denying a connection request
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -55,190 +65,11 @@ impl ConnectionRequestHandler for DefaultConnectionRequestHandler {
     }
 }
 
-#[enum_dispatch]
-pub trait NetServer: Send + Sync {
-    /// Start the server
-    /// (i.e. start listening for client connections)
-    fn start(&mut self) -> Result<(), ConnectionError>;
 
-    /// Stop the server
-    /// (i.e. stop listening for client connections and stop all networking)
-    fn stop(&mut self) -> Result<(), ConnectionError>;
+/// A dummy connection plugin that takes payloads directly from the Link
+/// to the Transport without any processing
+pub struct PassthroughClientPlugin;
 
-    // TODO: should we also have an API for accepting a client? i.e. we receive a connection request
-    //  and we decide whether to accept it or not
-    /// Disconnect a specific client
-    /// Is also responsible for adding the client to the list of new disconnections.
-    fn disconnect(&mut self, client_id: ClientId) -> Result<(), ConnectionError>;
-
-    /// Return the list of connected clients
-    fn connected_client_ids(&self) -> Vec<ClientId>;
-
-    /// Update the connection states + internal bookkeeping (keep-alives, etc.)
-    fn try_update(&mut self, delta_ms: f64) -> Result<Vec<ConnectionError>, ConnectionError>;
-
-    /// Receive a packet from one of the connected clients
-    fn recv(&mut self) -> Option<(RecvPayload, ClientId)>;
-
-    /// Send a packet to one of the connected clients
-    fn send(&mut self, buf: &[u8], client_id: ClientId) -> Result<(), ConnectionError>;
-
-    fn new_connections(&self) -> Vec<ClientId>;
-
-    fn new_disconnections(&self) -> Vec<ClientId>;
-
-    /// Returns the client's `SocketAddr` if available
-    fn client_addr(&self, client_id: ClientId) -> Option<SocketAddr>;
-
-    fn io(&self) -> Option<&Io>;
-
-    fn io_mut(&mut self) -> Option<&mut Io>;
-}
-
-#[enum_dispatch(NetServer)]
-pub enum ServerConnection {
-    Netcode(super::netcode::Server),
-    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-    Steam(super::steam::server::Server),
-}
-
-pub type IoConfig = SharedIoConfig<ServerTransport>;
-
-/// Configuration for the server connection
-#[derive(Clone, Debug)]
-pub enum NetConfig {
-    Netcode {
-        config: NetcodeConfig,
-        io: IoConfig,
-    },
-    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-    Steam {
-        steamworks_client: Option<Arc<RwLock<SteamworksClient>>>,
-        config: SteamConfig,
-        conditioner: Option<LinkConditionerConfig>,
-    },
-}
-
-impl NetConfig {
-    /// Update the `accept_connection_request_fn` field in the config
-    pub fn set_connection_request_handler(
-        &mut self,
-        connection_request_handler: Arc<dyn ConnectionRequestHandler>,
-    ) {
-        match self {
-            NetConfig::Netcode { config, .. } => {
-                config.connection_request_handler = connection_request_handler;
-            }
-            #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-            NetConfig::Steam { config, .. } => {
-                config.connection_request_handler = connection_request_handler;
-            }
-        }
-    }
-}
-
-impl Default for NetConfig {
-    fn default() -> Self {
-        NetConfig::Netcode {
-            config: NetcodeConfig::default(),
-            io: IoConfig::default(),
-        }
-    }
-}
-
-impl NetConfig {
-    pub fn build_server(self) -> Result<ServerConnection, ConnectionError> {
-        Ok(match self {
-            NetConfig::Netcode { config, io } => {
-                let server = super::netcode::Server::new(config, io);
-                ServerConnection::Netcode(server)
-            }
-            // TODO: might want to distinguish between steam with direct ip connections
-            //  vs steam with p2p connections
-            #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-            NetConfig::Steam {
-                steamworks_client,
-                config,
-                conditioner,
-            } => {
-                // TODO: handle errors
-                let server = super::steam::server::Server::new(
-                    steamworks_client.unwrap_or_else(|| {
-                        Ok(Arc::new(RwLock::new(
-                            SteamworksClient::new_with_app_id(config.app_id)?,
-                        )))
-                    })?,
-                    config,
-                    conditioner,
-                )?;
-                ServerConnection::Steam(server)
-            }
-        })
-    }
-}
-
-type ServerConnectionIdx = usize;
-
-// TODO: add a way to get the server of a given type?
-/// On the server we allow the use of multiple types of ServerConnection at the same time
-/// This resource holds the list of all the [`ServerConnection`]s, and maps client ids to the index of the server connection in the list
-#[derive(Resource)]
-pub struct ServerConnections {
-    /// list of the various `ServerConnection`s available. Will be static after first insertion.
-    pub(crate) servers: Vec<ServerConnection>,
-    /// Mapping from the connection's [`ClientId`] into the index of the [`ServerConnection`] in the `servers` list
-    pub(crate) client_server_map: HashMap<ClientId, ServerConnectionIdx>,
-}
-
-impl ServerConnections {
-    pub(crate) fn new(config: Vec<NetConfig>) -> Result<Self, ConnectionError> {
-        let mut servers = vec![];
-        for config in config {
-            let server = config.build_server()?;
-            servers.push(server);
-        }
-        Ok(ServerConnections {
-            servers,
-            client_server_map: HashMap::default(),
-        })
-    }
-
-    /// Start listening for client connections on all internal servers
-    pub(crate) fn start(&mut self) -> Result<(), ConnectionError> {
-        for server in &mut self.servers {
-            server.start()?;
-        }
-        Ok(())
-    }
-
-    /// Stop listening for client connections on all internal servers
-    pub(crate) fn stop(&mut self) -> Result<(), ConnectionError> {
-        for server in &mut self.servers {
-            server.stop()?;
-        }
-        Ok(())
-    }
-
-    /// Disconnect a specific client
-    pub(crate) fn disconnect(&mut self, client_id: ClientId) -> Result<(), ConnectionError> {
-        // we can remove the client_id from the client_server_map here
-        // because we send the disconnect packets immediately in Netcode::disconnect
-        self.client_server_map.remove(&client_id).map_or(
-            Err(ConnectionError::ConnectionNotFound),
-            |server_idx| {
-                self.servers[server_idx].disconnect(client_id)?;
-                Ok(())
-            },
-        )
-    }
-
-    /// Returns the client's `SocketAddr` if available
-    pub fn client_addr(&self, client_id: ClientId) -> Option<SocketAddr> {
-        self.client_server_map
-            .get(&client_id)
-            .and_then(|server_idx| self.servers[*server_idx].client_addr(client_id))
-    }
-}
 
 /// Errors related to the server connection
 #[derive(thiserror::Error, Debug)]
@@ -249,29 +80,16 @@ pub enum ConnectionError {
     ConnectionNotFound,
     #[error("the connection type for this client is invalid")]
     InvalidConnectionType,
-    #[error(transparent)]
-    Transport(#[from] crate::transport::error::Error),
-    #[error("netcode error: {0}")]
-    Netcode(#[from] super::netcode::error::Error),
-    #[error(transparent)]
-    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-    SteamInvalidHandle(#[from] steamworks::networking_sockets::InvalidHandle),
-    #[error(transparent)]
-    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-    SteamInitError(#[from] steamworks::SteamAPIInitError),
-    #[error(transparent)]
-    #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-    SteamError(#[from] steamworks::SteamError),
 }
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "std"))]
-    use alloc::vec;
     use crate::connection::server::{NetServer, ServerConnections};
     use crate::prelude::ClientId;
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use crate::transport::LOCAL_SOCKET;
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
 
     // Check that the server can successfully disconnect a client
     // and that there aren't any excessive logs afterwards

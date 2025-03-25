@@ -7,7 +7,9 @@ members = [
   "lightyear_packet",
   "lightyear_connection",
   "lightyear_macros",
+  "lightyear_netcode",
   "lightyear_serde",
+  "lightyear_steam",
   "lightyear_udp",
   "lightyear_utils",
   "lightyear_avian",
@@ -51,10 +53,13 @@ lightyear_avian = { path = "./lightyear_avian", version = "0.19.0", default-feat
 lightyear_examples_common = { path = "./examples/common", default-features = false }
 lightyear = { path = "./lightyear", version = "0.19.0", default-features = false }
 lightyear_macros = { path = "./lightyear_macros", version = "0.19.0", default-features = false}
+lightyear_netcode = { path = "./lightyear_netcode", version = "0.19.0", default-features = false }
+lightyear_connection = { path = "./lightyear_connection", version = "0.19.0", default-features = false }
 lightyear_core = { path = "./lightyear_core", version = "0.19.0", default-features = false }
 lightyear_packet = { path = "./lightyear_packet", version = "0.19.0", default-features = false }
 lightyear_link = { path = "./lightyear_link", version = "0.19.0", default-features = false }
 lightyear_serde = { path = "./lightyear_serde", version = "0.19.0", default-features = false }
+lightyear_steam = { path = "./lightyear_steam", version = "0.19.0", default-features = false }
 lightyear_udp = { path = "./lightyear_udp", version = "0.19.0", default-features = false }
 lightyear_utils = { path = "./lightyear_utils", version = "0.19.0", default-features = false }
 

@@ -16,7 +16,7 @@ use crate::channel::senders::ChannelSenderEnum;
 use crate::channel::stats::send::ChannelSendStats;
 use crate::packet::message::{MessageAck, MessageId};
 use crate::packet::packet::PacketId;
-use crate::packet::packet_builder::PacketBuilder;
+use crate::packet::packet_builder::{PacketBuilder, RecvPayload};
 use crate::packet::priority_manager::PriorityManager;
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::{ComponentHook, ComponentId, ComponentsRegistrator, HookContext, Immutable, RequiredComponents, StorageType};
@@ -30,6 +30,7 @@ use lightyear_utils::collections::HashMap;
 
 use crate::channel::Channel;
 use alloc::collections::VecDeque;
+use lightyear_link::SendPayload;
 use tracing::trace;
 // TODO: hook when you insert ChannelSettings, it creates a ChannelSender and ChannelReceiver component
 
@@ -80,6 +81,9 @@ pub struct Transport {
     /// Map to keep track of which messages have been sent in which packets, so that
     /// reliable senders can stop trying to send a message that has already been received
     pub(crate) packet_to_message_ack_map: HashMap<PacketId, Vec<(ChannelKind, MessageAck)>>,
+
+    pub send: Vec<SendPayload>,
+    pub recv: Vec<RecvPayload>,
 }
 
 type FlushMessagesFn = fn(

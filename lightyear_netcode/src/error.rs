@@ -1,10 +1,8 @@
 use core::array::TryFromSliceError;
-use no_std_io2::io as io;
 use core::net::SocketAddr;
 
+use lightyear_connection::id::ClientId;
 use thiserror::Error;
-
-use crate::prelude::ClientId;
 
 /// The result type for all the public methods that can return an error in this crate.
 pub type Result<T> = core::result::Result<T, Error>;
@@ -55,11 +53,13 @@ pub enum Error {
     #[error("invalid packet: {0}")]
     Packet(#[from] super::packet::Error),
     #[error(transparent)]
-    Io(#[from] io::Error),
+    Io(#[from] no_std_io2::io::Error),
     #[error(transparent)]
-    Transport(#[from] crate::transport::error::Error),
-    #[error("client_id {0} client specific transport error {1}")]
-    ClientTransport(ClientId, crate::transport::error::Error),
-    #[error("address {0} address specific transport error  {1}")]
-    AddressTransport(SocketAddr, crate::transport::error::Error),
+    Connection(#[from] lightyear_connection::client::ConnectionError),
+    // #[error(transparent)]
+    // Transport(#[from] crate::transport::error::Error),
+    // #[error("client_id {0} client specific transport error {1}")]
+    // ClientTransport(ClientId, crate::transport::error::Error),
+    // #[error("address {0} address specific transport error  {1}")]
+    // AddressTransport(SocketAddr, crate::transport::error::Error),
 }

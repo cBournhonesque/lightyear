@@ -43,14 +43,13 @@
   * Provide a private key - a `u8` array of length 32. If you don't have one, you can generate one with `netcode::generate_key()`.
   * Optionally provide a [`ServerConfig`] - a struct that allows you to customize the server's behavior.
 
- ```
-use std::{thread, time::{Instant, Duration}, net::SocketAddr};
-use crate::lightyear::connection::netcode::{generate_key, NetcodeServer, MAX_PACKET_SIZE};
-use lightyear::prelude::server::*;
-use crate::lightyear::transport::io::BaseIo;
+```rust
+# use std::{thread, time::{Instant, Duration}, net::SocketAddr};
+# use lightyear_link::Link;
+# use lightyear_netcode::{generate_key, NetcodeServer};
 
 // Create an io
-let mut io = IoConfig::from_transport(ServerTransport::Dummy).start().unwrap();
+let mut link = Link::new(SocketAddr::from(([127, 0, 0, 1], 12345)));
 
 // Create a server
 let protocol_id = 0x11223344;
@@ -62,7 +61,7 @@ let start = Instant::now();
 let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
 loop {
     let elapsed = start.elapsed().as_secs_f64();
-    server.update(elapsed, &mut io);
+    server.update(elapsed, &mut link);
     while let Some((packet, from)) = server.recv() {
        // ...
     }
@@ -82,13 +81,13 @@ loop {
   * Provide a **connect token** - a `u8` array of length 2048 serialized from a [`ConnectToken`].
   * Optionally provide a [`ClientConfig`] - a struct that allows you to customize the client's behavior.
 
- ```
+```rust
 use std::{thread, time::{Instant, Duration}, net::SocketAddr};
-use lightyear::prelude::client::*;
-use crate::lightyear::connection::netcode::{generate_key, ConnectToken, NetcodeClient, MAX_PACKET_SIZE};
+use lightyear_link::Link;
+use lightyear_netcode::{generate_key, ConnectToken, NetcodeClient};
 
 // Create an io
-let mut io = IoConfig::from_transport(ClientTransport::Dummy).connect().unwrap();
+let mut link = Link::default();
 
 // Generate a connection token for the client
 let protocol_id = 0x11223344;
@@ -109,7 +108,7 @@ let start = Instant::now();
 let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
 loop {
     let elapsed = start.elapsed().as_secs_f64();
-    client.try_update(elapsed, &mut io).ok();
+    client.try_update(elapsed, &mut link).ok();
     if let Some(packet) = client.recv() {
         // ...
     }
@@ -119,10 +118,17 @@ loop {
 ```
 */
 
-pub use client::{connection::Client, ClientConfig, ClientState, NetcodeClient};
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+extern crate core;
+
+pub use client::{ClientConfig, ClientState, NetcodeClient};
+pub use client_plugin::Client;
 pub use crypto::{generate_key, try_generate_key, Key};
 pub use error::{Error, Result};
-pub use server::{connection::Server, Callback, ClientId, NetcodeServer, ServerConfig};
+pub use server::{Callback, ClientId, NetcodeServer, ServerConfig};
+pub use server_plugin::Server;
 pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
 
 mod bytes;
@@ -134,6 +140,11 @@ mod replay;
 mod server;
 mod token;
 mod utils;
+
+pub mod client_plugin;
+
+pub mod server_plugin;
+mod auth;
 
 pub(crate) const MAC_BYTES: usize = 16;
 pub(crate) const MAX_PKT_BUF_SIZE: usize = 1300;
@@ -150,3 +161,6 @@ pub const CONNECT_TOKEN_BYTES: usize = 2048;
 pub const MAX_PACKET_SIZE: usize = 1200;
 /// The version of the netcode protocol implemented by this crate.
 pub const NETCODE_VERSION: &[u8; 13] = b"NETCODE 1.02\0";
+
+
+

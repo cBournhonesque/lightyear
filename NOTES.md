@@ -15,7 +15,7 @@ When we receive:
 When we send:
 - We buffer a message in the Channel
 - the Transport will flush all ready packets into the Link
-- the raw Io takes from the Session and sends it through the network
+- the raw Io takes from the Link and sends it through the network
 
 WITH CONNECTION
 When we receive on client:
@@ -24,6 +24,7 @@ When we receive on client:
     - the connection could be using the Link to get packets (for example Netcode, i.e. which takes
       the buffer from the link)
       or it could just provide the packets from some internal mechanism (for example Steam)
+- we put the packets in the Transport
 
 When we receive on server:
 - we poll any IOs that are linked via ConnectedOn to a ServerConnection, those packets are stored on the Link
@@ -32,11 +33,25 @@ When we receive on server:
   - either it looks at all entities that are ConnectedOn and takes from their Link
 
 When we send:
-- we buffer a message in the Channel (an entity can have multiple channels so you can write to them in parallel). They are distinguished by `Channel<C>`.
-- we Channel will flush all ready packets
+- we buffer a message in the Channel (an entity can have multiple channels so you can write to them in parallel). They are distinguished by `Channel<C>`. (Transport)
+- we Channel will flush all ready packets into the Link
 - for each of these packets, we call Connection::send
   - steam will just buffer them with an internal mechanism
   - Netcode will do extra processing
+
+- we buffer message into the Transport
+- regular system that polls the Transport, identifies messages that are ready to be sent, and puts them in a local buffer on the Transport
+- Connection system:
+  - will take these messages from the Transport, and put them in the Link
+- Io system will take messages from the link and send them through IO
+
+If you just want to send unreliable messages without a connection (i.e. just use Transport + Link without connection), you could also create a DummyConnection
+that just takes the message from the Transport and puts it in the Link.
+
+Systems:
+- the problem is that NetcodeConnection and SteamConnection would look very similar.
+Their systems would: poll the Transport on the entity for any packets ready to send
+
 
 COMPONENTS
 - we store Channel<C> as that's what users buffer messages into.

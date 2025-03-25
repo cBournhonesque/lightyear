@@ -1,11 +1,11 @@
 use no_std_io2::io as io;
 
+use super::{MAC_BYTES, PRIVATE_KEY_BYTES};
 use chacha20poly1305::{
     aead::{rand_core::RngCore, OsRng},
     AeadInPlace, ChaCha20Poly1305, KeyInit, Tag, XChaCha20Poly1305, XNonce,
 };
-use crate::serialize::writer::{WriteInteger};
-use super::{MAC_BYTES, PRIVATE_KEY_BYTES};
+use lightyear_serde::writer::WriteInteger;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -31,7 +31,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 ///
 /// # Example
 /// ```
-/// use crate::lightyear::connection::netcode::generate_key;
+/// use lightyear_netcode::generate_key;
 ///
 /// let key = generate_key();
 /// assert_eq!(key.len(), 32);
@@ -48,7 +48,7 @@ pub fn generate_key() -> Key {
 ///
 /// # Example
 /// ```
-/// use crate::lightyear::connection::netcode::try_generate_key;
+/// use lightyear_netcode::try_generate_key;
 ///
 /// let key = try_generate_key().unwrap();
 /// assert_eq!(key.len(), 32);

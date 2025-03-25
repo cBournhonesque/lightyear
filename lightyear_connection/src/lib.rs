@@ -7,13 +7,24 @@ This crate provides abstractions for managing long-term connections.
 
 extern crate alloc;
 
+use bevy::prelude::SystemSet;
+
 pub mod client;
-pub mod netcode;
 
 pub mod server;
 
 pub mod id;
-mod local;
-#[cfg_attr(docsrs, doc(cfg(all(feature = "steam", not(target_family = "wasm")))))]
-#[cfg(all(feature = "steam", not(target_family = "wasm")))]
-pub mod steam;
+
+
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum ConnectionSet {
+    // PRE UPDATE
+    /// Receive bytes from the Link, process them as Packets and buffer them into the Transport
+    Receive,
+
+    // PostUpdate
+    /// Flush the messages that were buffered into the Transport, process them as Packets and
+    /// buffer them to the Link
+    Send,
+}

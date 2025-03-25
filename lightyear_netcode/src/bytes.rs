@@ -1,5 +1,5 @@
-use crate::serialize::reader::ReadInteger;
-use crate::serialize::writer::{WriteInteger};
+use lightyear_serde::reader::ReadInteger;
+use lightyear_serde::writer::WriteInteger;
 
 pub trait Bytes: Sized {
     const SIZE: usize = core::mem::size_of::<Self>();

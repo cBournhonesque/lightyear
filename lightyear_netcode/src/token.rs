@@ -1,13 +1,3 @@
-use alloc::borrow::ToOwned;
-use core::mem::size_of;
-#[cfg(not(feature = "std"))]
-use alloc::format;
-use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
-use no_std_io2::io::{self, Write};
-use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305, XNonce};
-use thiserror::Error;
-use crate::serialize::reader::ReadInteger;
-use crate::serialize::writer::WriteInteger;
 use super::{
     bytes::Bytes,
     crypto::{self, Key},
@@ -15,7 +5,17 @@ use super::{
     utils, CONNECTION_TIMEOUT_SEC, CONNECT_TOKEN_BYTES, NETCODE_VERSION, PRIVATE_KEY_BYTES,
     USER_DATA_BYTES,
 };
-use crate::utils::free_list::{FreeList, FreeListIter};
+use alloc::borrow::ToOwned;
+#[cfg(not(feature = "std"))]
+use alloc::format;
+use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305, XNonce};
+use core::mem::size_of;
+use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use lightyear_serde::reader::ReadInteger;
+use lightyear_serde::writer::WriteInteger;
+use lightyear_utils::free_list::{FreeList, FreeListIter};
+use no_std_io2::io::{self, Write};
+use thiserror::Error;
 
 
 const MAX_SERVERS_PER_CONNECT: usize = 32;
@@ -279,7 +279,7 @@ impl Bytes for ChallengeToken {
 ///
 /// # Example
 /// ```
-/// use crate::lightyear::connection::netcode::{generate_key, ConnectToken, USER_DATA_BYTES, CONNECT_TOKEN_BYTES};
+/// use lightyear_netcode::{generate_key, ConnectToken, CONNECT_TOKEN_BYTES, USER_DATA_BYTES};
 ///
 /// // mandatory fields
 /// let server_address = "192.168.0.0:12345"; // the server's public address (can also be multiple addresses)
@@ -518,8 +518,8 @@ impl Bytes for ConnectToken {
 
 #[cfg(test)]
 mod tests {
-    use crate::connection::netcode::utils::ToSocketAddrs;
     use super::*;
+    use crate::utils::ToSocketAddrs;
     #[cfg(not(feature = "std"))]
     use alloc::vec::Vec;
 

@@ -1,3 +1,5 @@
+use bevy::asset::AsyncWriteExt;
+use bytes::BytesMut;
 use core::mem::size_of;
 #[cfg(feature = "std")]
 use std::io::{self, Read, Write};
@@ -7,21 +9,14 @@ use {
     no_std_io2::{io, io::{Read, Write}}
 };
 
+use super::{bytes::Bytes, crypto::{self, Key}, error::Error as NetcodeError, replay::ReplayProtection, token::{ChallengeToken, ConnectTokenPrivate}, ClientId, MAC_BYTES, MAX_PKT_BUF_SIZE, NETCODE_VERSION};
 use chacha20poly1305::XNonce;
+use lightyear_connection::server::DeniedReason;
+use lightyear_link::{RecvPayload, SendPayload};
+use lightyear_serde::reader::{ReadInteger, Reader};
+use lightyear_serde::writer::{WriteInteger, Writer};
+use lightyear_serde::{SerializationError, ToBytes};
 use tracing::debug;
-
-use crate::connection::netcode::ClientId;
-use crate::connection::server::DeniedReason;
-use crate::serialize::reader::ReadInteger;
-use crate::serialize::writer::WriteInteger;
-use super::{
-    bytes::Bytes,
-    crypto::{self, Key},
-    error::Error as NetcodeError,
-    replay::ReplayProtection,
-    token::{ChallengeToken, ConnectTokenPrivate},
-    MAC_BYTES, MAX_PKT_BUF_SIZE, NETCODE_VERSION,
-};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -87,7 +82,7 @@ impl RequestPacket {
         expire_timestamp: u64,
         token_nonce: XNonce,
         token_data: [u8; ConnectTokenPrivate::SIZE],
-    ) -> Packet<'static> {
+    ) -> Packet {
         Packet::Request(RequestPacket {
             version_info: *NETCODE_VERSION,
             protocol_id,
@@ -162,7 +157,7 @@ pub struct DeniedPacket {
 }
 
 impl DeniedPacket {
-    pub fn create(reason: DeniedReason) -> Packet<'static> {
+    pub fn create(reason: DeniedReason) -> Packet {
         Packet::Denied(DeniedPacket { reason })
     }
 }
@@ -242,6 +237,23 @@ impl Bytes for DeniedReason {
     }
 }
 
+impl ToBytes for DeniedPacket {
+    fn bytes_len(&self) -> usize {
+        todo!()
+    }
+
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+        todo!()
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized
+    {
+        todo!()
+    }
+}
+
 impl Bytes for DeniedPacket {
     type Error = io::Error;
     fn write_to(&self, writer: &mut impl WriteInteger) -> Result<(), Self::Error> {
@@ -261,7 +273,7 @@ pub struct ChallengePacket {
 }
 
 impl ChallengePacket {
-    pub fn create(sequence: u64, token_bytes: [u8; ChallengeToken::SIZE]) -> Packet<'static> {
+    pub fn create(sequence: u64, token_bytes: [u8; ChallengeToken::SIZE]) -> Packet {
         Packet::Challenge(ChallengePacket {
             sequence,
             token: token_bytes,
@@ -291,7 +303,7 @@ pub struct ResponsePacket {
 }
 
 impl ResponsePacket {
-    pub fn create(sequence: u64, token_bytes: [u8; ChallengeToken::SIZE]) -> Packet<'static> {
+    pub fn create(sequence: u64, token_bytes: [u8; ChallengeToken::SIZE]) -> Packet {
         Packet::Response(ResponsePacket {
             sequence,
             token: token_bytes,
@@ -320,7 +332,7 @@ pub struct KeepAlivePacket {
 }
 
 impl KeepAlivePacket {
-    pub fn create(client_id: ClientId) -> Packet<'static> {
+    pub fn create(client_id: ClientId) -> Packet {
         Packet::KeepAlive(KeepAlivePacket { client_id })
     }
 }
@@ -338,12 +350,12 @@ impl Bytes for KeepAlivePacket {
     }
 }
 
-pub struct PayloadPacket<'p> {
-    pub buf: &'p [u8],
+pub struct PayloadPacket {
+    pub buf: SendPayload,
 }
 
-impl PayloadPacket<'_> {
-    pub fn create(buf: &[u8]) -> Packet {
+impl PayloadPacket {
+    pub fn create(buf: SendPayload) -> Packet {
         Packet::Payload(PayloadPacket { buf })
     }
 }
@@ -351,7 +363,7 @@ impl PayloadPacket<'_> {
 pub struct DisconnectPacket {}
 
 impl DisconnectPacket {
-    pub fn create() -> Packet<'static> {
+    pub fn create() -> Packet {
         Packet::Disconnect(Self {})
     }
 }
@@ -367,17 +379,17 @@ impl Bytes for DisconnectPacket {
     }
 }
 
-pub enum Packet<'p> {
+pub enum Packet {
     Request(RequestPacket),
     Denied(DeniedPacket),
     Challenge(ChallengePacket),
     Response(ResponsePacket),
     KeepAlive(KeepAlivePacket),
-    Payload(PayloadPacket<'p>),
+    Payload(PayloadPacket),
     Disconnect(DisconnectPacket),
 }
 
-impl core::fmt::Display for Packet<'_> {
+impl core::fmt::Display for Packet {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Packet::Request(_) => write!(f, "connection request"),
@@ -393,7 +405,7 @@ impl core::fmt::Display for Packet<'_> {
 
 pub type PacketKind = u8;
 
-impl<'p> Packet<'p> {
+impl Packet {
     pub const REQUEST: PacketKind = 0;
     pub const DENIED: PacketKind = 1;
     pub const CHALLENGE: PacketKind = 2;
@@ -473,13 +485,13 @@ impl<'p> Packet<'p> {
         Ok(encryption_end)
     }
     pub fn read(
-        buf: &'p mut [u8], // buffer needs to be mutable to perform decryption in-place
+        mut buf: RecvPayload, // buffer needs to be mutable to perform decryption in-place
         protocol_id: u64,
         timestamp: u64,
         key: Key,
         replay_protection: Option<&mut ReplayProtection>,
         allowed_packets: u8,
-    ) -> Result<Packet<'p>, NetcodeError> {
+    ) -> Result<Packet, NetcodeError> {
         let buf_len = buf.len();
         if buf_len < 1 {
             return Err(Error::TooSmall.into());
@@ -487,7 +499,7 @@ impl<'p> Packet<'p> {
         if buf_len > MAX_PKT_BUF_SIZE {
             return Err(Error::TooLarge.into());
         }
-        let mut cursor = io::Cursor::new(&mut buf[..]);
+        let mut cursor = io::Cursor::new(buf);
         let prefix_byte = cursor.read_u8()?;
         let (sequence_len, pkt_kind) = Packet::get_prefix(prefix_byte);
         if allowed_packets & (1 << pkt_kind) == 0 {
@@ -514,15 +526,19 @@ impl<'p> Packet<'p> {
         }
 
         let decryption_start = cursor.position() as usize;
-        let decryption_end = buf_len;
+
+        // suffix starts at `decryption_start`
+        // this should not make a copy since we should only have one owner of the bytes
+        let mut suffix  = BytesMut::from(cursor.into_inner().split_off(decryption_start));
         crypto::chacha_decrypt(
-            &mut cursor.get_mut()[decryption_start..decryption_end],
+            suffix.as_mut(),
             Some(&Packet::aead(protocol_id, prefix_byte)?),
             sequence,
             &key,
         )?;
-        // make sure cursor position is at the start of the decrypted data, so we can read it into a valid packet
-        cursor.set_position(decryption_start as u64);
+
+        // remove the last
+        let mut cursor = io::Cursor::new(suffix.freeze());
 
         if let Some(replay_protection) = replay_protection {
             if pkt_kind >= Packet::KEEP_ALIVE {
@@ -538,9 +554,10 @@ impl<'p> Packet<'p> {
             Packet::KEEP_ALIVE => Packet::KeepAlive(KeepAlivePacket::read_from(&mut cursor)?),
             Packet::DISCONNECT => Packet::Disconnect(DisconnectPacket::read_from(&mut cursor)?),
             Packet::PAYLOAD => {
-                buf.copy_within(decryption_start..(decryption_end - MAC_BYTES), 0);
+                let mut buf = cursor.into_inner();
+                buf.truncate(buf.len() - MAC_BYTES);
                 Packet::Payload(PayloadPacket {
-                    buf: &buf[..decryption_end - decryption_start - MAC_BYTES],
+                    buf,
                 })
             }
             t => return Err(Error::InvalidType(t).into()),
@@ -557,13 +574,14 @@ pub fn sequence_len(sequence: u64) -> u8 {
 mod tests {
     use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305};
 
-    use crate::connection::netcode::{
+    use crate::{
         crypto::generate_key, token::AddressList, MAX_PACKET_SIZE, USER_DATA_BYTES,
     };
 
+    use super::*;
     #[cfg(not(feature = "std"))]
     use alloc::vec::Vec;
-    use super::*;
+    use lightyear_connection::server::DeniedReason;
 
     #[test]
     fn sequence_number_bytes_required() {
@@ -620,13 +638,13 @@ mod tests {
             token_data: Box::new(token_data),
         });
 
-        let mut buf = [0u8; MAX_PACKET_SIZE];
+        let mut buf = Writer::from([0; MAX_PACKET_SIZE]);
         let size = packet
-            .write(&mut buf, sequence, &packet_key, protocol_id)
+            .write(buf.as_mut(), sequence, &packet_key, protocol_id)
             .unwrap();
 
         let packet = Packet::read(
-            &mut buf[..size],
+            buf.split_to(size),
             protocol_id,
             0,
             private_key,
@@ -669,13 +687,13 @@ mod tests {
             reason: DeniedReason::Custom(String::from("a")),
         });
 
-        let mut buf = [0u8; MAX_PKT_BUF_SIZE];
+        let mut buf = Writer::from([0; MAX_PKT_BUF_SIZE]);
         let size = packet
-            .write(&mut buf, sequence, &packet_key, protocol_id)
+            .write(buf.as_mut(), sequence, &packet_key, protocol_id)
             .unwrap();
 
         let packet = Packet::read(
-            &mut buf[..size],
+            buf.split_to(size),
             protocol_id,
             0,
             packet_key,
@@ -701,13 +719,13 @@ mod tests {
             reason: DeniedReason::ServerFull,
         });
 
-        let mut buf = [0u8; MAX_PKT_BUF_SIZE];
+        let mut buf = Writer::from([0; MAX_PKT_BUF_SIZE]);
         let size = packet
-            .write(&mut buf, sequence, &packet_key, protocol_id)
+            .write(buf.as_mut(), sequence, &packet_key, protocol_id)
             .unwrap();
 
         let packet = Packet::read(
-            &mut buf[..size],
+            buf.split_to(size),
             protocol_id,
             0,
             packet_key,
@@ -732,13 +750,13 @@ mod tests {
 
         let packet = Packet::Challenge(ChallengePacket { sequence, token });
 
-        let mut buf = [0u8; MAX_PKT_BUF_SIZE];
+        let mut buf = Writer::from([0; MAX_PKT_BUF_SIZE]);
         let size = packet
-            .write(&mut buf, sequence, &packet_key, protocol_id)
+            .write(buf.as_mut(), sequence, &packet_key, protocol_id)
             .unwrap();
 
         let packet = Packet::read(
-            &mut buf[..size],
+            buf.split_to(size),
             protocol_id,
             0,
             packet_key,
@@ -765,13 +783,13 @@ mod tests {
 
         let packet = Packet::KeepAlive(KeepAlivePacket { client_id });
 
-        let mut buf = [0u8; MAX_PKT_BUF_SIZE];
+        let mut buf = Writer::from([0; MAX_PKT_BUF_SIZE]);
         let size = packet
-            .write(&mut buf, sequence, &packet_key, protocol_id)
+            .write(buf.as_mut(), sequence, &packet_key, protocol_id)
             .unwrap();
 
         let packet = Packet::read(
-            &mut buf[..size],
+            buf.split_to(size),
             protocol_id,
             0,
             packet_key,
@@ -796,13 +814,14 @@ mod tests {
 
         let packet = Packet::Disconnect(DisconnectPacket {});
 
-        let mut buf = [0u8; MAX_PKT_BUF_SIZE];
+        let mut buf = Writer::from([0; MAX_PKT_BUF_SIZE]);
         let size = packet
-            .write(&mut buf, sequence, &packet_key, protocol_id)
+            .write(buf.as_mut(), sequence, &packet_key, protocol_id)
             .unwrap();
 
+        let received = buf.split_to(size);
         let packet = Packet::read(
-            &mut buf[..size],
+            received,
             protocol_id,
             0,
             packet_key,
@@ -823,16 +842,16 @@ mod tests {
         let sequence = 0u64;
         let mut replay_protection = ReplayProtection::new();
 
-        let payload = vec![0u8; 100];
-        let packet = Packet::Payload(PayloadPacket { buf: &payload });
+        let payload = bytes::Bytes::from(vec![0u8; 100]);
+        let packet = Packet::Payload(PayloadPacket { buf: payload });
 
-        let mut buf = [0u8; MAX_PACKET_SIZE];
+        let mut writer = Writer::from([0; MAX_PACKET_SIZE]);
         let size = packet
-            .write(&mut buf, sequence, &packet_key, protocol_id)
+            .write(writer.as_mut(), sequence, &packet_key, protocol_id)
             .unwrap();
 
         let packet = Packet::read(
-            &mut buf[..size],
+            writer.split_to(size),
             protocol_id,
             0,
             packet_key,

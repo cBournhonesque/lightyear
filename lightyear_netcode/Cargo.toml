@@ -1,5 +1,5 @@
 [package]
-name = "lightyear_connection"
+name = "lightyear_netcode"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -10,16 +10,29 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = ["lightyear_link/std", "lightyear_packet/std"]
+std = [
+    "lightyear_link/std",
+    "lightyear_packet/std",
+    "lightyear_serde/std",
+    "no_std_io2/std",
+      "bytes/std",
+      "chacha20poly1305/std",
+]
 
 [dependencies]
 # local crates
+lightyear_connection.workspace = true
+lightyear_core.workspace = true
 lightyear_link.workspace = true
 lightyear_packet.workspace = true
 lightyear_serde.workspace = true
+lightyear_utils.workspace = true
 
 # bevy
 bevy.workspace = true
+
+# no_std
+no_std_io2.workspace = true
 
 # utils
 anyhow.workspace = true
@@ -29,6 +42,7 @@ hashbrown.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+rand.workspace = true
 chacha20poly1305.workspace = true
 
 [lints]

@@ -13,8 +13,11 @@ pub(crate) mod channel;
 mod packet;
 
 
+
+
 pub mod prelude {
-    pub use crate::channel::builder::{ChannelMode, ChannelSettings};
+    pub use crate::channel::builder::{ChannelMode, ChannelSettings, Transport};
+    pub use crate::channel::plugin::TransportSet;
     pub use crate::channel::registry::ChannelRegistry;
     pub use crate::channel::Channel;
 

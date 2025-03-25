@@ -9,7 +9,7 @@ extern crate alloc;
 pub(crate) mod _internal {
 }
 
-pub(crate) mod free_list;
+pub mod free_list;
 
 pub mod ready_buffer;
 

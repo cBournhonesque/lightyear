@@ -24,6 +24,7 @@ pub(crate) const MTU: usize = 1472;
 #[derive(Component)]
 pub struct UdpIo {
     local_addr: SocketAddr,
+    // TODO: add possibility to set the remote addr
     sender: UdpSocketBuffer,
     receiver: UdpSocketBuffer,
 }

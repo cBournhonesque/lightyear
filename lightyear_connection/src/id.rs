@@ -1,10 +1,10 @@
 //! Module to handle the various possible ClientIds
-use crate::serialize::reader::{ReadInteger, Reader};
-use crate::serialize::{SerializationError, ToBytes};
 use bevy::reflect::Reflect;
 use core::fmt::Formatter;
+use lightyear_serde::reader::{ReadInteger, Reader};
+use lightyear_serde::writer::WriteInteger;
+use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
-use crate::serialize::writer::WriteInteger;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum ClientId {
@@ -17,6 +17,14 @@ pub enum ClientId {
     /// Refers to the server
     Server,
 }
+
+// We implement this simply because it's required for ClientOf to be a Relationship
+impl Default for ClientId {
+    fn default() -> Self {
+        ClientId::Netcode(0)
+    }
+}
+
 
 impl ToBytes for ClientId {
     fn bytes_len(&self) -> usize {
