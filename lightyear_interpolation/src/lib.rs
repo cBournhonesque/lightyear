@@ -24,6 +24,7 @@ pub use visual_interpolation::{VisualInterpolateStatus, VisualInterpolationPlugi
 
 use crate::client::components::LerpFn;
 use crate::client::interpolation::resource::InterpolationManager;
+use crate::resource::InterpolationManager;
 
 mod despawn;
 pub mod interpolate;

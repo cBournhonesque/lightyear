@@ -182,6 +182,49 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 
 extern crate alloc;
 
+// LAYERS
+// - IO: low-level IO primitives
+//   - Implementations: UDP, WebTransport, Channels
+// - Link: IO-agnostic send/recv bytes between 2 peers
+// - Transport: adds the concept of channels, fragmentation, reliability,
+//        packet acks, etc. Still deals with raw bytes (i.e. send these
+//        raw bytes on this channel)
+// - Messages: adds the concept of Messages that can be serialized
+//             and then sent on the Transport (or the Link directly)
+// - Connection: add primitives for long-running sessions on top of a Link and Transport
+//      Deals with Connection/Disconnection/etc.
+//     - Implementations: Netcode (uses Link), Steam (Doesn't use Link)
+//      - TODO: i don't like that connection apis interact with Transport. Ultimately
+//          they should just interact with Link, no? Or we could have a dummy Transport
+//          that is just a 1-1 mapping with Link?
+//
+// - Inputs: input-buffer, action-state, how to serialize them
+//  - Implementations: Leafwing, Native
+//
+// - Utils: data structures (HistoryBuffer, FreeList, ReadyBuffer, etc.)
+//
+// - Replication: how to replicate entities and components, ReplicationGroups, etc.
+//
+// - Core: shared types (WrappedTime, Tick, etc.)
+//
+// CLIENT ONLY
+// - Prediction: pre-prediction, prespawning, etc.
+// - Interpolation:
+// - VisualInterpolation
+//
+// SERVER ONLY
+// - Relevance: how to determine which entities to replicate to which clients
+//   TODO: make it agnostic to client or server? That way we can support any topology?
+//
+// - Client: client-side primitives (interacts with everything else)
+// - Server: server-side primitives
+// - Shared: shared primitives
+//
+// - Tests: test framework
+
+
+
+
 
 /// Prelude containing commonly used types
 pub mod prelude {

@@ -8,7 +8,8 @@ This crate provides abstractions for sending and receiving raw bytes over the ne
 extern crate alloc;
 
 mod registry;
-
+mod plugin;
+mod entity_map;
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
 /// A [`Message`] is basically any type that can be (de)serialized over the network.

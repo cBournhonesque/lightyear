@@ -11,9 +11,7 @@ extern crate alloc;
 pub mod channel;
 
 pub mod packet;
-
-
-
+pub mod entity_map;
 
 pub mod prelude {
     pub use crate::channel::builder::{ChannelMode, ChannelSettings, Transport};

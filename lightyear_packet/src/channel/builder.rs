@@ -29,8 +29,10 @@ use lightyear_serde::SerializationError;
 use lightyear_utils::collections::HashMap;
 
 use crate::channel::Channel;
+use crate::entity_map::SendEntityMap;
 use alloc::collections::VecDeque;
 use lightyear_link::SendPayload;
+use lightyear_serde::writer::Writer;
 use tracing::trace;
 // TODO: hook when you insert ChannelSettings, it creates a ChannelSender and ChannelReceiver component
 
@@ -66,8 +68,12 @@ impl Default for ChannelSettings {
 pub struct ChannelSender<C> {
     pub sender: ChannelSenderEnum,
     pub channel_id: ChannelId,
+    pub writer: Writer,
     marker: std::marker::PhantomData<C>,
 }
+
+
+
 
 /// Holds information about all the channels present on the entity.
 #[derive(Component, Default)]
@@ -82,6 +88,7 @@ pub struct Transport {
     /// reliable senders can stop trying to send a message that has already been received
     pub(crate) packet_to_message_ack_map: HashMap<PacketId, Vec<(ChannelKind, MessageAck)>>,
 
+    pub send_mapper: SendEntityMap,
     pub send: Vec<SendPayload>,
     pub recv: Vec<RecvPayload>,
 }
