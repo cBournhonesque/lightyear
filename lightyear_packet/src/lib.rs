@@ -8,9 +8,9 @@ This crate builds up on top of lightyear-io, to add packet fragmentation, channe
 extern crate alloc;
 
 
-pub(crate) mod channel;
+pub mod channel;
 
-mod packet;
+pub mod packet;
 
 
 

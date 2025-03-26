@@ -1,3 +1,7 @@
+# Messages
+
+- Should MessageRegistry be stored on the Transport?
+
 # Refactoring
 
 - Io: raw io (channels, WebTransport, Websocket)

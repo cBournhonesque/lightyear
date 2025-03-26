@@ -1,0 +1,184 @@
+[package]
+name = "lightyear_new"
+version.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+description = "Server-client networking library for the Bevy game engine with modular architecture"
+readme = "../README.md"
+repository = "https://github.com/cBournhonesque/lightyear"
+keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
+categories = ["game-development", "network-programming"]
+license.workspace = true
+exclude = ["/tests"]
+publish = true
+
+[features]
+default = ["std"]
+std = [
+  "bevy/std",
+  # needed for bevy_transform parallel
+  "bevy/async_executor",
+  "serde/std",
+  "bincode/std",
+  "bytes/std",
+  "chacha20poly1305/std",
+  "no_std_io2/std",
+]
+trace = []
+metrics = [
+  "dep:metrics",
+  "dep:metrics-util",
+  "dep:metrics-tracing-context",
+  "dep:metrics-exporter-prometheus",
+]
+visualizer = ["dep:bevy_metrics_dashboard", "metrics"]
+mock_time = ["dep:mock_instant"]
+webtransport = [
+  "std",
+  "dep:wtransport",
+  "dep:xwt-core",
+  "dep:xwt-web",
+  "dep:web-sys",
+  "dep:wasm-bindgen-futures",
+]
+leafwing = ["dep:leafwing-input-manager"]
+# NOTE: because lightyear doesn't enable any features of avian by default, your crate must
+#       enable essential features (like f32 or f64).
+avian2d = ["dep:avian2d"]
+avian3d = ["dep:avian3d", "avian3d/3d"]
+udp = ["std"]
+websocket = [
+  "std",
+  "dep:tokio-tungstenite",
+  "dep:futures-util",
+  "dep:web-sys",
+  "dep:wasm-bindgen",
+  "dep:wasm-bindgen-futures",
+]
+steam = ["dep:steamworks", "std"]
+track_location = ["bevy/track_location"]
+
+# compression
+lz4 = ["dep:lz4_flex"]
+zstd = ["dep:zstd"]
+
+[dependencies]
+# local crates
+lightyear_macros.workspace = true
+lightyear_connection.workspace = true
+lightyear_core.workspace = true
+lightyear_link.workspace = true
+lightyear_packet.workspace = true
+lightyear_serde.workspace = true
+lightyear_utils.workspace = true
+
+# utils
+chrono.workspace = true
+cfg-if.workspace = true
+enum_dispatch.workspace = true
+governor.workspace = true
+hashbrown.workspace = true
+mock_instant = { workspace = true, optional = true }
+nonzero_ext.workspace = true
+parking_lot.workspace = true
+paste.workspace = true
+rand.workspace = true
+ringbuffer.workspace = true
+thiserror.workspace = true
+seahash.workspace = true
+smallvec.workspace = true
+variadics_please.workspace = true
+
+# no_std
+# TODO: only enable in no_std
+no_std_io2.workspace = true
+
+# input
+leafwing-input-manager = { workspace = true, optional = true }
+
+# physics
+avian2d = { workspace = true, optional = true }
+avian3d = { workspace = true, optional = true }
+
+# serialization
+bincode.workspace = true
+bytes.workspace = true
+self_cell.workspace = true
+serde.workspace = true
+
+# netcode
+chacha20poly1305.workspace = true
+
+# tracing
+tracing.workspace = true
+
+
+# server
+crossbeam-channel.workspace = true
+
+# metrics
+metrics = { workspace = true, optional = true }
+metrics-util = { workspace = true, optional = true }
+metrics-tracing-context = { workspace = true, optional = true }
+metrics-exporter-prometheus = { workspace = true, optional = true }
+
+# debug ui
+bevy_egui = { workspace = true, optional = true }
+bevy_metrics_dashboard = { workspace = true, optional = true }
+
+# bevy
+bevy.workspace = true
+
+# compression
+lz4_flex = { workspace = true, optional = true }
+
+# WebSocket
+futures-util = { workspace = true, optional = true }
+
+# transport
+# we don't need any tokio features, we use only use the tokio channels
+# except for tests, which need tokio::time (see [dev-dependencies])
+tokio.workspace = true
+futures.workspace = true
+async-compat.workspace = true
+async-channel.workspace = true
+
+[target."cfg(not(target_family = \"wasm\"))".dependencies]
+steamworks = { workspace = true, optional = true }
+quinn = { workspace = true, optional = true }
+quinn-proto = { workspace = true, optional = true }
+wtransport = { workspace = true, optional = true }
+tokio-tungstenite = { workspace = true, optional = true }
+zstd = { workspace = true, optional = true }
+
+[target."cfg(target_family = \"wasm\")".dependencies]
+console_error_panic_hook.workspace = true
+web-sys = { workspace = true, optional = true }
+bevy_web_keepalive.workspace = true
+futures-lite = { workspace = true, optional = true }
+getrandom.workspace = true
+xwt-core = { workspace = true, optional = true }
+xwt-web = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+wasm-bindgen-futures = { workspace = true, optional = true }
+zstd = { workspace = true, optional = true, features = ["wasm"] }
+
+
+[dev-dependencies]
+wasm-bindgen-test.workspace = true
+mock_instant.workspace = true
+tracing-subscriber.workspace = true
+bitvec.workspace = true
+approx.workspace = true
+leafwing-input-manager.workspace = true
+# tokio::time needed for tests (tests build with dev-dependencies)
+tokio = { workspace = true, features = ["time"] }
+
+# docs.rs-specific configuration
+[package.metadata.docs.rs]
+# we cannot use all-features = true, because we need to provide additional features for avian
+# when building the docs
+# NOTE: building docs.rs doesn't work if I include avian
+features = ["metrics", "udp", "webtransport", "leafwing", "websocket", "steam", "zstd"]
+rustdoc-args = ["--cfg", "docsrs"]

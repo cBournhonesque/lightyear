@@ -506,7 +506,7 @@ impl<Ctx> NetcodeClient<Ctx> {
 
     /// Prepares the client to connect to the server.
     ///
-    /// This function does not perform any IO, it only readies the client to send/receive packets on the next call to [`update`](NetcodeClient::update). <br>
+    /// This function does not perform any IO, it only readies the client to send/receive packets on the next call to [`update`](NetcodeClient::update).
     pub fn connect(&mut self) {
         self.reset_connection();
         self.set_state(ClientState::SendingConnectionRequest);

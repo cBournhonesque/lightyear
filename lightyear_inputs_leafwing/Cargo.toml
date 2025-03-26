@@ -1,0 +1,35 @@
+[package]
+name = "lightyear_inputs_leafwing"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "IO primitives for the lightyear networking library"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = ["std"]
+std = [
+    "bevy/std",
+    "bytes/std",
+    "serde/std",
+]
+
+[dependencies]
+lightyear_utils.workspace = true
+lightyear_serde.workspace = true
+lightyear_core.workspace = true
+
+# utils
+tracing.workspace = true
+
+# serde
+serde.workspace = true
+bytes.workspace = true
+
+# bevy
+bevy.workspace = true
+
+[lints]
+workspace = true

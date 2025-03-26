@@ -31,7 +31,7 @@ impl<K: TypeKind> TypeMapper<K> {
     }
 
     /// Register a new type
-    pub fn add<T: 'static>(&mut self) -> (K, NetId) {
+    pub fn add<T: 'static>(&mut self) -> K {
         let kind = K::from(TypeId::of::<T>());
         if self.kind_map.contains_key(&kind) {
             panic!("Type {:?} already registered", core::any::type_name::<T>());

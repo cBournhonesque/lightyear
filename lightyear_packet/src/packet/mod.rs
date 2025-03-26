@@ -30,7 +30,7 @@ pub(crate) mod message;
 #[allow(clippy::module_inception)]
 pub mod packet;
 
-pub(crate) mod error;
+pub mod error;
 /// Manages building a single [`Packet`](packet::Packet) from multiple [`Messages`](message::Message)
 pub(crate) mod packet_builder;
 /// Defines the [`PacketType`](packet_type::PacketType) enum

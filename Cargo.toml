@@ -2,14 +2,26 @@
 resolver = "2"
 members = [
   "lightyear",
+  "lightyear_new",
+  "lightyear_client",
   "lightyear_core",
+  "lightyear_inputs",
+  "lightyear_inputs_leafwing",
+  "lightyear_inputs_native",
+  "lightyear_interpolation",
   "lightyear_link",
   "lightyear_packet",
   "lightyear_connection",
   "lightyear_macros",
+  "lightyear_messages",
   "lightyear_netcode",
+  "lightyear_prediction",
+  "lightyear_replication",
+  "lightyear_shared",
   "lightyear_serde",
+  "lightyear_server",
   "lightyear_steam",
+  "lightyear_tests",
   "lightyear_udp",
   "lightyear_utils",
   "lightyear_avian",
@@ -56,8 +68,15 @@ lightyear_macros = { path = "./lightyear_macros", version = "0.19.0", default-fe
 lightyear_netcode = { path = "./lightyear_netcode", version = "0.19.0", default-features = false }
 lightyear_connection = { path = "./lightyear_connection", version = "0.19.0", default-features = false }
 lightyear_core = { path = "./lightyear_core", version = "0.19.0", default-features = false }
+lightyear_inputs = { path = "./lightyear_inputs", version = "0.19.0", default-features = false }
+lightyear_inputs_leafwing = { path = "./lightyear_inputs_leafwing", version = "0.19.0", default-features = false }
+lightyear_inputs_native = { path = "./lightyear_inputs_native", version = "0.19.0", default-features = false }
+lightyear_interpolation = { path = "./lightyear_interpolation", version = "0.19.0", default-features = false }
+lightyear_messages = { path = "./lightyear_messages", version = "0.19.0", default-features = false }
 lightyear_packet = { path = "./lightyear_packet", version = "0.19.0", default-features = false }
+lightyear_prediction = { path = "./lightyear_prediction", version = "0.19.0", default-features = false }
 lightyear_link = { path = "./lightyear_link", version = "0.19.0", default-features = false }
+lightyear_replication = { path = "./lightyear_replication", version = "0.19.0", default-features = false }
 lightyear_serde = { path = "./lightyear_serde", version = "0.19.0", default-features = false }
 lightyear_steam = { path = "./lightyear_steam", version = "0.19.0", default-features = false }
 lightyear_udp = { path = "./lightyear_udp", version = "0.19.0", default-features = false }

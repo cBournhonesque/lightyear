@@ -14,8 +14,7 @@ pub mod client;
 pub mod server;
 
 pub mod id;
-
-
+pub mod network_target;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ConnectionSet {
