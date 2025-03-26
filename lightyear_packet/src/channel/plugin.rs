@@ -236,3 +236,18 @@ impl Plugin for ChannelsPlugin {
 }
 
 
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_plugin() {
+        let mut app = App::new();
+        // app.world_mut().spawn((Link::default(), Transport:))
+
+
+    }
+
+}

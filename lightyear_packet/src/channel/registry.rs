@@ -56,8 +56,9 @@ impl From<TypeId> for ChannelKind {
 ///
 #[derive(Resource, Default, Clone, Debug, PartialEq, TypePath)]
 pub struct ChannelRegistry {
+    /// Used for efficient iteration
     pub(crate) sender_ids: Vec<ComponentId>,
-    settings_map: HashMap<ChannelKind, ChannelSettings>,
+    settings_map: HashMap<ChannelKind, (ChannelSettings, ComponentId)>,
     kind_map: TypeMapper<ChannelKind>,
     built: bool,
 }
@@ -81,12 +82,12 @@ impl ChannelRegistry {
 
     pub(crate) fn settings<C: Channel>(&self) -> Option<&ChannelSettings> {
         let kind = ChannelKind::of::<C>();
-        self.settings_map.get(&kind)
+        self.settings_map.get(&kind).map(|(settings, _)| settings)
     }
 
     pub(crate) fn settings_from_net_id(&self, net_id: NetId) -> Option<&ChannelSettings> {
         let kind = self.kind_map.kind(net_id)?;
-        self.settings_map.get(kind)
+        self.settings_map.get(kind).map(|(settings, _)| settings)
     }
 
     /// Returns true if the net_id corresponds to a channel that is used for replication
@@ -115,8 +116,14 @@ impl ChannelRegistry {
             return (kind, *net_id);
         }
         self.sender_ids.push(sender_id);
-        self.settings_map.insert(kind, settings);
-        self.kind_map.add::<C>()
+        self.settings_map.insert(kind, (settings, sender_id));
+        let kind = self.kind_map.add::<C>();
+        let net_id = self.get_net_from_kind(&kind).unwrap();
+        (kind, *net_id)
+    }
+
+    pub(crate) fn get_sender_id<C: Channel>(&self) -> Option<ComponentId> {
+        self.settings_map.get(&ChannelKind::of::<C>()).map(|(_, sender_id)| *sender_id)
     }
 
 

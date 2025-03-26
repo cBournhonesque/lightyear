@@ -65,14 +65,27 @@ impl Default for ChannelSettings {
 /// We create a separate component per channel so that users can buffer messages to one channel
 /// without losing parallelism over the other channels.
 #[derive(Component)]
-pub struct ChannelSender<C> {
+#[require(Transport)]
+// TODO: add on_remove or on_replace hooks?
+#[component(on_add = on_add::<C>)]
+pub struct ChannelSender<C: Channel> {
     pub sender: ChannelSenderEnum,
     pub channel_id: ChannelId,
     pub writer: Writer,
     marker: std::marker::PhantomData<C>,
 }
 
-
+// The user will just provide the Default ChannelSender and we will use the registry to overwrite it with the correct sender
+impl<C: Channel> Default for ChannelSender<C> {
+    fn default() -> Self {
+        Self {
+            sender: ChannelSenderEnum::UnorderedUnreliable(UnorderedUnreliableSender::new(Duration::default())),
+            channel_id: ChannelId::default(),
+            writer: Writer::default(),
+            marker: std::marker::PhantomData,
+        }
+    }
+}
 
 
 /// Holds information about all the channels present on the entity.
@@ -127,7 +140,7 @@ pub(crate) struct SenderMetadata {
 impl SenderMetadata {
     /// Flush packets from the ChannelSender<C> component to the actual
     /// ChannelSenderEnum
-    fn flush_packets<C>(
+    fn flush_packets<C: Channel>(
         // TODO: ideally we would pass Transport here but split borrow issues
         priority_manager: &mut PriorityManager,
         sender: MutUntyped,
@@ -140,14 +153,14 @@ impl SenderMetadata {
         }
     }
 
-    fn receive_ack<C>(sender: MutUntyped, message_ack: MessageAck) {
+    fn receive_ack<C: Channel>(sender: MutUntyped, message_ack: MessageAck) {
         let mut sender = unsafe { sender.with_type::<ChannelSender<C>>() };
         sender.sender.receive_ack(&message_ack);
     }
 }
 
 
-impl<C> ChannelSender<C> {
+impl<C: Channel> ChannelSender<C> {
     /// Buffer a message to be sent on this channel
     pub fn buffer_with_priority(
         &mut self,
@@ -164,81 +177,104 @@ impl<C> ChannelSender<C> {
     ) -> Result<Option<MessageId>, SerializationError> {
         self.sender.buffer_send(message, DEFAULT_MESSAGE_PRIORITY)
     }
-}
 
-
-/// Component that can be added on an entity to add a ChannelSender
-pub struct ChannelAdder<C> {
-    marker: std::marker::PhantomData<C>,
-}
-
-impl<C: Channel> Component for ChannelAdder<C> {
-    const STORAGE_TYPE: StorageType = StorageType::Table;
-    // Immutable: if you want to modify a Channel you should recreate it
-    type Mutability = Immutable;
-
-    // copied from derive macro
-    fn register_required_components(requiree: ComponentId, components: &mut ComponentsRegistrator, required_components: &mut RequiredComponents, inheritance_depth: u16, recursion_check_stack: &mut Vec<ComponentId>) {
-        bevy::ecs::component::enforce_no_required_components_recursion(components, recursion_check_stack);
-        let self_id = components.register_component::<Self>();
-        recursion_check_stack.push(self_id);
-        components.register_required_components_manual::<Self, Transport>(required_components, <Transport as Default>::default, inheritance_depth, recursion_check_stack);
-        <Transport as bevy::ecs::component::Component>::register_required_components(requiree, components, required_components, inheritance_depth + 1, recursion_check_stack);
-        recursion_check_stack.pop();
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        let entity = context.entity;
+        let mut registry = world.resource_mut::<ChannelRegistry>();
+        // TODO: merge settings and SenderId in a SenderMetadata so that we don't fetch twice
+        let Some(settings) = registry.settings::<C>() else {
+            panic!("ChannelSettings not found for channel {}", core::any::type_name::<C>());
+        };
+        let sender_id = registry.get_sender_id::<C>().unwrap();
+        let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
+        let receiver: ChannelReceiverEnum;
+        let sender: ChannelSenderEnum;
+        let mode = settings.mode;
+        match settings.mode {
+            ChannelMode::UnorderedUnreliableWithAcks => {
+                receiver = UnorderedUnreliableReceiver::new().into();
+                sender = UnorderedUnreliableWithAcksSender::new(settings.send_frequency).into();
+            }
+            ChannelMode::UnorderedUnreliable => {
+                receiver = UnorderedUnreliableReceiver::new().into();
+                sender = UnorderedUnreliableSender::new(settings.send_frequency).into();
+            }
+            ChannelMode::SequencedUnreliable => {
+                receiver = SequencedUnreliableReceiver::new().into();
+                sender = SequencedUnreliableSender::new(settings.send_frequency).into();
+            }
+            ChannelMode::UnorderedReliable(reliable_settings) => {
+                receiver = UnorderedReliableReceiver::new().into();
+                sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
+            }
+            ChannelMode::SequencedReliable(reliable_settings) => {
+                receiver = SequencedReliableReceiver::new().into();
+                sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
+            }
+            ChannelMode::OrderedReliable(reliable_settings) => {
+                receiver = OrderedReliableReceiver::new().into();
+                sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
+            }
+        }
+        let mut entity_mut = world.entity_mut(entity);
+        let mut channel_sender = entity_mut.get_mut::<ChannelSender<C>>().unwrap();
+        channel_sender.sender = sender;
+        channel_sender.channel_id = channel_id;
+        let mut transport = entity_mut.get_mut::<Transport>().unwrap();
+        transport.add_sender::<C>(sender_id, mode);
+        transport.receivers.insert(channel_id, receiver);
     }
-
-    fn on_add() -> Option<ComponentHook> {
-        Some(|mut world: DeferredWorld, context: HookContext| {
-            let entity = context.entity;
-            world.commands().queue(move |world: &mut World| {
-                let mut registry = world.resource_mut::<ChannelRegistry>();
-                let Some(settings) = registry.settings::<C>() else {
-                    panic!("ChannelSettings not found for channel {}", core::any::type_name::<C>());
-                };
-                let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
-                let receiver: ChannelReceiverEnum;
-                let sender: ChannelSenderEnum;
-                let mode = settings.mode;
-                match settings.mode {
-                    ChannelMode::UnorderedUnreliableWithAcks => {
-                        receiver = UnorderedUnreliableReceiver::new().into();
-                        sender = UnorderedUnreliableWithAcksSender::new(settings.send_frequency).into();
-                    }
-                    ChannelMode::UnorderedUnreliable => {
-                        receiver = UnorderedUnreliableReceiver::new().into();
-                        sender = UnorderedUnreliableSender::new(settings.send_frequency).into();
-                    }
-                    ChannelMode::SequencedUnreliable => {
-                        receiver = SequencedUnreliableReceiver::new().into();
-                        sender = SequencedUnreliableSender::new(settings.send_frequency).into();
-                    }
-                    ChannelMode::UnorderedReliable(reliable_settings) => {
-                        receiver = UnorderedReliableReceiver::new().into();
-                        sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
-                    }
-                    ChannelMode::SequencedReliable(reliable_settings) => {
-                        receiver = SequencedReliableReceiver::new().into();
-                        sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
-                    }
-                    ChannelMode::OrderedReliable(reliable_settings) => {
-                        receiver = OrderedReliableReceiver::new().into();
-                        sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
-                    }
-                }
-                let sender_id = world.register_component::<ChannelSender<C>>();
-                world.entity_mut(entity)
-                    .insert(ChannelSender::<C> {
-                        sender,
-                        channel_id,
-                        marker: std::marker::PhantomData,
-                    });
-                world.entity_mut(entity).get_mut::<Transport>().unwrap().add_sender::<C>(sender_id, mode);
-            });
-        })
-    }
-
-    // TODO: add on_remove or on_replace
 }
+
+
+
+fn on_add<C: Channel>(mut world: DeferredWorld, context: HookContext) {
+    let entity = context.entity;
+    let mut registry = world.resource_mut::<ChannelRegistry>();
+    // TODO: merge settings and SenderId in a SenderMetadata so that we don't fetch twice
+    let Some(settings) = registry.settings::<C>() else {
+        panic!("ChannelSettings not found for channel {}", core::any::type_name::<C>());
+    };
+    let sender_id = registry.get_sender_id::<C>().unwrap();
+    let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
+    let receiver: ChannelReceiverEnum;
+    let sender: ChannelSenderEnum;
+    let mode = settings.mode;
+    match settings.mode {
+        ChannelMode::UnorderedUnreliableWithAcks => {
+            receiver = UnorderedUnreliableReceiver::new().into();
+            sender = UnorderedUnreliableWithAcksSender::new(settings.send_frequency).into();
+        }
+        ChannelMode::UnorderedUnreliable => {
+            receiver = UnorderedUnreliableReceiver::new().into();
+            sender = UnorderedUnreliableSender::new(settings.send_frequency).into();
+        }
+        ChannelMode::SequencedUnreliable => {
+            receiver = SequencedUnreliableReceiver::new().into();
+            sender = SequencedUnreliableSender::new(settings.send_frequency).into();
+        }
+        ChannelMode::UnorderedReliable(reliable_settings) => {
+            receiver = UnorderedReliableReceiver::new().into();
+            sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
+        }
+        ChannelMode::SequencedReliable(reliable_settings) => {
+            receiver = SequencedReliableReceiver::new().into();
+            sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
+        }
+        ChannelMode::OrderedReliable(reliable_settings) => {
+            receiver = OrderedReliableReceiver::new().into();
+            sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
+        }
+    }
+    let mut entity_mut = world.entity_mut(entity);
+    let mut channel_sender = entity_mut.get_mut::<ChannelSender<C>>().unwrap();
+    channel_sender.sender = sender;
+    channel_sender.channel_id = channel_id;
+    let mut transport = entity_mut.get_mut::<Transport>().unwrap();
+    transport.add_sender::<C>(sender_id, mode);
+    transport.receivers.insert(channel_id, receiver);
+}
+
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// ChannelMode specifies how messages are sent and received

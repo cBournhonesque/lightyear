@@ -40,7 +40,7 @@ impl<K: TypeKind> TypeMapper<K> {
         self.kind_map.insert(kind, net_id);
         self.id_map.insert(net_id, kind);
         self.next_net_id += 1;
-        (kind, net_id)
+        kind
     }
 
     pub fn kind(&self, net_id: NetId) -> Option<&K> {
