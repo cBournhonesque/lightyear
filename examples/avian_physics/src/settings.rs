@@ -86,7 +86,7 @@ pub(crate) fn get_settings() -> MySettings {
             },
         },
         predict_all: true,
-        input_delay_ticks: 10,
+        input_delay_ticks: 7,
         correction_ticks_factor: 1.5,
         show_confirmed: false,
     }

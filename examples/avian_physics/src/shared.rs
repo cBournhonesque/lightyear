@@ -42,6 +42,12 @@ impl Plugin for SharedPlugin {
         // add a log at the start of the physics schedule
         app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::First));
 
+        app.insert_resource(SubstepCount(18));
+        app.insert_resource(NarrowPhaseConfig {
+            match_contacts: false,
+            ..default()
+        });
+
         app.add_systems(FixedPostUpdate, after_physics_log);
         app.add_systems(Last, last_log);
 
