@@ -1,26 +1,25 @@
 use core::ops::{Add, Mul};
 
-use crate::utils::collections::HashSet;
-#[cfg(not(feature = "std"))]
-use alloc::{string::{String, ToString}, vec, vec::Vec};
-use bevy::app::{App, Plugin};
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
-use cfg_if::cfg_if;
-use lightyear_macros::ChannelInternal;
-use serde::{Deserialize, Serialize};
-
 use crate::client::components::ComponentSyncMode;
 use crate::prelude::*;
 use crate::protocol::message::registry::AppMessageExt;
 use crate::protocol::message::resource::AppResourceExt;
 use crate::protocol::message::trigger::AppTriggerExt;
 use crate::protocol::serialize::SerializeFns;
-use crate::serialize::reader::{ReadInteger, Reader};
-use crate::serialize::writer::{WriteInteger, Writer};
-use crate::serialize::SerializationError;
 use crate::shared::input::InputConfig;
 use crate::shared::replication::delta::Diffable;
+#[cfg(not(feature = "std"))]
+use alloc::{string::{String, ToString}, vec, vec::Vec};
+use bevy::app::{App, Plugin};
+use bevy::ecs::entity::MapEntities;
+use bevy::platform_support::collections::HashSet;
+use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
+use cfg_if::cfg_if;
+use lightyear_macros::ChannelInternal;
+use lightyear_serde::reader::{ReadInteger, Reader};
+use lightyear_serde::writer::{WriteInteger, Writer};
+use lightyear_serde::SerializationError;
+use serde::{Deserialize, Serialize};
 
 // Event
 #[derive(Event, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]

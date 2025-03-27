@@ -17,11 +17,13 @@ std = [
 ]
 
 [dependencies]
+lightyear_macros.workspace = true
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_core.workspace = true
 
 # utils
+cfg-if.workspace = true
 tracing.workspace = true
 
 # serde

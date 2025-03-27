@@ -241,11 +241,60 @@ impl Plugin for ChannelsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::channel::builder::ChannelSender;
+    use crate::channel::registry::{AppChannelExt, ChannelKind};
+    use crate::prelude::{ChannelMode, ChannelSettings};
+    use core::time::Duration;
+    use lightyear_core::tick::TickConfig;
+    use lightyear_macros::ChannelInternal;
 
+    #[derive(ChannelInternal)]
+    struct C;
+
+    /// Check that we can buffer Bytes to a ChannelSender and a packet will get added to the Link
+    /// Check that if we put that packet on the receive side of the Link, the Transport will process
+    /// them through a ChannelReceiver and we get the same bytes
     #[test]
     fn test_plugin() {
         let mut app = App::new();
-        // app.world_mut().spawn((Link::default(), Transport:))
+        // add the channels before adding the ChannelPlugin
+        app.init_resource::<ChannelRegistry>();
+        app.add_channel::<C>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            ..default()
+        });
+        let channel_id = *app.world().resource::<ChannelRegistry>().get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
+        app.add_plugins(ChannelsPlugin);
+        app.insert_resource(TickManager::from_config(TickConfig::new(Duration::default())));
+
+
+        let mut entity_mut = app.world_mut().spawn((Link::default(), ChannelSender::<C>::default()));
+        let entity = entity_mut.id();
+
+        // send bytes
+        let send_bytes = Bytes::from(vec![1, 2, 3]);
+        entity_mut.get_mut::<ChannelSender<C>>().unwrap().buffer(send_bytes.clone());
+        app.update();
+        // check that the send-payload was added to the link
+        assert_eq!(&app.world_mut().entity(entity).get::<Link>().unwrap().send.len(), &1);
+
+        // transfer that payload to the recv side of the link
+        let payload = app.world_mut().entity_mut(entity).get_mut::<Link>().unwrap().send.pop().unwrap();
+        app.world_mut().entity_mut(entity).get_mut::<Link>().unwrap().recv.push(payload);
+
+        app.update();
+        // check that the bytes are received in the channel
+        let (_, recv_bytes) = app
+            .world_mut()
+            .entity_mut(entity)
+            .get_mut::<Transport>()
+            .unwrap()
+            .receivers
+            .get_mut(&channel_id)
+            .unwrap()
+            .read_message()
+            .expect("expected to receive message");
+        assert_eq!(recv_bytes, send_bytes);
 
 
     }
