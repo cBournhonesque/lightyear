@@ -2,6 +2,7 @@
 
 use crate::prelude::server::{AuthorityCommandExt, AuthorityPeer};
 use crate::prelude::{PrePredicted, Replicated, ServerConnectionManager};
+use crate::server::networking::NetworkingState;
 use bevy::prelude::*;
 use tracing::debug;
 
@@ -15,7 +16,11 @@ pub(crate) fn handle_pre_predicted(
     mut commands: Commands,
     mut manager: ResMut<ServerConnectionManager>,
     q: Query<(Entity, &PrePredicted, &Replicated)>,
+    server_state: Res<State<NetworkingState>>,
 ) {
+    if server_state.get() != &NetworkingState::Started {
+        return;
+    }
     if let Ok((local_entity, pre_predicted, replicated)) = q.get(trigger.target()) {
         let sending_client = replicated.from.unwrap();
         // if the client who created the PrePredicted entity is the local client, no need to do anything!
