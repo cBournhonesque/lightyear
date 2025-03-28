@@ -1,11 +1,11 @@
 /*! Channels are used to add reliability/ordering on top of the transport layer
 */
 
-use crate::channel::registry::ChannelKind;
+pub use crate::channel::registry::ChannelKind;
 
 pub mod builder;
-pub(crate) mod receivers;
-pub(crate) mod senders;
+pub mod receivers;
+pub mod senders;
 
 #[cfg(feature = "trace")]
 pub mod stats;

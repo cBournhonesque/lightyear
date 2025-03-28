@@ -35,11 +35,75 @@
 // and we will find the correct entities that correspond to this target.
 // We could have a trait `ToTransportEntity` implemented for Entity, Vec<Entity>, NetworkTarget, etc.
 
+// TODO: how to do re-broadcasts?
+// - on server->client we don't want rebroadcasts
+// - on client->server, we want rebroadcasts.
+
+// - Or maybe we have normal Messages that are broadcasted.
+//   And then users could wrap messages with RebroadcastMessage<M>
+
+// - messages are registered with a ChannelDirection,
+//   but on the Transport we can add a Direction component (
+//   and we only go through Events if the direction matches
+
+// - Transport component has a Direction (RecvOnly/SendOnly/Both)
+// - public-facing MessageRegistry has a ClientToServer/ServerToClient/Bidirectional (in lightyear)
+// - lightyear_messages should be independent from client or server. It's just a way to send typed
+//   data over a Transport
+//    - based on MessageRegistry ClientToServer + Transport's Identity (Client/Server/HostServer) and Direction, we can figure out SendMessageMetadata/ReceiveMessageMetadata to add receive on the Transport
+// TODO:
+//  - should we have a separate MessageTransport component? or should the messages be part of the Transport itself? Maybe it's cleaner to have a separate Component?
+//  - in this design Messages require Channels, so maybe lightyear_message should be a 'message' folder that is part of lightyear_transport?
+// i.e order is:
+// - Register Channels in lighyear with ChannelDirection (ClientToServer/ServerToClient/Bidirectional)
+//   - this registers Channels in lightyear_transport without the direction? and a separate registry
+//     keeps track of the direction?
+// - Register Messages with ChannelDirection (ClientToServer/ServerToClient/Bidirectional)
+// - You create an entity with an Client or Server component
+//   - Identity becomes HostServer if Client and Server are present on the same component
+//   - ClientOf automatically adds the Client marker component
+// - When you create a Transport, you look at the Client and Server component to determine the Identity
+//   and to determine which ChannelSenders/Receivers to add to the entity.
+//   - the lightyear plugin will add all the ChannelSenders<C> depending on the direction + also update
+//     the Receiver metadata; but that's lightyear. Lightyear_transport is client/server agnostic
+//   - That's for the 'official' entity. But users could create their own entity where they only add a subset of
+//     the channels?
+//   - same for messages.
+// - lightyear_transport is agnostic to direction:
+//   - it only registers the channel setting independently from direction.
+//   - users add receivers to the Transport manually (need to provide the ComponentKind and the ReceiverEnum(with settings)). That's annoying because ideally we could just provide the ComponentKind and some observer fetches the settings from the registry? Maybe a ChannelReceiver<C> marker component that triggers an observer?
+//   - users can add senders to the Transport by adding a ChannelSender<C>, whose on_add observer will
+//     get the ComponentId, fetch the settings from the registry, etc.
+// - Same thing lightyear_transport is agnostic to direction for messages:
+//   - users can add ReceiveMessage<M> (by simply providing the ComponentKind) on the Transport
+//   - users can add SendMessage<M> (by simply providing the ComponentKind)
+// - ReceiveMessage:
+//   - get the Bytes from the Transport Receiver (so we know the ChannelId)
+//   - we deserialize them, etc.
+//   - we push the message via type-erasure to the ReceivedMessage<M> component
+//     - if we're the client, we know it's from the server? (and RebroadcastMessage<M> would include the identity of the original sender)
+//     - if we're the server, we are on the ClientOf entity, so we know which client sent us the data?
+//
+//   So we always want to receive on components, not events.
+
+
+
+
+// If you specify that rebroadcast is allowed, we will also register RebroadcastMessage<M> in the registry!
+//   - For rebroadcasting we will let the server deserialize the message to inspect the contents and do validation?
+
 use crate::registry::{MessageError, MessageRegistry};
-use crate::Message;
-use lightyear_packet::channel::builder::ChannelSender;
-use lightyear_packet::channel::Channel;
-use lightyear_packet::prelude::Transport;
+use crate::{Message, MessageId, MessageManager};
+use bevy::ecs::world::FilteredEntityMut;
+use bevy::log::tracing_subscriber::registry;
+use bevy::prelude::{Entity, Query, Res};
+use lightyear_serde::reader::Reader;
+use lightyear_serde::ToBytes;
+use lightyear_transport::channel::builder::ChannelSender;
+use lightyear_transport::channel::receivers::ChannelReceive;
+use lightyear_transport::channel::Channel;
+use lightyear_transport::prelude::Transport;
+use tracing::error;
 
 // TODO: provide an api where we send to the link directly?
 
@@ -61,5 +125,48 @@ impl<C: Channel, M: Message> SendMessage<M> for ChannelSender<C> {
         registry.serialize(message, &mut self.writer, &mut transport.send_mapper)?;
         let message_id = self.sender.buffer_send(self.writer.split(), priority)?;
         Ok(())
+    }
+}
+
+// PLUGIN
+// recv-messages: query all Transport + MessageManager
+//  MessageManager is similar to transport, it holds references to MessageReceiver<M> and MessageSender<M> component ids
+pub struct MessagePlugin;
+
+impl MessagePlugin {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn recv(
+        mut transport_query: Query<(Entity, &mut Transport)>,
+        // List of ChannelReceivers<M> present on that entity
+        mut receiver_query: Query<FilteredEntityMut>,
+        message_registry: Res<MessageRegistry>,
+    ) {
+        transport_query.par_iter_mut().for_each(|(entity, mut transport)| {
+            // TODO: maybe store using channel-kind? channel-id is a serialization-specific id, which should
+            //  remain in lightyear_transport
+            transport.receivers.iter_mut().try_for_each(|(channel_id, channel_receiver)| {
+                while let Some((bytes, tick)) = channel_receiver.read_message() {
+                    let mut reader = Reader::from(bytes);
+                    let message_id = MessageId::from_bytes(&mut reader)?;
+                    // using the message_id, get fomr the message_registry the component_id
+                    let component_id = ComponentId::new(0);
+                    if let Ok(receiver) = receiver_query
+                        .get_mut(entity)
+                        .unwrap()
+                        .get_mut_by_id(*component_id)
+                        .ok_or(MessageError::MissingComponent(*component_id)) {
+                        // registry has the type-erased function that deserializes and type-erases the message
+                        //  into the MessageReceiver
+                        registry()
+                    }
+
+
+                }
+                Ok(())
+            }).inspect_err(|e| error!("Error receiving messages")).ok();
+        })
     }
 }

@@ -69,7 +69,7 @@ lightyear_macros.workspace = true
 lightyear_connection.workspace = true
 lightyear_core.workspace = true
 lightyear_link.workspace = true
-lightyear_packet.workspace = true
+lightyear_transport.workspace = true
 lightyear_serde.workspace = true
 lightyear_utils.workspace = true
 

@@ -46,6 +46,7 @@ pub struct ReceiveTriggerMetadata {
 #[derive(Debug, Clone, PartialEq, TypePath)]
 pub(crate) struct SendMessageMetadata {
     kind: MessageKind,
+    /// ComponentId of the Events<SendMessage<M>> resource
     pub(crate) component_id: ComponentId,
     pub(crate) send_fn: SendMessageFn,
     pub(crate) send_host_server_fn: SendHostServerMessageFn,
@@ -241,7 +242,7 @@ impl MessageRegistry {
     }
 
     /// Internal function of type ReceiveMessageFn (used for type-erasure)
-    pub(crate) fn client_receive_message_typed<M: Message>(
+    pub(crate) fn receive_message_typed<M: Message>(
         receive_metadata: &ReceiveMessageMetadata,
         serialize_metadata: &ErasedSerializeFns,
         events: &mut FilteredResourcesMut,
@@ -255,7 +256,7 @@ impl MessageRegistry {
             .get_mut_by_id(receive_metadata.component_id)
             .map_err(|_| MessageError::NotRegistered)?;
         // SAFETY: the component_id corresponds to the Events<MessageEvent<M>> resource
-        let mut events = unsafe { events.with_type::<Events<ClientReceiveMessage<M>>>() };
+        let mut events = unsafe { events.with_type::<Events<M>>() };
         events.send(ClientReceiveMessage::new(message, from));
         Ok(())
     }

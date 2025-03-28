@@ -37,11 +37,13 @@ impl ChannelsPlugin {
     /// Depending on the [`ChannelId`], buffer the messages in the packet
     /// in the appropriate [`ChannelReceiver`]
     fn buffer_receive(
-        mut link_query: Query<(Entity, &mut Link, &mut Transport)>,
+        mut link_query: Query<(Entity, &mut Transport)>,
         mut sender_query: Query<FilteredEntityMut>
     ) -> Result {
-        link_query.iter_mut().try_for_each(|(entity, mut link, mut transport)| {
-            link.recv.drain(..).try_for_each(|packet| {
+        link_query.iter_mut().try_for_each(|(entity, mut transport)| {
+            // TODO: instead of taking from the link.recv, we need to take from
+            //  the transport.recv because that's where the ConnectionClient/Server puts the payloads
+            transport.recv.drain(..).try_for_each(|packet| {
                 let mut cursor = Reader::from(packet);
 
                 // Parse the packet
@@ -67,6 +69,8 @@ impl ChannelsPlugin {
                             );
                             if let Ok(mut f) = sender_query.get_mut(entity) {
                                 if let Some(sender) = f.get_mut_by_id(sender_metadata.sender_id) {
+                                    // TODO: should the type-erased function be stored on the each Transport?
+                                    //  that seems wasteful, maybe store in the registry?
                                     (sender_metadata.receive_ack)(sender, message_ack);
                                 }
                             }
@@ -110,14 +114,14 @@ impl ChannelsPlugin {
     /// Build packets from the messages in the channel,
     /// Upload the packets to the link
     fn buffer_send(
-        mut link_query: Query<(Entity, &mut Link, &mut Transport)>,
+        mut link_query: Query<(Entity, &mut Transport)>,
         mut sender_query: Query<FilteredEntityMut>,
         channel_registry: Res<ChannelRegistry>,
         tick_manager: Res<TickManager>,
     ) -> Result {
         let tick = tick_manager.tick();
         // TODO: add parallelism
-        link_query.iter_mut().try_for_each(|(entity, mut link, mut transport)| {
+        link_query.iter_mut().try_for_each(|(entity, mut transport)| {
             let mut transport = &mut *transport;
             // flush messages from the ChannelSender to the actual sender
             transport.senders.values().for_each(|sender_metadata| {
@@ -169,9 +173,13 @@ impl ChannelsPlugin {
                         Ok::<(), PacketError>(())
                     })?;
 
+                // TODO: instead of putting in the link directly, we need to store them in
+                //   transport.send, so that the ConnectionClient/Server can apply some processing
+                //   (add netcode-related bytes)
+
                 // Upload the packets to the link
                 total_bytes_sent += packet.payload.len() as u32;
-                link.send.push(Bytes::from(packet.payload));
+                transport.send.push(Bytes::from(packet.payload));
             }
 
             // adjust the real amount of bytes that we sent through the limiter (to account for the actual packet size)

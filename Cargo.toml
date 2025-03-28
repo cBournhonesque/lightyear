@@ -10,7 +10,7 @@ members = [
   "lightyear_inputs_native",
   "lightyear_interpolation",
   "lightyear_link",
-  "lightyear_packet",
+  "lightyear_transport",
   "lightyear_connection",
   "lightyear_macros",
   "lightyear_messages",
@@ -73,7 +73,7 @@ lightyear_inputs_leafwing = { path = "./lightyear_inputs_leafwing", version = "0
 lightyear_inputs_native = { path = "./lightyear_inputs_native", version = "0.19.0", default-features = false }
 lightyear_interpolation = { path = "./lightyear_interpolation", version = "0.19.0", default-features = false }
 lightyear_messages = { path = "./lightyear_messages", version = "0.19.0", default-features = false }
-lightyear_packet = { path = "./lightyear_packet", version = "0.19.0", default-features = false }
+lightyear_transport = { path = "lightyear_transport", version = "0.19.0", default-features = false }
 lightyear_prediction = { path = "./lightyear_prediction", version = "0.19.0", default-features = false }
 lightyear_link = { path = "./lightyear_link", version = "0.19.0", default-features = false }
 lightyear_replication = { path = "./lightyear_replication", version = "0.19.0", default-features = false }

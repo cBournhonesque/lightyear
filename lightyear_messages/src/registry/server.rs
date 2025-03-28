@@ -8,7 +8,7 @@ use bevy::ecs::component::ComponentId;
 use bevy::platform_support::collections::HashMap;
 use bevy::prelude::{Commands, Entity, Event, Events, FilteredResourcesMut, TypePath, World};
 use lightyear_connection::id::ClientId;
-use lightyear_packet::prelude::Channel;
+use lightyear_transport::prelude::Channel;
 use lightyear_serde::reader::Reader;
 
 /// Metadata needed to receive/send messages

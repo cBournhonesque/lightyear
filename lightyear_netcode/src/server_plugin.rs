@@ -9,7 +9,7 @@ use lightyear_connection::server::{ClientOf, Clients};
 use lightyear_connection::ConnectionSet;
 use lightyear_core::time::TimeManager;
 use lightyear_link::{Link, LinkSet};
-use lightyear_packet::prelude::{Transport, TransportSet};
+use lightyear_transport::prelude::{Transport, TransportSet};
 use tracing::error;
 
 pub struct NetcodeServerPlugin;

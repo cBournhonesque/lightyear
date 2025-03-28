@@ -1,16 +1,17 @@
 use crate::registry::entity_map::SendEntityMap;
 use crate::registry::serialize::{ErasedSerializeFns, SerializeFns};
 use crate::Message;
+use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::MapEntities;
 use bevy::platform_support::collections::HashMap;
 use bevy::prelude::*;
 use core::any::TypeId;
 use lightyear_core::network::NetId;
-use lightyear_packet::channel::builder::ChannelDirection;
-use lightyear_packet::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::Writer;
 use lightyear_serde::ToBytes;
+use lightyear_transport::channel::builder::ChannelDirection;
+use lightyear_transport::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_utils::registry::{TypeKind, TypeMapper};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -22,8 +23,16 @@ pub(crate) mod server;
 pub(crate) mod resource;
 
 pub(crate) mod trigger;
-mod serialize;
-mod entity_map;
+pub(crate) mod serialize;
+mod systems;
+
+/// Bevy [`Event`] emitted on the client when a (non-replication) message is received
+#[allow(type_alias_bounds)]
+pub type ReceiveMessage<M: Message> =
+    crate::shared::events::message::ReceiveMessage<M, ClientMarker>;
+
+#[allow(type_alias_bounds)]
+pub type SendMessage<M: Message> = crate::shared::events::message::SendMessage<M, ClientMarker>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageError {
@@ -36,7 +45,9 @@ pub enum MessageError {
     #[error(transparent)]
     Serialization(#[from] lightyear_serde::SerializationError),
     #[error(transparent)]
-    Packet(#[from] lightyear_packet::packet::error::PacketError),
+    Packet(#[from] lightyear_transport::packet::error::PacketError),
+    #[error("the component id {0} is missing from the entity")]
+    MissingComponent(ComponentId)
 }
 
 /// [`MessageKind`] is an internal wrapper around the type of the message
@@ -225,7 +236,7 @@ pub(crate) fn register_message<M: Message>(app: &mut App, direction: ChannelDire
 /// use bevy::prelude::*;
 /// use serde::{Deserialize, Serialize};
 /// use lightyear::prelude::*;
-/// # use lightyear_packet::channel::builder::ChannelDirection;
+/// # use lightyear_transport::channel::builder::ChannelDirection;
 ///
 /// #[derive(Serialize, Deserialize, Clone)]
 /// struct MyMessage(Entity);
@@ -246,6 +257,7 @@ pub struct MessageRegistry {
     // TODO: do we need to distinguish between message types?
     pub(crate) client_messages: client::MessageMetadata,
     pub(crate) server_messages: server::MessageMetadata,
+    pub(crate) metadata: HashMap<ComponentId, MessageMetadata>,
     pub(crate) serialize_fns_map: HashMap<MessageKind, ErasedSerializeFns>,
     pub(crate) kind_map: TypeMapper<MessageKind>,
 }

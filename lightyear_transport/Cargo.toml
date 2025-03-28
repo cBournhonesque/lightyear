@@ -1,5 +1,5 @@
 [package]
-name = "lightyear_packet"
+name = "lightyear_transport"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

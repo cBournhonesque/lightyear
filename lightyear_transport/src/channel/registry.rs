@@ -37,7 +37,7 @@ impl From<TypeId> for ChannelKind {
 /// You can add a new channel to the registry by calling the [`add_channel`](ChannelRegistry::add_channel) method.
 ///
 /// ```rust
-/// use lightyear_packet::prelude::*;
+/// use lightyear_transport::prelude::*;
 /// use bevy::prelude::*;
 ///
 /// #[derive(Channel)]

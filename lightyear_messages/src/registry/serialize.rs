@@ -11,6 +11,7 @@ use lightyear_serde::SerializationError;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
+// TODO: this should be in lightyear_serde? it's not strictly related to messages?
 /// Stores function pointers related to serialization and deserialization
 #[derive(Clone, Debug, PartialEq)]
 pub struct ErasedSerializeFns {
