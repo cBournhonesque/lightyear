@@ -122,7 +122,7 @@
 
 use bevy::app::{App, PostUpdate, PreUpdate};
 use bevy::prelude::{IntoScheduleConfigs, Plugin, SystemSet};
-use lightyear_transport::prelude::TransportSet;
+use lightyear_transport::plugin::TransportSet;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum MessageSet {
@@ -146,7 +146,7 @@ impl Plugin for MessagePlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(PreUpdate, MessageSet::Receive.after(TransportSet::Receive));
         app.configure_sets(PostUpdate, MessageSet::Send.before(TransportSet::Send));
-        app.add_systems(PreUpdate, Self::recv.in_set(TransportSet::Receive));
-        app.add_systems(PostUpdate, Self::send.in_set(TransportSet::Send));
+        app.add_systems(PreUpdate, Self::recv.in_set(MessageSet::Receive));
+        app.add_systems(PostUpdate, Self::send.in_set(MessageSet::Send));
     }
 }

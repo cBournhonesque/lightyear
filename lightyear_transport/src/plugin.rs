@@ -16,7 +16,6 @@ use lightyear_core::tick::TickManager;
 use lightyear_link::{Link, LinkSet};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
-use std::collections::VecDeque;
 use tracing::{error, trace};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

@@ -1,5 +1,4 @@
 use crate::receive::ReceiveMessageFn;
-use crate::registry::entity_map::SendEntityMap;
 use crate::registry::serialize::{ErasedSerializeFns, SerializeFns};
 use crate::send::SendMessageFn;
 use crate::{Message, MessageId};
@@ -20,22 +19,9 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tracing::debug;
 
-pub(crate) mod client;
-pub(crate) mod server;
 
-pub(crate) mod resource;
-
-pub(crate) mod trigger;
 pub(crate) mod serialize;
-mod systems;
 
-/// Bevy [`Event`] emitted on the client when a (non-replication) message is received
-#[allow(type_alias_bounds)]
-pub type ReceiveMessage<M: Message> =
-    crate::shared::events::message::ReceiveMessage<M, ClientMarker>;
-
-#[allow(type_alias_bounds)]
-pub type SendMessage<M: Message> = crate::shared::events::message::SendMessage<M, ClientMarker>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageError {
@@ -49,12 +35,14 @@ pub enum MessageError {
     Serialization(#[from] lightyear_serde::SerializationError),
     #[error(transparent)]
     Packet(#[from] lightyear_transport::packet::error::PacketError),
-    #[error("the component id {0} is missing from the entity")]
+    #[error("the component id {0:?} is missing from the entity")]
     MissingComponent(ComponentId),
-    #[error("the channel kind {0} is missing from the entity")]
+    #[error("the channel kind {0:?} is missing from the entity")]
     MissingChannelKind(ChannelKind),
-    #[error("the message kind {0} is not registered")]
+    #[error("the message kind {0:?} is not registered")]
     UnrecognizedMessage(MessageKind),
+    #[error("the message id {0:?} is not registered")]
+    UnrecognizedMessageId(MessageId),
     #[error(transparent)]
     TransportError(#[from] lightyear_transport::error::TransportError),
 }
@@ -79,151 +67,6 @@ impl From<TypeId> for MessageKind {
 
 
 
-
-pub struct MessageRegistration<'a, M> {
-    pub(crate) app: &'a mut App,
-    pub(crate) _marker: core::marker::PhantomData<M>,
-}
-
-impl<M> MessageRegistration<'_, M> {
-    /// Specify that the message contains entities which should be mapped from the remote world to the local world
-    /// upon deserialization
-    pub fn add_map_entities(self) -> Self
-    where
-        M: Clone + MapEntities + 'static,
-    {
-        let mut registry = self.app.world_mut().resource_mut::<MessageRegistry>();
-        registry.add_map_entities::<M>();
-        self
-    }
-}
-
-pub(crate) trait AppMessageInternalExt {
-    /// Function used internally to register a Message with a specific [`MessageType`]
-    fn register_message_internal<M: Message + Serialize + DeserializeOwned>(
-        &mut self,
-        direction: ChannelDirection,
-    ) -> MessageRegistration<'_, M>;
-
-    /// Function used internally to register a Message with a specific [`MessageType`]
-    /// and a custom [`SerializeFns`] implementation
-    fn register_message_internal_custom_serde<M: Message>(
-        &mut self,
-        direction: ChannelDirection,
-        serialize_fns: SerializeFns<M>,
-    ) -> MessageRegistration<'_, M>;
-}
-
-impl AppMessageInternalExt for App {
-    fn register_message_internal<M: Message + Serialize + DeserializeOwned>(
-        &mut self,
-        direction: ChannelDirection,
-    ) -> MessageRegistration<'_, M> {
-        self.register_message_internal_custom_serde::<M>(direction, SerializeFns::<M>::default())
-    }
-
-    fn register_message_internal_custom_serde<M: Message>(
-        &mut self,
-        direction: ChannelDirection,
-        serialize_fns: SerializeFns<M>,
-    ) -> MessageRegistration<'_, M> {
-        let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
-        if !registry.is_registered::<M>() {
-            let message_kind = registry.kind_map.add::<M>();
-            registry.serialize_fns_map.insert(
-                message_kind,
-                ErasedSerializeFns::new_custom_serde::<M>(serialize_fns),
-            );
-        }
-        debug!("register message {}", core::any::type_name::<M>());
-        register_message::<M>(self, direction);
-        MessageRegistration {
-            app: self,
-            _marker: core::marker::PhantomData,
-        }
-    }
-}
-
-/// Add a message to the list of messages that can be sent
-pub trait AppMessageExt {
-    /// Registers the message in the Registry
-    /// This message can now be sent over the network.
-    fn register_message<M: Message + Serialize + DeserializeOwned>(
-        &mut self,
-        direction: ChannelDirection,
-    ) -> MessageRegistration<'_, M>;
-
-    /// Registers the message in the Registry
-    ///
-    /// This message can now be sent over the network.
-    /// You need to provide your own [`SerializeFns`] for this message
-    fn register_message_custom_serde<M: Message>(
-        &mut self,
-        direction: ChannelDirection,
-        serialize_fns: SerializeFns<M>,
-    ) -> MessageRegistration<'_, M>;
-}
-
-impl AppMessageExt for App {
-    fn register_message<M: Message + Serialize + DeserializeOwned>(
-        &mut self,
-        direction: ChannelDirection,
-    ) -> MessageRegistration<'_, M> {
-        self.register_message_internal(direction)
-    }
-
-    fn register_message_custom_serde<M: Message>(
-        &mut self,
-        direction: ChannelDirection,
-        serialize_fns: SerializeFns<M>,
-    ) -> MessageRegistration<'_, M> {
-        self.register_message_internal_custom_serde(direction, serialize_fns)
-    }
-}
-
-/// Register the message-receive metadata for a given message M
-pub(crate) fn register_message<M: Message>(app: &mut App, direction: ChannelDirection) {
-    let is_client = app.world().get_resource::<ClientConfig>().is_some();
-    let is_server = app.world().get_resource::<ServerConfig>().is_some();
-    match direction {
-        ChannelDirection::ClientToServer => {
-            if is_server {
-                MessageRegistry::register_server_receive::<M>(app);
-            };
-            if is_client {
-                MessageRegistry::register_client_send::<M>(app);
-            };
-        }
-        ChannelDirection::ServerToClient => {
-            if is_client {
-                MessageRegistry::register_client_receive::<M>(app);
-            };
-            if is_server {
-                MessageRegistry::register_server_send::<M>(app);
-            }
-        }
-        ChannelDirection::Bidirectional => {
-            register_message::<M>(app, ChannelDirection::ClientToServer);
-            register_message::<M>(app, ChannelDirection::ServerToClient);
-        }
-    }
-}
-
-
-
-/// Metadata needed to receive/send messages
-///
-/// We separate client/server to support host-server mode.
-#[derive(Debug, Default, Clone, PartialEq, TypePath)]
-pub(crate) struct MessageMetadata {
-    /// metadata needed to send a message
-    /// We use a Vec instead of a HashMap because we need to iterate through all SendMessage<E> events
-    pub(crate) send: Vec<SendMessageMetadata>,
-    /// metadata needed to receive a message
-    pub(crate) receive: HashMap<MessageKind, ReceiveMessageMetadata>,
-    pub(crate) receive_trigger: HashMap<MessageKind, ReceiveTriggerMetadata>,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceiveMessageMetadata {
     /// ComponentId of the MessageReceiver<M> component
@@ -231,17 +74,11 @@ pub struct ReceiveMessageMetadata {
     pub(crate) receive_message_fn: ReceiveMessageFn,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ReceiveTriggerMetadata {
-    /// ComponentId of the Events<ReceiveMessage<RemoteTrigger<E>>> resource
-    pub(crate) component_id: ComponentId,
-    pub(crate) receive_trigger_fn: ReceiveTriggerFn,
-}
+
 
 #[derive(Debug, Clone, PartialEq, TypePath)]
 pub(crate) struct SendMessageMetadata {
     pub(crate) send_message_fn: SendMessageFn,
-
 }
 
 /// A [`Resource`] that will keep track of all the [`Message`]s that can be sent over the network.

@@ -1,4 +1,3 @@
-use crate::registry::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use crate::registry::MessageRegistry;
 use crate::Message;
 use bevy::app::App;
@@ -269,8 +268,6 @@ impl AppSerializeExt for App {
     // TODO: or should we just have add_message_map_entities and add_component_map_entities?
     fn add_map_entities<M: Clone + MapEntities + 'static>(&mut self) {
         let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
-        registry.try_add_map_entities::<M>();
-        let mut registry = self.world_mut().resource_mut::<ComponentRegistry>();
         registry.try_add_map_entities::<M>();
     }
 }

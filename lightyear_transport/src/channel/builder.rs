@@ -23,6 +23,9 @@ use crossbeam_channel::{Receiver, Sender};
 use lightyear_link::SendPayload;
 // TODO: hook when you insert ChannelSettings, it creates a ChannelSender and ChannelReceiver component
 
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+
 pub const DEFAULT_MESSAGE_PRIORITY: f32 = 1.0;
 
 /// [`ChannelSettings`] are used to specify how the [`Channel`] behaves (reliability, ordering, direction)

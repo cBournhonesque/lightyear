@@ -12,6 +12,7 @@ use bevy::ecs::component::ComponentId;
 use bevy::platform_support::collections::HashMap;
 use bevy::prelude::Component;
 use lightyear_transport::entity_map::SendEntityMap;
+use lightyear_transport::prelude::Transport;
 use lightyear_utils::wrapping_id;
 
 pub(crate) mod registry;
@@ -32,7 +33,7 @@ wrapping_id!(MessageId);
 
 
 /// Component that will track the component_ids of the MessageReceiver<M> and MessageSender<M> that are present on the entity
-#[derive(Component)]
+#[derive(Component, Default)]
 #[require(Transport)]
 pub struct MessageManager{
     /// List of component ids of the MessageSender<M> present on this entity

@@ -11,7 +11,12 @@ repository = "https://github.com/cBournhonesque/lightyear"
 [features]
 default = ["std"]
 std = [
+    "lightyear_utils/std",
+    "lightyear_serde/std",
+    "lightyear_core/std",
+    "lightyear_transport/std",
     "bevy/std",
+    "bincode/std",
     "bytes/std",
     "serde/std",
 ]
@@ -19,7 +24,6 @@ std = [
 [dependencies]
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
-lightyear_connection.workspace = true
 lightyear_core.workspace = true
 lightyear_transport.workspace = true
 
