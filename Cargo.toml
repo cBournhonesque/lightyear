@@ -118,7 +118,7 @@ chacha20poly1305 = { version = "0.10" }
 
 
 # tracing
-
+test-log =  { version = "0.2.17", default-features = false, features = ["trace", "color"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.17", features = [
   "registry",

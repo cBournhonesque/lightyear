@@ -43,6 +43,7 @@ bevy.workspace = true
 lightyear_link.workspace = true
 lightyear_macros.workspace = true
 lightyear_transport = {workspace = true, features = ["test_utils"]}
+test-log.workspace = true
 
 [lints]
 workspace = true

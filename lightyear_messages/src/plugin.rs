@@ -120,10 +120,11 @@
 //     }
 // }
 
+use crate::registry::MessageRegistry;
 use bevy::app::{App, PostUpdate, PreUpdate};
-use bevy::prelude::{default, IntoScheduleConfigs, Plugin, SystemSet};
+use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
+use bevy::prelude::{default, IntoScheduleConfigs, Plugin, SystemParamBuilder, SystemSet};
 use lightyear_core::tick::{TickConfig, TickManager};
-use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::{ChannelMode, ChannelRegistry, ChannelSettings, Transport};
 use std::time::Duration;
@@ -147,11 +148,47 @@ pub enum MessageSet {
 pub struct MessagePlugin;
 
 impl Plugin for MessagePlugin {
+
+    // NOTE: this should only be called once all messages are registered, because we use the list of registered
+    //  messags to provide the dynamic access
     fn build(&self, app: &mut App) {
+
+        let mut registry = app.world_mut().remove_resource::<MessageRegistry>().unwrap();
+
+        let recv = (
+            ParamBuilder,
+            QueryParamBuilder::new(|builder| {
+                builder.optional(|b| {
+                    registry.receive_metadata.values().for_each(|metadata| {
+                        b.mut_id(metadata.component_id);
+                    });
+                });
+            }),
+            ParamBuilder
+        )
+            .build_state(app.world_mut())
+            .build_system(Self::recv);
+
+        let send = (
+            ParamBuilder,
+            QueryParamBuilder::new(|builder| {
+                builder.optional(|b| {
+                    registry.send_metadata.values().for_each(|metadata| {
+                        b.mut_id(metadata.component_id);
+                    });
+                });
+            }),
+            ParamBuilder
+        )
+            .build_state(app.world_mut())
+            .build_system(Self::send);
+
         app.configure_sets(PreUpdate, MessageSet::Receive.after(TransportSet::Receive));
         app.configure_sets(PostUpdate, MessageSet::Send.before(TransportSet::Send));
-        app.add_systems(PreUpdate, Self::recv.in_set(MessageSet::Receive));
-        app.add_systems(PostUpdate, Self::send.in_set(MessageSet::Send));
+        app.add_systems(PreUpdate, recv.in_set(MessageSet::Receive));
+        app.add_systems(PostUpdate, send.in_set(MessageSet::Send));
+
+        app.world_mut().insert_resource(registry);
     }
 }
 
@@ -174,21 +211,21 @@ mod tests {
     // TODO: should we do a test without the Link?
 
     /// Check that if we have a Transport, we can send and receive messages to specific channels
-    #[test]
+    #[test_log::test]
     fn test_plugin() {
         let mut app = App::new();
-        // add the channels before adding the ChannelPlugin
+        // Register the channel before adding the ChannelPlugin
         app.init_resource::<ChannelRegistry>();
         app.add_channel::<C>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
         });
-        let channel_id = *app.world().resource::<ChannelRegistry>().get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
         app.insert_resource(TickManager::from_config(TickConfig::new(Duration::default())));
         app.add_plugins(TransportPlugin);
 
-        // Register the message
+        // Register the message before adding the MessagePlugin
         app.add_message::<M>();
+        app.add_plugins(MessagePlugin);
 
         // Add the Transport component with a receiver/sender for channel C, and a receiver/sender for message M
         let registry = app.world().resource::<ChannelRegistry>();

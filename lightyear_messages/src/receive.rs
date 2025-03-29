@@ -75,7 +75,7 @@ impl MessagePlugin {
     pub fn recv(
         mut transport_query: Query<(Entity, &mut Transport)>,
         // List of ChannelReceivers<M> present on that entity
-        mut receiver_query: Query<FilteredEntityMut>,
+        receiver_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
     ) {
         // We use Arc to make the query Clone, since we know that we will only access MessagerReceiver<M> components
@@ -92,9 +92,11 @@ impl MessagePlugin {
                 let channel_kind = receiver_metadata.channel_kind;
                 // TODO: maybe probide ChannelKind?
                 while let Some((tick, bytes)) = receiver_metadata.receiver.read_message() {
+                    dbg!(&bytes.as_ref());
                     let mut reader = Reader::from(bytes);
                     let message_id = MessageId::from_bytes(&mut reader)?;
-                    let message_kind = registry.kind_map.kind(*message_id).ok_or(MessageError::UnrecognizedMessageId(message_id))?;
+                    dbg!(&message_id);
+                    let message_kind = registry.kind_map.kind(message_id).ok_or(MessageError::UnrecognizedMessageId(message_id))?;
                     let recv_metadata = registry.receive_metadata.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
                     let component_id = recv_metadata.component_id;
                     let mut entity_mut = receiver_query.get_mut(entity).unwrap();

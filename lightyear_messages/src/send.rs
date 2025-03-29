@@ -112,7 +112,7 @@ impl MessagePlugin {
     pub fn send(
         mut transport_query: Query<(Entity, &Transport, &mut MessageManager)>,
         // MessageSender<M> present on that entity
-        mut message_sender_query: Query<FilteredEntityMut>,
+        message_sender_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
     ) {
         // We use Arc to make the query Clone, since we know that we will only access MessageSender<M> components

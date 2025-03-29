@@ -11,9 +11,9 @@ use crate::registry::MessageKind;
 use bevy::ecs::component::ComponentId;
 use bevy::platform_support::collections::HashMap;
 use bevy::prelude::Component;
+use lightyear_core::network::NetId;
 use lightyear_transport::entity_map::SendEntityMap;
 use lightyear_transport::prelude::Transport;
-use lightyear_utils::wrapping_id;
 
 pub(crate) mod registry;
 mod plugin;
@@ -28,8 +28,10 @@ mod send;
 pub trait Message: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> Message for T {}
 
-// Internal id that we assign to each message sent over the network
-wrapping_id!(MessageId);
+// // Internal id that we assign to each message sent over the network
+// wrapping_id!(MessageId);
+// TODO: this conflicts with the MessageId from lightyear_transport! find a different name
+pub type MessageId = NetId;
 
 
 /// Component that will track the component_ids of the MessageReceiver<M> and MessageSender<M> that are present on the entity
