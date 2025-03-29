@@ -87,45 +87,54 @@
 //   So we always want to receive on components, not events.
 
 
+// For performance I was splitting up Sender<M> and Sender<C> but maybe that's not needed?
+// - instead: MessageManager has a type-erased crossbeam Sender<(M, ChannelKind, Priority)>
+//      that users can write to in parallel
+//   - we have a type-erased fn that reads from the Receiver<M>, serializes it, and writes to the Transports Sender<(C, Bytes)>
+
 
 
 // If you specify that rebroadcast is allowed, we will also register RebroadcastMessage<M> in the registry!
 //   - For rebroadcasting we will let the server deserialize the message to inspect the contents and do validation?
 
-use crate::registry::{MessageError, MessageRegistry};
-use crate::{Message, MessageId, MessageManager};
-use bevy::ecs::world::FilteredEntityMut;
-use bevy::log::tracing_subscriber::registry;
-use bevy::prelude::{Entity, Query, Res};
-use lightyear_serde::reader::Reader;
-use lightyear_serde::ToBytes;
-use lightyear_transport::channel::builder::ChannelSender;
-use lightyear_transport::channel::receivers::ChannelReceive;
-use lightyear_transport::channel::Channel;
-use lightyear_transport::prelude::Transport;
-use tracing::error;
-
 // TODO: provide an api where we send to the link directly?
 
-// Extension trait so that we can implement it for ChannelSender<C>
-trait SendMessage<M: Message> {
-    fn send_message<M>(
-        &mut self,
-        message: M,
-        priority: f32,
-        registry: &MessageRegistry,
-        transport: &mut Transport,
-        // TODO: separate error type for SendMessage and ReceiveMessage
-    ) -> Result<(), MessageError>;
-}
+// // Extension trait so that we can implement it for ChannelSender<C>
+// trait SendMessage<M: Message> {
+//     fn send_message<M>(
+//         &mut self,
+//         message: M,
+//         priority: f32,
+//         registry: &MessageRegistry,
+//         transport: &mut Transport,
+//         // TODO: separate error type for SendMessage and ReceiveMessage
+//     ) -> Result<(), MessageError>;
+// }
+//
+// impl<C: Channel, M: Message> SendMessage<M> for ChannelSender<C> {
+//
+//     fn send_message<M>(&mut self, message: &M, priority: f32, registry: &MessageRegistry, transport: &mut Transport) -> Result<(), MessageError> {
+//         registry.serialize(message, &mut self.writer, &mut transport.send_mapper)?;
+//         let message_id = self.sender.buffer_send(self.writer.split(), priority)?;
+//         Ok(())
+//     }
+// }
 
-impl<C: Channel, M: Message> SendMessage<M> for ChannelSender<C> {
+use bevy::app::{App, PostUpdate, PreUpdate};
+use bevy::prelude::{IntoScheduleConfigs, Plugin, SystemSet};
+use lightyear_transport::prelude::TransportSet;
 
-    fn send_message<M>(&mut self, message: &M, priority: f32, registry: &MessageRegistry, transport: &mut Transport) -> Result<(), MessageError> {
-        registry.serialize(message, &mut self.writer, &mut transport.send_mapper)?;
-        let message_id = self.sender.buffer_send(self.writer.split(), priority)?;
-        Ok(())
-    }
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum MessageSet {
+    // PRE UPDATE
+    /// Receive Bytes from the Transport, deserialize them into Messages
+    /// and buffer those in the MessageReceiver<M>
+    Receive,
+
+    // PostUpdate
+    /// Receive messages from the MessageSender<M>, serialize them into Bytes
+    /// and buffer those in the Transport
+    Send,
 }
 
 // PLUGIN
@@ -133,40 +142,11 @@ impl<C: Channel, M: Message> SendMessage<M> for ChannelSender<C> {
 //  MessageManager is similar to transport, it holds references to MessageReceiver<M> and MessageSender<M> component ids
 pub struct MessagePlugin;
 
-impl MessagePlugin {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn recv(
-        mut transport_query: Query<(Entity, &mut Transport)>,
-        // List of ChannelReceivers<M> present on that entity
-        mut receiver_query: Query<FilteredEntityMut>,
-        message_registry: Res<MessageRegistry>,
-    ) {
-        transport_query.par_iter_mut().for_each(|(entity, mut transport)| {
-            // TODO: maybe store using channel-kind? channel-id is a serialization-specific id, which should
-            //  remain in lightyear_transport
-            transport.receivers.iter_mut().try_for_each(|(channel_id, channel_receiver)| {
-                while let Some((bytes, tick)) = channel_receiver.read_message() {
-                    let mut reader = Reader::from(bytes);
-                    let message_id = MessageId::from_bytes(&mut reader)?;
-                    // using the message_id, get fomr the message_registry the component_id
-                    let component_id = ComponentId::new(0);
-                    if let Ok(receiver) = receiver_query
-                        .get_mut(entity)
-                        .unwrap()
-                        .get_mut_by_id(*component_id)
-                        .ok_or(MessageError::MissingComponent(*component_id)) {
-                        // registry has the type-erased function that deserializes and type-erases the message
-                        //  into the MessageReceiver
-                        registry()
-                    }
-
-
-                }
-                Ok(())
-            }).inspect_err(|e| error!("Error receiving messages")).ok();
-        })
+impl Plugin for MessagePlugin {
+    fn build(&self, app: &mut App) {
+        app.configure_sets(PreUpdate, MessageSet::Receive.after(TransportSet::Receive));
+        app.configure_sets(PostUpdate, MessageSet::Send.before(TransportSet::Send));
+        app.add_systems(PreUpdate, Self::recv.in_set(TransportSet::Receive));
+        app.add_systems(PostUpdate, Self::send.in_set(TransportSet::Send));
     }
 }

@@ -9,10 +9,7 @@ pub mod senders;
 
 #[cfg(feature = "trace")]
 pub mod stats;
-pub(crate) mod plugin;
 pub(crate) mod registry;
-
-
 
 pub trait Channel: Send + Sync + 'static {
     fn name() -> &'static str;

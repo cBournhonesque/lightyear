@@ -137,8 +137,7 @@ mod tests {
         let num_bytes = (FRAGMENT_SIZE as f32 * 1.5) as usize;
         let message_bytes = Bytes::from(vec![1u8; num_bytes]);
         let fragments = FragmentSender::new()
-            .build_fragments(MessageId(0), None, message_bytes.clone())
-            .unwrap();
+            .build_fragments(MessageId(0), None, message_bytes.clone());
 
         assert_eq!(
             receiver.receive_fragment(fragments[0].clone(), Tick(0), None),

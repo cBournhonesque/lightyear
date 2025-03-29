@@ -7,7 +7,7 @@ use core::net::SocketAddr;
 use lightyear_connection::client::{ConnectTrigger, DisconnectTrigger};
 use lightyear_connection::ConnectionSet;
 use lightyear_core::time::TimeManager;
-use lightyear_link::{Link, LinkSet};
+use lightyear_link::{Link, LinkSet, SendPayload};
 use lightyear_transport::prelude::{Transport, TransportSet};
 use tracing::error;
 
@@ -79,30 +79,36 @@ impl Client {
 
 // TODO: set the remote_addr on the Link upon connection?
 
+// We process bytes from the link and re-add them to the link so that the Transport can still
+// fetch directly from the link
 impl NetcodeClientPlugin {
-    /// Takes packets from the Transport, process them through the client,
-    /// and buffer them into the link to be sent by the IO
+    /// Takes packets from the Link, process them through the client,
+    /// and buffer them back into the link to be sent by the IO
     fn send(
-        mut query: Query<(&mut Transport, &mut Link, &mut Client)>,
+        mut query: Query<(&mut Link, &mut Client)>,
     ) {
-        query.par_iter_mut().for_each(|(mut transport, mut link, mut client)| {
-            transport.send.drain(..).for_each(|payload| {
-                // we don't want to short-circuit on error
-                client.inner.send(payload, link.as_mut()).inspect_err(|e| {
+        query.par_iter_mut().for_each(|(mut link, mut client)| {
+            link.send.drain(..).try_for_each(|payload| {
+                client.inner.buffer_send(payload)
+            }).inspect_err(|e| {
                     error!("Error sending packet: {:?}", e);
                 }).ok();
-            })
+
+            // we don't want to short-circuit on error
+            client.inner.send_buffered(link.as_mut()).inspect_err(|e| {
+                error!("Error sending packet: {:?}", e);
+            }).ok();
         })
     }
 
     /// Receive packets from the Link, and process them through the client,
-    /// then buffer them into the Transport
+    /// then buffer them back into the Link
     fn receive(
         real_time: Res<Time<Real>>,
-        mut query: Query<(&mut Transport, &mut Link, &mut Client)>,
+        mut query: Query<(&mut Link, &mut Client)>,
     ) {
         let delta = real_time.delta();
-        query.par_iter_mut().for_each(|(mut transport, mut link, mut client)| {
+        query.par_iter_mut().for_each(|(mut link, mut client)| {
             // Buffer the packets received from the link into the Connection
             // don't short-circuit on error
             client.inner.try_update(delta.as_secs_f64(), link.as_mut())
@@ -111,10 +117,10 @@ impl NetcodeClientPlugin {
                 })
                 .ok();
 
-            // Buffer the packets received from the Connection into the Transport
-            while let Some(packet) = client.inner.recv() {
-                transport.recv.push(packet);
-            }
+            // Buffer the packets received from the Connection back into the Link
+            client.inner.recv().for_each(|payload| {
+                link.recv.push(payload);
+            });
         })
     }
 

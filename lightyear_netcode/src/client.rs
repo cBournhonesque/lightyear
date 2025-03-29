@@ -1,4 +1,5 @@
 use alloc::collections::VecDeque;
+use alloc::vec::Drain;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec, vec::Vec};
 use core::net::SocketAddr;
@@ -188,7 +189,8 @@ pub struct NetcodeClient<Ctx = ()> {
     replay_protection: ReplayProtection,
     should_disconnect: bool,
     should_disconnect_state: ClientState,
-    packet_queue: VecDeque<RecvPayload>,
+    send_queue: Vec<SendPayload>,
+    packet_queue: Vec<RecvPayload>,
     // We use a Writer (wrapper around BytesMut) here because we will keep re-using the
     // same allocation for the bytes we send.
     // 1. We create an array on the stack of size MAX_PACKET_SIZE
@@ -577,8 +579,18 @@ impl<Ctx> NetcodeClient<Ctx> {
     ///     thread::sleep(tick_rate);
     /// }
     /// ```
-    pub fn recv(&mut self) -> Option<RecvPayload> {
-        self.packet_queue.pop_front()
+    pub fn recv(&mut self) -> impl Iterator<Item=RecvPayload>  {
+        self.packet_queue.drain(..)
+    }
+
+    pub(crate) fn buffer_send(&mut self, buf: SendPayload) {
+        self.send_queue.push(buf);
+    }
+
+    pub(crate) fn send_buffered(&mut self, link: &mut Link) -> Result<()> {
+        self.send_queue.drain(..).try_for_each(|payload| {
+            self.send(payload, link)
+        })
     }
 
     /// Sends a packet to the server.

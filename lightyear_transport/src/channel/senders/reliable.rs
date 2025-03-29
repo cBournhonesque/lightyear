@@ -126,12 +126,12 @@ impl ChannelSend for ReliableSender {
         &mut self,
         message: Bytes,
         priority: f32,
-    ) -> Result<Option<MessageId>, SerializationError> {
+    ) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         let unacked_message = if message.len() > self.fragment_sender.fragment_size {
             let fragments = self
                 .fragment_sender
-                .build_fragments(message_id, None, message)?;
+                .build_fragments(message_id, None, message);
             UnackedMessage::Fragmented(
                 fragments
                     .into_iter()
@@ -158,7 +158,7 @@ impl ChannelSend for ReliableSender {
         self.unacked_messages
             .insert(message_id, unacked_message_with_priority);
         self.next_send_message_id += 1;
-        Ok(Some(message_id))
+        Some(message_id)
     }
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets

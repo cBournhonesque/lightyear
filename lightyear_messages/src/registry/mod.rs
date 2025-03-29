@@ -1,6 +1,8 @@
+use crate::receive::ReceiveMessageFn;
 use crate::registry::entity_map::SendEntityMap;
 use crate::registry::serialize::{ErasedSerializeFns, SerializeFns};
-use crate::Message;
+use crate::send::SendMessageFn;
+use crate::{Message, MessageId};
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::MapEntities;
 use bevy::platform_support::collections::HashMap;
@@ -11,6 +13,7 @@ use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::Writer;
 use lightyear_serde::ToBytes;
 use lightyear_transport::channel::builder::ChannelDirection;
+use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_utils::registry::{TypeKind, TypeMapper};
 use serde::de::DeserializeOwned;
@@ -47,7 +50,13 @@ pub enum MessageError {
     #[error(transparent)]
     Packet(#[from] lightyear_transport::packet::error::PacketError),
     #[error("the component id {0} is missing from the entity")]
-    MissingComponent(ComponentId)
+    MissingComponent(ComponentId),
+    #[error("the channel kind {0} is missing from the entity")]
+    MissingChannelKind(ChannelKind),
+    #[error("the message kind {0} is not registered")]
+    UnrecognizedMessage(MessageKind),
+    #[error(transparent)]
+    TransportError(#[from] lightyear_transport::error::TransportError),
 }
 
 /// [`MessageKind`] is an internal wrapper around the type of the message
@@ -200,6 +209,41 @@ pub(crate) fn register_message<M: Message>(app: &mut App, direction: ChannelDire
     }
 }
 
+
+
+/// Metadata needed to receive/send messages
+///
+/// We separate client/server to support host-server mode.
+#[derive(Debug, Default, Clone, PartialEq, TypePath)]
+pub(crate) struct MessageMetadata {
+    /// metadata needed to send a message
+    /// We use a Vec instead of a HashMap because we need to iterate through all SendMessage<E> events
+    pub(crate) send: Vec<SendMessageMetadata>,
+    /// metadata needed to receive a message
+    pub(crate) receive: HashMap<MessageKind, ReceiveMessageMetadata>,
+    pub(crate) receive_trigger: HashMap<MessageKind, ReceiveTriggerMetadata>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReceiveMessageMetadata {
+    /// ComponentId of the MessageReceiver<M> component
+    pub(crate) component_id: ComponentId,
+    pub(crate) receive_message_fn: ReceiveMessageFn,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReceiveTriggerMetadata {
+    /// ComponentId of the Events<ReceiveMessage<RemoteTrigger<E>>> resource
+    pub(crate) component_id: ComponentId,
+    pub(crate) receive_trigger_fn: ReceiveTriggerFn,
+}
+
+#[derive(Debug, Clone, PartialEq, TypePath)]
+pub(crate) struct SendMessageMetadata {
+    pub(crate) send_message_fn: SendMessageFn,
+
+}
+
 /// A [`Resource`] that will keep track of all the [`Message`]s that can be sent over the network.
 /// A [`Message`] is any type that is serializable and deserializable.
 ///
@@ -254,10 +298,8 @@ pub(crate) fn register_message<M: Message>(app: &mut App, direction: ChannelDire
 /// ```
 #[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct MessageRegistry {
-    // TODO: do we need to distinguish between message types?
-    pub(crate) client_messages: client::MessageMetadata,
-    pub(crate) server_messages: server::MessageMetadata,
-    pub(crate) metadata: HashMap<ComponentId, MessageMetadata>,
+    pub(crate) send_metadata: HashMap<MessageKind, SendMessageMetadata>,
+    pub(crate) receive_metadata: HashMap<MessageKind, ReceiveMessageMetadata>,
     pub(crate) serialize_fns_map: HashMap<MessageKind, ErasedSerializeFns>,
     pub(crate) kind_map: TypeMapper<MessageKind>,
 }

@@ -13,7 +13,6 @@ use crossbeam_channel::{Receiver, Sender};
 use lightyear_core::tick::TickManager;
 use lightyear_core::time::{TimeManager, WrappedTime};
 use lightyear_link::ping::manager::PingManager;
-use lightyear_serde::SerializationError;
 
 const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
 
@@ -81,12 +80,12 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
         &mut self,
         message: Bytes,
         priority: f32,
-    ) -> Result<Option<MessageId>, SerializationError> {
+    ) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         if message.len() > self.fragment_sender.fragment_size {
             let fragments = self
                 .fragment_sender
-                .build_fragments(message_id, None, message)?;
+                .build_fragments(message_id, None, message);
             self.fragment_ack_receiver
                 .add_new_fragment_to_wait_for(message_id, fragments.len());
             for fragment in fragments {
@@ -103,7 +102,7 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
             });
         }
         self.next_send_message_id += 1;
-        Ok(Some(message_id))
+        Some(message_id)
     }
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets to be sent
@@ -184,7 +183,6 @@ mod tests {
         // single message
         let message_id = sender
             .buffer_send(Bytes::from("hello"), 1.0)
-            .unwrap()
             .unwrap();
         assert_eq!(message_id, MessageId(0));
         assert_eq!(sender.next_send_message_id, MessageId(1));
@@ -199,7 +197,7 @@ mod tests {
         // fragment message
         const NUM_BYTES: usize = (FRAGMENT_SIZE as f32 * 1.5) as usize;
         let bytes = Bytes::from(vec![0; NUM_BYTES]);
-        let message_id = sender.buffer_send(bytes, 1.0).unwrap().unwrap();
+        let message_id = sender.buffer_send(bytes, 1.0).unwrap();
         assert_eq!(message_id, MessageId(1));
         let mut expected = FragmentAckReceiver::new();
         expected.add_new_fragment_to_wait_for(message_id, 2);

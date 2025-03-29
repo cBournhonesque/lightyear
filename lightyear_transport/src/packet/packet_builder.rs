@@ -624,7 +624,7 @@ mod tests {
         let big_bytes = Bytes::from(vec![1u8; num_big_bytes]);
         let fragmenter = FragmentSender::new();
         let fragments = fragmenter
-            .build_fragments(MessageId(3), None, big_bytes.clone())?;
+            .build_fragments(MessageId(3), None, big_bytes.clone());
 
         let small_bytes = Bytes::from(vec![7u8; 10]);
         let small_message = SingleData::new(None, small_bytes.clone());

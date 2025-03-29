@@ -1,6 +1,8 @@
 use crate::channel::builder::Transport;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
+use crate::channel::senders::ChannelSend;
+use crate::error::TransportError;
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, ReceiveMessage, SendMessage, SingleData};
@@ -16,7 +18,6 @@ use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
 use std::collections::VecDeque;
 use tracing::{error, trace};
-
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum TransportSet {
@@ -37,13 +38,10 @@ impl ChannelsPlugin {
     /// Depending on the [`ChannelId`], buffer the messages in the packet
     /// in the appropriate [`ChannelReceiver`]
     fn buffer_receive(
-        mut link_query: Query<(Entity, &mut Transport)>,
-        mut sender_query: Query<FilteredEntityMut>
-    ) -> Result {
-        link_query.iter_mut().try_for_each(|(entity, mut transport)| {
-            // TODO: instead of taking from the link.recv, we need to take from
-            //  the transport.recv because that's where the ConnectionClient/Server puts the payloads
-            transport.recv.drain(..).try_for_each(|packet| {
+        mut query: Query<(&mut Link, &mut Transport)>,
+    ) {
+        query.par_iter_mut().for_each(|(mut link, mut transport)| {
+            link.recv.drain(..).try_for_each(|packet| {
                 let mut cursor = Reader::from(packet);
 
                 // Parse the packet
@@ -67,13 +65,7 @@ impl ChannelsPlugin {
                                 sender_metadata.name,
                                 message_ack
                             );
-                            if let Ok(mut f) = sender_query.get_mut(entity) {
-                                if let Some(sender) = f.get_mut_by_id(sender_metadata.sender_id) {
-                                    // TODO: should the type-erased function be stored on the each Transport?
-                                    //  that seems wasteful, maybe store in the registry?
-                                    (sender_metadata.receive_ack)(sender, message_ack);
-                                }
-                            }
+                            sender_metadata.sender.receive_ack(&message_ack);
                         }
                     }
                 }
@@ -86,6 +78,7 @@ impl ChannelsPlugin {
                     let channel_id = ChannelId::from_bytes(&mut cursor)?;
                     let fragment_data = FragmentData::from_bytes(&mut cursor)?;
                     transport.receivers.get_mut(&channel_id).ok_or(PacketError::ChannelNotFound)?
+                        .receiver
                         .buffer_recv(ReceiveMessage {
                             data: fragment_data.into(),
                             remote_sent_tick: tick,
@@ -99,36 +92,57 @@ impl ChannelsPlugin {
                     for _ in 0..num_messages {
                         let single_data = SingleData::from_bytes(&mut cursor)?;
                         transport.receivers.get_mut(&channel_id).ok_or(PacketError::ChannelNotFound)?
+                            .receiver
                             .buffer_recv(ReceiveMessage {
                                 data: single_data.into(),
                                 remote_sent_tick: tick,
                             })?;
                     }
                 }
-                Ok(())
-            })
+                Ok::<(), TransportError>(())
+            }).inspect_err(|e| {
+                error!("Error processing packet: {e:?}");
+            }).ok();
+
         })
     }
 
-    /// Iterates through the ChannelSenders on the entity,
+    // TODO: users will mostly interact only via the lightyear_message
+    //  MessageSender<M> and MessageReceiver<M> so maybe there's no need
+    //  to create ChannelSender<C> components? or should we do it for users
+    //  who only want to use lightyear_transport without lightyear_messages?
+    //  so they can easily buffer messages in parallel to various channels?
+    //  The parallelism is lost when using lightyear_message so maybe there is no point!
+
+    /// Iterates through the `ChannelSenders` on the entity,
     /// Build packets from the messages in the channel,
-    /// Upload the packets to the link
+    /// Upload the packets to the [`Link`]
     fn buffer_send(
-        mut link_query: Query<(Entity, &mut Transport)>,
-        mut sender_query: Query<FilteredEntityMut>,
+        mut query: Query<(&mut Link, &mut Transport)>,
         channel_registry: Res<ChannelRegistry>,
         tick_manager: Res<TickManager>,
-    ) -> Result {
+    ) {
         let tick = tick_manager.tick();
-        // TODO: add parallelism
-        link_query.iter_mut().try_for_each(|(entity, mut transport)| {
+        query.par_iter_mut().for_each(|(mut link, mut transport)| {
+            // allow split borrows
             let mut transport = &mut *transport;
-            // flush messages from the ChannelSender to the actual sender
-            transport.senders.values().for_each(|sender_metadata| {
-                if let Ok(mut f) = sender_query.get_mut(entity) {
-                    if let Some(sender) = f.get_mut_by_id(sender_metadata.sender_id) {
-                        (sender_metadata.flush)(&mut transport.priority_manager, sender);
-                    }
+
+            // buffer all new messages in the Sender
+            transport.recv_channel.try_iter().try_for_each(|(channel_kind, bytes, priority)| {
+                let sender_metadata = transport.senders.get_mut(&channel_kind).ok_or(TransportError::ChannelNotFound(channel_kind))?;
+                // TODO: do we need the message_id?
+                sender_metadata.sender.buffer_send(bytes, priority);
+                Ok::<(), TransportError>(())
+            }).inspect_err(|e| error!("error: {e:?}")).ok();
+
+            // flush messages from the Sender to the priority manager
+            transport.senders.values_mut().for_each(|sender_metadata| {
+                let channel_id = sender_metadata.channel_id;
+                let sender = &mut sender_metadata.sender;
+                let (single_data, fragment_data) = sender.send_packet();
+                if !single_data.is_empty() || !fragment_data.is_empty() {
+                    trace!(?channel_id, "send message with channel_id");
+                    transport.priority_manager.buffer_messages(channel_id, single_data, fragment_data);
                 }
             });
 
@@ -139,9 +153,12 @@ impl ChannelsPlugin {
 
             // build actual packets from these messages
             // TODO: swap to try_for_each when available
-            let packets =
+            let Ok(packets) =
                 transport.packet_manager
-                    .build_packets(tick, single_data, fragment_data)?;
+                    .build_packets(tick, single_data, fragment_data) else {
+                error!("Failed to build packets");
+                return
+            };
 
             let mut total_bytes_sent = 0;
             for mut packet in packets {
@@ -171,15 +188,11 @@ impl ChannelsPlugin {
                                 .push((*channel_kind, message_ack));
                         }
                         Ok::<(), PacketError>(())
-                    })?;
-
-                // TODO: instead of putting in the link directly, we need to store them in
-                //   transport.send, so that the ConnectionClient/Server can apply some processing
-                //   (add netcode-related bytes)
+                    }).inspect_err(|e| error!("Error updating packet to message ack: {e:?}")).ok();
 
                 // Upload the packets to the link
                 total_bytes_sent += packet.payload.len() as u32;
-                transport.send.push(Bytes::from(packet.payload));
+                link.send.push(Bytes::from(packet.payload));
             }
 
             // adjust the real amount of bytes that we sent through the limiter (to account for the actual packet size)
@@ -193,7 +206,6 @@ impl ChannelsPlugin {
                         .check_n(remaining_bytes_to_add);
                 }
             }
-            Ok(())
         })
     }
 }
@@ -201,45 +213,10 @@ impl ChannelsPlugin {
 
 impl Plugin for ChannelsPlugin {
     fn build(&self, app: &mut App) {
-
-        // temporarily remove the ChannelRegistry from the app to enable split borrows
-        let mut channel_registry = app.world_mut().remove_resource::<ChannelRegistry>().unwrap();
-
-        let buffer_receive = (
-            ParamBuilder,
-            QueryParamBuilder::new(|builder| {
-                builder.optional(|b| {
-                    channel_registry.sender_ids.iter().for_each(|sender_id| {
-                        b.mut_id(*sender_id);
-                    });
-                });
-            }),
-        )
-            .build_state(app.world_mut())
-            .build_system(Self::buffer_receive);
-
-        let buffer_send = (
-            ParamBuilder,
-            QueryParamBuilder::new(|builder| {
-                builder.optional(|b| {
-                    channel_registry.sender_ids.iter().for_each(|sender_id| {
-                        b.mut_id(*sender_id);
-                    });
-                });
-            }),
-            ParamBuilder,
-            ParamBuilder
-        )
-            .build_state(app.world_mut())
-            .build_system(Self::buffer_send);
-
         app.configure_sets(PreUpdate, TransportSet::Receive.after(LinkSet::Receive));
-        app.configure_sets(PostUpdate, TransportSet::Send.after(LinkSet::Send));
-        app.add_systems(PreUpdate, buffer_receive.in_set(TransportSet::Receive));
-        app.add_systems(PostUpdate, buffer_send.in_set(TransportSet::Send));
-
-        // re-insert the channel registry
-        app.world_mut().insert_resource(channel_registry);
+        app.configure_sets(PostUpdate, TransportSet::Send.before(LinkSet::Send));
+        app.add_systems(PreUpdate, Self::buffer_receive.in_set(TransportSet::Receive));
+        app.add_systems(PostUpdate, Self::buffer_send.in_set(TransportSet::Send));
     }
 }
 
@@ -249,7 +226,6 @@ impl Plugin for ChannelsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::channel::builder::ChannelSender;
     use crate::channel::registry::{AppChannelExt, ChannelKind};
     use crate::prelude::{ChannelMode, ChannelSettings};
     use core::time::Duration;
@@ -276,12 +252,16 @@ mod tests {
         app.insert_resource(TickManager::from_config(TickConfig::new(Duration::default())));
 
 
-        let mut entity_mut = app.world_mut().spawn((Link::default(), ChannelSender::<C>::default()));
+        let registry = app.world().resource::<ChannelRegistry>();
+        let mut transport = Transport::default();
+        transport.add_sender_from_registry::<C>(registry);
+        transport.add_receiver_from_registry::<C>(registry);
+        let mut entity_mut = app.world_mut().spawn((Link::default(), transport));
         let entity = entity_mut.id();
 
         // send bytes
         let send_bytes = Bytes::from(vec![1, 2, 3]);
-        entity_mut.get_mut::<ChannelSender<C>>().unwrap().buffer(send_bytes.clone());
+        entity_mut.get::<Transport>().unwrap().send::<C>(send_bytes.clone());
         app.update();
         // check that the send-payload was added to the link
         assert_eq!(&app.world_mut().entity(entity).get::<Link>().unwrap().send.len(), &1);
@@ -300,6 +280,7 @@ mod tests {
             .receivers
             .get_mut(&channel_id)
             .unwrap()
+            .receiver
             .read_message()
             .expect("expected to receive message");
         assert_eq!(recv_bytes, send_bytes);

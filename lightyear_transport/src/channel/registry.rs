@@ -1,4 +1,4 @@
-use crate::channel::builder::{AuthorityChannel, ChannelSender, ChannelSettings, EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel, PongChannel};
+use crate::channel::builder::{AuthorityChannel, ChannelSettings, EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel, PongChannel};
 use crate::channel::Channel;
 use bevy::app::App;
 use bevy::ecs::component::ComponentId;
@@ -56,9 +56,7 @@ impl From<TypeId> for ChannelKind {
 ///
 #[derive(Resource, Default, Clone, Debug, PartialEq, TypePath)]
 pub struct ChannelRegistry {
-    /// Used for efficient iteration
-    pub(crate) sender_ids: Vec<ComponentId>,
-    settings_map: HashMap<ChannelKind, (ChannelSettings, ComponentId)>,
+    settings_map: HashMap<ChannelKind, ChannelSettings>,
     kind_map: TypeMapper<ChannelKind>,
     built: bool,
 }
@@ -66,7 +64,6 @@ pub struct ChannelRegistry {
 impl ChannelRegistry {
     pub(crate) fn new() -> Self {
         let mut registry = Self {
-            sender_ids: Vec::new(),
             settings_map: HashMap::default(),
             kind_map: TypeMapper::new(),
             built: false,
@@ -82,12 +79,12 @@ impl ChannelRegistry {
 
     pub(crate) fn settings<C: Channel>(&self) -> Option<&ChannelSettings> {
         let kind = ChannelKind::of::<C>();
-        self.settings_map.get(&kind).map(|(settings, _)| settings)
+        self.settings_map.get(&kind)
     }
 
     pub(crate) fn settings_from_net_id(&self, net_id: NetId) -> Option<&ChannelSettings> {
         let kind = self.kind_map.kind(net_id)?;
-        self.settings_map.get(kind).map(|(settings, _)| settings)
+        self.settings_map.get(kind)
     }
 
     /// Returns true if the net_id corresponds to a channel that is used for replication
@@ -110,22 +107,16 @@ impl ChannelRegistry {
     }
 
     /// Register a new type
-    pub fn add_channel<C: Channel>(&mut self, sender_id: ComponentId, settings: ChannelSettings) -> (ChannelKind, ChannelId) {
+    pub fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> (ChannelKind, ChannelId) {
         let kind = ChannelKind::of::<C>();
         if let Some(net_id) = self.kind_map.net_id(&kind) {
             return (kind, *net_id);
         }
-        self.sender_ids.push(sender_id);
-        self.settings_map.insert(kind, (settings, sender_id));
+        self.settings_map.insert(kind, settings);
         let kind = self.kind_map.add::<C>();
         let net_id = self.get_net_from_kind(&kind).unwrap();
         (kind, *net_id)
     }
-
-    pub(crate) fn get_sender_id<C: Channel>(&self) -> Option<ComponentId> {
-        self.settings_map.get(&ChannelKind::of::<C>()).map(|(_, sender_id)| *sender_id)
-    }
-
 
     pub fn get_kind_from_net_id(&self, channel_id: ChannelId) -> Option<&ChannelKind> {
         self.kind_map.kind(channel_id)
@@ -143,8 +134,7 @@ pub trait AppChannelExt {
 
 impl AppChannelExt for App {
     fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) {
-        let sender_id = self.world_mut().register_component::<ChannelSender<C>>();
         let mut registry = self.world_mut().resource_mut::<ChannelRegistry>();
-        registry.add_channel::<C>(sender_id, settings);
+        registry.add_channel::<C>(settings);
     }
 }

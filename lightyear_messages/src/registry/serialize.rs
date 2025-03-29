@@ -8,6 +8,7 @@ use core::any::TypeId;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::Writer;
 use lightyear_serde::SerializationError;
+use lightyear_transport::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -276,11 +277,7 @@ impl AppSerializeExt for App {
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::serialize::{erased_serialize_fn, ErasedSerializeFns};
-    use crate::serialize::reader::Reader;
-    use crate::serialize::writer::Writer;
-    use crate::shared::replication::authority::AuthorityChange;
-    use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
+    use super::*;
     use bevy::prelude::Entity;
     use bevy::ptr::Ptr;
 

@@ -12,7 +12,6 @@ use crossbeam_channel::{Receiver, Sender};
 use lightyear_core::tick::TickManager;
 use lightyear_core::time::TimeManager;
 use lightyear_link::ping::manager::PingManager;
-use lightyear_serde::SerializationError;
 
 /// A sender that simply sends the messages without checking if they were received
 /// Same as UnorderedUnreliableSender, but includes ordering information (MessageId)
@@ -64,12 +63,12 @@ impl ChannelSend for SequencedUnreliableSender {
         &mut self,
         message: Bytes,
         priority: f32,
-    ) -> Result<Option<MessageId>, SerializationError> {
+    ) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         if message.len() > self.fragment_sender.fragment_size {
             for fragment in self
                 .fragment_sender
-                .build_fragments(message_id, None, message)?
+                .build_fragments(message_id, None, message)
             {
                 self.fragmented_messages_to_send.push_back(SendMessage {
                     data: MessageData::Fragment(fragment),
@@ -84,7 +83,7 @@ impl ChannelSend for SequencedUnreliableSender {
             });
         }
         self.next_send_message_id += 1;
-        Ok(Some(message_id))
+        Some(message_id)
     }
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets

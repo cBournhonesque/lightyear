@@ -1,39 +1,26 @@
 //! This module contains the [`Channel`] trait
-use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
-use crate::channel::receivers::sequenced_reliable::SequencedReliableReceiver;
-use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
-use crate::channel::receivers::unordered_reliable::UnorderedReliableReceiver;
-use crate::channel::receivers::unordered_unreliable::UnorderedUnreliableReceiver;
 use crate::channel::receivers::ChannelReceiverEnum;
-use crate::channel::registry::{ChannelId, ChannelKind, ChannelRegistry};
-use crate::channel::senders::reliable::ReliableSender;
-use crate::channel::senders::sequenced_unreliable::SequencedUnreliableSender;
-use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
-use crate::channel::senders::unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender;
-use crate::channel::senders::ChannelSend;
+use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::ChannelSenderEnum;
 #[cfg(feature = "trace")]
 use crate::channel::stats::send::ChannelSendStats;
-use crate::packet::message::{MessageAck, MessageId};
+use crate::packet::message::MessageAck;
 use crate::packet::packet::PacketId;
 use crate::packet::packet_builder::{PacketBuilder, RecvPayload};
 use crate::packet::priority_manager::PriorityManager;
 use bevy::ecs::change_detection::MutUntyped;
-use bevy::ecs::component::{ComponentHook, ComponentId, ComponentsRegistrator, HookContext, Immutable, RequiredComponents, StorageType};
-use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, World};
+use bevy::prelude::Component;
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_macros::{Channel, ChannelInternal};
-use lightyear_serde::SerializationError;
 use lightyear_utils::collections::HashMap;
 
 use crate::channel::Channel;
-use crate::entity_map::SendEntityMap;
-use alloc::collections::VecDeque;
+use crate::entity_map::{ReceiveEntityMap, SendEntityMap};
+use crate::error::TransportError;
+use crate::prelude::ChannelRegistry;
+use crossbeam_channel::{Receiver, Sender};
 use lightyear_link::SendPayload;
-use lightyear_serde::writer::Writer;
-use tracing::trace;
 // TODO: hook when you insert ChannelSettings, it creates a ChannelSender and ChannelReceiver component
 
 pub const DEFAULT_MESSAGE_PRIORITY: f32 = 1.0;
@@ -60,42 +47,15 @@ impl Default for ChannelSettings {
 }
 
 
-/// User-facing component to send data to a given channel.
-///
-/// We create a separate component per channel so that users can buffer messages to one channel
-/// without losing parallelism over the other channels.
-#[derive(Component)]
-#[require(Transport)]
-// TODO: add on_remove or on_replace hooks?
-#[component(on_add = on_add::<C>)]
-pub struct ChannelSender<C: Channel> {
-    pub sender: ChannelSenderEnum,
-    pub channel_id: ChannelId,
-    pub writer: Writer,
-    marker: std::marker::PhantomData<C>,
-}
-
-// The user will just provide the Default ChannelSender and we will use the registry to overwrite it with the correct sender
-impl<C: Channel> Default for ChannelSender<C> {
-    fn default() -> Self {
-        Self {
-            sender: ChannelSenderEnum::UnorderedUnreliable(UnorderedUnreliableSender::new(Duration::default())),
-            channel_id: ChannelId::default(),
-            writer: Writer::default(),
-            marker: std::marker::PhantomData,
-        }
-    }
-}
-
 
 /// Holds information about all the channels present on the entity.
-#[derive(Component, Default)]
+#[derive(Component)]
 pub struct Transport {
     // TODO: do we want to associate a Direction with the Transport?
     //  then we could only go through messages with the correct direction?
     //  Also then we would only add the receiver/sender that we need!
     //  This should be independent from server or client, so it should
-    pub receivers: HashMap<ChannelId, ChannelReceiverEnum>,
+    pub receivers: HashMap<ChannelId, ReceiverMetadata>,
     pub(crate) senders: HashMap<ChannelKind, SenderMetadata>,
     /// PriorityManager shared between all channels of this transport
     pub(crate) priority_manager: PriorityManager,
@@ -105,134 +65,162 @@ pub struct Transport {
     /// reliable senders can stop trying to send a message that has already been received
     pub(crate) packet_to_message_ack_map: HashMap<PacketId, Vec<(ChannelKind, MessageAck)>>,
 
+    /// mpsc channel sender/receiver to allow users to write bytes to the same channel in parallel
+    pub send_channel: Sender<(ChannelKind, Bytes, f32)>,
+    pub recv_channel: Receiver<(ChannelKind, Bytes, f32)>,
     pub send_mapper: SendEntityMap,
-    /// Buffer to store payloads what have been processed by the transport
+    pub recv_mapper: ReceiveEntityMap,
+    /// Buffer to store payloads that have been processed by the transport, and will be processed
+    /// by the Link or the Connection
     pub send: Vec<SendPayload>,
     /// Buffer to store payloads that will be processed by the transport and stored in the ChannelReceiverEnum
     pub recv: Vec<RecvPayload>,
 }
 
+impl Default for Transport {
+    fn default() -> Self {
+        let (send_channel, recv_channel) = crossbeam_channel::unbounded();
+        Self {
+            receivers: Default::default(),
+            senders: Default::default(),
+            priority_manager: Default::default(),
+            packet_manager: Default::default(),
+            packet_to_message_ack_map: Default::default(),
+            send_channel,
+            recv_channel,
+            send_mapper: Default::default(),
+            recv_mapper: Default::default(),
+            send: vec![],
+            recv: vec![],
+        }
+    }
+}
+
+/// Function that flushes all messages out of the ChannelSender
+/// and buffers them in the PriorityManager
 type FlushMessagesFn = fn(
     &mut PriorityManager,
     MutUntyped,
 );
 
 impl Transport {
-    pub fn add_sender<C: Channel>(&mut self, sender_id: ComponentId, mode: ChannelMode) {
+
+    pub fn add_sender<C: Channel>(&mut self, sender: ChannelSenderEnum, mode: ChannelMode, channel_id: ChannelId) {
         self.senders.insert(
             ChannelKind::of::<C>(),
             SenderMetadata {
-                sender_id,
+                sender,
+                channel_id,
                 mode,
                 name: core::any::type_name::<C>(),
-                flush: SenderMetadata::flush_packets::<C>,
-                receive_ack: SenderMetadata::receive_ack::<C>,
             },
         );
     }
+
+    // TODO: make this available via observer by triggering AddSender<C> on the Transport entity.
+    pub fn add_sender_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
+        let Some(settings) = registry.settings::<C>() else {
+            panic!("ChannelSettings not found for channel {}", core::any::type_name::<C>());
+        };
+        let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
+        let sender = settings.into();
+        self.add_sender::<C>(sender, settings.mode, channel_id);
+    }
+
+    pub fn add_receiver<C: Channel>(&mut self, receiver: ChannelReceiverEnum, channel_id: ChannelId) {
+        self.receivers.insert(channel_id, ReceiverMetadata {
+            receiver,
+            channel_kind: ChannelKind::of::<C>(),
+        });
+    }
+
+    pub fn add_receiver_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
+                let Some(settings) = registry.settings::<C>() else {
+            panic!("ChannelSettings not found for channel {}", core::any::type_name::<C>());
+        };
+        let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
+        let receiver = settings.into();
+        self.add_receiver::<C>(receiver, channel_id);
+    }
+
+
+    pub fn send_with_priority<C: Channel>(&self, bytes: SendPayload, priority: f32) -> Result<(), TransportError> {
+        self.send_erased(ChannelKind::of::<C>(), bytes, priority)
+    }
+
+    pub fn send<C: Channel>(&self, bytes: SendPayload) -> Result<(), TransportError> {
+        self.send_with_priority::<C>(bytes, 1.0)
+    }
+
+    pub fn send_erased(&self, kind: ChannelKind, bytes: SendPayload, priority: f32) -> Result<(), TransportError> {
+        self.send_channel.try_send((kind, bytes, priority))?;
+        Ok(())
+    }
 }
 
+
+pub struct ReceiverMetadata {
+    pub receiver: ChannelReceiverEnum,
+    pub channel_kind: ChannelKind,
+}
 
 
 pub(crate) struct SenderMetadata {
     /// The component id of the ChannelSender<C> component
-    pub(crate) sender_id: ComponentId,
+    pub sender: ChannelSenderEnum,
+    pub(crate) channel_id: ChannelId,
     pub(crate) mode: ChannelMode,
     pub(crate) name: &'static str,
-    pub(crate) flush: FlushMessagesFn,
-    pub(crate) receive_ack: fn(MutUntyped, MessageAck),
-}
-
-impl SenderMetadata {
-    /// Flush packets from the ChannelSender<C> component to the actual
-    /// ChannelSenderEnum
-    fn flush_packets<C: Channel>(
-        // TODO: ideally we would pass Transport here but split borrow issues
-        priority_manager: &mut PriorityManager,
-        sender: MutUntyped,
-    ) {
-        let mut sender = unsafe { sender.with_type::<ChannelSender<C>>() };
-        let (single_data, fragment_data) = sender.sender.send_packet();
-        if !single_data.is_empty() || !fragment_data.is_empty() {
-            trace!(?sender.channel_id, "send message with channel_id");
-            priority_manager.buffer_messages(sender.channel_id, single_data, fragment_data);
-        }
-    }
-
-    fn receive_ack<C: Channel>(sender: MutUntyped, message_ack: MessageAck) {
-        let mut sender = unsafe { sender.with_type::<ChannelSender<C>>() };
-        sender.sender.receive_ack(&message_ack);
-    }
-}
-
-
-impl<C: Channel> ChannelSender<C> {
-    /// Buffer a message to be sent on this channel
-    pub fn buffer_with_priority(
-        &mut self,
-        message: Bytes,
-        priority: f32,
-    ) -> Result<Option<MessageId>, SerializationError> {
-        self.sender.buffer_send(message, priority)
-    }
-
-    /// Buffer a message to be sent on this channel
-    pub fn buffer(
-        &mut self,
-        message: Bytes,
-    ) -> Result<Option<MessageId>, SerializationError> {
-        self.sender.buffer_send(message, DEFAULT_MESSAGE_PRIORITY)
-    }
 }
 
 
 
-fn on_add<C: Channel>(mut world: DeferredWorld, context: HookContext) {
-    let entity = context.entity;
-    let mut registry = world.resource_mut::<ChannelRegistry>();
-    // TODO: merge settings and SenderId in a SenderMetadata so that we don't fetch twice
-    let Some(settings) = registry.settings::<C>() else {
-        panic!("ChannelSettings not found for channel {}", core::any::type_name::<C>());
-    };
-    let sender_id = registry.get_sender_id::<C>().unwrap();
-    let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
-    let receiver: ChannelReceiverEnum;
-    let sender: ChannelSenderEnum;
-    let mode = settings.mode;
-    match settings.mode {
-        ChannelMode::UnorderedUnreliableWithAcks => {
-            receiver = UnorderedUnreliableReceiver::new().into();
-            sender = UnorderedUnreliableWithAcksSender::new(settings.send_frequency).into();
-        }
-        ChannelMode::UnorderedUnreliable => {
-            receiver = UnorderedUnreliableReceiver::new().into();
-            sender = UnorderedUnreliableSender::new(settings.send_frequency).into();
-        }
-        ChannelMode::SequencedUnreliable => {
-            receiver = SequencedUnreliableReceiver::new().into();
-            sender = SequencedUnreliableSender::new(settings.send_frequency).into();
-        }
-        ChannelMode::UnorderedReliable(reliable_settings) => {
-            receiver = UnorderedReliableReceiver::new().into();
-            sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
-        }
-        ChannelMode::SequencedReliable(reliable_settings) => {
-            receiver = SequencedReliableReceiver::new().into();
-            sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
-        }
-        ChannelMode::OrderedReliable(reliable_settings) => {
-            receiver = OrderedReliableReceiver::new().into();
-            sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
-        }
-    }
-    let mut entity_mut = world.entity_mut(entity);
-    let mut channel_sender = entity_mut.get_mut::<ChannelSender<C>>().unwrap();
-    channel_sender.sender = sender;
-    channel_sender.channel_id = channel_id;
-    let mut transport = entity_mut.get_mut::<Transport>().unwrap();
-    transport.add_sender::<C>(sender_id, mode);
-    transport.receivers.insert(channel_id, receiver);
-}
+// fn on_add<C: Channel>(mut world: DeferredWorld, context: HookContext) {
+//     let entity = context.entity;
+//     let mut registry = world.resource_mut::<ChannelRegistry>();
+//     // TODO: merge settings and SenderId in a SenderMetadata so that we don't fetch twice
+//     let Some(settings) = registry.settings::<C>() else {
+//         panic!("ChannelSettings not found for channel {}", core::any::type_name::<C>());
+//     };
+//     let sender_id = registry.get_sender_id::<C>().unwrap();
+//     let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
+//     let receiver: ChannelReceiverEnum;
+//     let sender: ChannelSenderEnum;
+//     let mode = settings.mode;
+//     match settings.mode {
+//         ChannelMode::UnorderedUnreliableWithAcks => {
+//             receiver = UnorderedUnreliableReceiver::new().into();
+//             sender = UnorderedUnreliableWithAcksSender::new(settings.send_frequency).into();
+//         }
+//         ChannelMode::UnorderedUnreliable => {
+//             receiver = UnorderedUnreliableReceiver::new().into();
+//             sender = UnorderedUnreliableSender::new(settings.send_frequency).into();
+//         }
+//         ChannelMode::SequencedUnreliable => {
+//             receiver = SequencedUnreliableReceiver::new().into();
+//             sender = SequencedUnreliableSender::new(settings.send_frequency).into();
+//         }
+//         ChannelMode::UnorderedReliable(reliable_settings) => {
+//             receiver = UnorderedReliableReceiver::new().into();
+//             sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
+//         }
+//         ChannelMode::SequencedReliable(reliable_settings) => {
+//             receiver = SequencedReliableReceiver::new().into();
+//             sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
+//         }
+//         ChannelMode::OrderedReliable(reliable_settings) => {
+//             receiver = OrderedReliableReceiver::new().into();
+//             sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
+//         }
+//     }
+//     let mut entity_mut = world.entity_mut(entity);
+//     let mut channel_sender = entity_mut.get_mut::<ChannelSender<C>>().unwrap();
+//     channel_sender.sender = sender;
+//     channel_sender.channel_id = channel_id;
+//     let mut transport = entity_mut.get_mut::<Transport>().unwrap();
+//     transport.add_sender::<C>(sender_id, mode);
+//     transport.receivers.insert(channel_id, receiver);
+// }
 
 
 #[derive(Clone, Copy, Debug, PartialEq)]

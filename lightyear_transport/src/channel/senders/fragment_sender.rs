@@ -4,7 +4,6 @@ use crate::packet::packet::FRAGMENT_SIZE;
 use alloc::vec::Vec;
 use bytes::Bytes;
 use lightyear_core::tick::Tick;
-use lightyear_serde::SerializationError;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
 #[derive(Debug)]
@@ -24,7 +23,7 @@ impl FragmentSender {
         fragment_message_id: MessageId,
         tick: Option<Tick>,
         fragment_bytes: Bytes,
-    ) -> Result<Vec<FragmentData>, SerializationError> {
+    ) -> Vec<FragmentData> {
         if fragment_bytes.len() <= FRAGMENT_SIZE {
             unreachable!(
                 "Message size must be at least {} to need to be fragmented",
@@ -33,7 +32,7 @@ impl FragmentSender {
         }
         let chunks = fragment_bytes.chunks(self.fragment_size);
         let num_fragments = chunks.len();
-        Ok(chunks
+        chunks
             .enumerate()
             // TODO: ideally we don't clone here but we take ownership of the output of writer
             .map(|(fragment_index, chunk)| FragmentData {
@@ -43,7 +42,7 @@ impl FragmentSender {
                 num_fragments: FragmentIndex(num_fragments as u64),
                 bytes: fragment_bytes.slice_ref(chunk),
             })
-            .collect::<_>())
+            .collect::<_>()
     }
 }
 
@@ -67,8 +66,7 @@ mod tests {
         let sender = FragmentSender::new();
 
         let fragments = sender
-            .build_fragments(message_id, None, bytes.clone())
-            .unwrap();
+            .build_fragments(message_id, None, bytes.clone());
         let expected_num_fragments = 3;
         assert_eq!(fragments.len(), expected_num_fragments);
         assert_eq!(

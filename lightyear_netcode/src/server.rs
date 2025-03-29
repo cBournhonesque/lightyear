@@ -4,6 +4,7 @@ use alloc::sync::Arc;
 use alloc::{boxed::Box, format, string::ToString, vec, vec::Vec};
 use bevy::platform_support::collections::HashMap;
 use bevy::prelude::Resource;
+use bevy::reflect::List;
 use core::net::SocketAddr;
 use no_std_io2::io;
 use no_std_io2::io::Seek;
@@ -123,8 +124,11 @@ struct ConnectionCache {
     // we are not using a free-list here to not allocate memory up-front, since `ReplayProtection` is biggish (~2kb)
     replay_protection: HashMap<ClientId, ReplayProtection>,
 
+    // packets that are buffered and ready to be sent
+    send_queue: Vec<(SendPayload, ClientId)>,
+
     // packet queue for all clients
-    packet_queue: VecDeque<(RecvPayload, ClientId)>,
+    packet_queue: Vec<(RecvPayload, ClientId)>,
 
     // corresponds to the server time
     time: f64,
@@ -136,7 +140,8 @@ impl ConnectionCache {
             clients: HashMap::default(),
             client_id_map: HashMap::default(),
             replay_protection: HashMap::default(),
-            packet_queue: VecDeque::with_capacity(MAX_CLIENTS * 2),
+            send_queue: Vec::with_capacity(MAX_CLIENTS * 2),
+            packet_queue: Vec::with_capacity(MAX_CLIENTS * 2),
             time: server_time,
         }
     }
@@ -505,7 +510,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             Packet::Payload(packet) => {
                 self.touch_client(client_id);
                 if let Some(idx) = client_id {
-                    self.conn_cache.packet_queue.push_back((packet.buf, idx));
+                    self.conn_cache.packet_queue.push((packet.buf, idx));
                 }
                 Ok(())
             }
@@ -878,9 +883,21 @@ impl<Ctx> NetcodeServer<Ctx> {
     ///    }
     ///    # break;
     /// }
-    pub fn recv(&mut self) -> Option<(RecvPayload, ClientId)> {
-        self.conn_cache.packet_queue.pop_front()
+    pub fn recv(&mut self) -> impl Iterator<Item=(RecvPayload, ClientId)> {
+        self.conn_cache.packet_queue.drain(..)
     }
+
+    pub(crate) fn buffer_send(&mut self, buf: SendPayload, client_id: ClientId) -> Result<()> {
+        self.conn_cache.send_queue.push((buf, client_id));
+        Ok(())
+    }
+
+    pub(crate) fn send_buffered(&mut self, sender: &mut LinkSender) -> Result<()> {
+        self.conn_cache.send_queue.drain(..).try_for_each(|(buf, client_id)| {
+            self.send(buf, client_id, sender)
+        })
+    }
+
     /// Sends a packet to a client.
     ///
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`].

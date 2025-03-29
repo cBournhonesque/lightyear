@@ -2,7 +2,13 @@
 use bytes::Bytes;
 use enum_dispatch::enum_dispatch;
 
+use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
+use crate::channel::receivers::sequenced_reliable::SequencedReliableReceiver;
+use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
+use crate::channel::receivers::unordered_reliable::UnorderedReliableReceiver;
+use crate::channel::receivers::unordered_unreliable::UnorderedUnreliableReceiver;
 use crate::packet::message::ReceiveMessage;
+use crate::prelude::{ChannelMode, ChannelSettings};
 use error::Result;
 use lightyear_core::tick::Tick;
 use lightyear_core::time::WrappedTime;
@@ -43,9 +49,35 @@ pub trait ChannelReceive {
 #[derive(Debug)]
 #[enum_dispatch(ChannelReceive)]
 pub enum ChannelReceiverEnum {
-    UnorderedUnreliable(unordered_unreliable::UnorderedUnreliableReceiver),
-    SequencedUnreliable(sequenced_unreliable::SequencedUnreliableReceiver),
-    OrderedReliable(ordered_reliable::OrderedReliableReceiver),
-    SequencedReliable(sequenced_reliable::SequencedReliableReceiver),
-    UnorderedReliable(unordered_reliable::UnorderedReliableReceiver),
+    UnorderedUnreliable(UnorderedUnreliableReceiver),
+    SequencedUnreliable(SequencedUnreliableReceiver),
+    OrderedReliable(OrderedReliableReceiver),
+    SequencedReliable(SequencedReliableReceiver),
+    UnorderedReliable(UnorderedReliableReceiver),
+}
+
+
+impl From<&ChannelSettings> for ChannelReceiverEnum {
+    fn from(settings: &ChannelSettings) -> Self {
+        match settings.mode {
+            ChannelMode::UnorderedUnreliableWithAcks => {
+                UnorderedUnreliableReceiver::new().into()
+            }
+            ChannelMode::UnorderedUnreliable => {
+                UnorderedUnreliableReceiver::new().into()
+            }
+            ChannelMode::SequencedUnreliable => {
+                SequencedUnreliableReceiver::new().into()
+            }
+            ChannelMode::UnorderedReliable(_) => {
+                UnorderedReliableReceiver::new().into()
+            }
+            ChannelMode::SequencedReliable(_) => {
+                SequencedReliableReceiver::new().into()
+            }
+            ChannelMode::OrderedReliable(_) => {
+                OrderedReliableReceiver::new().into()
+            }
+        }
+    }
 }

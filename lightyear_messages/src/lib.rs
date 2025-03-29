@@ -7,13 +7,17 @@ This crate provides abstractions for sending and receiving raw bytes over the ne
 
 extern crate alloc;
 
+use crate::registry::MessageKind;
 use bevy::ecs::component::ComponentId;
+use bevy::platform_support::collections::HashMap;
 use bevy::prelude::Component;
+use lightyear_transport::entity_map::SendEntityMap;
 use lightyear_utils::wrapping_id;
 
 pub(crate) mod registry;
 mod plugin;
 mod receive;
+mod send;
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
 /// A [`Message`] is basically any type that can be (de)serialized over the network.
@@ -31,8 +35,7 @@ wrapping_id!(MessageId);
 #[derive(Component)]
 #[require(Transport)]
 pub struct MessageManager{
-    /// List of component ids of the MessageReceiver<M> present on this entity
-    pub(crate) receiver_ids: Vec<ComponentId>,
     /// List of component ids of the MessageSender<M> present on this entity
-    pub(crate) sender_ids: Vec<ComponentId>,
+    pub(crate) sender_ids: HashMap<MessageKind, ComponentId>,
+    pub send_mapper: SendEntityMap,
 }

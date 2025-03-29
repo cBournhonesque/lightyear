@@ -1,13 +1,17 @@
 use alloc::collections::VecDeque;
 
+use crate::channel::senders::reliable::ReliableSender;
+use crate::channel::senders::sequenced_unreliable::SequencedUnreliableSender;
+use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
+use crate::channel::senders::unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender;
 use crate::packet::message::{MessageAck, MessageId, SendMessage};
+use crate::prelude::{ChannelMode, ChannelSettings};
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use enum_dispatch::enum_dispatch;
 use lightyear_core::tick::TickManager;
 use lightyear_core::time::TimeManager;
 use lightyear_link::ping::manager::PingManager;
-use lightyear_serde::SerializationError;
 
 pub(crate) mod fragment_ack_receiver;
 pub(crate) mod fragment_sender;
@@ -39,7 +43,7 @@ pub trait ChannelSend {
         &mut self,
         message: Bytes,
         priority: f32,
-    ) -> Result<Option<MessageId>, SerializationError>;
+    ) -> Option<MessageId>;
 
     /// Reads from the buffer of messages to send to prepare a list of Packets
     /// that can be sent over the network for this channel
@@ -63,8 +67,33 @@ pub trait ChannelSend {
 #[derive(Debug)]
 #[enum_dispatch(ChannelSend)]
 pub enum ChannelSenderEnum {
-    UnorderedUnreliableWithAcks(unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender),
-    UnorderedUnreliable(unordered_unreliable::UnorderedUnreliableSender),
-    SequencedUnreliable(sequenced_unreliable::SequencedUnreliableSender),
-    Reliable(reliable::ReliableSender),
+    UnorderedUnreliableWithAcks(UnorderedUnreliableWithAcksSender),
+    UnorderedUnreliable(UnorderedUnreliableSender),
+    SequencedUnreliable(SequencedUnreliableSender),
+    Reliable(ReliableSender),
+}
+
+impl From<&ChannelSettings> for ChannelSenderEnum {
+    fn from(settings: &ChannelSettings) -> Self {
+        match settings.mode {
+            ChannelMode::UnorderedUnreliableWithAcks => {
+                UnorderedUnreliableWithAcksSender::new(settings.send_frequency).into()
+            }
+            ChannelMode::UnorderedUnreliable => {
+                UnorderedUnreliableSender::new(settings.send_frequency).into()
+            }
+            ChannelMode::SequencedUnreliable => {
+                SequencedUnreliableSender::new(settings.send_frequency).into()
+            }
+            ChannelMode::UnorderedReliable(reliable_settings) => {
+                ReliableSender::new(reliable_settings, settings.send_frequency).into()
+            }
+            ChannelMode::SequencedReliable(reliable_settings) => {
+                ReliableSender::new(reliable_settings, settings.send_frequency).into()
+            }
+            ChannelMode::OrderedReliable(reliable_settings) => {
+                ReliableSender::new(reliable_settings, settings.send_frequency).into()
+            }
+        }
+    }
 }
