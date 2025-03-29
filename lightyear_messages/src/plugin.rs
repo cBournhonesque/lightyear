@@ -121,8 +121,12 @@
 // }
 
 use bevy::app::{App, PostUpdate, PreUpdate};
-use bevy::prelude::{IntoScheduleConfigs, Plugin, SystemSet};
+use bevy::prelude::{default, IntoScheduleConfigs, Plugin, SystemSet};
+use lightyear_core::tick::{TickConfig, TickManager};
+use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::plugin::TransportSet;
+use lightyear_transport::prelude::{ChannelMode, ChannelRegistry, ChannelSettings, Transport};
+use std::time::Duration;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum MessageSet {
@@ -148,5 +152,71 @@ impl Plugin for MessagePlugin {
         app.configure_sets(PostUpdate, MessageSet::Send.before(TransportSet::Send));
         app.add_systems(PreUpdate, Self::recv.in_set(MessageSet::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(MessageSet::Send));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+
+    use crate::receive::MessageReceiver;
+    use crate::registry::AppMessageExt;
+    use crate::send::MessageSender;
+    use lightyear_link::Link;
+    use lightyear_transport::plugin::{tests::C, TransportPlugin};
+    use lightyear_transport::prelude::AppChannelExt;
+
+    /// Message
+    #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+    struct M(usize);
+
+    // TODO: should we do a test without the Link?
+
+    /// Check that if we have a Transport, we can send and receive messages to specific channels
+    #[test]
+    fn test_plugin() {
+        let mut app = App::new();
+        // add the channels before adding the ChannelPlugin
+        app.init_resource::<ChannelRegistry>();
+        app.add_channel::<C>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            ..default()
+        });
+        let channel_id = *app.world().resource::<ChannelRegistry>().get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
+        app.insert_resource(TickManager::from_config(TickConfig::new(Duration::default())));
+        app.add_plugins(TransportPlugin);
+
+        // Register the message
+        app.add_message::<M>();
+
+        // Add the Transport component with a receiver/sender for channel C, and a receiver/sender for message M
+        let registry = app.world().resource::<ChannelRegistry>();
+        let mut transport = Transport::default();
+        transport.add_sender_from_registry::<C>(registry);
+        transport.add_receiver_from_registry::<C>(registry);
+        let mut entity_mut = app.world_mut().spawn((Link::default(), transport, MessageReceiver::<M>::default(), MessageSender::<M>::default()));
+
+        let entity = entity_mut.id();
+
+        // send message
+        let message = M(2);
+        entity_mut.get_mut::<MessageSender<M>>().unwrap().send_message::<C>(message.clone());
+        app.update();
+        // TODO: maybe check that the bytes are sent to the Link?
+        // check that the send-payload was added to the Transport
+        let mut entity_mut = app.world_mut().entity_mut(entity);
+        let mut link =  entity_mut.get_mut::<Link>().unwrap();
+        assert_eq!(link.send.len(), 1);
+
+        // transfer that payload to the recv side of the link
+        let payload = link.send.pop().unwrap();
+        link.recv.push(payload);
+
+        app.update();
+        // check that the message has been received
+        let received_message = app.world_mut().entity_mut(entity).get_mut::<MessageReceiver<M>>().unwrap().received().next().expect("expected to receive message");
+
+        assert_eq!(message, received_message);
     }
 }

@@ -12,6 +12,8 @@ repository = "https://github.com/cBournhonesque/lightyear"
 default = ["std"]
 std = ["lightyear_link/std"]
 
+test_utils = []
+
 [dependencies]
 # local crates
 lightyear_core.workspace = true

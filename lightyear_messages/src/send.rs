@@ -1,10 +1,11 @@
 use crate::plugin::MessagePlugin;
 use crate::registry::serialize::ErasedSerializeFns;
-use crate::registry::{MessageError, MessageRegistry};
+use crate::registry::{MessageError, MessageKind, MessageRegistry};
 use crate::{Message, MessageManager};
 use bevy::ecs::change_detection::MutUntyped;
-use bevy::ecs::world::FilteredEntityMut;
-use bevy::prelude::{Component, Entity, Query, Res};
+use bevy::ecs::component::HookContext;
+use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
+use bevy::prelude::{Component, Entity, Query, Res, World};
 use lightyear_serde::writer::Writer;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::entity_map::SendEntityMap;
@@ -15,8 +16,9 @@ use tracing::error;
 pub type Priority = f32;
 
 #[derive(Component)]
+#[component(on_add = MessageSender::<M>::on_add_hook)]
 #[require(MessageManager)]
-pub struct MessageSender<M> {
+pub struct MessageSender<M: Message> {
     send: Vec<(M, ChannelKind, Priority)>,
     writer: Writer,
 }
@@ -76,7 +78,25 @@ impl<M: Message> MessageSender<M> {
             Ok(())
         })
     }
+
+    pub fn on_add_hook(mut world: DeferredWorld, context: HookContext) {
+        world.commands().queue(move |world: &mut World| {
+            // let registry = world.resource::<MessageRegistry>();
+            // TODO: should we verify that the message has been registered?
+            // let Some(sender_id) = registry.send_metadata.get(&MessageKind::of::<M>()).map(|metadata| metadata.component_id) else {
+            //     // TODO: should we just re-register the message if it's not registered?
+            //     panic!("Message {M} must be registered to the MessageRegistry");
+            // };
+            world
+                .entity_mut(context.entity)
+                .get_mut::<MessageManager>()
+                .unwrap()
+                .sender_ids
+                .insert(MessageKind::of::<M>(), context.component_id);
+        })
+    }
 }
+
 
 impl MessagePlugin {
     // TODO: how can we maximize parallelism?

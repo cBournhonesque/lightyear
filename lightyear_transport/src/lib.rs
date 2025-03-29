@@ -21,5 +21,7 @@ pub mod prelude {
     pub use crate::channel::registry::ChannelRegistry;
     pub use crate::channel::Channel;
 
+    pub use crate::channel::registry::AppChannelExt;
+
     pub use lightyear_macros::Channel;
 }

@@ -29,9 +29,9 @@ pub enum TransportSet {
     Send,
 }
 
-pub struct ChannelsPlugin;
+pub struct TransportPlugin;
 
-impl ChannelsPlugin {
+impl TransportPlugin {
 
     /// Receives packets from the [`Link`],
     /// Depending on the [`ChannelId`], buffer the messages in the packet
@@ -210,7 +210,7 @@ impl ChannelsPlugin {
 }
 
 
-impl Plugin for ChannelsPlugin {
+impl Plugin for TransportPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(PreUpdate, TransportSet::Receive.after(LinkSet::Receive));
         app.configure_sets(PostUpdate, TransportSet::Send.before(LinkSet::Send));
@@ -222,8 +222,8 @@ impl Plugin for ChannelsPlugin {
 
 
 
-#[cfg(test)]
-mod tests {
+#[cfg(any(test, feature="test_utils"))]
+pub mod tests {
     use super::*;
     use crate::channel::registry::{AppChannelExt, ChannelKind};
     use crate::prelude::{ChannelMode, ChannelSettings};
@@ -232,7 +232,7 @@ mod tests {
     use lightyear_macros::ChannelInternal;
 
     #[derive(ChannelInternal)]
-    struct C;
+    pub struct C;
 
     /// Check that we can buffer Bytes to a ChannelSender and a packet will get added to the Link
     /// Check that if we put that packet on the receive side of the Link, the Transport will process
@@ -247,7 +247,7 @@ mod tests {
             ..default()
         });
         let channel_id = *app.world().resource::<ChannelRegistry>().get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
-        app.add_plugins(ChannelsPlugin);
+        app.add_plugins(TransportPlugin);
         app.insert_resource(TickManager::from_config(TickConfig::new(Duration::default())));
 
 
@@ -283,8 +283,6 @@ mod tests {
             .read_message()
             .expect("expected to receive message");
         assert_eq!(recv_bytes, send_bytes);
-
-
     }
 
 }

@@ -24,6 +24,24 @@ pub struct MessageReceiver<M> {
     recv: Vec<(M, ChannelKind, Tick)>
 }
 
+
+impl<M> Default for MessageReceiver<M> {
+    fn default() -> Self {
+        Self {
+            recv: Vec::new(),
+        }
+    }
+}
+
+// TODO: do we care about the channel that the message was sent from? user-specified message usually don't
+// TODO: we have access to the Tick, so we could decide at which timeline we want to receive the message!
+impl<M: Message> MessageReceiver<M> {
+    /// Take all messages from the MessageReceiver<M>, deserialize them, and return them
+    pub fn received(&mut self) -> impl Iterator<Item=M>{
+        self.recv.drain(..).map(|(message, _, _)| message)
+    }
+}
+
 pub(crate) type ReceiveMessageFn = unsafe fn(
     receiver: MutUntyped,
     message_bytes: (Reader, ChannelKind, Tick),
@@ -38,22 +56,21 @@ impl<M: Message> MessageReceiver<M> {
     /// SAFETY: the `receiver` must be of type `MessageReceiver<M>`, and the `message_bytes` must be a valid serialized message of type `M`
     pub(crate) unsafe fn receive_message_typed(
         receiver: MutUntyped,
-        message_bytes: (Bytes, ChannelKind, Tick),
+        mut message_bytes: (Reader, ChannelKind, Tick),
         serialize_metadata: &ErasedSerializeFns,
         entity_map: &mut ReceiveEntityMap,
     ) -> Result<(), MessageError> {
-        // SAFETY: we know the
+        // SAFETY: we know the type of the receiver is MessageReceiver<M>
         let mut receiver = unsafe { receiver.with_type::<Self>()};
-        let reader = &mut Reader::from(message_bytes.0);
         // we deserialize the message and send a MessageEvent
-        let message = unsafe { serialize_metadata.deserialize::<M>(reader, entity_map)? };
+        let message = unsafe { serialize_metadata.deserialize::<M>(&mut message_bytes.0, entity_map)? };
         receiver.recv.push((message, message_bytes.1, message_bytes.2));
         Ok(())
     }
 }
 
 impl MessagePlugin {
-        /// Receive bytes from each channel of the Transport
+    /// Receive bytes from each channel of the Transport
     /// Deserialize the bytes into Messages that are buffered in the MessageReceiver<M> component
     pub fn recv(
         mut transport_query: Query<(Entity, &mut Transport)>,
