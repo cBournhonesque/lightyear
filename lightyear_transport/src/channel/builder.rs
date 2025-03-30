@@ -12,7 +12,8 @@ use bevy::ecs::change_detection::MutUntyped;
 use bevy::prelude::Component;
 use bytes::Bytes;
 use core::time::Duration;
-use lightyear_macros::{Channel, ChannelInternal};
+use lightyear_link::Link;
+use lightyear_macros::Channel;
 use lightyear_utils::collections::HashMap;
 
 use crate::channel::Channel;
@@ -53,6 +54,7 @@ impl Default for ChannelSettings {
 
 /// Holds information about all the channels present on the entity.
 #[derive(Component)]
+#[require(Link)]
 pub struct Transport {
     // TODO: do we want to associate a Direction with the Transport?
     //  then we could only go through messages with the correct direction?
@@ -107,6 +109,14 @@ type FlushMessagesFn = fn(
 );
 
 impl Transport {
+
+    pub fn has_sender<C: Channel>(&self) -> bool {
+        self.senders.contains_key(&ChannelKind::of::<C>())
+    }
+
+    pub fn has_receiver<C: Channel>(&self) -> bool {
+        self.receivers.values().find(|m| m.channel_kind == ChannelKind::of::<C>()).is_some()
+    }
 
     pub fn add_sender<C: Channel>(&mut self, sender: ChannelSenderEnum, mode: ChannelMode, channel_id: ChannelId) {
         self.senders.insert(
@@ -272,13 +282,7 @@ impl ChannelMode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-/// [`ChannelDirection`] specifies in which direction the packets can be sent
-pub enum ChannelDirection {
-    ClientToServer,
-    ServerToClient,
-    Bidirectional,
-}
+
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReliableSettings {
@@ -307,29 +311,23 @@ impl ReliableSettings {
 /// Default channel to replicate entity actions.
 /// This is an Unordered Reliable channel.
 /// (SpawnEntity, DespawnEntity, InsertComponent, RemoveComponent)
-#[derive(ChannelInternal)]
 pub struct EntityActionsChannel;
 
 /// Default channel to replicate entity updates (ComponentUpdate)
 /// This is a Sequenced Unreliable channel
-#[derive(ChannelInternal)]
 pub struct EntityUpdatesChannel;
 
 /// Default channel to send pings. This is a Sequenced Unreliable channel, because
 /// there is no point in getting older pings.
-#[derive(ChannelInternal)]
 pub struct PingChannel;
 
 /// Default channel to send pongs. This is a Sequenced Unreliable channel, because
 /// there is no point in getting older pongs.
-#[derive(ChannelInternal)]
 pub struct PongChannel;
 
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
-#[derive(ChannelInternal)]
 pub struct InputChannel;
 
 /// Channel to send messages related to Authority transfers
 /// This is an Ordered Reliable channel
-#[derive(ChannelInternal)]
 pub struct AuthorityChannel;

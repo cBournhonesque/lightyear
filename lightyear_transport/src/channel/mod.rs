@@ -11,13 +11,6 @@ pub mod senders;
 pub mod stats;
 pub(crate) mod registry;
 
-pub trait Channel: Send + Sync + 'static {
-    fn name() -> &'static str;
 
-    fn kind() -> ChannelKind
-    where
-        Self: Sized,
-    {
-        ChannelKind::of::<Self>()
-    }
-}
+pub trait Channel: Send + Sync + 'static {}
+impl<T: Send + Sync + 'static> Channel for T {}

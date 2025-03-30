@@ -4,11 +4,12 @@ use bevy::ecs::component::{ComponentHook, ComponentId, ComponentsRegistrator, Ho
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use core::net::SocketAddr;
-use lightyear_connection::client::{ConnectTrigger, DisconnectTrigger};
+use lightyear_connection::client::{Connect, ConnectTrigger, Connected, Connecting, Disconnect, DisconnectTrigger, Disconnected};
 use lightyear_connection::ConnectionSet;
 use lightyear_core::time::TimeManager;
 use lightyear_link::{Link, LinkSet, SendPayload};
-use lightyear_transport::prelude::{Transport, TransportSet};
+use lightyear_transport::plugin::TransportSet;
+use lightyear_transport::prelude::Transport;
 use tracing::error;
 
 pub struct NetcodeClientPlugin;
@@ -17,7 +18,7 @@ pub struct NetcodeClientPlugin;
 ///
 /// The [`Link`] component will be added.
 #[derive(Component)]
-#[require(Link)]
+#[require(Link, lightyear_connection::client::Client)]
 #[component(on_add = on_client_add)]
 pub struct Client {
     pub inner: NetcodeClient<()>,
@@ -125,22 +126,26 @@ impl NetcodeClientPlugin {
     }
 
     fn connect(
-        trigger: Trigger<ConnectTrigger>,
+        trigger: Trigger<Connect>,
+        mut commands: Commands,
         mut query: Query<&mut Client>,
     ) {
 
         if let Ok(mut client) = query.get_mut(trigger.target()) {
             client.inner.connect();
+            commands.entity(trigger.target()).insert(Connecting);
         }
     }
 
     fn disconnect(
-        trigger: Trigger<DisconnectTrigger>,
+        trigger: Trigger<Disconnect>,
+        mut commands: Commands,
         mut query: Query<(&mut Client, &mut Link)>,
     ) -> Result {
 
         if let Ok((mut client, mut link)) = query.get_mut(trigger.target()) {
             client.inner.disconnect(link.as_mut())?;
+            commands.entity(trigger.target()).insert(Disconnected);
         }
         Ok(())
     }

@@ -1,8 +1,10 @@
 //! Specify how a Client sends/receives messages with a Server
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::ecs::component::Tick as BevyTick;
+use bevy::app::{App, Plugin};
+use bevy::ecs::component::{HookContext, Tick as BevyTick};
 use bevy::ecs::entity::MapEntities;
+use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Resource, World};
 #[cfg(feature = "leafwing")]
 use bevy::utils::HashMap;
@@ -46,6 +48,21 @@ use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
 
 use super::sync::SyncManager;
+
+use lightyear_connection::client::Client;
+
+
+//
+
+/// Plugin that provides logic to create a Client connection from a [`Link`], [`Transport`], [`MessageManager`]
+struct ConnectionPlugin;
+
+
+
+
+
+
+
 
 /// Wrapper that handles the connection with the server
 ///

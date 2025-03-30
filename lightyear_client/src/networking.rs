@@ -4,11 +4,11 @@ use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
 use bevy::prelude::*;
 use core::ops::DerefMut;
 use core::time::Duration;
+#[cfg(not(feature = "std"))]
+use no_std_io2::io;
 #[cfg(feature = "std")]
 use std::io;
 use tracing::{debug, error, trace};
-#[cfg(not(feature = "std"))]
-use no_std_io2::io;
 
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -517,6 +517,7 @@ fn connect(world: &mut World) -> Result {
     // if world.resource::<ClientConnection>().state() == NetworkingState::Connected {
     //     error!("The client is already started. The client can only start connecting when it is disconnected.");
     // }
+
 
     // Everytime we try to connect, we rebuild the net config because:
     // - we do not call update() while the client is disconnected, so the internal connection's time is wrong

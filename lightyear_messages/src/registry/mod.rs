@@ -11,7 +11,6 @@ use lightyear_core::network::NetId;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::Writer;
 use lightyear_serde::ToBytes;
-use lightyear_transport::channel::builder::ChannelDirection;
 use lightyear_transport::channel::senders::ChannelSenderEnum;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::entity_map::{ReceiveEntityMap, SendEntityMap};

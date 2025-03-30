@@ -16,6 +16,9 @@ use lightyear_transport::entity_map::ReceiveEntityMap;
 use lightyear_transport::prelude::Transport;
 use tracing::error;
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 use alloc::sync::Arc;
 
 #[derive(Component)]

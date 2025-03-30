@@ -102,7 +102,6 @@ impl TransportPlugin {
             }).inspect_err(|e| {
                 error!("Error processing packet: {e:?}");
             }).ok();
-
         })
     }
 

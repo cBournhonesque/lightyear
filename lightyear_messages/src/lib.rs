@@ -17,8 +17,8 @@ use lightyear_transport::prelude::Transport;
 
 pub(crate) mod registry;
 mod plugin;
-mod receive;
-mod send;
+pub mod receive;
+pub mod send;
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
 /// A [`Message`] is basically any type that can be (de)serialized over the network.

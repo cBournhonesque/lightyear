@@ -124,10 +124,10 @@ use crate::registry::MessageRegistry;
 use bevy::app::{App, PostUpdate, PreUpdate};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
 use bevy::prelude::{default, IntoScheduleConfigs, Plugin, SystemParamBuilder, SystemSet};
+use core::time::Duration;
 use lightyear_core::tick::{TickConfig, TickManager};
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::{ChannelMode, ChannelRegistry, ChannelSettings, Transport};
-use std::time::Duration;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum MessageSet {

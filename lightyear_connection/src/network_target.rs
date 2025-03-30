@@ -9,7 +9,8 @@ use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
 
-type HS<K> = hashbrown::HashSet<K, FixedHasher>;
+
+type HS<K> = HashSet<K, FixedHasher>;
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect)]
 /// NetworkTarget indicated which clients should receive some message
@@ -161,12 +162,12 @@ impl NetworkTarget {
                     *self = NetworkTarget::None;
                 }
                 NetworkTarget::AllExceptSingle(target_client_id) => {
-                    let mut new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
+                    let mut new_excluded_ids = HS::from_iter(existing_client_ids.clone());
                     new_excluded_ids.insert(*target_client_id);
                     *existing_client_ids = Vec::from_iter(new_excluded_ids);
                 }
                 NetworkTarget::AllExcept(target_client_ids) => {
-                    let mut new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
+                    let mut new_excluded_ids = HS::from_iter(existing_client_ids.clone());
                     target_client_ids.iter().for_each(|id| {
                         new_excluded_ids.insert(*id);
                     });
@@ -174,7 +175,7 @@ impl NetworkTarget {
                 }
                 NetworkTarget::All => {}
                 NetworkTarget::Only(target_client_ids) => {
-                    let mut new_included_ids = HashSet::from_iter(target_client_ids.clone());
+                    let mut new_included_ids = HS::from_iter(target_client_ids.clone());
                     existing_client_ids.iter_mut().for_each(|id| {
                         new_included_ids.remove(id);
                     });
@@ -193,12 +194,12 @@ impl NetworkTarget {
                     *self = NetworkTarget::None;
                 }
                 NetworkTarget::AllExceptSingle(target_client_id) => {
-                    let mut new_included_ids = HashSet::from_iter(existing_client_ids.clone());
+                    let mut new_included_ids = HS::from_iter(existing_client_ids.clone());
                     new_included_ids.remove(target_client_id);
                     *self = NetworkTarget::from(Vec::from_iter(new_included_ids));
                 }
                 NetworkTarget::AllExcept(target_client_ids) => {
-                    let mut new_included_ids = HashSet::from_iter(existing_client_ids.clone());
+                    let mut new_included_ids = HS::from_iter(existing_client_ids.clone());
                     target_client_ids.iter().for_each(|id| {
                         new_included_ids.remove(id);
                     });
@@ -213,8 +214,8 @@ impl NetworkTarget {
                     }
                 }
                 NetworkTarget::Only(target_client_ids) => {
-                    let new_included_ids = HashSet::from_iter(existing_client_ids.clone());
-                    let target_included_ids = HashSet::from_iter(target_client_ids.clone());
+                    let new_included_ids = HS::from_iter(existing_client_ids.clone());
+                    let target_included_ids = HS::from_iter(target_client_ids.clone());
                     let intersection = new_included_ids.intersection(&target_included_ids).cloned();
                     *self = NetworkTarget::from(intersection.collect::<Vec<_>>());
                 }
@@ -247,8 +248,8 @@ impl NetworkTarget {
                     }
                 }
                 NetworkTarget::AllExcept(target_client_ids) => {
-                    let new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
-                    let target_excluded_ids = HashSet::from_iter(target_client_ids.clone());
+                    let new_excluded_ids = HS::from_iter(existing_client_ids.clone());
+                    let target_excluded_ids = HS::from_iter(target_client_ids.clone());
                     let intersection = new_excluded_ids
                         .intersection(&target_excluded_ids)
                         .copied()
@@ -259,7 +260,7 @@ impl NetworkTarget {
                     *self = NetworkTarget::All;
                 }
                 NetworkTarget::Only(target_client_ids) => {
-                    let mut new_excluded_ids = HashSet::from_iter(existing_client_ids.clone());
+                    let mut new_excluded_ids = HS::from_iter(existing_client_ids.clone());
                     target_client_ids.iter().for_each(|id| {
                         new_excluded_ids.remove(id);
                     });
@@ -279,7 +280,7 @@ impl NetworkTarget {
                     }
                 }
                 NetworkTarget::AllExcept(target_client_ids) => {
-                    let mut target_excluded_ids = HashSet::from_iter(target_client_ids.clone());
+                    let mut target_excluded_ids = HS::from_iter(target_client_ids.clone());
                     existing_client_ids.iter().for_each(|id| {
                         target_excluded_ids.remove(id);
                     });
@@ -306,8 +307,8 @@ impl NetworkTarget {
                     }
                 }
                 NetworkTarget::Only(target_client_ids) => {
-                    let new_included_ids = HashSet::from_iter(existing_client_ids.clone());
-                    let target_included_ids = HashSet::from_iter(target_client_ids.clone());
+                    let new_included_ids = HS::from_iter(existing_client_ids.clone());
+                    let target_included_ids = HS::from_iter(target_client_ids.clone());
                     let union = new_included_ids.union(&target_included_ids);
                     *existing_client_ids = union.into_iter().copied().collect::<Vec<_>>();
                 }

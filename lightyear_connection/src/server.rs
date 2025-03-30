@@ -1,16 +1,22 @@
+use crate::id::ClientId;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::ecs::entity::EntitySetIterator;
-use bevy::prelude::{Component, Entity, RelationshipTarget, Resource};
+use bevy::prelude::{Component, Entity, OnAdd, Query, RelationshipTarget, Res, Trigger};
 use core::fmt::Debug;
+use lightyear_messages::MessageManager;
+use lightyear_transport::channel::Channel;
+use lightyear_transport::prelude::{ChannelRegistry, Transport};
 use serde::{Deserialize, Serialize};
 
-use crate::id::ClientId;
 
+/// Marker component to identify this entity as a Client
+#[derive(Component)]
+pub struct Server;
 
 #[derive(Component, Clone, PartialEq, Eq, Debug)]
+#[require(MessageManager)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
 #[cfg_attr(
     feature = "bevy_reflect",
@@ -23,6 +29,20 @@ pub struct ClientOf {
     pub server: Entity,
     /// The client id of the client
     pub id: ClientId,
+}
+
+impl ClientOf {
+    pub(crate) fn add_sender_channel<C: Channel>(trigger: Trigger<OnAdd, ClientOf>, mut query: Query<&mut Transport>, registry: Res<ChannelRegistry>) {
+        if let Ok(mut transport) = query.get_mut(trigger.target()) {
+            transport.add_sender_from_registry::<C>(&registry)
+        }
+    }
+
+    pub(crate) fn add_receiver_channel<C: Channel>(trigger: Trigger<OnAdd, ClientOf>, mut query: Query<&mut Transport>, registry: Res<ChannelRegistry>) {
+        if let Ok(mut transport) = query.get_mut(trigger.target()) {
+            transport.add_receiver_from_registry::<C>(&registry)
+        }
+    }
 }
 
 #[derive(Component, Default, Debug, PartialEq, Eq)]
@@ -82,56 +102,56 @@ pub enum ConnectionError {
     InvalidConnectionType,
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::connection::server::{NetServer, ServerConnections};
-    use crate::prelude::ClientId;
-    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
-    use crate::transport::LOCAL_SOCKET;
-    #[cfg(not(feature = "std"))]
-    use alloc::vec;
-
-    // Check that the server can successfully disconnect a client
-    // and that there aren't any excessive logs afterwards
-    // Enable logging to see if the logspam is fixed!
-    #[test]
-    fn test_server_disconnect_client() {
-        // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_max_level(tracing::Level::INFO)
-        //     .init();
-        let mut stepper = BevyStepper::default();
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<ServerConnections>()
-            .disconnect(ClientId::Netcode(TEST_CLIENT_ID))
-            .unwrap();
-        // make sure the server disconnected the client
-        for _ in 0..10 {
-            stepper.frame_step();
-        }
-        assert_eq!(
-            stepper
-                .server_app
-                .world_mut()
-                .resource_mut::<ServerConnections>()
-                .servers[0]
-                .connected_client_ids(),
-            vec![]
-        );
-    }
-
-    #[test]
-    fn test_server_get_client_addr() {
-        let mut stepper = BevyStepper::default();
-        assert_eq!(
-            stepper
-                .server_app
-                .world_mut()
-                .resource_mut::<ServerConnections>()
-                .client_addr(ClientId::Netcode(TEST_CLIENT_ID))
-                .unwrap(),
-            LOCAL_SOCKET
-        );
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use crate::connection::server::{NetServer, ServerConnections};
+//     use crate::prelude::ClientId;
+//     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
+//     use crate::transport::LOCAL_SOCKET;
+//     #[cfg(not(feature = "std"))]
+//     use alloc::vec;
+//
+//     // Check that the server can successfully disconnect a client
+//     // and that there aren't any excessive logs afterwards
+//     // Enable logging to see if the logspam is fixed!
+//     #[test]
+//     fn test_server_disconnect_client() {
+//         // tracing_subscriber::FmtSubscriber::builder()
+//         //     .with_max_level(tracing::Level::INFO)
+//         //     .init();
+//         let mut stepper = BevyStepper::default();
+//         stepper
+//             .server_app
+//             .world_mut()
+//             .resource_mut::<ServerConnections>()
+//             .disconnect(ClientId::Netcode(TEST_CLIENT_ID))
+//             .unwrap();
+//         // make sure the server disconnected the client
+//         for _ in 0..10 {
+//             stepper.frame_step();
+//         }
+//         assert_eq!(
+//             stepper
+//                 .server_app
+//                 .world_mut()
+//                 .resource_mut::<ServerConnections>()
+//                 .servers[0]
+//                 .connected_client_ids(),
+//             vec![]
+//         );
+//     }
+//
+//     #[test]
+//     fn test_server_get_client_addr() {
+//         let mut stepper = BevyStepper::default();
+//         assert_eq!(
+//             stepper
+//                 .server_app
+//                 .world_mut()
+//                 .resource_mut::<ServerConnections>()
+//                 .client_addr(ClientId::Netcode(TEST_CLIENT_ID))
+//                 .unwrap(),
+//             LOCAL_SOCKET
+//         );
+//     }
+// }

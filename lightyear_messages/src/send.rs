@@ -2,6 +2,7 @@ use crate::plugin::MessagePlugin;
 use crate::registry::serialize::ErasedSerializeFns;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
 use crate::{Message, MessageId, MessageManager};
+use alloc::sync::Arc;
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
@@ -11,8 +12,10 @@ use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::entity_map::SendEntityMap;
 use lightyear_transport::prelude::Transport;
-use std::sync::Arc;
 use tracing::error;
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 pub type Priority = f32;
 

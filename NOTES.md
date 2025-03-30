@@ -1,3 +1,26 @@
+# Lightyear
+
+- you specify the client / server configs and we will spawn stuff using LightyearClient crate, etc.
+
+
+# Lightyear client
+
+- You specify a protocol where you register messages/channels
+  - channels can have a direction, so do the messages
+- Creating a Client:
+  - you insert your ClientConnection marker with the correct type (Netcode, etc.) which also inserts the Client marker
+  - you insert a Client marker component on an entity, which adds:
+  - a Transport, with all channel senders marked ClientToServer, all channel receivers marked ServerToClient
+  - a Link, 
+  - MessageSenders / MessageReceivers, etc.
+  - you will need to insert the io yourself
+
+- By default you register Channels/Messages with no direction (i.e. they won't be auto-added to Client/Server)
+    - You can specify a direction for a Message, and we will add the required components MessageSender<M>/Receiver<M> on Client/Server
+    - You can specify a direction for a Channel, and we will make sure that Transport.add_sender_from_registry<C> will be called on Client/Server depending on direction
+    - Right now we rebuild ConnectionManager on Connect attempt, so we we could do the same thing if Connect is triggered on the Client entity.
+    - (and OnDisconnect we remove all the MessageReceiver, etc. from the entity)
+
 # Messages
 
 - Should MessageRegistry be stored on the Transport?
