@@ -19,7 +19,7 @@ pub trait AppDirectionExt {
     /// Add a new [`NetworkDirection`] to the registry
     fn add_message_direction<M: Message>(&mut self, direction: NetworkDirection);
 
-     fn add_channel_direction<C: Channel>(&mut self, direction: NetworkDirection);
+    fn add_channel_direction<C: Channel>(&mut self, direction: NetworkDirection);
 }
 
 impl AppDirectionExt for App {

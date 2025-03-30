@@ -31,7 +31,7 @@ pub struct Link {
     /// Payloads to be sent
     pub send: Vec<SendPayload>,
 
-    // TODO: maybe put this somewhere else? So that link is completely independent of the how io
+    // TODO: maybe put this somewhere else? So that link is completely independent of how io
     //   is handled? (i.e. it might not even required a SocketAddr)
     /// Address of the remote peer
     pub remote_addr: Option<SocketAddr>,

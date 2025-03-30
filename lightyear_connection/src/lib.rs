@@ -1,11 +1,24 @@
 /*! # Lightyear Connection
 
 Connection handling for the lightyear networking library.
-This crate provides abstractions for managing long-term connections.
+This crate provides core types for managing long-term connections on top of a Link and Transport.
+
+It also introduces helpers to setup a Client-Server architecture.
 
 This crates provide concepts that are only useful for a client-server architecture (client/server).
 */
 #![cfg_attr(not(feature = "std"), no_std)]
+// TODO: maybe lightyear_connection only stores primitives for a long-running Connection (ConnectionError, etc.)
+//  on top of a Link
+//  And client-server logic is only in lightyear_client, lightyear_server, lightyear_shared
+//  OR:
+//   for example the direction stuff should be lightyear_client + lightyear_server + lightyear_shared?
+//  --
+//   Fundamentally is it easier to find direction logic in lightyear_client/direction + lightyear_server/direction
+//   or in lightyear_direction/client + lightyear_direction/server?
+//   Maybe each crate can have #[client] and #[server] features for client-server specific stuff
+//   And then lightyear_client just calls the relevant functions from all the other crates (inputs, etc.)
+
 
 extern crate alloc;
 

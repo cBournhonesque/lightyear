@@ -238,7 +238,7 @@ mod tests {
 
         // send message
         let message = M(2);
-        entity_mut.get_mut::<MessageSender<M>>().unwrap().send_message::<C>(message.clone());
+        entity_mut.get_mut::<MessageSender<M>>().unwrap().send::<C>(message.clone());
         app.update();
         // TODO: maybe check that the bytes are sent to the Link?
         // check that the send-payload was added to the Transport
@@ -252,7 +252,7 @@ mod tests {
 
         app.update();
         // check that the message has been received
-        let received_message = app.world_mut().entity_mut(entity).get_mut::<MessageReceiver<M>>().unwrap().received().next().expect("expected to receive message");
+        let received_message = app.world_mut().entity_mut(entity).get_mut::<MessageReceiver<M>>().unwrap().receive().next().expect("expected to receive message");
 
         assert_eq!(message, received_message);
     }

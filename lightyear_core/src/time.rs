@@ -7,8 +7,10 @@ use crate::tick::Tick;
 use bevy::platform_support::time::Instant;
 use bevy::prelude::*;
 use chrono::Duration as ChronoDuration;
+use core::cmp::Ordering;
 use core::fmt::Formatter;
 use core::ops::{Add, AddAssign, Mul, Sub, SubAssign};
+
 use core::time::Duration;
 
 use lightyear_serde::reader::{ReadInteger, Reader};
@@ -18,6 +20,171 @@ use serde::{
     de::{Error, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
 };
+
+/// Overstep fraction towards the next tick, as 1/u16::MAX
+///
+/// We use this instead of f32 because:
+/// - we don't need the level of precision of f32 and this saves 2 bytes on each packet
+/// - f32 doesn't implement PartialEq or Eq
+pub type Overstep = u16;
+
+// TODO: it would be nice if the tick duration was encoded in the tick itself
+// TODO: maybe have a Tick trait with an associated constant TICK_DURATION
+//  then the user can specify impl Tick<TICK_DURATION=16ms> for MyTick
+
+// TODO: maybe have a constant TICK_DURATION as a generic, so we have Tick<T> around.
+
+// TODO: maybe put this in lightyear_core?
+/// Uniquely identify a instant across all timelines
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct TickInstant {
+    pub tick: Tick,
+    /// Overstep as a fraction towards the next tick
+    pub overstep: Overstep,
+}
+
+impl Mul<f32> for TickInstant {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        todo!()
+    }
+}
+
+
+impl TickInstant {
+    fn as_duration(&self, tick_duration: Duration) -> Duration {
+        todo!()
+    }
+}
+
+impl From<Tick> for TickInstant {
+    fn from(value: Tick) -> Self {
+        Self {
+            tick: value,
+            overstep: Overstep::default(),
+        }
+    }
+}
+
+
+/// Duration between two TickInstant
+///
+/// This is mostly useful because it can represent a positive or a negative duration.
+/// We could also convert TickInstant to chrono::Duration to achieve the same result.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TickDuration {
+    tick: i16,
+    overstep: Overstep
+}
+
+impl From<Tick> for TickDuration {
+    fn from(value: Tick) -> Self {
+        Self {
+            // TODO: check that there is no overflow here! how do we cast correctly with panic?
+            tick: value.0 as i16,
+            overstep: Overstep::default()
+        }
+    }
+}
+
+impl TickDuration {
+    pub fn is_positive(&self) -> bool {
+        self.tick >= 0
+    }
+
+    /// Returns the amount of time represented by the [`TickDuration`] as a [`Duration`]
+    /// (independently from whether the TickDuration is positive or not)
+    pub fn as_duration(&self, tick_duration: Duration) -> Duration {
+        todo!()
+    }
+
+    pub fn from_duration(duration: Duration, tick_duration: Duration) -> Self {
+        todo!()
+    }
+}
+
+impl PartialOrd for TickDuration {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        todo!()
+    }
+}
+
+impl Add<TickDuration> for TickDuration {
+    type Output = Self;
+
+    fn add(self, rhs: TickDuration) -> Self::Output {
+        todo!()
+    }
+}
+
+
+
+// TODO: maybe this is done
+impl Ord for TickInstant {
+    fn cmp(&self, other: &Self) -> Ordering {
+        todo!()
+        // TODO: basically lexicographical order, tick first and then overstep
+        // match self.tick.cmp(&other.tick) {
+        //     Ordering::Less => {}
+        //     Ordering::Equal => {
+        //
+        //     }
+        //     Ordering::Greater => {}
+        // }
+        // match wrapping_diff(self.tick.0, other.tick) {
+        //     0 => {
+        //
+        //     },
+        //     x if x > 0 => Ordering::Less,
+        //     x if x < 0 => Ordering::Greater,
+        //     _ => unreachable!(),
+        // }
+    }
+}
+
+impl PartialOrd for TickInstant {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Sub<TickInstant> for TickInstant {
+    type Output = TickDuration;
+
+    fn sub(self, rhs: TickInstant) -> Self::Output {
+        // check which TickInstant is bigger
+        todo!()
+    }
+}
+
+impl Add<TickInstant> for TickInstant {
+    type Output = TickInstant;
+
+    fn add(self, rhs: TickInstant) -> Self::Output {
+        todo!()
+    }
+}
+
+impl Add<TickDuration> for TickInstant {
+    type Output = TickInstant;
+
+    fn add(self, rhs: TickDuration) -> Self::Output {
+        todo!()
+    }
+}
+
+impl Sub<TickDuration> for TickInstant {
+    type Output = TickInstant;
+
+    fn sub(self, rhs: TickDuration) -> Self::Output {
+        todo!()
+    }
+}
+
+
+
+
 
 
 #[derive(Resource, Debug, PartialEq, Clone)]

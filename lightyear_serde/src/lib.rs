@@ -10,17 +10,23 @@ This crate provides abstractions for sending and receiving raw bytes over the ne
 extern crate alloc;
 
 use crate::reader::{ReadInteger, ReadVarInt, Reader};
-use crate::varint::{varint_len};
+use crate::varint::varint_len;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::platform_support::collections::HashMap;
 use bytes::Bytes;
 use core::hash::{BuildHasher, Hash};
 use no_std_io2::io;
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
 
 pub mod reader;
 pub mod varint;
 pub mod writer;
+
+pub mod prelude {
+    pub use crate::reader::{ReadInteger, Reader};
+    pub use crate::writer::{WriteInteger, Writer};
+    pub use crate::{SerializationError, ToBytes};
+}
 
 use crate::writer::WriteInteger;
 

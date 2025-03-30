@@ -40,7 +40,7 @@ impl<M> Default for MessageReceiver<M> {
 // TODO: we have access to the Tick, so we could decide at which timeline we want to receive the message!
 impl<M: Message> MessageReceiver<M> {
     /// Take all messages from the MessageReceiver<M>, deserialize them, and return them
-    pub fn received(&mut self) -> impl Iterator<Item=M>{
+    pub fn receive(&mut self) -> impl Iterator<Item=M>{
         self.recv.drain(..).map(|(message, _, _)| message)
     }
 }

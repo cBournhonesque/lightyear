@@ -21,6 +21,7 @@ members = [
   "lightyear_serde",
   "lightyear_server",
   "lightyear_steam",
+  "lightyear_sync",
   "lightyear_tests",
   "lightyear_udp",
   "lightyear_utils",
@@ -78,6 +79,7 @@ lightyear_link = { path = "./lightyear_link", version = "0.19.0", default-featur
 lightyear_replication = { path = "./lightyear_replication", version = "0.19.0", default-features = false }
 lightyear_serde = { path = "./lightyear_serde", version = "0.19.0", default-features = false }
 lightyear_steam = { path = "./lightyear_steam", version = "0.19.0", default-features = false }
+lightyear_sync = { path = "./lightyear_sync", version = "0.19.0", default-features = false }
 lightyear_udp = { path = "./lightyear_udp", version = "0.19.0", default-features = false }
 lightyear_utils = { path = "./lightyear_utils", version = "0.19.0", default-features = false }
 

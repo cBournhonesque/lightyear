@@ -49,14 +49,14 @@ pub(crate) type SendMessageFn = unsafe fn(
 impl<M: Message> MessageSender<M> {
 
     /// Buffers a message to be sent over the channel
-    pub fn send_message_with_priority<C: Channel>(
+    pub fn send_with_priority<C: Channel>(
         &mut self, message: M, priority: Priority
     ) {
         self.send.push((message, ChannelKind::of::<C>(), priority));
     }
 
     /// Buffers a message to be sent over the channel
-    pub fn send_message<C: Channel>(
+    pub fn send<C: Channel>(
         &mut self, message: M
     ) {
         self.send.push((message, ChannelKind::of::<C>(), 1.0));

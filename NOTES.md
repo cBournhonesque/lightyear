@@ -1,6 +1,54 @@
-# Lightyear
+# SyncPlugin
 
-- you specify the client / server configs and we will spawn stuff using LightyearClient crate, etc.
+- Shared: adds Ping/Pong messages
+- Client:
+  - adds 2 custom time: Time<Predicted> and Time<Interpolated> + Maybe Time<Server>?
+- Server: handle Ping/Pong messages
+
+- Create a separate crate with Client/Server/Shared
+- create features [client] and [server] for the client/server part
+- provide a unique SyncPlugin in shared, that also calls the client/server part depending on the feature
+- the lightyear_client and lightyear_server will call the appropirate feature
+
+- STRETCH: maybe we could just do Sync between a Master and a Follower?
+
+- PingManager is a component present alongside Transport, to send and receive pings
+  and define the Timers at which we send/receive ping. Both client/server have it
+  - it uses Time<Real> in its systems to decide how often to receive/send pings, i.e to tick the PingTimer
+  - However the pings themselves contain information about the WrappedTime estimate on both client and server, so that they can sync
+  - maybe it's not actually needed, as we can use the packet acks to estimate the RTT/jitter? however those messages don't contain the WrappedTime
+  - the timeline is 
+    - PREUPDATE: time ticks
+    - POSTUPDATE: Client prepare Ping, record time A in store
+    - Client send Ping to link, time B
+    - Client io send Ping time C
+    - Server io receive Ping, time D
+    - Server MessageReceiver receive Ping, time E
+    - PREUPDATE: Server processes Ping from MessageReceiver, time F. Prepares Pong with ping_receive_time = F, pong_send_time = NOT_SET
+    - POSTUPDATE: Server send Pong to MessageSender time G, sets pong_send_time = G
+    - Server io send Pong time H
+    - Client io receive Pong time I
+    - Client MessageReceiver receive Pong time J. Process Pong:
+      - real RTT = (D-C)+(I-H)
+      - recorded RTT = (J-A)-(server_process_time=G-F)
+        - we should also remove the client_process_time=B-A, or send pings in PostUpdate?
+  - ping/pong let's us compute the RTT/Jitter. The pong's received/send is just used to estimate the time spent inside the server
+- We have a Timeline trait implemented by multiple timelines:
+      - Predicted
+      - Interpolated
+      - Server
+  - The timeline trait lets you speed up/slow down the timeline, as well as know the 
+    WrappedTime, which is the number of ms since the start of the server/master
+
+
+- It looks like we never rewind the timeline in the past, so we coudl make them a Time<Predicted>, etc.
+- For sync:
+  - the client clock always progresses forward, but sometimes goes slower/faster
+  - the Client Tick is set based on the FixedUpdate schedule, i.e. making the time go faster/slower will make the tick stay in sync with the server
+  - If there's too much of a desync, we can just reset the client tick to the server tick
+  - the client ideal time should be the server time + the RTT/2
+    - we can represent server time as a server_tick + overstep
+    - the Pong should contain overstep + pong-ping time
 
 
 # Lightyear client
