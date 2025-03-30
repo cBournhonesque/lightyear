@@ -90,7 +90,6 @@ impl TransportPlugin {
                     trace!(?channel_id, ?num_messages);
                     for _ in 0..num_messages {
                         let single_data = SingleData::from_bytes(&mut cursor)?;
-                        dbg!(&single_data);
                         transport.receivers.get_mut(&channel_id).ok_or(PacketError::ChannelNotFound)?
                             .receiver
                             .buffer_recv(ReceiveMessage {
@@ -130,7 +129,6 @@ impl TransportPlugin {
 
             // buffer all new messages in the Sender
             transport.recv_channel.try_iter().try_for_each(|(channel_kind, bytes, priority)| {
-                dbg!(&bytes);
                 let sender_metadata = transport.senders.get_mut(&channel_kind).ok_or(TransportError::ChannelNotFound(channel_kind))?;
                 // TODO: do we need the message_id?
                 sender_metadata.sender.buffer_send(bytes, priority);

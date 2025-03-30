@@ -1,12 +1,13 @@
 use crate::plugin::MessagePlugin;
 use crate::registry::serialize::ErasedSerializeFns;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
-use crate::{Message, MessageManager};
+use crate::{Message, MessageId, MessageManager};
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy::prelude::{Component, Entity, Query, Res, World};
 use lightyear_serde::writer::Writer;
+use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::entity_map::SendEntityMap;
 use lightyear_transport::prelude::Transport;
@@ -35,6 +36,7 @@ impl<M: Message> Default for MessageSender<M> {
 // SAFETY: the sender must correspond to the correct `MessageSender<M>` type
 pub(crate) type SendMessageFn = unsafe fn(
     sender: MutUntyped,
+    message_id: MessageId,
     transport: &Transport,
     serialize_metadata: &ErasedSerializeFns,
     entity_map: &mut SendEntityMap,
@@ -63,6 +65,7 @@ impl<M: Message> MessageSender<M> {
     /// SAFETY: the `message_sender` must be of type `MessageSender<M>`
     pub(crate) unsafe fn send_message_typed(
         message_sender: MutUntyped,
+        message_id: MessageId,
         transport: &Transport,
         serialize_metadata: &ErasedSerializeFns,
         entity_map: &mut SendEntityMap,
@@ -72,6 +75,8 @@ impl<M: Message> MessageSender<M> {
         // enable split borrows
         let sender = &mut *sender;
         sender.send.drain(..).try_for_each(|(message, channel_kind, priority)| {
+            // we write the message NetId, and then serialize the message
+            message_id.to_bytes(&mut sender.writer)?;
             serialize_metadata.serialize::<M>(&message, &mut sender.writer, entity_map)?;
             let bytes = sender.writer.split();
             transport.send_erased(channel_kind, bytes, priority)?;
@@ -128,9 +133,11 @@ impl MessagePlugin {
                 let message_sender = entity_mut.get_mut_by_id(*sender_id).ok_or(MessageError::MissingComponent(*sender_id))?;
                 let send_metadata = registry.send_metadata.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
                 let serialize_fns = registry.serialize_fns_map.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                let message_id = registry.kind_map.net_id(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
                 // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
                 unsafe { (send_metadata.send_message_fn)(
                     message_sender,
+                    *message_id,
                     transport,
                     serialize_fns,
                     &mut message_manager.send_mapper,

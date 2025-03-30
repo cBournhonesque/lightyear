@@ -92,10 +92,9 @@ impl MessagePlugin {
                 let channel_kind = receiver_metadata.channel_kind;
                 // TODO: maybe probide ChannelKind?
                 while let Some((tick, bytes)) = receiver_metadata.receiver.read_message() {
-                    dbg!(&bytes.as_ref());
                     let mut reader = Reader::from(bytes);
+                    // we receive the message NetId, and then deserialize the message
                     let message_id = MessageId::from_bytes(&mut reader)?;
-                    dbg!(&message_id);
                     let message_kind = registry.kind_map.kind(message_id).ok_or(MessageError::UnrecognizedMessageId(message_id))?;
                     let recv_metadata = registry.receive_metadata.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
                     let component_id = recv_metadata.component_id;
