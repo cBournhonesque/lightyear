@@ -1,10 +1,10 @@
 use alloc::collections::{btree_map, BTreeMap};
 use bevy::platform_support::collections::HashSet;
+use core::time::Duration;
 
 use super::error::ChannelReceiveError;
 use bytes::Bytes;
 use lightyear_core::tick::Tick;
-use lightyear_core::time::WrappedTime;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
@@ -38,7 +38,7 @@ impl UnorderedReliableReceiver {
 }
 
 impl ChannelReceive for UnorderedReliableReceiver {
-    fn update(&mut self, _: WrappedTime) {}
+    fn update(&mut self, _: Duration) {}
 
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: ReceiveMessage) -> Result<(), ChannelReceiveError> {

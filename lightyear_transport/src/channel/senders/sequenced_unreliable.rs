@@ -1,17 +1,15 @@
-use alloc::collections::VecDeque;
-#[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
-use bevy::time::{Timer, TimerMode};
-use core::time::Duration;
-
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
+use alloc::collections::VecDeque;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+use bevy::prelude::{Real, Time};
+use bevy::time::{Timer, TimerMode};
 use bytes::Bytes;
+use core::time::Duration;
 use crossbeam_channel::{Receiver, Sender};
-use lightyear_core::tick::TickManager;
-use lightyear_core::time::TimeManager;
-use lightyear_link::ping::manager::PingManager;
+use lightyear_link::LinkStats;
 
 /// A sender that simply sends the messages without checking if they were received
 /// Same as UnorderedUnreliableSender, but includes ordering information (MessageId)
@@ -51,9 +49,9 @@ impl SequencedUnreliableSender {
 }
 
 impl ChannelSend for SequencedUnreliableSender {
-    fn update(&mut self, time_manager: &TimeManager, _: &PingManager, _: &TickManager) {
+    fn update(&mut self, real_time: &Time<Real>, _: &LinkStats) {
         if let Some(timer) = &mut self.timer {
-            timer.tick(time_manager.delta());
+            timer.tick(real_time.delta());
         }
     }
 
@@ -127,7 +125,6 @@ impl ChannelSend for SequencedUnreliableSender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lightyear_core::tick::TickConfig;
     use lightyear_link::ping::manager::PingConfig;
     #[test]
     fn test_sequenced_unreliable_sender_internals() {
@@ -141,12 +138,12 @@ mod tests {
         assert!(single.is_empty());
 
         // update with a delta of 1 second
-        let mut time_manager = TimeManager::default();
-        time_manager.update(Duration::from_secs(1));
+        let mut real = Time::<Real>::default();
+        real.advance_by(Duration::from_secs(1));
+        let link_stats = LinkStats::default();
         sender.update(
-            &time_manager,
-            &PingManager::new(PingConfig::default()),
-            &TickManager::from_config(TickConfig::new(Duration::from_secs(1))),
+            &real,
+            &link_stats
         );
 
         // this time, we send the packet

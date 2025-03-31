@@ -7,7 +7,7 @@ use bevy::prelude::{Component, Real, Time};
 use bevy::reflect::Reflect;
 use bevy::time::Stopwatch;
 use core::time::Duration;
-use lightyear_core::time::{TimeManager, WrappedTime};
+use lightyear_core::time::TickDelta;
 use lightyear_utils::ready_buffer::ReadyBuffer;
 use tracing::{error, trace};
 
@@ -36,6 +36,7 @@ impl Default for PingConfig {
 /// and monitor pongs in order to estimate statistics (rtt, jitter) about the connection.
 #[derive(Debug, Component)]
 pub struct PingManager {
+    tick_duration: Duration,
     config: PingConfig,
     /// Timer to send regular pings to the remote
     ping_timer: Stopwatch,
@@ -85,8 +86,9 @@ pub struct SyncStats {
 pub type SyncStatsBuffer = ReadyBuffer<Duration, SyncStats>;
 
 impl PingManager {
-    pub fn new(config: PingConfig) -> Self {
+    pub fn new(config: PingConfig, tick_duration: Duration) -> Self {
         Self {
+            tick_duration,
             config,
             // pings
             ping_timer: Stopwatch::new(),
@@ -116,7 +118,7 @@ impl PingManager {
         self.ping_timer.tick(time.delta());
 
         // clear stats that are older than a threshold, such as 2 seconds
-        let oldest_time = time.elapsed() - self.config.stats_buffer_duration;
+        let oldest_time = time.elapsed().saturating_sub(self.config.stats_buffer_duration);
         let old_len = self.sync_stats.len();
         self.sync_stats.pop_until(&oldest_time);
         let new_len = self.sync_stats.len();
@@ -239,10 +241,10 @@ impl PingManager {
 
             // round-trip-delay
             let rtt = received_time - ping_sent_time;
-            let server_process_time = pong.frame_time;
+
+            let server_process_time = TickDelta::from(pong.frame_time).to_duration(self.tick_duration);
             trace!(?rtt, ?received_time, ?ping_sent_time, ?server_process_time, ?pong.frame_time,  "process pong");
             let round_trip_delay = rtt - server_process_time;
-
             // update stats buffer
             self.sync_stats
                 .push(received_time, SyncStats { round_trip_delay });
@@ -277,7 +279,7 @@ mod tests {
             ping_interval: Duration::from_millis(100),
             stats_buffer_duration: Duration::from_secs(4),
         };
-        let mut ping_manager = PingManager::new(config);
+        let mut ping_manager = PingManager::new(config, Duration::default());
         let mut real = Time::<Real>::default();
         real.update();
 

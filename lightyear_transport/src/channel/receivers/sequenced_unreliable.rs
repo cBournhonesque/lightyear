@@ -2,14 +2,15 @@ use alloc::collections::VecDeque;
 
 use super::error::{ChannelReceiveError, Result};
 use bytes::Bytes;
+use core::time::Duration;
+use governor::clock::Reference;
 use lightyear_core::tick::Tick;
-use lightyear_core::time::WrappedTime;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 
-const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
+const DISCARD_AFTER: Duration = Duration::from_millis(3000);
 
 /// Sequenced Unreliable receiver:
 /// do not return messages in order, but ignore the messages that are older than the most recent one received
@@ -20,7 +21,7 @@ pub struct SequencedUnreliableReceiver {
     /// Highest message id received so far
     most_recent_message_id: MessageId,
     fragment_receiver: FragmentReceiver,
-    current_time: WrappedTime,
+    current_time: Duration,
 }
 
 impl SequencedUnreliableReceiver {
@@ -30,16 +31,16 @@ impl SequencedUnreliableReceiver {
             most_recent_message_id: MessageId(0),
             fragment_receiver: FragmentReceiver::new(),
             // TODO: starting at 0 time could be dangerous, because the first update will bring it to time_manager time ?
-            current_time: WrappedTime::default(),
+            current_time: Duration::default(),
         }
     }
 }
 
 impl ChannelReceive for SequencedUnreliableReceiver {
-    fn update(&mut self, now: WrappedTime) {
+    fn update(&mut self, now: Duration) {
         self.current_time = now;
         self.fragment_receiver
-            .cleanup(self.current_time - DISCARD_AFTER);
+            .cleanup(self.current_time.saturating_sub(DISCARD_AFTER));
     }
 
     /// Queues a received message in an internal buffer

@@ -8,6 +8,7 @@ use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use bytes::Bytes;
+use core::time::Duration;
 use lightyear_core::network::NetId;
 use lightyear_core::tick::Tick;
 use lightyear_serde::{varint::varint_len, writer::WriteInteger, SerializationError, ToBytes};
@@ -68,6 +69,7 @@ impl PacketBuilder {
     /// that can write to a given channel
     pub(crate) fn build_new_single_packet(
         &mut self,
+        real: Duration,
         current_tick: Tick,
     ) -> Result<(), SerializationError> {
         let mut cursor = self.get_new_buffer();
@@ -75,7 +77,7 @@ impl PacketBuilder {
         // write the header
         let mut header = self
             .header_manager
-            .prepare_send_packet_header(PacketType::Data);
+            .prepare_send_packet_header(PacketType::Data, real);
         // set the tick at which the packet will be sent
         header.tick = current_tick;
         header.to_bytes(&mut cursor)?;
@@ -90,6 +92,7 @@ impl PacketBuilder {
 
     pub(crate) fn build_new_fragment_packet(
         &mut self,
+        real: Duration,
         channel_id: NetId,
         fragment_data: &FragmentData,
         current_tick: Tick,
@@ -98,7 +101,7 @@ impl PacketBuilder {
         // writer the header
         let mut header = self
             .header_manager
-            .prepare_send_packet_header(PacketType::DataFragment);
+            .prepare_send_packet_header(PacketType::DataFragment, real);
         // set the tick at which the packet will be sent
         header.tick = current_tick;
         header.to_bytes(&mut cursor)?;
@@ -157,6 +160,7 @@ impl PacketBuilder {
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub fn build_packets(
         &mut self,
+        real: Duration,
         current_tick: Tick,
         mut single_data: Vec<(ChannelId, VecDeque<SingleData>)>,
         fragment_data: Vec<(ChannelId, VecDeque<FragmentData>)>,
@@ -177,7 +181,7 @@ impl PacketBuilder {
         for (channel_id, mut fragment_messages) in fragment_data.into_iter() {
             while let Some(fragment_data) = fragment_messages.pop_front() {
                 debug_assert!(fragment_data.bytes.len() <= FRAGMENT_SIZE);
-                self.build_new_fragment_packet(channel_id, &fragment_data, current_tick)?;
+                self.build_new_fragment_packet(real, channel_id, &fragment_data, current_tick)?;
                 if !fragment_data.is_last_fragment() {
                     // big fragment, write packet immediately
                     packets.push(self.finish_packet());
@@ -238,7 +242,7 @@ impl PacketBuilder {
             let (channel_id, single_messages) = &mut single_data[single_data_idx];
             // start a new packet if we aren't already writing one
             if self.current_packet.is_none() {
-                self.build_new_single_packet(current_tick)?;
+                self.build_new_single_packet(real, current_tick)?;
             }
 
             let mut packet = self.current_packet.take().unwrap();

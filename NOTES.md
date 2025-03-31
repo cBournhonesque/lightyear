@@ -12,6 +12,33 @@ But if you add a direction we will handle it automatically for the client-server
   - if there is no ReplicationGroup, we can assume that the entity is part of the 'default' group entity.
 
 
+# plugin organization
+
+- transport needs PingManager
+- transport needs link
+- PingManager requires messages. Actually only the PingPlugin requires that.
+- messages needs Transport
+ 
+- maybe link can have a LinkStats with 
+  - RTT
+  - Jitter
+  - Bandwidth
+  - PacketLoss
+- and the PingPlugin can update those?
+
+- LINK
+  - LinkStats
+- TRANSPORT
+  - uses LINK::LinkStats
+- MESSAGE
+  - uses TRANSPORT
+- SYNC
+  - uses MESSAGE::MessageSender
+  - uses TRANSPORT::PingChannel
+  - updates LinkStats using transport data?
+
+
+
 # SyncPlugin
 
 - Shared: adds Ping/Pong messages

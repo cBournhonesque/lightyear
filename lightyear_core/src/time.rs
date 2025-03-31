@@ -9,14 +9,14 @@ use core::cmp::Ordering;
 use core::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 use core::time::Duration;
+use lightyear_serde::prelude::Reader;
 use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{
     de::{Error, Visitor},
-    Deserialize, Deserializer, Serialize, Serializer,
+    Deserialize, Deserializer
 };
-
 
 // TODO: maybe let the user choose between u8 or u16 for quantization?
 // quantization error for u8 is about 0.2%, for u16 is 0.0008%
@@ -92,40 +92,6 @@ impl ToBytes for Overstep {
     }
 }
 
-impl Serialize for Overstep {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u8(self.to_u8())
-    }
-}
-
-impl<'de> Deserialize<'de> for Overstep {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct OverstepVisitor;
-
-        impl<'de> Visitor<'de> for OverstepVisitor {
-            type Value = Overstep;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a u8 value representing a quantized fraction between 0 and 1")
-            }
-
-            fn visit_u8<E>(self, value: u8) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(Overstep::from_u8(value))
-            }
-        }
-
-        deserializer.deserialize_u8(OverstepVisitor)
-    }
-}
 
 impl Add for Overstep {
     type Output = Self;
@@ -209,24 +175,19 @@ impl TickInstant {
     }
 }
 
-impl Mul<f32> for TickInstant {
-    type Output = Self;
 
-    fn mul(self, rhs: f32) -> Self::Output {
-        let total_ticks = (self.tick.0 as f32 * rhs).floor() as u16;
-        let remainder = (self.tick.0 as f32 * rhs) - total_ticks as f32;
-        let new_overstep = remainder + self.overstep.value() * rhs;
-        
-        // Handle overstep overflow
-        let additional_ticks = new_overstep.floor() as u16;
-        let final_overstep = new_overstep - additional_ticks as f32;
-        
+impl From<TickDelta> for TickInstant {
+    fn from(value: TickDelta) -> Self {
+        if value.is_negative() {
+            panic!("Cannot convert negative TickDelta to TickInstant");
+        }
         Self {
-            tick: Tick(total_ticks + additional_ticks),
-            overstep: Overstep::from_f32(final_overstep),
+            tick: Tick(value.tick_diff),
+            overstep: value.overstep,
         }
     }
 }
+
 
 
 impl From<Tick> for TickInstant {
@@ -247,6 +208,36 @@ pub struct TickDelta {
     neg: bool,
 }
 
+impl From<Tick> for TickDelta {
+    fn from(value: Tick) -> Self {
+        Self {
+            tick_diff: value.0,
+            overstep: Overstep::default(),
+            neg: false,
+        }
+    }
+}
+
+impl From<PositiveTickDelta> for TickDelta {
+    fn from(value: PositiveTickDelta) -> Self {
+        Self {
+            tick_diff: value.tick_diff,
+            overstep: value.overstep,
+            neg: false,
+        }
+    }
+}
+
+impl From<TickInstant> for TickDelta {
+    fn from(value: TickInstant) -> Self {
+        Self {
+            tick_diff: value.tick.0,
+            overstep: value.overstep,
+            neg: false,
+        }
+    }
+}
+
 impl TickDelta {
     pub fn new(tick_diff: u16, overstep: Overstep, neg: bool) -> Self {
         Self {
@@ -262,6 +253,23 @@ impl TickDelta {
 
     pub fn is_negative(&self) -> bool {
         self.neg
+    }
+
+    pub fn to_duration(&self, tick_duration: Duration) -> Duration {
+        let total_ticks = self.tick_diff as f32 + self.overstep.value();
+        tick_duration.mul_f32(total_ticks)
+    }
+
+    pub fn from_duration(duration: Duration, tick_duration: Duration) -> Self {
+        let total_ticks_f = duration.as_secs_f32() / tick_duration.as_secs_f32();
+        let tick_diff = total_ticks_f.floor() as u16;
+        let overstep_value = total_ticks_f - tick_diff as f32;
+
+        Self {
+            tick_diff,
+            overstep: Overstep::from_f32(overstep_value),
+            neg: false,
+        }
     }
 
     pub fn to_time_delta(&self, tick_duration: Duration) -> TimeDelta {
@@ -297,8 +305,8 @@ impl TickDelta {
             tick_diff,
             overstep: Overstep::from_f32(overstep_value),
             neg: is_negative,
+        }
     }
-}
 
     pub fn zero() -> Self {
         Self {
@@ -320,6 +328,121 @@ impl Neg for TickDelta {
         }
     }
 }
+
+
+impl Add for TickDelta {
+    type Output = TickDelta;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        if self.is_negative() {
+            return rhs - (-self);
+        }
+
+        let total_ticks = self.tick_diff + rhs.tick_diff;
+        let new_overstep = self.overstep.value() + rhs.overstep.value();
+
+        // Handle overstep overflow
+        let additional_ticks = new_overstep.floor() as u16;
+        let final_overstep = new_overstep - additional_ticks as f32;
+
+        Self {
+            tick_diff: total_ticks + additional_ticks,
+            overstep: Overstep::from_f32(final_overstep),
+            neg: false,
+        }
+    }
+}
+
+impl Sub for TickDelta {
+    type Output = TickDelta;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        if self.is_negative() {
+            return rhs + (-self);
+        }
+
+        let total_ticks = self.tick_diff.wrapping_sub(rhs.tick_diff);
+
+        // Handle underflow in overstep subtraction
+        if self.overstep.value() >= rhs.overstep.value() {
+            // No underflow
+            TickDelta {
+                tick_diff: total_ticks,
+                overstep: Overstep::from_f32(self.overstep.value() - rhs.overstep.value()),
+                neg: false,
+            }
+        } else {
+            // Underflow - need to borrow from tick
+            TickDelta {
+                tick_diff: total_ticks.wrapping_sub(1),
+                overstep: Overstep::from_f32(1.0 + self.overstep.value() - rhs.overstep.value()),
+                neg: false,
+            }
+        }
+    }
+}
+
+
+impl Mul<f32> for TickDelta {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        let total_ticks = (self.tick_diff as f32 * rhs).floor() as u16;
+        let remainder = (self.tick_diff as f32 * rhs) - total_ticks as f32;
+        let new_overstep = remainder + self.overstep.value() * rhs;
+
+        // Handle overstep overflow
+        let additional_ticks = new_overstep.floor() as u16;
+        let final_overstep = new_overstep - additional_ticks as f32;
+
+        Self {
+            tick_diff: total_ticks + additional_ticks,
+            overstep: Overstep::from_f32(final_overstep),
+            neg: self.neg,
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PositiveTickDelta {
+    tick_diff: u16,
+    overstep: Overstep,
+}
+
+impl From<TickDelta> for PositiveTickDelta {
+    fn from(value: TickDelta) -> Self {
+        if value.is_negative() {
+            panic!("Cannot convert negative TickDelta to PositiveTickDelta");
+        }
+        Self {
+            tick_diff: value.tick_diff,
+            overstep: value.overstep,
+        }
+    }
+}
+
+impl ToBytes for PositiveTickDelta {
+    fn bytes_len(&self) -> usize {
+        self.tick_diff.bytes_len() + self.overstep.bytes_len()
+    }
+
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+        self.tick_diff.to_bytes(buffer)?;
+        self.overstep.to_bytes(buffer)
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized
+    {
+        let tick_diff = u16::from_bytes(buffer)?;
+        let overstep = Overstep::from_bytes(buffer)?;
+        Ok(Self {
+            tick_diff,
+            overstep,
+        })
+    }
+}
+
 
 /// Delta between two instants
 ///

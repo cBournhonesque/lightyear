@@ -2,8 +2,8 @@ use alloc::collections::{btree_map, BTreeMap};
 
 use super::error::{ChannelReceiveError, Result};
 use bytes::Bytes;
+use core::time::Duration;
 use lightyear_core::tick::Tick;
-use lightyear_core::time::WrappedTime;
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
@@ -33,7 +33,7 @@ impl SequencedReliableReceiver {
 }
 
 impl ChannelReceive for SequencedReliableReceiver {
-    fn update(&mut self, _: WrappedTime) {}
+    fn update(&mut self, _: Duration) {}
 
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: ReceiveMessage) -> Result<()> {

@@ -1,7 +1,7 @@
 use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::prelude::Timer;
+use bevy::prelude::{Real, Time, Timer};
 use bevy::time::TimerMode;
 use core::time::Duration;
 
@@ -10,9 +10,7 @@ use crate::channel::senders::ChannelSend;
 use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
-use lightyear_core::tick::TickManager;
-use lightyear_core::time::TimeManager;
-use lightyear_link::ping::manager::PingManager;
+use lightyear_link::LinkStats;
 
 /// A sender that simply sends the messages without checking if they were received
 /// Does not include any ordering information
@@ -52,9 +50,9 @@ impl UnorderedUnreliableSender {
 }
 
 impl ChannelSend for UnorderedUnreliableSender {
-    fn update(&mut self, time_manager: &TimeManager, _: &PingManager, _: &TickManager) {
+    fn update(&mut self, real_time: &Time<Real>, _: &LinkStats) {
         if let Some(timer) = &mut self.timer {
-            timer.tick(time_manager.delta());
+            timer.tick(real_time.delta());
         }
     }
 

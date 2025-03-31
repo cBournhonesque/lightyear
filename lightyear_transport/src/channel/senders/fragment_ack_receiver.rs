@@ -1,7 +1,7 @@
 use crate::packet::message::{FragmentIndex, MessageId};
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use lightyear_core::time::WrappedTime;
+use core::time::Duration;
 use lightyear_utils::collections::HashMap;
 use tracing::{error, trace};
 
@@ -28,7 +28,7 @@ impl FragmentAckReceiver {
     /// (i.e. we probably lost some fragments and we will never get all the acks for this fragmented message)
     ///
     /// If we don't keep track of the last received time, we will never clean up the messages.
-    pub fn cleanup(&mut self, cleanup_time: WrappedTime) {
+    pub fn cleanup(&mut self, cleanup_time: Duration) {
         self.fragment_messages.retain(|_, c| {
             c.last_received
                 .map(|t| t > cleanup_time)
@@ -41,7 +41,7 @@ impl FragmentAckReceiver {
         &mut self,
         message_id: MessageId,
         fragment_index: FragmentIndex,
-        current_time: Option<WrappedTime>,
+        current_time: Option<Duration>,
     ) -> bool {
         let Some(fragment_ack_tracker) = self.fragment_messages.get_mut(&message_id) else {
             error!("Received fragment ack for unknown message id");
@@ -64,7 +64,7 @@ pub struct FragmentAckTracker {
     num_fragments: usize,
     num_received_fragments: usize,
     received: Vec<bool>,
-    last_received: Option<WrappedTime>,
+    last_received: Option<Duration>,
 }
 
 impl FragmentAckTracker {
@@ -81,7 +81,7 @@ impl FragmentAckTracker {
     pub fn receive_ack(
         &mut self,
         fragment_index: usize,
-        received_time: Option<WrappedTime>,
+        received_time: Option<Duration>,
     ) -> bool {
         self.last_received = received_time;
 
@@ -123,8 +123,8 @@ mod tests {
 
         receiver.add_new_fragment_to_wait_for(MessageId(0), 2);
 
-        assert!(!receiver.receive_fragment_ack(MessageId(0), FragmentIndex(0), Some(WrappedTime::new(150))));
-        receiver.cleanup(WrappedTime::new(170));
+        assert!(!receiver.receive_fragment_ack(MessageId(0), FragmentIndex(0), Some(Duration::from_millis(150))));
+        receiver.cleanup(Duration::from_millis(170));
         assert!(receiver.fragment_messages.is_empty());
     }
 }

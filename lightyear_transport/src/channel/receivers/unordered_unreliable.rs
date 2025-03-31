@@ -4,16 +4,17 @@ use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageData, ReceiveMessage};
 use alloc::collections::VecDeque;
 use bytes::Bytes;
+use core::time::Duration;
+use governor::clock::Reference;
 use lightyear_core::tick::Tick;
-use lightyear_core::time::WrappedTime;
 
-const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
+const DISCARD_AFTER: Duration = Duration::from_millis(3000);
 
 #[derive(Debug)]
 pub struct UnorderedUnreliableReceiver {
     recv_message_buffer: VecDeque<(Tick, Bytes)>,
     fragment_receiver: FragmentReceiver,
-    current_time: WrappedTime,
+    current_time: Duration,
 }
 
 impl UnorderedUnreliableReceiver {
@@ -21,16 +22,16 @@ impl UnorderedUnreliableReceiver {
         Self {
             recv_message_buffer: VecDeque::new(),
             fragment_receiver: FragmentReceiver::new(),
-            current_time: WrappedTime::default(),
+            current_time: Duration::default(),
         }
     }
 }
 
 impl ChannelReceive for UnorderedUnreliableReceiver {
-    fn update(&mut self, now: WrappedTime) {
+    fn update(&mut self, now: Duration) {
         self.current_time = now;
         self.fragment_receiver
-            .cleanup(self.current_time - DISCARD_AFTER);
+            .cleanup(self.current_time.saturating_sub(DISCARD_AFTER));
     }
 
     fn buffer_recv(&mut self, message: ReceiveMessage) -> Result<(), ChannelReceiveError> {

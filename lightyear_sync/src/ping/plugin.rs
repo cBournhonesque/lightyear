@@ -3,6 +3,8 @@ use crate::ping::message::{Ping, Pong};
 use crate::ping::PingChannel;
 use bevy::platform_support::time::Instant;
 use bevy::prelude::*;
+use lightyear_core::time::PositiveTickDelta;
+use lightyear_link::Link;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
@@ -20,9 +22,9 @@ pub struct PingPlugin;
 impl PingPlugin {
     fn receive(
         real_time: Res<Time<Real>>,
-        mut query: Query<(&mut PingManager, &mut MessageReceiver<Ping>, &mut MessageReceiver<Pong>)>,
+        mut query: Query<(&mut Link, &mut PingManager, &mut MessageReceiver<Ping>, &mut MessageReceiver<Pong>)>,
     ) {
-        query.par_iter_mut().for_each(|(mut m, mut ping_receiver, mut pong_receiver)| {
+        query.par_iter_mut().for_each(|(mut link, mut m, mut ping_receiver, mut pong_receiver)| {
             // update
             m.update(&real_time);
 
@@ -35,6 +37,9 @@ impl PingPlugin {
                 // process the pong
                 m.process_pong(&pong, real_time.elapsed());
             });
+
+            link.stats.rtt = m.rtt();
+            link.stats.jitter = m.jitter();
         })
 
     }
@@ -61,10 +66,13 @@ impl PingPlugin {
             .take_pending_pongs()
             .into_iter()
             .for_each(|(mut pong, ping_receive_time)| {
-                pong.frame_time = now - frame_start;
+                pong.frame_time = PositiveTickDelta::default();
+                // TODO: get frame_time from now-frame_start!
+                // pong.frame_time = now - frame_start;
+
                 // TODO: maybe include the tick + overstep in every packet?
                 // TODO: how to use the overstep?
-                pong.overstep = fixed_time.overstep_fraction();
+                // pong.overstep = fixed_time.overstep_fraction();
                 pong_sender.send::<PingChannel>(pong);
             });
         })

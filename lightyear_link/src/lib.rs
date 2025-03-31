@@ -13,8 +13,7 @@ use alloc::vec::Vec;
 use bevy::prelude::{Component, SystemSet};
 use bytes::Bytes;
 use core::net::SocketAddr;
-
-pub mod ping;
+use core::time::Duration;
 
 pub type RecvPayload = Bytes;
 pub type SendPayload = Bytes;
@@ -31,6 +30,7 @@ pub struct Link {
     /// Payloads to be sent
     pub send: Vec<SendPayload>,
 
+    pub stats: LinkStats,
     // TODO: maybe put this somewhere else? So that link is completely independent of how io
     //   is handled? (i.e. it might not even required a SocketAddr)
     /// Address of the remote peer
@@ -43,6 +43,7 @@ impl Link {
         Self {
             recv: Vec::new(),
             send: Vec::new(),
+            stats: LinkStats::default(),
             remote_addr: Some(remote_addr),
         }
     }
@@ -56,6 +57,20 @@ impl Link {
         // TODO: stats, etc.
         self.send.push(payload);
     }
+}
+
+#[derive(Default)]
+pub struct LinkStats {
+    /// Number of bytes received
+    pub recv_bytes: usize,
+    /// Number of bytes sent
+    pub send_bytes: usize,
+    /// Number of packets received
+    pub recv_packets: usize,
+    /// Number of packets sent
+    pub send_packets: usize,
+    pub rtt: Duration,
+    pub jitter: Duration,
 }
 
 

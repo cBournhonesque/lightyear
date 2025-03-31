@@ -5,7 +5,8 @@ use bevy::platform_support::collections::HashMap;
 use crate::packet::message::{FragmentData, MessageId};
 use crate::packet::packet::FRAGMENT_SIZE;
 use bytes::Bytes;
-use lightyear_core::{tick::Tick, time::WrappedTime};
+use core::time::Duration;
+use lightyear_core::tick::Tick;
 use tracing::trace;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
@@ -25,7 +26,7 @@ impl FragmentReceiver {
     /// (i.e. we probably lost some fragments and we will never complete the message)
     ///
     /// If we don't keep track of the last received time, we will never clean up the messages.
-    pub fn cleanup(&mut self, cleanup_time: WrappedTime) {
+    pub fn cleanup(&mut self, cleanup_time: Duration) {
         self.fragment_messages.retain(|_, c| {
             c.last_received
                 .map(|t| t > cleanup_time)
@@ -41,7 +42,7 @@ impl FragmentReceiver {
         &mut self,
         fragment: FragmentData,
         remote_sent_tick: Tick,
-        current_time: Option<WrappedTime>,
+        current_time: Option<Duration>,
     ) -> Option<(Tick, Bytes)> {
         let fragment_message = self
             .fragment_messages
@@ -74,7 +75,7 @@ pub struct FragmentConstructor {
     bytes: Vec<u8>,
 
     tick: Tick,
-    last_received: Option<WrappedTime>,
+    last_received: Option<Duration>,
 }
 
 impl FragmentConstructor {
@@ -93,7 +94,7 @@ impl FragmentConstructor {
         &mut self,
         fragment_index: usize,
         bytes: &[u8],
-        received_time: Option<WrappedTime>,
+        received_time: Option<Duration>,
     ) -> Option<(Tick, Bytes)> {
         self.last_received = received_time;
 

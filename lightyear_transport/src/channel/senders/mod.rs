@@ -1,17 +1,15 @@
-use alloc::collections::VecDeque;
-
 use crate::channel::senders::reliable::ReliableSender;
 use crate::channel::senders::sequenced_unreliable::SequencedUnreliableSender;
 use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender;
 use crate::packet::message::{MessageAck, MessageId, SendMessage};
 use crate::prelude::{ChannelMode, ChannelSettings};
+use alloc::collections::VecDeque;
+use bevy::prelude::{Real, Time};
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use enum_dispatch::enum_dispatch;
-use lightyear_core::tick::TickManager;
-use lightyear_core::time::TimeManager;
-use lightyear_link::ping::manager::PingManager;
+use lightyear_link::LinkStats;
 
 pub(crate) mod fragment_ack_receiver;
 pub(crate) mod fragment_sender;
@@ -28,12 +26,8 @@ pub(crate) mod unordered_unreliable_with_acks;
 #[enum_dispatch]
 pub trait ChannelSend {
     /// Bookkeeping for the channel
-    fn update(
-        &mut self,
-        time_manager: &TimeManager,
-        ping_manager: &PingManager,
-        tick_manager: &TickManager,
-    );
+    fn update(&mut self, real_time: &Time<Real>, link_stats: &LinkStats);
+
 
     /// Queues a message to be transmitted.
     /// The priority of the message needs to be specified

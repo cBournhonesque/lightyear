@@ -2,7 +2,7 @@ use alloc::collections::{BTreeMap, VecDeque};
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use bevy::platform_support::collections::HashSet;
-use bevy::prelude::{Timer, TimerMode};
+use bevy::prelude::{Real, Time, Timer, TimerMode};
 
 use crate::channel::builder::ReliableSettings;
 use crate::channel::senders::fragment_sender::FragmentSender;
@@ -12,8 +12,7 @@ use bytes::Bytes;
 use core::time::Duration;
 use crossbeam_channel::{Receiver, Sender};
 use lightyear_core::tick::TickManager;
-use lightyear_core::time::{TimeManager, WrappedTime};
-use lightyear_link::ping::manager::PingManager;
+use lightyear_link::LinkStats;
 use lightyear_serde::SerializationError;
 use tracing::trace;
 
@@ -21,7 +20,7 @@ use tracing::trace;
 pub struct FragmentAck {
     data: FragmentData,
     acked: bool,
-    last_sent: Option<WrappedTime>,
+    last_sent: Option<Duration>,
 }
 
 /// A message that has not been acked yet
@@ -31,7 +30,7 @@ pub enum UnackedMessage {
         bytes: Bytes,
         /// If None: this packet has never been sent before
         /// else: the last instant when this packet was sent
-        last_sent: Option<WrappedTime>,
+        last_sent: Option<Duration>,
     },
     Fragmented(Vec<FragmentAck>),
 }
@@ -71,7 +70,7 @@ pub struct ReliableSender {
     /// List of senders that want to be notified when a message is lost
     nack_senders: Vec<Sender<MessageId>>,
     current_rtt: Duration,
-    current_time: WrappedTime,
+    current_time: Duration,
     /// Internal timer to determine if the channel is ready to send messages
     timer: Option<Timer>,
     /// Factor that makes sure that the priority accumulates at the same right even the channel
@@ -97,7 +96,7 @@ impl ReliableSender {
             ack_senders: vec![],
             nack_senders: vec![],
             current_rtt: Duration::default(),
-            current_time: WrappedTime::default(),
+            current_time: Duration::default(),
             timer,
             priority_multiplier: 1.0,
         }
@@ -105,13 +104,13 @@ impl ReliableSender {
 }
 
 impl ChannelSend for ReliableSender {
-    fn update(&mut self, time_manager: &TimeManager, ping_manager: &PingManager, _: &TickManager) {
-        self.current_time = time_manager.current_time();
-        self.current_rtt = ping_manager.rtt();
+    fn update(&mut self, real_time: &Time<Real>, link_stats: &LinkStats) {
+        self.current_time = real_time.elapsed();
+        self.current_rtt = link_stats.rtt;
         if let Some(timer) = &mut self.timer {
-            timer.tick(time_manager.delta());
+            timer.tick(real_time.delta());
             self.priority_multiplier =
-                timer.duration().as_nanos() as f32 / time_manager.delta().as_nanos() as f32;
+                timer.duration().as_nanos() as f32 / real_time.delta().as_nanos() as f32;
             trace!(
                 ?timer,
                 "Priority multiplier for reliable sender channel: {:?}",
@@ -173,10 +172,8 @@ impl ChannelSend for ReliableSender {
         // Either because they have never been sent, or because they need to be resent
 
         // resend delay is based on the rtt
-        let resend_delay =
-            chrono::Duration::from_std(self.reliable_settings.resend_delay(self.current_rtt))
-                .unwrap();
-        let should_send = |last_sent: &Option<WrappedTime>| -> bool {
+        let resend_delay = self.reliable_settings.resend_delay(self.current_rtt);
+        let should_send = |last_sent: &Option<Duration>| -> bool {
             match last_sent {
                 // send if the message has never been sent
                 None => true,
@@ -356,7 +353,7 @@ mod tests {
             Duration::default(),
         );
         sender.current_rtt = Duration::from_millis(100);
-        sender.current_time = WrappedTime::new(0);
+        sender.current_time = Duration::default();
 
         // Buffer a new message
         let message1 = Bytes::from("hello");

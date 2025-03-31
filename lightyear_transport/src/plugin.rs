@@ -128,6 +128,7 @@ impl TransportPlugin {
     /// Build packets from the messages in the channel,
     /// Upload the packets to the [`Link`]
     fn buffer_send(
+        real_time: Res<Time<Real>>,
         mut query: Query<(&mut Link, &mut Transport)>,
         channel_registry: Res<ChannelRegistry>,
         tick_manager: Res<TickManager>,
@@ -166,7 +167,7 @@ impl TransportPlugin {
             // TODO: swap to try_for_each when available
             let Ok(packets) =
                 transport.packet_manager
-                    .build_packets(tick, single_data, fragment_data) else {
+                    .build_packets(real_time.elapsed(), tick, single_data, fragment_data) else {
                 error!("Failed to build packets");
                 return
             };

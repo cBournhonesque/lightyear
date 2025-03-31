@@ -9,9 +9,9 @@ use crate::channel::receivers::unordered_reliable::UnorderedReliableReceiver;
 use crate::channel::receivers::unordered_unreliable::UnorderedUnreliableReceiver;
 use crate::packet::message::ReceiveMessage;
 use crate::prelude::{ChannelMode, ChannelSettings};
+use core::time::Duration;
 use error::Result;
 use lightyear_core::tick::Tick;
-use lightyear_core::time::WrappedTime;
 
 /// Utilities to receive a Message from multiple fragment packets
 pub(crate) mod fragment_receiver;
@@ -36,7 +36,7 @@ pub(crate) mod unordered_unreliable;
 #[enum_dispatch]
 pub trait ChannelReceive {
     /// Bookkeeping on the channel
-    fn update(&mut self, now: WrappedTime);
+    fn update(&mut self, now: Duration);
 
     /// Queues a received message in an internal buffer
     fn buffer_recv(&mut self, message: ReceiveMessage) -> Result<()>;

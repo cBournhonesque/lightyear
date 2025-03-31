@@ -1,7 +1,7 @@
 use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::prelude::{Timer, TimerMode};
+use bevy::prelude::{Real, Time, Timer, TimerMode};
 use core::time::Duration;
 
 use crate::channel::senders::fragment_ack_receiver::FragmentAckReceiver;
@@ -10,11 +10,9 @@ use crate::channel::senders::ChannelSend;
 use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
-use lightyear_core::tick::TickManager;
-use lightyear_core::time::{TimeManager, WrappedTime};
-use lightyear_link::ping::manager::PingManager;
+use lightyear_link::LinkStats;
 
-const DISCARD_AFTER: chrono::Duration = chrono::Duration::milliseconds(3000);
+const DISCARD_AFTER: Duration = Duration::from_millis(3000);
 
 /// A sender that simply sends the messages without applying any reliability or unordered
 /// Same as UnorderedUnreliableSender, but includes a message id to each message,
@@ -38,7 +36,6 @@ pub struct UnorderedUnreliableWithAcksSender {
     /// Keep track of which fragments were acked, so we can know when the entire fragment message
     /// was acked
     fragment_ack_receiver: FragmentAckReceiver,
-    current_time: WrappedTime,
     /// Internal timer to determine if the channel is ready to send messages
     timer: Option<Timer>,
 }
@@ -58,19 +55,17 @@ impl UnorderedUnreliableWithAcksSender {
             ack_senders: Vec::new(),
             nack_senders: Vec::new(),
             fragment_ack_receiver: FragmentAckReceiver::new(),
-            current_time: WrappedTime::default(),
             timer,
         }
     }
 }
 
 impl ChannelSend for UnorderedUnreliableWithAcksSender {
-    fn update(&mut self, time_manager: &TimeManager, _: &PingManager, _: &TickManager) {
-        self.current_time = time_manager.current_time();
+    fn update(&mut self, real_time: &Time<Real>, _: &LinkStats) {
         self.fragment_ack_receiver
-            .cleanup(self.current_time - DISCARD_AFTER);
+            .cleanup(real_time.elapsed() - DISCARD_AFTER);
         if let Some(timer) = &mut self.timer {
-            timer.tick(time_manager.delta());
+            timer.tick(real_time.delta());
         }
     }
 

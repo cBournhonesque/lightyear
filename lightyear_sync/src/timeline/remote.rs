@@ -2,7 +2,7 @@ use crate::ping::manager::PingManager;
 use crate::timeline::Timeline;
 use bevy::prelude::Component;
 use lightyear_core::tick::Tick;
-use lightyear_core::time::{TickInstant, TimeDelta};
+use lightyear_core::time::{TickDelta, TickInstant, TimeDelta};
 use std::time::Duration;
 use tracing::trace;
 
@@ -108,16 +108,17 @@ impl RemoteEstimate {
             // TODO: should we make any adjustments?
 
             // we have received the packet now, so the remote must already be at RTT/2 ahead
-            let network_delay = TimeDelta::from_duration(ping_manager.rtt() / 2, self.tick_duration());
+            let network_delay = TickDelta::from_duration(ping_manager.rtt() / 2, self.tick_duration());
             let new_estimate = TickInstant::from(remote_tick) + network_delay;
 
             // for the first time, don't apply smoothing
             if self.first_estimate {
                 self.now = new_estimate;
             } else {
-                self.now =
-                    self.now * (1.0 - self.remote_estimate_smoothing) +
-                    new_estimate * self.remote_estimate_smoothing;
+                // we transform the instant into deltas to apply some transformations.
+                // not all transformations are safe, but these are
+                let smoothed_estimate = TickDelta::from(self.now) * (1.0 - self.remote_estimate_smoothing) + TickDelta::from(new_estimate) * self.remote_estimate_smoothing;
+                self.now = smoothed_estimate.into();
             }
             trace!(
                 update_estimate = ?new_estimate,

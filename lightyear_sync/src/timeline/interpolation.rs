@@ -4,7 +4,7 @@ use crate::timeline::Timeline;
 use bevy::prelude::{Component, Reflect};
 use core::time::Duration;
 use lightyear_core::tick::Tick;
-use lightyear_core::time::{Overstep, TickInstant, TimeDelta};
+use lightyear_core::time::{Overstep, TickDelta, TickInstant, TimeDelta};
 
 /// Config to specify how the snapshot interpolation should behave
 #[derive(Clone, Copy, Reflect)]
@@ -73,7 +73,7 @@ impl Timeline for Interpolated {
     }
 
     fn advance(&mut self, delta: Duration) {
-        self.now = self.now + TimeDelta::from_duration(delta, self.tick_duration());
+        self.now = self.now + TickDelta::from_duration(delta, self.tick_duration());
     }
 }
 
@@ -82,7 +82,7 @@ impl SyncedTimeline for Interpolated {
     // TODO: how can we make this configurable? or maybe just store the TICK_DURATION in the timeline itself?
 
     fn sync_objective<T: Timeline>(&self, main: &T, ping_manager: &PingManager) -> TickInstant {
-        let delay = TimeDelta::from_duration(self.interpolation_config.to_duration(self.remote_send_interval), self.tick_duration());
+        let delay = TickDelta::from_duration(self.interpolation_config.to_duration(self.remote_send_interval), self.tick_duration());
         let target = main.now();
         target - delay
     }
@@ -109,7 +109,7 @@ impl SyncedTimeline for Interpolated {
         let objective = self.sync_objective(main, ping_manager);
         let error = objective - target;
         let is_ahead = error.is_positive();
-        let error_duration = error.as_duration(self.tick_duration());
+        let error_duration = error.to_duration(self.tick_duration());
         let error_margin = self.tick_duration().mul_f32(self.sync_config.error_margin);
         let max_error_margin = self.tick_duration().mul_f32(self.sync_config.max_error_margin);
         if error_duration > max_error_margin {

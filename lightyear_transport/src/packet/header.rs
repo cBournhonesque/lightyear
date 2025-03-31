@@ -1,5 +1,6 @@
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
+use core::time::Duration;
 use lightyear_utils::collections::HashMap;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use tracing::trace;
@@ -8,8 +9,8 @@ use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
 use crate::packet::stats_manager::packet::PacketStatsManager;
 use lightyear_core::tick::Tick;
-use lightyear_core::time::{TimeManager, WrappedTime};
-use lightyear_link::ping::manager::PingManager;
+use lightyear_core::time::TickInstant;
+use lightyear_link::LinkStats;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -90,10 +91,10 @@ const MAX_SEND_PACKET_QUEUE_SIZE: u8 = 255;
 
 /// minimum number of milliseconds after which we can consider a packet lost
 /// (to avoid edge case behaviour)
-const MIN_NACK_MILLIS: i64 = 10;
+const MIN_NACK_MILLIS: u64 = 10;
 
 /// maximum number of seconds after which we consider a packet lost
-const MAX_NACK_SECONDS: i64 = 3;
+const MAX_NACK_SECONDS: u64 = 3;
 
 /// Keeps track of sent and received packets to be able to write the packet headers correctly
 /// For more information: [GafferOnGames](https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/)
@@ -105,7 +106,7 @@ pub struct PacketHeaderManager {
     // keep track of the packets (of type Data) we send out and that have not been acked yet,
     // so we can resend them when dropped
     // sent_packets_not_acked: HashSet<PacketId>,
-    sent_packets_not_acked: HashMap<PacketId, WrappedTime>,
+    sent_packets_not_acked: HashMap<PacketId, Duration>,
     stats_manager: PacketStatsManager,
 
     // channel to notify the sender of the packet_id of the packets that were delivered
@@ -115,8 +116,6 @@ pub struct PacketHeaderManager {
     // keep track of the packets that were received (last packet received and the
     // `ACK_BITFIELD_SIZE` packets before that)
     recv_buffer: ReceiveBuffer,
-    // copy of current time so that we don't pollute the function signatures to much
-    current_time: WrappedTime,
     /// After how many multiples of RTT do we consider a packet to be lost?
     ///
     /// The default is 1.5; i.e. after 1.5 times the round trip time, we consider a packet lost if
@@ -136,7 +135,6 @@ impl PacketHeaderManager {
             recv_buffer: ReceiveBuffer::new(),
             // ack_notification_sender,
             // ack_notification_receiver,
-            current_time: WrappedTime::default(),
             nack_rtt_multiple,
         }
     }
@@ -145,20 +143,18 @@ impl PacketHeaderManager {
     /// Returns a list of packets that are considered NACKed (i.e. acknowledged as losts)
     pub(crate) fn update(
         &mut self,
-        time_manager: &TimeManager,
-        ping_manager: &PingManager,
+        real: Duration,
+        link_stats: &LinkStats,
     ) -> Vec<PacketId> {
-        self.current_time = time_manager.current_time();
-        self.stats_manager.update(time_manager);
-        let rtt = ping_manager.final_stats.rtt;
-        let nack_duration = chrono::Duration::from_std(rtt.mul_f32(self.nack_rtt_multiple))
-            .expect("duration should be valid")
-            .min(chrono::TimeDelta::seconds(MAX_NACK_SECONDS))
-            .max(chrono::TimeDelta::milliseconds(MIN_NACK_MILLIS));
+        self.stats_manager.update(real);
+        let rtt = link_stats.rtt;
+        let nack_duration = rtt.mul_f32(self.nack_rtt_multiple)
+            .min(Duration::from_secs(MAX_NACK_SECONDS))
+            .max(Duration::from_millis(MIN_NACK_MILLIS));
         // clear sent packets that haven't received any ack for a while
         let mut lost_packets = vec![];
         self.sent_packets_not_acked.retain(|packet_id, time_sent| {
-            if self.current_time - (*time_sent) > nack_duration {
+            if real - (*time_sent) > nack_duration {
                 trace!("sent packet got lost");
                 lost_packets.push(*packet_id);
                 self.stats_manager.sent_packet_lost();
@@ -181,7 +177,7 @@ impl PacketHeaderManager {
     }
 
     #[cfg(test)]
-    pub fn sent_packets_not_acked(&self) -> &HashMap<PacketId, WrappedTime> {
+    pub fn sent_packets_not_acked(&self) -> &HashMap<PacketId, Duration> {
         &self.sent_packets_not_acked
     }
 
@@ -236,7 +232,7 @@ impl PacketHeaderManager {
     }
 
     /// Prepare the header of the next packet to send
-    pub(crate) fn prepare_send_packet_header(&mut self, packet_type: PacketType) -> PacketHeader {
+    pub(crate) fn prepare_send_packet_header(&mut self, packet_type: PacketType, real: Duration) -> PacketHeader {
         // if we didn't have a last packet id, start with the maximum value
         // (so that receiving 0 counts as an update)
         let last_ack_packet_id = self.recv_buffer.last_recv_packet_id.unwrap_or_else(|| PacketId(u16::MAX));
@@ -252,7 +248,7 @@ impl PacketHeaderManager {
         self.stats_manager.sent_packet();
         // keep track of when we sent the packet (so that if we don't get an ack after a certain amount of time we can consider it lost)
         self.sent_packets_not_acked
-            .insert(self.next_packet_id, self.current_time);
+            .insert(self.next_packet_id, real);
         self.increment_next_packet_id();
         outgoing_header
     }

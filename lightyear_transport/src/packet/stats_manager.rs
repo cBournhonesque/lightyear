@@ -2,10 +2,10 @@
 pub(crate) mod packet {
     use core::ops::{AddAssign, SubAssign};
     use core::time::Duration;
-    use lightyear_core::time::{TimeManager, WrappedTime};
     use lightyear_utils::ready_buffer::ReadyBuffer;
     use tracing::trace;
-    type PacketStatsBuffer = ReadyBuffer<WrappedTime, PacketStats>;
+
+    type PacketStatsBuffer = ReadyBuffer<Duration, PacketStats>;
 
     #[derive(Default, Copy, Clone, Debug, PartialEq)]
     struct PacketStats {
@@ -69,11 +69,11 @@ pub(crate) mod packet {
             }
         }
 
-        pub(crate) fn update(&mut self, time_manager: &TimeManager) {
+        pub(crate) fn update(&mut self, real: Duration) {
             // remove stats older than stats buffer duration
             let removed = self
                 .stats_buffer
-                .drain_until(&(time_manager.current_time() - self.stats_buffer_duration));
+                .drain_until(&(real - self.stats_buffer_duration));
             for (_, stats) in removed {
                 self.rolling_stats -= stats;
             }
@@ -81,7 +81,7 @@ pub(crate) mod packet {
             let current_stats = core::mem::take(&mut self.current_stats);
             self.rolling_stats += current_stats;
             self.stats_buffer
-                .push(time_manager.current_time(), current_stats);
+                .push(real, current_stats);
 
             // compute stats
             self.compute_stats();
