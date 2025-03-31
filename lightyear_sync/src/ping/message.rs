@@ -39,16 +39,12 @@ pub struct Pong {
     // TODO: serialize this better
     /// time spent between pong_send and ping_receive
     pub frame_time: Duration,
-    pub overstep: f32,
-    /// time when the ping was received
-    pub ping_received_time: WrappedTime,
-    /// time when the pong was sent
-    pub pong_sent_time: WrappedTime,
+    // pub overstep: f32,
 }
 
 impl ToBytes for Pong {
     fn bytes_len(&self) -> usize {
-        self.ping_id.bytes_len() + self.ping_received_time.bytes_len() + self.pong_sent_time.bytes_len()
+        self.ping_id.bytes_len() + self.frame_time.bytes_len() + self.pong_sent_time.bytes_len()
     }
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {

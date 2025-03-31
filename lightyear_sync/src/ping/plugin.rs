@@ -3,6 +3,7 @@ use crate::ping::message::{Ping, Pong};
 use crate::ping::PingChannel;
 use bevy::platform_support::time::Instant;
 use bevy::prelude::*;
+use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
 
@@ -72,8 +73,8 @@ impl PingPlugin {
 
 impl Plugin for PingPlugin {
     fn build(&self, app: &mut App) {
-        app.configure_sets(PreUpdate, PingSet::Receive);
-        app.configure_sets(PostUpdate,  PingSet::Send);
+        app.configure_sets(PreUpdate, (MessageSet::Receive, PingSet::Receive).chain());
+        app.configure_sets(PostUpdate,  (PingSet::Send, MessageSet::Send).chain());
         app.add_systems(PreUpdate, Self::receive.in_set(PingSet::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(PingSet::Send));
     }

@@ -61,7 +61,8 @@ impl RemoteEstimate {
         Self {
             now: TickInstant::default(),
             last_received_tick: None,
-            remote_estimate_smoothing: smoothing.clamp(0.0, 1.0)
+            remote_estimate_smoothing: smoothing.clamp(0.0, 1.0),
+            first_estimate: true,
         }
     }
 
@@ -99,7 +100,7 @@ impl RemoteEstimate {
     ///
     /// This method will only update the estimate if the received tick is newer than
     /// the previously received tick.
-    fn update(&mut self, remote_tick: Tick, ping_manager: &PingManager) {
+    pub(crate) fn update(&mut self, remote_tick: Tick, ping_manager: &PingManager) {
         if self.last_received_tick
            .map_or(true, |previous_tick| remote_tick >= previous_tick) {
             self.last_received_tick = Some(remote_tick);

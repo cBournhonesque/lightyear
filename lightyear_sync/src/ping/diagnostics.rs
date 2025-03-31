@@ -1,6 +1,6 @@
 //! Compute Diagnostics based on ping statistics (jitter, RTT)
 
-use crate::shared::ping::manager::PingManager;
+use crate::ping::manager::PingManager;
 use bevy::app::{App, Plugin};
 use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
 use core::time::Duration;

@@ -16,7 +16,7 @@ use lightyear_transport::entity_map::SendEntityMap;
 use lightyear_transport::prelude::Transport;
 
 pub(crate) mod registry;
-mod plugin;
+pub mod plugin;
 pub mod receive;
 pub mod send;
 

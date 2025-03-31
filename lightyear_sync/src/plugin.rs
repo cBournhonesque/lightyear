@@ -1,9 +1,11 @@
 use crate::ping::manager::PingManager;
-use crate::ping::plugin::{PingPlugin, PingSet};
+use crate::ping::plugin::PingPlugin;
+use crate::timeline::remote::RemoteEstimate;
 use crate::timeline::sync::SyncedTimeline;
 use crate::timeline::{Main, Timeline};
 use bevy::app::{App, Plugin};
-use bevy::prelude::{Commands, Entity, Fixed, Has, PostUpdate, Query, Res, ResMut, SystemSet, Time, Virtual, With};
+use bevy::prelude::{Commands, Entity, Fixed, Has, PostUpdate, Query, Real, Res, ResMut, SystemSet, Time, Trigger, Virtual, With};
+use lightyear_transport::plugin::PacketReceived;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SyncSet {
@@ -36,7 +38,8 @@ impl SyncPlugin {
             if is_main {
                 t.advance(delta);
             } else {
-                t.advance(delta * t.relative_speed());
+                let new_delta = delta.mul_f32(t.relative_speed());
+                t.advance(new_delta);
             }
         })
     }
@@ -52,12 +55,34 @@ impl SyncPlugin {
             }
         })
     }
+
+    /// Update the timeline in FixedUpdate based on the Time<Virtual>
+    /// Should we use this only in FixedUpdate::First? because we need the tick in FixedUpdate to be correct for the timeline
+    pub(crate) fn update_remote_timeline(
+        trigger: Trigger<PacketReceived>,
+        mut query: Query<(&mut RemoteEstimate, &PingManager)>,
+    ) {
+        if let Ok((mut t, ping_manager)) = query.get_mut(trigger.target()) {
+            t.update(trigger.remote_tick, ping_manager);
+        }
+    }
+
+    /// Advance our estimate of the remote timeline based on the real time
+    pub(crate) fn advance_remote_timeline(
+        fixed_time: Res<Time<Real>>,
+        mut query: Query<&mut RemoteEstimate>,
+    ) {
+        let delta = fixed_time.delta();
+        query.iter_mut().for_each(|mut t| {
+            t.advance(delta);
+        })
+    }
 }
 
 
 impl Plugin for SyncPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(PingPlugin);
-        app.configure_sets(PostUpdate, (PingSet::Send, SyncSet::Sync));
+        app.configure_sets(PostUpdate, SyncSet::Sync);
     }
 }

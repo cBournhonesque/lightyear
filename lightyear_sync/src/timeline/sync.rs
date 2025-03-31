@@ -3,24 +3,37 @@ use crate::timeline::Timeline;
 use bevy::prelude::{Event, Reflect};
 use lightyear_core::time::{TickDuration, TickInstant};
 
-#[derive(Event, Debug, Clone, Copy)]
-pub struct SyncEvent<T: SyncedTimeline> {
+#[derive(Event, Debug)]
+pub struct SyncEvent<T> {
     pub(crate) old: TickInstant,
     pub(crate) new: TickInstant,
+    pub(crate) marker: core::marker::PhantomData<T>,
 }
+
+impl<T> Clone for SyncEvent<T> {
+    fn clone(&self) -> Self {
+        SyncEvent {
+            old: self.old,
+            new: self.new,
+            marker: core::marker::PhantomData,
+        }
+    }
+}
+impl<T> Copy for SyncEvent<T> {}
 
 /// Timeline that is synced to another timeline
 pub trait SyncedTimeline: Timeline {
 
-    /// Get the ideal [`TickInstant`] that this timeline should be at
-    fn sync_objective<T: Timeline>(&self, other: &T, ping_manager: &PingManager) -> TickDuration;
 
-    fn resync(&mut self, sync_objective: TickInstant) -> SyncEvent<Self>;
+    /// Get the ideal [`TickInstant`] that this timeline should be at
+    fn sync_objective<T: Timeline>(&self, other: &T, ping_manager: &PingManager) -> TickInstant;
+
+    fn resync(&mut self, sync_objective: TickInstant) -> SyncEvent<Self> where Self: Sized;
 
     /// Sync the current timeline to the other timeline T.
     /// Usually this is achieved by slightly speeding up or slowing down the current timeline.
     /// If there is a big discrepancy we can do a `resync` instead.
-    fn sync<T: Timeline>(&mut self, main: &T, ping_manager: &PingManager) -> Option<SyncEvent<Self>>;
+    fn sync<T: Timeline>(&mut self, main: &T, ping_manager: &PingManager) -> Option<SyncEvent<Self>> where Self: Sized;
 
     fn is_synced(&self) -> bool;
 

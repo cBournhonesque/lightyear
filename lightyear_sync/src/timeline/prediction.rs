@@ -71,6 +71,7 @@ impl SyncedTimeline for Predicted {
         SyncEvent {
             old: now,
             new: target,
+            marker: core::marker::PhantomData
         }
     }
 

@@ -6,13 +6,14 @@ use crate::error::TransportError;
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, ReceiveMessage, SendMessage, SingleData};
+use crate::packet::packet::Packet;
 use bevy::app::App;
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
 use bevy::ecs::world::FilteredEntityMut;
 use bevy::prelude::*;
 use bytes::Bytes;
 use lightyear_core::network::NetId;
-use lightyear_core::tick::TickManager;
+use lightyear_core::tick::{Tick, TickManager};
 use lightyear_link::{Link, LinkSet};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
@@ -29,6 +30,11 @@ pub enum TransportSet {
     Send,
 }
 
+#[derive(Event)]
+pub struct PacketReceived {
+    pub remote_tick: Tick,
+}
+
 pub struct TransportPlugin;
 
 impl TransportPlugin {
@@ -37,15 +43,21 @@ impl TransportPlugin {
     /// Depending on the [`ChannelId`], buffer the messages in the packet
     /// in the appropriate [`ChannelReceiver`]
     fn buffer_receive(
-        mut query: Query<(&mut Link, &mut Transport)>,
+        par_commands: ParallelCommands,
+        mut query: Query<(Entity, &mut Link, &mut Transport)>,
     ) {
-        query.par_iter_mut().for_each(|(mut link, mut transport)| {
+        query.par_iter_mut().for_each(|(entity, mut link, mut transport)| {
             link.recv.drain(..).try_for_each(|packet| {
                 let mut cursor = Reader::from(packet);
 
                 // Parse the packet
                 let header = PacketHeader::from_bytes(&mut cursor)?;
                 let tick = header.tick;
+
+                // TODO: maybe switch to event buffer instead of triggers?
+                par_commands.command_scope(|mut commands| {
+                    commands.trigger_targets(PacketReceived { remote_tick: tick }, entity);
+                });
 
                 // Update the packet acks
                 let acked_packets = transport

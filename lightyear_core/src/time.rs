@@ -36,7 +36,7 @@ pub type Overstep = u16;
 
 // TODO: maybe put this in lightyear_core?
 /// Uniquely identify a instant across all timelines
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Default, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct TickInstant {
     pub tick: Tick,
     /// Overstep as a fraction towards the next tick

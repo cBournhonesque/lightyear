@@ -1,14 +1,6 @@
 /*! Handles syncing the time between the client and the server
 */
-use crate::client::interpolation::plugin::InterpolationConfig;
-use crate::packet::packet::PacketId;
-use crate::plugin::SyncPlugin;
-use crate::prelude::client::{InterpolationDelay, PredictionConfig};
-use crate::shared::ping::manager::PingManager;
-use crate::shared::tick_manager::TickManager;
-use crate::shared::tick_manager::{Tick, TickEvent};
-use crate::shared::time_manager::{TimeManager, WrappedTime};
-use crate::time::Timeline;
+use crate::plugin::{SyncPlugin, SyncSet};
 use crate::timeline::interpolation::Interpolated;
 use crate::timeline::prediction::Predicted;
 use crate::timeline::remote::RemoteEstimate;
@@ -16,7 +8,7 @@ use crate::timeline::sync::SyncedTimeline;
 use crate::timeline::Timeline;
 use bevy::prelude::*;
 use bevy::prelude::{Reflect, SystemSet};
-
+use bevy::time::time_system;
 
 // When a Client is created; we want to add a PredictedTimeline? InterpolatedTimeline?
 //  or should we let the user do it?
@@ -53,7 +45,9 @@ pub struct ClientPlugin;
 impl Plugin for ClientPlugin {
 
     fn build(&self, app: &mut App) {
+        app.add_observer(SyncPlugin::update_remote_timeline);
 
+        app.add_systems(First, SyncPlugin::advance_remote_timeline.after(time_system));
         app.add_systems(FixedFirst, (
             SyncPlugin::advance_timelines::<Predicted>,
             SyncPlugin::advance_timelines::<Interpolated>,
@@ -62,15 +56,10 @@ impl Plugin for ClientPlugin {
         app.add_systems(PostUpdate, (
             SyncPlugin::sync_timelines::<Predicted, RemoteEstimate>,
             SyncPlugin::sync_timelines::<Interpolated, RemoteEstimate>,
-        ));
+        ).in_set(SyncSet::Sync));
         app.add_systems(Last, SyncPlugin::update_virtual_time::<Predicted>);
-        todo!("add server estimate timeline!");
     }
 }
-
-
-
-
 
 
 

@@ -1,4 +1,3 @@
-use crate::client::{MainTimeline, SyncConfig};
 use crate::ping::manager::PingManager;
 use crate::timeline::sync::{SyncConfig, SyncEvent, SyncedTimeline};
 use crate::timeline::Timeline;
@@ -92,9 +91,10 @@ impl SyncedTimeline for Interpolated {
         let now = self.now();
         let target = sync_objective;
         self.now = target;
-        SyncEvent {
+        SyncEvent::<Self> {
             old: now,
             new: target,
+            marker: core::marker::PhantomData,
         }
     }
 

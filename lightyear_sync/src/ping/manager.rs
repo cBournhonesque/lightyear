@@ -260,13 +260,6 @@ impl PingManager {
             ping_id: ping.id,
             // TODO: we want to use real time instead of just time_manager.current_time() no?
             frame_time: Default::default(),
-            ping_received_time: now,
-            // TODO: can we get a more precise time? (based on real)?
-            // TODO: otherwise we can consider that there's an entire tick duration between receive and sent
-            // we are using 0.0 as a placeholder for now, we will fill it when we actually
-            // send the pong
-            // TODO: use option?
-            pong_sent_time: Duration::default(),
         }, now))
     }
     pub(crate) fn take_pending_pongs(&mut self) -> Vec<(Pong, Duration)> {
@@ -285,55 +278,56 @@ mod tests {
             stats_buffer_duration: Duration::from_secs(4),
         };
         let mut ping_manager = PingManager::new(config);
-        let mut time_manager = TimeManager::default();
+        let mut real = Time::<Real>::default();
+        real.update();
 
-        assert_eq!(ping_manager.maybe_prepare_ping(&time_manager), None);
+        assert_eq!(ping_manager.maybe_prepare_ping(real.elapsed()), None);
 
         let delta = Duration::from_millis(100);
-        time_manager.update(delta);
-        ping_manager.update(&time_manager);
+        real.update_with_duration(delta);
+        ping_manager.update(&real);
 
         // send pings
         assert_eq!(
-            ping_manager.maybe_prepare_ping(&time_manager),
+            ping_manager.maybe_prepare_ping(real.elapsed()),
             Some(Ping { id: PingId(0) })
         );
         let delta = Duration::from_millis(60);
-        time_manager.update(delta);
-        ping_manager.update(&time_manager);
+        real.update_with_duration(delta);
+        ping_manager.update(&real);
 
         // ping timer hasn't gone off yet, send nothing
-        assert_eq!(ping_manager.maybe_prepare_ping(&time_manager), None);
-        time_manager.update(delta);
-        ping_manager.update(&time_manager);
+        assert_eq!(ping_manager.maybe_prepare_ping(real.elapsed()), None);
+        real.update_with_duration(delta);
+        ping_manager.update(&real);
         assert_eq!(
-            ping_manager.maybe_prepare_ping(&time_manager),
+            ping_manager.maybe_prepare_ping(real.elapsed()),
             Some(Ping { id: PingId(1) })
         );
 
         let delta = Duration::from_millis(100);
-        time_manager.update(delta);
-        ping_manager.update(&time_manager);
+        real.update_with_duration(delta);
+        ping_manager.update(&real);
         assert_eq!(
-            ping_manager.maybe_prepare_ping(&time_manager),
+            ping_manager.maybe_prepare_ping(real.elapsed()),
             Some(Ping { id: PingId(2) })
         );
 
         // we sent all the pings we need
-        assert_eq!(ping_manager.maybe_prepare_ping(&time_manager), None);
+        assert_eq!(ping_manager.maybe_prepare_ping(real.elapsed()), None);
 
         // check ping store
         assert_eq!(
             ping_manager.ping_store.remove(PingId(0)),
-            Some(WrappedTime::new(100))
+            Some(Duration::from_millis(100))
         );
         assert_eq!(
             ping_manager.ping_store.remove(PingId(1)),
-            Some(WrappedTime::new(220))
+            Some(Duration::from_millis(220))
         );
         assert_eq!(
             ping_manager.ping_store.remove(PingId(2)),
-            Some(WrappedTime::new(320))
+            Some(Duration::from_millis(320))
         );
 
         // receive pongs

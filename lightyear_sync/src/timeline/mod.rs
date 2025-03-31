@@ -1,4 +1,4 @@
-use crate::client::TickInstant;
+use bevy::ecs::component::Mutable;
 use bevy::prelude::Component;
 use lightyear_core::tick::Tick;
 use lightyear_core::time::{Overstep, TickInstant};
@@ -19,7 +19,7 @@ pub struct Main<T: Timeline> {
 }
 
 /// An extension trait for [`Time<Physics>`](Physics).
-pub trait Timeline: Component {
+pub trait Timeline: Component<Mutability=Mutable> {
 
     /// Estimate of the current time in the [`Timeline`]
     fn now(&self) -> TickInstant;

@@ -89,11 +89,9 @@ impl MessagePlugin {
             let mut receiver_query = unsafe { receiver_query.reborrow_unsafe() };
             // enable split borrows
             let transport = &mut *transport;
-            // TODO: maybe store using channel-kind? channel-id is a serialization-specific id, which should
-            //  remain in lightyear_transport
+            // TODO: we can run this in parallel using rayon!
             transport.receivers.values_mut().try_for_each(|receiver_metadata| {
                 let channel_kind = receiver_metadata.channel_kind;
-                // TODO: maybe probide ChannelKind?
                 while let Some((tick, bytes)) = receiver_metadata.receiver.read_message() {
                     let mut reader = Reader::from(bytes);
                     // we receive the message NetId, and then deserialize the message
