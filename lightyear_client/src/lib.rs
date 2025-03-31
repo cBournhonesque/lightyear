@@ -8,14 +8,9 @@ This crate provides abstractions for sending and receiving raw bytes over the ne
 extern crate alloc;
 
 use bevy::prelude::{Component, SystemSet};
-use bytes::Bytes;
 
 /*! Modules related to the client
 */
-
-pub mod components;
-
-pub mod config;
 
 pub mod connection;
 
@@ -43,3 +38,9 @@ pub mod error;
 pub mod run_conditions;
 #[cfg(target_family = "wasm")]
 pub mod web;
+
+
+/// Marker component that inserts all the required components for a Client
+#[derive(Component)]
+#[require()]
+pub struct Client;

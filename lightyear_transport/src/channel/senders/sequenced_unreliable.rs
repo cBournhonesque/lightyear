@@ -125,7 +125,6 @@ impl ChannelSend for SequencedUnreliableSender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lightyear_link::ping::manager::PingConfig;
     #[test]
     fn test_sequenced_unreliable_sender_internals() {
         let mut sender = SequencedUnreliableSender::new(Duration::from_secs(1));

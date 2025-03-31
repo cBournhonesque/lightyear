@@ -9,6 +9,7 @@ use lightyear_utils::wrapping_id;
 
 
 
+
 // Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);
 
@@ -75,7 +76,6 @@ mod tests {
     use crate::channel::builder::{ChannelMode, ChannelSettings};
     use crate::channel::registry::{AppChannelExt, ChannelRegistry};
     use crate::packet::error::PacketError;
-    use lightyear_macros::ChannelInternal;
     use lightyear_serde::reader::ReadVarInt;
     use lightyear_serde::ToBytes;
 
@@ -110,10 +110,10 @@ mod tests {
         }
     }
 
-    #[derive(ChannelInternal, Reflect)]
+    #[derive(Reflect)]
     struct Channel1;
 
-    #[derive(ChannelInternal, Reflect)]
+    #[derive(Reflect)]
     struct Channel2;
 
 

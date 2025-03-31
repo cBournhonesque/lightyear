@@ -93,7 +93,7 @@ pub(crate) struct SendMessageMetadata {
 /// You register messages by calling the [`add_message`](AppMessageExt::register_message) method directly on the App.
 /// You can provide a [`ChannelDirection`] to specify if the message should be sent from the client to the server, from the server to the client, or both.
 ///
-/// ```rust
+/// ```rust,ignore
 /// use bevy::prelude::*;
 /// use serde::{Deserialize, Serialize};
 /// use lightyear::prelude::*;
@@ -115,7 +115,7 @@ pub(crate) struct SendMessageMetadata {
 /// Provided that your type implements [`MapEntities`], you can extend the protocol to support this behaviour, by
 /// calling the [`add_map_entities`](MessageRegistration::add_map_entities) method.
 ///
-/// ```rust
+/// ```rust,ignore
 /// use bevy::ecs::entity::{EntityMapper, MapEntities};
 /// use bevy::prelude::*;
 /// use serde::{Deserialize, Serialize};

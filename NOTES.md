@@ -12,6 +12,13 @@ But if you add a direction we will handle it automatically for the client-server
   - if there is no ReplicationGroup, we can assume that the entity is part of the 'default' group entity.
 
 
+# Lightyear client
+
+- Provide a component FullClient that will add all the other components:
+  - the registered required components will depend on the features that are enabled!
+  - Timeline Prediction/Interpolation/etc. 
+
+
 # plugin organization
 
 - transport needs PingManager

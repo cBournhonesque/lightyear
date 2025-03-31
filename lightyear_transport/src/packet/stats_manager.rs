@@ -136,10 +136,7 @@ pub(crate) mod packet {
 
         #[test]
         fn test_packet_stats() {
-            let mut time_manager = TimeManager::default();
             let mut packet_stats_manager = PacketStatsManager::new(Duration::from_secs(2));
-            // set the time to a value bigger than the stats buffer
-            time_manager.update(Duration::from_secs(3));
 
             // add some packet data
             packet_stats_manager.sent_packet();
@@ -148,7 +145,8 @@ pub(crate) mod packet {
             packet_stats_manager.sent_packet_acked();
 
             // update the packet stats
-            packet_stats_manager.update(&time_manager);
+            // set the time to a value bigger than the stats buffer
+            packet_stats_manager.update(Duration::from_secs(3));
             assert_eq!(packet_stats_manager.current_stats, PacketStats::default());
             assert_eq!(packet_stats_manager.stats_buffer.len(), 1);
 
@@ -159,7 +157,6 @@ pub(crate) mod packet {
             // add some more packet data at a later time
             packet_stats_manager.sent_packet();
             packet_stats_manager.sent_packet_lost();
-            time_manager.update(Duration::from_secs(1));
             assert_eq!(
                 packet_stats_manager.current_stats,
                 PacketStats {
@@ -169,7 +166,7 @@ pub(crate) mod packet {
                     num_received_packets: 0,
                 }
             );
-            packet_stats_manager.update(&time_manager);
+            packet_stats_manager.update(Duration::from_secs(4));
             assert_eq!(packet_stats_manager.current_stats, PacketStats::default());
             assert_eq!(packet_stats_manager.stats_buffer.len(), 2);
             packet_stats_manager.compute_stats();
@@ -177,8 +174,7 @@ pub(crate) mod packet {
 
             // add some more packet data at a later time, the older stats should get removed
             packet_stats_manager.sent_packet();
-            time_manager.update(Duration::from_secs(1));
-            packet_stats_manager.update(&time_manager);
+            packet_stats_manager.update(Duration::from_secs(5));
             assert_eq!(packet_stats_manager.current_stats, PacketStats::default());
             assert_eq!(packet_stats_manager.stats_buffer.len(), 2);
             assert_eq!(

@@ -40,7 +40,6 @@ impl From<TypeId> for ChannelKind {
 /// use lightyear_transport::prelude::*;
 /// use bevy::prelude::*;
 ///
-/// #[derive(Channel)]
 /// struct MyChannel;
 ///
 /// # fn main() {

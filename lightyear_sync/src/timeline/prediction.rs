@@ -6,10 +6,9 @@ use core::time::Duration;
 use lightyear_core::tick::Tick;
 use lightyear_core::time::{TickDelta, TickInstant};
 
-// TODO: should we make Time<Predicted> a component? if a user has multiple clients,
-//  we could have a different timeline per server?
-//  then we would have to decide how Time<()> relates to these different timelines
-// TODO: add input_delay here!
+// TODO: maybe rename this as MainTimeline? It's independent from Prediction!
+//   and in prediction we can just use the Main timeline as our timeline
+
 #[derive(Component)]
 pub struct Predicted {
     tick_duration: Duration,

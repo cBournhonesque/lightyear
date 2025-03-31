@@ -242,10 +242,26 @@ pub mod tests {
     use crate::prelude::{ChannelMode, ChannelSettings};
     use core::time::Duration;
     use lightyear_core::tick::TickConfig;
-    use lightyear_macros::ChannelInternal;
 
-    #[derive(ChannelInternal)]
     pub struct C;
+
+    pub struct TestTransportPlugin;
+
+    impl Plugin for TestTransportPlugin {
+        fn build(&self, app: &mut App) {
+            // add all channels before adding the TransportPlugin
+            app.init_resource::<ChannelRegistry>();
+            app.add_channel::<C>(ChannelSettings {
+                mode: ChannelMode::UnorderedUnreliable,
+                ..default()
+            });
+            // add required resources
+            app.init_resource::<Time<Real>>();
+            app.insert_resource(TickManager::from_config(TickConfig::new(Duration::default())));
+            // add the TransportPlugin
+            app.add_plugins(TransportPlugin);
+        }
+    }
 
     /// Check that we can buffer Bytes to a ChannelSender and a packet will get added to the Link
     /// Check that if we put that packet on the receive side of the Link, the Transport will process
@@ -253,18 +269,10 @@ pub mod tests {
     #[test]
     fn test_plugin() {
         let mut app = App::new();
-        // add the channels before adding the ChannelPlugin
-        app.init_resource::<ChannelRegistry>();
-        app.add_channel::<C>(ChannelSettings {
-            mode: ChannelMode::UnorderedUnreliable,
-            ..default()
-        });
-        let channel_id = *app.world().resource::<ChannelRegistry>().get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
-        app.add_plugins(TransportPlugin);
-        app.insert_resource(TickManager::from_config(TickConfig::new(Duration::default())));
-
+        app.add_plugins(TestTransportPlugin);
 
         let registry = app.world().resource::<ChannelRegistry>();
+        let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
         let mut transport = Transport::default();
         transport.add_sender_from_registry::<C>(registry);
         transport.add_receiver_from_registry::<C>(registry);

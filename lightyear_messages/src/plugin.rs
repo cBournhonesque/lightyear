@@ -123,11 +123,9 @@
 use crate::registry::MessageRegistry;
 use bevy::app::{App, PostUpdate, PreUpdate};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
-use bevy::prelude::{default, IntoScheduleConfigs, Plugin, SystemParamBuilder, SystemSet};
-use core::time::Duration;
-use lightyear_core::tick::{TickConfig, TickManager};
+use bevy::prelude::{IntoScheduleConfigs, Plugin, SystemParamBuilder, SystemSet};
 use lightyear_transport::plugin::TransportSet;
-use lightyear_transport::prelude::{ChannelMode, ChannelRegistry, ChannelSettings, Transport};
+use lightyear_transport::prelude::{ChannelRegistry, Transport};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum MessageSet {
@@ -201,8 +199,8 @@ mod tests {
     use crate::registry::AppMessageExt;
     use crate::send::MessageSender;
     use lightyear_link::Link;
-    use lightyear_transport::plugin::{tests::C, TransportPlugin};
-    use lightyear_transport::prelude::AppChannelExt;
+    use lightyear_transport::plugin::tests::TestTransportPlugin;
+    use lightyear_transport::plugin::tests::C;
 
     /// Message
     #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -214,14 +212,7 @@ mod tests {
     #[test_log::test]
     fn test_plugin() {
         let mut app = App::new();
-        // Register the channel before adding the ChannelPlugin
-        app.init_resource::<ChannelRegistry>();
-        app.add_channel::<C>(ChannelSettings {
-            mode: ChannelMode::UnorderedUnreliable,
-            ..default()
-        });
-        app.insert_resource(TickManager::from_config(TickConfig::new(Duration::default())));
-        app.add_plugins(TransportPlugin);
+        app.add_plugins(TestTransportPlugin);
 
         // Register the message before adding the MessagePlugin
         app.add_message::<M>();
