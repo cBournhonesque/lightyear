@@ -57,6 +57,7 @@ impl PluginGroup for ClientPlugins {
             .add(SetupPlugin {
                 config: self.config,
             })
+            .add(lightyear_sync::client::ClientPlugin)
             .add(ClientMessagePlugin)
             .add(ClientEventsPlugin)
             .add(ClientNetworkingPlugin)

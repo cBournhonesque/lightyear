@@ -4,7 +4,7 @@ use crate::timeline::Timeline;
 use bevy::prelude::Component;
 use core::time::Duration;
 use lightyear_core::tick::Tick;
-use lightyear_core::time::{TickDuration, TickInstant};
+use lightyear_core::time::{TickInstant, TimeDelta};
 
 // TODO: should we make Time<Predicted> a component? if a user has multiple clients,
 //  we could have a different timeline per server?
@@ -42,7 +42,7 @@ impl Timeline for Predicted {
     }
 
     fn advance(&mut self, delta: Duration) {
-        self.now = self.now + TickDuration::from_duration(delta, self.tick_duration());
+        self.now = self.now + TimeDelta::from_duration(delta, self.tick_duration());
     }
 }
 
@@ -58,9 +58,9 @@ impl SyncedTimeline for Predicted {
     fn sync_objective<T: Timeline>(&self, main: &T, ping_manager: &PingManager) -> TickInstant {
         // TODO: should we do current estimate? or Server::now() already does that?
         let target = main.now();
-        let network_delay = TickDuration::from_duration(ping_manager.rtt() / 2, self.tick_duration());
-        let jitter_margin = TickDuration::from_duration(ping_manager.jitter() * self.config.jitter_multiple_margin as u32 + self.tick_duration() * self.config.tick_margin as u32, self.tick_duration());
-        let input_delay: TickDuration =  Tick(self.input_delay_ticks).into();
+        let network_delay = TimeDelta::from_duration(ping_manager.rtt() / 2, self.tick_duration());
+        let jitter_margin = TimeDelta::from_duration(ping_manager.jitter() * self.config.jitter_multiple_margin as u32 + self.tick_duration() * self.config.tick_margin as u32, self.tick_duration());
+        let input_delay: TimeDelta =  Tick(self.input_delay_ticks).into();
         target + network_delay + jitter_margin - input_delay
     }
 

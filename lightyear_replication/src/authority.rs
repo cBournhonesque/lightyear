@@ -9,6 +9,7 @@
 use crate::prelude::{ClientId, Deserialize, Serialize};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 /// Authority is used to define who is in charge of simulating an entity.
 ///

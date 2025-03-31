@@ -4,7 +4,7 @@ use crate::timeline::Timeline;
 use bevy::prelude::{Component, Reflect};
 use core::time::Duration;
 use lightyear_core::tick::Tick;
-use lightyear_core::time::{Overstep, TickDuration, TickInstant};
+use lightyear_core::time::{Overstep, TickInstant, TimeDelta};
 
 /// Config to specify how the snapshot interpolation should behave
 #[derive(Clone, Copy, Reflect)]
@@ -73,7 +73,7 @@ impl Timeline for Interpolated {
     }
 
     fn advance(&mut self, delta: Duration) {
-        self.now = self.now + TickDuration::from_duration(delta, self.tick_duration());
+        self.now = self.now + TimeDelta::from_duration(delta, self.tick_duration());
     }
 }
 
@@ -82,7 +82,7 @@ impl SyncedTimeline for Interpolated {
     // TODO: how can we make this configurable? or maybe just store the TICK_DURATION in the timeline itself?
 
     fn sync_objective<T: Timeline>(&self, main: &T, ping_manager: &PingManager) -> TickInstant {
-        let delay = TickDuration::from_duration(self.interpolation_config.to_duration(self.remote_send_interval), self.tick_duration());
+        let delay = TimeDelta::from_duration(self.interpolation_config.to_duration(self.remote_send_interval), self.tick_duration());
         let target = main.now();
         target - delay
     }

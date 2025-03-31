@@ -1,3 +1,17 @@
+# Replication
+
+- Maybe the core replication plugin is only for a single connection 
+  - server adds extra stuff on top of that to serialize once between multiple connections? 
+  - maybe we don't need to serialize once for every connection, and serializing once per connection is enough?
+- Again, you register components independently from client or server.
+But if you add a direction we will handle it automatically for the client-server case
+
+- ReplicationGroup: 
+  - is a relationship, can be added by the user to specify that multiple entities must be replicated together
+  - The group is separate entity that can contain specific metadata for the group
+  - if there is no ReplicationGroup, we can assume that the entity is part of the 'default' group entity.
+
+
 # SyncPlugin
 
 - Shared: adds Ping/Pong messages

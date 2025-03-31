@@ -2,7 +2,7 @@ use crate::ping::manager::PingManager;
 use crate::timeline::Timeline;
 use bevy::prelude::Component;
 use lightyear_core::tick::Tick;
-use lightyear_core::time::{TickDuration, TickInstant};
+use lightyear_core::time::{TickInstant, TimeDelta};
 use std::time::Duration;
 use tracing::trace;
 
@@ -108,7 +108,7 @@ impl RemoteEstimate {
             // TODO: should we make any adjustments?
 
             // we have received the packet now, so the remote must already be at RTT/2 ahead
-            let network_delay = TickDuration::from_duration(ping_manager.rtt() / 2, self.tick_duration());
+            let network_delay = TimeDelta::from_duration(ping_manager.rtt() / 2, self.tick_duration());
             let new_estimate = TickInstant::from(remote_tick) + network_delay;
 
             // for the first time, don't apply smoothing

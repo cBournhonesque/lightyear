@@ -45,6 +45,7 @@ pub struct ClientPlugin;
 impl Plugin for ClientPlugin {
 
     fn build(&self, app: &mut App) {
+        app.add_plugins(SyncPlugin);
         app.add_observer(SyncPlugin::update_remote_timeline);
 
         app.add_systems(First, SyncPlugin::advance_remote_timeline.after(time_system));

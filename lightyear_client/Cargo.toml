@@ -23,6 +23,7 @@ lightyear_serde.workspace = true
 lightyear_core.workspace = true
 lightyear_messages.workspace = true
 lightyear_transport.workspace = true
+lightyear_sync = { workspace = true, features = ["client"] }
 
 # utils
 tracing.workspace = true

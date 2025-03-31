@@ -4,16 +4,12 @@ The network serialization uses a u32 which can only represent times up to 46 day
 This module contains some helper functions to compute the difference between two times.
 */
 use crate::tick::Tick;
-use bevy::platform_support::time::Instant;
 use bevy::prelude::*;
-use chrono::Duration as ChronoDuration;
 use core::cmp::Ordering;
-use core::fmt::Formatter;
-use core::ops::{Add, AddAssign, Mul, Sub, SubAssign};
+use core::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 use core::time::Duration;
-
-use lightyear_serde::reader::{ReadInteger, Reader};
+use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{
@@ -21,12 +17,155 @@ use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
 };
 
-/// Overstep fraction towards the next tick, as 1/u16::MAX
+
+// TODO: maybe let the user choose between u8 or u16 for quantization?
+// quantization error for u8 is about 0.2%, for u16 is 0.0008%
+/// Overstep fraction towards the next tick
 ///
-/// We use this instead of f32 because:
-/// - we don't need the level of precision of f32 and this saves 2 bytes on each packet
-/// - f32 doesn't implement PartialEq or Eq
-pub type Overstep = u16;
+/// Represents a value between 0.0 and 1.0 that indicates progress towards the next tick
+/// Serializes to a u8 value for network transmission
+#[derive(Debug, Copy, Clone, Default)]
+pub struct Overstep {
+    value: f32,
+}
+
+impl Overstep {
+    pub fn new(value: f32) -> Self {
+        // TODO: panic if value outside of bounds?
+        Self { 
+            value: value.clamp(0.0, 1.0)
+        }
+    }
+
+    pub fn value(&self) -> f32 {
+        self.value
+    }
+    
+    pub fn from_f32(value: f32) -> Self {
+        Self::new(value)
+    }
+    
+    pub fn from_u8(value: u8) -> Self {
+        Self::new(value as f32 / u8::MAX as f32)
+    }
+    
+    pub fn to_u8(&self) -> u8 {
+        (self.value * u8::MAX as f32).round() as u8
+    }
+}
+
+impl PartialEq for Overstep {
+    fn eq(&self, other: &Self) -> bool {
+        // For exact equality, we compare the quantized values
+        self.to_u8() == other.to_u8()
+    }
+}
+
+impl Eq for Overstep {}
+
+impl PartialOrd for Overstep {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Overstep {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.value.partial_cmp(&other.value).expect("NaN overstep is invalid")
+    }
+}
+
+impl ToBytes for Overstep {
+    fn bytes_len(&self) -> usize {
+        1 // we only need 1 byte for a u8
+    }
+
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+        Ok(buffer.write_u8(self.to_u8())?)
+    }
+
+    fn from_bytes(buffer: &mut lightyear_serde::reader::Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        Ok(Self::from_u8(buffer.read_u8()?))
+    }
+}
+
+impl Serialize for Overstep {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u8(self.to_u8())
+    }
+}
+
+impl<'de> Deserialize<'de> for Overstep {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct OverstepVisitor;
+
+        impl<'de> Visitor<'de> for OverstepVisitor {
+            type Value = Overstep;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a u8 value representing a quantized fraction between 0 and 1")
+            }
+
+            fn visit_u8<E>(self, value: u8) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(Overstep::from_u8(value))
+            }
+        }
+
+        deserializer.deserialize_u8(OverstepVisitor)
+    }
+}
+
+impl Add for Overstep {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::new(self.value + rhs.value)
+    }
+}
+
+impl Sub for Overstep {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self::new(self.value - rhs.value)
+    }
+}
+
+impl AddAssign for Overstep {
+    fn add_assign(&mut self, rhs: Self) {
+        self.value = (self.value + rhs.value).clamp(0.0, 1.0);
+    }
+}
+
+impl SubAssign for Overstep {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.value = (self.value - rhs.value).clamp(0.0, 1.0);
+    }
+}
+
+impl From<f32> for Overstep {
+    fn from(value: f32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Overstep> for f32 {
+    fn from(overstep: Overstep) -> Self {
+        overstep.value
+    }
+}
 
 // TODO: it would be nice if the tick duration was encoded in the tick itself
 // TODO: maybe have a Tick trait with an associated constant TICK_DURATION
@@ -36,27 +175,59 @@ pub type Overstep = u16;
 
 // TODO: maybe put this in lightyear_core?
 /// Uniquely identify a instant across all timelines
-#[derive(Default, Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct TickInstant {
     pub tick: Tick,
     /// Overstep as a fraction towards the next tick
     pub overstep: Overstep,
 }
 
+impl TickInstant {
+    /// Convert this instant to a duration
+    pub fn as_duration(&self, tick_duration: Duration) -> Duration {
+        tick_duration.mul_f32(self.tick.0 as f32 + self.overstep.value())
+    }
+
+    pub fn as_time_delta(&self, tick_duration: Duration) -> TimeDelta {
+        let duration = self.as_duration(tick_duration);
+        TimeDelta::from_duration(duration).expect("Duration should be valid")
+    }
+
+    /// Convert a duration to a TickInstant
+    pub fn from_duration(duration: Duration, tick_duration: Duration) -> Self {
+        let total_ticks = (duration.as_secs_f32() / tick_duration.as_secs_f32()).floor() as u16;
+        let overstep = (duration.as_secs_f32() / tick_duration.as_secs_f32()) - total_ticks as f32;
+        Self {
+            tick: Tick(total_ticks),
+            overstep: Overstep::from_f32(overstep),
+        }
+    }
+
+    pub fn from_time_delta(delta: TimeDelta, tick_duration: Duration) -> Self {
+        let duration = delta.as_duration().expect("Duration should be valid");
+        Self::from_duration(duration, tick_duration)
+    }
+}
+
 impl Mul<f32> for TickInstant {
     type Output = Self;
 
     fn mul(self, rhs: f32) -> Self::Output {
-        todo!()
+        let total_ticks = (self.tick.0 as f32 * rhs).floor() as u16;
+        let remainder = (self.tick.0 as f32 * rhs) - total_ticks as f32;
+        let new_overstep = remainder + self.overstep.value() * rhs;
+        
+        // Handle overstep overflow
+        let additional_ticks = new_overstep.floor() as u16;
+        let final_overstep = new_overstep - additional_ticks as f32;
+        
+        Self {
+            tick: Tick(total_ticks + additional_ticks),
+            overstep: Overstep::from_f32(final_overstep),
+        }
     }
 }
 
-
-impl TickInstant {
-    fn as_duration(&self, tick_duration: Duration) -> Duration {
-        todo!()
-    }
-}
 
 impl From<Tick> for TickInstant {
     fn from(value: Tick) -> Self {
@@ -67,617 +238,406 @@ impl From<Tick> for TickInstant {
     }
 }
 
-
-/// Duration between two TickInstant
-///
-/// This is mostly useful because it can represent a positive or a negative duration.
-/// We could also convert TickInstant to chrono::Duration to achieve the same result.
-#[derive(Debug, PartialEq, Eq)]
-pub struct TickDuration {
-    tick: i16,
-    overstep: Overstep
+/// Represents the difference between two TickInstants
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TickDelta {
+    tick_diff: u16,
+    overstep: Overstep,
+    /// True if the delta is negative
+    neg: bool,
 }
 
-impl From<Tick> for TickDuration {
-    fn from(value: Tick) -> Self {
+impl TickDelta {
+    pub fn new(tick_diff: u16, overstep: Overstep, neg: bool) -> Self {
         Self {
-            // TODO: check that there is no overflow here! how do we cast correctly with panic?
-            tick: value.0 as i16,
-            overstep: Overstep::default()
+            tick_diff,
+            overstep,
+            neg,
+        }
+    }
+
+    pub fn is_positive(&self) -> bool {
+        !self.neg
+    }
+
+    pub fn is_negative(&self) -> bool {
+        self.neg
+    }
+
+    pub fn to_time_delta(&self, tick_duration: Duration) -> TimeDelta {
+        let duration = tick_duration.mul_f32(self.tick_diff as f32 + self.overstep.value());
+        if self.neg {
+            // Handle negative duration conversion
+            match TimeDelta::from_duration(duration) {
+                Ok(delta) => -delta,
+                Err(_) => panic!("Failed to convert duration to TimeDelta"),
+            }
+        } else {
+            TimeDelta::from_duration(duration).expect("Duration should be valid")
+        }
+    }
+
+    pub fn from_time_delta(mut delta: TimeDelta, tick_duration: Duration) -> Self {
+        let is_negative = !delta.is_positive();
+        if is_negative {
+            delta = -delta;
+        }
+
+        // Work with absolute duration
+        let duration = match delta.as_duration() {
+            Ok(d) => d,
+            Err(_) => panic!("Failed to convert TimeDelta to Duration"),
+        };
+
+        let total_ticks_f = duration.as_secs_f32() / tick_duration.as_secs_f32();
+        let tick_diff = total_ticks_f.floor() as u16;
+        let overstep_value = total_ticks_f - tick_diff as f32;
+
+        Self {
+            tick_diff,
+            overstep: Overstep::from_f32(overstep_value),
+            neg: is_negative,
+    }
+}
+
+    pub fn zero() -> Self {
+        Self {
+            tick_diff: 0,
+            overstep: Overstep::default(),
+            neg: false,
         }
     }
 }
 
-impl TickDuration {
-    pub fn is_positive(&self) -> bool {
-        self.tick >= 0
-    }
-
-    /// Returns the amount of time represented by the [`TickDuration`] as a [`Duration`]
-    /// (independently from whether the TickDuration is positive or not)
-    pub fn as_duration(&self, tick_duration: Duration) -> Duration {
-        todo!()
-    }
-
-    pub fn from_duration(duration: Duration, tick_duration: Duration) -> Self {
-        todo!()
-    }
-}
-
-impl PartialOrd for TickDuration {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        todo!()
-    }
-}
-
-impl Add<TickDuration> for TickDuration {
+impl Neg for TickDelta {
     type Output = Self;
 
-    fn add(self, rhs: TickDuration) -> Self::Output {
-        todo!()
-    }
-}
-
-
-
-// TODO: maybe this is done
-impl Ord for TickInstant {
-    fn cmp(&self, other: &Self) -> Ordering {
-        todo!()
-        // TODO: basically lexicographical order, tick first and then overstep
-        // match self.tick.cmp(&other.tick) {
-        //     Ordering::Less => {}
-        //     Ordering::Equal => {
-        //
-        //     }
-        //     Ordering::Greater => {}
-        // }
-        // match wrapping_diff(self.tick.0, other.tick) {
-        //     0 => {
-        //
-        //     },
-        //     x if x > 0 => Ordering::Less,
-        //     x if x < 0 => Ordering::Greater,
-        //     _ => unreachable!(),
-        // }
-    }
-}
-
-impl PartialOrd for TickInstant {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Sub<TickInstant> for TickInstant {
-    type Output = TickDuration;
-
-    fn sub(self, rhs: TickInstant) -> Self::Output {
-        // check which TickInstant is bigger
-        todo!()
-    }
-}
-
-impl Add<TickInstant> for TickInstant {
-    type Output = TickInstant;
-
-    fn add(self, rhs: TickInstant) -> Self::Output {
-        todo!()
-    }
-}
-
-impl Add<TickDuration> for TickInstant {
-    type Output = TickInstant;
-
-    fn add(self, rhs: TickDuration) -> Self::Output {
-        todo!()
-    }
-}
-
-impl Sub<TickDuration> for TickInstant {
-    type Output = TickInstant;
-
-    fn sub(self, rhs: TickDuration) -> Self::Output {
-        todo!()
-    }
-}
-
-
-
-
-
-
-#[derive(Resource, Debug, PartialEq, Clone)]
-pub struct TimeManager {
-    /// The virtual time
-    wrapped_time: WrappedTime,
-    /// The real time
-    real_time: WrappedTime,
-    /// The remaining time after running the fixed-update steps, as a fraction of the tick time
-    overstep: f32,
-    /// The time since the last frame; gets update by bevy's Time resource at the start of the frame
-    delta: Duration,
-    /// The relative speed set by the client.
-    pub base_relative_speed: f32,
-    /// Should we speedup or slowdown the simulation to sync the ticks?
-    /// \>1.0 = speedup, <1.0 = slowdown
-    /// We speed up the virtual time so that our ticks go faster/slower
-    /// Things that depend on real time (ping/pong times), channel/packet managers, send_interval should be unaffected
-    pub(crate) sync_relative_speed: f32,
-    /// Instant at the start of the frame
-    frame_start: Option<Instant>,
-}
-
-impl Default for TimeManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TimeManager {
-    pub fn new() -> Self {
+    fn neg(self) -> Self::Output {
         Self {
-            wrapped_time: WrappedTime::new(0),
-            real_time: WrappedTime::new(0),
-            overstep: 0.0,
-            delta: Duration::default(),
-            base_relative_speed: 1.0,
-            sync_relative_speed: 1.0,
-            frame_start: None,
+            tick_diff: self.tick_diff,
+            overstep: self.overstep,
+            neg: !self.neg,
         }
     }
-
-    pub fn delta(&self) -> Duration {
-        self.delta
-    }
-
-    /// Get the overstep (remaining time after running the fixed-update steps)
-    /// as a fraction of the tick time
-    pub fn overstep(&self) -> f32 {
-        self.overstep
-    }
-
-    /// Get the relative speed at which the simulation should be running
-    pub fn get_relative_speed(&self) -> f32 {
-        self.base_relative_speed * self.sync_relative_speed
-    }
-
-    /// Update the time by applying the latest delta
-    /// delta: delta time since last frame
-    /// overstep: remaining time after running the fixed-update steps
-    pub fn update(&mut self, delta: Duration) {
-        self.delta = delta;
-        self.wrapped_time.elapsed += delta;
-        self.frame_start = Some(Instant::now());
-    }
-
-    // TODO: reuse time-real for this?
-    /// Compute the real time elapsed since the start of the frame
-    /// (useful for
-    pub(crate) fn real_time_since_frame_start(&self) -> Duration {
-        self.frame_start
-            .map(|start| Instant::now() - start)
-            .unwrap_or_default()
-    }
-
-    /// Update the overstep (right after the overstep was computed, after RunFixedUpdateLoop)
-    pub(crate) fn update_overstep(&mut self, overstep: f32) {
-        self.overstep = overstep;
-    }
-
-    fn update_real(&mut self, real_delta: Duration) {
-        self.real_time.elapsed += real_delta;
-    }
-
-    // TODO: some functions that now rely on this time should instead use the real time
-    //  (channel retries, etc.)
-    /// Current time since start, wrapped around 46 days
-    /// This time doesn't get modified by TickEvents (re-syncs of client time to server time)
-    ///
-    /// You can access the WrappedTime that corresponds to the current tick using the
-    /// SyncManager's `current_prediction_time` method
-    pub fn current_time(&self) -> WrappedTime {
-        self.wrapped_time
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_current_time(&mut self, time: WrappedTime) {
-        self.wrapped_time = time;
-    }
 }
 
-/// Time since start of server, in milliseconds
-/// Serializes in a compact manner (we only serialize up to the milliseconds)
-/// Valid only up to u32::MAX milliseconds (46 days)
-#[derive(Default, Copy, Clone, Eq, PartialEq, Debug, PartialOrd, Ord)]
-pub struct WrappedTime {
-    pub(crate) elapsed: Duration,
+/// Delta between two instants
+///
+/// This is mostly useful because it can represent a positive or a negative duration.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct TimeDelta {
+    duration: chrono::TimeDelta
 }
 
-impl Serialize for WrappedTime {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u32(self.millis())
-    }
-}
-struct WrappedTimeVisitor;
-impl Visitor<'_> for WrappedTimeVisitor {
-    type Value = WrappedTime;
-
-    fn expecting(&self, formatter: &mut Formatter) -> core::fmt::Result {
-        formatter.write_str("a u32 representing the time in milliseconds")
+impl TimeDelta {
+    pub fn is_positive(&self) -> bool {
+        self.duration.num_nanoseconds().unwrap_or(0) >= 0
     }
 
-    fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
-    where
-        E: Error,
-    {
-        Ok(WrappedTime::new(v))
-    }
-}
-impl<'de> Deserialize<'de> for WrappedTime {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_u32(WrappedTimeVisitor)
-    }
-}
-
-impl ToBytes for WrappedTime {
-    fn bytes_len(&self) -> usize {
-        4
+    /// We convert negative durations to their absolute value
+    pub fn as_duration(&self) -> Result<Duration, chrono::OutOfRangeError> {
+        self.duration.to_std()
     }
 
-    // NOTE: we only encode the milliseconds up to u32, which is 46 days
-    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
-        buffer.write_u32(self.millis())?;
-        Ok(())
-    }
-
-    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
-    where
-        Self: Sized,
-    {
-        let millis = buffer.read_u32()?;
+    pub fn from_duration(duration: Duration) -> Result<Self, chrono::OutOfRangeError> {
         Ok(Self {
-            elapsed: Duration::from_millis(millis as u64),
+            duration: chrono::TimeDelta::from_std(duration)?
         })
     }
 }
 
-impl core::fmt::Display for WrappedTime {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        core::fmt::Debug::fmt(self, f)
+impl Neg for TimeDelta {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self {
+            duration: -self.duration
+        }
     }
 }
 
-impl WrappedTime {
-    pub fn new(elapsed_ms: u32) -> Self {
-        Self {
-            elapsed: Duration::from_millis(elapsed_ms as u64),
+impl Add<TickDelta> for TickInstant {
+    type Output = TickInstant;
+
+    fn add(self, rhs: TickDelta) -> Self::Output {
+        if rhs.is_negative() {
+            return self - (-rhs);
+        }
+
+        let new_overstep_value = self.overstep.value() + rhs.overstep.value();
+        let additional_ticks = new_overstep_value.floor() as u16;
+        let final_overstep = new_overstep_value - additional_ticks as f32;
+
+        TickInstant {
+            tick: Tick(self.tick.0.wrapping_add(rhs.tick_diff).wrapping_add(additional_ticks)),
+            overstep: Overstep::from_f32(final_overstep),
         }
     }
+}
 
-    /// Returns the number of milliseconds since the start of the server
-    /// Saturates after 46 days
-    pub fn millis(&self) -> u32 {
-        self.elapsed.as_millis().try_into().unwrap_or(u32::MAX)
-    }
+impl Sub<TickDelta> for TickInstant {
+    type Output = TickInstant;
 
-    pub fn from_duration(elapsed: Duration) -> Self {
-        // u128 as u32 wraps around u32::max, which is what we want
-        // let elapsed_ms_wrapped = elapsed_wrapped.as_millis() as u32;
-        Self { elapsed }
-    }
+    fn sub(self, rhs: TickDelta) -> Self::Output {
+        if rhs.is_negative() {
+            return self + (-rhs);
+        }
 
-    pub fn from_tick(tick: Tick, generation: u16, tick_duration: Duration) -> Self {
-        let elapsed =
-            ((generation as u32 * (u16::MAX as u32 + 1)) + tick.0 as u32) * tick_duration;
-        Self { elapsed }
-    }
+        let total_ticks = rhs.tick_diff;
 
-    /// Convert the time to a tick, using the tick duration.
-    pub fn to_tick(&self, tick_duration: Duration) -> Tick {
-        Tick((self.elapsed.as_nanos() / tick_duration.as_nanos()) as u16)
-    }
-
-    // TODO: switch to f16?
-    /// If the time is between two ticks, give us the overstep as a percentage of a tick duration
-    pub fn tick_overstep(&self, tick_duration: Duration) -> f32 {
-        (self.elapsed.as_nanos() % tick_duration.as_nanos()) as f32
-            / tick_duration.as_nanos() as f32
-    }
-
-    pub fn to_duration(&self) -> Duration {
-        self.elapsed
-    }
-
-    // TODO: we use the time to compute the tick, but the problem is that time/tick could be not in sync?
-    /// The wrapping 'generation' of the tick (by looking at what the corresponding time is)
-    /// We use the fact that the period is a certain amount of time to be sure in cases
-    /// where the tick doesn't match the time exactly
-    pub fn tick_generation(&self, tick_duration: Duration, tick: Tick) -> u16 {
-        let period = tick_duration * (u16::MAX as u32 + 1);
-        // TODO: use try into instead of as, to avoid wrapping?
-        let generation = (self.elapsed.as_nanos() / period.as_nanos()) as u16;
-        let remainder =
-            ((self.elapsed.as_nanos() % period.as_nanos()) / tick_duration.as_nanos()) as u16;
-
-        let tick_from_time = remainder as i32;
-        let tick_from_tick = tick.0 as i32;
-        // case 1: tick |G| tick_from_time
-        if tick_from_time - tick_from_tick > i16::MAX as i32 {
-            generation.saturating_add(1)
-        // case 2: tick_from_time |G| tick
-        } else if tick_from_time - tick_from_tick < i16::MIN as i32 {
-            generation.saturating_sub(1)
-        // case 3: |G| tick_from_time tick |G+1|
+        // Handle underflow in overstep subtraction
+        if self.overstep.value() >= rhs.overstep.value() {
+            // No underflow
+            TickInstant {
+                tick: Tick(self.tick.0.wrapping_sub(total_ticks)),
+                overstep: Overstep::from_f32(self.overstep.value() - rhs.overstep.value()),
+            }
         } else {
-            generation
+            // Underflow - need to borrow from tick
+            TickInstant {
+                tick: Tick(self.tick.0.wrapping_sub(total_ticks + 1)),
+                overstep: Overstep::from_f32(1.0 + self.overstep.value() - rhs.overstep.value()),
+            }
         }
     }
 }
 
-/// Returns the absolute duration between two times (no matter which one is ahead of which)!
-impl Sub for WrappedTime {
-    type Output = ChronoDuration;
+impl Sub for TickInstant {
+    type Output = TickDelta;
 
-    fn sub(self, rhs: Self) -> Self::Output {
-        ChronoDuration::from_std(self.elapsed).unwrap()
-            - ChronoDuration::from_std(rhs.elapsed).unwrap()
-    }
-}
+    fn sub(self, rhs: TickInstant) -> Self::Output {
+        if self >= rhs {
+            // self is later than or equal to rhs
+            let tick_diff = self.tick.0.wrapping_sub(rhs.tick.0);
 
-impl Sub<Duration> for WrappedTime {
-    type Output = WrappedTime;
-
-    fn sub(self, rhs: Duration) -> Self::Output {
-        Self {
-            elapsed: self.elapsed.saturating_sub(rhs),
-        }
-    }
-}
-
-impl Sub<ChronoDuration> for WrappedTime {
-    type Output = WrappedTime;
-
-    fn sub(self, rhs: ChronoDuration) -> Self::Output {
-        let mut result = self;
-        result -= rhs;
-        result
-    }
-}
-
-/// Returns the absolute duration between two times (no matter which one is ahead of which)!
-/// Only valid for durations under 1 hour
-impl SubAssign<Duration> for WrappedTime {
-    fn sub_assign(&mut self, rhs: Duration) {
-        self.elapsed = self.elapsed.saturating_sub(rhs);
-    }
-}
-
-/// Returns the absolute duration between two times (no matter which one is ahead of which)!
-/// Only valid for durations under 1 hour
-impl SubAssign<ChronoDuration> for WrappedTime {
-    fn sub_assign(&mut self, rhs: ChronoDuration) {
-        let rhs_micros = rhs.num_microseconds().unwrap();
-        if rhs_micros > 0 {
-            self.elapsed = self
-                .elapsed
-                .saturating_sub(Duration::from_micros(rhs_micros as u64));
+            if self.overstep >= rhs.overstep {
+                // No underflow in overstep
+                TickDelta {
+                    tick_diff,
+                    overstep: Overstep::from_f32(self.overstep.value() - rhs.overstep.value()),
+                    neg: false,
+                }
+            } else {
+                // Overstep underflow, borrow from tick
+                TickDelta {
+                    tick_diff: tick_diff - 1,
+                    overstep: Overstep::from_f32(1.0 + self.overstep.value() - rhs.overstep.value()),
+                    neg: false,
+                }
+            }
         } else {
-            self.elapsed += Duration::from_micros(-rhs_micros as u64);
+            // self is earlier than rhs, result will be negative
+            -(rhs - self)
         }
     }
 }
-
-impl Add<Duration> for WrappedTime {
-    type Output = Self;
-    fn add(self, rhs: Duration) -> Self::Output {
-        Self {
-            elapsed: self.elapsed + rhs,
-        }
-    }
-}
-
-impl Add for WrappedTime {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self {
-            elapsed: self.elapsed + rhs.elapsed,
-        }
-    }
-}
-
-impl Add<ChronoDuration> for WrappedTime {
-    type Output = Self;
-
-    fn add(self, rhs: ChronoDuration) -> Self::Output {
-        let mut result = self;
-        result += rhs;
-        result
-    }
-}
-
-impl AddAssign<ChronoDuration> for WrappedTime {
-    fn add_assign(&mut self, rhs: ChronoDuration) {
-        let rhs_micros = rhs.num_microseconds().unwrap();
-        if rhs_micros > 0 {
-            self.elapsed += Duration::from_micros(rhs_micros as u64);
-        } else {
-            self.elapsed = self
-                .elapsed
-                .saturating_sub(Duration::from_micros(-rhs_micros as u64));
-        }
-    }
-}
-
-impl AddAssign<Duration> for WrappedTime {
-    fn add_assign(&mut self, rhs: Duration) {
-        self.elapsed += rhs;
-    }
-}
-
-// NOTE: Mul doesn't work if multiplying creates a time that is more than 1 hour
-// This only works for small time differences
-impl Mul<f32> for WrappedTime {
-    type Output = Self;
-
-    fn mul(self, rhs: f32) -> Self::Output {
-        Self {
-            elapsed: self.elapsed.mul_f32(rhs),
-        }
-    }
-}
-
-impl From<Duration> for WrappedTime {
-    fn from(value: Duration) -> Self {
-        Self::from_duration(value)
-    }
-}
-
-impl From<WrappedTime> for Duration {
-    fn from(value: WrappedTime) -> Self {
-        value.to_duration()
-    }
-}
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use approx::assert_relative_eq;
+    use core::time::Duration;
 
     #[test]
-    fn test_mul() {
-        let a = WrappedTime::new(u32::MAX);
-        let b = a * 2.0;
-        // TODO
-        // assert_eq!(b.elapsed_ms_wrapped, u32::MAX);
+    fn test_overstep_quantization_error() {
+        // Test that the round trip error is less than 1% for values from 0.0 to 1.0
+        for i in 0..=10 {
+            let original_value = i as f32 / 10.0;
+            let overstep = Overstep::from_f32(original_value);
+            let quantized = overstep.to_u8();
+            let round_trip = Overstep::from_u8(quantized).value();
+
+            assert_relative_eq!(round_trip, original_value, epsilon = 0.01);
+        }
+    }
+
+
+    #[test]
+    fn test_tickinstant_ordering() {
+        let t1 = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.5) };
+        let t2 = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.7) };
+        let t3 = TickInstant { tick: Tick(11), overstep: Overstep::from_f32(0.2) };
+
+        assert!(t1 < t2);
+        assert!(t2 < t3);
+        assert!(t1 < t3);
+
+        assert_eq!(t1.cmp(&t1), Ordering::Equal);
+        assert_eq!(t1.cmp(&t2), Ordering::Less);
+        assert_eq!(t2.cmp(&t1), Ordering::Greater);
     }
 
     #[test]
-    fn test_sub() {
-        let a = WrappedTime::new(0);
-        let b = WrappedTime::new(1000);
+    fn test_tickinstant_add_positive_tickdelta() {
+        let tick_instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.3) };
+        let tick_delta = TickDelta::new(5, Overstep::from_f32(0.2), false);
 
-        assert_eq!(b - a, chrono::Duration::milliseconds(1000));
-        assert_eq!(a - b, chrono::Duration::milliseconds(-1000));
-        assert_eq!(b - Duration::from_millis(2000), a);
-        assert_eq!(b - ChronoDuration::milliseconds(2000), a);
-        assert_eq!(b + ChronoDuration::milliseconds(-2000), a);
+        let result = tick_instant + tick_delta;
 
-        // can represent a difference between two times as a negative chrono duration
-        assert_eq!(
-            b - WrappedTime::new(2000),
-            ChronoDuration::milliseconds(-1000)
-        );
+        assert_eq!(result.tick, Tick(15));
+        assert_relative_eq!(result.overstep.value, 0.5);
     }
 
     #[test]
-    fn test_add() {
-        let a = WrappedTime::new(0);
-        let b = WrappedTime::new(1000);
+    fn test_tickinstant_add_negative_tickdelta() {
+        let tick_instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.3) };
+        let tick_delta = TickDelta::new(5, Overstep::from_f32(0.2), true); // negative delta
 
-        assert_eq!(a + b, WrappedTime::new(1000));
-        assert_eq!(b + Duration::from_millis(2000), WrappedTime::new(3000));
-        assert_eq!(
-            b + ChronoDuration::milliseconds(2000),
-            WrappedTime::new(3000)
-        );
+        let result = tick_instant + tick_delta;
+
+        assert_eq!(result.tick, Tick(5));
+        assert_relative_eq!(result.overstep.value, 0.1);
     }
 
     #[test]
-    fn test_chrono_duration() {
-        let a = WrappedTime::new(0);
-        let b = WrappedTime::new(1000);
-        let diff = b - a;
-        assert_eq!(diff, chrono::Duration::milliseconds(1000));
-        assert_eq!(a - b, chrono::Duration::milliseconds(-1000));
-        assert_eq!(b + chrono::Duration::milliseconds(-1000), a);
-        assert_eq!(a - chrono::Duration::milliseconds(-1000), b);
+    fn test_tickinstant_add_with_overstep_overflow() {
+        let tick_instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.7) };
+        let tick_delta = TickDelta::new(5, Overstep::from_f32(0.6), false);
 
-        assert_eq!(a + diff, b);
+        let result = tick_instant + tick_delta;
 
-        assert_eq!(b - diff, a);
+        // 0.7 + 0.6 = 1.3, which is 1 tick + 0.3 overstep
+        assert_eq!(result.tick, Tick(16));
+        assert_relative_eq!(result.overstep.value, 0.3);
     }
 
     #[test]
-    fn test_tick_generation() {
-        let tick_duration = Duration::from_secs_f32(1.0 / 64.0);
-        let period = tick_duration * (u16::MAX as u32 + 1);
-        let a = WrappedTime::new(0);
-        assert_eq!(a.tick_generation(tick_duration, Tick(0)), 0);
-        assert_eq!(a.tick_generation(tick_duration, Tick(10)), 0);
+    fn test_tickinstant_sub_positive_tickdelta() {
+        let tick_instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.7) };
+        let tick_delta = TickDelta::new(5, Overstep::from_f32(0.2), false);
 
-        // b's tick_from_time is tick 0 of gen 1
-        let b = WrappedTime::from_duration(period);
-        assert_eq!(b.tick_generation(tick_duration, Tick(0)), 1);
-        assert_eq!(b.tick_generation(tick_duration, Tick(65000)), 0);
+        let result = tick_instant - tick_delta;
 
-        // c's tick_from_time is tick 1 of gen 1
-        let c = WrappedTime::from_duration(period + tick_duration);
-        assert_eq!(c.tick_generation(tick_duration, Tick(1)), 1);
-        assert_eq!(c.tick_generation(tick_duration, Tick(0)), 1);
-        assert_eq!(c.tick_generation(tick_duration, Tick(65000)), 0);
-
-        // d's tick_from_time is tick 65000 of gen 1
-        let d = WrappedTime::from_duration(period + tick_duration * 65000);
-        assert_eq!(d.tick_generation(tick_duration, Tick(64000)), 1);
-        assert_eq!(d.tick_generation(tick_duration, Tick(65200)), 1);
-        assert_eq!(d.tick_generation(tick_duration, Tick(0)), 2);
-        assert_eq!(d.tick_generation(tick_duration, Tick(1)), 2);
-
-        // e's tick is around 2300 of gen 0
-        let e = WrappedTime::new(35120);
-        assert_eq!(e.tick_generation(tick_duration, Tick(2247)), 0);
+        assert_eq!(result.tick, Tick(5));
+        assert_relative_eq!(result.overstep.value(), 0.5);
     }
 
     #[test]
-    fn test_from_tick() {
-        let tick_duration = Duration::from_secs_f32(1.0 / 64.0);
-        assert_eq!(
-            WrappedTime::from_tick(Tick(u16::MAX), 0, tick_duration),
-            WrappedTime::from_duration(tick_duration * (u16::MAX as u32))
-        );
-        assert_eq!(
-            WrappedTime::from_tick(Tick(0), 1, tick_duration),
-            WrappedTime::from_duration(tick_duration * (u16::MAX as u32 + 1))
-        );
-        assert_eq!(
-            WrappedTime::from_tick(Tick(1), 1, tick_duration),
-            WrappedTime::from_duration(tick_duration * (u16::MAX as u32 + 2))
-        );
+    fn test_tickinstant_sub_negative_tickdelta() {
+        let tick_instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.3) };
+        let tick_delta = TickDelta::new(5, Overstep::from_f32(0.2), true); // negative delta
+
+        let result = tick_instant - tick_delta;
+
+        assert_eq!(result.tick, Tick(15));
+        assert_relative_eq!(result.overstep.value(), 0.5);
     }
 
     #[test]
-    fn test_to_tick() {
-        let tick_duration = Duration::from_secs_f32(1.0 / 64.0);
+    fn test_tickinstant_sub_with_overstep_underflow() {
+        let tick_instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.3) };
+        let tick_delta = TickDelta::new(5, Overstep::from_f32(0.7), false);
 
-        let time = WrappedTime::from_duration(tick_duration * (u16::MAX as u32));
-        assert_eq!(time.to_tick(tick_duration), Tick(u16::MAX));
+        let result = tick_instant - tick_delta;
 
-        let time = WrappedTime::from_duration(tick_duration * (u16::MAX as u32 + 1));
-        assert_eq!(time.to_tick(tick_duration), Tick(0));
-
-        let time = WrappedTime::from_duration(tick_duration * (u16::MAX as u32 + 2));
-        assert_eq!(time.to_tick(tick_duration), Tick(1));
+        // 0.3 - 0.7 = -0.4, which becomes 0.6 with borrowing from tick
+        assert_eq!(result.tick, Tick(4));
+        assert_relative_eq!(result.overstep.value(), 0.6);
     }
 
     #[test]
-    fn test_tick_overstep() {
-        let tick_duration = Duration::from_secs_f32(1.0 / 64.0);
+    fn test_tickinstant_sub_tickinstant() {
+        let t1 = TickInstant { tick: Tick(15), overstep: Overstep::from_f32(0.7) };
+        let t2 = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.3) };
 
-        let time = WrappedTime::from_duration(tick_duration.mul_f32(0.5));
-        assert_eq!(time.tick_overstep(tick_duration), 0.5);
+        // t1 - t2 (positive result)
+        let delta = t1 - t2;
+        assert_eq!(delta.tick_diff, 5);
+        assert_relative_eq!(delta.overstep.value(), 0.4);
+        assert!(!delta.neg);
 
-        let time = WrappedTime::from_duration(tick_duration.mul_f32(1.5));
-        assert_eq!(time.tick_overstep(tick_duration), 0.5);
+        // t2 - t1 (negative result)
+        let delta = t2 - t1;
+        assert_eq!(delta.tick_diff, 5);
+        assert_relative_eq!(delta.overstep.value(), 0.4);
+        assert!(delta.neg);
+    }
 
-        let time = WrappedTime::from_duration(tick_duration.mul_f32(u16::MAX as f32 + 1.5));
-        assert_eq!(time.tick_overstep(tick_duration), 0.5);
+    #[test]
+    fn test_tickinstant_sub_tickinstant_with_overstep_underflow() {
+        let t1 = TickInstant { tick: Tick(15), overstep: Overstep::from_f32(0.2) };
+        let t2 = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.7) };
+
+        // Need to borrow from tick
+        let delta = t1 - t2;
+        assert_eq!(delta.tick_diff, 4);
+        assert_relative_eq!(delta.overstep.value(), 0.5);
+        assert!(!delta.neg);
+    }
+
+    #[test]
+    fn test_tickdelta_negation() {
+        let delta = TickDelta::new(5, Overstep::from_f32(0.3), false);
+        let negated = -delta;
+
+        assert_eq!(negated.tick_diff, 5);
+        assert_relative_eq!(delta.overstep.value(), 0.3);
+        assert!(negated.neg);
+
+        // Double negation should return to original
+        let double_negated = -negated;
+        assert_eq!(double_negated.tick_diff, 5);
+        assert_relative_eq!(delta.overstep.value(), 0.3);
+        assert!(!double_negated.neg);
+    }
+
+    #[test]
+    fn test_tickinstant_multiplication() {
+        let instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.5) };
+
+        // Simple multiplication
+        let result = instant * 2.0;
+        assert_eq!(result.tick, Tick(21));  // 10*2 + floor(0.5*2) = 20 + 1 = 21
+        assert_relative_eq!(result.overstep.value, 0.0);
+
+        // Fractional multiplication
+        let result = instant * 1.5;
+        assert_eq!(result.tick, Tick(15));  // 10*1.5 = 15
+        assert_relative_eq!(result.overstep.value, 0.75); // 0.5*1.5 = 0.75
+
+        // Multiplication causing overstep overflow
+        let instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.8) };
+        let result = instant * 1.5;
+        assert_eq!(result.tick, Tick(16));  // 10*1.5 + floor(0.8*1.5) = 15 + 1 = 16
+        assert_relative_eq!(result.overstep.value, 0.2); // 0.8*1.5 = 1.2, which is 1 tick + 0.2 overstep
+    }
+
+    #[test]
+    fn test_tick_conversion_roundtrip() {
+        let tick_duration = Duration::from_millis(100);
+        let original = TickInstant { tick: Tick(15), overstep: Overstep::from_f32(0.4) };
+
+        // Convert to duration and back
+        let duration = original.as_duration(tick_duration);
+        let roundtrip = TickInstant::from_duration(duration, tick_duration);
+
+        // Allow for small floating point error in overstep
+        assert_eq!(roundtrip.tick, original.tick);
+
+        assert!((roundtrip.overstep.value() - original.overstep.value()).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_tickdelta_conversion_roundtrip() {
+        let tick_duration = Duration::from_millis(100);
+
+        // Test positive delta
+        let original_delta = TickDelta::new(5, Overstep::from_f32(0.3), false);
+        let time_delta = original_delta.to_time_delta(tick_duration);
+        let roundtrip = TickDelta::from_time_delta(time_delta, tick_duration);
+
+        assert_eq!(roundtrip.tick_diff, original_delta.tick_diff);
+        assert!((roundtrip.overstep.value() - original_delta.overstep.value()).abs() < 0.01);
+        assert_eq!(roundtrip.neg, original_delta.neg);
+
+        // Test negative delta
+        let original_delta = TickDelta::new(7, Overstep::from_f32(0.6), true);
+        let time_delta = original_delta.to_time_delta(tick_duration);
+        let roundtrip = TickDelta::from_time_delta(time_delta, tick_duration);
+
+        assert_eq!(roundtrip.tick_diff, original_delta.tick_diff);
+        assert!((roundtrip.overstep.value() - original_delta.overstep.value()).abs() < 0.01);
+        assert_eq!(roundtrip.neg, original_delta.neg);
     }
 }
+

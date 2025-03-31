@@ -17,18 +17,15 @@ use crate::utils::collections::HashSet;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{Entity, EntityWorldMut, World};
+use bevy::prelude::{Component, Entity, EntityWorldMut, World};
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
 type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
 
-#[derive(Debug)]
+#[derive(Debug, Component)]
 pub struct ReplicationReceiver {
-    /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
-    pub remote_entity_map: RemoteEntityMap,
-
     /// Map from local entity to the replication group-id
     /// We use the local entity because in some cases we don't have access to the remote entity at all, since the remote
     /// has pre-done the mapping! (for example C1 spawns 1 and sends to S who spawns 2. Then S transfers authority to C2,
@@ -913,13 +910,13 @@ impl GroupChannel {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "std"))]
-    use alloc::vec;
     use super::*;
     use crate::prelude::ServerReplicate;
     use crate::shared::replication::EntityActions;
     use crate::tests::protocol::{ComponentSyncModeOnce, ComponentSyncModeSimple};
     use crate::tests::stepper::BevyStepper;
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
     use bevy::prelude::{OnAdd, OnRemove, Query, Trigger, With, Without};
 
     /// Test that the UpdatesIterator works correctly, when we want to iterate through
