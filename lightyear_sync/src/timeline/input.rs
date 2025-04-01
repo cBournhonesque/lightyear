@@ -19,7 +19,7 @@ pub struct Input {
     relative_speed: f32,
 }
 
-
+pub type InputTimeline = Timeline<Input>;
 
 impl SyncedTimeline for Timeline<Input> {
     // TODO: how can we make this configurable? or maybe just store the TICK_DURATION in the timeline itself?

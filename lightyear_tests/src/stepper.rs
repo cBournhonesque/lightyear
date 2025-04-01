@@ -111,6 +111,22 @@ impl ClientServerStepper {
         self.server_app.world().entity(self.server_entity).get::<Timeline<lightyear_sync::server::Local>>().unwrap().tick()
     }
 
+    pub(crate) fn client(&self) -> EntityRef {
+        self.client_app.world().entity(self.client_entity)
+    }
+
+    pub(crate) fn client_mut(&mut self) -> EntityWorldMut {
+        self.client_app.world_mut().entity_mut(self.client_entity)
+    }
+
+    pub(crate) fn server(&self) -> EntityRef {
+        self.server_app.world().entity(self.server_entity)
+    }
+
+    pub(crate) fn server_mut(&mut self) -> EntityWorldMut {
+        self.server_app.world_mut().entity_mut(self.server_entity)
+    }
+
     pub(crate) fn build(&mut self) {
         self.client_app.finish();
         self.client_app.cleanup();

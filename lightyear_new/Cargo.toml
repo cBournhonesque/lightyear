@@ -14,7 +14,10 @@ exclude = ["/tests"]
 publish = true
 
 [features]
-default = ["std"]
+default = [
+  "interpolation",
+  "std"
+]
 std = [
   "bevy/std",
   # needed for bevy_transform parallel
@@ -24,6 +27,20 @@ std = [
   "bytes/std",
   "chacha20poly1305/std",
   "no_std_io2/std",
+]
+client = [
+  "dep:lightyear_client"
+]
+server = [
+  "dep:lightyear_server"
+]
+prediction = [
+#  "dep:lightyear_prediction"
+]
+interpolation = [
+#  "dep:lightyear_interpolation",
+  "lightyear_sync/interpolation",
+  "lightyear_client?/interpolation",
 ]
 trace = []
 metrics = [
@@ -47,7 +64,9 @@ leafwing = ["dep:leafwing-input-manager"]
 #       enable essential features (like f32 or f64).
 avian2d = ["dep:avian2d"]
 avian3d = ["dep:avian3d", "avian3d/3d"]
-udp = ["std"]
+udp = [
+  "dep:lightyear_udp",
+]
 websocket = [
   "std",
   "dep:tokio-tungstenite",
@@ -68,10 +87,17 @@ zstd = ["dep:zstd"]
 lightyear_macros.workspace = true
 lightyear_connection.workspace = true
 lightyear_core.workspace = true
+lightyear_client = {workspace = true, optional = true}
 lightyear_link.workspace = true
+lightyear_interpolation = {workspace = true, optional = true}
+lightyear_prediction = {workspace = true, optional = true}
+lightyear_messages.workspace = true
+lightyear_sync.workspace = true
 lightyear_transport.workspace = true
+lightyear_server = {workspace = true, optional = true}
 lightyear_serde.workspace = true
 lightyear_utils.workspace = true
+lightyear_udp = {workspace = true, optional = true}
 
 # utils
 chrono.workspace = true

@@ -11,7 +11,9 @@
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use core::time::Duration;
+use lightyear_connection::server::ClientOf;
 use lightyear_shared::plugin::SharedPlugin;
+use lightyear_sync::prelude::PingManager;
 
 /// A plugin group containing all the server plugins.
 ///
@@ -64,5 +66,7 @@ impl Plugin for SetupPlugin {
                 tick_duration: self.tick_duration,
             });
         }
+
+        app.register_required_components::<ClientOf, PingManager>();
     }
 }

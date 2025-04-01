@@ -8,6 +8,7 @@ use bevy::reflect::Reflect;
 use bevy::time::Stopwatch;
 use core::time::Duration;
 use lightyear_core::time::TickDelta;
+use lightyear_messages::prelude::{MessageReceiver, MessageSender};
 use lightyear_utils::ready_buffer::ReadyBuffer;
 use tracing::{error, trace};
 
@@ -35,6 +36,7 @@ impl Default for PingConfig {
 /// The [`PingManager`] is responsible for sending regular pings to the remote machine,
 /// and monitor pongs in order to estimate statistics (rtt, jitter) about the connection.
 #[derive(Debug, Default, Component)]
+#[require(MessageSender<Ping>, MessageReceiver<Ping>, MessageSender<Pong>, MessageReceiver<Pong>)]
 pub struct PingManager {
     pub(crate) tick_duration: Duration,
     config: PingConfig,

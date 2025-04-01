@@ -21,4 +21,22 @@ pub mod client;
 #[cfg(feature = "server")]
 pub mod server;
 pub mod timeline;
-mod plugin;
+pub mod plugin;
+
+pub mod prelude {
+    pub use crate::ping::manager::{PingConfig, PingManager};
+    pub use crate::plugin::SyncPlugin;
+    pub use crate::timeline::{input::Input, LocalTimeline, Timeline};
+    #[cfg(feature = "client")]
+    pub mod client {
+        pub use crate::client::Local;
+        pub use crate::timeline::input::{Input, InputTimeline};
+        #[cfg(feature = "interpolation")]
+        pub use crate::timeline::interpolation::{Interpolation, InterpolationTimeline};
+        pub use crate::timeline::remote::{RemoteEstimate, RemoteTimeline};
+    }
+    #[cfg(feature = "server")]
+    pub mod server {
+        pub use crate::server::Local;
+    }
+}

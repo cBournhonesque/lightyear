@@ -11,3 +11,8 @@ pub mod network;
 pub mod time;
 mod prediction;
 mod history_buffer;
+
+
+pub mod prelude {
+    pub use crate::tick::Tick;
+}

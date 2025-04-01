@@ -30,7 +30,7 @@ pub enum ConnectionError {
 
 
 /// Marker component to identify this entity as a Client
-#[derive(Component)]
+#[derive(Component, Default)]
 #[require(MessageManager)]
 pub struct Client;
 

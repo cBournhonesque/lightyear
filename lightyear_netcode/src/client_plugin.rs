@@ -1,5 +1,5 @@
 use crate::auth::Authentication;
-use crate::{ClientConfig, Error, NetcodeClient};
+use crate::{ClientConfig, Error};
 use bevy::ecs::component::{ComponentHook, ComponentId, ComponentsRegistrator, HookContext, Mutable, RequiredComponents, StorageType};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
@@ -20,12 +20,12 @@ pub struct NetcodeClientPlugin;
 #[derive(Component)]
 #[require(Link, lightyear_connection::client::Client)]
 #[component(on_add = on_client_add)]
-pub struct Client {
-    pub inner: NetcodeClient<()>,
+pub struct NetcodeClient {
+    pub inner: crate::client::NetcodeClient<()>,
 }
 
 fn on_client_add(mut world: DeferredWorld, context: HookContext) {
-    let server_addr = world.get::<Client>(context.entity).map(|client| client.inner.server_addr());
+    let server_addr = world.get::<NetcodeClient>(context.entity).map(|client| client.inner.server_addr());
     if let Some(mut link) = world.get_mut::<Link>(context.entity) {
         link.as_mut().remote_addr = server_addr;
     }
@@ -65,13 +65,13 @@ impl NetcodeConfig {
     }
 }
 
-impl Client {
+impl NetcodeClient {
     pub fn new(auth: Authentication, config: NetcodeConfig) -> Result<Self, Error> {
         let token = auth
                     .get_token(config.client_timeout_secs, config.token_expire_secs)?;
         let token_bytes = token.try_into_bytes()?;
         Ok(Self {
-            inner: NetcodeClient::with_config(&token_bytes, config.build())?,
+            inner: crate::client::NetcodeClient::with_config(&token_bytes, config.build())?,
         })
     }
 
@@ -90,7 +90,7 @@ impl NetcodeClientPlugin {
     /// Takes packets from the Link, process them through the client,
     /// and buffer them back into the link to be sent by the IO
     fn send(
-        mut query: Query<(&mut Link, &mut Client)>,
+        mut query: Query<(&mut Link, &mut NetcodeClient)>,
     ) {
         query.par_iter_mut().for_each(|(mut link, mut client)| {
             link.send.drain(..).try_for_each(|payload| {
@@ -110,7 +110,7 @@ impl NetcodeClientPlugin {
     /// then buffer them back into the Link
     fn receive(
         real_time: Res<Time<Real>>,
-        mut query: Query<(Entity, &mut Link, &mut Client)>,
+        mut query: Query<(Entity, &mut Link, &mut NetcodeClient)>,
         parallel_commands: ParallelCommands
     ) {
         let delta = real_time.delta();
@@ -137,7 +137,7 @@ impl NetcodeClientPlugin {
     fn connect(
         trigger: Trigger<Connect>,
         mut commands: Commands,
-        mut query: Query<&mut Client>,
+        mut query: Query<&mut NetcodeClient>,
     ) {
 
         if let Ok(mut client) = query.get_mut(trigger.target()) {
@@ -149,7 +149,7 @@ impl NetcodeClientPlugin {
     fn disconnect(
         trigger: Trigger<Disconnect>,
         mut commands: Commands,
-        mut query: Query<(&mut Client, &mut Link)>,
+        mut query: Query<(&mut NetcodeClient, &mut Link)>,
     ) -> Result {
 
         if let Ok((mut client, mut link)) = query.get_mut(trigger.target()) {

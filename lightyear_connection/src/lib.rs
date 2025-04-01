@@ -1,5 +1,4 @@
 /*! # Lightyear Connection
-
 Connection handling for the lightyear networking library.
 This crate provides core types for managing long-term connections on top of a Link and Transport.
 
@@ -44,6 +43,20 @@ pub enum ConnectionSet {
     /// Flush the messages that were buffered into the Transport, process them as Packets and
     /// buffer them to the Link
     Send,
+}
+
+pub mod prelude {
+    pub use crate::direction::{AppChannelDirectionExt, AppMessageDirectionExt, NetworkDirection};
+    pub use crate::id::ClientId;
+    pub use crate::network_target::NetworkTarget;
+    #[cfg(feature = "client")]
+    pub mod client {
+        pub use crate::client::{Client, Connect, Connected, Connecting, ConnectionError, Disconnect, Disconnected};
+    }
+    #[cfg(feature = "server")]
+    pub mod server {
+        pub use crate::server::{ClientOf, ConnectionError, Server, Start, Started, Starting, Stop, Stopped};
+    }
 }
 
 

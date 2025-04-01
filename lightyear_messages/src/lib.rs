@@ -21,7 +21,9 @@ pub mod receive;
 pub mod send;
 
 pub mod prelude {
+    pub use crate::receive::MessageReceiver;
     pub use crate::registry::AppMessageExt;
+    pub use crate::send::MessageSender;
     pub use crate::{Message, MessageManager};
 }
 

@@ -13,7 +13,7 @@
  ## Protocol
 
  The three main components of the netcode protocol are:
- * Dedicated [`Servers`](Server).
+ * Dedicated [`Servers`](NetcodeServer).
  * [`Clients`](NetcodeClient).
  * The web backend - a service that authenticates clients and generates [`ConnectTokens`](ConnectToken).
 
@@ -132,13 +132,13 @@ extern crate core;
 #[cfg(feature = "client")]
 pub use client::{ClientConfig, ClientState, NetcodeClient};
 #[cfg(feature = "client")]
-pub use client_plugin::Client;
+pub use client_plugin::NetcodeClient;
 pub use crypto::{generate_key, try_generate_key, Key};
 pub use error::{Error, Result};
 #[cfg(feature = "server")]
 pub use server::{Callback, ClientId, NetcodeServer, ServerConfig};
 #[cfg(feature = "server")]
-pub use server_plugin::Server;
+pub use server_plugin::NetcodeServer;
 pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
 
 mod bytes;

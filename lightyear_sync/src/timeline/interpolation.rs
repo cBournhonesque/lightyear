@@ -50,7 +50,7 @@ impl InterpolationConfig {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Default)]
 pub struct Interpolation {
     tick_duration: Duration,
 
@@ -63,7 +63,7 @@ pub struct Interpolation {
 
 // TODO: should this be contained in a 'BaseTimeline'?
 
-
+pub type InterpolationTimeline = Timeline<Interpolation>;
 
 impl SyncedTimeline for Timeline<Interpolation> {
     // TODO: how can we make this configurable? or maybe just store the TICK_DURATION in the timeline itself?

@@ -30,6 +30,7 @@ lightyear_core.workspace = true
 lightyear_shared.workspace = true
 lightyear_crossbeam = {workspace = true, optional = true }
 lightyear_netcode = {workspace = true, optional = true, features = ["client"] }
+lightyear_connection = { workspace = true, features = ["server"] }
 lightyear_steam = {workspace = true, optional = true}
 lightyear_sync = {workspace = true, features = ["server"]}
 

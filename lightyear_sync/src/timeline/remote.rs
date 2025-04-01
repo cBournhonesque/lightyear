@@ -54,6 +54,8 @@ impl RemoteEstimate {
     }
 }
 
+pub type RemoteTimeline = Timeline<RemoteEstimate>;
+
 impl Timeline<RemoteEstimate> {
     /// Returns the most recent tick received from the remote peer.
     ///

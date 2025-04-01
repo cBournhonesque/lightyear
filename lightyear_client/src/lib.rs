@@ -16,14 +16,15 @@ pub mod plugin;
 pub mod web;
 
 
-use lightyear_sync::{client::Local, timeline::{remote::RemoteEstimate, Timeline}};
+use lightyear_sync::prelude::{client::*, *};
 
 
 /// Marker component that inserts all the required components for a Client
 #[derive(Component)]
-// TODO: insert all the components with the default config values, user can override them by inserting the component themselves. The main
-#[require(Timeline<RemoteEstimate>)]
-#[require(Timeline<Local>)]
+#[require(RemoteTimeline)]
+#[require(InputTimeline)]
+#[cfg_attr(feature = "interpolation", require(InterpolationTimeline))]
+#[require(lightyear_connection::client::Client)]
 pub struct Client;
 
 

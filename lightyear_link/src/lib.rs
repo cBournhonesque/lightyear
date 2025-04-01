@@ -15,6 +15,10 @@ use bytes::Bytes;
 use core::net::SocketAddr;
 use core::time::Duration;
 
+pub mod prelude {
+    pub use crate::{Link, LinkSet, LinkStats};
+}
+
 pub type RecvPayload = Bytes;
 pub type SendPayload = Bytes;
 

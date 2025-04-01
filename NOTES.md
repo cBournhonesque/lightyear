@@ -36,8 +36,11 @@ But if you add a direction we will handle it automatically for the client-server
   - uses TRANSPORT::PingChannel
   - updates LinkStats using transport data?
 - CONNECTION
-  - longer-term connection/disconnection events/components on top of a Link?
-  - Connect/Disconnect
+  - types/logic specific to client/server
+  - maybe rename to client_server? and also move the logic from lightyear_shared to lightyear_client_server?
+  - or have a lightyear_client_server crate for the client/server specific architecture
+    - with client and server as subfolders?
+
 
 
 

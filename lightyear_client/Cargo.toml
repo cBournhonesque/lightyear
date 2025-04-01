@@ -10,6 +10,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = [
+    "interpolation",
     "std",
 ]
 std = [
@@ -17,7 +18,9 @@ std = [
     "bytes/std",
     "serde/std",
 ]
-
+interpolation = [
+    "lightyear_sync/interpolation",
+]
 prediction = []
 
 # connection

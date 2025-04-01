@@ -9,14 +9,19 @@ description = "Setup for integration tests for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
-default = ["std"]
+default = [
+    "std",
+    "lightyear_new/interpolation"
+]
 std = [
     "bevy/std",
     "bytes/std",
     "serde/std",
 ]
 
+
 [dependencies]
+lightyear_new = { workspace = true, features = ["client", "server"]}
 lightyear_macros.workspace = true
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true

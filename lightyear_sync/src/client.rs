@@ -45,7 +45,6 @@ pub struct ClientPlugin;
 /// For the client, the Local timeline is the Input timeline
 pub type Local = Input;
 
-
 impl Plugin for ClientPlugin {
 
     fn build(&self, app: &mut App) {
