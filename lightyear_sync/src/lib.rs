@@ -17,5 +17,8 @@ use bevy::prelude::{Component, SystemSet};
 pub mod ping;
 #[cfg(feature = "client")]
 pub mod client;
+
+#[cfg(feature = "server")]
+pub mod server;
 pub mod timeline;
 mod plugin;

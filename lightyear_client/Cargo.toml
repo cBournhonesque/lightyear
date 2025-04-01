@@ -9,12 +9,24 @@ description = "IO primitives for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
-default = ["std"]
+default = [
+    "std",
+]
 std = [
     "bevy/std",
     "bytes/std",
     "serde/std",
 ]
+
+prediction = []
+
+# connection
+steam = ["dep:lightyear_steam"]
+netcode = ["dep:lightyear_netcode"]
+
+# io
+crossbeam = ["lightyear_shared/crossbeam"]
+udp = ["lightyear_shared/udp"]
 
 [dependencies]
 lightyear_connection.workspace = true
@@ -22,8 +34,13 @@ lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_core.workspace = true
 lightyear_messages.workspace = true
+lightyear_crossbeam = {workspace = true, optional = true }
+lightyear_netcode = {workspace = true, optional = true, features = ["client"] }
 lightyear_transport.workspace = true
+lightyear_udp = {workspace = true, optional = true }
+lightyear_steam = {workspace = true, optional = true}
 lightyear_sync = { workspace = true, features = ["client"] }
+lightyear_shared.workspace = true
 
 # utils
 tracing.workspace = true
@@ -34,6 +51,9 @@ bytes.workspace = true
 
 # bevy
 bevy.workspace = true
+
+[dev-dependencies]
+lightyear_crossbeam.workspace = true
 
 [lints]
 workspace = true

@@ -5,7 +5,7 @@ authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "IO primitives for the lightyear networking library"
+description = "Setup for integration tests for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
@@ -20,7 +20,14 @@ std = [
 lightyear_macros.workspace = true
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
+lightyear_transport.workspace = true
 lightyear_core.workspace = true
+lightyear_client = { workspace = true, features = ["crossbeam"] }
+lightyear_server = { workspace = true, features = ["crossbeam"] }
+lightyear_messages.workspace = true
+lightyear_crossbeam.workspace = true
+lightyear_connection = { workspace = true, features = ["client", "server"]}
+lightyear_sync.workspace = true
 
 # utils
 cfg-if.workspace = true

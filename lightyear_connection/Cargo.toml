@@ -11,6 +11,8 @@ repository = "https://github.com/cBournhonesque/lightyear"
 [features]
 default = ["std"]
 std = ["lightyear_link/std", "lightyear_transport/std"]
+client = []
+server = []
 
 [dependencies]
 # local crates
@@ -32,8 +34,10 @@ thiserror.workspace = true
 tracing.workspace = true
 chacha20poly1305.workspace = true
 
-#[dev-dependencies]
+[dev-dependencies]
 lightyear_macros.workspace = true
+lightyear_messages = {workspace = true, features = ["test_utils"]}
+lightyear_transport = {workspace = true, features = ["test_utils"]}
 
 [lints]
 workspace = true

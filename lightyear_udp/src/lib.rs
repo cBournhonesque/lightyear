@@ -67,13 +67,15 @@ impl UdpPlugin {
             // TODO: actually we don't need Arc<Mutex> because the scheduler
             //  guarantees that we don't access the same socket at the same time
             let socket = udp_io.sender.socket.lock().unwrap();
-            link.send.drain(..).try_for_each(|payload| {
-                // TODO: how do we get the link address?
-                //   Maybe Link has multiple states?
-                // TODO: we don't want to short-circuit on error
-                socket.send_to(payload.as_ref(), link.address)?;
-                Ok(())
-            })?;
+            if let Some(remote_addr) = link.remote_addr {
+                link.send.drain(..).try_for_each(|payload| {
+                    // TODO: how do we get the link address?
+                    //   Maybe Link has multiple states?
+                    // TODO: we don't want to short-circuit on error
+                    socket.send_to(payload.as_ref(), remote_addr)?;
+                    Ok(())
+                })?;
+            }
             Ok(())
         })
     }
@@ -111,7 +113,7 @@ impl UdpPlugin {
 impl Plugin for UdpPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, Self::receive.in_set(LinkSet::Receive));
-        app.add_systems(PreUpdate, Self::send.in_set(LinkSet::Receive));
+        app.add_systems(PreUpdate, Self::send.in_set(LinkSet::Send));
     }
 }
 

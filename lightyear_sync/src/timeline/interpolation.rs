@@ -1,6 +1,6 @@
 use crate::ping::manager::PingManager;
 use crate::timeline::sync::{SyncConfig, SyncEvent, SyncedTimeline};
-use crate::timeline::Timeline;
+use crate::timeline::{NetworkTimeline, Timeline};
 use bevy::prelude::{Component, Reflect};
 use core::time::Duration;
 use lightyear_core::tick::Tick;
@@ -18,6 +18,7 @@ pub struct InterpolationConfig {
     /// The higher the server update_rate (i.e. smaller send_interval), the smaller the interpolation delay
     /// Set to 0.0 if you want to only use the Delay
     pub send_interval_ratio: f32,
+    pub relative_speed: f32,
 }
 
 impl Default for InterpolationConfig {
@@ -25,6 +26,7 @@ impl Default for InterpolationConfig {
         Self {
             min_delay: Duration::from_millis(5),
             send_interval_ratio: 1.3,
+            relative_speed: 1.0,
         }
     }
 }
@@ -49,40 +51,25 @@ impl InterpolationConfig {
 }
 
 #[derive(Component)]
-pub struct Interpolated {
+pub struct Interpolation {
     tick_duration: Duration,
 
     pub(crate) remote_send_interval: Duration,
     pub(crate) interpolation_config: InterpolationConfig,
     pub(crate) sync_config: SyncConfig,
     pub(crate) relative_speed: f32,
-
     pub(crate) now: TickInstant,
 }
 
 // TODO: should this be contained in a 'BaseTimeline'?
-impl Timeline for Interpolated {
-    #[inline(always)]
-    fn now(&self) -> TickInstant {
-        self.now
-    }
-
-    #[inline(always)]
-    fn tick_duration(&self) -> Duration {
-        self.tick_duration
-    }
-
-    fn advance(&mut self, delta: Duration) {
-        self.now = self.now + TickDelta::from_duration(delta, self.tick_duration());
-    }
-}
 
 
-impl SyncedTimeline for Interpolated {
+
+impl SyncedTimeline for Timeline<Interpolation> {
     // TODO: how can we make this configurable? or maybe just store the TICK_DURATION in the timeline itself?
 
-    fn sync_objective<T: Timeline>(&self, main: &T, ping_manager: &PingManager) -> TickInstant {
-        let delay = TickDelta::from_duration(self.interpolation_config.to_duration(self.remote_send_interval), self.tick_duration());
+    fn sync_objective<T: NetworkTimeline>(&self, main: &T, ping_manager: &PingManager) -> TickInstant {
+        let delay = TickDelta::from_duration(self.context.interpolation_config.to_duration(self.context.remote_send_interval), self.tick_duration());
         let target = main.now();
         target - delay
     }
@@ -103,22 +90,26 @@ impl SyncedTimeline for Interpolated {
     ///
     /// Most of the times this will just be slight nudges to modify the speed of the [`SyncedTimeline`].
     /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`MainTimeline`] by sending a SyncEvent
-    fn sync<T: Timeline>(&mut self, main: &T, ping_manager: &PingManager) -> Option<SyncEvent<Self>> {
+    fn sync<T: NetworkTimeline>(&mut self, main: &T, ping_manager: &PingManager) -> Option<SyncEvent<Self>> {
+        // skip syncing if we haven't received enough information
+        if ping_manager.pongs_recv < self.context.sync_config.handshake_pings as u32 {
+            return None
+        }
         // TODO: should we call current_estimate()? now() should basically return the same thing
         let target = main.now();
         let objective = self.sync_objective(main, ping_manager);
         let error = objective - target;
         let is_ahead = error.is_positive();
         let error_duration = error.to_duration(self.tick_duration());
-        let error_margin = self.tick_duration().mul_f32(self.sync_config.error_margin);
-        let max_error_margin = self.tick_duration().mul_f32(self.sync_config.max_error_margin);
+        let error_margin = self.tick_duration().mul_f32(self.context.sync_config.error_margin);
+        let max_error_margin = self.tick_duration().mul_f32(self.context.sync_config.max_error_margin);
         if error_duration > max_error_margin {
             return Some(self.resync(objective));
         } else if error_duration > error_margin {
             let ratio = if is_ahead {
-                1.0 / self.sync_config.speedup_factor
+                1.0 / self.context.sync_config.speedup_factor
             } else {
-                1.0 * self.sync_config.speedup_factor
+                1.0 * self.context.sync_config.speedup_factor
             };
             self.set_relative_speed(ratio);
         }
@@ -131,10 +122,10 @@ impl SyncedTimeline for Interpolated {
     }
 
     fn relative_speed(&self) -> f32 {
-        self.relative_speed
+        self.context.relative_speed
     }
 
     fn set_relative_speed(&mut self, ratio: f32) {
-        self.relative_speed = ratio;
+        self.context.relative_speed = ratio;
     }
 }

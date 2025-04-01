@@ -555,6 +555,34 @@ impl Sub for TickInstant {
     }
 }
 
+
+/// Event that can be triggered to update the tick duration.
+///
+/// If the trigger is global, it will update:
+/// - Time<Fixed>
+/// - the various Timelines
+///
+/// The event can also be triggered for a specific target to update only the components of that target.
+#[derive(Event)]
+pub struct SetTickDuration(pub Duration);
+
+
+pub struct TimePlugin;
+
+impl TimePlugin {
+    fn update_tick_duration(trigger: Trigger<SetTickDuration>, mut time: ResMut<Time<Fixed>>) {
+        time.set_timestep(trigger.0);
+    }
+}
+
+impl Plugin for TimePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_observer(Self::update_tick_duration);
+    }
+}
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

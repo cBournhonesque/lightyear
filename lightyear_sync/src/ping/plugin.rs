@@ -3,11 +3,12 @@ use crate::ping::message::{Ping, Pong};
 use crate::ping::PingChannel;
 use bevy::platform_support::time::Instant;
 use bevy::prelude::*;
-use lightyear_core::time::PositiveTickDelta;
+use lightyear_core::time::TickDelta;
 use lightyear_link::Link;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
+use lightyear_transport::prelude::Transport;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PingSet {
@@ -66,9 +67,7 @@ impl PingPlugin {
             .take_pending_pongs()
             .into_iter()
             .for_each(|(mut pong, ping_receive_time)| {
-                pong.frame_time = PositiveTickDelta::default();
-                // TODO: get frame_time from now-frame_start!
-                // pong.frame_time = now - frame_start;
+                pong.frame_time = TickDelta::from_duration(now - frame_start, m.tick_duration).into();
 
                 // TODO: maybe include the tick + overstep in every packet?
                 // TODO: how to use the overstep?
@@ -81,6 +80,12 @@ impl PingPlugin {
 
 impl Plugin for PingPlugin {
     fn build(&self, app: &mut App) {
+        // NOTE: the Transport's PacketBuilder needs accurate LinkStats to function correctly.
+        //   Theoretically anything can modify the LinkStats but in practice it's done in the PingManager
+        //   so we make the Transport require a PingManager.
+        //   Maybe we should error if TransportPlugin is added without PingPlugin?
+        app.register_required_components::<Transport, PingManager>();
+
         app.configure_sets(PreUpdate, (MessageSet::Receive, PingSet::Receive).chain());
         app.configure_sets(PostUpdate,  (PingSet::Send, MessageSet::Send).chain());
         app.add_systems(PreUpdate, Self::receive.in_set(PingSet::Receive));

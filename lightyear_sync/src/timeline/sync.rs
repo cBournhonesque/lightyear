@@ -1,5 +1,5 @@
 use crate::ping::manager::PingManager;
-use crate::timeline::Timeline;
+use crate::timeline::{NetworkTimeline, Timeline};
 use bevy::prelude::{Event, Reflect};
 use lightyear_core::time::{TickInstant, TimeDelta};
 
@@ -22,18 +22,17 @@ impl<T> Clone for SyncEvent<T> {
 impl<T> Copy for SyncEvent<T> {}
 
 /// Timeline that is synced to another timeline
-pub trait SyncedTimeline: Timeline {
-
-
+pub trait SyncedTimeline: NetworkTimeline {
     /// Get the ideal [`TickInstant`] that this timeline should be at
-    fn sync_objective<T: Timeline>(&self, other: &T, ping_manager: &PingManager) -> TickInstant;
+    fn sync_objective<T: NetworkTimeline>(&self, other: &T, ping_manager: &PingManager) -> TickInstant;
 
     fn resync(&mut self, sync_objective: TickInstant) -> SyncEvent<Self> where Self: Sized;
 
     /// Sync the current timeline to the other timeline T.
     /// Usually this is achieved by slightly speeding up or slowing down the current timeline.
     /// If there is a big discrepancy we can do a `resync` instead.
-    fn sync<T: Timeline>(&mut self, main: &T, ping_manager: &PingManager) -> Option<SyncEvent<Self>> where Self: Sized;
+    // TODO: should we use LinkStats instead of PingManager?
+    fn sync<T: NetworkTimeline>(&mut self, main: &T, ping_manager: &PingManager) -> Option<SyncEvent<Self>> where Self: Sized;
 
     fn is_synced(&self) -> bool;
 
@@ -74,9 +73,6 @@ pub struct SyncConfig {
     // TODO: instead of constant speedup_factor, the speedup should be linear w.r.t the offset
     /// By how much should we speed up the simulation to make ticks stay in sync with server?
     pub speedup_factor: f32,
-
-    // Integration
-    pub server_time_estimate_smoothing: f32,
 }
 
 impl Default for SyncConfig {
@@ -88,15 +84,6 @@ impl Default for SyncConfig {
             error_margin: 0.5,
             max_error_margin: 5.0,
             speedup_factor: 1.05,
-            // server_time_estimate_smoothing: 0.0,
-            server_time_estimate_smoothing: 0.2,
         }
-    }
-}
-
-impl SyncConfig {
-    pub fn speedup_factor(mut self, speedup_factor: f32) -> Self {
-        self.speedup_factor = speedup_factor;
-        self
     }
 }

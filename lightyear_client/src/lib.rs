@@ -1,46 +1,41 @@
-/*! # Lightyear IO
+/*! # Lightyear Client
 
-Low-level IO primitives for the lightyear networking library.
-This crate provides abstractions for sending and receiving raw bytes over the network.
+Client handling for the lightyear networking library.
 */
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
-use bevy::prelude::{Component, SystemSet};
-
-/*! Modules related to the client
-*/
-
-pub mod connection;
-
-pub mod events;
-
-pub mod input;
-
-pub mod interpolation;
+use bevy::prelude::Component;
 
 pub mod plugin;
 
-pub mod prediction;
 
-pub mod sync;
 
-pub mod diagnostics;
-mod easings;
-
-pub(crate) mod io;
-pub mod message;
-pub mod networking;
-pub mod replication;
-
-pub mod error;
-pub mod run_conditions;
 #[cfg(target_family = "wasm")]
 pub mod web;
 
 
+use lightyear_sync::{client::Local, timeline::{remote::RemoteEstimate, Timeline}};
+
+
 /// Marker component that inserts all the required components for a Client
 #[derive(Component)]
-#[require()]
+// TODO: insert all the components with the default config values, user can override them by inserting the component themselves. The main
+#[require(Timeline<RemoteEstimate>)]
+#[require(Timeline<Local>)]
 pub struct Client;
+
+
+#[cfg(test)]
+mod tests {
+
+    // fn test_spawn_client() {
+    //     let mut app = App::new();
+    //     app.add_plugins(ClientPlugins.build());
+    //
+    //     let entity = app.world_mut().spawn((Client, CrossbeamIo, )).id();
+    //
+    //
+    // }
+}

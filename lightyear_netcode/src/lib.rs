@@ -43,6 +43,9 @@
   * Provide a private key - a `u8` array of length 32. If you don't have one, you can generate one with `netcode::generate_key()`.
   * Optionally provide a [`ServerConfig`] - a struct that allows you to customize the server's behavior.
 
+*/
+#![cfg_attr(feature = "server", doc = r##"
+
 ```rust
 # use std::{thread, time::{Instant, Duration}, net::SocketAddr};
 # use lightyear_link::Link;
@@ -69,7 +72,8 @@ loop {
     thread::sleep(tick_rate);
 }
 ```
-
+"##)]
+/*!
  ## Client
 
  The netcode client connects to the server and communicates using the same protocol.
@@ -81,6 +85,8 @@ loop {
   * Provide a **connect token** - a `u8` array of length 2048 serialized from a [`ConnectToken`].
   * Optionally provide a [`ClientConfig`] - a struct that allows you to customize the client's behavior.
 
+*/
+#![cfg_attr(feature = "client", doc = r##"
 ```rust
 use std::{thread, time::{Instant, Duration}, net::SocketAddr};
 use lightyear_link::Link;
@@ -116,33 +122,41 @@ loop {
     thread::sleep(tick_rate);
 }
 ```
-*/
+"##)]
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 extern crate core;
 
+#[cfg(feature = "client")]
 pub use client::{ClientConfig, ClientState, NetcodeClient};
+#[cfg(feature = "client")]
 pub use client_plugin::Client;
 pub use crypto::{generate_key, try_generate_key, Key};
 pub use error::{Error, Result};
+#[cfg(feature = "server")]
 pub use server::{Callback, ClientId, NetcodeServer, ServerConfig};
+#[cfg(feature = "server")]
 pub use server_plugin::Server;
 pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
 
 mod bytes;
+#[cfg(feature = "client")]
 mod client;
 mod crypto;
 pub(crate) mod error;
 mod packet;
 mod replay;
+#[cfg(feature = "server")]
 mod server;
 mod token;
 mod utils;
 
+#[cfg(feature = "client")]
 pub mod client_plugin;
 
+#[cfg(feature = "server")]
 pub mod server_plugin;
 mod auth;
 

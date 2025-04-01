@@ -8,21 +8,10 @@
 //! while keeping the rest of the features intact.
 //!
 //! Most plugins are truly necessary for the server functionality to work properly, but some could be disabled.
-use crate::server::clients::ClientsMetadataPlugin;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
-
-use crate::server::events::ServerEventsPlugin;
-use crate::server::message::ServerMessagePlugin;
-use crate::server::networking::ServerNetworkingPlugin;
-use crate::server::relevance::immediate::NetworkRelevancePlugin;
-use crate::server::relevance::room::RoomPlugin;
-use crate::server::replication::{
-    receive::ServerReplicationReceivePlugin, send::ServerReplicationSendPlugin,
-};
-use crate::shared::plugin::SharedPlugin;
-
-use super::config::ServerConfig;
+use core::time::Duration;
+use lightyear_shared::plugin::SharedPlugin;
 
 /// A plugin group containing all the server plugins.
 ///
@@ -38,49 +27,41 @@ use super::config::ServerConfig;
 ///   disabled if you don't need server to client replication.
 #[derive(Default)]
 pub struct ServerPlugins {
-    pub config: ServerConfig,
+    /// The tick interval for the server. This is used to determine how often the server should tick.
+    /// The default value is 1/60 seconds.
+    pub tick_duration: Duration,
 }
 
-impl ServerPlugins {
-    pub fn new(config: ServerConfig) -> Self {
-        Self { config }
-    }
-}
 
 impl PluginGroup for ServerPlugins {
     fn build(self) -> PluginGroupBuilder {
         let builder = PluginGroupBuilder::start::<Self>();
-        let tick_interval = self.config.shared.tick.tick_duration;
+        let builder = builder
+            .add(SetupPlugin { tick_duration: self.tick_duration })
+            .add(lightyear_sync::server::ServerPlugin);
+
+        // CONNECTION
+        #[cfg(feature = "netcode")]
+        let builder = builder.add(lightyear_netcode::server_plugin::NetcodeServerPlugin);
+
         builder
-            .add(SetupPlugin {
-                config: self.config,
-            })
-            .add(ServerMessagePlugin)
-            .add(ServerEventsPlugin)
-            .add(ServerNetworkingPlugin)
-            .add(NetworkRelevancePlugin)
-            .add(RoomPlugin)
-            .add(ClientsMetadataPlugin)
-            .add(ServerReplicationReceivePlugin { tick_interval })
-            .add(ServerReplicationSendPlugin { tick_interval })
     }
 }
 
 /// A plugin that sets up the server by adding the [`ServerConfig`] resource and the [`SharedPlugin`] plugin.
 struct SetupPlugin {
-    config: ServerConfig,
+    /// The tick interval for the server. This is used to determine how often the server should tick.
+    /// The default value is 1/60 seconds.
+    pub tick_duration: Duration,
 }
 
 impl Plugin for SetupPlugin {
     fn build(&self, app: &mut App) {
-        app
-            // RESOURCES //
-            .insert_resource(self.config.clone());
         // PLUGINS
-        // NOTE: SharedPlugin needs to be added after config
+        // make sure that SharedPlugin is not added twice if adding Server and Client Plugins in the same App
         if !app.is_plugin_added::<SharedPlugin>() {
             app.add_plugins(SharedPlugin {
-                config: self.config.shared,
+                tick_duration: self.tick_duration,
             });
         }
     }

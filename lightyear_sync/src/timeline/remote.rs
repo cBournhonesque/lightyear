@@ -1,9 +1,9 @@
 use crate::ping::manager::PingManager;
-use crate::timeline::Timeline;
+use crate::timeline::{NetworkTimeline, Timeline};
 use bevy::prelude::Component;
+use core::time::Duration;
 use lightyear_core::tick::Tick;
 use lightyear_core::time::{TickDelta, TickInstant, TimeDelta};
-use std::time::Duration;
 use tracing::trace;
 
 /// The local peer's estimate of the remote peer's timeline
@@ -15,17 +15,15 @@ use tracing::trace;
 /// # Examples
 ///
 /// ```
-/// # use lightyear_sync::timeline::remote::RemoteEstimate;
+/// # use lightyear_sync::timeline::remote::RemoteEstimateTimeline;
 /// # use lightyear_core::time::TickInstant;
 /// # use std::time::Duration;
 /// #
 /// // Create a new remote estimate with a 16ms tick duration and 0.1 smoothing factor
-/// let remote_estimate = RemoteEstimate::new(Duration::from_millis(16), 0.1);
+/// let remote_estimate = RemoteEstimateTimeline::new(Duration::from_millis(16), 0.1);
 /// ```
-#[derive(Component)]
+#[derive(Default)]
 pub struct RemoteEstimate {
-    /// Best estimate from the client of what the current server time is
-    now: TickInstant,
     /// Most recent tick received from the Server
     last_received_tick: Option<Tick>,
     /// Exponential smoothing factor for our estimate of the remote time
@@ -42,30 +40,21 @@ impl RemoteEstimate {
     ///
     /// # Arguments
     ///
-    /// * `tick_duration` - The duration of a single tick
     /// * `smoothing` - Smoothing factor in range [0.0, 1.0] for estimating remote time
     ///
     /// # Returns
     ///
     /// A new RemoteEstimate instance
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use lightyear_sync::timeline::remote::RemoteEstimate;
-    /// # use std::time::Duration;
-    /// #
-    /// let remote_estimate = RemoteEstimate::new(Duration::from_millis(16), 0.2);
-    /// ```
-    pub fn new(tick_duration: Duration, smoothing: f32) -> Self {
+    pub fn new(smoothing: f32) -> Self {
         Self {
-            now: TickInstant::default(),
             last_received_tick: None,
             remote_estimate_smoothing: smoothing.clamp(0.0, 1.0),
             first_estimate: true,
         }
     }
+}
 
+impl Timeline<RemoteEstimate> {
     /// Returns the most recent tick received from the remote peer.
     ///
     /// # Returns
@@ -75,14 +64,14 @@ impl RemoteEstimate {
     /// # Examples
     ///
     /// ```
-    /// # use lightyear_sync::timeline::remote::RemoteEstimate;
+    /// # use lightyear_sync::timeline::remote::RemoteEstimateTimeline;
     /// # use std::time::Duration;
     /// #
-    /// let remote_estimate = RemoteEstimate::new(Duration::from_millis(16), 0.2);
+    /// let remote_estimate = RemoteEstimateTimeline::new(Duration::from_millis(16), 0.2);
     /// assert_eq!(remote_estimate.last_received_tick(), None);
     /// ```
     pub fn last_received_tick(&self) -> Option<Tick> {
-        self.last_received_tick
+        self.context.last_received_tick
     }
 
     // TODO: maybe include remote overstep?
@@ -101,9 +90,9 @@ impl RemoteEstimate {
     /// This method will only update the estimate if the received tick is newer than
     /// the previously received tick.
     pub(crate) fn update(&mut self, remote_tick: Tick, ping_manager: &PingManager) {
-        if self.last_received_tick
+        if self.context.last_received_tick
            .map_or(true, |previous_tick| remote_tick >= previous_tick) {
-            self.last_received_tick = Some(remote_tick);
+            self.context.last_received_tick = Some(remote_tick);
 
             // TODO: should we make any adjustments?
 
@@ -112,12 +101,12 @@ impl RemoteEstimate {
             let new_estimate = TickInstant::from(remote_tick) + network_delay;
 
             // for the first time, don't apply smoothing
-            if self.first_estimate {
+            if self.context.first_estimate {
                 self.now = new_estimate;
             } else {
                 // we transform the instant into deltas to apply some transformations.
                 // not all transformations are safe, but these are
-                let smoothed_estimate = TickDelta::from(self.now) * (1.0 - self.remote_estimate_smoothing) + TickDelta::from(new_estimate) * self.remote_estimate_smoothing;
+                let smoothed_estimate = TickDelta::from(self.now) * self.context.remote_estimate_smoothing + TickDelta::from(new_estimate) * (1.0 - self.context.remote_estimate_smoothing);
                 self.now = smoothed_estimate.into();
             }
             trace!(
@@ -133,71 +122,3 @@ impl RemoteEstimate {
 // - When we receive a packet from the server, we update the last_received_tick
 // - we can count the duration elapsed since thena to estimate what the current server
 //   time is
-
-
-impl Timeline for RemoteEstimate {
-    /// Returns the current estimate of the remote peer's time.
-    ///
-    /// # Returns
-    ///
-    /// The estimated current TickInstant on the remote peer
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use lightyear_sync::timeline::remote::RemoteEstimate;
-    /// # use lightyear_sync::timeline::Timeline;
-    /// # use std::time::Duration;
-    /// #
-    /// let remote_estimate = RemoteEstimate::new(Duration::from_millis(16), 0.2);
-    /// let now = remote_estimate.now();
-    /// ```
-    fn now(&self) -> TickInstant {
-        todo!()
-    }
-
-    /// Returns the configured tick duration.
-    ///
-    /// # Returns
-    ///
-    /// The Duration representing the length of a single tick
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use lightyear_sync::timeline::remote::RemoteEstimate;
-    /// # use lightyear_sync::timeline::Timeline;
-    /// # use std::time::Duration;
-    /// #
-    /// let remote_estimate = RemoteEstimate::new(Duration::from_millis(16), 0.2);
-    /// assert_eq!(remote_estimate.tick_duration(), Duration::from_millis(16));
-    /// ```
-    fn tick_duration(&self) -> Duration {
-        todo!()
-    }
-
-    /// Advances the remote time estimate by the specified duration.
-    ///
-    /// This method is called regularly to keep the remote time estimate up to date
-    /// between receiving network packets.
-    ///
-    /// # Arguments
-    ///
-    /// * `delta` - The duration to advance the time by
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use lightyear_sync::timeline::remote::RemoteEstimate;
-    /// # use lightyear_sync::timeline::Timeline;
-    /// # use std::time::Duration;
-    /// #
-    /// let mut remote_estimate = RemoteEstimate::new(Duration::from_millis(16), 0.2);
-    ///
-    /// // Simulate time passing
-    /// remote_estimate.advance(Duration::from_millis(50));
-    /// ```
-    fn advance(&mut self, delta: Duration) {
-        todo!()
-    }
-}

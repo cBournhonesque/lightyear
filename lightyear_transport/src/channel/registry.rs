@@ -126,14 +126,39 @@ impl ChannelRegistry {
     }
 }
 
+pub struct ChannelRegistration<'a, C> {
+    pub app: &'a mut App,
+    _marker: core::marker::PhantomData<C>
+}
+
+
+impl<C> ChannelRegistration<'_, C> {
+    #[cfg(feature = "test_utils")]
+    pub fn new(app: &mut App) -> Self {
+        Self {
+            app,
+            _marker: core::marker::PhantomData,
+        }
+    }
+
+}
+
+
 /// Add a message to the list of messages that can be sent
 pub trait AppChannelExt {
-    fn add_channel<C: Channel>(&mut self, settings: ChannelSettings);
+    fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> ChannelRegistration<'_, C>;
 }
 
 impl AppChannelExt for App {
-    fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) {
+    fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> ChannelRegistration<'_, C> {
+        if !self.world().contains_resource::<ChannelRegistry>() {
+            self.world_mut().init_resource::<ChannelRegistry>();
+        }
         let mut registry = self.world_mut().resource_mut::<ChannelRegistry>();
         registry.add_channel::<C>(settings);
+        ChannelRegistration {
+            app: self,
+            _marker: core::marker::PhantomData
+        }
     }
 }

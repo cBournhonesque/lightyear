@@ -20,6 +20,7 @@ std = [
     "bytes/std",
     "serde/std",
 ]
+test_utils = []
 
 [dependencies]
 lightyear_utils.workspace = true

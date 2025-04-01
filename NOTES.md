@@ -21,20 +21,12 @@ But if you add a direction we will handle it automatically for the client-server
 
 # plugin organization
 
-- transport needs PingManager
-- transport needs link
-- PingManager requires messages. Actually only the PingPlugin requires that.
-- messages needs Transport
- 
-- maybe link can have a LinkStats with 
-  - RTT
-  - Jitter
-  - Bandwidth
-  - PacketLoss
-- and the PingPlugin can update those?
-
 - LINK
   - LinkStats
+  - maybe include type-erased events/components related to IO?
+    - IO-Start/IO-Stop triggers
+    - IO-Starting/Started/Stopping/Stopped marker components. Stopped would also contain the latest error
+      before stopping
 - TRANSPORT
   - uses LINK::LinkStats
 - MESSAGE
@@ -43,6 +35,9 @@ But if you add a direction we will handle it automatically for the client-server
   - uses MESSAGE::MessageSender
   - uses TRANSPORT::PingChannel
   - updates LinkStats using transport data?
+- CONNECTION
+  - longer-term connection/disconnection events/components on top of a Link?
+  - Connect/Disconnect
 
 
 

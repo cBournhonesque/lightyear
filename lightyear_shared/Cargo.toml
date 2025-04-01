@@ -16,10 +16,19 @@ std = [
     "serde/std",
 ]
 
+# io
+crossbeam = ["dep:lightyear_crossbeam"]
+udp = ["dep:lightyear_udp"]
+
 [dependencies]
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_core.workspace = true
+lightyear_messages.workspace = true
+lightyear_transport.workspace = true
+lightyear_crossbeam = {workspace = true, optional = true }
+lightyear_udp = {workspace = true, optional = true }
+lightyear_steam = {workspace = true, optional= true}
 
 # utils
 tracing.workspace = true

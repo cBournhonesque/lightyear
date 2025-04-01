@@ -17,7 +17,7 @@ use lightyear_core::tick::{Tick, TickManager};
 use lightyear_link::{Link, LinkSet};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum TransportSet {
@@ -225,6 +225,13 @@ impl TransportPlugin {
 
 impl Plugin for TransportPlugin {
     fn build(&self, app: &mut App) {
+    }
+
+    fn finish(&self, app: &mut App) {
+        if !app.world().contains_resource::<ChannelRegistry>() {
+            warn!("TransportPlugin: ChannelRegistry not found, adding it");
+            app.world_mut().init_resource::<ChannelRegistry>();
+        }
         app.configure_sets(PreUpdate, TransportSet::Receive.after(LinkSet::Receive));
         app.configure_sets(PostUpdate, TransportSet::Send.before(LinkSet::Send));
         app.add_systems(PreUpdate, Self::buffer_receive.in_set(TransportSet::Receive));

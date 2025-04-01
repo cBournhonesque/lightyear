@@ -5,6 +5,7 @@ members = [
   "lightyear_new",
   "lightyear_client",
   "lightyear_core",
+  "lightyear_crossbeam",
   "lightyear_inputs",
   "lightyear_inputs_leafwing",
   "lightyear_inputs_native",
@@ -66,8 +67,10 @@ lightyear_examples_common = { path = "./examples/common", default-features = fal
 lightyear = { path = "./lightyear", version = "0.19.0", default-features = false }
 lightyear_macros = { path = "./lightyear_macros", version = "0.19.0", default-features = false}
 lightyear_netcode = { path = "./lightyear_netcode", version = "0.19.0", default-features = false }
+lightyear_client = { path = "./lightyear_client", version = "0.19.0", default-features = false }
 lightyear_connection = { path = "./lightyear_connection", version = "0.19.0", default-features = false }
 lightyear_core = { path = "./lightyear_core", version = "0.19.0", default-features = false }
+lightyear_crossbeam = { path = "./lightyear_crossbeam", version = "0.19.0", default-features = false }
 lightyear_inputs = { path = "./lightyear_inputs", version = "0.19.0", default-features = false }
 lightyear_inputs_leafwing = { path = "./lightyear_inputs_leafwing", version = "0.19.0", default-features = false }
 lightyear_inputs_native = { path = "./lightyear_inputs_native", version = "0.19.0", default-features = false }
@@ -78,6 +81,8 @@ lightyear_prediction = { path = "./lightyear_prediction", version = "0.19.0", de
 lightyear_link = { path = "./lightyear_link", version = "0.19.0", default-features = false }
 lightyear_replication = { path = "./lightyear_replication", version = "0.19.0", default-features = false }
 lightyear_serde = { path = "./lightyear_serde", version = "0.19.0", default-features = false }
+lightyear_server = { path = "./lightyear_server", version = "0.19.0", default-features = false }
+lightyear_shared = { path = "./lightyear_shared", version = "0.19.0", default-features = false }
 lightyear_steam = { path = "./lightyear_steam", version = "0.19.0", default-features = false }
 lightyear_sync = { path = "./lightyear_sync", version = "0.19.0", default-features = false }
 lightyear_udp = { path = "./lightyear_udp", version = "0.19.0", default-features = false }

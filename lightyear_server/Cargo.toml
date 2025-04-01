@@ -15,11 +15,23 @@ std = [
     "bytes/std",
     "serde/std",
 ]
+# connection
+steam = ["dep:lightyear_steam"]
+netcode = ["dep:lightyear_netcode"]
+
+# io
+crossbeam = ["lightyear_shared/crossbeam"]
+udp = ["lightyear_shared/udp"]
 
 [dependencies]
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_core.workspace = true
+lightyear_shared.workspace = true
+lightyear_crossbeam = {workspace = true, optional = true }
+lightyear_netcode = {workspace = true, optional = true, features = ["client"] }
+lightyear_steam = {workspace = true, optional = true}
+lightyear_sync = {workspace = true, features = ["server"]}
 
 # utils
 tracing.workspace = true

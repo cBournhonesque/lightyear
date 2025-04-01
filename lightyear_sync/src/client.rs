@@ -1,11 +1,12 @@
 /*! Handles syncing the time between the client and the server
 */
-use crate::plugin::{SyncPlugin, SyncSet};
-use crate::timeline::interpolation::Interpolated;
-use crate::timeline::prediction::Predicted;
+use crate::plugin::{NetworkTimelinePlugin, SyncPlugin, SyncedTimelinePlugin};
+use crate::timeline::input::Input;
+#[cfg(feature = "interpolation")]
+use crate::timeline::interpolation::Interpolation;
 use crate::timeline::remote::RemoteEstimate;
 use crate::timeline::sync::SyncedTimeline;
-use crate::timeline::Timeline;
+use crate::timeline::{LocalTimeline, Timeline};
 use bevy::prelude::*;
 use bevy::prelude::{Reflect, SystemSet};
 use bevy::time::time_system;
@@ -41,24 +42,28 @@ pub struct ClientPlugin;
 //    - in PostUpdate too
 //    - in PreUpdate the Time<Virtual> has been updated but not the timelines! Maybe we could just store a PreUpdate now()?
 
+/// For the client, the Local timeline is the Input timeline
+pub type Local = Input;
+
 
 impl Plugin for ClientPlugin {
 
     fn build(&self, app: &mut App) {
         app.add_plugins(SyncPlugin);
-        app.add_observer(SyncPlugin::update_remote_timeline);
 
+        app.add_plugins(SyncedTimelinePlugin::<Local, RemoteEstimate>::default());
+        #[cfg(feature = "interpolation")]
+        app.add_plugins(SyncedTimelinePlugin::<Interpolation, RemoteEstimate>::default());
+
+        app.add_plugins(NetworkTimelinePlugin::<RemoteEstimate>::default());
+        app.add_observer(SyncPlugin::update_remote_timeline);
         app.add_systems(First, SyncPlugin::advance_remote_timeline.after(time_system));
-        app.add_systems(FixedFirst, (
-            SyncPlugin::advance_timelines::<Predicted>,
-            SyncPlugin::advance_timelines::<Interpolated>,
-        ));
-        // NOTE: we don't have to run this in PostUpdate, we could run this right after RunFixedMainLoop?
-        app.add_systems(PostUpdate, (
-            SyncPlugin::sync_timelines::<Predicted, RemoteEstimate>,
-            SyncPlugin::sync_timelines::<Interpolated, RemoteEstimate>,
-        ).in_set(SyncSet::Sync));
-        app.add_systems(Last, SyncPlugin::update_virtual_time::<Predicted>);
+
+        // the client will use the Input timeline as the local timeline
+        // TODO: should this be configurable?
+        app.register_required_components::<Timeline<Local>, LocalTimeline<Local>>();
+
+        app.add_systems(Last, SyncPlugin::update_virtual_time::<Input>);
     }
 }
 

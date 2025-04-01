@@ -15,10 +15,15 @@ use lightyear_core::network::NetId;
 use lightyear_transport::entity_map::SendEntityMap;
 use lightyear_transport::prelude::Transport;
 
-pub(crate) mod registry;
+pub mod registry;
 pub mod plugin;
 pub mod receive;
 pub mod send;
+
+pub mod prelude {
+    pub use crate::registry::AppMessageExt;
+    pub use crate::{Message, MessageManager};
+}
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
 /// A [`Message`] is basically any type that can be (de)serialized over the network.

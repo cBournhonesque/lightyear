@@ -1,9 +1,10 @@
-use crate::client::Client;
-use crate::server::ClientOf;
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::App;
 use lightyear_messages::receive::MessageReceiver;
+use lightyear_messages::registry::MessageRegistration;
 use lightyear_messages::send::MessageSender;
 use lightyear_messages::Message;
+use lightyear_transport::channel::registry::ChannelRegistration;
 use lightyear_transport::channel::Channel;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -15,49 +16,33 @@ pub enum NetworkDirection {
 }
 
 
-pub trait AppDirectionExt {
+pub trait AppMessageDirectionExt {
     /// Add a new [`NetworkDirection`] to the registry
-    fn add_message_direction<M: Message>(&mut self, direction: NetworkDirection);
-
-    fn add_channel_direction<C: Channel>(&mut self, direction: NetworkDirection);
+    fn add_direction(&mut self, direction: NetworkDirection);
 }
 
-impl AppDirectionExt for App {
+impl<M: Message> AppMessageDirectionExt for MessageRegistration<'_, M> {
     // TODO: as much as possible, don't include server code for dedicated clients and vice-versa
     //   see how we can achieve this. Maybe half of the funciton is in lightyear_client and the other half in lightyear_server ?
-    fn add_message_direction<M: Message>(&mut self, direction: NetworkDirection) {
-        match direction {
-            NetworkDirection::ClientToServer => {
-                self.register_required_components::<Client, MessageSender<M>>();
-                self.register_required_components::<ClientOf, MessageReceiver<M>>();
-            }
-            NetworkDirection::ServerToClient => {
-                self.register_required_components::<Client, MessageReceiver<M>>();
-                self.register_required_components::<ClientOf, MessageSender<M>>();
-            }
-            NetworkDirection::Bidirectional => {
-                self.add_message_direction::<M>(NetworkDirection::ClientToServer);
-                self.add_message_direction::<M>(NetworkDirection::ServerToClient);
-            }
-        }
+    fn add_direction(&mut self, direction: NetworkDirection) {
+        #[cfg(feature = "client")]
+        <Self as crate::client::AppMessageDirectionExt>::add_direction(self, direction);
+        #[cfg(feature = "server")]
+        <Self as crate::server::AppMessageDirectionExt>::add_direction(self, direction);
     }
+}
 
-     /// Add a new [`NetworkDirection`] to the registry
-    fn add_channel_direction<C: Channel>(&mut self, direction: NetworkDirection) {
-         match direction {
-            NetworkDirection::ClientToServer => {
-                self.add_observer(Client::add_sender_channel::<C>);
-                self.add_observer(ClientOf::add_receiver_channel::<C>);
-            }
-            NetworkDirection::ServerToClient => {
-                self.add_observer(Client::add_receiver_channel::<C>);
-                self.add_observer(ClientOf::add_sender_channel::<C>);
-            }
-            NetworkDirection::Bidirectional => {
-                self.add_channel_direction::<C>(NetworkDirection::ClientToServer);
-                self.add_channel_direction::<C>(NetworkDirection::ServerToClient);
-            }
-        }
+pub trait AppChannelDirectionExt {
+    fn add_direction(&mut self, direction: NetworkDirection);
+}
+
+impl<C: Channel> AppChannelDirectionExt for ChannelRegistration<'_, C> {
+    /// Add a new [`NetworkDirection`] to the registry
+    fn add_direction(&mut self, direction: NetworkDirection) {
+        #[cfg(feature = "client")]
+        <Self as crate::client::AppChannelDirectionExt>::add_direction(self, direction);
+        #[cfg(feature = "server")]
+        <Self as crate::server::AppChannelDirectionExt>::add_direction(self, direction);
     }
 }
 
@@ -83,18 +68,18 @@ mod tests {
         app.add_channel::<ChannelClientToServer>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
-        });
-        app.add_channel_direction::<ChannelClientToServer>(NetworkDirection::ClientToServer);
+        })
+            .add_direction(NetworkDirection::ClientToServer);
         app.add_channel::<ChannelServerToClient>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
-        });
-        app.add_channel_direction::<ChannelServerToClient>(NetworkDirection::ServerToClient);
+        })
+            .add_direction(NetworkDirection::ServerToClient);
          app.add_channel::<ChannelBidirectional>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
-        });
-        app.add_channel_direction::<ChannelBidirectional>(NetworkDirection::Bidirectional);
+        })
+             .add_direction(NetworkDirection::Bidirectional);
 
         let entity_mut = app.world_mut().spawn(Client);
         let transport = entity_mut.get::<Transport>().unwrap();
@@ -126,10 +111,9 @@ mod tests {
     fn test_message_direction() {
         let mut app = App::new();
 
-
-        app.add_message_direction::<MessageClientToServer>(NetworkDirection::ClientToServer);
-        app.add_message_direction::<MessageServerToClient>(NetworkDirection::ServerToClient);
-        app.add_message_direction::<MessageBidirectional>(NetworkDirection::Bidirectional);
+        MessageRegistration::<MessageClientToServer>::new(&mut app).add_direction(NetworkDirection::ClientToServer);
+        MessageRegistration::<MessageServerToClient>::new(&mut app).add_direction(NetworkDirection::ServerToClient);
+        MessageRegistration::<MessageBidirectional>::new(&mut app).add_direction(NetworkDirection::Bidirectional);
 
         let entity_mut = app.world_mut().spawn(Client);
         entity_mut.get::<MessageSender<MessageClientToServer>>().unwrap();

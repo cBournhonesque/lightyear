@@ -406,7 +406,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             (Packet::Payload(pkt), ClientState::Connected) => {
                 trace!("client received payload packet from server");
                 // TODO: control the size of the packet queue?
-                self.packet_queue.push_back(pkt.buf);
+                self.packet_queue.push(pkt.buf);
             }
             (Packet::Disconnect(_), ClientState::Connected) => {
                 debug!("client received disconnect packet from server");
@@ -531,7 +531,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// # Panics
     /// Panics if the client can't send or receive packets.
     /// For a non-panicking version, use [`try_update`](NetcodeClient::try_update).
-    pub fn update(&mut self, delta_ms: f64, link: &mut Link) {
+    pub fn update(&mut self, delta_ms: f64, link: &mut Link) -> ClientState {
         self.try_update(delta_ms, link)
             .expect("send/recv error while updating client")
     }
@@ -539,14 +539,14 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// The fallible version of [`update`](NetcodeClient::update).
     ///
     /// Returns an error if the client can't send or receive packets.
-    pub fn try_update(&mut self, delta_ms: f64, link: &mut Link) -> Result<()> {
+    pub fn try_update(&mut self, delta_ms: f64, link: &mut Link) -> Result<ClientState> {
         self.time += delta_ms;
         dbg!("recv packets");
         self.recv_packets(link)?;
         dbg!("send packets");
         self.send_packets(link)?;
         self.update_state();
-        Ok(())
+        Ok(self.state())
     }
 
     /// Receives a packet from the server, if one is available in the queue.

@@ -2,9 +2,10 @@ use crate::ping::manager::PingManager;
 use crate::ping::plugin::PingPlugin;
 use crate::timeline::remote::RemoteEstimate;
 use crate::timeline::sync::SyncedTimeline;
-use crate::timeline::{Main, Timeline};
-use bevy::app::{App, Plugin};
-use bevy::prelude::{Commands, Entity, Fixed, Has, PostUpdate, Query, Real, Res, ResMut, SystemSet, Time, Trigger, Virtual, With};
+use crate::timeline::{LocalTimeline, NetworkTimeline, Timeline, TimelineContext};
+use bevy::app::{App, FixedFirst, Plugin};
+use bevy::prelude::{Commands, Entity, Fixed, Has, IntoScheduleConfigs, PostUpdate, Query, Real, Res, ResMut, SystemSet, Time, Trigger, Virtual, With};
+use lightyear_core::time::SetTickDuration;
 use lightyear_transport::plugin::PacketReceived;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -13,12 +14,72 @@ pub enum SyncSet {
     Sync,
 }
 
+pub struct NetworkTimelinePlugin<T> {
+    pub(crate) _marker: core::marker::PhantomData<T>,
+}
+
+impl<T> Default for NetworkTimelinePlugin<T> {
+    fn default() -> Self {
+        Self {
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<T: TimelineContext> Plugin for NetworkTimelinePlugin<T> where Timeline<T>: NetworkTimeline {
+    fn build(&self, app: &mut App) {
+        app.add_observer(SyncPlugin::update_tick_duration::<Timeline<T>>);
+
+    }
+}
+
+pub struct SyncedTimelinePlugin<Synced, Remote>{
+    pub(crate) _marker: core::marker::PhantomData<(Synced, Remote)>,
+}
+
+impl<Synced, Remote> Default for SyncedTimelinePlugin<Synced, Remote> {
+    fn default() -> Self {
+        Self {
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<Synced: TimelineContext, Remote: TimelineContext + Default> Plugin for SyncedTimelinePlugin<Synced, Remote> where Timeline<Synced>: SyncedTimeline, Timeline<Remote>: NetworkTimeline {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(NetworkTimelinePlugin::<Synced>::default());
+
+        app.register_required_components::<Timeline<Synced>, PingManager>();
+        app.register_required_components::<Timeline<Synced>, Timeline<Remote>>();
+        app.add_systems(FixedFirst, SyncPlugin::advance_synced_timelines::<Synced>);
+        // NOTE: we don't have to run this in PostUpdate, we could run this right after RunFixedMainLoop?
+        app.add_systems(PostUpdate,
+            SyncPlugin::sync_timelines::<Timeline<Synced>, Timeline<Remote>>.in_set(SyncSet::Sync));
+    }
+}
+
 pub struct SyncPlugin;
 
 impl SyncPlugin {
-    pub(crate) fn update_virtual_time<T: SyncedTimeline>(
+
+    pub(crate) fn update_tick_duration<T: NetworkTimeline>(
+        trigger: Trigger<SetTickDuration>,
+        mut query: Query<(Option<&mut T>, Option<&mut PingManager>)>,
+    ) {
+        if let Ok((t, ping_manager)) = query.get_mut(trigger.target()) {
+            if let Some(mut t) = t {
+                t.set_tick_duration(trigger.0);
+            }
+            if let Some(mut ping_manager) = ping_manager {
+                ping_manager.tick_duration = trigger.0;
+            }
+        }
+    }
+
+    pub(crate) fn update_virtual_time<T: TimelineContext>(
         mut virtual_time: ResMut<Time<Virtual>>,
-        query: Query<&T, With<Main<T>>>)
+        query: Query<&Timeline<T>, With<LocalTimeline<T>>>)
+    where Timeline<T>: SyncedTimeline
     {
         if let Ok(timeline) = query.single() {
             // TODO: be able to apply the speed_ratio on top of any speed ratio already applied by the user.
@@ -28,10 +89,10 @@ impl SyncPlugin {
 
     /// Update the timeline in FixedUpdate based on the Time<Virtual>
     /// Should we use this only in FixedUpdate::First? because we need the tick in FixedUpdate to be correct for the timeline
-    pub(crate) fn advance_timelines<T: SyncedTimeline>(
+    pub(crate) fn advance_synced_timelines<T: TimelineContext>(
         fixed_time: Res<Time<Fixed>>,
-        mut query: Query<(&mut T, Has<Main<T>>)>,
-    ) {
+        mut query: Query<(&mut Timeline<T>, Has<LocalTimeline<T>>)>,
+    ) where Timeline<T>: SyncedTimeline {
         let delta = fixed_time.delta();
         query.iter_mut().for_each(|(mut t, is_main)| {
             // the main timeline has already been used to update the game's speed, so we don't want to apply the relative_speed again!
@@ -45,7 +106,7 @@ impl SyncPlugin {
     }
 
     /// Sync timeline T to timeline M
-    pub(crate) fn sync_timelines<T: SyncedTimeline, M: Timeline>(
+    pub(crate) fn sync_timelines<T: SyncedTimeline, M: NetworkTimeline>(
         mut commands: Commands,
         mut query: Query<(Entity, &mut T, &M, &PingManager)>,
     ) {
@@ -60,7 +121,7 @@ impl SyncPlugin {
     /// Should we use this only in FixedUpdate::First? because we need the tick in FixedUpdate to be correct for the timeline
     pub(crate) fn update_remote_timeline(
         trigger: Trigger<PacketReceived>,
-        mut query: Query<(&mut RemoteEstimate, &PingManager)>,
+        mut query: Query<(&mut Timeline<RemoteEstimate>, &PingManager)>,
     ) {
         if let Ok((mut t, ping_manager)) = query.get_mut(trigger.target()) {
             t.update(trigger.remote_tick, ping_manager);
@@ -70,7 +131,7 @@ impl SyncPlugin {
     /// Advance our estimate of the remote timeline based on the real time
     pub(crate) fn advance_remote_timeline(
         fixed_time: Res<Time<Real>>,
-        mut query: Query<&mut RemoteEstimate>,
+        mut query: Query<&mut Timeline<RemoteEstimate>>,
     ) {
         let delta = fixed_time.delta();
         query.iter_mut().for_each(|mut t| {
@@ -82,7 +143,9 @@ impl SyncPlugin {
 
 impl Plugin for SyncPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(PingPlugin);
+        if !app.is_plugin_added::<PingPlugin>() {
+            app.add_plugins(PingPlugin);
+        }
         app.configure_sets(PostUpdate, SyncSet::Sync);
     }
 }

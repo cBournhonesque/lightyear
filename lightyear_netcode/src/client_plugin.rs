@@ -4,9 +4,9 @@ use bevy::ecs::component::{ComponentHook, ComponentId, ComponentsRegistrator, Ho
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use core::net::SocketAddr;
-use lightyear_connection::client::{Connect, ConnectTrigger, Connected, Connecting, Disconnect, DisconnectTrigger, Disconnected};
+use lightyear_connection::client::{Connect, Connected, Connecting, Disconnect, Disconnected};
+use lightyear_connection::id::ClientId;
 use lightyear_connection::ConnectionSet;
-use lightyear_core::time::TimeManager;
 use lightyear_link::{Link, LinkSet, SendPayload};
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
@@ -74,6 +74,10 @@ impl Client {
             inner: NetcodeClient::with_config(&token_bytes, config.build())?,
         })
     }
+
+    pub fn id(&self) -> ClientId {
+        ClientId::Netcode(self.inner.id())
+    }
 }
 
 // TODO: when Client is spawned, add an observer for connection/disconnection, etc.
@@ -106,17 +110,22 @@ impl NetcodeClientPlugin {
     /// then buffer them back into the Link
     fn receive(
         real_time: Res<Time<Real>>,
-        mut query: Query<(&mut Link, &mut Client)>,
+        mut query: Query<(Entity, &mut Link, &mut Client)>,
+        parallel_commands: ParallelCommands
     ) {
         let delta = real_time.delta();
-        query.par_iter_mut().for_each(|(mut link, mut client)| {
+        query.par_iter_mut().for_each(|(entity, mut link, mut client)| {
             // Buffer the packets received from the link into the Connection
             // don't short-circuit on error
-            client.inner.try_update(delta.as_secs_f64(), link.as_mut())
+            if let Some(state) = client.inner.try_update(delta.as_secs_f64(), link.as_mut())
                 .inspect_err(|e| {
                     error!("Error receiving packet: {:?}", e);
                 })
-                .ok();
+                .ok() {
+                parallel_commands.command_scope(|mut commands| {
+                    commands.entity(entity).insert(Connected);
+                });
+            }
 
             // Buffer the packets received from the Connection back into the Link
             client.inner.recv().for_each(|payload| {

@@ -259,21 +259,49 @@ impl MessageRegistry {
     }
 }
 
-/// Add a message to the list of messages that can be sent
-pub trait AppMessageExt {
-    fn add_message<M: Message + Serialize + DeserializeOwned>(&mut self);
-
-    fn add_message_custom_serde<M: Message>(&mut self, serialize_fns: SerializeFns<M>);
+pub struct MessageRegistration<'a, M> {
+    pub app: &'a mut App,
+    pub(crate) _marker: core::marker::PhantomData<M>,
 }
 
+impl<M> MessageRegistration<'_, M> {
+
+    #[cfg(feature = "test_utils")]
+    pub fn new(app: &mut App) -> Self {
+        Self {
+            app,
+            _marker: core::marker::PhantomData,
+        }
+    }
+
+    /// Specify that the message contains entities which should be mapped from the remote world to the local world
+    /// upon deserialization
+    pub fn add_map_entities(self) -> Self
+    where
+        M: Clone + MapEntities + 'static,
+    {
+        let mut registry = self.app.world_mut().resource_mut::<MessageRegistry>();
+        registry.add_map_entities::<M>();
+        self
+    }
+}
+
+/// Add a message to the list of messages that can be sent
+pub trait AppMessageExt {
+    fn add_message<M: Message + Serialize + DeserializeOwned>(&mut self) -> MessageRegistration<'_, M>;
+
+    fn add_message_custom_serde<M: Message>(&mut self, serialize_fns: SerializeFns<M>) -> MessageRegistration<'_, M>;
+}
+
+
 impl AppMessageExt for App {
-    fn add_message<M: Message + Serialize + DeserializeOwned>(&mut self) {
-        self.add_message_custom_serde::<M>(SerializeFns::<M>::default());
+    fn add_message<M: Message + Serialize + DeserializeOwned>(&mut self) -> MessageRegistration<'_, M> {
+        self.add_message_custom_serde::<M>(SerializeFns::<M>::default())
     }
 
     // TODO: create a MessageRegistration to add MapEntities
     //  also maybe a similar trick for custom serde?
-    fn add_message_custom_serde<M: Message>(&mut self, serialize_fns: SerializeFns<M>) {
+    fn add_message_custom_serde<M: Message>(&mut self, serialize_fns: SerializeFns<M>) -> MessageRegistration<'_, M> {
         if self.world_mut().get_resource_mut::<MessageRegistry>().is_none() {
             self.world_mut().init_resource::<MessageRegistry>();
         }
@@ -283,6 +311,10 @@ impl AppMessageExt for App {
         registry.register_message_custom_serde::<M>(serialize_fns);
         registry.register_sender::<M>(sender_id);
         registry.register_receiver::<M>(receiver_id);
+        MessageRegistration {
+            app: self,
+            _marker: Default::default(),
+        }
     }
 }
 
