@@ -1,46 +1,20 @@
+use crate::client_of::ClientOf;
 use crate::direction::NetworkDirection;
 use crate::id::ClientId;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::prelude::{Component, Entity, Event, OnAdd, Query, RelationshipTarget, Res, Trigger};
+use bevy::prelude::{Component, Event, OnAdd, Query, Res, Trigger};
 use core::fmt::Debug;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::registry::MessageRegistration;
 use lightyear_messages::send::MessageSender;
-use lightyear_messages::{Message, MessageManager};
+use lightyear_messages::Message;
 use lightyear_transport::channel::registry::ChannelRegistration;
 use lightyear_transport::channel::Channel;
 use lightyear_transport::prelude::{ChannelRegistry, Transport};
 use serde::{Deserialize, Serialize};
-
-/// Marker component to identify this entity as a Client
-#[derive(Component, Default, Debug, PartialEq, Eq)]
-#[relationship_target(relationship = ClientOf, linked_spawn)]
-#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-#[cfg_attr(feature = "bevy_reflect", reflect(Component, FromWorld, Default))]
-pub struct Server {
-    /// The server entity that this client is connected to
-    #[relationship]
-    clients: Vec<Entity>,
-}
-
-#[derive(Component, Clone, PartialEq, Eq, Debug)]
-#[require(MessageManager)]
-#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-#[cfg_attr(
-    feature = "bevy_reflect",
-    reflect(Component, PartialEq, Debug, FromWorld, Clone)
-)]
-#[relationship(relationship_target = Server)]
-pub struct ClientOf {
-    /// The server entity that this client is connected to
-    #[relationship]
-    pub server: Entity,
-    /// The client id of the client
-    pub id: ClientId,
-}
 
 impl ClientOf {
     pub(crate) fn add_sender_channel<C: Channel>(trigger: Trigger<OnAdd, ClientOf>, mut query: Query<&mut Transport>, registry: Res<ChannelRegistry>) {

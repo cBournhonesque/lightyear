@@ -32,6 +32,7 @@ pub mod server;
 pub mod id;
 pub mod network_target;
 pub mod direction;
+pub mod client_of;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ConnectionSet {
@@ -55,7 +56,8 @@ pub mod prelude {
     }
     #[cfg(feature = "server")]
     pub mod server {
-        pub use crate::server::{ClientOf, ConnectionError, Server, Start, Started, Starting, Stop, Stopped};
+        pub use crate::client_of::{ClientOf, Server};
+        pub use crate::server::{ConnectionError, Start, Started, Starting, Stop, Stopped};
     }
 }
 

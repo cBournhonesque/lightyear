@@ -18,5 +18,5 @@ pub mod plugin;
 #[derive(Component)]
 // TODO: insert all the components with the default config values, user can override them by inserting the component themselves. The main
 #[require(Timeline<Local>)]
-#[require(lightyear_connection::server::Server)]
+#[require(lightyear_connection::client_of::Server)]
 pub struct Server;

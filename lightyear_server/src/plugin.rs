@@ -11,7 +11,7 @@
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear_connection::server::ClientOf;
+use lightyear_connection::client_of::ClientOf;
 use lightyear_shared::plugin::SharedPlugin;
 use lightyear_sync::prelude::PingManager;
 
