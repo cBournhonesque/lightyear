@@ -12,6 +12,19 @@ But if you add a direction we will handle it automatically for the client-server
   - if there is no ReplicationGroup, we can assume that the entity is part of the 'default' group entity.
 
 
+# IO:
+
+- each Link has a remote PeerId and a local PeerId. The default is PeerId::Entity, where we just rely on the Entities for identification
+- Peer is the term we use for client-agnostic IO
+- There is client-IO (connects only to one peer) or Server-IO (listens for clients to connect)
+  - server: once we get a client, we spawn a new ClientOf and we assign a PeerId. The PeerId can also just be the PeerId::Entity (in which case we use the entity), for example for Channels
+  - client/peer: once we get connected, we get a PeerId for the remote and for the Local
+- Some IOs directly give you a PeerId: Steam
+
+- Other IOs give you an initial PeerId (for example WebTransport gives you a SocketAddr). You can keep using that, or if you're in client-server mode you can apply the Netcode layer
+  to replace that PeerId on the link with a Netcode-related id: PeerId::Netcode(u64)
+
+
 # Lightyear client
 
 - Provide a component FullClient that will add all the other components:
