@@ -17,6 +17,26 @@ But if you add a direction we will handle it automatically for the client-server
   - if there is no ReplicationGroup, we can assume that the entity is part of the 'default' group entity.
 
 
+# IDEAS
+
+- avoid split borrow issue in netcode by providing each connection with a LinkScratch (temp buffer to use)
+- we have a Linking, Linked, Unlink, Unlinked, etc. to track the state of the Link (for filters) + a LinkState stored on the link itself
+- same think the Connected, Connecting, etc. should be a marker component for filters + be stored on the client/server itself
+
+- Authority: we want seamless authority transfers so states where the client is connected to 2 servers; maybe it starts accepting the 
+  packets from both server for a while, buffers them internally (instead of applying to world), and the AuthorityTransfer has a Tick after 
+  which the transfer is truly effective. We can have Transferring/Transferred.
+
+- UDP: there is no Linking process, so we go directly to Linked/Unlinked
+- netcode only receives from links if the link is Linked
+- maybe we should have a LinkId(u64) instead of Entity to have a more long-term id? 
+  - we want to make sure that we should be able to do replication outside of client-server architecture.
+
+- we want integration tests
+  - with client-server with netcode
+  - P2P where we just use Link; maybe PeerId::Link
+
+
 # IO
 RECEIVE FLOW
 - Server receives (packet, socketAddr)
