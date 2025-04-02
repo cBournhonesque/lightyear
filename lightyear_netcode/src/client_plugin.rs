@@ -5,7 +5,7 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use core::net::SocketAddr;
 use lightyear_connection::client::{Connect, Connected, Connecting, Disconnect, Disconnected};
-use lightyear_connection::id::ClientId;
+use lightyear_connection::id::PeerId;
 use lightyear_connection::ConnectionSet;
 use lightyear_link::{Link, LinkSet, SendPayload};
 use lightyear_transport::plugin::TransportSet;
@@ -75,8 +75,8 @@ impl NetcodeClient {
         })
     }
 
-    pub fn id(&self) -> ClientId {
-        ClientId::Netcode(self.inner.id())
+    pub fn id(&self) -> PeerId {
+        PeerId::Netcode(self.inner.id())
     }
 }
 
@@ -93,11 +93,9 @@ impl NetcodeClientPlugin {
         mut query: Query<(&mut Link, &mut NetcodeClient)>,
     ) {
         query.par_iter_mut().for_each(|(mut link, mut client)| {
-            link.send.drain(..).try_for_each(|payload| {
+            link.send.drain(..).for_each(|payload| {
                 client.inner.buffer_send(payload)
-            }).inspect_err(|e| {
-                    error!("Error sending packet: {:?}", e);
-                }).ok();
+            });
 
             // we don't want to short-circuit on error
             client.inner.send_buffered(link.as_mut()).inspect_err(|e| {

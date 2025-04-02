@@ -1,7 +1,7 @@
 use core::array::TryFromSliceError;
 use core::net::SocketAddr;
 
-use lightyear_connection::id::ClientId;
+use lightyear_connection::id::PeerId;
 use thiserror::Error;
 
 /// The result type for all the public methods that can return an error in this crate.
@@ -14,17 +14,17 @@ pub enum Error {
     #[error("buffer size mismatch, expected {0} but got {1}")]
     SizeMismatch(usize, usize),
     #[error("tried to send a packet to a client {0} that doesn't exist")]
-    ClientNotFound(ClientId),
+    ClientNotFound(PeerId),
     #[error("tried to send a packet to a address {0} that doesn't exist")]
     AddressNotFound(SocketAddr),
     #[error("tried to send a packet to a client that isn't connected")]
-    ClientNotConnected(ClientId),
+    ClientNotConnected(PeerId),
     #[error("failed to read connect token")]
     InvalidConnectToken,
     #[error("client_id {0} connect token has already been used")]
-    ConnectTokenInUse(ClientId),
+    ConnectTokenInUse(PeerId),
     #[error("client_id {0} failed to encrypt challenge token")]
-    ConnectTokenEncryptionFailure(ClientId),
+    ConnectTokenEncryptionFailure(PeerId),
     #[error("failed to descrypt challenge token")]
     ConnectTokenDecryptionFailure,
     #[error(transparent)]
@@ -34,13 +34,13 @@ pub enum Error {
     #[error("a client with address {0} is already connected")]
     ClientAddressInUse(SocketAddr),
     #[error("client_id {0} a client with this id is already connected")]
-    ClientIdInUse(ClientId),
+    ClientIdInUse(PeerId),
     #[error("client_id {0} presented challenge token for unknown id")]
-    UnknownClient(ClientId),
+    UnknownClient(PeerId),
     #[error("client_id {0} tried to connect but server is full")]
-    ServerIsFull(ClientId),
+    ServerIsFull(PeerId),
     #[error("client_id {0} handle_connection_request_fn returned false")]
-    Denied(ClientId),
+    Denied(PeerId),
     #[error("client_id {0} server ignored non-connection-request packet")]
     Ignored(SocketAddr),
     #[cfg(feature = "std")]

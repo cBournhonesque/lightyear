@@ -5,17 +5,27 @@ use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 use bevy::MinimalPlugins;
+use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
 use lightyear_client::plugin::ClientPlugins;
 use lightyear_client::Client;
 use lightyear_connection::client::Connect;
+use lightyear_connection::client_of::ClientOf;
+use lightyear_connection::id::PeerId;
 use lightyear_connection::server::Start;
 use lightyear_core::tick::Tick;
+use lightyear_netcode::auth::Authentication;
+use lightyear_netcode::client_plugin::NetcodeConfig;
+use lightyear_netcode::{NetcodeClient, NetcodeServer};
 use lightyear_server::plugin::ServerPlugins;
 use lightyear_server::Server;
 use lightyear_sync::timeline::{NetworkTimeline, Timeline};
 
-pub const TEST_CLIENT_ID: u64 = 111;
+
+pub const TEST_CLIENT_1: u64 = 1;
+const PROTOCOL_ID: u64 = 0;
+const KEY: [u8; 32] = [0; 32];
+const SERVER_ADDR: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0));
 
 /// Stepper with:
 /// - 1 client in one App
@@ -27,6 +37,7 @@ pub struct ClientServerStepper {
     pub server_app: App,
     pub client_entity: Entity,
     pub server_entity: Entity,
+    pub client_1: Entity,
     pub frame_duration: Duration,
     pub tick_duration: Duration,
     pub current_time: bevy::platform_support::time::Instant,
@@ -55,8 +66,15 @@ impl ClientServerStepper {
             tick_duration,
         });
 
+        let auth = Authentication::Manual {
+                server_addr: SERVER_ADDR,
+                protocol_id: PROTOCOL_ID,
+                private_key: KEY,
+                client_id: TEST_CLIENT_1,
+        };
         let client_entity = client_app.world_mut().spawn((
             Client,
+            NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
             crossbeam_client,
         )).id();
 
@@ -69,7 +87,18 @@ impl ClientServerStepper {
 
         let server_entity = server_app.world_mut().spawn((
             Server,
-            crossbeam_server,
+            NetcodeServer::new(lightyear_netcode::server_plugin::NetcodeConfig {
+                protocol_id: PROTOCOL_ID,
+                private_key: KEY,
+                ..Default::default()
+            })
+        )).id();
+        let client_1 = server_app.world_mut().spawn((
+            ClientOf {
+                server: server_entity,
+                id: PeerId::Entity,
+            },
+            crossbeam_server
         )).id();
 
         // Initialize Real time (needed only for the first TimeSystem run)
@@ -90,6 +119,7 @@ impl ClientServerStepper {
             server_app,
             client_entity,
             server_entity,
+            client_1,
             frame_duration,
             tick_duration,
             current_time: now,
@@ -125,6 +155,14 @@ impl ClientServerStepper {
 
     pub(crate) fn server_mut(&mut self) -> EntityWorldMut {
         self.server_app.world_mut().entity_mut(self.server_entity)
+    }
+
+    pub(crate) fn client_1(&self) -> EntityRef {
+        self.server_app.world().entity(self.client_1)
+    }
+
+    pub(crate) fn client_1_mut(&mut self) -> EntityWorldMut {
+        self.server_app.world_mut().entity_mut(self.client_1)
     }
 
     pub(crate) fn build(&mut self) {

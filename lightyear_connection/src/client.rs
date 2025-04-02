@@ -57,13 +57,14 @@ pub struct Connect;
 pub struct Disconnect;
 
 // TODO: on_add: remove Connecting/Disconnected
-#[derive(Component)]
+#[derive(Component, Default, Debug)]
 pub struct Connected;
 
-#[derive(Component, Event)]
+// TODO: add automatic disconnection for entities that are Connecting for too long
+#[derive(Component, Event, Default, Debug)]
 pub struct Connecting;
 
-#[derive(Component)]
+#[derive(Component, Default, Debug)]
 pub struct Disconnected;
 
 

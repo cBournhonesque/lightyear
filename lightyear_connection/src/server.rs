@@ -1,6 +1,6 @@
 use crate::client_of::ClientOf;
 use crate::direction::NetworkDirection;
-use crate::id::ClientId;
+use crate::id::PeerId;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
 #[cfg(not(feature = "std"))]
@@ -51,7 +51,7 @@ pub trait ConnectionRequestHandler: Debug + Send + Sync {
     /// Handle a connection request from a client.
     /// Returns None if the connection is accepted,
     /// Returns Some(reason) if the connection is denied.
-    fn handle_request(&self, client_id: ClientId) -> Option<DeniedReason>;
+    fn handle_request(&self, client_id: PeerId) -> Option<DeniedReason>;
 }
 
 /// By default, all connection requests are accepted by the server.
@@ -59,7 +59,7 @@ pub trait ConnectionRequestHandler: Debug + Send + Sync {
 pub struct DefaultConnectionRequestHandler;
 
 impl ConnectionRequestHandler for DefaultConnectionRequestHandler {
-    fn handle_request(&self, client_id: ClientId) -> Option<DeniedReason> {
+    fn handle_request(&self, client_id: PeerId) -> Option<DeniedReason> {
         None
     }
 }

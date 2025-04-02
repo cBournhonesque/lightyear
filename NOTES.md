@@ -12,6 +12,24 @@ But if you add a direction we will handle it automatically for the client-server
   - if there is no ReplicationGroup, we can assume that the entity is part of the 'default' group entity.
 
 
+# IO
+RECEIVE FLOW
+- Server receives (packet, socketAddr)
+- Spawns a ClientOf with PeerId::IP(SocketAddr), with State = Connecting
+- passes (packet, socketAddr) to Netcode (via the normal netcode process?)
+- netcode returns that it's a connection -> Update the PeerId::Netcode(u64), State = Connected.
+  - The server-map has both PeerId::Netcode and PeerId::IP as keys :)
+
+SEND FLOW
+- Link has a packet to send
+- With ClientOf, we find the ServerUdpIO on the Server
+- send
+
+# Status:
+
+- WebTransport: ai-generated, to be verified
+
+
 # Lightyear client
 
 - Provide a component FullClient that will add all the other components:

@@ -23,7 +23,8 @@ extern crate alloc;
 
 use bevy::prelude::SystemSet;
 
-#[cfg(feature = "client")]
+// the server also needs connection-related events
+#[cfg(any(feature = "client", feature = "server"))]
 pub mod client;
 
 #[cfg(feature = "server")]
@@ -32,6 +33,8 @@ pub mod server;
 pub mod id;
 pub mod network_target;
 pub mod direction;
+
+#[cfg(feature = "server")]
 pub mod client_of;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -48,8 +51,9 @@ pub enum ConnectionSet {
 
 pub mod prelude {
     pub use crate::direction::{AppChannelDirectionExt, AppMessageDirectionExt, NetworkDirection};
-    pub use crate::id::ClientId;
+    pub use crate::id::PeerId;
     pub use crate::network_target::NetworkTarget;
+    pub use crate::ConnectionSet;
     #[cfg(feature = "client")]
     pub mod client {
         pub use crate::client::{Client, Connect, Connected, Connecting, ConnectionError, Disconnect, Disconnected};

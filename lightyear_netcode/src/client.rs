@@ -230,7 +230,8 @@ impl<Ctx> NetcodeClient<Ctx> {
             replay_protection: ReplayProtection::new(),
             should_disconnect: false,
             should_disconnect_state: ClientState::Disconnected,
-            packet_queue: VecDeque::new(),
+            send_queue: vec![],
+            packet_queue: Vec::new(),
             writer: Writer::with_capacity(MAX_PKT_BUF_SIZE),
             cfg,
         })
@@ -541,9 +542,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// Returns an error if the client can't send or receive packets.
     pub fn try_update(&mut self, delta_ms: f64, link: &mut Link) -> Result<ClientState> {
         self.time += delta_ms;
-        dbg!("recv packets");
         self.recv_packets(link)?;
-        dbg!("send packets");
         self.send_packets(link)?;
         self.update_state();
         Ok(self.state())

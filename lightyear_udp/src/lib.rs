@@ -17,6 +17,9 @@ use core::net::SocketAddr;
 use lightyear_link::{Link, LinkSet};
 use std::sync::Mutex;
 
+#[cfg(feature = "server")]
+pub mod server;
+
 /// Maximum transmission units; maximum size in bytes of a UDP packet
 /// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>
 pub(crate) const MTU: usize = 1472;
@@ -25,35 +28,20 @@ pub(crate) const MTU: usize = 1472;
 pub struct UdpIo {
     local_addr: SocketAddr,
     // TODO: add possibility to set the remote addr
-    sender: UdpSocketBuffer,
-    receiver: UdpSocketBuffer,
+    socket: std::net::UdpSocket,
+    buffer: BytesMut,
 }
 
 impl UdpIo {
     pub fn new(local_addr: SocketAddr) -> std::io::Result<UdpIo> {
-        let udp_socket = std::net::UdpSocket::bind(local_addr)?;
-        let local_addr = udp_socket.local_addr()?;
-        let socket = Arc::new(Mutex::new(udp_socket));
-        socket.as_ref().lock().unwrap().set_nonblocking(true)?;
-        let sender = UdpSocketBuffer {
-            socket: socket.clone(),
-            buffer: BytesMut::with_capacity(MTU),
-        };
-        let receiver = sender.clone();
+        let mut socket = std::net::UdpSocket::bind(local_addr)?;
+        socket.set_nonblocking(true)?;
         Ok(UdpIo {
             local_addr,
-            sender,
-            receiver,
+            socket,
+            buffer: BytesMut::with_capacity(MTU),
         })
     }
-}
-
-#[derive(Clone)]
-pub struct UdpSocketBuffer {
-    /// The underlying UDP Socket. This is wrapped in an Arc<Mutex<>> so that it
-    /// can be shared between threads
-    socket: Arc<Mutex<std::net::UdpSocket>>,
-    buffer: BytesMut,
 }
 
 pub struct UdpPlugin;
@@ -61,55 +49,49 @@ pub struct UdpPlugin;
 impl UdpPlugin {
     fn send(
         mut query: Query<(&mut Link, &mut UdpIo)>
-    ) -> Result {
-        // TODO: parallelize
-        query.iter_mut().try_for_each(|(mut link, mut udp_io)| {
-            // TODO: actually we don't need Arc<Mutex> because the scheduler
-            //  guarantees that we don't access the same socket at the same time
-            let socket = udp_io.sender.socket.lock().unwrap();
+    ) {
+        query.par_iter_mut().for_each(|(mut link, mut udp_io)| {
             if let Some(remote_addr) = link.remote_addr {
-                link.send.drain(..).try_for_each(|payload| {
+                link.send.drain(..).for_each(|payload| {
                     // TODO: how do we get the link address?
                     //   Maybe Link has multiple states?
                     // TODO: we don't want to short-circuit on error
-                    socket.send_to(payload.as_ref(), remote_addr)?;
-                    Ok(())
-                })?;
+                    udp_io.socket.send_to(payload.as_ref(), remote_addr).inspect_err(|e| error!("Error sending UDP packet: {}", e)).ok();
+                });
             }
-            Ok(())
         })
     }
 
     fn receive(
         mut query: Query<(&mut Link, &mut UdpIo)>
-    ) -> Result {
-        // TODO: parallelize
-        query.iter_mut().try_for_each(|(mut link, mut udp_io)| {
+    ) {
+        query.par_iter_mut().for_each(|(mut link, mut udp_io)| {
             // TODO: actually we don't need Arc<Mutex> because the scheduler
             //  guarantees that we don't access the same socket at the same time
             // enable split borrows
             let udp_io = &mut *udp_io;
-            let socket = udp_io.receiver.socket.lock().unwrap();
             loop {
                 // reserve additional space in the buffer
                 // this tries to reclaim space at the start of the buffer if possible
-                udp_io.receiver.buffer.reserve(MTU);
-                match socket.recv_from(&mut udp_io.receiver.buffer) {
+                udp_io.buffer.reserve(MTU);
+                match udp_io.socket.recv_from(&mut udp_io.buffer) {
                     Ok((recv_len, address)) => {
-                        let payload = udp_io.receiver.buffer.split_to(recv_len);
+                        let payload = udp_io.buffer.split_to(recv_len);
                         link.recv.push(payload.freeze());
-                        return Ok(())
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // Nothing to receive on the socket
-                        return Ok(())
+                        return
                     }
-                    Err(e) => return Err(e.into()),
+                    Err(e) => {
+                        error!("Error receiving UDP packet: {}", e);
+                        return
+                    },
                 }
             }
         })
     }
 }
+
 impl Plugin for UdpPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, Self::receive.in_set(LinkSet::Receive));

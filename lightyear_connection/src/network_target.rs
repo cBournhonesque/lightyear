@@ -1,4 +1,4 @@
-use crate::id::ClientId;
+use crate::id::PeerId;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use bevy::platform_support::collections::HashSet;
@@ -19,16 +19,16 @@ pub enum NetworkTarget {
     /// Message sent to no client
     None,
     /// Message sent to all clients except one
-    AllExceptSingle(ClientId),
+    AllExceptSingle(PeerId),
     // TODO: use small vec
     /// Message sent to all clients except for these
-    AllExcept(Vec<ClientId>),
+    AllExcept(Vec<PeerId>),
     /// Message sent to all clients
     All,
     /// Message sent to only these
-    Only(Vec<ClientId>),
+    Only(Vec<PeerId>),
     /// Message sent to only this one client
-    Single(ClientId),
+    Single(PeerId),
 }
 
 impl ToBytes for NetworkTarget {
@@ -77,35 +77,35 @@ impl ToBytes for NetworkTarget {
     {
         match buffer.read_u8()? {
             0 => Ok(NetworkTarget::None),
-            1 => Ok(NetworkTarget::AllExceptSingle(ClientId::from_bytes(
+            1 => Ok(NetworkTarget::AllExceptSingle(PeerId::from_bytes(
                 buffer,
             )?)),
-            2 => Ok(NetworkTarget::AllExcept(Vec::<ClientId>::from_bytes(
+            2 => Ok(NetworkTarget::AllExcept(Vec::<PeerId>::from_bytes(
                 buffer,
             )?)),
             3 => Ok(NetworkTarget::All),
-            4 => Ok(NetworkTarget::Only(Vec::<ClientId>::from_bytes(buffer)?)),
-            5 => Ok(NetworkTarget::Single(ClientId::from_bytes(buffer)?)),
+            4 => Ok(NetworkTarget::Only(Vec::<PeerId>::from_bytes(buffer)?)),
+            5 => Ok(NetworkTarget::Single(PeerId::from_bytes(buffer)?)),
             _ => Err(SerializationError::InvalidPacketType),
         }
     }
 }
 
-impl Extend<ClientId> for NetworkTarget {
-    fn extend<T: IntoIterator<Item = ClientId>>(&mut self, iter: T) {
+impl Extend<PeerId> for NetworkTarget {
+    fn extend<T: IntoIterator<Item =PeerId>>(&mut self, iter: T) {
         self.union(&iter.into_iter().collect::<NetworkTarget>());
     }
 }
 
-impl FromIterator<ClientId> for NetworkTarget {
-    fn from_iter<T: IntoIterator<Item = ClientId>>(iter: T) -> Self {
-        let clients: Vec<ClientId> = iter.into_iter().collect();
+impl FromIterator<PeerId> for NetworkTarget {
+    fn from_iter<T: IntoIterator<Item =PeerId>>(iter: T) -> Self {
+        let clients: Vec<PeerId> = iter.into_iter().collect();
         NetworkTarget::from(clients)
     }
 }
 
-impl From<Vec<ClientId>> for NetworkTarget {
-    fn from(value: Vec<ClientId>) -> Self {
+impl From<Vec<PeerId>> for NetworkTarget {
+    fn from(value: Vec<PeerId>) -> Self {
         match value.len() {
             0 => NetworkTarget::None,
             1 => NetworkTarget::Single(value[0]),
@@ -124,7 +124,7 @@ impl NetworkTarget {
         }
     }
 
-    pub fn from_exclude(client_ids: impl IntoIterator<Item = ClientId>) -> Self {
+    pub fn from_exclude(client_ids: impl IntoIterator<Item =PeerId>) -> Self {
         let client_ids = client_ids.into_iter().collect::<Vec<_>>();
         match client_ids.len() {
             0 => NetworkTarget::All,
@@ -134,7 +134,7 @@ impl NetworkTarget {
     }
 
     /// Return true if we should replicate to the specified client
-    pub fn targets(&self, client_id: &ClientId) -> bool {
+    pub fn targets(&self, client_id: &PeerId) -> bool {
         match self {
             NetworkTarget::All => true,
             NetworkTarget::AllExceptSingle(single) => client_id != single,
@@ -396,9 +396,9 @@ mod tests {
 
     #[test]
     fn test_exclude() {
-        let client_0 = ClientId::Netcode(0);
-        let client_1 = ClientId::Netcode(1);
-        let client_2 = ClientId::Netcode(2);
+        let client_0 = PeerId::Netcode(0);
+        let client_1 = PeerId::Netcode(1);
+        let client_2 = PeerId::Netcode(2);
         let mut target = NetworkTarget::All;
         assert!(target.targets(&client_0));
         target.exclude(&NetworkTarget::Only(vec![client_1, client_2]));
@@ -431,9 +431,9 @@ mod tests {
 
     #[test]
     fn test_intersection() {
-        let client_0 = ClientId::Netcode(0);
-        let client_1 = ClientId::Netcode(1);
-        let client_2 = ClientId::Netcode(2);
+        let client_0 = PeerId::Netcode(0);
+        let client_1 = PeerId::Netcode(1);
+        let client_2 = PeerId::Netcode(2);
         let mut target = NetworkTarget::All;
         target.intersection(&NetworkTarget::AllExcept(vec![client_1, client_2]));
         assert_eq!(target, NetworkTarget::AllExcept(vec![client_1, client_2]));
@@ -466,9 +466,9 @@ mod tests {
 
     #[test]
     fn test_union() {
-        let client_0 = ClientId::Netcode(0);
-        let client_1 = ClientId::Netcode(1);
-        let client_2 = ClientId::Netcode(2);
+        let client_0 = PeerId::Netcode(0);
+        let client_1 = PeerId::Netcode(1);
+        let client_2 = PeerId::Netcode(2);
         let mut target = NetworkTarget::All;
         target.union(&NetworkTarget::AllExcept(vec![client_1, client_2]));
         assert_eq!(target, NetworkTarget::All);

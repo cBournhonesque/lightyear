@@ -7,6 +7,7 @@ This crate provides abstractions for sending and receiving raw bytes over the ne
 
 extern crate alloc;
 
+#[cfg(test)]
 mod client_server;
 pub mod protocol;
 pub mod stepper;

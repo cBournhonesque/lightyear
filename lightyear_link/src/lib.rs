@@ -25,6 +25,8 @@ pub type SendPayload = Bytes;
 
 // We will have one component Io<Type> per actual io (webtransport, UDP, etc.)
 
+// TODO: should we have marker components LinkConnecting, LinkConnected, etc.?
+
 /// Represents a link between two peers, allowing for sending and receiving data.
 /// This only stores the payloads to be sent and received, the actual bytes will be sent by an Io component
 #[derive(Component, Default)]

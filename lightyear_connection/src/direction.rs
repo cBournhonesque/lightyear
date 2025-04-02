@@ -50,7 +50,7 @@ impl<C: Channel> AppChannelDirectionExt for ChannelRegistration<'_, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::id::ClientId;
+    use crate::id::PeerId;
     use bevy::prelude::{default, Entity};
     use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelRegistry, ChannelSettings, Transport};
 
@@ -91,7 +91,7 @@ mod tests {
 
         let entity_mut = app.world_mut().spawn(ClientOf{
             server: Entity::PLACEHOLDER,
-            id: ClientId::Server,
+            id: PeerId::Server,
         });
         let transport = entity_mut.get::<Transport>().unwrap();
 
@@ -123,7 +123,7 @@ mod tests {
 
         let entity_mut = app.world_mut().spawn(ClientOf{
             server: Entity::PLACEHOLDER,
-            id: ClientId::Server,
+            id: PeerId::Server,
         });
         entity_mut.get::<MessageReceiver<MessageClientToServer>>().unwrap();
         entity_mut.get::<MessageSender<MessageServerToClient>>().unwrap();

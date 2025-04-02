@@ -130,13 +130,13 @@ extern crate alloc;
 extern crate core;
 
 #[cfg(feature = "client")]
-pub use client::{ClientConfig, ClientState, NetcodeClient};
+pub use client::{ClientConfig, ClientState};
 #[cfg(feature = "client")]
 pub use client_plugin::NetcodeClient;
 pub use crypto::{generate_key, try_generate_key, Key};
 pub use error::{Error, Result};
 #[cfg(feature = "server")]
-pub use server::{Callback, ClientId, NetcodeServer, ServerConfig};
+pub use server::{Callback, ClientId, ServerConfig};
 #[cfg(feature = "server")]
 pub use server_plugin::NetcodeServer;
 pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
@@ -158,7 +158,7 @@ pub mod client_plugin;
 
 #[cfg(feature = "server")]
 pub mod server_plugin;
-mod auth;
+pub mod auth;
 
 pub(crate) const MAC_BYTES: usize = 16;
 pub(crate) const MAX_PKT_BUF_SIZE: usize = 1300;

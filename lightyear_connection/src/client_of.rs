@@ -1,4 +1,5 @@
-use crate::id::ClientId;
+use crate::client::Connecting;
+use crate::id::PeerId;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::error::HandleError;
 use bevy::ecs::error::{ignore, panic, CommandWithEntity};
@@ -22,12 +23,16 @@ use alloc::{vec, vec::Vec};
 #[cfg_attr(feature = "bevy_reflect", reflect(Component, FromWorld, Default))]
 pub struct Server {
     /// The server entity that this client is connected to
-    clients: Vec<Entity>,
-    client_map: HashMap<ClientId, Entity>,
+    ///
+    /// Accessing this directly is unsafe, and is only necessary to solve some issues with split borrows
+    pub clients: Vec<Entity>,
+    pub client_map: HashMap<PeerId, Entity>,
 }
 
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 #[require(MessageManager)]
+// every ClientOf starts as Connecting until the server confirms the connection
+#[require(Connecting)]
 #[component(on_insert = ClientOf::on_insert)]
 #[component(on_replace = ClientOf::on_replace)]
 #[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
@@ -39,7 +44,7 @@ pub struct ClientOf {
     /// The server entity that this client is connected to
     pub server: Entity,
     /// The client id of the client
-    pub id: ClientId,
+    pub id: PeerId,
 }
 
 /// We implement Relationship manually because we also want to update information related to the ClientId in the `Server` component
@@ -56,7 +61,7 @@ impl Relationship for ClientOf {
 }
 
 impl ClientOf {
-    fn id(&self) -> ClientId {
+    fn id(&self) -> PeerId {
         self.id
     }
 
@@ -176,8 +181,12 @@ impl RelationshipTarget for Server {
 
 impl Server {
 
+    pub fn get_client(&self, id: PeerId) -> Option<Entity> {
+        self.client_map.get(&id).copied()
+    }
+
     // SAFETY: this should only be called as part of the relationship hooks
-    unsafe fn add_client(&mut self, client: Entity, id: ClientId) {
+    unsafe fn add_client(&mut self, client: Entity, id: PeerId) {
         self.clients.push(client);
         self.client_map.insert(id, client);
     }

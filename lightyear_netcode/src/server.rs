@@ -95,6 +95,7 @@ struct Connection {
     sequence: u64,
 }
 
+
 impl Connection {
     fn confirm(&mut self) {
         self.confirmed = true;
@@ -250,7 +251,7 @@ pub struct ServerConfig<Ctx> {
     client_timeout_secs: i32,
     connection_request_handler: Arc<dyn ConnectionRequestHandler>,
     server_addr: SocketAddr,
-    context: Ctx,
+    pub(crate) context: Ctx,
     on_connect: Option<Callback<Ctx>>,
     on_disconnect: Option<Callback<Ctx>>,
 }
@@ -384,7 +385,7 @@ pub struct NetcodeServer<Ctx = ()> {
     protocol_id: u64,
     conn_cache: ConnectionCache,
     token_entries: TokenEntries,
-    cfg: ServerConfig<Ctx>,
+    pub(crate) cfg: ServerConfig<Ctx>,
     // We use a Writer (wrapper around BytesMut) here because we will keep re-using the
     // same allocation for the bytes we send.
     // 1. We create an array on the stack of size MAX_PACKET_SIZE
@@ -454,6 +455,13 @@ impl<Ctx> NetcodeServer<Ctx> {
     }
 }
 
+pub(crate) enum ConnectionUpdate {
+    /// A new connection was established
+    Connected(ClientId, SocketAddr),
+    /// A connection was closed
+    Disconnected(ClientId, SocketAddr),
+}
+
 impl<Ctx> NetcodeServer<Ctx> {
     const ALLOWED_PACKETS: u8 = 1 << Packet::REQUEST
         | 1 << Packet::RESPONSE
@@ -491,7 +499,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         addr: SocketAddr,
         packet: Packet,
         sender: &mut LinkSender,
-    ) -> Result<()> {
+    ) -> Result<Option<ConnectionUpdate>> {
         let client_id = self.conn_cache.find_by_addr(&addr).map(|(id, _)| id);
         trace!(
             "server received {} from {}",
@@ -501,26 +509,30 @@ impl<Ctx> NetcodeServer<Ctx> {
                 .unwrap_or_else(|| addr.to_string())
         );
         match packet {
-            Packet::Request(packet) => self.process_connection_request(addr, packet, sender),
+            Packet::Request(packet) => {
+                self.process_connection_request(addr, packet, sender)?;
+                Ok(None)
+            },
             Packet::Response(packet) => self.process_connection_response(addr, packet, sender),
             Packet::KeepAlive(_) => {
                 self.touch_client(client_id);
-                Ok(())
+                Ok(None)
             }
             Packet::Payload(packet) => {
                 self.touch_client(client_id);
                 if let Some(idx) = client_id {
                     self.conn_cache.packet_queue.push((packet.buf, idx));
                 }
-                Ok(())
+                Ok(None)
             }
             Packet::Disconnect(_) => {
                 if let Some(idx) = client_id {
                     debug!("server disconnected client {idx}");
                     self.on_disconnect(idx, addr);
                     self.conn_cache.remove(idx);
+                    return Ok(Some(ConnectionUpdate::Disconnected(idx, addr)))
                 }
-                Ok(())
+                Ok(None)
             }
             _ => unreachable!("packet should have been filtered out by `ALLOWED_PACKETS`"),
         }
@@ -548,7 +560,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             .conn_cache
             .clients
             .get_mut(&id)
-            .ok_or(Error::ClientNotFound(id::ClientId::Netcode(id)))?;
+            .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?;
 
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
@@ -597,7 +609,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             .find_by_id(token.client_id)
             .is_some_and(|conn| conn.is_connected())
         {
-            return Err(Error::ClientIdInUse(id::ClientId::Netcode(token.client_id)));
+            return Err(Error::ClientIdInUse(id::PeerId::Netcode(token.client_id)));
         };
         let entry = TokenEntry {
             time: self.time,
@@ -607,7 +619,7 @@ impl<Ctx> NetcodeServer<Ctx> {
                 .try_into()?,
         };
         if !self.token_entries.find_or_insert(entry) {
-            return Err(Error::ConnectTokenInUse(id::ClientId::Netcode(
+            return Err(Error::ConnectTokenInUse(id::PeerId::Netcode(
                 token.client_id,
             )));
         };
@@ -617,19 +629,19 @@ impl<Ctx> NetcodeServer<Ctx> {
                 token.server_to_client_key,
                 sender,
             )?;
-            return Err(Error::ServerIsFull(id::ClientId::Netcode(token.client_id)));
+            return Err(Error::ServerIsFull(id::PeerId::Netcode(token.client_id)));
         };
         if let Some(denied_reason) = self
             .cfg
             .connection_request_handler
-            .handle_request(id::ClientId::Netcode(token.client_id))
+            .handle_request(id::PeerId::Netcode(token.client_id))
         {
             self.send_to_addr(
                 DeniedPacket::create(denied_reason),
                 token.server_to_client_key,
                 sender,
             )?;
-            return Err(Error::Denied(id::ClientId::Netcode(token.client_id)));
+            return Err(Error::Denied(id::PeerId::Netcode(token.client_id)));
         }
 
         let Ok(challenge_token_encrypted) = ChallengeToken {
@@ -637,7 +649,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             user_data: token.user_data,
         }
         .encrypt(self.challenge_sequence, &self.challenge_key) else {
-            return Err(Error::ConnectTokenEncryptionFailure(id::ClientId::Netcode(
+            return Err(Error::ConnectTokenEncryptionFailure(id::PeerId::Netcode(
                 token.client_id,
             )));
         };
@@ -665,7 +677,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         from_addr: SocketAddr,
         mut packet: ResponsePacket,
         sender: &mut LinkSender,
-    ) -> Result<()> {
+    ) -> Result<Option<ConnectionUpdate>> {
         let Ok(challenge_token) =
             ChallengeToken::decrypt(&mut packet.token, packet.sequence, &self.challenge_key)
         else {
@@ -674,13 +686,13 @@ impl<Ctx> NetcodeServer<Ctx> {
 
         let id: ClientId = challenge_token.client_id;
         let Some(conn) = self.conn_cache.find_by_id(id) else {
-            return Err(Error::UnknownClient(id::ClientId::Netcode(id)));
+            return Err(Error::UnknownClient(id::PeerId::Netcode(id)));
         };
         if conn.is_connected() {
             // TODO: most of the time this error can happen because we receive older 'ConnectionResponse' messages
             // even though the client is already connected. Should we just ignore this error?
             // return Err(Error::ClientIdInUse(id::ClientId::Netcode(id)));
-            return Ok(());
+            return Ok(None);
         };
 
         if self.num_connected_clients() >= MAX_CLIENTS {
@@ -688,7 +700,7 @@ impl<Ctx> NetcodeServer<Ctx> {
                 .conn_cache
                 .clients
                 .get(&id)
-                .ok_or(Error::ClientNotFound(id::ClientId::Netcode(id)))?
+                .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?
                 .send_key;
 
             self.send_to_addr(
@@ -696,14 +708,14 @@ impl<Ctx> NetcodeServer<Ctx> {
                 send_key,
                 sender,
             )?;
-            return Err(Error::ServerIsFull(id::ClientId::Netcode(id)));
+            return Err(Error::ServerIsFull(id::PeerId::Netcode(id)));
         }
 
         let client = self
             .conn_cache
             .clients
             .get_mut(&id)
-            .ok_or(Error::ClientNotFound(id::ClientId::Netcode(id)))?;
+            .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?;
 
         client.connect();
         client.last_send_time = self.time;
@@ -714,7 +726,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         );
         self.send_to_client(KeepAlivePacket::create(id), id, sender)?;
         self.on_connect(id, from_addr);
-        Ok(())
+        Ok(Some(ConnectionUpdate::Connected(id, from_addr)))
     }
     fn check_for_timeouts(&mut self) {
         for id in self.conn_cache.ids() {
@@ -737,7 +749,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     fn send_keepalives(&mut self, sender: &mut LinkSender) -> Result<()> {
         for id in self.conn_cache.ids() {
             let Some(client) = self.conn_cache.clients.get_mut(&id) else {
-                self.handle_client_error(Error::ClientNotFound(id::ClientId::Netcode(id)));
+                self.handle_client_error(Error::ClientNotFound(id::PeerId::Netcode(id)));
                 continue;
             };
             if !client.is_connected() {
@@ -758,10 +770,10 @@ impl<Ctx> NetcodeServer<Ctx> {
         now: u64,
         addr: SocketAddr,
         sender: &mut LinkSender,
-    ) -> Result<()> {
+    ) -> Result<Option<ConnectionUpdate>> {
         if buf.len() <= 1 {
             // Too small to be a packet
-            return Ok(());
+            return Ok(None);
         }
         let mut reader = io::Cursor::new(buf);
         let first_byte = reader.read_u8()?;
@@ -775,7 +787,7 @@ impl<Ctx> NetcodeServer<Ctx> {
                 self.conn_cache
                     .clients
                     .get(&client_id)
-                    .ok_or(Error::ClientNotFound(id::ClientId::Netcode(client_id)))?
+                    .ok_or(Error::ClientNotFound(id::PeerId::Netcode(client_id)))?
                     .receive_key,
                 self.conn_cache.replay_protection.get_mut(&client_id),
             ),
@@ -907,13 +919,13 @@ impl<Ctx> NetcodeServer<Ctx> {
             return Err(Error::SizeMismatch(MAX_PACKET_SIZE, buf.len()));
         }
         let Some(conn) = self.conn_cache.clients.get_mut(&client_id) else {
-            return Err(Error::ClientNotFound(id::ClientId::Netcode(client_id)));
+            return Err(Error::ClientNotFound(id::PeerId::Netcode(client_id)));
         };
         if !conn.is_connected() {
             // since there is no way to obtain a client index of clients that are not connected,
             // there is no straight-forward way for a user to send a packet to a non-connected client.
             // still, in case a user somehow manages to obtain such index, we'll return an error.
-            return Err(Error::ClientNotConnected(id::ClientId::Netcode(client_id)));
+            return Err(Error::ClientNotConnected(id::PeerId::Netcode(client_id)));
         }
         if !conn.is_confirmed() {
             // send a keep-alive packet to the client to confirm the connection
