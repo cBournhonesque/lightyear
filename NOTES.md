@@ -1,3 +1,8 @@
+# Status:
+
+- WebTransport: ai-generated, to be verified
+
+
 # Replication
 
 - Maybe the core replication plugin is only for a single connection 
@@ -25,9 +30,15 @@ SEND FLOW
 - With ClientOf, we find the ServerUdpIO on the Server
 - send
 
-# Status:
+- each Link has a remote PeerId and a local PeerId. The default is PeerId::Entity, where we just rely on the Entities for identification
+- Peer is the term we use for client-agnostic IO
+- There is client-IO (connects only to one peer) or Server-IO (listens for clients to connect)
+  - server: once we get a client, we spawn a new ClientOf and we assign a PeerId. The PeerId can also just be the PeerId::Entity (in which case we use the entity), for example for Channels
+  - client/peer: once we get connected, we get a PeerId for the remote and for the Local
+- Some IOs directly give you a PeerId: Steam
 
-- WebTransport: ai-generated, to be verified
+- Other IOs give you an initial PeerId (for example WebTransport gives you a SocketAddr). You can keep using that, or if you're in client-server mode you can apply the Netcode layer
+  to replace that PeerId on the link with a Netcode-related id: PeerId::Netcode(u64)
 
 
 # Lightyear client
