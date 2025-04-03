@@ -18,7 +18,7 @@ use super::{
 use bevy::prelude::Resource;
 use lightyear_connection::client::{ConnectionError, ConnectionState};
 use lightyear_connection::id;
-use lightyear_link::{Link, RecvPayload, SendPayload};
+use lightyear_link::{Link, LinkReceiver, RecvPayload, SendPayload};
 use lightyear_serde::writer::Writer;
 use tracing::{debug, error, info, trace};
 
@@ -189,7 +189,6 @@ pub struct NetcodeClient<Ctx = ()> {
     replay_protection: ReplayProtection,
     should_disconnect: bool,
     should_disconnect_state: ClientState,
-    send_queue: Vec<SendPayload>,
     packet_queue: Vec<RecvPayload>,
     // We use a Writer (wrapper around BytesMut) here because we will keep re-using the
     // same allocation for the bytes we send.
@@ -230,7 +229,6 @@ impl<Ctx> NetcodeClient<Ctx> {
             replay_protection: ReplayProtection::new(),
             should_disconnect: false,
             should_disconnect_state: ClientState::Disconnected,
-            send_queue: vec![],
             packet_queue: Vec::new(),
             writer: Writer::with_capacity(MAX_PKT_BUF_SIZE),
             cfg,
@@ -372,7 +370,7 @@ impl<Ctx> NetcodeClient<Ctx> {
     pub fn server_addr(&self) -> SocketAddr {
         self.token.server_addresses[self.server_addr_idx]
     }
-    fn process_packet(&mut self, packet: Packet) -> Result<()> {
+    fn process_packet(&mut self, packet: Packet, receiver: &mut LinkReceiver) -> Result<()> {
         // if addr != self.server_addr() {
         //     debug!(?addr, server_addr = ?self.server_addr(), "wrong addr");
         //     return Ok(());
@@ -407,7 +405,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             (Packet::Payload(pkt), ClientState::Connected) => {
                 trace!("client received payload packet from server");
                 // TODO: control the size of the packet queue?
-                self.packet_queue.push(pkt.buf);
+                receiver.push(pkt.buf);
             }
             (Packet::Disconnect(_), ClientState::Connected) => {
                 debug!("client received disconnect packet from server");
@@ -464,7 +462,7 @@ impl<Ctx> NetcodeClient<Ctx> {
         self.reset(new_state);
     }
 
-    fn recv_packet(&mut self, buf: RecvPayload, now: u64) -> Result<()> {
+    fn recv_packet(&mut self, buf: RecvPayload, now: u64, receiver: &mut LinkReceiver) -> Result<()> {
         if buf.len() <= 1 {
             // Too small to be a packet
             return Ok(());
@@ -487,18 +485,15 @@ impl<Ctx> NetcodeClient<Ctx> {
                 return Ok(());
             }
         };
-        self.process_packet(packet)
+        self.process_packet(packet, receiver)
     }
 
     fn recv_packets(&mut self, link: &mut Link) -> Result<()> {
         // number of seconds since unix epoch
         let now = utils::now()?;
-        link
-            .recv
-            .drain(..).try_for_each(|recv_payload| {
-            // TODO: don't short-circuit errors but store them in a queue or bevy events
-            self.recv_packet(recv_payload, now)
-        })?;
+        while let Some(recv_payload) = link.recv.pop() {
+            self.recv_packet(recv_payload, now, &mut link.recv)?;
+        }
         Ok(())
     }
 
@@ -546,50 +541,6 @@ impl<Ctx> NetcodeClient<Ctx> {
         self.send_packets(link)?;
         self.update_state();
         Ok(self.state())
-    }
-
-    /// Receives a packet from the server, if one is available in the queue.
-    ///
-    /// The packet will be returned as a `Vec<u8>`.
-    ///
-    /// If no packet is available, `None` will be returned.
-    ///
-    /// # Example
-    /// ```
-    /// # use std::net::SocketAddr;
-    /// # use core::time::Duration;
-    /// # use std::thread;
-    /// # use lightyear_link::Link;
-    /// # use lightyear_netcode::{NetcodeClient, NetcodeServer};
-    /// # let server_addr = SocketAddr::from(([127, 0, 0, 1], 40001));
-    /// # let mut server = NetcodeServer::new(0, [0; 32]).unwrap();
-    /// # let token_bytes = server.token(0, server_addr).generate().unwrap().try_into_bytes().unwrap();
-    /// # let mut link = Link::new(server_addr);
-    /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
-    /// client.connect();
-    ///
-    /// let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
-    /// loop {
-    ///     client.update(tick_rate.as_secs_f64() / 1000.0, &mut link);
-    ///     if let Some(packet) = client.recv() {
-    ///         // ...
-    ///     }
-    ///     # break;
-    ///     thread::sleep(tick_rate);
-    /// }
-    /// ```
-    pub fn recv(&mut self) -> impl Iterator<Item=RecvPayload>  {
-        self.packet_queue.drain(..)
-    }
-
-    pub(crate) fn buffer_send(&mut self, buf: SendPayload) {
-        self.send_queue.push(buf);
-    }
-
-    pub(crate) fn send_buffered(&mut self, link: &mut Link) -> Result<()> {
-        self.send_queue.drain(..).try_for_each(|payload| {
-            self.send(payload, link)
-        })
     }
 
     /// Sends a packet to the server.

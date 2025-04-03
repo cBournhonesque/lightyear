@@ -25,6 +25,9 @@ pub mod server;
 pub(crate) const MTU: usize = 1472;
 
 #[derive(Component)]
+#[require(Link)]
+// There is no linking phase
+#[require(Linked)]
 pub struct UdpIo {
     local_addr: SocketAddr,
     // TODO: add possibility to set the remote addr

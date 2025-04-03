@@ -17,7 +17,7 @@ use core::net::SocketAddr;
 use lightyear_connection::client::Disconnected;
 use lightyear_connection::client_of::{ClientOf, Server};
 use lightyear_connection::id::PeerId;
-use lightyear_link::{Link, LinkSet};
+use lightyear_link::{Link, LinkSet, Linked, Unlinked};
 
 /// Maximum transmission units; maximum size in bytes of a UDP packet
 /// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>
@@ -49,8 +49,8 @@ pub struct ServerUdpPlugin;
 impl ServerUdpPlugin {
     fn send(
         mut server_query: Query<(&mut ServerUdpIo, &Server)>,
-        mut link_query: Query<&mut Link, Without<Disconnected>>
-    ) -> Result {
+        mut link_query: Query<&mut Link, Without<Unlinked>>
+    ) {
         server_query.par_iter_mut().for_each(|(mut server_udp_io, server)| {
             server.collection().iter().for_each(|client_entity| {
                 let Some(mut link) = link_query.get_mut(*client_entity).ok() else {
@@ -94,7 +94,7 @@ impl ServerUdpPlugin {
                                 c.spawn((ClientOf {
                                     server: server_entity,
                                     id: peer_id,
-                                }, link));
+                                }, link, Linked));
                             });
                             continue
                         };

@@ -117,16 +117,21 @@ impl NetcodeServerPlugin {
                     return
                 };
 
-                link.send.drain(..).try_for_each(|payload| {
-                    netcode_server.inner.buffer_send(payload, client_id)
-                }).inspect_err(|e| {
-                    error!("Error sending packet: {:?}", e);
-                }).ok();
-
-                // we don't want to short-circuit on error
-                netcode_server.inner.send_buffered(link.send.as_mut()).inspect_err(|e| {
-                    error!("Error sending packet: {:?}", e);
-                }).ok();
+                while let Some(payload) = link.send.pop() {
+                    netcode_server.inner.send(payload, client_id, &mut link.send).inspect_err(|e| {
+                        error!("Error sending packet: {:?}", e);
+                    }).ok();
+                }
+                // link.send.drain(..).try_for_each(|payload| {
+                //     netcode_server.inner.buffer_send(payload, client_id)
+                // }).inspect_err(|e| {
+                //     error!("Error sending packet: {:?}", e);
+                // }).ok();
+                //
+                // // we don't want to short-circuit on error
+                // netcode_server.inner.send_buffered(link.send.as_mut()).inspect_err(|e| {
+                //     error!("Error sending packet: {:?}", e);
+                // }).ok();
             });
         })
     }
@@ -184,19 +189,6 @@ impl NetcodeServerPlugin {
                         // c.entity(entity).remove::<Connected>().insert::<Disconnecting>();
                     })
                 })
-            });
-
-            // Buffer the packets received from the server into the Transport
-            netcode_server.inner.recv().for_each(|(packet, client_id)| {
-                // TODO: get the correct client_entity from the client_id
-                //  or better yet, make the server return a Client Entity directly
-                //  (the server maintains an internal mapping)
-                let client_entity = Entity::PLACEHOLDER;
-                let Ok((_, mut link, _)) = link_query.get_mut(client_entity) else {
-                    error!("Client {:?} not found", client_id);
-                    return;
-                };
-                link.recv.push(packet);
             });
         })
     }

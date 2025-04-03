@@ -47,7 +47,7 @@ impl TransportPlugin {
         mut query: Query<(Entity, &mut Link, &mut Transport)>,
     ) {
         query.par_iter_mut().for_each(|(entity, mut link, mut transport)| {
-            link.recv.drain(..).try_for_each(|packet| {
+            link.recv.drain().try_for_each(|packet| {
                 let mut cursor = Reader::from(packet);
 
                 // Parse the packet

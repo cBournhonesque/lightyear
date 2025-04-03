@@ -93,14 +93,19 @@ impl NetcodeClientPlugin {
         mut query: Query<(&mut Link, &mut NetcodeClient)>,
     ) {
         query.par_iter_mut().for_each(|(mut link, mut client)| {
-            link.send.drain(..).for_each(|payload| {
-                client.inner.buffer_send(payload)
-            });
-
-            // we don't want to short-circuit on error
-            client.inner.send_buffered(link.as_mut()).inspect_err(|e| {
-                error!("Error sending packet: {:?}", e);
-            }).ok();
+            while let Some(payload) = link.send.pop() {
+                client.inner.send(payload, link.as_mut()).inspect_err(|e| {
+                    error!("Error sending packet: {:?}", e);
+                }).ok();
+            }
+            // link.send.drain(..).for_each(|payload| {
+            //     client.inner.buffer_send(payload)
+            // });
+            //
+            // // we don't want to short-circuit on error
+            // client.inner.send_buffered(link.as_mut()).inspect_err(|e| {
+            //     error!("Error sending packet: {:?}", e);
+            // }).ok();
         })
     }
 
@@ -120,15 +125,11 @@ impl NetcodeClientPlugin {
                     error!("Error receiving packet: {:?}", e);
                 })
                 .ok() {
+                error!("Adding Connected on client");
                 parallel_commands.command_scope(|mut commands| {
                     commands.entity(entity).insert(Connected);
                 });
             }
-
-            // Buffer the packets received from the Connection back into the Link
-            client.inner.recv().for_each(|payload| {
-                link.recv.push(payload);
-            });
         })
     }
 

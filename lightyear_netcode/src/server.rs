@@ -125,12 +125,6 @@ struct ConnectionCache {
     // we are not using a free-list here to not allocate memory up-front, since `ReplayProtection` is biggish (~2kb)
     replay_protection: HashMap<ClientId, ReplayProtection>,
 
-    // packets that are buffered and ready to be sent
-    send_queue: Vec<(SendPayload, ClientId)>,
-
-    // packet queue for all clients
-    packet_queue: Vec<(RecvPayload, ClientId)>,
-
     // corresponds to the server time
     time: f64,
 }
@@ -141,8 +135,6 @@ impl ConnectionCache {
             clients: HashMap::default(),
             client_id_map: HashMap::default(),
             replay_protection: HashMap::default(),
-            send_queue: Vec::with_capacity(MAX_CLIENTS * 2),
-            packet_queue: Vec::with_capacity(MAX_CLIENTS * 2),
             time: server_time,
         }
     }
@@ -499,6 +491,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         addr: SocketAddr,
         packet: Packet,
         sender: &mut LinkSender,
+        receiver: &mut LinkReceiver,
     ) -> Result<Option<ConnectionUpdate>> {
         let client_id = self.conn_cache.find_by_addr(&addr).map(|(id, _)| id);
         trace!(
@@ -521,7 +514,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             Packet::Payload(packet) => {
                 self.touch_client(client_id);
                 if let Some(idx) = client_id {
-                    self.conn_cache.packet_queue.push((packet.buf, idx));
+                    receiver.push(packet.buf);
                 }
                 Ok(None)
             }
@@ -770,6 +763,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         now: u64,
         addr: SocketAddr,
         sender: &mut LinkSender,
+        receiver: &mut LinkReceiver,
     ) -> Result<Option<ConnectionUpdate>> {
         if buf.len() <= 1 {
             // Too small to be a packet
@@ -806,7 +800,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             Self::ALLOWED_PACKETS,
         )?;
 
-        self.process_packet(addr, packet, sender)
+        self.process_packet(addr, packet, sender, receiver)
     }
 
     fn recv_packets(
@@ -818,11 +812,11 @@ impl<Ctx> NetcodeServer<Ctx> {
         let now = super::utils::now()?;
 
         // process every packet regardless of success/failure
-        receiver.drain(..).for_each(|payload| {
-            if let Err(e) = self.recv_packet(payload, now, remote_addr, sender) {
+        while let Some(payload) = receiver.pop() {
+            if let Err(e) = self.recv_packet(payload, now, remote_addr, sender, receiver) {
                 self.handle_client_error(e);
             }
-        });
+        }
 
         Ok(())
     }
@@ -866,48 +860,6 @@ impl<Ctx> NetcodeServer<Ctx> {
         self.recv_packets(remote_addr, sender, receiver)?;
         self.send_keepalives(sender)?;
         Ok(self.client_errors.drain(..).collect())
-    }
-
-    /// Receives a packet from a client, if one is available in the queue.
-    ///
-    /// The packet will be returned as a `Vec<u8>` along with the client index of the sender.
-    ///
-    /// If no packet is available, `None` will be returned.
-    ///
-    /// # Example
-    /// ```
-    /// # use std::net::{SocketAddr, Ipv4Addr};
-    /// # use bevy::platform_support::time::Instant;
-    /// # use lightyear_link::Link;
-    /// # use lightyear_netcode::{NetcodeServer, MAX_PACKET_SIZE};
-    /// # let protocol_id = 0x123456789ABCDEF0;
-    /// # let private_key = [42u8; 32];
-    /// # let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
-    /// # let mut link = Link::new(SocketAddr::from(([127, 0, 0, 1], 12345)));
-    /// #
-    /// let start = Instant::now();
-    /// loop {
-    ///    let now = start.elapsed().as_secs_f64();
-    ///    server.update(now, &mut link);
-    ///    let mut packet_buf = [0u8; MAX_PACKET_SIZE];
-    ///    while let Some((packet, from)) = server.recv() {
-    ///        // ...
-    ///    }
-    ///    # break;
-    /// }
-    pub fn recv(&mut self) -> impl Iterator<Item=(RecvPayload, ClientId)> {
-        self.conn_cache.packet_queue.drain(..)
-    }
-
-    pub(crate) fn buffer_send(&mut self, buf: SendPayload, client_id: ClientId) -> Result<()> {
-        self.conn_cache.send_queue.push((buf, client_id));
-        Ok(())
-    }
-
-    pub(crate) fn send_buffered(&mut self, sender: &mut LinkSender) -> Result<()> {
-        self.conn_cache.send_queue.drain(..).try_for_each(|(buf, client_id)| {
-            self.send(buf, client_id, sender)
-        })
     }
 
     /// Sends a packet to a client.

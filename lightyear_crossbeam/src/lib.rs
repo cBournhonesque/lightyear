@@ -55,7 +55,7 @@ impl CrossbeamPlugin {
     ) -> Result {
         // TODO: parallelize by using crossbeam channels inside Link!
         query.iter_mut().try_for_each(|(mut link, mut crossbeam_io)| {
-            link.send.drain(..).try_for_each(|payload| {
+            link.send.drain().try_for_each(|payload| {
                 crossbeam_io.sender
                     .try_send(payload)
             })
