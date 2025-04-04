@@ -1,4 +1,5 @@
 use bevy::asset::AsyncWriteExt;
+use bevy::ecs::error::trace;
 use bytes::BytesMut;
 use core::mem::size_of;
 #[cfg(feature = "std")]
@@ -11,12 +12,13 @@ use {
 
 use super::{bytes::Bytes, crypto::{self, Key}, error::Error as NetcodeError, replay::ReplayProtection, token::{ChallengeToken, ConnectTokenPrivate}, ClientId, MAC_BYTES, MAX_PKT_BUF_SIZE, NETCODE_VERSION};
 use chacha20poly1305::XNonce;
-use lightyear_connection::server::DeniedReason;
 use lightyear_link::{RecvPayload, SendPayload};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::{WriteInteger, Writer};
 use lightyear_serde::{SerializationError, ToBytes};
-use tracing::debug;
+use tracing::{debug, trace};
+
+use lightyear_connection::server::DeniedReason;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -152,120 +154,121 @@ impl Bytes for RequestPacket {
     }
 }
 
-pub struct DeniedPacket {
-    pub reason: DeniedReason,
-}
 
-impl DeniedPacket {
-    pub fn create(reason: DeniedReason) -> Packet {
-        Packet::Denied(DeniedPacket { reason })
-    }
-}
-
-impl Bytes for DeniedReason {
-    type Error = io::Error;
-
-    fn write_to(&self, writer: &mut impl WriteInteger) -> Result<(), Self::Error> {
-        match self {
-            DeniedReason::ServerFull => {
-                writer.write_u8(0)?;
-            }
-            DeniedReason::Banned => {
-                writer.write_u8(1)?;
-            }
-            DeniedReason::InternalError => {
-                writer.write_u8(2)?;
-            }
-            DeniedReason::AlreadyConnected => {
-                writer.write_u8(3)?;
-            }
-            DeniedReason::TokenAlreadyUsed => {
-                writer.write_u8(4)?;
-            }
-            DeniedReason::InvalidToken => {
-                writer.write_u8(5)?;
-            }
-            DeniedReason::Custom(reason) => {
-                writer.write_u8(6)?;
-                // the reason cannot exceed u8::MAX in size
-                if reason.len() > u8::MAX as usize {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "custom denied reason too long",
-                    ));
-                }
-                writer.write_u8(reason.len() as u8)?;
-                let num_write = writer.write(reason.as_bytes())?;
-                if num_write != reason.len() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "invalid denied reason",
-                    ));
-                }
-            }
-        }
-        Ok(())
+    pub struct DeniedPacket {
+        pub reason: DeniedReason,
     }
 
-    fn read_from(reader: &mut impl ReadInteger) -> Result<Self, Self::Error> {
-        let variant = reader.read_u8()?;
-        if variant == 0 {
-            Ok(DeniedReason::ServerFull)
-        } else if variant == 1 {
-            Ok(DeniedReason::Banned)
-        } else if variant == 2 {
-            Ok(DeniedReason::InternalError)
-        } else if variant == 3 {
-            Ok(DeniedReason::AlreadyConnected)
-        } else if variant == 4 {
-            Ok(DeniedReason::TokenAlreadyUsed)
-        } else if variant == 5 {
-            Ok(DeniedReason::InvalidToken)
-        } else if variant == 6 {
-            let len = reader.read_u8()? as usize;
-            let mut string_buf = vec![0; len];
-            reader.read_exact(&mut string_buf)?;
-            let reason_str = String::from_utf8(string_buf)
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid denied reason"))?;
-            Ok(DeniedReason::Custom(reason_str))
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "invalid denied reason",
-            ))
+    impl DeniedPacket {
+        pub fn create(reason: DeniedReason) -> Packet {
+            Packet::Denied(DeniedPacket { reason })
         }
     }
-}
 
-impl ToBytes for DeniedPacket {
-    fn bytes_len(&self) -> usize {
-        todo!()
+    impl Bytes for DeniedReason {
+        type Error = io::Error;
+
+        fn write_to(&self, writer: &mut impl WriteInteger) -> Result<(), Self::Error> {
+            match self {
+                DeniedReason::ServerFull => {
+                    writer.write_u8(0)?;
+                }
+                DeniedReason::Banned => {
+                    writer.write_u8(1)?;
+                }
+                DeniedReason::InternalError => {
+                    writer.write_u8(2)?;
+                }
+                DeniedReason::AlreadyConnected => {
+                    writer.write_u8(3)?;
+                }
+                DeniedReason::TokenAlreadyUsed => {
+                    writer.write_u8(4)?;
+                }
+                DeniedReason::InvalidToken => {
+                    writer.write_u8(5)?;
+                }
+                DeniedReason::Custom(reason) => {
+                    writer.write_u8(6)?;
+                    // the reason cannot exceed u8::MAX in size
+                    if reason.len() > u8::MAX as usize {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "custom denied reason too long",
+                        ));
+                    }
+                    writer.write_u8(reason.len() as u8)?;
+                    let num_write = writer.write(reason.as_bytes())?;
+                    if num_write != reason.len() {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "invalid denied reason",
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        fn read_from(reader: &mut impl ReadInteger) -> Result<Self, Self::Error> {
+            let variant = reader.read_u8()?;
+            if variant == 0 {
+                Ok(DeniedReason::ServerFull)
+            } else if variant == 1 {
+                Ok(DeniedReason::Banned)
+            } else if variant == 2 {
+                Ok(DeniedReason::InternalError)
+            } else if variant == 3 {
+                Ok(DeniedReason::AlreadyConnected)
+            } else if variant == 4 {
+                Ok(DeniedReason::TokenAlreadyUsed)
+            } else if variant == 5 {
+                Ok(DeniedReason::InvalidToken)
+            } else if variant == 6 {
+                let len = reader.read_u8()? as usize;
+                let mut string_buf = vec![0; len];
+                reader.read_exact(&mut string_buf)?;
+                let reason_str = String::from_utf8(string_buf)
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid denied reason"))?;
+                Ok(DeniedReason::Custom(reason_str))
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid denied reason",
+                ))
+            }
+        }
     }
 
-    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
-        todo!()
+    impl ToBytes for DeniedPacket {
+        fn bytes_len(&self) -> usize {
+            todo!()
+        }
+
+        fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+            todo!()
+        }
+
+        fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+        where
+            Self: Sized
+        {
+            todo!()
+        }
     }
 
-    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
-    where
-        Self: Sized
-    {
-        todo!()
-    }
-}
+    impl Bytes for DeniedPacket {
+        type Error = io::Error;
+        fn write_to(&self, writer: &mut impl WriteInteger) -> Result<(), Self::Error> {
+            self.reason.write_to(writer)?;
+            Ok(())
+        }
 
-impl Bytes for DeniedPacket {
-    type Error = io::Error;
-    fn write_to(&self, writer: &mut impl WriteInteger) -> Result<(), Self::Error> {
-        self.reason.write_to(writer)?;
-        Ok(())
+        fn read_from(reader: &mut impl ReadInteger) -> Result<Self, io::Error> {
+            let reason = DeniedReason::read_from(reader)?;
+            Ok(Self { reason })
+        }
     }
-
-    fn read_from(reader: &mut impl ReadInteger) -> Result<Self, io::Error> {
-        let reason = DeniedReason::read_from(reader)?;
-        Ok(Self { reason })
-    }
-}
 
 pub struct ChallengePacket {
     pub sequence: u64,
@@ -379,6 +382,7 @@ impl Bytes for DisconnectPacket {
     }
 }
 
+// TODO: split into ClientPacket and ServerPacket
 pub enum Packet {
     Request(RequestPacket),
     Denied(DeniedPacket),
@@ -456,6 +460,7 @@ impl Packet {
         if let Packet::Request(pkt) = self {
             cursor.write_u8(Packet::REQUEST)?;
             pkt.write_to(&mut cursor)?;
+            trace!(bytes = ?cursor.get_ref()[..3], "Request packet");
             return Ok(cursor.position() as usize);
         }
         cursor.write_u8(self.set_prefix(sequence))?;
@@ -502,6 +507,7 @@ impl Packet {
         let mut cursor = io::Cursor::new(buf);
         let prefix_byte = cursor.read_u8()?;
         let (sequence_len, pkt_kind) = Packet::get_prefix(prefix_byte);
+        trace!(?prefix_byte, ?pkt_kind, "Read packet");
         if allowed_packets & (1 << pkt_kind) == 0 {
             debug!("ignoring packet of type {}, not allowed", pkt_kind);
         }
@@ -581,7 +587,6 @@ mod tests {
     use super::*;
     #[cfg(not(feature = "std"))]
     use alloc::vec::Vec;
-    use lightyear_connection::server::DeniedReason;
 
     #[test]
     fn sequence_number_bytes_required() {

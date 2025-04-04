@@ -9,14 +9,20 @@ description = "Connection handling for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
-default = ["std"]
+default = [
+    "std",
+    # TODO: split between client/server features
+    "client",
+    "server",
+]
 std = [
     "lightyear_link/std",
     "lightyear_transport/std",
     "lightyear_serde/std",
+    "lightyear_connection/std",
     "no_std_io2/std",
-      "bytes/std",
-      "chacha20poly1305/std",
+    "bytes/std",
+    "chacha20poly1305/std",
 ]
 client = ["lightyear_connection/client"]
 server = ["lightyear_connection/server"]

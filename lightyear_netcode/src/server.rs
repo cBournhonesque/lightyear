@@ -534,6 +534,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     ) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(self.writer.as_mut(), self.sequence, &key, self.protocol_id)?;
+        trace!(pkt = %packet, "Server sending netcode packet");
         self.writer.extend_from_slice(&buf[..size]);
         self.send_queue.entry(addr).or_default().push(self.writer.split());
         self.sequence += 1;
@@ -654,6 +655,7 @@ impl<Ctx> NetcodeServer<Ctx> {
                 token.client_id,
             )));
         };
+
 
         self.send_netcode_packet(
             ChallengePacket::create(self.challenge_sequence, challenge_token_encrypted),

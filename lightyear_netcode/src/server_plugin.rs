@@ -171,9 +171,16 @@ impl NetcodeServerPlugin {
             // SAFETY: we know that the list of client entities are unique because it is a Relationship
             let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(&server.clients) };
             link_query.iter_many_unique_mut(unique_slice).for_each(|(entity, mut link, mut client_of)| {
-                 netcode_server.inner.receive(link.as_mut()).inspect_err(|e| {
-                    error!("Error receiving packets: {:?}", e);
-                 }).ok();
+                 match netcode_server.inner.receive(link.as_mut()) {
+                     Ok(errors) => {
+                         for error in errors {
+                             error!("Error receiving packet: {:?}", error);
+                         }
+                     }
+                    Err(e) => {
+                        error!("Error receiving packet: {:?}", e);
+                    }
+                 }
 
                 // Connections: we know the connection comes from the current entity!
                 netcode_server.inner.cfg.context.connections.drain(..).for_each(|(id, addr)| {

@@ -10,7 +10,12 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = ["lightyear_link/std", "lightyear_transport/std"]
+std = [
+    "lightyear_link/std",
+    "lightyear_transport/std",
+    "lightyear_messages/std",
+    "lightyear_serde/std"
+]
 client = []
 server = []
 

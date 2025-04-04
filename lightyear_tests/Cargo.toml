@@ -17,6 +17,10 @@ std = [
     "bevy/std",
     "bytes/std",
     "serde/std",
+    "lightyear_sync/std",
+    "lightyear_messages/std",
+    "lightyear_serde/std",
+    "lightyear_transport/std",
 ]
 
 

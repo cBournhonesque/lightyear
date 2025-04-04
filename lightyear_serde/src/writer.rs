@@ -30,7 +30,6 @@ pub(crate) mod std {
         }
     }
 
-    #[cfg(feature = "std")]
     impl Write for Writer {
         fn write(&mut self, buf: &[u8]) -> Result<usize> {
             self.0.write(buf)
@@ -136,10 +135,17 @@ pub(crate) mod no_std {
         }
     }
 
+    // impl bincode::Writer for Writer {
+    //     fn write_all(&mut self, buf: &[u8]) -> Result<(), EncodeError> {
+    //         let n = cmp::min(self.0.remaining_mut(), buf.len());
+    //         self.0.put_slice(&buf[..n]);
+    //         Ok(())
+    //     }
+    // }
+
     impl Write for Writer {
         fn write(&mut self, src: &[u8]) -> Result<usize> {
             let n = cmp::min(self.0.remaining_mut(), src.len());
-
             self.0.put_slice(&src[..n]);
             Ok(n)
         }

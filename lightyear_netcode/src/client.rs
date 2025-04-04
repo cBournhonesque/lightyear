@@ -510,6 +510,7 @@ impl<Ctx> NetcodeClient<Ctx> {
                 return Ok(None);
             }
         };
+        trace!("client received packet: {}", packet);
         self.process_packet(packet)
     }
 
