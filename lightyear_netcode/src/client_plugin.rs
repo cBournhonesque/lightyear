@@ -10,7 +10,7 @@ use lightyear_connection::ConnectionSet;
 use lightyear_link::{Link, LinkSet, SendPayload};
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
-use tracing::{debug, info, error};
+use tracing::{debug, error, info};
 
 pub struct NetcodeClientPlugin;
 
@@ -93,6 +93,7 @@ impl NetcodeClientPlugin {
         mut query: Query<(&mut Link, &mut NetcodeClient)>,
     ) {
         query.par_iter_mut().for_each(|(mut link, mut client)| {
+            // send user packets
             for _ in 0..link.send.len() {
                 if let Some(payload) = link.send.pop() {
                     client.inner.send(payload, &mut link.send).inspect_err(|e| {
@@ -100,6 +101,9 @@ impl NetcodeClientPlugin {
                     }).ok();
                 }
             }
+
+            // send netcode internal packets
+            client.inner.send_netcode_packets(&mut link.send);
         })
     }
 
@@ -114,7 +118,7 @@ impl NetcodeClientPlugin {
         query.par_iter_mut().for_each(|(entity, mut link, mut client, connecting )| {
             // Buffer the packets received from the link into the Connection
             // don't short-circuit on error
-            if let Some(state) = client.inner.try_update(delta.as_secs_f64(), link.as_mut())
+            if let Some(state) = client.inner.try_update(delta.as_secs_f64(), &mut link.recv)
                 .inspect_err(|e| {
                     error!("Error receiving packet: {:?}", e);
                 })

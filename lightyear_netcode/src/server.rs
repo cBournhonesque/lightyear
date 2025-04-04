@@ -378,6 +378,9 @@ pub struct NetcodeServer<Ctx = ()> {
     conn_cache: ConnectionCache,
     token_entries: TokenEntries,
     pub(crate) cfg: ServerConfig<Ctx>,
+    // We cannot mix the netcode packets and the user's payload packets to send, so
+    // we will temporarily buffer them here
+    send_queue: HashMap<SocketAddr, Vec<SendPayload>>,
     // We use a Writer (wrapper around BytesMut) here because we will keep re-using the
     // same allocation for the bytes we send.
     // 1. We create an array on the stack of size MAX_PACKET_SIZE
@@ -403,6 +406,7 @@ impl NetcodeServer {
             conn_cache: ConnectionCache::new(0.0),
             token_entries: TokenEntries::new(),
             cfg: ServerConfig::default(),
+            send_queue: HashMap::default(),
             writer: Writer::with_capacity(MAX_PKT_BUF_SIZE),
             client_errors: vec![],
         };
@@ -439,6 +443,7 @@ impl<Ctx> NetcodeServer<Ctx> {
             conn_cache: ConnectionCache::new(0.0),
             token_entries: TokenEntries::new(),
             cfg,
+            send_queue: HashMap::default(),
             writer: Writer::with_capacity(MAX_PKT_BUF_SIZE),
             client_errors: vec![],
         };
@@ -447,12 +452,6 @@ impl<Ctx> NetcodeServer<Ctx> {
     }
 }
 
-pub(crate) enum ConnectionUpdate {
-    /// A new connection was established
-    Connected(ClientId, SocketAddr),
-    /// A connection was closed
-    Disconnected(ClientId, SocketAddr),
-}
 
 impl<Ctx> NetcodeServer<Ctx> {
     const ALLOWED_PACKETS: u8 = 1 << Packet::REQUEST
@@ -490,9 +489,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         &mut self,
         addr: SocketAddr,
         packet: Packet,
-        sender: &mut LinkSender,
-        receiver: &mut LinkReceiver,
-    ) -> Result<Option<ConnectionUpdate>> {
+    ) -> Result<Option<RecvPayload>> {
         let client_id = self.conn_cache.find_by_addr(&addr).map(|(id, _)| id);
         trace!(
             "server received {} from {}",
@@ -503,32 +500,44 @@ impl<Ctx> NetcodeServer<Ctx> {
         );
         match packet {
             Packet::Request(packet) => {
-                self.process_connection_request(addr, packet, sender)?;
+                self.process_connection_request(addr, packet)?;
                 Ok(None)
             },
-            Packet::Response(packet) => self.process_connection_response(addr, packet, sender),
+            Packet::Response(packet) => {
+                self.process_connection_response(addr, packet)?;
+                Ok(None)
+            },
             Packet::KeepAlive(_) => {
                 self.touch_client(client_id);
                 Ok(None)
             }
             Packet::Payload(packet) => {
                 self.touch_client(client_id);
-                if let Some(idx) = client_id {
-                    receiver.push(packet.buf);
-                }
-                Ok(None)
+                Ok(client_id.map(|_| packet.buf))
             }
             Packet::Disconnect(_) => {
                 if let Some(idx) = client_id {
                     debug!("server disconnected client {idx}");
                     self.on_disconnect(idx, addr);
                     self.conn_cache.remove(idx);
-                    return Ok(Some(ConnectionUpdate::Disconnected(idx, addr)))
                 }
                 Ok(None)
             }
             _ => unreachable!("packet should have been filtered out by `ALLOWED_PACKETS`"),
         }
+    }
+    fn send_netcode_packet(
+        &mut self,
+        packet: Packet,
+        key: Key,
+        addr: SocketAddr,
+    ) -> Result<()> {
+        let mut buf = [0u8; MAX_PKT_BUF_SIZE];
+        let size = packet.write(self.writer.as_mut(), self.sequence, &key, self.protocol_id)?;
+        self.writer.extend_from_slice(&buf[..size]);
+        self.send_queue.entry(addr).or_default().push(self.writer.split());
+        self.sequence += 1;
+        Ok(())
     }
     fn send_to_addr(
         &mut self,
@@ -571,7 +580,6 @@ impl<Ctx> NetcodeServer<Ctx> {
         &mut self,
         from_addr: SocketAddr,
         mut packet: RequestPacket,
-        sender: &mut LinkSender,
     ) -> Result<()> {
         let mut reader = io::Cursor::new(&mut packet.token_data[..]);
         let token = ConnectTokenPrivate::read_from(&mut reader)?;
@@ -617,10 +625,10 @@ impl<Ctx> NetcodeServer<Ctx> {
             )));
         };
         if self.num_connected_clients() >= MAX_CLIENTS {
-            self.send_to_addr(
+            self.send_netcode_packet(
                 DeniedPacket::create(DeniedReason::ServerFull),
                 token.server_to_client_key,
-                sender,
+                from_addr,
             )?;
             return Err(Error::ServerIsFull(id::PeerId::Netcode(token.client_id)));
         };
@@ -629,10 +637,10 @@ impl<Ctx> NetcodeServer<Ctx> {
             .connection_request_handler
             .handle_request(id::PeerId::Netcode(token.client_id))
         {
-            self.send_to_addr(
+            self.send_netcode_packet(
                 DeniedPacket::create(denied_reason),
                 token.server_to_client_key,
-                sender,
+                from_addr,
             )?;
             return Err(Error::Denied(id::PeerId::Netcode(token.client_id)));
         }
@@ -647,10 +655,10 @@ impl<Ctx> NetcodeServer<Ctx> {
             )));
         };
 
-        self.send_to_addr(
+        self.send_netcode_packet(
             ChallengePacket::create(self.challenge_sequence, challenge_token_encrypted),
             token.server_to_client_key,
-            sender,
+            from_addr,
         )?;
 
         self.conn_cache.add(
@@ -665,12 +673,12 @@ impl<Ctx> NetcodeServer<Ctx> {
         self.challenge_sequence += 1;
         Ok(())
     }
+
     fn process_connection_response(
         &mut self,
         from_addr: SocketAddr,
         mut packet: ResponsePacket,
-        sender: &mut LinkSender,
-    ) -> Result<Option<ConnectionUpdate>> {
+    ) -> Result<()> {
         let Ok(challenge_token) =
             ChallengeToken::decrypt(&mut packet.token, packet.sequence, &self.challenge_key)
         else {
@@ -678,14 +686,14 @@ impl<Ctx> NetcodeServer<Ctx> {
         };
 
         let id: ClientId = challenge_token.client_id;
-        let Some(conn) = self.conn_cache.find_by_id(id) else {
+        let Some(mut conn) = self.conn_cache.find_by_id(id) else {
             return Err(Error::UnknownClient(id::PeerId::Netcode(id)));
         };
         if conn.is_connected() {
             // TODO: most of the time this error can happen because we receive older 'ConnectionResponse' messages
             // even though the client is already connected. Should we just ignore this error?
             // return Err(Error::ClientIdInUse(id::ClientId::Netcode(id)));
-            return Ok(None);
+            return Ok(());
         };
 
         if self.num_connected_clients() >= MAX_CLIENTS {
@@ -696,10 +704,10 @@ impl<Ctx> NetcodeServer<Ctx> {
                 .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?
                 .send_key;
 
-            self.send_to_addr(
+            self.send_netcode_packet(
                 DeniedPacket::create(DeniedReason::ServerFull),
                 send_key,
-                sender,
+                from_addr,
             )?;
             return Err(Error::ServerIsFull(id::PeerId::Netcode(id)));
         }
@@ -711,15 +719,23 @@ impl<Ctx> NetcodeServer<Ctx> {
             .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?;
 
         client.connect();
-        client.last_send_time = self.time;
-        client.last_receive_time = self.time;
         debug!(
             "server accepted client {} with id {}",
             id, challenge_token.client_id
         );
-        self.send_to_client(KeepAlivePacket::create(id), id, sender)?;
+        client.last_send_time = self.time;
+        client.last_receive_time = self.time;
+        client.last_access_time = self.time;
+        client.sequence += 1;
+
+        let key = client.send_key;
+        self.send_netcode_packet(
+            KeepAlivePacket::create(id),
+            key,
+            from_addr,
+        )?;
         self.on_connect(id, from_addr);
-        Ok(Some(ConnectionUpdate::Connected(id, from_addr)))
+        Ok(())
     }
     fn check_for_timeouts(&mut self) {
         for id in self.conn_cache.ids() {
@@ -739,32 +755,56 @@ impl<Ctx> NetcodeServer<Ctx> {
             }
         }
     }
-    fn send_keepalives(&mut self, sender: &mut LinkSender) -> Result<()> {
-        for id in self.conn_cache.ids() {
-            let Some(client) = self.conn_cache.clients.get_mut(&id) else {
-                self.handle_client_error(Error::ClientNotFound(id::PeerId::Netcode(id)));
-                continue;
-            };
-            if !client.is_connected() {
-                continue;
-            }
-            if client.last_send_time + self.cfg.keep_alive_send_rate >= self.time {
-                continue;
-            }
+    // fn send_keepalives(&mut self, sender: &mut LinkSender) -> Result<()> {
+    //     for id in self.conn_cache.ids() {
+    //         let Some(client) = self.conn_cache.clients.get_mut(&id) else {
+    //             self.handle_client_error(Error::ClientNotFound(id::PeerId::Netcode(id)));
+    //             continue;
+    //         };
+    //         if !client.is_connected() {
+    //             continue;
+    //         }
+    //         if client.last_send_time + self.cfg.keep_alive_send_rate >= self.time {
+    //             continue;
+    //         }
+    //
+    //         self.send_to_client(KeepAlivePacket::create(id), id, sender)?;
+    //         trace!("server sent connection keep-alive packet to client {id}");
+    //     }
+    //     Ok(())
+    // }
 
-            self.send_to_client(KeepAlivePacket::create(id), id, sender)?;
-            trace!("server sent connection keep-alive packet to client {id}");
+    /// Send keep-alives to a given client
+    pub(crate) fn send_keepalives(&mut self, id: ClientId, sender: &mut LinkSender) -> Result<()> {
+        let Some(client) = self.conn_cache.clients.get_mut(&id) else {
+            return Err(Error::ClientNotFound(id::PeerId::Netcode(id)))
+        };
+        if !client.is_connected() {
+            return Ok(());
         }
+        if client.last_send_time + self.cfg.keep_alive_send_rate >= self.time {
+            return Ok(());
+        }
+        self.send_to_client(KeepAlivePacket::create(id), id, sender)?;
+        trace!("server sent connection keep-alive packet to client {id}");
         Ok(())
     }
+
+    pub(crate) fn send_netcode_packets(&mut self, addr: SocketAddr, sender: &mut LinkSender) {
+        self.send_queue.get_mut(&addr).map(|queue| {
+            queue.drain(..).for_each(|send_payload| {
+                sender.push(send_payload);
+            });
+        });
+    }
+
+
     fn recv_packet(
         &mut self,
         buf: RecvPayload,
         now: u64,
         addr: SocketAddr,
-        sender: &mut LinkSender,
-        receiver: &mut LinkReceiver,
-    ) -> Result<Option<ConnectionUpdate>> {
+    ) -> Result<Option<RecvPayload>> {
         if buf.len() <= 1 {
             // Too small to be a packet
             return Ok(None);
@@ -800,13 +840,12 @@ impl<Ctx> NetcodeServer<Ctx> {
             Self::ALLOWED_PACKETS,
         )?;
 
-        self.process_packet(addr, packet, sender, receiver)
+        self.process_packet(addr, packet)
     }
 
     fn recv_packets(
         &mut self,
         remote_addr: SocketAddr,
-        sender: &mut LinkSender,
         receiver: &mut LinkReceiver,
     ) -> Result<()> {
         let now = super::utils::now()?;
@@ -815,9 +854,11 @@ impl<Ctx> NetcodeServer<Ctx> {
         // Processing them might mean that we're re-adding them to the receiver so that
         // the Transport can read them later
         for _ in 0..receiver.len() {
-            if let Some(payload) = receiver.pop() {
-                if let Err(e) = self.recv_packet(payload, now, remote_addr, sender, receiver) {
-                    self.handle_client_error(e);
+            if let Some(recv_packet) = receiver.pop() {
+                match self.recv_packet(recv_packet, now, remote_addr) {
+                    Ok(Some(payload)) => receiver.push(payload),
+                    Err(e) => self.handle_client_error(e),
+                    _ => {}
                 }
             }
         }
@@ -859,9 +900,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     pub fn receive(&mut self, link: &mut Link) -> Result<Vec<Error>> {
         let remote_addr = link.remote_addr.expect("Netcode is only compatible \
         with links that have a remote address");
-        let (sender, receiver) = (&mut link.send, &mut link.recv);
-        self.recv_packets(remote_addr, sender, receiver)?;
-        self.send_keepalives(sender)?;
+        self.recv_packets(remote_addr, &mut link.recv)?;
         Ok(self.client_errors.drain(..).collect())
     }
 

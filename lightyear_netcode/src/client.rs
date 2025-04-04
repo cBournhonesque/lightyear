@@ -189,6 +189,7 @@ pub struct NetcodeClient<Ctx = ()> {
     replay_protection: ReplayProtection,
     should_disconnect: bool,
     should_disconnect_state: ClientState,
+    send_queue: Vec<SendPayload>,
     packet_queue: Vec<RecvPayload>,
     // We use a Writer (wrapper around BytesMut) here because we will keep re-using the
     // same allocation for the bytes we send.
@@ -229,6 +230,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             replay_protection: ReplayProtection::new(),
             should_disconnect: false,
             should_disconnect_state: ClientState::Disconnected,
+            send_queue: Vec::new(),
             packet_queue: Vec::new(),
             writer: Writer::with_capacity(MAX_PKT_BUF_SIZE),
             cfg,
@@ -317,7 +319,7 @@ impl<Ctx> NetcodeClient<Ctx> {
         self.reset_connection();
         debug!("client disconnected");
     }
-    fn send_packets(&mut self, sender: &mut LinkSender) -> Result<()> {
+    fn send_packets(&mut self) -> Result<()> {
         if self.last_send_time + self.cfg.packet_send_rate >= self.time {
             return Ok(());
         }
@@ -341,7 +343,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             }
             _ => return Ok(()),
         };
-        self.send_packet(packet, sender)
+        self.send_netcode_packet(packet)
     }
     fn connect_to_next_server(&mut self) -> core::result::Result<(), ()> {
         if self.server_addr_idx + 1 >= self.token.server_addresses.len() {
@@ -367,15 +369,31 @@ impl<Ctx> NetcodeClient<Ctx> {
         Ok(())
     }
 
+    /// We buffer netcode packets (non-user-payload packets) instead of storing them in the link
+    fn send_netcode_packet(&mut self, packet: Packet) -> Result<()> {
+        let mut buf = [0u8; MAX_PKT_BUF_SIZE];
+        let size = packet.write(
+            &mut buf,
+            self.sequence,
+            &self.token.client_to_server_key,
+            self.token.protocol_id,
+        )?;
+        self.writer.extend_from_slice(&buf[..size]);
+        self.send_queue.push(self.writer.split());
+        self.last_send_time = self.time;
+        self.sequence += 1;
+        Ok(())
+    }
+
     pub fn server_addr(&self) -> SocketAddr {
         self.token.server_addresses[self.server_addr_idx]
     }
-    fn process_packet(&mut self, packet: Packet, receiver: &mut LinkReceiver) -> Result<()> {
+    fn process_packet(&mut self, packet: Packet) -> Result<Option<RecvPayload>> {
         // if addr != self.server_addr() {
         //     debug!(?addr, server_addr = ?self.server_addr(), "wrong addr");
         //     return Ok(());
         // }
-        match (packet, self.state) {
+        let recv = match (packet, self.state) {
             (
                 Packet::Denied(pkt),
                 ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse,
@@ -386,36 +404,41 @@ impl<Ctx> NetcodeClient<Ctx> {
                 );
                 self.should_disconnect = true;
                 self.should_disconnect_state = ClientState::ConnectionDenied;
+                None
             }
             (Packet::Challenge(pkt), ClientState::SendingConnectionRequest) => {
                 debug!("client received connection challenge packet from server");
                 self.challenge_token_sequence = pkt.sequence;
                 self.challenge_token_data = pkt.token;
                 self.set_state(ClientState::SendingChallengeResponse);
+                None
             }
             (Packet::KeepAlive(_), ClientState::Connected) => {
                 trace!("client received connection keep-alive packet from server");
+                None
             }
             (Packet::KeepAlive(pkt), ClientState::SendingChallengeResponse) => {
                 debug!("client received connection keep-alive packet from server");
                 self.set_state(ClientState::Connected);
                 self.id = pkt.client_id;
                 info!("client connected to server");
+                None
             }
             (Packet::Payload(pkt), ClientState::Connected) => {
                 trace!("client received payload packet from server");
                 // TODO: control the size of the packet queue?
-                receiver.push(pkt.buf);
+                Some(pkt.buf)
             }
             (Packet::Disconnect(_), ClientState::Connected) => {
                 debug!("client received disconnect packet from server");
                 self.should_disconnect = true;
                 self.should_disconnect_state = ClientState::Disconnected;
+                None
             }
-            _ => return Ok(()),
-        }
+            _ => return Ok(None),
+        };
         self.last_receive_time = self.time;
-        Ok(())
+        Ok(recv)
     }
     fn update_state(&mut self) {
         let is_token_expired = self.time - self.start_time
@@ -462,10 +485,12 @@ impl<Ctx> NetcodeClient<Ctx> {
         self.reset(new_state);
     }
 
-    fn recv_packet(&mut self, buf: RecvPayload, now: u64, receiver: &mut LinkReceiver) -> Result<()> {
+    /// Read a packet received from the network, process it, and return the internal
+    /// payload if it was a payload packet.
+    fn recv_packet(&mut self, buf: RecvPayload, now: u64) -> Result<Option<RecvPayload>> {
         if buf.len() <= 1 {
             // Too small to be a packet
-            return Ok(());
+            return Ok(None);
         }
         let packet = match Packet::read(
             buf,
@@ -478,14 +503,14 @@ impl<Ctx> NetcodeClient<Ctx> {
             Ok(packet) => packet,
             Err(Error::Crypto(_)) => {
                 debug!("client ignored packet because it failed to decrypt");
-                return Ok(());
+                return Ok(None);
             }
             Err(e) => {
                 error!("client ignored packet: {e}");
-                return Ok(());
+                return Ok(None);
             }
         };
-        self.process_packet(packet, receiver)
+        self.process_packet(packet)
     }
 
     fn recv_packets(&mut self, receiver: &mut LinkReceiver) -> Result<()> {
@@ -496,8 +521,10 @@ impl<Ctx> NetcodeClient<Ctx> {
         // Processing them might mean that we're re-adding them to the receiver so that
         // the Transport can read them later
         for _ in 0..receiver.len() {
-            if let Some(recv_payload) = receiver.pop() {
-                self.recv_packet(recv_payload, now, receiver)?;
+            if let Some(recv_packet) = receiver.pop() {
+                if let Some(payload) = self.recv_packet(recv_packet, now)? {
+                    receiver.push(payload);
+                }
             }
         }
         Ok(())
@@ -533,20 +560,26 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// # Panics
     /// Panics if the client can't send or receive packets.
     /// For a non-panicking version, use [`try_update`](NetcodeClient::try_update).
-    pub fn update(&mut self, delta_ms: f64, link: &mut Link) -> ClientState {
-        self.try_update(delta_ms, link)
+    pub fn update(&mut self, delta_ms: f64, receiver: &mut LinkReceiver) -> ClientState {
+        self.try_update(delta_ms, receiver)
             .expect("send/recv error while updating client")
     }
 
     /// The fallible version of [`update`](NetcodeClient::update).
     ///
     /// Returns an error if the client can't send or receive packets.
-    pub fn try_update(&mut self, delta_ms: f64, link: &mut Link) -> Result<ClientState> {
+    pub fn try_update(&mut self, delta_ms: f64, receiver: &mut LinkReceiver) -> Result<ClientState> {
         self.time += delta_ms;
-        self.recv_packets(&mut link.recv)?;
-        self.send_packets(&mut link.send)?;
+        self.recv_packets(receiver)?;
+        self.send_packets()?;
         self.update_state();
         Ok(self.state())
+    }
+
+    pub(crate) fn send_netcode_packets(&mut self, sender: &mut LinkSender) {
+        for packet in self.send_queue.drain(..) {
+            sender.push(packet);
+        }
     }
 
     /// Sends a packet to the server.

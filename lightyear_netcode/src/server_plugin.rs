@@ -94,6 +94,7 @@ impl NetcodeServerPlugin {
     /// and buffer them back into the link to be sent by the IO
     fn send(
         mut server_query: Query<(&mut NetcodeServer, &Server), Without<Stopped>>,
+        // TODO: I don't like how we expect even non connected clients to have ClientOf
         client_query: Query<(&mut Link, &ClientOf)>,
     ) {
         // TODO: we should be able to do ParIterMut if we can make the code understand
@@ -115,18 +116,27 @@ impl NetcodeServerPlugin {
 
                 // TODO: we can be here while the link has been established, but the client is not yet connected
                 //  so the PeerId is not Netcode! I think we should just error?
-                let PeerId::Netcode(client_id) = client_of.id else {
-                    error!("Client {:?} is not a Netcode client", client_of.id);
-                    return
+
+                // If the client was connected, it has a Netcode client_id
+                if let PeerId::Netcode(client_id) = client_of.id  {
+                    for _ in 0..link.send.len() {
+                        if let Some(payload) = link.send.pop() {
+                            netcode_server.inner.send(payload, client_id, &mut link.send).inspect_err(|e| {
+                                error!("Error sending packet: {:?}", e);
+                            }).ok();
+                        }
+                    }
+
+                    // NOTE: we send any netcode packets AFTER the user payloads have been processed
+                    netcode_server.inner.send_keepalives(client_id, &mut link.send);
                 };
 
-                for _ in 0..link.send.len() {
-                    if let Some(payload) = link.send.pop() {
-                        netcode_server.inner.send(payload, client_id, &mut link.send).inspect_err(|e| {
-                            error!("Error sending packet: {:?}", e);
-                        }).ok();
-                    }
-                }
+                // even if it was not connected, we might need to send the netcode packets that were buffered
+                let Some(addr) = link.remote_addr else {
+                    error!("Link used with netcode has no remote address");
+                    return;
+                };
+                netcode_server.inner.send_netcode_packets(addr, &mut link.send);
             });
         })
     }
@@ -198,7 +208,7 @@ impl NetcodeServerPlugin {
     }
 
     fn stop(
-        trigger: Trigger<Start>,
+        trigger: Trigger<Stop>,
         mut commands: Commands,
         mut query: Query<(Entity, &mut NetcodeServer, &Server)>,
         mut link_query: Query<(&mut Link, &ClientOf)>,
