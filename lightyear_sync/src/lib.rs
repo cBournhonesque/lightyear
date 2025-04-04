@@ -24,6 +24,8 @@ pub mod timeline;
 pub mod plugin;
 
 pub mod prelude {
+    pub use crate::ping::PingChannel;
+    pub use crate::ping::message::{Ping, Pong};
     pub use crate::ping::manager::{PingConfig, PingManager};
     pub use crate::plugin::SyncPlugin;
     pub use crate::timeline::{input::Input, LocalTimeline, Timeline};

@@ -7,7 +7,7 @@ use bevy::tasks::futures_lite::StreamExt;
 use core::net::SocketAddr;
 use lightyear_connection::client::{Connected, Connecting};
 use lightyear_connection::prelude::{server::*, *};
-use lightyear_link::{Link, LinkSet};
+use lightyear_link::{Link, LinkSet, LinkStart, Unlink, Unlinked};
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
 use tracing::{error, info};
@@ -112,26 +112,21 @@ impl NetcodeServerPlugin {
             // SAFETY: we know that the entities of a relationship are unique
             let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(server.collection()) };
             client_query.iter_many_unique_mut(unique_slice).for_each(|(mut link, client_of)|  {
-                 let PeerId::Netcode(client_id) = client_of.id else {
+
+                // TODO: we can be here while the link has been established, but the client is not yet connected
+                //  so the PeerId is not Netcode! I think we should just error?
+                let PeerId::Netcode(client_id) = client_of.id else {
                     error!("Client {:?} is not a Netcode client", client_of.id);
                     return
                 };
 
-                while let Some(payload) = link.send.pop() {
-                    netcode_server.inner.send(payload, client_id, &mut link.send).inspect_err(|e| {
-                        error!("Error sending packet: {:?}", e);
-                    }).ok();
+                for _ in 0..link.send.len() {
+                    if let Some(payload) = link.send.pop() {
+                        netcode_server.inner.send(payload, client_id, &mut link.send).inspect_err(|e| {
+                            error!("Error sending packet: {:?}", e);
+                        }).ok();
+                    }
                 }
-                // link.send.drain(..).try_for_each(|payload| {
-                //     netcode_server.inner.buffer_send(payload, client_id)
-                // }).inspect_err(|e| {
-                //     error!("Error sending packet: {:?}", e);
-                // }).ok();
-                //
-                // // we don't want to short-circuit on error
-                // netcode_server.inner.send_buffered(link.send.as_mut()).inspect_err(|e| {
-                //     error!("Error sending packet: {:?}", e);
-                // }).ok();
             });
         })
     }
@@ -150,12 +145,13 @@ impl NetcodeServerPlugin {
         // the same clients (because each Link is uniquely associated with a single server)
         // This allow us to iterate in parallel over all servers
         let mut link_query = Arc::new(link_query);
+
+        // receive packets from the link and process them through the server
         server_query.par_iter_mut().for_each(|(mut netcode_server, mut server)| {
             // SAFETY: we know that each client is unique to a single server so we won't
             //  violate aliasing rules
             let mut link_query = unsafe { link_query.reborrow_unsafe() };
 
-            // receive packets from the link and process them through the server
             netcode_server.inner.update_state(delta.as_secs_f64());
 
             // TODO: try to make this parallel!
@@ -192,7 +188,43 @@ impl NetcodeServerPlugin {
             });
         })
     }
+
+    fn start(
+        trigger: Trigger<Start>,
+        mut commands: Commands,
+    ) {
+        commands.trigger_targets(LinkStart, trigger.target());
+        commands.entity(trigger.target()).remove::<Stopped>().insert(Started);
+    }
+
+    fn stop(
+        trigger: Trigger<Start>,
+        mut commands: Commands,
+        mut query: Query<(Entity, &mut NetcodeServer, &Server)>,
+        mut link_query: Query<(&mut Link, &ClientOf)>,
+    ) -> Result {
+        if let Ok((entity, mut netcode_server, server)) = query.get_mut(trigger.target()) {
+            // stop the ServerIo that is on this entity (for example webtransport server)
+            commands.trigger_targets(Unlink, entity);
+
+            // SAFETY: we know that the list of client entities are unique because it is a Relationship
+            let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(&server.clients) };
+            link_query.iter_many_unique_mut(unique_slice).try_for_each(|(mut link, client_of)| {
+                let PeerId::Netcode(client_id) = client_of.id else {
+                    error!("Client {:?} is not a Netcode client", client_of.id);
+                    return Err(crate::error::Error::UnknownClient(client_of.id));
+                };
+                netcode_server.inner.disconnect(client_id, &mut link.send)?;
+                Ok(())
+                // TODO: mark each client as Disconnecting. (we want to give them time) to send the disconnect packets
+                //  at the end of the frame
+                //  then despawn all the client entities!
+            });
+        }
+        Ok(())
+    }
 }
+
 
 
 impl Plugin for NetcodeServerPlugin {
@@ -203,5 +235,8 @@ impl Plugin for NetcodeServerPlugin {
 
         app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSet::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(ConnectionSet::Send));
+
+        app.add_observer(Self::start);
+        app.add_observer(Self::stop);
     }
 }

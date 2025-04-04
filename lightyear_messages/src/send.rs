@@ -12,7 +12,7 @@ use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::entity_map::SendEntityMap;
 use lightyear_transport::prelude::Transport;
-use tracing::error;
+use tracing::{debug, error, trace};
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -59,6 +59,7 @@ impl<M: Message> MessageSender<M> {
     pub fn send<C: Channel>(
         &mut self, message: M
     ) {
+        trace!(message = ?core::any::type_name::<M>(), channel = ?core::any::type_name::<C>(), "Sending message");
         self.send.push((message, ChannelKind::of::<C>(), 1.0));
     }
 
@@ -126,6 +127,7 @@ impl MessagePlugin {
         // We use Arc to make the query Clone, since we know that we will only access MessageSender<M> components
         // on different entities
         let mut message_sender_query = Arc::new(message_sender_query);
+
         transport_query.par_iter_mut().for_each(|(entity, transport, mut message_manager)| {
             // SAFETY: we know that this won't lead to violating the aliasing rule
             let mut message_sender_query = unsafe { message_sender_query.reborrow_unsafe() };

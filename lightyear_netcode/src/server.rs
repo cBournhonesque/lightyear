@@ -811,13 +811,16 @@ impl<Ctx> NetcodeServer<Ctx> {
     ) -> Result<()> {
         let now = super::utils::now()?;
 
-        // process every packet regardless of success/failure
-        while let Some(payload) = receiver.pop() {
-            if let Err(e) = self.recv_packet(payload, now, remote_addr, sender, receiver) {
-                self.handle_client_error(e);
+        // we pop every packet that is currently in the receiver, then we process them
+        // Processing them might mean that we're re-adding them to the receiver so that
+        // the Transport can read them later
+        for _ in 0..receiver.len() {
+            if let Some(payload) = receiver.pop() {
+                if let Err(e) = self.recv_packet(payload, now, remote_addr, sender, receiver) {
+                    self.handle_client_error(e);
+                }
             }
         }
-
         Ok(())
     }
     /// Updates the server.
@@ -854,7 +857,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// Receive packets from the links, process them.
     /// We might buffer some packets to the link as well (for Timeouts or ConnectionRequests, etc.)
     pub fn receive(&mut self, link: &mut Link) -> Result<Vec<Error>> {
-        let remote_addr = link.remote_addr.expect("Netcode is only compatible\
+        let remote_addr = link.remote_addr.expect("Netcode is only compatible \
         with links that have a remote address");
         let (sender, receiver) = (&mut link.send, &mut link.recv);
         self.recv_packets(remote_addr, sender, receiver)?;
@@ -912,7 +915,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// # use std::net::{SocketAddr, Ipv4Addr};
     /// # use std::str::FromStr;
     /// # use lightyear_netcode::{generate_key, NetcodeServer};
-    ///  
+    ///
     /// let private_key = generate_key();
     /// let protocol_id = 0x123456789ABCDEF0;
     /// let bind_addr = "0.0.0.0:0";

@@ -5,13 +5,15 @@
 
 # Replication
 
-- Maybe the core replication plugin is only for a single connection 
-  - server adds extra stuff on top of that to serialize once between multiple connections? 
+- Maybe the core replication plugin is only for a single connection
+  - server adds extra stuff on top of that to serialize once between multiple connections?
   - maybe we don't need to serialize once for every connection, and serializing once per connection is enough?
 - Again, you register components independently from client or server.
 But if you add a direction we will handle it automatically for the client-server case
 
-- ReplicationGroup: 
+- How do you decide on which ReplicationSender the entity will be replicated?
+
+- ReplicationGroup:
   - is a relationship, can be added by the user to specify that multiple entities must be replicated together
   - The group is separate entity that can contain specific metadata for the group
   - if there is no ReplicationGroup, we can assume that the entity is part of the 'default' group entity.
@@ -23,13 +25,13 @@ But if you add a direction we will handle it automatically for the client-server
 - we have a Linking, Linked, Unlink, Unlinked, etc. to track the state of the Link (for filters) + a LinkState stored on the link itself
 - same think the Connected, Connecting, etc. should be a marker component for filters + be stored on the client/server itself
 
-- Authority: we want seamless authority transfers so states where the client is connected to 2 servers; maybe it starts accepting the 
-  packets from both server for a while, buffers them internally (instead of applying to world), and the AuthorityTransfer has a Tick after 
+- Authority: we want seamless authority transfers so states where the client is connected to 2 servers; maybe it starts accepting the
+  packets from both server for a while, buffers them internally (instead of applying to world), and the AuthorityTransfer has a Tick after
   which the transfer is truly effective. We can have Transferring/Transferred.
 
 - UDP: there is no Linking process, so we go directly to Linked/Unlinked
 - netcode only receives from links if the link is Linked
-- maybe we should have a LinkId(u64) instead of Entity to have a more long-term id? 
+- maybe we should have a LinkId(u64) instead of Entity to have a more long-term id?
   - we want to make sure that we should be able to do replication outside of client-server architecture.
 
 - we want integration tests
@@ -60,12 +62,26 @@ SEND FLOW
 - Other IOs give you an initial PeerId (for example WebTransport gives you a SocketAddr). You can keep using that, or if you're in client-server mode you can apply the Netcode layer
   to replace that PeerId on the link with a Netcode-related id: PeerId::Netcode(u64)
 
+- Actually we want to completely separate PeerId from LinkId
+  - PeerId is purely a client-server information.
+  - LinkId is purely a link-based information
+  - We have PeerId::FromLink(LinkId)
+  -> it's because we receive from ServerUdp, so we assign PeerId::Udp(Socket)
+     Then we go through netcode, so we override PeerId::Netcode()
+     But then if netcode gets disconnected, we lose the PeerId but we should still have the LinkId!
+
+- NETCODE:
+  - the problem we have is that before, we had different buffers for send-payload and netcode payload.
+    i.e. in receive, we would prepare ConnectionResponse packets immediately and send them via the io
+  - now we buffer them in link.send, but we are not allowed to send them because the client is not connected yet!
+
+
 
 # Lightyear client
 
 - Provide a component FullClient that will add all the other components:
   - the registered required components will depend on the features that are enabled!
-  - Timeline Prediction/Interpolation/etc. 
+  - Timeline Prediction/Interpolation/etc.
 
 
 # plugin organization
@@ -112,7 +128,7 @@ SEND FLOW
   - it uses Time<Real> in its systems to decide how often to receive/send pings, i.e to tick the PingTimer
   - However the pings themselves contain information about the WrappedTime estimate on both client and server, so that they can sync
   - maybe it's not actually needed, as we can use the packet acks to estimate the RTT/jitter? however those messages don't contain the WrappedTime
-  - the timeline is 
+  - the timeline is
     - PREUPDATE: time ticks
     - POSTUPDATE: Client prepare Ping, record time A in store
     - Client send Ping to link, time B
@@ -132,7 +148,7 @@ SEND FLOW
       - Predicted
       - Interpolated
       - Server
-  - The timeline trait lets you speed up/slow down the timeline, as well as know the 
+  - The timeline trait lets you speed up/slow down the timeline, as well as know the
     WrappedTime, which is the number of ms since the start of the server/master
 
 
@@ -154,7 +170,7 @@ SEND FLOW
   - you insert your ClientConnection marker with the correct type (Netcode, etc.) which also inserts the Client marker
   - you insert a Client marker component on an entity, which adds:
   - a Transport, with all channel senders marked ClientToServer, all channel receivers marked ServerToClient
-  - a Link, 
+  - a Link,
   - MessageSenders / MessageReceivers, etc.
   - you will need to insert the io yourself
 
@@ -246,7 +262,7 @@ I noticed that when system ordering is ambiguous, once my app is compiled, the s
 Is it the cached topsort of the schedule?
 Does bevy_mod_debugdump show that 'fixed' system order?
 It would be immensely useful to know what the exact system order being used is, so that I can debug which ambiguity is causing a given bug.
-Should I create an issue for something like this? I would love the editor to somehow provide tools to help me debug ambiguities 
+Should I create an issue for something like this? I would love the editor to somehow provide tools to help me debug ambiguities
 
 
 # PrePrediction
@@ -272,7 +288,7 @@ The solution:
   - the ReplicationServer handles:
     - forwarding messages between the clients (same as the current server)
     - holds the state of the world
-    - maintains an entity mapping 
+    - maintains an entity mapping
   - the simulator is basically the same as a normal client. Just no input handling, prediction, interpolation.
   - basically ReplicationServer = server, and we can just add the concept of 'simulators' which are like clients. The difference is that the ReplicationServer should not run any simulation systems,
     it just replicates to all clients/simulators.
@@ -292,16 +308,16 @@ The solution:
     - How do we avoid bidirectional replication? The component `Authority` specifies who is sending updates. You only send updates
       if you have authority. That means that the server and the client both have the `Replicate` bundle but only one of them is sending updates?
     - Case 1: server spawns an entity and has authority
-      - the Replicate bundle is added, and is used to define how its replicated. 
+      - the Replicate bundle is added, and is used to define how its replicated.
       - no need to replicate the Replicate bundle
-      - the Authority component is added, so 
+      - the Authority component is added, so
       - Case 3: it transfers authority to a client.
-        - 
+        -
     - Case 2: client spawns an entity and has authority, it wants to replicate to all other players
       - the Replicate bundle is added, and is used to define how its replicated. Most of the components are not actually used.
       - the Replicate bundle is replicated to the server, which then uses it to replicate to all other clients.
       - Careful to use ReplicationTarget::AllExceptSingle!!! otherwise all hell breaks loose
-      - the server has an Authority component which tracks which peer has authority (Self or Client). 
+      - the server has an Authority component which tracks which peer has authority (Self or Client).
       - In particular, it WILL NOT ACCEPT REPLICATION UPDATES FROM A PEER THAT DOES NOT HAVE AUTHORITY!
       - the clients also have this Authority component?
 
@@ -336,8 +352,8 @@ TODO:
   - [ ]: what happens on component removal?
 - [ ]: handle AuthorityChange messages on the clients
 - [ ]: think about what happens in PrePredicted
-    
-       
+
+
 
 - What would P2P look like?
   - the ReplicationServer is also the client! Either in different Worlds (to keep visibility, etc.),
@@ -365,7 +381,7 @@ enum AuthorityOwner {
 - ConnectionManager.request_authority(entity);
   - if the client requests, the server will route the request to the current owner of the entity (possibly itself)
   - if the server is requesting, the server will send the request to the current owner of the entity
-- V1: all requests are successful. 
+- V1: all requests are successful.
   - on receiving the request. We return a message that indicate that the transfer is successful.
   - The entity_maps don't seem like they need to be updated
   - the previous owner will remove Replicating, and add Replicated? it should also remove ReplicationTarget or ReplicateToServer, but without
@@ -373,15 +389,15 @@ enum AuthorityOwner {
     - if the entity is transferred from C1 to C2, the server needs to its replication target. Maybe the server can just listen for `SuccessfulTransfer` and then update its replication target accordingly?
     - if the entity is transferred from C1 to S, the server needs to update its replication target. (i.e. if it notices that it is the new Authority owner)
       C1 loses ReplicationToServer and Replicating, and adds Replicated.
-      
-    
+
+
   - the new owner receives TransferSuccessful message and adds ReplicationTarget component.
-  
+
 - commands.transfer_authority(entity, AuthorityOwner):
-  - send transfer 
+  - send transfer
   - remove Replicate on the entity
   - send a message to the new owner to add the Replicate component
-  - 
+  -
 
 
 # Serialization
@@ -410,15 +426,15 @@ enum AuthorityOwner {
         so we could just store the raw pointer + ComponentNetId at this point and serialize later in one go using the component registry? But the Ptr wouldn't work anymore because we're not querying, no?
       - we could try to build the final message directly to avoid allocating once the structure to store the individual component data, and once to build the final message
     - when building the packet to send, we can allocate a big buffer (of size MTU), then
-      iterate through the channels to find the packets that are ready, and pack them into the 
+      iterate through the channels to find the packets that are ready, and pack them into the
       final packet. That buffer can just be a Vec<u8> since we are not doing any splitting.
   - RECEIVE:
     - we receive the bytes from the io, and we can store them in a big Bytes.
-    - we want to be able to read parts of it (header, channel_id) but then parts of the big Bytes 
+    - we want to be able to read parts of it (header, channel_id) but then parts of the big Bytes
       would be stored in channel receivers. Hopefully using Bytes we can avoid allocating?
       We can use `Bytes::slice` to create a new Bytes from a subset of the original Bytes!
       -> DONE!
-    - When reading the replication messages, we can do the same trick where we split the bytes for each component? but then it's a waste because we need to store the length of the bytes. More efficient if we just read directly inline. 
+    - When reading the replication messages, we can do the same trick where we split the bytes for each component? but then it's a waste because we need to store the length of the bytes. More efficient if we just read directly inline.
 
 
 - Replication current policy:
@@ -430,9 +446,9 @@ enum AuthorityOwner {
   - If message is receives, bump ACK tick to send_tick
   - Message is considered lost if we didn't receive an ack after 1.5 * RTT. (i.e. we didn't receive an ack after send_tick + 1.5 * RTT)
     if that's the case, send the send_tick back to ACK_TICK, so that we need to send the message again.
- 
 
-- needs tests for: 
+
+- needs tests for:
   - update at tick 10, send_tick = 10, ack_tick = None,
   - update at tick 12, send_tick = 12, ack_tick = None,
   - ack tick 10, send_tick = 12, ack_tick = 10,

@@ -70,6 +70,10 @@ impl ServerUdpPlugin {
         });
     }
 
+    // TODO:
+    //  - server io receives some packets from a new address
+    //  - server_io spawns a ClientOf, with Linked
+    //     and updates Server->ClientOf mapping to contain the SocketId
     fn receive(
         commands: ParallelCommands,
         mut server_query: Query<(Entity, &mut ServerUdpIo, &Server)>,

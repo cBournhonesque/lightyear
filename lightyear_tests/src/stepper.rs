@@ -9,7 +9,7 @@ use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
 use lightyear_client::plugin::ClientPlugins;
 use lightyear_client::Client;
-use lightyear_connection::client::Connect;
+use lightyear_connection::client::{Connect, Connected};
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::id::PeerId;
 use lightyear_connection::server::Start;
@@ -20,6 +20,7 @@ use lightyear_netcode::{NetcodeClient, NetcodeServer};
 use lightyear_server::plugin::ServerPlugins;
 use lightyear_server::Server;
 use lightyear_sync::timeline::{NetworkTimeline, Timeline};
+use tracing::debug;
 
 
 pub const TEST_CLIENT_1: u64 = 1;
@@ -180,18 +181,12 @@ impl ClientServerStepper {
 
     // Advance the world until client is connected
     pub(crate) fn wait_for_connection(&mut self) {
-        // for _ in 0..100 {
-        //     if matches!(
-        //         self.client_app
-        //             .world()
-        //             .resource::<State<NetworkingState>>()
-        //             .get(),
-        //         NetworkingState::Connected
-        //     ) {
-        //         break;
-        //     }
-        //     self.frame_step();
-        // }
+        for _ in 0..100 {
+            if self.client().contains::<Connected>() {
+                break;
+            }
+            self.frame_step();
+        }
     }
 
     // Advance the world until the client is synced

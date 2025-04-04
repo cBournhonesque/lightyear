@@ -27,8 +27,8 @@ lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_transport.workspace = true
 lightyear_core.workspace = true
-lightyear_client = { workspace = true, features = ["crossbeam"] }
-lightyear_server = { workspace = true, features = ["crossbeam"] }
+lightyear_client = { workspace = true, features = ["crossbeam", "netcode"] }
+lightyear_server = { workspace = true, features = ["crossbeam", "netcode"] }
 lightyear_netcode = { workspace = true, features = ["client", "server"] }
 lightyear_messages.workspace = true
 lightyear_crossbeam.workspace = true

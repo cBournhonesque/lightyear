@@ -147,9 +147,12 @@ pub struct MessagePlugin;
 
 impl Plugin for MessagePlugin {
 
+    fn build(&self, app: &mut App) {
+    }
+
     // NOTE: this should only be called once all messages are registered, because we use the list of registered
     //  messags to provide the dynamic access
-    fn build(&self, app: &mut App) {
+    fn finish(&self, app: &mut App) {
 
         let mut registry = app.world_mut().remove_resource::<MessageRegistry>().unwrap();
 

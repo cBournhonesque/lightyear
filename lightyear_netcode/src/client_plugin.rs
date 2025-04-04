@@ -1,5 +1,5 @@
 use crate::auth::Authentication;
-use crate::{ClientConfig, Error};
+use crate::{ClientConfig, ClientState, Error};
 use bevy::ecs::component::{ComponentHook, ComponentId, ComponentsRegistrator, HookContext, Mutable, RequiredComponents, StorageType};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
@@ -10,7 +10,7 @@ use lightyear_connection::ConnectionSet;
 use lightyear_link::{Link, LinkSet, SendPayload};
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
-use tracing::error;
+use tracing::{debug, info, error};
 
 pub struct NetcodeClientPlugin;
 
@@ -87,25 +87,19 @@ impl NetcodeClient {
 // We process bytes from the link and re-add them to the link so that the Transport can still
 // fetch directly from the link
 impl NetcodeClientPlugin {
-    /// Takes packets from the Link, process them through the client,
+    /// Takes packets from the Link, process them through netcode
     /// and buffer them back into the link to be sent by the IO
     fn send(
         mut query: Query<(&mut Link, &mut NetcodeClient)>,
     ) {
         query.par_iter_mut().for_each(|(mut link, mut client)| {
-            while let Some(payload) = link.send.pop() {
-                client.inner.send(payload, link.as_mut()).inspect_err(|e| {
-                    error!("Error sending packet: {:?}", e);
-                }).ok();
+            for _ in 0..link.send.len() {
+                if let Some(payload) = link.send.pop() {
+                    client.inner.send(payload, &mut link.send).inspect_err(|e| {
+                        error!("Error sending packet: {:?}", e);
+                    }).ok();
+                }
             }
-            // link.send.drain(..).for_each(|payload| {
-            //     client.inner.buffer_send(payload)
-            // });
-            //
-            // // we don't want to short-circuit on error
-            // client.inner.send_buffered(link.as_mut()).inspect_err(|e| {
-            //     error!("Error sending packet: {:?}", e);
-            // }).ok();
         })
     }
 
@@ -113,11 +107,11 @@ impl NetcodeClientPlugin {
     /// then buffer them back into the Link
     fn receive(
         real_time: Res<Time<Real>>,
-        mut query: Query<(Entity, &mut Link, &mut NetcodeClient)>,
+        mut query: Query<(Entity, &mut Link, &mut NetcodeClient, Has<Connecting>)>,
         parallel_commands: ParallelCommands
     ) {
         let delta = real_time.delta();
-        query.par_iter_mut().for_each(|(entity, mut link, mut client)| {
+        query.par_iter_mut().for_each(|(entity, mut link, mut client, connecting )| {
             // Buffer the packets received from the link into the Connection
             // don't short-circuit on error
             if let Some(state) = client.inner.try_update(delta.as_secs_f64(), link.as_mut())
@@ -125,10 +119,13 @@ impl NetcodeClientPlugin {
                     error!("Error receiving packet: {:?}", e);
                 })
                 .ok() {
-                error!("Adding Connected on client");
-                parallel_commands.command_scope(|mut commands| {
-                    commands.entity(entity).insert(Connected);
-                });
+
+                if state == ClientState::Connected && connecting {
+                    info!("Client {} connected", client.id());
+                    parallel_commands.command_scope(|mut commands| {
+                        commands.entity(entity).insert(Connected).remove::<Connecting>();
+                    });
+                }
             }
         })
     }
@@ -138,13 +135,12 @@ impl NetcodeClientPlugin {
         mut commands: Commands,
         mut query: Query<&mut NetcodeClient>,
     ) {
-
         if let Ok(mut client) = query.get_mut(trigger.target()) {
+            debug!("Starting netcode connection process");
             client.inner.connect();
             commands.entity(trigger.target()).insert(Connecting);
         }
     }
-
     fn disconnect(
         trigger: Trigger<Disconnect>,
         mut commands: Commands,
@@ -152,7 +148,7 @@ impl NetcodeClientPlugin {
     ) -> Result {
 
         if let Ok((mut client, mut link)) = query.get_mut(trigger.target()) {
-            client.inner.disconnect(link.as_mut())?;
+            client.inner.disconnect(&mut link.send)?;
             commands.entity(trigger.target()).insert(Disconnected);
         }
         Ok(())
@@ -167,5 +163,7 @@ impl Plugin for NetcodeClientPlugin {
 
         app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSet::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(ConnectionSet::Send));
+        app.add_observer(Self::connect);
+        app.add_observer(Self::disconnect);
     }
 }

@@ -18,7 +18,7 @@ use super::{
 use bevy::prelude::Resource;
 use lightyear_connection::client::{ConnectionError, ConnectionState};
 use lightyear_connection::id;
-use lightyear_link::{Link, LinkReceiver, RecvPayload, SendPayload};
+use lightyear_link::{Link, LinkReceiver, LinkSender, RecvPayload, SendPayload};
 use lightyear_serde::writer::Writer;
 use tracing::{debug, error, info, trace};
 
@@ -317,7 +317,7 @@ impl<Ctx> NetcodeClient<Ctx> {
         self.reset_connection();
         debug!("client disconnected");
     }
-    fn send_packets(&mut self, link: &mut Link) -> Result<()> {
+    fn send_packets(&mut self, sender: &mut LinkSender) -> Result<()> {
         if self.last_send_time + self.cfg.packet_send_rate >= self.time {
             return Ok(());
         }
@@ -341,7 +341,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             }
             _ => return Ok(()),
         };
-        self.send_packet(packet, link)
+        self.send_packet(packet, sender)
     }
     fn connect_to_next_server(&mut self) -> core::result::Result<(), ()> {
         if self.server_addr_idx + 1 >= self.token.server_addresses.len() {
@@ -352,7 +352,7 @@ impl<Ctx> NetcodeClient<Ctx> {
         self.connect();
         Ok(())
     }
-    fn send_packet(&mut self, packet: Packet, link: &mut Link) -> Result<()> {
+    fn send_packet(&mut self, packet: Packet, sender: &mut LinkSender) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(
             &mut buf,
@@ -361,7 +361,7 @@ impl<Ctx> NetcodeClient<Ctx> {
             self.token.protocol_id,
         )?;
         self.writer.extend_from_slice(&buf[..size]);
-        link.send(self.writer.split());
+        sender.push(self.writer.split());
         self.last_send_time = self.time;
         self.sequence += 1;
         Ok(())
@@ -488,11 +488,17 @@ impl<Ctx> NetcodeClient<Ctx> {
         self.process_packet(packet, receiver)
     }
 
-    fn recv_packets(&mut self, link: &mut Link) -> Result<()> {
+    fn recv_packets(&mut self, receiver: &mut LinkReceiver) -> Result<()> {
         // number of seconds since unix epoch
         let now = utils::now()?;
-        while let Some(recv_payload) = link.recv.pop() {
-            self.recv_packet(recv_payload, now, &mut link.recv)?;
+
+        // we pop every packet that is currently in the receiver, then we process them
+        // Processing them might mean that we're re-adding them to the receiver so that
+        // the Transport can read them later
+        for _ in 0..receiver.len() {
+            if let Some(recv_payload) = receiver.pop() {
+                self.recv_packet(recv_payload, now, receiver)?;
+            }
         }
         Ok(())
     }
@@ -537,8 +543,8 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// Returns an error if the client can't send or receive packets.
     pub fn try_update(&mut self, delta_ms: f64, link: &mut Link) -> Result<ClientState> {
         self.time += delta_ms;
-        self.recv_packets(link)?;
-        self.send_packets(link)?;
+        self.recv_packets(&mut link.recv)?;
+        self.send_packets(&mut link.send)?;
         self.update_state();
         Ok(self.state())
     }
@@ -546,28 +552,28 @@ impl<Ctx> NetcodeClient<Ctx> {
     /// Sends a packet to the server.
     ///
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`].
-    pub fn send(&mut self, buf: SendPayload, link: &mut Link) -> Result<()> {
+    pub fn send(&mut self, buf: SendPayload, sender: &mut LinkSender) -> Result<()> {
         if self.state != ClientState::Connected {
-            trace!("tried to send but not connected");
+            trace!("tried to send but not connected. We only send payload packets once connected");
             return Ok(());
         }
         if buf.len() > MAX_PACKET_SIZE {
             return Err(Error::SizeMismatch(MAX_PACKET_SIZE, buf.len()));
         }
-        self.send_packet(PayloadPacket::create(buf), link)?;
+        self.send_packet(PayloadPacket::create(buf), sender)?;
         Ok(())
     }
     /// Disconnects the client from the server.
     ///
     /// The client will send a number of redundant disconnect packets to the server before transitioning to `Disconnected`.
-    pub fn disconnect(&mut self, link: &mut Link) -> Result<()> {
+    pub fn disconnect(&mut self, sender: &mut LinkSender) -> Result<()> {
         debug!(
             "client sending {} disconnect packets to server",
             self.cfg.num_disconnect_packets
         );
         // TODO: do this only if IoState is connected?
         for _ in 0..self.cfg.num_disconnect_packets {
-            self.send_packet(DisconnectPacket::create(), link)?;
+            self.send_packet(DisconnectPacket::create(), sender)?;
         }
         self.reset(ClientState::Disconnected);
         Ok(())

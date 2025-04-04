@@ -11,6 +11,7 @@ use alloc::collections::vec_deque::Drain;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
+use bevy::prelude::Event;
 use alloc::collections::VecDeque;
 use bevy::prelude::{Component, SystemSet};
 use bytes::Bytes;
@@ -72,6 +73,10 @@ impl LinkReceiver {
         self.0.push_back(value)
     }
 
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
 }
 #[derive(Default)]
 pub struct LinkSender(VecDeque<SendPayload>);
@@ -90,6 +95,9 @@ pub struct LinkSender(VecDeque<SendPayload>);
         self.0.push_back(value)
     }
 
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 impl Link {
@@ -129,11 +137,17 @@ pub enum LinkSet {
     Send,
 }
 
-#[derive(Component)]
+#[derive(Event)]
+pub struct LinkStart;
+
+#[derive(Event)]
+pub struct Unlink;
+
+#[derive(Component, Default, Debug)]
 pub struct Linking;
 
-#[derive(Component)]
+#[derive(Component, Default, Debug)]
 pub struct Linked;
 
-#[derive(Component)]
+#[derive(Component, Default, Debug)]
 pub struct Unlinked;

@@ -76,3 +76,14 @@ impl TickManager {
     }
 }
 
+
+pub struct TickPlugin {
+    pub tick_duration: Duration,
+}
+
+impl Plugin for TickPlugin {
+    fn build(&self, app: &mut App) {
+        app.insert_resource(TickManager::from_config(TickConfig::new(self.tick_duration)));
+    }
+}
+

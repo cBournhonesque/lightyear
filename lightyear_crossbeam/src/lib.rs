@@ -13,15 +13,18 @@ use alloc::vec::Vec;
 use bevy::prelude::*;
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
-use lightyear_link::{Link, LinkSet};
+use lightyear_link::{Link, Linked, LinkSet};
 use tracing::error;
+use core::net::{Ipv4Addr, SocketAddr};
 
 /// Maximum transmission units; maximum size in bytes of a packet
 pub(crate) const MTU: usize = 1472;
+const LOCALHOST: SocketAddr = SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
 
 
 #[derive(Component)]
-#[require(Link)]
+#[require(Link::new(LOCALHOST))]
+#[require(Linked)]
 pub struct CrossbeamIo {
     sender: Sender<Bytes>,
     receiver: Receiver<Bytes>,
@@ -34,12 +37,12 @@ impl CrossbeamIo {
             receiver,
         }
     }
-    
+
     /// Create a pair of CrossbeamIo instances for local testing
     pub fn new_pair() -> (Self, Self) {
         let (sender1, receiver1) = crossbeam_channel::unbounded();
         let (sender2, receiver2) = crossbeam_channel::unbounded();
-        
+
         (
             Self::new(sender1, receiver2),
             Self::new(sender2, receiver1),

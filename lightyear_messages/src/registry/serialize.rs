@@ -6,7 +6,7 @@ use bevy::ptr::{Ptr, PtrMut};
 use core::any::TypeId;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::Writer;
-use lightyear_serde::SerializationError;
+use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -40,6 +40,15 @@ impl<M: Message + Serialize + DeserializeOwned> Default for SerializeFns<M> {
         Self {
             serialize: default_serialize::<M>,
             deserialize: default_deserialize::<M>,
+        }
+    }
+}
+
+impl<M: Message + ToBytes> SerializeFns<M> {
+    pub fn with_to_bytes() -> Self {
+        Self {
+            serialize: |message, writer| message.to_bytes(writer),
+            deserialize: |reader| M::from_bytes(reader),
         }
     }
 }

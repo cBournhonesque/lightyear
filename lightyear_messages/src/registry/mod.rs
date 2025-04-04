@@ -291,6 +291,9 @@ pub trait AppMessageExt {
     fn add_message<M: Message + Serialize + DeserializeOwned>(&mut self) -> MessageRegistration<'_, M>;
 
     fn add_message_custom_serde<M: Message>(&mut self, serialize_fns: SerializeFns<M>) -> MessageRegistration<'_, M>;
+
+    /// Register a message that has a ToBytes implementation
+    fn add_message_to_bytes<M: Message + ToBytes>(&mut self) -> MessageRegistration<'_, M>;
 }
 
 
@@ -315,6 +318,10 @@ impl AppMessageExt for App {
             app: self,
             _marker: Default::default(),
         }
+    }
+
+    fn add_message_to_bytes<M: Message + ToBytes>(&mut self) -> MessageRegistration<'_, M> {
+        self.add_message_custom_serde::<M>(SerializeFns::<M>::with_to_bytes())
     }
 }
 

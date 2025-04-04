@@ -2,8 +2,11 @@ use crate::protocol::StringMessage;
 use crate::stepper::ClientServerStepper;
 use lightyear_connection::server::Started;
 use lightyear_crossbeam::CrossbeamIo;
+use lightyear_messages::registry::MessageKind;
 use lightyear_new::prelude::client::*;
 use lightyear_new::prelude::*;
+use lightyear_sync::ping::message::Ping;
+use tracing::debug;
 
 /// Check that the client/server setup is correct:
 /// - the various components we expect are present
@@ -25,6 +28,8 @@ fn test_setup_client_server() {
 
     assert!(stepper.server().contains::<Timeline<server::Local>>());
     assert!(stepper.server().contains::<Started>());
+
+    debug!(ping = ?MessageKind::of::<Ping>(), "ping");
 
     assert!(stepper.client_1().contains::<Timeline<server::Local>>());
     assert!(stepper.client_1().contains::<Transport>());

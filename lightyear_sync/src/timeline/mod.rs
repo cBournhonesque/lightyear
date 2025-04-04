@@ -10,7 +10,7 @@ pub mod remote;
 pub mod interpolation;
 pub mod sync;
 
-/// Marker component to identifty the local timeline, i.e. the timeline that corresponds to the bevy app.
+/// Marker component to identity the local timeline, i.e. the timeline that corresponds to the bevy app.
 ///
 /// Time<Virtual> will be updated according to the main timeline's relative_speed.
 #[derive(Component, Default)]
