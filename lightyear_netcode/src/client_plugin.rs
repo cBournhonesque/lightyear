@@ -21,7 +21,7 @@ pub struct NetcodeClientPlugin;
 #[require(Link, lightyear_connection::client::Client)]
 #[component(on_add = on_client_add)]
 pub struct NetcodeClient {
-    pub inner: crate::client::NetcodeClient<()>,
+    pub inner: crate::client::Client<()>,
 }
 
 fn on_client_add(mut world: DeferredWorld, context: HookContext) {
@@ -71,7 +71,7 @@ impl NetcodeClient {
                     .get_token(config.client_timeout_secs, config.token_expire_secs)?;
         let token_bytes = token.try_into_bytes()?;
         Ok(Self {
-            inner: crate::client::NetcodeClient::with_config(&token_bytes, config.build())?,
+            inner: crate::client::Client::with_config(&token_bytes, config.build())?,
         })
     }
 

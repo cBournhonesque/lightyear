@@ -460,7 +460,6 @@ impl Packet {
         if let Packet::Request(pkt) = self {
             cursor.write_u8(Packet::REQUEST)?;
             pkt.write_to(&mut cursor)?;
-            trace!(bytes = ?cursor.get_ref()[..3], "Request packet");
             return Ok(cursor.position() as usize);
         }
         cursor.write_u8(self.set_prefix(sequence))?;
@@ -507,7 +506,6 @@ impl Packet {
         let mut cursor = io::Cursor::new(buf);
         let prefix_byte = cursor.read_u8()?;
         let (sequence_len, pkt_kind) = Packet::get_prefix(prefix_byte);
-        trace!(?prefix_byte, ?pkt_kind, "Read packet");
         if allowed_packets & (1 << pkt_kind) == 0 {
             debug!("ignoring packet of type {}, not allowed", pkt_kind);
         }
@@ -647,6 +645,7 @@ mod tests {
         let size = packet
             .write(buf.as_mut(), sequence, &packet_key, protocol_id)
             .unwrap();
+        dbg!(size);
 
         let packet = Packet::read(
             buf.split_to(size),

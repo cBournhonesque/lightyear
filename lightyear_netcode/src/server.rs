@@ -226,7 +226,7 @@ pub type Callback<Ctx> = Box<dyn FnMut(ClientId, SocketAddr, &mut Ctx) + Send + 
 /// # let protocol_id = 0x123456789ABCDEF0;
 /// # let private_key = [42u8; 32];
 /// use std::sync::{Arc, Mutex};
-/// use lightyear_netcode::{NetcodeServer, ServerConfig};
+/// use lightyear_netcode::{Server, ServerConfig};
 ///
 /// let thread_safe_counter = Arc::new(Mutex::new(0));
 /// let cfg = ServerConfig::with_context(thread_safe_counter).on_connect(|idx, _, ctx| {
@@ -234,7 +234,7 @@ pub type Callback<Ctx> = Box<dyn FnMut(ClientId, SocketAddr, &mut Ctx) + Send + 
 ///     *counter += 1;
 ///     println!("client {} connected, counter: {idx}", counter);
 /// });
-/// let server = NetcodeServer::with_config(protocol_id, private_key, cfg).unwrap();
+/// let server = Server::with_config(protocol_id, private_key, cfg).unwrap();
 /// ```
 pub struct ServerConfig<Ctx> {
     num_disconnect_packets: usize,
@@ -349,25 +349,22 @@ impl<Ctx> ServerConfig<Ctx> {
 /// # use core::time::Duration;
 /// # use std::thread;
 /// # use lightyear_link::Link;
-/// # use lightyear_netcode::{generate_key, NetcodeServer};
+/// # use lightyear_netcode::{generate_key, Server};
 /// let mut link = Link::new(SocketAddr::from(([127, 0, 0, 1], 12345)));
 /// let private_key = generate_key();
 /// let protocol_id = 0x123456789ABCDEF0;
-/// let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
+/// let mut server = Server::new(protocol_id, private_key).unwrap();
 ///
 /// let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
 ///
 /// loop {
 ///     server.update(tick_rate.as_secs_f64() / 1000.0, &mut link);
-///     if let Some((received, from)) = server.recv() {
-///         // ...
-///     }
 ///     thread::sleep(tick_rate);
 ///     # break;
 /// }
 /// ```
 ///
-pub struct NetcodeServer<Ctx = ()> {
+pub struct Server<Ctx = ()> {
     time: f64,
     private_key: Key,
     sequence: u64,
@@ -390,12 +387,12 @@ pub struct NetcodeServer<Ctx = ()> {
     client_errors: Vec<Error>,
 }
 
-impl NetcodeServer {
+impl Server {
     /// Create a new server with a default configuration.
     ///
-    /// For a custom configuration, use [`Server::with_config`](NetcodeServer::with_config) instead.
+    /// For a custom configuration, use [`Server::with_config`](Server::with_config) instead.
     pub fn new(protocol_id: u64, private_key: Key) -> Result<Self> {
-        let server: NetcodeServer<()> = NetcodeServer {
+        let server: Server<()> = Server {
             time: 0.0,
             private_key,
             protocol_id,
@@ -415,24 +412,24 @@ impl NetcodeServer {
     }
 }
 
-impl<Ctx> NetcodeServer<Ctx> {
+impl<Ctx> Server<Ctx> {
     /// Create a new server with a custom configuration. <br>
     /// Callbacks with context can be registered with the server to be notified when the server changes states. <br>
     /// See [`ServerConfig`] for more details.
     ///
     /// # Example
     /// ```
-    /// # use lightyear_netcode::{generate_key, NetcodeServer, ServerConfig};
+    /// # use lightyear_netcode::{generate_key, Server, ServerConfig};
     ///
     /// let private_key = generate_key();
     /// let protocol_id = 0x123456789ABCDEF0;
     /// let cfg = ServerConfig::with_context(42).on_connect(|idx, _, ctx| {
     ///     assert_eq!(ctx, &42);
     /// });
-    /// let server = NetcodeServer::with_config(protocol_id, private_key, cfg).unwrap();
+    /// let server = Server::with_config(protocol_id, private_key, cfg).unwrap();
     /// ```
     pub fn with_config(protocol_id: u64, private_key: Key, cfg: ServerConfig<Ctx>) -> Result<Self> {
-        let server = NetcodeServer {
+        let server = Server {
             time: 0.0,
             private_key,
             protocol_id,
@@ -453,7 +450,7 @@ impl<Ctx> NetcodeServer<Ctx> {
 }
 
 
-impl<Ctx> NetcodeServer<Ctx> {
+impl<Ctx> Server<Ctx> {
     const ALLOWED_PACKETS: u8 = 1 << Packet::REQUEST
         | 1 << Packet::RESPONSE
         | 1 << Packet::KEEP_ALIVE
@@ -491,13 +488,6 @@ impl<Ctx> NetcodeServer<Ctx> {
         packet: Packet,
     ) -> Result<Option<RecvPayload>> {
         let client_id = self.conn_cache.find_by_addr(&addr).map(|(id, _)| id);
-        trace!(
-            "server received {} from {}",
-            packet.to_string(),
-            client_id
-                .map(|idx| format!("client {idx}"))
-                .unwrap_or_else(|| addr.to_string())
-        );
         match packet {
             Packet::Request(packet) => {
                 self.process_connection_request(addr, packet)?;
@@ -533,8 +523,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         addr: SocketAddr,
     ) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
-        let size = packet.write(self.writer.as_mut(), self.sequence, &key, self.protocol_id)?;
-        trace!(pkt = %packet, "Server sending netcode packet");
+        let size = packet.write(&mut buf, self.sequence, &key, self.protocol_id)?;
         self.writer.extend_from_slice(&buf[..size]);
         self.send_queue.entry(addr).or_default().push(self.writer.split());
         self.sequence += 1;
@@ -547,7 +536,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         sender: &mut LinkSender,
     ) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
-        let size = packet.write(self.writer.as_mut(), self.sequence, &key, self.protocol_id)?;
+        let size = packet.write(&mut buf, self.sequence, &key, self.protocol_id)?;
         self.writer.extend_from_slice(&buf[..size]);
         sender.push(self.writer.split());
         self.sequence += 1;
@@ -582,6 +571,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         from_addr: SocketAddr,
         mut packet: RequestPacket,
     ) -> Result<()> {
+        trace!("Server received connection request packet");
         let mut reader = io::Cursor::new(&mut packet.token_data[..]);
         let token = ConnectTokenPrivate::read_from(&mut reader)?;
 
@@ -813,7 +803,7 @@ impl<Ctx> NetcodeServer<Ctx> {
         }
         let mut reader = io::Cursor::new(buf);
         let first_byte = reader.read_u8()?;
-        reader.seek(io::SeekFrom::Current(-1))?;
+        // reader.rewind()?;
         let (key, replay_protection) = match self.conn_cache.find_by_addr(&addr) {
             // Regardless of whether an entry in the connection cache exists for the client or not,
             // if the packet is a connection request we need to use the server's private key to decrypt it.
@@ -877,12 +867,12 @@ impl<Ctx> NetcodeServer<Ctx> {
     ///
     /// # Panics
     /// Panics if the server can't send or receive packets.
-    /// For a non-panicking version, use [`try_update`](NetcodeServer::try_update).
+    /// For a non-panicking version, use [`try_update`](Server::try_update).
     pub fn update(&mut self, delta_ms: f64, link: &mut Link) {
         self.try_update(delta_ms, link)
             .expect("send/recv error while updating server");
     }
-    /// The fallible version of [`update`](NetcodeServer::update).
+    /// The fallible version of [`update`](Server::update).
     ///
     /// Returns an error if the server can't send or receive packets.
     pub fn try_update(&mut self, delta_ms: f64, link: &mut Link) -> Result<Vec<Error>> {
@@ -955,12 +945,12 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// ```rust
     /// # use std::net::{SocketAddr, Ipv4Addr};
     /// # use std::str::FromStr;
-    /// # use lightyear_netcode::{generate_key, NetcodeServer};
+    /// # use lightyear_netcode::{generate_key, Server};
     ///
     /// let private_key = generate_key();
     /// let protocol_id = 0x123456789ABCDEF0;
     /// let bind_addr = "0.0.0.0:0";
-    /// let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
+    /// let mut server = Server::new(protocol_id, private_key).unwrap();
     ///
     /// let client_id = 123u64;
     /// let token = server.token(client_id, SocketAddr::from_str(bind_addr).unwrap())

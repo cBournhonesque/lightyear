@@ -22,7 +22,7 @@ pub(crate) struct NetcodeServerContext {
 
 #[derive(Component)]
 pub struct NetcodeServer {
-    pub inner: crate::server::NetcodeServer<NetcodeServerContext>
+    pub inner: crate::server::Server<NetcodeServerContext>
 }
 
 
@@ -79,7 +79,7 @@ impl NetcodeServer {
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
-        let server = crate::server::NetcodeServer::with_config(config.protocol_id, config.private_key, cfg)
+        let server = crate::server::Server::with_config(config.protocol_id, config.private_key, cfg)
             .expect("Could not create server netcode");
         Self {
             inner: server

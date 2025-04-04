@@ -1,6 +1,7 @@
 # Status:
 
 - WebTransport: ai-generated, to be verified
+- Netcode: Request packet should be 1077 bytes, but client sends 1078
 
 
 # Replication
