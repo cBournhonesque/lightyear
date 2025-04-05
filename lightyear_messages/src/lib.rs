@@ -12,7 +12,7 @@ use bevy::ecs::component::ComponentId;
 use bevy::platform_support::collections::HashMap;
 use bevy::prelude::Component;
 use lightyear_core::network::NetId;
-use lightyear_transport::entity_map::SendEntityMap;
+use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_transport::prelude::Transport;
 
 pub mod registry;

@@ -7,10 +7,10 @@ use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy::prelude::{Component, Entity, Query, Res, Without, World};
+use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::writer::Writer;
 use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
-use lightyear_transport::entity_map::SendEntityMap;
 use lightyear_transport::prelude::Transport;
 use tracing::{debug, error, trace};
 

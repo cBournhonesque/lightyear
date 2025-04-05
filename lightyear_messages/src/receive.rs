@@ -8,11 +8,11 @@ use bevy::ecs::world::FilteredEntityMut;
 use bevy::prelude::{Component, Entity, Query, Res};
 use bytes::Bytes;
 use lightyear_core::tick::Tick;
+use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::ToBytes;
 use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::channel::ChannelKind;
-use lightyear_transport::entity_map::ReceiveEntityMap;
 use lightyear_transport::prelude::Transport;
 use tracing::error;
 

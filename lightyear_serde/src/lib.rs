@@ -18,9 +18,11 @@ use bytes::Bytes;
 use core::hash::{BuildHasher, Hash};
 use no_std_io2::io;
 
+pub mod entity_map;
 pub mod reader;
 pub mod varint;
 pub mod writer;
+pub mod registry;
 
 pub mod prelude {
     pub use crate::reader::{ReadInteger, Reader};

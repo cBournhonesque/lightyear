@@ -13,7 +13,6 @@ pub mod channel;
 pub mod error;
 
 pub mod packet;
-pub mod entity_map;
 pub mod plugin;
 
 pub mod prelude {

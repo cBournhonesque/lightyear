@@ -1,13 +1,10 @@
-use crate::registry::MessageRegistry;
-use crate::Message;
-use bevy::app::App;
+use crate::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
+use crate::reader::Reader;
+use crate::writer::Writer;
+use crate::{SerializationError, ToBytes};
 use bevy::ecs::entity::MapEntities;
 use bevy::ptr::{Ptr, PtrMut};
 use core::any::TypeId;
-use lightyear_serde::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
-use lightyear_serde::reader::Reader;
-use lightyear_serde::writer::Writer;
-use lightyear_serde::{SerializationError, ToBytes};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -35,7 +32,7 @@ pub struct SerializeFns<M> {
     pub deserialize: DeserializeFn<M>,
 }
 
-impl<M: Message + Serialize + DeserializeOwned> Default for SerializeFns<M> {
+impl<M: Serialize + DeserializeOwned> Default for SerializeFns<M> {
     fn default() -> Self {
         Self {
             serialize: default_serialize::<M>,
@@ -44,7 +41,7 @@ impl<M: Message + Serialize + DeserializeOwned> Default for SerializeFns<M> {
     }
 }
 
-impl<M: Message + ToBytes> SerializeFns<M> {
+impl<M: ToBytes> SerializeFns<M> {
     pub fn with_to_bytes() -> Self {
         Self {
             serialize: |message, writer| message.to_bytes(writer),
@@ -78,7 +75,7 @@ pub(crate) type ErasedSendMapEntitiesFn =
 pub(crate) type ErasedReceiveMapEntitiesFn =
     for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut ReceiveEntityMap);
 
-unsafe fn erased_serialize_fn<M: Message>(
+unsafe fn erased_serialize_fn<M: 'static>(
     erased_serialize_fn: &ErasedSerializeFns,
     message: Ptr,
     writer: &mut Writer,
@@ -104,7 +101,7 @@ unsafe fn erased_serialize_fn<M: Message>(
 
 #[cfg(feature = "std")]
 /// Default serialize function using bincode
-fn default_serialize<M: Message + Serialize>(
+fn default_serialize<M: Serialize>(
     message: &M,
     buffer: &mut Writer,
 ) -> Result<(), SerializationError> {
@@ -125,7 +122,7 @@ fn default_serialize<M: Message + Serialize>(
 
 #[cfg(feature = "std")]
 /// Default deserialize function using bincode
-fn default_deserialize<M: Message + DeserializeOwned>(
+fn default_deserialize<M: DeserializeOwned>(
     buffer: &mut Reader,
 ) -> Result<M, SerializationError> {
     let data = bincode::serde::decode_from_std_read(buffer, bincode::config::standard())?;
@@ -176,11 +173,11 @@ unsafe fn erased_receive_map_entities<M: MapEntities + 'static>(
 }
 
 impl ErasedSerializeFns {
-    pub(crate) fn new<M: Message + Serialize + DeserializeOwned>() -> Self {
+    pub(crate) fn new<M: Serialize + DeserializeOwned + 'static>() -> Self {
         Self::new_custom_serde(SerializeFns::<M>::default())
     }
 
-    pub(crate) fn new_custom_serde<M: Message>(serialize_fns: SerializeFns<M>) -> Self {
+    pub(crate) fn new_custom_serde<M: 'static>(serialize_fns: SerializeFns<M>) -> Self {
         Self {
             type_id: TypeId::of::<M>(),
             type_name: core::any::type_name::<M>(),
@@ -236,7 +233,7 @@ impl ErasedSerializeFns {
     /// If available, we try to map the entities in the message from local to remote.
     ///
     /// SAFETY: the ErasedSerializeFns must be created for the type M
-    pub(crate) unsafe fn serialize<M: Message>(
+    pub(crate) unsafe fn serialize<M: 'static>(
         &self,
         message: &M,
         writer: &mut Writer,
@@ -249,7 +246,7 @@ impl ErasedSerializeFns {
     /// Deserialize the message value from the reader
     ///
     /// SAFETY: the ErasedSerializeFns must be created for the type M
-    pub(crate) unsafe fn deserialize<M: Message>(
+    pub(crate) unsafe fn deserialize<M: 'static>(
         &self,
         reader: &mut Reader,
         entity_map: &mut ReceiveEntityMap,
@@ -264,27 +261,11 @@ impl ErasedSerializeFns {
     }
 }
 
-pub trait AppSerializeExt {
-    /// Indicate that the type `M` contains Entity references, and that the entities
-    /// should be mapped during deserialization
-    fn add_map_entities<M: Clone + MapEntities + 'static>(&mut self);
-}
 
-impl AppSerializeExt for App {
-    // TODO: should we return Result<()> to indicate if adding the map_entities was successful?
-    //  otherwise it might not work if the message was not registered before
-    // TODO: or have a single SerializeRegistry?
-    // TODO: or should we just have add_message_map_entities and add_component_map_entities?
-    fn add_map_entities<M: Clone + MapEntities + 'static>(&mut self) {
-        let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
-        registry.try_add_map_entities::<M>();
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::MessageKind;
     use bevy::prelude::{Entity, Reflect, Resource};
     use bevy::ptr::Ptr;
     use serde::Deserialize;

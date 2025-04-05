@@ -17,11 +17,11 @@ use lightyear_macros::Channel;
 use lightyear_utils::collections::HashMap;
 
 use crate::channel::Channel;
-use crate::entity_map::{ReceiveEntityMap, SendEntityMap};
 use crate::error::TransportError;
 use crate::prelude::ChannelRegistry;
 use crossbeam_channel::{Receiver, Sender};
 use lightyear_link::SendPayload;
+use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 // TODO: hook when you insert ChannelSettings, it creates a ChannelSender and ChannelReceiver component
 
 #[cfg(not(feature = "std"))]

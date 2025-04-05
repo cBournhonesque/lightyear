@@ -18,10 +18,12 @@ std = [
 # utils
 bytes.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 variadics_please.workspace = true
 
 # serde
 bincode.workspace = true
+serde.workspace = true
 
 # bevy
 bevy.workspace = true

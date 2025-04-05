@@ -19,6 +19,8 @@ use crate::protocol::component::replication::{
 use crate::protocol::component::{ComponentError, ComponentKind, ComponentNetId};
 use crate::protocol::registry::{NetId, TypeMapper};
 use crate::protocol::serialize::{ErasedSerializeFns, SerializeFns};
+use crate::registry::replication::{ReplicationMetadata, TempWriteBuffer};
+use crate::registry::ComponentKind;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
@@ -29,8 +31,10 @@ use bevy::app::App;
 use bevy::ecs::change_detection::Mut;
 use bevy::ecs::component::{Component, ComponentId, Mutable};
 use bevy::ecs::entity::MapEntities;
+use bevy::platform_support::collections::HashMap;
 use bevy::prelude::{Resource, TypePath, World};
 use bevy::ptr::Ptr;
+use lightyear_utils::registry::TypeMapper;
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 use tracing::debug;
@@ -132,10 +136,7 @@ pub struct ComponentRegistry {
     pub(crate) component_id_to_kind: HashMap<ComponentId, ComponentKind>,
     pub(crate) kind_to_component_id: HashMap<ComponentKind, ComponentId>,
     pub replication_map: HashMap<ComponentKind, ReplicationMetadata>,
-    pub(crate) interpolation_map: HashMap<ComponentKind, InterpolationMetadata>,
-    pub prediction_map: HashMap<ComponentKind, PredictionMetadata>,
     pub(crate) serialize_fns_map: HashMap<ComponentKind, ErasedSerializeFns>,
-    pub(crate) delta_fns_map: HashMap<ComponentKind, ErasedDeltaFns>,
     pub kind_map: TypeMapper<ComponentKind>,
 }
 
