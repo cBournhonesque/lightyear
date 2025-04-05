@@ -18,7 +18,6 @@ impl ReplayProtection {
         if sequence > self.most_recent_sequence {
             self.most_recent_sequence = sequence;
         }
-
         let index = sequence as usize % self.received_packet.len();
 
         self.received_packet[index] = sequence;

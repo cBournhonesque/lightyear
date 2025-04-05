@@ -9,17 +9,16 @@ pub mod remote;
 #[cfg(feature = "interpolation")]
 pub mod interpolation;
 pub mod sync;
+pub mod local;
 
-/// Marker component to identity the local timeline, i.e. the timeline that corresponds to the bevy app.
+/// Marker component to identity the timeline that will update the bevy app.
 ///
-/// Time<Virtual> will be updated according to the main timeline's relative_speed.
+/// Time<Virtual> will be updated according to the driving timeline's relative_speed.
 #[derive(Component, Default)]
-pub struct LocalTimeline<T> {
+pub struct DrivingTimeline<T> {
     pub marker: core::marker::PhantomData<T>
 }
 
-/// The local timeline that matches Time<Virtual>
-pub struct Local;
 
 #[derive(Component, Default)]
 pub struct Timeline<T: TimelineContext> {

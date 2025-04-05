@@ -124,7 +124,7 @@ use crate::registry::MessageRegistry;
 use bevy::app::{App, PostUpdate, PreUpdate};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
 use bevy::prelude::{IntoScheduleConfigs, Plugin, SystemParamBuilder, SystemSet};
-use lightyear_transport::plugin::TransportSet;
+use lightyear_transport::plugin::{TransportPlugin, TransportSet};
 use lightyear_transport::prelude::{ChannelRegistry, Transport};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -148,6 +148,9 @@ pub struct MessagePlugin;
 impl Plugin for MessagePlugin {
 
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<TransportPlugin>() {
+            app.add_plugins(TransportPlugin);
+        }
     }
 
     // NOTE: this should only be called once all messages are registered, because we use the list of registered

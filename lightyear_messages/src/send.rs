@@ -6,7 +6,7 @@ use alloc::sync::Arc;
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
-use bevy::prelude::{Component, Entity, Query, Res, World};
+use bevy::prelude::{Component, Entity, Query, Res, Without, World};
 use lightyear_serde::writer::Writer;
 use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
@@ -119,6 +119,9 @@ impl MessagePlugin {
     /// Take messages to send from the MessageSender<M> components
     /// Serialize them into bytes that are buffered in a ChannelSender<C>
     pub fn send(
+        // TODO: maybe prevent users from sending messages if Connecting/Disconnected is present?
+        //   but then this crate would import lightyear_connection; and we might want to remain independent
+        //   or should we have a feature called 'connection'?
         mut transport_query: Query<(Entity, &Transport, &mut MessageManager)>,
         // MessageSender<M> present on that entity
         message_sender_query: Query<FilteredEntityMut>,

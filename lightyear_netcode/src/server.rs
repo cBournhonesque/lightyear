@@ -165,7 +165,7 @@ impl ConnectionCache {
             last_receive_time: f64::NEG_INFINITY,
             send_key,
             receive_key,
-            sequence: 0,
+            sequence: 1 << 62,
         };
         self.clients.insert(client_id, conn);
         self.replay_protection
@@ -396,7 +396,7 @@ impl Server {
             time: 0.0,
             private_key,
             protocol_id,
-            sequence: 1 << 63,
+            sequence: 1 << 23,
             token_sequence: 0,
             challenge_sequence: 0,
             challenge_key: crypto::generate_key(),
@@ -433,7 +433,7 @@ impl<Ctx> Server<Ctx> {
             time: 0.0,
             private_key,
             protocol_id,
-            sequence: 1 << 63,
+            sequence: 1 << 23,
             token_sequence: 0,
             challenge_sequence: 0,
             challenge_key: crypto::generate_key(),
@@ -556,9 +556,31 @@ impl<Ctx> Server<Ctx> {
 
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
-
         self.writer.extend_from_slice(&buf[..size]);
         sender.push(self.writer.split());
+
+        conn.last_access_time = self.time;
+        conn.last_send_time = self.time;
+        conn.sequence += 1;
+        Ok(())
+    }
+
+    fn send_netcode_to_client(
+        &mut self,
+        packet: Packet,
+        id: ClientId,
+        addr: SocketAddr,
+    ) -> Result<()> {
+        let conn = &mut self
+            .conn_cache
+            .clients
+            .get_mut(&id)
+            .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?;
+
+        let mut buf = [0u8; MAX_PKT_BUF_SIZE];
+        let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
+        self.writer.extend_from_slice(&buf[..size]);
+        self.send_queue.entry(addr).or_default().push(self.writer.split());
 
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;
@@ -711,21 +733,13 @@ impl<Ctx> Server<Ctx> {
             .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?;
 
         client.connect();
+        client.last_send_time = self.time;
+        client.last_receive_time = self.time;
         debug!(
             "server accepted client {} with id {}",
             id, challenge_token.client_id
         );
-        client.last_send_time = self.time;
-        client.last_receive_time = self.time;
-        client.last_access_time = self.time;
-        client.sequence += 1;
-
-        let key = client.send_key;
-        self.send_netcode_packet(
-            KeepAlivePacket::create(id),
-            key,
-            from_addr,
-        )?;
+        self.send_netcode_to_client(KeepAlivePacket::create(id), id, from_addr)?;
         self.on_connect(id, from_addr);
         Ok(())
     }

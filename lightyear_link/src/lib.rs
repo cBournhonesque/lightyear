@@ -11,8 +11,9 @@ use alloc::collections::vec_deque::Drain;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-use bevy::prelude::Event;
 use alloc::collections::VecDeque;
+use bevy::app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy::prelude::Event;
 use bevy::prelude::{Component, SystemSet};
 use bytes::Bytes;
 use core::net::SocketAddr;
@@ -77,6 +78,11 @@ impl LinkReceiver {
         self.0.len()
     }
 
+    #[cfg(any(test, feature = "test_utils"))]
+    pub fn iter(&self) -> impl Iterator<Item = &SendPayload> {
+         self.0.iter()
+    }
+
 }
 #[derive(Default)]
 pub struct LinkSender(VecDeque<SendPayload>);
@@ -98,7 +104,12 @@ pub struct LinkSender(VecDeque<SendPayload>);
     pub fn len(&self) -> usize {
         self.0.len()
     }
-}
+
+      #[cfg(any(test, feature = "test_utils"))]
+    pub fn iter(&self) -> impl Iterator<Item = &SendPayload> {
+         self.0.iter()
+    }
+  }
 
 impl Link {
     pub fn send(&mut self, payload: SendPayload) {
@@ -151,3 +162,13 @@ pub struct Linked;
 
 #[derive(Component, Default, Debug)]
 pub struct Unlinked;
+
+
+pub struct LinkPlugin;
+
+impl Plugin for LinkPlugin {
+    fn build(&self, app: &mut App) {
+        app.configure_sets(PreUpdate, LinkSet::Receive);
+        app.configure_sets(PostUpdate, LinkSet::Send);
+    }
+}

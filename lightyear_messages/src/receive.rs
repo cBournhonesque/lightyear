@@ -24,6 +24,7 @@ use alloc::sync::Arc;
 #[derive(Component)]
 #[require(MessageManager)]
 pub struct MessageReceiver<M> {
+    // TODO: wrap this in bevy events buffer?
     recv: Vec<(M, ChannelKind, Tick)>
 }
 

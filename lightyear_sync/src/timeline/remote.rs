@@ -1,9 +1,10 @@
 use crate::ping::manager::PingManager;
 use crate::timeline::{NetworkTimeline, Timeline};
-use bevy::prelude::Component;
+use bevy::prelude::{Component, Query, Real, Res, Time, Trigger};
 use core::time::Duration;
 use lightyear_core::tick::Tick;
 use lightyear_core::time::{TickDelta, TickInstant, TimeDelta};
+use lightyear_transport::plugin::PacketReceived;
 use tracing::trace;
 
 /// The local peer's estimate of the remote peer's timeline
@@ -119,6 +120,29 @@ impl Timeline<RemoteEstimate> {
         }
     }
 
+}
+
+// TODO: instead of a trigger, should this be after MessageReceivedSet?
+/// Update the timeline in FixedUpdate based on the Pings received
+/// Should we use this only in FixedUpdate::First? because we need the tick in FixedUpdate to be correct for the timeline
+pub(crate) fn update_remote_timeline(
+    trigger: Trigger<PacketReceived>,
+    mut query: Query<(&mut Timeline<RemoteEstimate>, &PingManager)>,
+) {
+    if let Ok((mut t, ping_manager)) = query.get_mut(trigger.target()) {
+        t.update(trigger.remote_tick, ping_manager);
+    }
+}
+
+/// Advance our estimate of the remote timeline based on the real time
+pub(crate) fn advance_remote_timeline(
+    fixed_time: Res<Time<Real>>,
+    mut query: Query<&mut Timeline<RemoteEstimate>>,
+) {
+    let delta = fixed_time.delta();
+    query.iter_mut().for_each(|mut t| {
+        t.advance(delta);
+    })
 }
 
 // - When we receive a packet from the server, we update the last_received_tick

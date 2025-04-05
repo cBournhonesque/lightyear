@@ -10,7 +10,7 @@ use lightyear_connection::ConnectionSet;
 use lightyear_link::{Link, LinkSet, SendPayload};
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
-use tracing::{debug, error, info};
+use tracing::*;
 
 pub struct NetcodeClientPlugin;
 
@@ -104,6 +104,9 @@ impl NetcodeClientPlugin {
 
             // send netcode internal packets
             client.inner.send_netcode_packets(&mut link.send);
+
+            // #[cfg(feature = "test_utils")]
+            // trace!("CLIENT: length of each packet in send: {:?}", link.send.iter().map(|p| p.len()).collect::<Vec<_>>());
         })
     }
 
@@ -116,6 +119,9 @@ impl NetcodeClientPlugin {
     ) {
         let delta = real_time.delta();
         query.par_iter_mut().for_each(|(entity, mut link, mut client, connecting )| {
+            // #[cfg(feature = "test_utils")]
+            // trace!("CLIENT: length of each packet in receive: {:?}", link.recv.iter().map(|p| p.len()).collect::<Vec<_>>());
+
             // Buffer the packets received from the link into the Connection
             // don't short-circuit on error
             if let Some(state) = client.inner.try_update(delta.as_secs_f64(), &mut link.recv)
@@ -163,7 +169,7 @@ impl NetcodeClientPlugin {
 impl Plugin for NetcodeClientPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(PreUpdate, (LinkSet::Receive, ConnectionSet::Receive,  TransportSet::Receive).chain());
-        app.configure_sets(PostUpdate, (TransportSet::Send, ConnectionSet::Send, LinkSet::Send));
+        app.configure_sets(PostUpdate, (TransportSet::Send, ConnectionSet::Send, LinkSet::Send).chain());
 
         app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSet::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(ConnectionSet::Send));

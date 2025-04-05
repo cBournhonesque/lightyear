@@ -61,10 +61,12 @@ impl Plugin for ProtocolPlugin {
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
-        });
+        })
+            .add_direction(NetworkDirection::Bidirectional);
         app.add_channel::<Channel2>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliableWithAcks,
             ..default()
-        });
+        })
+        .add_direction(NetworkDirection::Bidirectional);;
     }
 }

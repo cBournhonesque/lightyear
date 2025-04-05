@@ -9,7 +9,7 @@ extern crate alloc;
 use bevy::prelude::{Component, SystemSet};
 
 
-use lightyear_sync::prelude::{server::*, *};
+use lightyear_sync::prelude::*;
 
 
 pub mod plugin;
@@ -17,6 +17,6 @@ pub mod plugin;
 
 #[derive(Component)]
 // TODO: insert all the components with the default config values, user can override them by inserting the component themselves. The main
-#[require(Timeline<Local>)]
+#[require(LocalTimeline)]
 #[require(lightyear_connection::client_of::Server)]
 pub struct Server;

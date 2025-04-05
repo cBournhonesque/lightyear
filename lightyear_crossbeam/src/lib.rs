@@ -12,10 +12,10 @@ use alloc::vec::Vec;
 
 use bevy::prelude::*;
 use bytes::Bytes;
-use crossbeam_channel::{Receiver, Sender, TryRecvError};
-use lightyear_link::{Link, Linked, LinkSet};
-use tracing::error;
 use core::net::{Ipv4Addr, SocketAddr};
+use crossbeam_channel::{Receiver, Sender, TryRecvError};
+use lightyear_link::{Link, LinkSet, Linked};
+use tracing::*;
 
 /// Maximum transmission units; maximum size in bytes of a packet
 pub(crate) const MTU: usize = 1472;
@@ -73,8 +73,10 @@ impl CrossbeamPlugin {
         query.iter_mut().for_each(|(mut link, mut crossbeam_io)| {
             // Try to receive all available messages
             loop {
-                match  crossbeam_io.receiver.try_recv() {
-                    Ok(data) => {link.recv.push(data)}
+                match crossbeam_io.receiver.try_recv() {
+                    Ok(data) => {
+                        link.recv.push(data)
+                    }
                     Err(TryRecvError::Empty) => {break},
                     Err(TryRecvError::Disconnected) => {
                         error!("CrossbeamIO channel is disconnected");
@@ -89,6 +91,6 @@ impl CrossbeamPlugin {
 impl Plugin for CrossbeamPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, Self::receive.in_set(LinkSet::Receive));
-        app.add_systems(PreUpdate, Self::send.in_set(LinkSet::Send));
+        app.add_systems(PostUpdate, Self::send.in_set(LinkSet::Send));
     }
 }

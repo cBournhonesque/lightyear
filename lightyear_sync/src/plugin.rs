@@ -1,12 +1,12 @@
 use crate::ping::manager::PingManager;
 use crate::ping::plugin::PingPlugin;
-use crate::timeline::remote::RemoteEstimate;
+use crate::timeline::local::{increment_local_tick, set_local_overstep, Local};
 use crate::timeline::sync::SyncedTimeline;
-use crate::timeline::{LocalTimeline, NetworkTimeline, Timeline, TimelineContext};
-use bevy::app::{App, FixedFirst, Plugin};
-use bevy::prelude::{Commands, Entity, Fixed, Has, IntoScheduleConfigs, PostUpdate, Query, Real, Res, ResMut, SystemSet, Time, Trigger, Virtual, With};
+use crate::timeline::{DrivingTimeline, NetworkTimeline, Timeline, TimelineContext};
+use bevy::app::{App, FixedFirst, Plugin, RunFixedMainLoop, RunFixedMainLoopSystem};
+use bevy::prelude::{Commands, Entity, Fixed, Has, IntoScheduleConfigs, PostUpdate, Query, Res, ResMut, SystemSet, Time, Trigger, Virtual, With};
 use lightyear_core::time::SetTickDuration;
-use lightyear_transport::plugin::PacketReceived;
+use lightyear_transport::prelude::Transport;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SyncSet {
@@ -29,7 +29,6 @@ impl<T> Default for NetworkTimelinePlugin<T> {
 impl<T: TimelineContext> Plugin for NetworkTimelinePlugin<T> where Timeline<T>: NetworkTimeline {
     fn build(&self, app: &mut App) {
         app.add_observer(SyncPlugin::update_tick_duration::<Timeline<T>>);
-
     }
 }
 
@@ -78,7 +77,7 @@ impl SyncPlugin {
 
     pub(crate) fn update_virtual_time<T: TimelineContext>(
         mut virtual_time: ResMut<Time<Virtual>>,
-        query: Query<&Timeline<T>, With<LocalTimeline<T>>>)
+        query: Query<&Timeline<T>, With<DrivingTimeline<T>>>)
     where Timeline<T>: SyncedTimeline
     {
         if let Ok(timeline) = query.single() {
@@ -91,7 +90,7 @@ impl SyncPlugin {
     /// Should we use this only in FixedUpdate::First? because we need the tick in FixedUpdate to be correct for the timeline
     pub(crate) fn advance_synced_timelines<T: TimelineContext>(
         fixed_time: Res<Time<Fixed>>,
-        mut query: Query<(&mut Timeline<T>, Has<LocalTimeline<T>>)>,
+        mut query: Query<(&mut Timeline<T>, Has<DrivingTimeline<T>>)>,
     ) where Timeline<T>: SyncedTimeline {
         let delta = fixed_time.delta();
         query.iter_mut().for_each(|(mut t, is_main)| {
@@ -105,7 +104,9 @@ impl SyncPlugin {
         })
     }
 
-    /// Sync timeline T to timeline M
+    /// Sync timeline T to timeline M by either
+    /// - speeding up/slowing down the timeline T to match timeline M
+    /// - emitting a SyncEvent<T>
     pub(crate) fn sync_timelines<T: SyncedTimeline, M: NetworkTimeline>(
         mut commands: Commands,
         mut query: Query<(Entity, &mut T, &M, &PingManager)>,
@@ -114,28 +115,6 @@ impl SyncPlugin {
             if let Some(sync_event) = sync_timeline.sync(main_timeline, ping_manager) {
                 commands.trigger_targets(sync_event, entity);
             }
-        })
-    }
-
-    /// Update the timeline in FixedUpdate based on the Time<Virtual>
-    /// Should we use this only in FixedUpdate::First? because we need the tick in FixedUpdate to be correct for the timeline
-    pub(crate) fn update_remote_timeline(
-        trigger: Trigger<PacketReceived>,
-        mut query: Query<(&mut Timeline<RemoteEstimate>, &PingManager)>,
-    ) {
-        if let Ok((mut t, ping_manager)) = query.get_mut(trigger.target()) {
-            t.update(trigger.remote_tick, ping_manager);
-        }
-    }
-
-    /// Advance our estimate of the remote timeline based on the real time
-    pub(crate) fn advance_remote_timeline(
-        fixed_time: Res<Time<Real>>,
-        mut query: Query<&mut Timeline<RemoteEstimate>>,
-    ) {
-        let delta = fixed_time.delta();
-        query.iter_mut().for_each(|mut t| {
-            t.advance(delta);
         })
     }
 }
@@ -147,5 +126,11 @@ impl Plugin for SyncPlugin {
             app.add_plugins(PingPlugin);
         }
         app.configure_sets(PostUpdate, SyncSet::Sync);
+
+        // Local timeline
+        app.add_plugins(NetworkTimelinePlugin::<Timeline<Local>>::default());
+        app.register_required_components::<Transport, Timeline<Local>>();
+        app.add_systems(FixedFirst, increment_local_tick);
+        app.add_systems(RunFixedMainLoop, set_local_overstep.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop));
     }
 }

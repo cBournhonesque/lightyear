@@ -14,7 +14,7 @@ use bevy::prelude::*;
 use bytes::Bytes;
 use lightyear_core::network::NetId;
 use lightyear_core::tick::{Tick, TickManager};
-use lightyear_link::{Link, LinkSet};
+use lightyear_link::{Link, LinkPlugin, LinkSet};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
 use tracing::{error, trace, warn};
@@ -225,6 +225,9 @@ impl TransportPlugin {
 
 impl Plugin for TransportPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<LinkPlugin>() {
+            app.add_plugins(LinkPlugin);
+        }
     }
 
     fn finish(&self, app: &mut App) {

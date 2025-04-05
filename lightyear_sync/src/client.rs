@@ -6,7 +6,7 @@ use crate::timeline::input::Input;
 use crate::timeline::interpolation::Interpolation;
 use crate::timeline::remote::RemoteEstimate;
 use crate::timeline::sync::SyncedTimeline;
-use crate::timeline::{LocalTimeline, Timeline};
+use crate::timeline::{remote, DrivingTimeline, Timeline};
 use bevy::prelude::*;
 use bevy::prelude::{Reflect, SystemSet};
 use bevy::time::time_system;
@@ -42,25 +42,26 @@ pub struct ClientPlugin;
 //    - in PostUpdate too
 //    - in PreUpdate the Time<Virtual> has been updated but not the timelines! Maybe we could just store a PreUpdate now()?
 
-/// For the client, the Local timeline is the Input timeline
-pub type Local = Input;
+
 
 impl Plugin for ClientPlugin {
 
     fn build(&self, app: &mut App) {
         app.add_plugins(SyncPlugin);
 
-        app.add_plugins(SyncedTimelinePlugin::<Local, RemoteEstimate>::default());
+        app.add_plugins(SyncedTimelinePlugin::<Input, RemoteEstimate>::default());
+
         #[cfg(feature = "interpolation")]
         app.add_plugins(SyncedTimelinePlugin::<Interpolation, RemoteEstimate>::default());
 
         app.add_plugins(NetworkTimelinePlugin::<RemoteEstimate>::default());
-        app.add_observer(SyncPlugin::update_remote_timeline);
-        app.add_systems(First, SyncPlugin::advance_remote_timeline.after(time_system));
 
-        // the client will use the Input timeline as the local timeline
+        app.add_observer(remote::update_remote_timeline);
+        app.add_systems(First, remote::advance_remote_timeline.after(time_system));
+
         // TODO: should this be configurable?
-        app.register_required_components::<Timeline<Local>, LocalTimeline<Local>>();
+        // the client will use the Input timeline as the driving timeline
+        app.register_required_components::<Timeline<Input>, DrivingTimeline<Input>>();
 
         app.add_systems(Last, SyncPlugin::update_virtual_time::<Input>);
     }

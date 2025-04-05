@@ -40,7 +40,8 @@ impl PluginGroup for ServerPlugins {
         let builder = PluginGroupBuilder::start::<Self>();
         let builder = builder
             .add(SetupPlugin { tick_duration: self.tick_duration })
-            .add(lightyear_sync::server::ServerPlugin);
+            .add(lightyear_sync::prelude::SyncPlugin);
+            // .add(lightyear_sync::server::ServerPlugin);
 
         // CONNECTION
         #[cfg(feature = "netcode")]

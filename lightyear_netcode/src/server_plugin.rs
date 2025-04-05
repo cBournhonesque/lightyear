@@ -10,7 +10,7 @@ use lightyear_connection::prelude::{server::*, *};
 use lightyear_link::{Link, LinkSet, LinkStart, Unlink, Unlinked};
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
-use tracing::{error, info};
+use tracing::*;
 
 pub struct NetcodeServerPlugin;
 
@@ -129,7 +129,11 @@ impl NetcodeServerPlugin {
 
                     // NOTE: we send any netcode packets AFTER the user payloads have been processed
                     netcode_server.inner.send_keepalives(client_id, &mut link.send);
-                };
+                } else {
+                    // if the client is not connected, remove any messages buffered in link.send
+                    // We don't want to allow users to send messages while not connected
+                    link.send.drain();
+                }
 
                 // even if it was not connected, we might need to send the netcode packets that were buffered
                 let Some(addr) = link.remote_addr else {
@@ -137,6 +141,8 @@ impl NetcodeServerPlugin {
                     return;
                 };
                 netcode_server.inner.send_netcode_packets(addr, &mut link.send);
+                // #[cfg(feature = "test_utils")]
+                // trace!("SERVER: length of each packet in send: {:?}", link.send.iter().map(|p| p.len()).collect::<Vec<_>>());
             });
         })
     }
@@ -170,7 +176,11 @@ impl NetcodeServerPlugin {
             let server = &mut *server;
             // SAFETY: we know that the list of client entities are unique because it is a Relationship
             let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(&server.clients) };
-            link_query.iter_many_unique_mut(unique_slice).for_each(|(entity, mut link, mut client_of)| {
+            link_query.iter_many_unique_mut(unique_slice).for_each(|(entity, mut link, client_of)| {
+                // #[cfg(feature = "test_utils")]
+                // trace!("SERVER: length of each packet in receive: {:?}", link.recv.iter().map(|p| p.len()).collect::<Vec<_>>());
+
+                // TODO: insert Connecting if we receive a ConnectionRequest packet
                  match netcode_server.inner.receive(link.as_mut()) {
                      Ok(errors) => {
                          for error in errors {
@@ -188,7 +198,13 @@ impl NetcodeServerPlugin {
                     info!("New connection on netcode from {:?} ({:?})", id, addr);
                     server.client_map.insert(PeerId::Netcode(id), entity);
                     parallel_commands.command_scope(|mut c| {
-                        c.entity(entity).insert(Connected).remove::<Connecting>();
+                        trace!("Adding ClientOf with id {:?}", id);
+                        c.entity(entity)
+                            .insert((Connected, ClientOf {
+                                server: client_of.server,
+                                id: PeerId::Netcode(id),
+                            }))
+                            .remove::<Connecting>();
                     })
                 });
 
@@ -248,7 +264,7 @@ impl Plugin for NetcodeServerPlugin {
     fn build(&self, app: &mut App) {
         // TODO: should these be shared? or do we use Markers like in lightyear to distinguish between client and server?
         app.configure_sets(PreUpdate, (LinkSet::Receive, ConnectionSet::Receive, TransportSet::Receive).chain());
-        app.configure_sets(PostUpdate, (TransportSet::Send, ConnectionSet::Send, LinkSet::Send));
+        app.configure_sets(PostUpdate, (TransportSet::Send, ConnectionSet::Send, LinkSet::Send).chain());
 
         app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSet::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(ConnectionSet::Send));

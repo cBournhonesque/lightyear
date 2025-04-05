@@ -19,9 +19,8 @@ use lightyear_netcode::client_plugin::NetcodeConfig;
 use lightyear_netcode::{NetcodeClient, NetcodeServer};
 use lightyear_server::plugin::ServerPlugins;
 use lightyear_server::Server;
-use lightyear_sync::timeline::{NetworkTimeline, Timeline};
-use tracing::debug;
-
+use lightyear_sync::prelude::LocalTimeline;
+use lightyear_sync::timeline::NetworkTimeline;
 
 pub const TEST_CLIENT_1: u64 = 1;
 const PROTOCOL_ID: u64 = 0;
@@ -136,10 +135,10 @@ impl ClientServerStepper {
     }
 
     pub(crate) fn client_tick(&self) -> Tick {
-        self.client_app.world().entity(self.client_entity).get::<Timeline<lightyear_sync::client::Local>>().unwrap().tick()
+        self.client_app.world().entity(self.client_entity).get::<LocalTimeline>().unwrap().tick()
     }
     pub(crate) fn server_tick(&self) -> Tick {
-        self.server_app.world().entity(self.server_entity).get::<Timeline<lightyear_sync::server::Local>>().unwrap().tick()
+        self.server_app.world().entity(self.server_entity).get::<LocalTimeline>().unwrap().tick()
     }
 
     pub(crate) fn client(&self) -> EntityRef {

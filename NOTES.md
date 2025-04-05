@@ -162,6 +162,10 @@ SEND FLOW
     - we can represent server time as a server_tick + overstep
     - the Pong should contain overstep + pong-ping time
 
+- The tick should be specific to the timeline/connection!
+  - on server/client, we have a LocalTimeline. The tick gets incremented every FixedUpdate, and the overstep
+  - on server, we can define a LocalTimeline, where the Tick is incremented every FixedUpdate.
+  - the transport should be using the LocalTimeline to get the tick information.
 
 # Lightyear client
 
