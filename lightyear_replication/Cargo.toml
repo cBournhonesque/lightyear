@@ -14,6 +14,12 @@ std = [
     "bevy/std",
     "bytes/std",
     "serde/std",
+    "lightyear_connection/std",
+    "lightyear_transport/std",
+    "lightyear_messages/std",
+    "lightyear_serde/std",
+    "lightyear_utils/std",
+    "lightyear_core/std",
 ]
 
 [dependencies]

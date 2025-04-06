@@ -24,7 +24,7 @@ use lightyear_connection::client_of::ClientOf;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::prelude::MessageReceiver;
-use lightyear_messages::MessageNetId;
+use lightyear_messages::{MessageManager, MessageNetId};
 use lightyear_transport::channel::builder::EntityActionsChannel;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::{ChannelRegistry, Transport};
@@ -55,9 +55,9 @@ impl ReplicationReceivePlugin {
     pub(crate) fn apply_to_world(
         world: &mut World,
         mut component_registry: ResMut<ComponentRegistry>,
-        mut query: Query<(&mut ReplicationReceiver, Option<&ClientOf>, &mut Transport, &LocalTimeline)>,
+        mut query: Query<(&mut ReplicationReceiver, Option<&ClientOf>, &mut MessageManager, &LocalTimeline)>,
     ) {
-        query.iter_mut().for_each(|(mut receiver, client_of, mut transport, local_timeline)| {
+        query.iter_mut().for_each(|(mut receiver, client_of, mut manager, local_timeline)| {
             // TODO: have some logic to get the remote peer independently from ClientOf or client-server
             //  Maybe the link contains the remoteLinkId?
 
@@ -66,7 +66,7 @@ impl ReplicationReceivePlugin {
 
             // TODO: put the temp buffer inside the receiver, we shouldn't need write access
             //   to the registry
-            receiver.apply_world(world, remote_peer, &mut transport.entity_mapper, component_registry.as_mut(), tick);
+            receiver.apply_world(world, remote_peer, &mut manager.entity_mapper, component_registry.as_mut(), tick);
             receiver.tick_cleanup(tick);
         });
     }

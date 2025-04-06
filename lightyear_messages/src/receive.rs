@@ -64,7 +64,10 @@ impl<M: Message> MessageReceiver<M> {
 
 pub(crate) type ReceiveMessageFn = unsafe fn(
     receiver: MutUntyped,
-    message_bytes: (Reader, ChannelKind, Tick),
+    reader: &mut Reader,
+    channel_kind: ChannelKind,
+    remote_tick: Tick,
+    message_id: Option<MessageId>,
     serialize_metadata: &ErasedSerializeFns,
     entity_map: &mut ReceiveEntityMap,
 ) -> Result<(), MessageError>;
@@ -135,7 +138,10 @@ impl MessagePlugin {
                     // SAFETY: we know the receiver corresponds to the correct `MessageReceiver<M>` type
                     unsafe { (recv_metadata.receive_message_fn)(
                         receiver,
-                        (reader, channel_kind, tick, message_id),
+                        &mut reader,
+                        channel_kind,
+                        tick,
+                        message_id,
                         serialize_fns,
                         &mut message_manager.entity_mapper.remote_to_local
                     )?; }

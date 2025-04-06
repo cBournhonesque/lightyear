@@ -81,7 +81,7 @@ impl<C> Default for DeltaComponentHistory<C> {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Component, Debug)]
 pub struct DeltaManager {
     pub(crate) data: DeltaComponentStore,
     /// Keeps track of how many clients have acked a specific tick for a specific replication group

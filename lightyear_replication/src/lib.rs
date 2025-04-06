@@ -27,7 +27,7 @@ pub(crate) mod send;
 
 pub(crate) mod systems;
 pub(crate) mod message;
-mod buffer;
+pub(crate) mod buffer;
 pub(crate) mod delta;
 
 pub mod prelude {

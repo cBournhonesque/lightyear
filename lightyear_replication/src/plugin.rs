@@ -21,18 +21,6 @@ pub enum ReplicationSet {
     Send,
 }
 
-#[derive(Component)]
-pub struct ReplicationManager {
-    pub sender: ReplicationSender,
-    pub receiver: ReplicationReceiver,
-    // TODO: move this to a separate component?
-    pub(crate) delta: DeltaManager,
-
-    // List of entities that this peer replicates to the other peer
-    // We put it there to avoid split borrow issues
-    pub(crate) replicated_entities: Vec<Entity>,
-}
-
 pub(crate) struct SharedPlugin;
 
 impl Plugin for SharedPlugin {

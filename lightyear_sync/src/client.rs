@@ -1,6 +1,6 @@
 /*! Handles syncing the time between the client and the server
 */
-use crate::plugin::{NetworkTimelinePlugin, SyncPlugin, SyncedTimelinePlugin};
+use crate::plugin::{SyncPlugin, SyncedTimelinePlugin};
 use crate::timeline::input::Input;
 #[cfg(feature = "interpolation")]
 use crate::timeline::interpolation::Interpolation;
