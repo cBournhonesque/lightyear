@@ -1,11 +1,10 @@
 use crate::ping::manager::PingManager;
 use crate::timeline::sync::{SyncConfig, SyncEvent, SyncedTimeline};
-use crate::timeline::{NetworkTimeline, Timeline};
 use bevy::prelude::{Component, Reflect};
 use core::time::Duration;
 use lightyear_core::tick::Tick;
 use lightyear_core::time::{TickDelta, TickInstant};
-
+use lightyear_core::timeline::{NetworkTimeline, Timeline};
 // TODO: maybe rename this as MainTimeline? It's independent from Prediction!
 //   and in prediction we can just use the Main timeline as our timeline
 

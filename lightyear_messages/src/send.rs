@@ -1,7 +1,6 @@
 use crate::plugin::MessagePlugin;
-use crate::registry::serialize::ErasedSerializeFns;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
-use crate::{Message, MessageId, MessageManager};
+use crate::{Message, MessageManager, MessageNetId};
 use alloc::sync::Arc;
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::HookContext;
@@ -16,6 +15,7 @@ use tracing::{debug, error, trace};
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+use lightyear_serde::registry::ErasedSerializeFns;
 
 pub type Priority = f32;
 
@@ -39,7 +39,7 @@ impl<M: Message> Default for MessageSender<M> {
 // SAFETY: the sender must correspond to the correct `MessageSender<M>` type
 pub(crate) type SendMessageFn = unsafe fn(
     sender: MutUntyped,
-    message_id: MessageId,
+    message_net_id: MessageNetId,
     transport: &Transport,
     serialize_metadata: &ErasedSerializeFns,
     entity_map: &mut SendEntityMap,
@@ -69,7 +69,7 @@ impl<M: Message> MessageSender<M> {
     /// SAFETY: the `message_sender` must be of type `MessageSender<M>`
     pub(crate) unsafe fn send_message_typed(
         message_sender: MutUntyped,
-        message_id: MessageId,
+        net_id: MessageNetId,
         transport: &Transport,
         serialize_metadata: &ErasedSerializeFns,
         entity_map: &mut SendEntityMap,
@@ -80,7 +80,7 @@ impl<M: Message> MessageSender<M> {
         let sender = &mut *sender;
         sender.send.drain(..).try_for_each(|(message, channel_kind, priority)| {
             // we write the message NetId, and then serialize the message
-            message_id.to_bytes(&mut sender.writer)?;
+            net_id.to_bytes(&mut sender.writer)?;
             serialize_metadata.serialize::<M>(&message, &mut sender.writer, entity_map)?;
             let bytes = sender.writer.split();
             transport.send_erased(channel_kind, bytes, priority)?;
@@ -148,7 +148,7 @@ impl MessagePlugin {
                     *message_id,
                     transport,
                     serialize_fns,
-                    &mut message_manager.send_mapper,
+                    &mut message_manager.entity_mapper.local_to_remote,
                 )?; }
                 Ok::<_, MessageError>(())
             }).inspect_err(|e| error!("error sending message: {e:?}")).ok();

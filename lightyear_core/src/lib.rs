@@ -11,8 +11,9 @@ pub mod network;
 pub mod time;
 mod prediction;
 mod history_buffer;
-
+pub mod timeline;
 
 pub mod prelude {
     pub use crate::tick::Tick;
+    pub use crate::timeline::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin, Timeline};
 }

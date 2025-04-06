@@ -1,17 +1,16 @@
 //! Components used for replication
 
+use crate::registry::ComponentKind;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::{Component, Entity, Reflect};
 use bevy::time::{Timer, TimerMode};
+use lightyear_connection::id::PeerId;
+use lightyear_serde::reader::{ReadInteger, Reader};
+use lightyear_serde::writer::WriteInteger;
+use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
-
-use crate::connection::id::ClientId;
-use crate::protocol::component::ComponentKind;
-use crate::serialize::reader::{ReadInteger, Reader};
-use crate::serialize::{SerializationError, ToBytes};
-use crate::serialize::writer::WriteInteger;
 
 /// Marker that indicates that this entity is to be replicated.
 ///
@@ -33,12 +32,12 @@ pub struct ReplicationMarker;
 pub struct InitialReplicated {
     /// The peer that originally spawned the entity
     /// If None, it's the server.
-    pub from: Option<ClientId>,
+    pub from: Option<PeerId>,
 }
 
 impl InitialReplicated {
     /// For client->server replication, identify the client that replicated this entity to the server
-    pub fn client_id(&self) -> ClientId {
+    pub fn client_id(&self) -> PeerId {
         self.from.expect("expected a client id")
     }
 }
@@ -53,12 +52,12 @@ impl InitialReplicated {
 pub struct Replicated {
     /// The peer that is actively replicating the entity
     /// If None, it's the server.
-    pub from: Option<ClientId>,
+    pub from: Option<PeerId>,
 }
 
 impl Replicated {
     /// For client->server replication, identify the client that replicated this entity to the server
-    pub fn client_id(&self) -> ClientId {
+    pub fn client_id(&self) -> PeerId {
         self.from.expect("expected a client id")
     }
 }

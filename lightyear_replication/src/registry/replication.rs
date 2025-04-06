@@ -1,19 +1,16 @@
-use crate::channel::builder::ChannelDirection;
-use crate::client::config::ClientConfig;
-use crate::prelude::{ComponentRegistry, Tick};
-use crate::protocol::component::{ComponentError, ComponentKind, ComponentNetId};
-use crate::serialize::reader::Reader;
-use crate::serialize::{SerializationError, ToBytes};
-use crate::server::config::ServerConfig;
-use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::replication::entity_map::ReceiveEntityMap;
-
+use crate::registry::registry::ComponentRegistry;
+use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 use bevy::ecs::component::{Component, ComponentId, Mutable};
 use bevy::prelude::*;
 use bevy::ptr::OwningPtr;
 use bytes::Bytes;
 use core::alloc::Layout;
 use core::ptr::NonNull;
+use lightyear_connection::direction::NetworkDirection;
+use lightyear_core::prelude::Tick;
+use lightyear_serde::entity_map::ReceiveEntityMap;
+use lightyear_serde::reader::Reader;
+use lightyear_serde::{SerializationError, ToBytes};
 use tracing::{debug, trace};
 
 /// Temporary buffer to store component data that we want to insert
@@ -101,7 +98,7 @@ impl TempWriteBuffer {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplicationMetadata {
-    pub direction: ChannelDirection,
+    pub direction: NetworkDirection,
     pub write: RawWriteFn,
     pub buffer_insert_fn: RawBufferInsertFn,
     pub remove: Option<RawBufferRemoveFn>,
@@ -114,7 +111,6 @@ pub type RawWriteFn = fn(
     Tick,
     &mut EntityWorldMut,
     &mut ReceiveEntityMap,
-    &mut ConnectionEvents,
 ) -> Result<(), ComponentError>;
 type RawBufferInsertFn = fn(
     &mut ComponentRegistry,
@@ -122,11 +118,10 @@ type RawBufferInsertFn = fn(
     Tick,
     &mut EntityWorldMut,
     &mut ReceiveEntityMap,
-    &mut ConnectionEvents,
 ) -> Result<(), ComponentError>;
 
 impl ComponentRegistry {
-    pub fn direction(&self, kind: ComponentKind) -> Option<ChannelDirection> {
+    pub fn direction(&self, kind: ComponentKind) -> Option<NetworkDirection> {
         self.replication_map
             .get(&kind)
             .map(|metadata| metadata.direction)
@@ -135,7 +130,7 @@ impl ComponentRegistry {
     pub fn set_replication_fns<C: Component<Mutability = Mutable> + PartialEq>(
         &mut self,
         world: &mut World,
-        direction: ChannelDirection,
+        direction: NetworkDirection,
     ) {
         self.replication_map.insert(
             ComponentKind::of::<C>(),
@@ -158,7 +153,6 @@ impl ComponentRegistry {
         entity_world_mut: &mut EntityWorldMut,
         tick: Tick,
         entity_map: &mut ReceiveEntityMap,
-        events: &mut ConnectionEvents,
     ) -> Result<(), ComponentError> {
         component_bytes.into_iter().try_for_each(|b| {
             // TODO: reuse a single reader that reads through the entire message ?
@@ -181,7 +175,6 @@ impl ComponentRegistry {
                 tick,
                 entity_world_mut,
                 entity_map,
-                events,
             )?;
             Ok::<(), ComponentError>(())
         })?;
@@ -206,7 +199,6 @@ impl ComponentRegistry {
         entity_world_mut: &mut EntityWorldMut,
         tick: Tick,
         entity_map: &mut ReceiveEntityMap,
-        events: &mut ConnectionEvents,
     ) -> Result<ComponentKind, ComponentError> {
         let net_id = ComponentNetId::from_bytes(reader).map_err(SerializationError::from)?;
         let kind = self
@@ -217,7 +209,7 @@ impl ComponentRegistry {
             .replication_map
             .get(kind)
             .ok_or(ComponentError::MissingReplicationFns)?;
-        (replication_metadata.write)(self, reader, tick, entity_world_mut, entity_map, events)?;
+        (replication_metadata.write)(self, reader, tick, entity_world_mut, entity_map)?;
         Ok(*kind)
     }
 
@@ -229,7 +221,6 @@ impl ComponentRegistry {
         tick: Tick,
         entity_world_mut: &mut EntityWorldMut,
         entity_map: &mut ReceiveEntityMap,
-        events: &mut ConnectionEvents,
     ) -> Result<(), ComponentError> {
         let kind = ComponentKind::of::<C>();
         let component_id = self
@@ -254,7 +245,6 @@ impl ComponentRegistry {
                     ))
                     .increment(1);
                 }
-                events.push_update_component(entity, kind, tick);
                 *c = component;
             }
         } else {
@@ -273,7 +263,6 @@ impl ComponentRegistry {
                 ))
                 .increment(1);
             }
-            events.push_insert_component(entity, kind, tick);
         }
         Ok(())
     }
@@ -284,7 +273,6 @@ impl ComponentRegistry {
         tick: Tick,
         entity_world_mut: &mut EntityWorldMut,
         entity_map: &mut ReceiveEntityMap,
-        events: &mut ConnectionEvents,
     ) -> Result<(), ComponentError> {
         debug!("Writing component {} to entity", core::any::type_name::<C>());
         let kind = ComponentKind::of::<C>();
@@ -303,7 +291,6 @@ impl ComponentRegistry {
                     ))
                     .increment(1);
                 }
-                events.push_update_component(entity, kind, tick);
                 *c = component;
             }
         } else {
@@ -316,7 +303,6 @@ impl ComponentRegistry {
                 ))
                 .increment(1);
             }
-            events.push_insert_component(entity, kind, tick);
             entity_world_mut.insert(component);
         }
         Ok(())
@@ -327,7 +313,6 @@ impl ComponentRegistry {
         net_ids: Vec<ComponentNetId>,
         entity_world_mut: &mut EntityWorldMut,
         tick: Tick,
-        events: &mut ConnectionEvents,
     ) {
         for net_id in net_ids {
             let kind = self.kind_map.kind(net_id).expect("unknown component kind");
@@ -365,11 +350,11 @@ impl ComponentRegistry {
     }
 }
 
-pub fn register_component_send<C: Component>(app: &mut App, direction: ChannelDirection) {
+pub fn register_component_send<C: Component>(app: &mut App, direction: NetworkDirection) {
     let is_client = app.world().get_resource::<ClientConfig>().is_some();
     let is_server = app.world().get_resource::<ServerConfig>().is_some();
     match direction {
-        ChannelDirection::ClientToServer => {
+        NetworkDirection::ClientToServer => {
             if is_client {
                 crate::client::replication::send::register_replicate_component_send::<C>(app);
             }
@@ -381,7 +366,7 @@ pub fn register_component_send<C: Component>(app: &mut App, direction: ChannelDi
                 crate::server::events::emit_replication_events::<C>(app);
             }
         }
-        ChannelDirection::ServerToClient => {
+        NetworkDirection::ServerToClient => {
             if is_server {
                 crate::server::replication::send::register_replicate_component_send::<C>(app);
             }
@@ -393,99 +378,99 @@ pub fn register_component_send<C: Component>(app: &mut App, direction: ChannelDi
                 crate::client::events::emit_replication_events::<C>(app);
             }
         }
-        ChannelDirection::Bidirectional => {
-            register_component_send::<C>(app, ChannelDirection::ServerToClient);
-            register_component_send::<C>(app, ChannelDirection::ClientToServer);
+        NetworkDirection::Bidirectional => {
+            register_component_send::<C>(app, NetworkDirection::ServerToClient);
+            register_component_send::<C>(app, NetworkDirection::ClientToServer);
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::tests::protocol::{
-        ComponentSyncModeFull, ComponentSyncModeOnce, ComponentSyncModeSimple,
-    };
-
-    #[derive(Debug, Default, Clone, PartialEq, TypePath, Resource)]
-    struct Buffer(TempWriteBuffer);
-
-    // TODO: this breaks because of https://github.com/bevyengine/bevy/pull/16219!
-    /// Make sure that the temporary buffer works properly even if it's being used recursively
-    /// because of observers
-    #[test]
-    fn test_recursive_temp_write_buffer() {
-        let mut world = World::new();
-        world.init_resource::<Buffer>();
-
-        world.add_observer(
-            |trigger: Trigger<OnAdd, ComponentSyncModeFull>, mut commands: Commands| {
-                let entity = trigger.target();
-                commands.queue(move |world: &mut World| {
-                    let component_id_once = world.register_component::<ComponentSyncModeOnce>();
-                    let component_id_simple = world.register_component::<ComponentSyncModeSimple>();
-                    let unsafe_world = world.as_unsafe_world_cell();
-                    let mut buffer = unsafe { unsafe_world.get_resource_mut::<Buffer>() }.unwrap();
-                    unsafe {
-                        buffer.0.buffer_insert_raw_ptrs::<_>(
-                            ComponentSyncModeOnce(1.0),
-                            component_id_once,
-                        )
-                    }
-                    unsafe {
-                        buffer.0.buffer_insert_raw_ptrs::<_>(
-                            ComponentSyncModeSimple(1.0),
-                            component_id_simple,
-                        )
-                    }
-                    // we insert both Once and Simple into the entity
-                    let mut entity_world_mut =
-                        unsafe { unsafe_world.world_mut() }.entity_mut(entity);
-                    // SAFETY: we call `buffer_insert_raw_ptrs` above
-                    unsafe { buffer.0.batch_insert(&mut entity_world_mut) };
-                })
-            },
-        );
-        world.add_observer(
-            |trigger: Trigger<OnAdd, ComponentSyncModeOnce>, mut commands: Commands| {
-                let entity = trigger.target();
-                commands.queue(move |world: &mut World| {
-                    let component_id = world.register_component::<ComponentSyncModeSimple>();
-                    let unsafe_world = world.as_unsafe_world_cell();
-                    let mut buffer = unsafe { unsafe_world.get_resource_mut::<Buffer>() }.unwrap();
-                    unsafe {
-                        buffer
-                            .0
-                            .buffer_insert_raw_ptrs::<_>(ComponentSyncModeSimple(1.0), component_id)
-                    }
-                    // we insert only Simple into the entity.
-                    // we should NOT also be inserting the components that were previously in the buffer (Once) a second time
-                    let mut entity_world_mut =
-                        unsafe { unsafe_world.world_mut() }.entity_mut(entity);
-                    // SAFETY: we call `buffer_insert_raw_ptrs` above
-                    unsafe { buffer.0.batch_insert(&mut entity_world_mut) };
-                })
-            },
-        );
-        world.add_observer(
-            |trigger: Trigger<OnInsert, ComponentSyncModeSimple>,
-             mut query: Query<&mut ComponentSyncModeFull>| {
-                if let Ok(mut comp) = query.get_mut(trigger.target()) {
-                    comp.0 += 1.0;
-                }
-            },
-        );
-        world.spawn(ComponentSyncModeFull(0.0));
-        world.flush();
-
-        // make sure that the ComponentSyncModeSimple was only inserted twice, not three times
-        assert_eq!(
-            world
-                .query::<&ComponentSyncModeFull>()
-                .single(&world)
-                .unwrap()
-                .0,
-            2.0
-        );
-    }
+    // use super::*;
+    // use crate::tests::protocol::{
+    //     ComponentSyncModeFull, ComponentSyncModeOnce, ComponentSyncModeSimple,
+    // };
+    //
+    // #[derive(Debug, Default, Clone, PartialEq, TypePath, Resource)]
+    // struct Buffer(TempWriteBuffer);
+    //
+    // // TODO: this breaks because of https://github.com/bevyengine/bevy/pull/16219!
+    // /// Make sure that the temporary buffer works properly even if it's being used recursively
+    // /// because of observers
+    // #[test]
+    // fn test_recursive_temp_write_buffer() {
+    //     let mut world = World::new();
+    //     world.init_resource::<Buffer>();
+    //
+    //     world.add_observer(
+    //         |trigger: Trigger<OnAdd, ComponentSyncModeFull>, mut commands: Commands| {
+    //             let entity = trigger.target();
+    //             commands.queue(move |world: &mut World| {
+    //                 let component_id_once = world.register_component::<ComponentSyncModeOnce>();
+    //                 let component_id_simple = world.register_component::<ComponentSyncModeSimple>();
+    //                 let unsafe_world = world.as_unsafe_world_cell();
+    //                 let mut buffer = unsafe { unsafe_world.get_resource_mut::<Buffer>() }.unwrap();
+    //                 unsafe {
+    //                     buffer.0.buffer_insert_raw_ptrs::<_>(
+    //                         ComponentSyncModeOnce(1.0),
+    //                         component_id_once,
+    //                     )
+    //                 }
+    //                 unsafe {
+    //                     buffer.0.buffer_insert_raw_ptrs::<_>(
+    //                         ComponentSyncModeSimple(1.0),
+    //                         component_id_simple,
+    //                     )
+    //                 }
+    //                 // we insert both Once and Simple into the entity
+    //                 let mut entity_world_mut =
+    //                     unsafe { unsafe_world.world_mut() }.entity_mut(entity);
+    //                 // SAFETY: we call `buffer_insert_raw_ptrs` above
+    //                 unsafe { buffer.0.batch_insert(&mut entity_world_mut) };
+    //             })
+    //         },
+    //     );
+    //     world.add_observer(
+    //         |trigger: Trigger<OnAdd, ComponentSyncModeOnce>, mut commands: Commands| {
+    //             let entity = trigger.target();
+    //             commands.queue(move |world: &mut World| {
+    //                 let component_id = world.register_component::<ComponentSyncModeSimple>();
+    //                 let unsafe_world = world.as_unsafe_world_cell();
+    //                 let mut buffer = unsafe { unsafe_world.get_resource_mut::<Buffer>() }.unwrap();
+    //                 unsafe {
+    //                     buffer
+    //                         .0
+    //                         .buffer_insert_raw_ptrs::<_>(ComponentSyncModeSimple(1.0), component_id)
+    //                 }
+    //                 // we insert only Simple into the entity.
+    //                 // we should NOT also be inserting the components that were previously in the buffer (Once) a second time
+    //                 let mut entity_world_mut =
+    //                     unsafe { unsafe_world.world_mut() }.entity_mut(entity);
+    //                 // SAFETY: we call `buffer_insert_raw_ptrs` above
+    //                 unsafe { buffer.0.batch_insert(&mut entity_world_mut) };
+    //             })
+    //         },
+    //     );
+    //     world.add_observer(
+    //         |trigger: Trigger<OnInsert, ComponentSyncModeSimple>,
+    //          mut query: Query<&mut ComponentSyncModeFull>| {
+    //             if let Ok(mut comp) = query.get_mut(trigger.target()) {
+    //                 comp.0 += 1.0;
+    //             }
+    //         },
+    //     );
+    //     world.spawn(ComponentSyncModeFull(0.0));
+    //     world.flush();
+    //
+    //     // make sure that the ComponentSyncModeSimple was only inserted twice, not three times
+    //     assert_eq!(
+    //         world
+    //             .query::<&ComponentSyncModeFull>()
+    //             .single(&world)
+    //             .unwrap()
+    //             .0,
+    //         2.0
+    //     );
+    // }
 }

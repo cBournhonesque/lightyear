@@ -13,7 +13,7 @@ use serde::Serialize;
 #[derive(Clone, Debug, PartialEq)]
 pub struct ErasedSerializeFns {
     pub(crate) type_id: TypeId,
-    pub(crate) type_name: &'static str,
+    pub type_name: &'static str,
     // TODO: maybe use `Vec<MaybeUninit<u8>>` instead of unsafe fn(), like bevy?
     pub serialize: unsafe fn(),
     pub erased_serialize: ErasedSerializeFn,
@@ -173,11 +173,11 @@ unsafe fn erased_receive_map_entities<M: MapEntities + 'static>(
 }
 
 impl ErasedSerializeFns {
-    pub(crate) fn new<M: Serialize + DeserializeOwned + 'static>() -> Self {
+    pub fn new<M: Serialize + DeserializeOwned + 'static>() -> Self {
         Self::new_custom_serde(SerializeFns::<M>::default())
     }
 
-    pub(crate) fn new_custom_serde<M: 'static>(serialize_fns: SerializeFns<M>) -> Self {
+    pub fn new_custom_serde<M: 'static>(serialize_fns: SerializeFns<M>) -> Self {
         Self {
             type_id: TypeId::of::<M>(),
             type_name: core::any::type_name::<M>(),
@@ -212,7 +212,7 @@ impl ErasedSerializeFns {
     // Note that this is fairly inefficient because in most cases (when there is no authority transfer)
     // there is no entity mapping done on the serialization side, just on the deserialization side.
     // However, components that contain other entities should be small in general.
-    pub(crate) fn add_map_entities<M: Clone + MapEntities + 'static>(&mut self) {
+    pub fn add_map_entities<M: Clone + MapEntities + 'static>(&mut self) {
         self.map_entities = Some(erased_map_entities::<M>);
         self.send_map_entities = Some(erased_send_map_entities::<M>);
         self.receive_map_entities = Some(erased_receive_map_entities::<M>);
@@ -220,7 +220,7 @@ impl ErasedSerializeFns {
         self.erased_clone = Some(unsafe { core::mem::transmute(clone_fn) });
     }
 
-    pub(crate) fn map_entities<M: 'static>(&self, message: &mut M, entity_map: &mut EntityMap) {
+    pub fn map_entities<M: 'static>(&self, message: &mut M, entity_map: &mut EntityMap) {
         let ptr = PtrMut::from(message);
         if let Some(map_entities_fn) = self.map_entities {
             unsafe {
@@ -233,7 +233,7 @@ impl ErasedSerializeFns {
     /// If available, we try to map the entities in the message from local to remote.
     ///
     /// SAFETY: the ErasedSerializeFns must be created for the type M
-    pub(crate) unsafe fn serialize<M: 'static>(
+    pub unsafe fn serialize<M: 'static>(
         &self,
         message: &M,
         writer: &mut Writer,
@@ -246,7 +246,7 @@ impl ErasedSerializeFns {
     /// Deserialize the message value from the reader
     ///
     /// SAFETY: the ErasedSerializeFns must be created for the type M
-    pub(crate) unsafe fn deserialize<M: 'static>(
+    pub unsafe fn deserialize<M: 'static>(
         &self,
         reader: &mut Reader,
         entity_map: &mut ReceiveEntityMap,

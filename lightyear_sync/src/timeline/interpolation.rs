@@ -1,10 +1,10 @@
 use crate::ping::manager::PingManager;
 use crate::timeline::sync::{SyncConfig, SyncEvent, SyncedTimeline};
-use crate::timeline::{NetworkTimeline, Timeline};
 use bevy::prelude::{Component, Reflect};
 use core::time::Duration;
 use lightyear_core::tick::Tick;
 use lightyear_core::time::{Overstep, TickDelta, TickInstant, TimeDelta};
+use lightyear_core::timeline::{NetworkTimeline, Timeline};
 
 /// Config to specify how the snapshot interpolation should behave
 #[derive(Clone, Copy, Reflect)]

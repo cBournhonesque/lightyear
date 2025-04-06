@@ -1,7 +1,13 @@
 //! Map between local and remote entities
+
+use crate::reader::{ReadInteger, ReadVarInt, Reader};
+use crate::varint::varint_len;
+use crate::writer::WriteInteger;
+use crate::{SerializationError, ToBytes};
 use bevy::ecs::entity::{hash_map::EntityHashMap, EntityMapper};
 use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
+use std::hash::Hasher;
 use tracing::{debug, error, trace};
 
 const MARKED: u64 = 1 << 62;
@@ -81,8 +87,8 @@ impl EntityMapper for ReceiveEntityMap {
 #[derive(Default, Debug, Reflect)]
 /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
 pub struct RemoteEntityMap {
-    pub(crate) remote_to_local: ReceiveEntityMap,
-    pub(crate) local_to_remote: SendEntityMap,
+    pub remote_to_local: ReceiveEntityMap,
+    pub local_to_remote: SendEntityMap,
 }
 
 #[derive(Default, Debug, Reflect)]
@@ -112,7 +118,7 @@ impl RemoteEntityMap {
     /// It's possible that the remote_entity was already mapped by the sender,
     /// in which case we don't want to map it again
     #[inline]
-    pub(crate) fn get_local(&self, remote_entity: Entity) -> Option<Entity> {
+    pub fn get_local(&self, remote_entity: Entity) -> Option<Entity> {
         let unmapped = Self::mark_unmapped(remote_entity);
         if Self::is_mapped(remote_entity) {
             trace!("Received entity {unmapped:?} was already mapped, returning it as is");
@@ -151,7 +157,7 @@ impl RemoteEntityMap {
 
     /// Convert a local entity to a network entity that we can send
     /// We will try to map it to a remote entity if we can
-    pub(crate) fn to_remote(&self, local_entity: Entity) -> Entity {
+    pub fn to_remote(&self, local_entity: Entity) -> Entity {
         match self.local_to_remote.get(&local_entity) { Some(remote_entity) => {
             Self::mark_mapped(*remote_entity)
         } _ => {
@@ -166,7 +172,7 @@ impl RemoteEntityMap {
     }
 
     /// Get the corresponding local entity for a given remote entity, or create it if it doesn't exist.
-    pub(super) fn get_by_remote<'a>(
+    pub fn get_by_remote<'a>(
         &mut self,
         world: &'a mut World,
         remote_entity: Entity,
@@ -176,7 +182,7 @@ impl RemoteEntityMap {
     }
 
     /// Remove the entity from our mapping and return the local entity
-    pub(super) fn remove_by_remote(&mut self, remote_entity: Entity) -> Option<Entity> {
+    pub fn remove_by_remote(&mut self, remote_entity: Entity) -> Option<Entity> {
         // the entity is actually local, because it has already been mapped!
         if Self::is_mapped(remote_entity) {
             let local = Self::mark_unmapped(remote_entity);
@@ -198,6 +204,37 @@ impl RemoteEntityMap {
     fn clear(&mut self) {
         self.local_to_remote.clear();
         self.remote_to_local.clear();
+    }
+}
+
+/// Serialize Entity as two varints for the index and generation (because they will probably be low).
+/// Revisit this when relations comes out
+///
+/// TODO: optimize for the case where generation == 1, which should be most cases
+impl ToBytes for Entity {
+    fn bytes_len(&self) -> usize {
+        varint_len(self.index() as u64) + 4
+    }
+
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+        buffer.write_varint(self.index() as u64)?;
+        buffer.write_u32(self.generation())?;
+        // buffer.write_varint(self.generation() as u64)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        let index = buffer.read_varint()?;
+
+        // TODO: investigate why it doesn't work with varint?
+        // NOTE: not that useful now that we use a high bit to symbolize 'is_masked'
+        // let generation = buffer.read_varint()?;
+        let generation = buffer.read_u32()? as u64;
+        let bits = generation << 32 | index;
+        Ok(Entity::from_bits(bits))
     }
 }
 

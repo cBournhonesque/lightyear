@@ -1,17 +1,12 @@
 use crate::protocol::registry::{NetId, TypeKind};
 use crate::serialize::SerializationError;
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 use bevy::prelude::Reflect;
 use core::any::TypeId;
-#[cfg(not(feature = "std"))]
-use {
-    alloc::{string::String},
-};
-
-pub(crate) mod delta;
-
-pub(crate) mod interpolation;
-
-pub(crate) mod prediction;
+use lightyear_core::network::NetId;
+use lightyear_serde::SerializationError;
+use lightyear_utils::registry::TypeKind;
 
 pub(crate) mod registry;
 pub(crate) mod replication;

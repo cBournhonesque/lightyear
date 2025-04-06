@@ -8,10 +8,15 @@ use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity};
 use bevy::ptr::Ptr;
 
+use crate::components::ReplicationGroupId;
+use crate::registry::registry::ComponentRegistry;
+use crate::registry::ComponentKind;
 use alloc::collections::BTreeMap;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use core::ptr::NonNull;
+use lightyear_core::prelude::Tick;
+use lightyear_utils::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -221,10 +226,10 @@ impl DeltaComponentStore {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "std"))]
-    use alloc::vec;
     use super::*;
     use crate::tests::protocol::ComponentDeltaCompression;
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
     use bevy::prelude::World;
 
     #[test]

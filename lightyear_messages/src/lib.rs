@@ -12,7 +12,7 @@ use bevy::ecs::component::ComponentId;
 use bevy::platform_support::collections::HashMap;
 use bevy::prelude::Component;
 use lightyear_core::network::NetId;
-use lightyear_serde::entity_map::SendEntityMap;
+use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::prelude::Transport;
 
 pub mod registry;
@@ -38,7 +38,7 @@ impl<T: Send + Sync + 'static> Message for T {}
 // // Internal id that we assign to each message sent over the network
 // wrapping_id!(MessageId);
 // TODO: this conflicts with the MessageId from lightyear_transport! find a different name
-pub type MessageId = NetId;
+pub type MessageNetId = NetId;
 
 
 /// Component that will track the component_ids of the MessageReceiver<M> and MessageSender<M> that are present on the entity
@@ -47,5 +47,5 @@ pub type MessageId = NetId;
 pub struct MessageManager{
     /// List of component ids of the MessageSender<M> present on this entity
     pub(crate) sender_ids: HashMap<MessageKind, ComponentId>,
-    pub send_mapper: SendEntityMap,
+    pub entity_mapper: RemoteEntityMap,
 }

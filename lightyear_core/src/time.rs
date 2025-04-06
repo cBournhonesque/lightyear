@@ -9,8 +9,8 @@ use core::cmp::Ordering;
 use core::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 use core::time::Duration;
-use lightyear_serde::prelude::Reader;
 use lightyear_serde::reader::ReadInteger;
+use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{

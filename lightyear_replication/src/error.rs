@@ -1,8 +1,11 @@
 //! Replication-related errors
 
-use crate::serialize::SerializationError;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
+
+use crate::registry::ComponentError;
+use lightyear_messages::registry::MessageError;
+use lightyear_serde::SerializationError;
 
 pub type Result<T> = core::result::Result<T, ReplicationError>;
 
@@ -13,7 +16,7 @@ pub enum ReplicationError {
     #[error(transparent)]
     Serialization(#[from] SerializationError),
     #[error(transparent)]
-    MessageProtocolError(#[from] crate::protocol::message::MessageError),
+    MessageProtocolError(#[from] MessageError),
     #[error(transparent)]
-    ComponentProtocolError(#[from] crate::protocol::component::ComponentError),
+    ComponentProtocolError(#[from] ComponentError),
 }

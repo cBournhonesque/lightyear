@@ -1,7 +1,24 @@
 # Status:
 
 - WebTransport: ai-generated, to be verified
-- Netcode: Request packet should be 1077 bytes, but client sends 1078
+- Replication:
+  - ReplicationGroup timer + priority
+  - Register OnRemove<C> replication buffer
+  - HostServer handling
+- Receive:
+  - re-add UpdateConfirmedTick
+- Send:
+
+
+- NOTE:
+  - we do not use directly ActionsMessage and UpdatesMessage, instead we read directly the
+    raw bytes from the transport. There are several reasons:
+    - we need to get access to the MessageId when we buffer the message to the transport
+    - Transport automatically applies Remote/Send entity map to each message sent, but we might 
+      not want to do that. For example let's say we spawn a new entity.
+
+- EntityMap: maybe this should be directly on the Serialize level?
+  
 
 
 # Replication
@@ -12,12 +29,39 @@
 - Again, you register components independently from client or server.
 But if you add a direction we will handle it automatically for the client-server case
 
+- a ReplicationPlugin:
+  - you add a ReplicateOn Relationship and we replicate on every entity that has a link + transport + message-manager
+  - server-only: ReplicateTo(server_entity, network_target) component can be added on the server, which adds ReplicateOn
+      on each ClientOf that matches the network_target
+  - in this paradigm the replication is done independently on each connection, so we serialize separately for each connection.
+    This is a big difference from lightyear where the server serializes only once if possible.
+
+- Visibility:
+  - we could have ReplicationLayers similar to PhysicsLayers. Each layer could represent a subset of components that are disabled/enabled.
+    An entity could be part of multiple of these layers.
+  - 
+
+
+- How to start replication?
+  - ideally we would have M:N relationships. because one sender replicated many entities, and each entity can be replicated by multiple senders.
+  - **right now we will constrain each entity to be only replicated by one sender.**
+    - ReplicateOn<Entity> -> sender will replicate that entity 
+    - ReplicateOnServer<Entity> -> each sender that is a ClientOf that entity will replicate it.
+    - Ideally we also want the relationship to hold data. For example `is_replicating`, etc.
+  - Should we do it by triggers? i.e. you trigger ReplicateOn<Entity> for your target entity?
+
 - How do you decide on which ReplicationSender the entity will be replicated?
+  - ReplicateOn()
 
 - ReplicationGroup:
+  - the ReplicationSender has an internal timer, and the ReplicationGroup has one too?
+  - We could have one entity per replication group? Maybe not, as the replication group is specific to this one sender
   - is a relationship, can be added by the user to specify that multiple entities must be replicated together
   - The group is separate entity that can contain specific metadata for the group
   - if there is no ReplicationGroup, we can assume that the entity is part of the 'default' group entity.
+  - The ReplicationGroup defines:
+    - priority
+    - how often messages are sent (send_timer)
 
 
 # IDEAS

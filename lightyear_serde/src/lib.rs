@@ -25,9 +25,7 @@ pub mod writer;
 pub mod registry;
 
 pub mod prelude {
-    pub use crate::reader::{ReadInteger, Reader};
-    pub use crate::writer::{WriteInteger, Writer};
-    pub use crate::{SerializationError, ToBytes};
+    pub use crate::SerializationError;
 }
 
 use crate::writer::WriteInteger;

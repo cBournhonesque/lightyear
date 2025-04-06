@@ -1,41 +1,51 @@
 //! General struct handling replication
 use core::iter::Extend;
 
-use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
-use crate::utils::collections::HashMap;
+use super::message::{EntityActions, SendEntityActionsMessage, SendEntityUpdatesMessage, SpawnAction};
+#[cfg(test)]
+use super::message::{EntityActionsMessage, EntityUpdatesMessage};
+use crate::authority::HasAuthority;
+use crate::buffer;
+use crate::buffer::{replicate, Replicate};
+use crate::components::{DeltaCompression, DisabledComponents, ReplicateOnce, Replicating, ReplicationGroup, ReplicationGroupId, TargetEntity};
+use crate::delta::DeltaManager;
+use crate::hierarchy::ReplicateLike;
+use crate::plugin::{ReplicationManager, ReplicationSet};
+use crate::registry::registry::ComponentRegistry;
+use crate::registry::{ComponentKind, ComponentNetId};
 #[cfg(not(feature = "std"))]
 use alloc::{string::ToString, vec::Vec};
+use bevy::app::{App, Last, Plugin, PostUpdate, PreUpdate};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
-use bevy::prelude::Entity;
+use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
+use bevy::platform_support::collections::HashMap;
+use bevy::prelude::{ChildOf, Component, Entity, IntoScheduleConfigs, Query, Real, Reflect, Res, ResMut, Resource, SystemParamBuilder, SystemSet, Time, Timer, TimerMode, With};
 use bevy::ptr::Ptr;
+use bevy::time::common_conditions::on_timer;
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
+use lightyear_connection::prelude::NetworkDirection;
+use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::tick::Tick;
+use lightyear_core::timeline::NetworkTimeline;
+use lightyear_messages::plugin::MessageSet;
+use lightyear_messages::MessageManager;
+use lightyear_serde::writer::Writer;
+use lightyear_serde::{SerializationError, ToBytes};
+use lightyear_transport::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
+use lightyear_transport::channel::ChannelKind;
+use lightyear_transport::packet::error::PacketError;
+use lightyear_transport::packet::message::MessageId;
+use lightyear_transport::prelude::Transport;
+use std::time::Duration;
 use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-use super::{EntityActions, SendEntityActionsMessage, SendEntityUpdatesMessage, SpawnAction};
-use crate::packet::message::MessageId;
-use crate::packet::message_manager::MessageManager;
-use crate::prelude::{
-    ChannelKind, ComponentRegistry, PacketError, RemoteEntityMap, Tick, TimeManager,
-};
-use crate::protocol::component::{ComponentKind, ComponentNetId};
-use crate::serialize::writer::Writer;
-use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::replication::components::ReplicationGroupId;
-use crate::shared::replication::delta::DeltaManager;
-use crate::shared::replication::error::ReplicationError;
-use crate::shared::replication::plugin::{ReplicationConfig, SendUpdatesMode};
-#[cfg(test)]
-use {
-    super::{EntityActionsMessage, EntityUpdatesMessage},
-    crate::utils::captures::Captures,
-};
-
 type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = bevy::platform_support::collections::HashSet<K, EntityHash>;
+
 
 /// When a [`EntityUpdatesMessage`](super::EntityUpdatesMessage) message gets buffered (and we have access to its [`MessageId`]),
 /// we keep track of some information related to this message.
@@ -52,8 +62,223 @@ pub(crate) struct UpdateMessageMetadata {
     delta: Vec<(Entity, ComponentKind)>,
 }
 
-#[derive(Debug)]
-pub(crate) struct ReplicationSender {
+
+/// System sets to order systems that buffer updates that need to be replicated
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum ReplicationBufferSet {
+    BeforeBuffer,
+    // Buffer any replication updates in the ReplicationSender
+    Buffer,
+    AfterBuffer,
+    // Flush the buffered replication messages to the Transport
+    Flush,
+
+    // Buffer types
+    EntityUpdates,
+    ComponentUpdates,
+    ResourceUpdates,
+}
+
+
+
+#[derive(Clone, Copy, Debug, Reflect)]
+pub enum SendUpdatesMode {
+    /// We send all the updates that happened since the last tick when we received an ACK from the remote
+    ///
+    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
+    /// we will send the update again even if the component wasn't updated, because we still haven't
+    /// received an ACK from the client.
+    SinceLastAck,
+    // TODO: this is currently bugged because we need to maintain a `send_tick` / `ack_tick` per (entity, component)
+    /// We send all the updates that happened since the last tick where we **sent** an update.
+    /// E.g. if the component was updated at tick 3; we will send the update at tick 3, and then at tick 4,
+    /// we won't be sending anything since the component wasn't updated after that.
+    ///
+    /// 99% of the time the packets don't get lost so this is fine to do, and allows us to save bandwidth
+    /// by not sending the same update multiple time.
+    ///
+    /// If we receive a NACK (i.e. the packet got lost), we will send the updates since the last ACK.
+    SinceLastSend,
+}
+
+pub struct ReplicationSendPlugin;
+
+#[derive(Resource, Debug)]
+pub(crate) struct SendIntervalTimer {
+    pub(crate) timer: Option<Timer>,
+}
+
+impl ReplicationSendPlugin {
+
+    fn send_replication_messages(
+        time: Time<Real>,
+        change_tick: SystemChangeTick,
+        mut query: Query<(&mut ReplicationManager, &mut Transport, &LocalTimeline)>,
+    ) {
+        query.par_iter_mut().for_each(|(mut manager, mut transport, timeline)| {
+            // TODO: also tick ReplicationGroups?
+            manager.sender.send_timer.tick(time.delta());
+            if manager.sender.send_timer.finished() {
+                manager.sender.send_timer.reset();
+
+                manager.sender.accumulate_priority(time);
+                manager.sender.send_actions_messages(
+                    timeline.tick(),
+                    change_tick.this_run(),
+                    &mut transport
+                ).inspect_err(|e| error!("Error buffering ActionsMessage: {e:?}")).ok();
+                manager.sender.send_updates_messages(
+                    timeline.tick(),
+                    change_tick.this_run(),
+                    &mut transport
+                ).inspect_err(|e| error!("Error buffering UpdatesMessage: {e:?}")).ok();
+            }
+        });
+    }
+
+    // /// Tick the internal timers of all replication groups.
+    // fn tick_replication_group_timers(
+    //     time_manager: Res<TimeManager>,
+    //     mut replication_groups: Query<&mut ReplicationGroup, With<Replicating>>,
+    // ) {
+    //     for mut replication_group in replication_groups.iter_mut() {
+    //         if let Some(send_frequency) = &mut replication_group.send_frequency {
+    //             send_frequency.tick(time_manager.delta());
+    //             if send_frequency.finished() {
+    //                 replication_group.should_send = true;
+    //             }
+    //         }
+    //     }
+    // }
+
+    // /// After we buffer updates, reset all the `should_send` to false
+    // /// for the replication groups that have a `send_frequency`
+    // fn update_replication_group_should_send(
+    //     mut replication_groups: Query<&mut ReplicationGroup, With<Replicating>>,
+    // ) {
+    //     for mut replication_group in replication_groups.iter_mut() {
+    //         if replication_group.send_frequency.is_some() {
+    //             replication_group.should_send = false;
+    //         }
+    //     }
+    // }
+}
+
+impl Plugin for ReplicationSendPlugin {
+    fn build(&self, app: &mut App) {
+        // PLUGINS
+        if !app.is_plugin_added::<crate::plugin::SharedPlugin>() {
+            app.add_plugins(crate::plugin::SharedPlugin);
+        }
+
+        // SETS
+        app.configure_sets(
+            PostUpdate,
+            (
+                // buffer the messages before we send them
+                (ReplicationSet::Send, MessageSet::Send).chain(),
+                (
+                    ReplicationBufferSet::BeforeBuffer,
+                    ReplicationBufferSet::Buffer,
+                    ReplicationBufferSet::AfterBuffer,
+                    ReplicationBufferSet::Flush,
+                )
+                    .chain()
+                    .in_set(ReplicationSet::Send),
+                (
+                    ReplicationBufferSet::ResourceUpdates,
+                    ReplicationBufferSet::EntityUpdates,
+                    ReplicationBufferSet::ComponentUpdates,
+                )
+                    .in_set(ReplicationBufferSet::Buffer),
+            ),
+        );
+
+        // SYSTEMS
+        app.add_observer(buffer::buffer_entity_despawn);
+
+        app.add_systems(PostUpdate, Self::send_replication_messages.in_set(ReplicationBufferSet::Flush));
+
+        // app.add_systems(
+        //     PostUpdate,
+        //     (
+        //         crate::send_plugin::ReplicationSendPlugin::tick_replication_group_timers
+        //             .in_set(InternalReplicationSet::<R::SetMarker>::BeforeBuffer),
+        //         crate::send_plugin::ReplicationSendPlugin::update_replication_group_should_send
+        //             // note that this runs every send_interval
+        //             .in_set(InternalReplicationSet::<R::SetMarker>::AfterBuffer),
+        //     ),
+        // );
+    }
+
+    fn finish(&self, app: &mut App) {
+        // temporarily remove component_registry from the app to enable split borrows
+        let component_registry = app
+            .world_mut()
+            .remove_resource::<ComponentRegistry>()
+            .unwrap();
+
+        let replicate = (
+            QueryParamBuilder::new(|builder| {
+                // Or<(With<ReplicateLike>, (With<Replicating>, With<ReplicateToClient>, With<HasAuthority>))>
+                builder.or(|b| {
+                    b.with::<ReplicateLike>();
+                    b.and(|b| {
+                        b.with::<Replicating>();
+                        b.with::<Replicate>();
+                        b.with::<HasAuthority>();
+                    });
+                });
+                builder.optional(|b| {
+                    b.data::<(
+                        &ReplicateLike,
+                        &Replicate,
+                        &ReplicationGroup,
+                        &TargetEntity,
+                        &DisabledComponents,
+                        &DeltaCompression,
+                        &ReplicateOnce,
+                    )>();
+                    // include access to &C for all replication components with the right direction
+                    component_registry
+                        .replication_map
+                        .iter()
+                        .filter(|(_, m)| m.direction != NetworkDirection::ServerToClient)
+                        .for_each(|(kind, _)| {
+                            let id = component_registry.kind_to_component_id.get(kind).unwrap();
+                            b.ref_id(*id);
+                        });
+                });
+            }),
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
+        )
+            .build_state(app.world_mut())
+            .build_system(replicate);
+
+        app.add_systems(
+            PostUpdate,
+            // TODO: putting it here means we might miss entities that are spawned and despawned within the send_interval? bug or feature?
+            replicate
+                .in_set(ReplicationBufferSet::EntityUpdates)
+                .in_set(ReplicationBufferSet::ComponentUpdates)
+        );
+
+        app.world_mut().insert_resource(component_registry);
+    }
+}
+
+
+#[derive(Component, Debug)]
+#[require(Transport)]
+#[require(LocalTimeline)]
+pub struct ReplicationSender {
+    pub(crate) writer: Writer,
     /// Get notified whenever a message-id that was sent has been received by the remote
     pub(crate) updates_ack_receiver: Receiver<MessageId>,
     /// Get notified whenever a message-id that was sent has been lost by the remote
@@ -76,7 +301,10 @@ pub(crate) struct ReplicationSender {
     /// We update the `send_tick` only when the message was actually sent.
     pub message_send_receiver: Receiver<MessageId>,
 
-    replication_config: ReplicationConfig,
+    /// Tick when we last did a cleanup
+    send_timer: Timer,
+    pub(crate) last_cleanup_tick: Option<Tick>,
+    send_updates_mode: SendUpdatesMode,
     bandwidth_cap_enabled: bool,
 }
 
@@ -85,11 +313,13 @@ impl ReplicationSender {
         updates_ack_receiver: Receiver<MessageId>,
         updates_nack_receiver: Receiver<MessageId>,
         message_send_receiver: Receiver<MessageId>,
-        replication_config: ReplicationConfig,
+        send_interval: Duration,
+        send_updates_mode: SendUpdatesMode,
         bandwidth_cap_enabled: bool,
     ) -> Self {
         Self {
             // SEND
+            writer: Writer::default(),
             updates_ack_receiver,
             updates_nack_receiver,
             updates_message_id_to_group_id: Default::default(),
@@ -97,13 +327,14 @@ impl ReplicationSender {
             group_with_updates: EntityHashSet::default(),
             // pending_unique_components: EntityHashMap::default(),
             group_channels: Default::default(),
-            replication_config,
+            send_updates_mode,
             // PRIORITY
+            send_timer: Timer::new(send_interval, TimerMode::Repeating),
+            last_cleanup_tick: None,
             message_send_receiver,
             bandwidth_cap_enabled,
         }
     }
-
 
 
     /// Get the `send_tick` for a given group.
@@ -112,7 +343,7 @@ impl ReplicationSender {
     /// We will send all updates that happened after this bevy tick.
     pub(crate) fn get_send_tick(&self, group_id: ReplicationGroupId) -> Option<BevyTick> {
         self.group_channels.get(&group_id).and_then(|channel| {
-            match self.replication_config.send_updates_mode {
+            match self.send_updates_mode {
                 SendUpdatesMode::SinceLastSend => channel.send_tick,
                 SendUpdatesMode::SinceLastAck => channel.ack_bevy_tick,
             }
@@ -131,7 +362,7 @@ impl ReplicationSender {
                 bevy_tick,
                 ..
             }) => {
-                if let SendUpdatesMode::SinceLastSend = self.replication_config.send_updates_mode {
+                if let SendUpdatesMode::SinceLastSend = self.send_updates_mode {
                     match self.group_channels.get_mut(&group_id) { Some(channel) => {
                         // when we know an update message has been lost, we need to reset our send_tick
                         // to our previous ack_tick
@@ -247,7 +478,12 @@ impl ReplicationSender {
     /// Do some internal bookkeeping:
     /// - handle tick wrapping
     pub(crate) fn cleanup(&mut self, tick: Tick) {
-        let delta = (u16::MAX / 4) as i16;
+         // skip cleanup if we did one recently
+        if self.last_cleanup_tick.is_some_and(|last| tick < last + (i16::MAX / 3) ) {
+            return;
+        }
+        self.last_cleanup_tick = Some(tick);
+        let delta = i16::MAX / 2;
         // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
         // (meaning that there's no need when we receive the update to check if we have already received a previous action)
         for group_channel in self.group_channels.values_mut() {
@@ -408,140 +644,6 @@ impl ReplicationSender {
             .push(raw_data);
     }
 
-    /// Create a component update for a component that has delta compression enabled
-    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn prepare_delta_component_update(
-        &mut self,
-        entity: Entity,
-        group_id: ReplicationGroupId,
-        kind: ComponentKind,
-        component_data: Ptr,
-        registry: &ComponentRegistry,
-        writer: &mut Writer,
-        delta_manager: &mut DeltaManager,
-        tick: Tick,
-        remote_entity_map: &mut RemoteEntityMap,
-    ) -> Result<(), ReplicationError> {
-        #[cfg(feature = "metrics")]
-        {
-            metrics::counter!("replication::send::component_update_delta").increment(1);
-        }
-        let group_channel = self.group_channels.entry(group_id).or_default();
-        // Get the latest acked tick for this entity/component
-        let raw_data = group_channel
-            .delta_ack_ticks
-            .get(&(entity, kind))
-            .map(|&ack_tick| {
-                // we have an ack tick for this replication group, get the corresponding component value
-                // so we can compute a diff
-                let old_data = delta_manager
-                    .data
-                    // NOTE: remember to use the local entity for local bookkeeping
-                    .get_component_value(entity, ack_tick, kind, group_id)
-                    .ok_or(ReplicationError::DeltaCompressionError(
-                        "could not find old component value to compute delta".to_string(),
-                    ))
-                    .inspect_err(|e| {
-                        error!(
-                            ?entity,
-                            name = ?registry.name(kind),
-                            "Could not find old component value from tick {:?} to compute delta",
-                            ack_tick
-                        );
-                        error!("DeltaManager data: {:?}", delta_manager.data);
-                    })?;
-                // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
-                unsafe {
-                    registry.serialize_diff(
-                        ack_tick,
-                        old_data,
-                        component_data,
-                        writer,
-                        kind,
-                        &mut remote_entity_map.local_to_remote,
-                    )?;
-                }
-                Ok::<Bytes, ReplicationError>(writer.split())
-            })
-            .unwrap_or_else(|| {
-                // SAFETY: the component_data is a pointer to a component that corresponds to kind
-                unsafe {
-                    // compute a diff from the base value, and serialize that
-                    registry.serialize_diff_from_base_value(
-                        component_data,
-                        writer,
-                        kind,
-                        &mut remote_entity_map.local_to_remote,
-                    )?;
-                }
-                Ok::<Bytes, ReplicationError>(writer.split())
-            })?;
-        trace!(?kind, "Inserting pending update!");
-        // use the network entity when serializing
-        let entity = remote_entity_map.to_remote(entity);
-        self.prepare_component_update(entity, group_id, raw_data);
-        self.group_channels
-            .entry(group_id)
-            .or_default()
-            .pending_delta_updates
-            .push((entity, kind));
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn actions_to_send(
-        &mut self,
-        tick: Tick,
-        bevy_tick: BevyTick,
-    ) -> Vec<(EntityActionsMessage, f32)> {
-        // ) -> impl Iterator<Item = (EntityActionsMessage, f32)> + Captures<&()> {
-        self.group_with_actions
-            .drain()
-            .map(|group_id| {
-                // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
-                let channel = self.group_channels.get_mut(&group_id).unwrap();
-                let mut actions = core::mem::take(&mut channel.pending_actions);
-                // add any updates for that group
-                if self.group_with_updates.remove(&group_id) {
-                    for (entity, components) in channel.pending_updates.drain() {
-                        actions
-                            .entry(entity)
-                            .or_default()
-                            .updates
-                            .extend(components);
-                    }
-                    for (entity, component_kind) in channel.pending_delta_updates.drain(..) {
-                        channel
-                            .delta_ack_ticks
-                            .insert((entity, component_kind), tick);
-                    }
-                }
-                // update the send tick so that we don't send updates immediately after an insert messagex.
-                // (which would happen because the send_tick is only set to Some(x) after an Update message is sent, so
-                // when an entity is first spawned the send_tick is still None)
-                // This is ok to do even if we don't get an actual send notification because EntityActions messages are
-                // guaranteed to be sent at some point. (since the actions channel is reliable)
-                channel.send_tick = Some(bevy_tick);
-                let priority = channel.accumulated_priority;
-                let message_id = channel.actions_next_send_message_id;
-                channel.actions_next_send_message_id += 1;
-                channel.last_action_tick = Some(tick);
-                let message = (
-                    EntityActionsMessage {
-                        sequence_id: message_id,
-                        group_id,
-                        // TODO: send the HashMap directly to avoid extra allocations by cloning into a vec.
-                        actions: Vec::from_iter(actions),
-                    },
-                    priority,
-                );
-                debug!("final action messages to send: {:?}", message);
-                message
-            })
-            .collect()
-    }
-
     // TODO: the priority for entity actions should remain the base_priority,
     //  because the priority will get accumulated in the reliable channel
     //  For entity updates, we might want to use the multiplier, but not sure
@@ -549,7 +651,7 @@ impl ReplicationSender {
     /// Before sending replication messages, we accumulate the priority for all replication groups.
     ///
     /// (the priority starts at 0.0, and is accumulated for each group based on the base priority of the group)
-    pub(crate) fn accumulate_priority(&mut self, time_manager: &TimeManager) {
+    pub(crate) fn accumulate_priority(&mut self, time: &Time<Real>) {
         // let priority_multiplier = if self.replication_config.send_interval == Duration::default() {
         //     1.0
         // } else {
@@ -561,7 +663,7 @@ impl ReplicationSender {
             trace!(
                 "in accumulate priority: accumulated={:?} base={:?} multiplier={:?}, time_manager_delta={:?}",
                 channel.accumulated_priority, channel.base_priority, priority_multiplier,
-                time_manager.delta().as_nanos()
+                time.delta().as_nanos()
             );
             channel.accumulated_priority += channel.base_priority * priority_multiplier;
         });
@@ -573,9 +675,7 @@ impl ReplicationSender {
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
-        // TODO: this is useful if we write everything in the same buffer?
-        writer: &mut Writer,
-        message_manager: &mut MessageManager,
+        transport: &mut Transport,
     ) -> Result<(), PacketError> {
         self.group_with_actions.drain().try_for_each(|group_id| {
             // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
@@ -634,15 +734,12 @@ impl ReplicationSender {
             // buffer the message in the MessageManager
 
             // message.emit_send_logs("EntityActionsChannel");
-            message.to_bytes(writer).map_err(SerializationError::from)?;
-            let message_bytes = writer.split();
-            let message_id = message_manager
-                // TODO: use const type_id?
-                .buffer_send_with_priority(
-                    message_bytes,
-                    ChannelKind::of::<EntityActionsChannel>(),
-                    priority,
-                )?
+            message.to_bytes(&mut self.writer).map_err(SerializationError::from)?;
+            let message_bytes = self.writer.split();
+            let message_id = transport.send_mut_with_priority::<EntityActionsChannel>(
+                message_bytes,
+                priority
+            )?
                 .expect("The entity actions channels should always return a message_id");
             debug!(
                 ?message_id,
@@ -660,34 +757,6 @@ impl ReplicationSender {
         })
     }
 
-    /// Prepare the [`EntityUpdateMessage`] to send
-    #[cfg(test)]
-    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn updates_to_send(
-        &mut self,
-        tick: Tick,
-        bevy_tick: BevyTick,
-    ) -> impl Iterator<Item = (EntityUpdatesMessage, f32)> + Captures<&()> {
-        self.group_with_updates.drain().map(|group_id| {
-            let channel = self.group_channels.get_mut(&group_id).unwrap();
-            let updates = core::mem::take(&mut channel.pending_updates);
-
-            trace!(?group_id, "pending updates: {:?}", updates);
-            let priority = channel.accumulated_priority;
-            (
-                EntityUpdatesMessage {
-                    group_id,
-                    // TODO: as an optimization, we can use `last_action_tick = tick` to signify
-                    //  that there is no constraint!
-                    // SAFETY: the last action tick is always set because we send Actions before Updates
-                    last_action_tick: channel.last_action_tick,
-                    updates: Vec::from_iter(updates),
-                },
-                priority,
-            )
-        })
-        // TODO: also return for each message a list of the components that have delta-compression data?
-    }
 
     /// Buffer the [`EntityUpdatesMessage`](super::EntityUpdatesMessage) to send in the [`MessageManager`]
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
@@ -695,8 +764,7 @@ impl ReplicationSender {
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
-        writer: &mut Writer,
-        message_manager: &mut MessageManager,
+        transport: &mut Transport,
     ) -> Result<(), PacketError> {
         self.group_with_updates.drain().try_for_each(|group_id| {
             let channel = self.group_channels.get_mut(&group_id).unwrap();
@@ -715,13 +783,11 @@ impl ReplicationSender {
             };
 
             // message.emit_send_logs("EntityUpdatesChannel");
-            message.to_bytes(writer).map_err(SerializationError::from)?;
-            let message_bytes = writer.split();
-            let message_id = message_manager
-                // TODO: use const type_id?
-                .buffer_send_with_priority(
+            message.to_bytes(&mut self.writer).map_err(SerializationError::from)?;
+            let message_bytes = self.writer.split();
+            let message_id = transport
+                .send_mut_with_priority::<EntityUpdatesChannel>(
                     message_bytes,
-                    ChannelKind::of::<EntityUpdatesChannel>(),
                     priority,
                 )?
                 .expect("The entity actions channels should always return a message_id");
@@ -829,14 +895,9 @@ impl Default for GroupChannel {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
-    use crate::prelude::server::Replicate;
-    use crate::prelude::ClientId;
-    use crate::server::connection::ConnectionManager;
-
-    use crate::tests::protocol::ComponentSyncModeFull;
-    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::prelude::*;
 
     use super::*;

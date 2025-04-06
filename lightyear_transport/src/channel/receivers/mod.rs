@@ -7,7 +7,7 @@ use crate::channel::receivers::sequenced_reliable::SequencedReliableReceiver;
 use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
 use crate::channel::receivers::unordered_reliable::UnorderedReliableReceiver;
 use crate::channel::receivers::unordered_unreliable::UnorderedUnreliableReceiver;
-use crate::packet::message::ReceiveMessage;
+use crate::packet::message::{MessageId, ReceiveMessage};
 use crate::prelude::{ChannelMode, ChannelSettings};
 use core::time::Duration;
 use error::Result;
@@ -42,7 +42,7 @@ pub trait ChannelReceive {
     fn buffer_recv(&mut self, message: ReceiveMessage) -> Result<()>;
 
     /// Reads a message from the internal buffer to get its content
-    fn read_message(&mut self) -> Option<(Tick, Bytes)>;
+    fn read_message(&mut self) -> Option<(Tick, Bytes, Option<MessageId>)>;
 }
 
 /// This enum contains the various types of receivers available

@@ -1,7 +1,6 @@
 use crate::receive::{MessageReceiver, ReceiveMessageFn};
-use crate::registry::serialize::{ErasedSerializeFns, SerializeFns};
 use crate::send::{MessageSender, SendMessageFn};
-use crate::{Message, MessageId};
+use crate::{Message, MessageNetId};
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::MapEntities;
 use bevy::platform_support::collections::HashMap;
@@ -10,6 +9,7 @@ use core::any::TypeId;
 use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
+use lightyear_serde::registry::{ErasedSerializeFns, SerializeFns};
 use lightyear_serde::writer::Writer;
 use lightyear_serde::ToBytes;
 use lightyear_transport::channel::senders::ChannelSenderEnum;
@@ -17,10 +17,8 @@ use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::{ChannelMode, ChannelRegistry, ChannelSettings};
 use lightyear_utils::registry::{TypeKind, TypeMapper};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tracing::debug;
-
-pub(crate) mod serialize;
 
 
 #[derive(thiserror::Error, Debug)]
@@ -42,7 +40,7 @@ pub enum MessageError {
     #[error("the message kind {0:?} is not registered")]
     UnrecognizedMessage(MessageKind),
     #[error("the message id {0:?} is not registered")]
-    UnrecognizedMessageId(MessageId),
+    UnrecognizedMessageId(MessageNetId),
     #[error(transparent)]
     TransportError(#[from] lightyear_transport::error::TransportError),
 }

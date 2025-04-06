@@ -1,10 +1,11 @@
 //! This module contains the [`Channel`] trait
 use crate::channel::receivers::ChannelReceiverEnum;
 use crate::channel::registry::{ChannelId, ChannelKind};
+use crate::channel::senders::ChannelSend;
 use crate::channel::senders::ChannelSenderEnum;
 #[cfg(feature = "trace")]
 use crate::channel::stats::send::ChannelSendStats;
-use crate::packet::message::MessageAck;
+use crate::packet::message::{MessageAck, MessageId};
 use crate::packet::packet::PacketId;
 use crate::packet::packet_builder::{PacketBuilder, RecvPayload};
 use crate::packet::priority_manager::PriorityManager;
@@ -21,7 +22,6 @@ use crate::error::TransportError;
 use crate::prelude::ChannelRegistry;
 use crossbeam_channel::{Receiver, Sender};
 use lightyear_link::SendPayload;
-use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 // TODO: hook when you insert ChannelSettings, it creates a ChannelSender and ChannelReceiver component
 
 #[cfg(not(feature = "std"))]
@@ -73,8 +73,6 @@ pub struct Transport {
     /// mpsc channel sender/receiver to allow users to write bytes to the same channel in parallel
     pub send_channel: Sender<(ChannelKind, Bytes, f32)>,
     pub recv_channel: Receiver<(ChannelKind, Bytes, f32)>,
-    pub send_mapper: SendEntityMap,
-    pub recv_mapper: ReceiveEntityMap,
     /// Buffer to store payloads that have been processed by the transport, and will be processed
     /// by the Link or the Connection
     pub send: Vec<SendPayload>,
@@ -93,8 +91,6 @@ impl Default for Transport {
             packet_to_message_ack_map: Default::default(),
             send_channel,
             recv_channel,
-            send_mapper: Default::default(),
-            recv_mapper: Default::default(),
             send: vec![],
             recv: vec![],
         }
@@ -168,6 +164,20 @@ impl Transport {
     pub fn send_erased(&self, kind: ChannelKind, bytes: SendPayload, priority: f32) -> Result<(), TransportError> {
         self.send_channel.try_send((kind, bytes, priority))?;
         Ok(())
+    }
+
+    pub fn send_mut<C: Channel>(&mut self, bytes: SendPayload) -> Result<Option<MessageId>, TransportError> {
+        self.send_mut_with_priority::<C>(bytes, 1.0)
+    }
+
+    pub fn send_mut_with_priority<C: Channel>(&mut self, bytes: SendPayload, priority: f32) -> Result<Option<MessageId>, TransportError> {
+        self.send_mut_erased(ChannelKind::of::<C>(), bytes, priority)
+    }
+
+    pub fn send_mut_erased(&mut self, kind: ChannelKind, bytes: SendPayload, priority: f32) -> Result<Option<MessageId>, TransportError> {
+        let sender_metadata = self.senders.get_mut(&kind).ok_or(TransportError::ChannelNotFound(kind))?;
+        let message_id = sender_metadata.sender.buffer_send(bytes, priority);
+        Ok(message_id)
     }
 }
 

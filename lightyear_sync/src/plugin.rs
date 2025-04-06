@@ -1,12 +1,10 @@
 use crate::ping::manager::PingManager;
 use crate::ping::plugin::PingPlugin;
-use crate::timeline::local::{increment_local_tick, set_local_overstep, Local};
 use crate::timeline::sync::SyncedTimeline;
-use crate::timeline::{DrivingTimeline, NetworkTimeline, Timeline, TimelineContext};
-use bevy::app::{App, FixedFirst, Plugin, RunFixedMainLoop, RunFixedMainLoopSystem};
-use bevy::prelude::{Commands, Entity, Fixed, Has, IntoScheduleConfigs, PostUpdate, Query, Res, ResMut, SystemSet, Time, Trigger, Virtual, With};
-use lightyear_core::time::SetTickDuration;
-use lightyear_transport::prelude::Transport;
+use crate::timeline::DrivingTimeline;
+use bevy::app::{App, FixedFirst, Plugin};
+use bevy::prelude::*;
+use lightyear_core::timeline::{NetworkTimeline, NetworkTimelinePlugin, Timeline, TimelineContext};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SyncSet {
@@ -14,23 +12,6 @@ pub enum SyncSet {
     Sync,
 }
 
-pub struct NetworkTimelinePlugin<T> {
-    pub(crate) _marker: core::marker::PhantomData<T>,
-}
-
-impl<T> Default for NetworkTimelinePlugin<T> {
-    fn default() -> Self {
-        Self {
-            _marker: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<T: TimelineContext> Plugin for NetworkTimelinePlugin<T> where Timeline<T>: NetworkTimeline {
-    fn build(&self, app: &mut App) {
-        app.add_observer(SyncPlugin::update_tick_duration::<Timeline<T>>);
-    }
-}
 
 pub struct SyncedTimelinePlugin<Synced, Remote>{
     pub(crate) _marker: core::marker::PhantomData<(Synced, Remote)>,
@@ -61,19 +42,6 @@ pub struct SyncPlugin;
 
 impl SyncPlugin {
 
-    pub(crate) fn update_tick_duration<T: NetworkTimeline>(
-        trigger: Trigger<SetTickDuration>,
-        mut query: Query<(Option<&mut T>, Option<&mut PingManager>)>,
-    ) {
-        if let Ok((t, ping_manager)) = query.get_mut(trigger.target()) {
-            if let Some(mut t) = t {
-                t.set_tick_duration(trigger.0);
-            }
-            if let Some(mut ping_manager) = ping_manager {
-                ping_manager.tick_duration = trigger.0;
-            }
-        }
-    }
 
     pub(crate) fn update_virtual_time<T: TimelineContext>(
         mut virtual_time: ResMut<Time<Virtual>>,
@@ -126,11 +94,5 @@ impl Plugin for SyncPlugin {
             app.add_plugins(PingPlugin);
         }
         app.configure_sets(PostUpdate, SyncSet::Sync);
-
-        // Local timeline
-        app.add_plugins(NetworkTimelinePlugin::<Timeline<Local>>::default());
-        app.register_required_components::<Transport, Timeline<Local>>();
-        app.add_systems(FixedFirst, increment_local_tick);
-        app.add_systems(RunFixedMainLoop, set_local_overstep.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop));
     }
 }

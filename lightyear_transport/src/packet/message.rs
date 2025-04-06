@@ -21,7 +21,7 @@ wrapping_id!(MessageId);
 /// are less than 64 fragments in the message.
 // TODO: as an optimization, we could do a varint up to u16, so that we use 1 byte for the first 128 fragments
 #[derive(Hash, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FragmentIndex(pub(crate) u64);
+pub(crate) struct FragmentIndex(pub(crate) u64);
 
 /// Struct to keep track of which messages/slices have been received by the remote
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
@@ -54,7 +54,7 @@ pub(crate) struct ReceiveMessage {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum MessageData {
+pub(crate) enum MessageData {
     Single(SingleData),
     Fragment(FragmentData),
 }
@@ -109,7 +109,7 @@ impl From<SingleData> for MessageData {
 /// This lets us serialize the message very early and then pass it around with cheap clones
 /// The message/component does not need to implement Clone anymore!
 /// Also we know the size of the message early, which is useful for fragmentation.
-pub struct SingleData {
+pub(crate) struct SingleData {
     // TODO: MessageId is from 1 to 65535, so that we can use 0 to represent None? and do some bit-packing?
     pub id: Option<MessageId>,
     pub bytes: Bytes,
@@ -144,7 +144,7 @@ impl SingleData {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct FragmentData {
+pub(crate) struct FragmentData {
     // we always need a message_id for fragment messages, for re-assembly
     pub message_id: MessageId,
     pub fragment_id: FragmentIndex,

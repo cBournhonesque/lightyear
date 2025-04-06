@@ -20,8 +20,14 @@ std = [
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_core.workspace = true
+lightyear_connection.workspace = true
+lightyear_messages.workspace = true
+lightyear_transport.workspace = true
 
 # utils
+crossbeam-channel.workspace = true
+hashbrown.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
 
 # serde

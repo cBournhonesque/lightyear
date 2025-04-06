@@ -1,11 +1,11 @@
 //! Bevy [`Plugin`] used by both the server and the client
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear_core::time::SetTickDuration;
-use lightyear_transport::prelude::*;
 use lightyear_connection::prelude::*;
+use lightyear_core::time::SetTickDuration;
 use lightyear_messages::prelude::*;
 use lightyear_sync::prelude::*;
+use lightyear_transport::prelude::*;
 
 // NOTE: we cannot use nested PluginGroups so let's just put everything in a plugin
 // #[derive(Default, Debug)]
@@ -58,7 +58,10 @@ impl Plugin for SharedPlugin {
             .add_plugins(lightyear_core::tick::TickPlugin {
                 tick_duration: self.tick_duration
             })
-            .add_plugins(lightyear_core::time::TimePlugin);
+            .add_plugins(lightyear_core::time::TimePlugin)
+            .add_plugins(lightyear_replication::prelude::ReplicationSendPlugin)
+        .add_plugins(lightyear_replication::prelude::ReplicationReceivePlugin);
+        ;
 
         Self::add_channels(app);
         Self::add_messages(app);

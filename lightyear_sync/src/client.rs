@@ -6,10 +6,11 @@ use crate::timeline::input::Input;
 use crate::timeline::interpolation::Interpolation;
 use crate::timeline::remote::RemoteEstimate;
 use crate::timeline::sync::SyncedTimeline;
-use crate::timeline::{remote, DrivingTimeline, Timeline};
+use crate::timeline::{remote, DrivingTimeline};
 use bevy::prelude::*;
 use bevy::prelude::{Reflect, SystemSet};
 use bevy::time::time_system;
+use lightyear_core::timeline::Timeline;
 
 // When a Client is created; we want to add a PredictedTimeline? InterpolatedTimeline?
 //  or should we let the user do it?

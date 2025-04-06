@@ -71,12 +71,12 @@ impl ChannelReceive for SequencedReliableReceiver {
         }
         Ok(())
     }
-    fn read_message(&mut self) -> Option<(Tick, Bytes)> {
+    fn read_message(&mut self) -> Option<(Tick, Bytes, Option<MessageId>)> {
         // keep popping messages until we get one that is more recent than the last one we processed
         loop {
-            let (message_id, message) = self.recv_message_buffer.pop_first()?;
+            let (message_id, (tick, bytes)) = self.recv_message_buffer.pop_first()?;
             if message_id >= self.most_recent_message_id {
-                return Some(message);
+                return Some((tick, bytes, Some(message_id)));
             }
         }
     }

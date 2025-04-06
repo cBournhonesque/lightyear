@@ -22,7 +22,7 @@ Packets that are over the maximum packet size will be fragmented into multiple [
 /// Manages the [`PacketHeader`](header::PacketHeader) which includes important packet information
 pub(crate) mod header;
 
-pub(crate) mod message;
+pub mod message;
 
 
 // "module has the same name as its containing module" style nit.

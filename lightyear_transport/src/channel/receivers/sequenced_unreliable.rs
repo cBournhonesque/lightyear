@@ -17,7 +17,7 @@ const DISCARD_AFTER: Duration = Duration::from_millis(3000);
 #[derive(Debug)]
 pub struct SequencedUnreliableReceiver {
     /// Buffer of the messages that we received, but haven't processed yet
-    recv_message_buffer: VecDeque<(Tick, Bytes)>,
+    recv_message_buffer: VecDeque<(Tick, Bytes, MessageId)>,
     /// Highest message id received so far
     most_recent_message_id: MessageId,
     fragment_receiver: FragmentReceiver,
@@ -64,22 +64,23 @@ impl ChannelReceive for SequencedUnreliableReceiver {
         match message.data {
             MessageData::Single(single) => self
                 .recv_message_buffer
-                .push_back((message.remote_sent_tick, single.bytes)),
+                .push_back((message.remote_sent_tick, single.bytes, message_id)),
             MessageData::Fragment(fragment) => {
-                if let Some(res) = self.fragment_receiver.receive_fragment(
+                if let Some((tick, bytes)) = self.fragment_receiver.receive_fragment(
                     fragment,
                     message.remote_sent_tick,
                     Some(self.current_time),
                 ) {
-                    self.recv_message_buffer.push_back(res);
+                    self.recv_message_buffer.push_back((tick, bytes, message_id));
                 }
             }
         }
         Ok(())
     }
-    fn read_message(&mut self) -> Option<(Tick, Bytes)> {
-        self.recv_message_buffer.pop_front()
-        // TODO: naia does a more optimized version by return a Vec<Message> instead of Option<Message>
+    fn read_message(&mut self) -> Option<(Tick, Bytes, Option<MessageId>)> {
+        self.recv_message_buffer.pop_front().map(|(tick, bytes, message_id)| {
+            (tick, bytes, Some(message_id))
+        })
     }
 }
 

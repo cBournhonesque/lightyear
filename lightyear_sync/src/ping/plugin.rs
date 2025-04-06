@@ -1,16 +1,14 @@
-use core::time::Duration;
-
 use crate::ping::manager::PingManager;
 use crate::ping::message::{Ping, Pong};
 use crate::ping::PingChannel;
 use bevy::platform_support::time::Instant;
 use bevy::prelude::*;
-use lightyear_core::time::TickDelta;
+use lightyear_core::time::{SetTickDuration, TickDelta};
 use lightyear_link::Link;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
-use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelRegistry, ChannelSettings, Transport};
+use lightyear_transport::prelude::Transport;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PingSet {
@@ -78,6 +76,15 @@ impl PingPlugin {
             });
         })
     }
+
+    pub(crate) fn update_tick_duration(
+        trigger: Trigger<SetTickDuration>,
+        mut query: Query<&mut PingManager>,
+    ) {
+        if let Ok(mut ping_manager) = query.get_mut(trigger.target()) {
+            ping_manager.tick_duration = trigger.0;
+        }
+    }
 }
 
 
@@ -94,5 +101,7 @@ impl Plugin for PingPlugin {
         app.configure_sets(PostUpdate,  (PingSet::Send, MessageSet::Send).chain());
         app.add_systems(PreUpdate, Self::receive.in_set(PingSet::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(PingSet::Send));
+
+        app.add_observer(Self::update_tick_duration);
     }
 }

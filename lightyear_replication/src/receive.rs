@@ -1,40 +1,112 @@
 //! General struct handling replication
 use alloc::collections::BTreeMap;
 
-use super::entity_map::RemoteEntityMap;
-use super::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
-use crate::packet::message::MessageId;
-use crate::prelude::client::Confirmed;
-use crate::prelude::{ClientId, Tick};
-use crate::protocol::component::registry::ComponentRegistry;
-use crate::serialize::reader::Reader;
-use crate::shared::events::connection::ConnectionEvents;
-use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
-use crate::shared::replication::components::{InitialReplicated, Replicated, ReplicationGroupId};
-#[cfg(test)]
-use crate::utils::captures::Captures;
-use crate::utils::collections::HashSet;
+use crate::authority::{AuthorityPeer, HasAuthority};
+use crate::components::{InitialReplicated, Replicated, ReplicationGroupId};
+use crate::message::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
+use crate::registry::registry::ComponentRegistry;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+use bevy::app::{App, Plugin, PreUpdate};
 use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{Component, Entity, EntityWorldMut, World};
-use tracing::{debug, error, info, trace, warn};
+use bevy::platform_support::collections::HashSet;
+use bevy::prelude::{Component, Entity, EntityWorldMut, IntoScheduleConfigs, Query, Res, ResMut, World};
+use lightyear_connection::id::PeerId;
+use lightyear_core::tick::Tick;
+use lightyear_serde::entity_map::RemoteEntityMap;
+use lightyear_serde::reader::Reader;
+use lightyear_transport::packet::message::MessageId;
+use tracing::*;
+
+use crate::plugin;
+use crate::plugin::ReplicationSet;
+use lightyear_connection::client_of::ClientOf;
+use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::timeline::NetworkTimeline;
+use lightyear_messages::prelude::MessageReceiver;
+use lightyear_messages::MessageNetId;
+use lightyear_transport::channel::builder::EntityActionsChannel;
+use lightyear_transport::channel::ChannelKind;
+use lightyear_transport::prelude::{ChannelRegistry, Transport};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
 type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
 
+
+pub struct ReplicationReceivePlugin;
+
+
+impl ReplicationReceivePlugin {
+
+    pub(crate) fn receive_messages(
+        mut query: Query<(&mut MessageReceiver<EntityActionsMessage>, &mut MessageReceiver<EntityUpdatesMessage>, &mut ReplicationReceiver)>,
+    ) {
+        query.par_iter_mut().for_each(|(mut actions, mut updates, mut receiver)| {
+            for message in actions.receive_with_tick() {
+                receiver.recv_actions(message.data, message.remote_tick);
+            }
+            for message in updates.receive_with_tick() {
+                receiver.recv_updates(message.data, message.remote_tick);
+            }
+        });
+    }
+
+    pub(crate) fn apply_to_world(
+        world: &mut World,
+        mut component_registry: ResMut<ComponentRegistry>,
+        mut query: Query<(&mut ReplicationReceiver, Option<&ClientOf>, &mut Transport, &LocalTimeline)>,
+    ) {
+        query.iter_mut().for_each(|(mut receiver, client_of, mut transport, local_timeline)| {
+            // TODO: have some logic to get the remote peer independently from ClientOf or client-server
+            //  Maybe the link contains the remoteLinkId?
+
+            let tick = local_timeline.tick();
+            let remote_peer = client_of.map(|c| c.id);
+
+            // TODO: put the temp buffer inside the receiver, we shouldn't need write access
+            //   to the registry
+            receiver.apply_world(world, remote_peer, &mut transport.entity_mapper, component_registry.as_mut(), tick);
+            receiver.tick_cleanup(tick);
+        });
+    }
+}
+
+impl Plugin for ReplicationReceivePlugin {
+
+    fn build(&self, app: &mut App) {
+        // PLUGINS
+        if !app.is_plugin_added::<plugin::SharedPlugin>() {
+            app.add_plugins(plugin::SharedPlugin);
+        }
+
+        // SYSTEMS
+        app.add_systems(PreUpdate,
+            (
+                Self::receive_messages,
+                Self::apply_to_world,
+            ).chain()
+                .in_set(ReplicationSet::Receive)
+        );
+    }
+}
+
+
 #[derive(Debug, Component)]
+#[require(Transport)]
 pub struct ReplicationReceiver {
+    /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
+    pub remote_entity_map: RemoteEntityMap,
     /// Map from local entity to the replication group-id
     /// We use the local entity because in some cases we don't have access to the remote entity at all, since the remote
     /// has pre-done the mapping! (for example C1 spawns 1 and sends to S who spawns 2. Then S transfers authority to C2,
     /// S will start sending updates to C1, but will pre-map from 2 to 1, so C1 will never see the remote entity!)
     pub(crate) local_entity_to_group: EntityHashMap<Entity, ReplicationGroupId>,
-
-    // BOTH
     /// Buffer to so that we have an ordered receiver per group
     pub(crate) group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
+
+    /// Tick when we last did a cleanup
+    pub(crate) last_cleanup_tick: Option<Tick>,
 }
 
 impl ReplicationReceiver {
@@ -45,6 +117,7 @@ impl ReplicationReceiver {
             local_entity_to_group: Default::default(),
             // BOTH
             group_channels: Default::default(),
+            last_cleanup_tick: None,
         }
     }
 
@@ -118,31 +191,6 @@ impl ReplicationReceiver {
         trace!(?channel, "group channel after buffering");
     }
 
-    /// Return all the [`EntityActionsMessage`] from our internal buffer that are ready to be read.
-    /// For each [`ReplicationGroup`], we return the actions in order.
-    ///
-    /// (i.e. if we have sent an action for tick 3 and tick 7, we wait until we receive the one for tick 3 first)
-    #[cfg(test)]
-    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    fn read_actions(
-        &mut self,
-        current_tick: Tick,
-    ) -> impl Iterator<Item = (Tick, EntityActionsMessage)> + Captures<&()> {
-        trace!(?current_tick, ?self.group_channels, "reading replication messages");
-        self.group_channels
-            .iter_mut()
-            .flat_map(move |(group_id, channel)| channel.read_actions(current_tick))
-    }
-
-    #[cfg(test)]
-    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    fn read_updates(&mut self) -> impl Iterator<Item = Update> + Captures<&()> {
-        trace!(?self.group_channels, "reading replication messages");
-        self.group_channels
-            .iter_mut()
-            .flat_map(|(group_id, channel)| channel.read_updates())
-    }
-
     /// Gets the tick at which the provided confirmed entity currently is
     /// (i.e. the latest server tick at which we received an update for that entity)
     pub(crate) fn get_confirmed_tick(&self, confirmed_entity: Entity) -> Option<Tick> {
@@ -157,9 +205,14 @@ impl ReplicationReceiver {
             .and_then(|group_id| self.group_channels.get(group_id))
     }
 
-    /// Do some internal bookkeeping:
-    /// - handle tick wrapping
-    pub(crate) fn cleanup(&mut self, tick: Tick) {
+    /// Ticks wrap around u32::max, so if too much time has passed the ticks might become invalid
+    /// We handle this by periodically updating the latest_tick for the group
+    pub(crate) fn tick_cleanup(&mut self, tick: Tick) {
+        // skip cleanup if we did one recently
+        if self.last_cleanup_tick.is_some_and(|last| tick < last + (i16::MAX / 3) ) {
+            return;
+        }
+        self.last_cleanup_tick = Some(tick);
         // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
         for group_channel in self.group_channels.values_mut() {
             trace!(
@@ -187,44 +240,6 @@ impl ReplicationReceiver {
 ///
 /// - all component inserts/removes/updates for an entity to be grouped together in a single message
 impl ReplicationReceiver {
-    /// Update the Confirmed tick for all entities in the replication group
-    /// so that Predicted/Interpolated entities can be notified.
-    ///
-    /// The Confirmed tick is the latest tick at which we have received an update for the entity.
-    ///
-    /// We update it for all entities in the group (even if we received only an update that contains
-    /// updates for E1, it also means that E2 is updated to the same tick, since they are part of the
-    /// same group)
-    pub(crate) fn update_confirmed_tick(
-        &mut self,
-        world: &mut World,
-        group_id: ReplicationGroupId,
-        remote_tick: Tick,
-    ) {
-        // TODO: maybe get the confirmed tick from the apply_world message directly?
-        // // let confirmed_tick = self.group_channels.get(&group_id).unwrap().latest_tick;
-        // if let Some(group_channel) = self.group_channels
-        //     .get(&group_id) {
-        //     grou.remote_entities
-        //
-        // }
-
-        if let Some(g) = self.group_channels.get(&group_id) {
-            g.local_entities.iter().for_each(|local_entity| {
-                if let Ok(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
-                    trace!(
-                        ?local_entity,
-                        ?remote_tick,
-                        "updating confirmed tick for entity"
-                    );
-                    if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
-                        confirmed.tick = remote_tick;
-                    }
-                }
-            });
-        }
-    }
-
     // TODO: how can I emit metrics here that contain the channel kind?
     //  use a OnceCell that gets set with the channel name mapping when the protocol is finalized?
     //  the other option is to have wrappers in Connection, but that's pretty ugly
@@ -237,10 +252,10 @@ impl ReplicationReceiver {
         &mut self,
         // TODO: should we use commands for command batching?
         world: &mut World,
-        remote: Option<ClientId>,
+        remote: Option<PeerId>,
+        remote_entity_map: &mut RemoteEntityMap,
         component_registry: &mut ComponentRegistry,
         current_tick: Tick,
-        events: &mut ConnectionEvents,
     ) {
         // apply actions first
 
@@ -305,9 +320,8 @@ impl ReplicationReceiver {
                         component_registry,
                         remote_tick,
                         message,
-                        &mut self.remote_entity_map,
+                        remote_entity_map,
                         &mut self.local_entity_to_group,
-                        events,
                     );
                 }
             });
@@ -363,8 +377,7 @@ impl ReplicationReceiver {
                         remote_tick,
                         is_history,
                         message,
-                        events,
-                        &mut self.remote_entity_map,
+                        remote_entity_map,
                     );
                 }
             })
@@ -598,13 +611,12 @@ impl GroupChannel {
     pub(crate) fn apply_actions_message(
         &mut self,
         world: &mut World,
-        remote: Option<ClientId>,
+        remote: Option<PeerId>,
         component_registry: &mut ComponentRegistry,
         remote_tick: Tick,
         message: EntityActionsMessage,
         remote_entity_map: &mut RemoteEntityMap,
         local_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
-        events: &mut ConnectionEvents,
     ) {
         let group_id = message.group_id;
         debug!(
@@ -671,7 +683,6 @@ impl GroupChannel {
                     remote_entity_map.insert(*remote_entity, local_entity.id());
                     trace!("Updated remote entity map: {:?}", remote_entity_map);
                     debug!("Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}", local_entity.id());
-                    events.push_spawn(local_entity.id());
                 }
                 SpawnAction::Reuse(local_entity) => {
                     let Ok(mut entity_mut) = world.get_entity_mut(local_entity) else {
@@ -701,7 +712,6 @@ impl GroupChannel {
                     if let Ok(entity_mut) = world.get_entity_mut(local_entity) {
                         entity_mut.despawn();
                     }
-                    events.push_despawn(local_entity);
                     local_entity_to_group.remove(&local_entity);
                 } else {
                     error!("Received despawn for an entity that does not exist")
@@ -732,7 +742,6 @@ impl GroupChannel {
                     &mut local_entity_mut,
                     remote_tick,
                     &mut remote_entity_map.remote_to_local,
-                    events,
                 )
                 .inspect_err(|e| error!("could not insert the components to the entity: {:?}", e));
 
@@ -759,7 +768,6 @@ impl GroupChannel {
                 actions.remove,
                 &mut local_entity_mut,
                 remote_tick,
-                events,
             );
 
             // updates
@@ -772,7 +780,6 @@ impl GroupChannel {
                         &mut local_entity_mut,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
-                        events,
                     )
                     .inspect_err(|e| {
                         error!("could not write the component to the entity: {:?}", e)
@@ -786,7 +793,7 @@ impl GroupChannel {
         world.flush();
 
         // TODO: apply authority check for the update confirmed tick?
-        self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
+        // self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
     }
 
     // TODO: should we accept updates from the client that lost authority if they are from a
@@ -796,7 +803,7 @@ impl GroupChannel {
     /// - on the client: only accept updates if we don't have authority
     ///
     /// Returns true if we can accept updates for this entity
-    fn authority_check(entity_mut: &mut EntityWorldMut, remote: Option<ClientId>) -> bool {
+    fn authority_check(entity_mut: &mut EntityWorldMut, remote: Option<PeerId>) -> bool {
         match remote {
             // we are the server receiving an update from a client
             Some(c) => entity_mut
@@ -809,12 +816,11 @@ impl GroupChannel {
     pub(crate) fn apply_updates_message(
         &mut self,
         world: &mut World,
-        remote: Option<ClientId>,
+        remote: Option<PeerId>,
         component_registry: &ComponentRegistry,
         remote_tick: Tick,
         is_history: bool,
         message: EntityUpdatesMessage,
-        events: &mut ConnectionEvents,
         remote_entity_map: &mut RemoteEntityMap,
     ) {
         let group_id = message.group_id;
@@ -849,7 +855,6 @@ impl GroupChannel {
                         &mut local_entity_mut,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
-                        events,
                     )
                     .inspect_err(|e| {
                         error!("could not write the component to the entity: {:?}", e)
@@ -864,48 +869,48 @@ impl GroupChannel {
 
         // TODO: should the update_confirmed_tick only be for entities in the group for which
         //  we have authority?
-        self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
+        // self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
     }
 
-    /// Update the Confirmed tick for all entities in the replication group
-    /// so that Predicted/Interpolated entities can be notified
-    ///
-    /// We update it for all entities in the group (even if we received only an update that contains
-    /// updates for E1, it also means that E2 is updated to the same tick, since they are part of the
-    /// same group)
-    pub(crate) fn update_confirmed_tick(
-        &mut self,
-        world: &mut World,
-        group_id: ReplicationGroupId,
-        remote_tick: Tick,
-        remote_entity_map: &mut RemoteEntityMap,
-    ) {
-        // TODO: maybe get the confirmed tick from the apply_world message directly?
-        // // let confirmed_tick = self.group_channels.get(&group_id).unwrap().latest_tick;
-        // if let Some(group_channel) = self.group_channels
-        //     .get(&group_id) {
-        //     grou.remote_entities
-        //
-        // }
-        trace!(
-            ?remote_tick,
-            "Updating confirmed tick for entities {:?} in group: {:?}",
-            self.local_entities,
-            group_id
-        );
-        self.local_entities.iter().for_each(|local_entity| {
-            if let Ok(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
-                if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
-                    trace!(
-                        ?remote_tick,
-                        ?local_entity,
-                        "updating confirmed tick for entity"
-                    );
-                    confirmed.tick = remote_tick;
-                }
-            }
-        });
-    }
+    // /// Update the Confirmed tick for all entities in the replication group
+    // /// so that Predicted/Interpolated entities can be notified
+    // ///
+    // /// We update it for all entities in the group (even if we received only an update that contains
+    // /// updates for E1, it also means that E2 is updated to the same tick, since they are part of the
+    // /// same group)
+    // pub(crate) fn update_confirmed_tick(
+    //     &mut self,
+    //     world: &mut World,
+    //     group_id: ReplicationGroupId,
+    //     remote_tick: Tick,
+    //     remote_entity_map: &mut RemoteEntityMap,
+    // ) {
+    //     // TODO: maybe get the confirmed tick from the apply_world message directly?
+    //     // // let confirmed_tick = self.group_channels.get(&group_id).unwrap().latest_tick;
+    //     // if let Some(group_channel) = self.group_channels
+    //     //     .get(&group_id) {
+    //     //     grou.remote_entities
+    //     //
+    //     // }
+    //     trace!(
+    //         ?remote_tick,
+    //         "Updating confirmed tick for entities {:?} in group: {:?}",
+    //         self.local_entities,
+    //         group_id
+    //     );
+    //     self.local_entities.iter().for_each(|local_entity| {
+    //         if let Ok(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
+    //             if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
+    //                 trace!(
+    //                     ?remote_tick,
+    //                     ?local_entity,
+    //                     "updating confirmed tick for entity"
+    //                 );
+    //                 confirmed.tick = remote_tick;
+    //             }
+    //         }
+    //     });
+    // }
 }
 
 #[cfg(test)]

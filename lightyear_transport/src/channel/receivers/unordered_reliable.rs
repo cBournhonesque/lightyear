@@ -20,7 +20,7 @@ pub struct UnorderedReliableReceiver {
     // TODO: optimize via ring buffer?
     // TODO: actually we could just use a VecDeque here?
     /// Buffer of the messages that we received, but haven't processed yet
-    recv_message_buffer: BTreeMap<MessageId, (Tick, Bytes)>,
+    recv_message_buffer: BTreeMap<MessageId, (Tick, Bytes, MessageId)>,
     fragment_receiver: FragmentReceiver,
     /// Keep tracking of the message ids we have received, so we can update the oldest_pending_message_id
     received_message_ids: HashSet<MessageId>,
@@ -60,11 +60,11 @@ impl ChannelReceive for UnorderedReliableReceiver {
                     // receive the message if we haven't received it already
                     if !self.received_message_ids.contains(&message_id) {
                         self.received_message_ids.insert(message_id);
-                        entry.insert((message.remote_sent_tick, single.bytes));
+                        entry.insert((message.remote_sent_tick, single.bytes, message_id));
                     }
                 }
                 MessageData::Fragment(fragment) => {
-                    if let Some(res) = self.fragment_receiver.receive_fragment(
+                    if let Some((tick, bytes)) = self.fragment_receiver.receive_fragment(
                         fragment,
                         message.remote_sent_tick,
                         None,
@@ -72,7 +72,7 @@ impl ChannelReceive for UnorderedReliableReceiver {
                         // receive the message if we haven't received it already
                         if !self.received_message_ids.contains(&message_id) {
                             self.received_message_ids.insert(message_id);
-                            entry.insert(res);
+                            entry.insert((tick, bytes, message_id));
                         }
                     }
                 }
@@ -81,7 +81,7 @@ impl ChannelReceive for UnorderedReliableReceiver {
         Ok(())
     }
 
-    fn read_message(&mut self) -> Option<(Tick, Bytes)> {
+    fn read_message(&mut self) -> Option<(Tick, Bytes, Option<MessageId>)> {
         // return if there are no messages in the buffer
         let (message_id, data) = self.recv_message_buffer.pop_first()?;
 
@@ -99,7 +99,8 @@ impl ChannelReceive for UnorderedReliableReceiver {
         }
 
         // receive oldest message in the buffer
-        Some(data)
+        let (tick, bytes, message_id) = data;
+        Some((tick, bytes, Some(message_id)))
     }
 }
 

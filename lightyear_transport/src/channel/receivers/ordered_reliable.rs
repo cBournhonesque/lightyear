@@ -70,16 +70,16 @@ impl ChannelReceive for OrderedReliableReceiver {
     /// Since we are receiving messages in order, we don't return from the buffer
     /// until we have received the message we are waiting for (the next expected MessageId)
     /// This assumes that the sender sends all message ids sequentially.
-    fn read_message(&mut self) -> Option<(Tick, Bytes)> {
+    fn read_message(&mut self) -> Option<(Tick, Bytes, Option<MessageId>)> {
         // Check if we have received the message we are waiting for
-        let message = self
+        let (tick, bytes) = self
             .recv_message_buffer
             .remove(&self.pending_recv_message_id)?;
 
         // if we have finally received the message we are waiting for, return it and
         // wait for the next one
         self.pending_recv_message_id += 1;
-        Some(message)
+        Some((tick, bytes, Some(self.pending_recv_message_id - 1)))
     }
 }
 

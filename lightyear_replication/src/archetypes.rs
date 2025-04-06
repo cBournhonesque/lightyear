@@ -1,14 +1,12 @@
 //! Keep track of the archetypes that should be replicated
-use core::mem;
-
-use crate::client::replication::send::ReplicateToServer;
-use crate::prelude::{ChannelDirection, ComponentRegistry, ReplicateLike, Replicating};
-use crate::protocol::component::ComponentKind;
-use crate::server::replication::send::ReplicateToClient;
-use crate::shared::replication::authority::HasAuthority;
-use crate::utils::collections::HashMap;
+use crate::authority::HasAuthority;
+use crate::components::Replicating;
+use crate::hierarchy::ReplicateLike;
+use crate::registry::registry::ComponentRegistry;
+use crate::registry::ComponentKind;
 use bevy::ecs::archetype::Archetypes;
 use bevy::ecs::component::Components;
+use bevy::platform_support::collections::HashMap;
 use bevy::{
     ecs::{
         archetype::{ArchetypeGeneration, ArchetypeId},
@@ -16,6 +14,8 @@ use bevy::{
     },
     prelude::*,
 };
+use core::mem;
+use lightyear_connection::direction::NetworkDirection;
 use tracing::trace;
 
 /// Cached information about all replicated archetypes.
@@ -52,19 +52,19 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
     marker: core::marker::PhantomData<C>,
 }
 
-pub type SendDirectionFn = fn(ChannelDirection) -> bool;
+pub type SendDirectionFn = fn(NetworkDirection) -> bool;
 
-fn send_to_server(direction: ChannelDirection) -> bool {
+fn send_to_server(direction: NetworkDirection) -> bool {
     matches!(
         direction,
-        ChannelDirection::Bidirectional | ChannelDirection::ClientToServer
+        NetworkDirection::Bidirectional | NetworkDirection::ClientToServer
     )
 }
 
-fn send_to_client(direction: ChannelDirection) -> bool {
+fn send_to_client(direction: NetworkDirection) -> bool {
     matches!(
         direction,
-        ChannelDirection::Bidirectional | ChannelDirection::ServerToClient
+        NetworkDirection::Bidirectional | NetworkDirection::ServerToClient
     )
 }
 

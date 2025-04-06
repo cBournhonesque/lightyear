@@ -1,7 +1,7 @@
 use crate::ping::manager::PingManager;
-use crate::timeline::{NetworkTimeline, Timeline};
 use bevy::prelude::{Event, Reflect};
 use lightyear_core::time::{TickInstant, TimeDelta};
+use lightyear_core::timeline::NetworkTimeline;
 
 #[derive(Event, Debug)]
 pub struct SyncEvent<T> {

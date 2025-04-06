@@ -1,5 +1,6 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
 
+use crate::components::ReplicationMarker;
 use crate::prelude::client::{InterpolationSet, PredictionSet};
 use crate::prelude::PrePredicted;
 use crate::shared::replication::components::{DisableReplicateHierarchy, ReplicationMarker};

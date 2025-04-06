@@ -1,9 +1,9 @@
 use crate::ping::manager::PingManager;
-use crate::timeline::{NetworkTimeline, Timeline};
-use bevy::prelude::{Component, Query, Real, Res, Time, Trigger};
+use bevy::prelude::{Component, Deref, DerefMut, Query, Real, Res, Time, Trigger};
 use core::time::Duration;
 use lightyear_core::tick::Tick;
 use lightyear_core::time::{TickDelta, TickInstant, TimeDelta};
+use lightyear_core::timeline::{NetworkTimeline, Timeline};
 use lightyear_transport::plugin::PacketReceived;
 use tracing::trace;
 
@@ -16,12 +16,12 @@ use tracing::trace;
 /// # Examples
 ///
 /// ```
-/// # use lightyear_sync::timeline::remote::RemoteEstimateTimeline;
+/// # use lightyear_sync::timeline::remote::RemoteTimeline;
 /// # use lightyear_core::time::TickInstant;
 /// # use std::time::Duration;
 /// #
 /// // Create a new remote estimate with a 16ms tick duration and 0.1 smoothing factor
-/// let remote_estimate = RemoteEstimateTimeline::new(Duration::from_millis(16), 0.1);
+/// let remote_estimate = RemoteTimeline::new(Duration::from_millis(16), 0.1);
 /// ```
 #[derive(Default)]
 pub struct RemoteEstimate {
@@ -36,28 +36,12 @@ pub struct RemoteEstimate {
     first_estimate: bool,
 }
 
-impl RemoteEstimate {
-    /// Creates a new RemoteEstimate with the specified tick duration and smoothing factor.
-    ///
-    /// # Arguments
-    ///
-    /// * `smoothing` - Smoothing factor in range [0.0, 1.0] for estimating remote time
-    ///
-    /// # Returns
-    ///
-    /// A new RemoteEstimate instance
-    pub fn new(smoothing: f32) -> Self {
-        Self {
-            last_received_tick: None,
-            remote_estimate_smoothing: smoothing.clamp(0.0, 1.0),
-            first_estimate: true,
-        }
-    }
-}
 
-pub type RemoteTimeline = Timeline<RemoteEstimate>;
+// We need to wrap the inner Timeline to avoid the orphan rule
+#[derive(Deref, DerefMut)]
+pub struct RemoteTimeline(Timeline<RemoteEstimate>);
 
-impl Timeline<RemoteEstimate> {
+impl RemoteTimeline  {
     /// Returns the most recent tick received from the remote peer.
     ///
     /// # Returns
@@ -144,7 +128,3 @@ pub(crate) fn advance_remote_timeline(
         t.advance(delta);
     })
 }
-
-// - When we receive a packet from the server, we update the last_received_tick
-// - we can count the duration elapsed since thena to estimate what the current server
-//   time is
