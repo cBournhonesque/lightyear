@@ -358,25 +358,12 @@ pub fn register_component_send<C: Component>(app: &mut App, direction: NetworkDi
             if is_client {
                 crate::client::replication::send::register_replicate_component_send::<C>(app);
             }
-            if is_server {
-                debug!(
-                    "register send events on server for {}",
-                    core::any::type_name::<C>()
-                );
-                crate::server::events::emit_replication_events::<C>(app);
-            }
         }
         NetworkDirection::ServerToClient => {
             if is_server {
                 crate::server::replication::send::register_replicate_component_send::<C>(app);
             }
-            if is_client {
-                debug!(
-                    "register send events on client for {}",
-                    core::any::type_name::<C>()
-                );
-                crate::client::events::emit_replication_events::<C>(app);
-            }
+
         }
         NetworkDirection::Bidirectional => {
             register_component_send::<C>(app, NetworkDirection::ServerToClient);

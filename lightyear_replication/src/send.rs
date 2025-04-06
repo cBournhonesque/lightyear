@@ -30,7 +30,7 @@ use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::plugin::MessageSet;
-use lightyear_messages::MessageManager;
+use lightyear_messages::prelude::{MessageManager, MessageSender, MessageReceiver};
 use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
@@ -113,21 +113,21 @@ impl ReplicationSendPlugin {
     fn send_replication_messages(
         time: Time<Real>,
         change_tick: SystemChangeTick,
-        mut query: Query<(&mut ReplicationManager, &mut Transport, &LocalTimeline)>,
+        mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline)>,
     ) {
-        query.par_iter_mut().for_each(|(mut manager, mut transport, timeline)| {
+        query.par_iter_mut().for_each(|(mut sender, mut transport, timeline)| {
             // TODO: also tick ReplicationGroups?
-            manager.sender.send_timer.tick(time.delta());
-            if manager.sender.send_timer.finished() {
-                manager.sender.send_timer.reset();
+            sender.send_timer.tick(time.delta());
+            if sender.send_timer.finished() {
+                sender.send_timer.reset();
 
-                manager.sender.accumulate_priority(time);
-                manager.sender.send_actions_messages(
+                sender.accumulate_priority(&time);
+                sender.send_actions_messages(
                     timeline.tick(),
                     change_tick.this_run(),
                     &mut transport
                 ).inspect_err(|e| error!("Error buffering ActionsMessage: {e:?}")).ok();
-                manager.sender.send_updates_messages(
+                sender.send_updates_messages(
                     timeline.tick(),
                     change_tick.this_run(),
                     &mut transport
@@ -278,6 +278,7 @@ impl Plugin for ReplicationSendPlugin {
 #[require(Transport)]
 #[require(LocalTimeline)]
 pub struct ReplicationSender {
+    pub(crate) replicated_entities: Vec<Entity>,
     pub(crate) writer: Writer,
     /// Get notified whenever a message-id that was sent has been received by the remote
     pub(crate) updates_ack_receiver: Receiver<MessageId>,
@@ -319,6 +320,7 @@ impl ReplicationSender {
     ) -> Self {
         Self {
             // SEND
+            replicated_entities: Vec::default(),
             writer: Writer::default(),
             updates_ack_receiver,
             updates_nack_receiver,
@@ -675,7 +677,7 @@ impl ReplicationSender {
         &mut self,
         tick: Tick,
         bevy_tick: BevyTick,
-        transport: &mut Transport,
+        sender: &mut Transport,
     ) -> Result<(), PacketError> {
         self.group_with_actions.drain().try_for_each(|group_id| {
             // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
@@ -736,7 +738,7 @@ impl ReplicationSender {
             // message.emit_send_logs("EntityActionsChannel");
             message.to_bytes(&mut self.writer).map_err(SerializationError::from)?;
             let message_bytes = self.writer.split();
-            let message_id = transport.send_mut_with_priority::<EntityActionsChannel>(
+            let message_id = sender.send_mut_with_priority::<EntityActionsChannel>(
                 message_bytes,
                 priority
             )?

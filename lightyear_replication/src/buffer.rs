@@ -53,7 +53,7 @@ pub struct ReplicatedEntities{
 pub(crate) fn replicate(
     // query &C + various replication components
     entity_query: Query<FilteredEntityRef>,
-    mut manager_query: Query<(&mut ReplicationManager, &LocalTimeline)>,
+    mut manager_query: Query<(&mut ReplicationSender, &mut DeltaManager, &mut MessageManager, &LocalTimeline)>,
     component_registry: Res<ComponentRegistry>,
     system_ticks: SystemChangeTick,
     archetypes: &Archetypes,
@@ -62,11 +62,11 @@ pub(crate) fn replicate(
 ) {
     replicated_archetypes.update(archetypes, components, component_registry.as_ref());
 
-    manager_query.par_iter_mut().for_each(|(mut manager, timeline)| {
+    manager_query.par_iter_mut().for_each(|(mut sender, mut delta_manager, mut message_manager, timeline)| {
         // enable split borrows
-        let mut manager = &mut *manager;
+        let mut sender = &mut *sender;
 
-        manager.replicated_entities.iter().for_each(|&entity| {
+        sender.replicated_entities.iter().for_each(|&entity| {
             // TODO: skip disabled entities?
             let Ok(entity_ref) = entity_query.get(entity) else {
                 error!("Replicated Entity {:?} not found in entity_query", entity);
@@ -186,7 +186,7 @@ pub(crate) fn replicate(
             // we never want to send a spawn if the entity was replicated to us from the server
             // (because the server already has the entity)
             if replication_is_changed || is_replicate_like_added {
-                 buffer_entity_spawn(entity, group_id, priority, target_entity, &mut manager.sender);
+                 buffer_entity_spawn(entity, group_id, priority, target_entity, sender);
             }
 
             // If the group is not set to send, skip this entity
@@ -228,9 +228,9 @@ pub(crate) fn replicate(
                     delta_compression,
                     replicate_once,
                     &system_ticks,
-                    &mut manager.receiver,
-                    &mut manager.sender,
-                    &mut manager.delta,
+                    &mut message_manager.entity_mapper,
+                    &mut sender,
+                    &mut delta_manager,
                 )
                 .inspect_err(|e| {
                     error!(
@@ -369,8 +369,9 @@ fn replicate_component_update(
     }
     if insert || update {
         // convert the entity to a network entity (possibly mapped)
-        // NOTE: we could just implement MapEntities on EntityActionsMessage and EntityUpdatesMessage
-        //  but it's more efficient to do it no
+        // NOTE: we have to apply the entity mapping here because we are sending the message directly to the Transport
+        //  instead of relying on the MessageManagers' remote_entity_map. This is because using the MessageManager
+        //  wouldn't give us back a MessageId.
         entity = entity_map
             .to_remote(entity);
 
@@ -433,16 +434,14 @@ fn replicate_component_update(
                         writer,
                         delta,
                         current_tick,
-                        &mut receiver.remote_entity_map,
+                        entity_map,
                     )?;
                 } else {
                     component_registry.erased_serialize(
                         component_data,
                         writer,
                         component_kind,
-                        &mut receiver
-                            .remote_entity_map
-                            .local_to_remote,
+                        &mut entity_map.local_to_remote
                     )?;
                     let raw_data = writer.split();
                     sender.prepare_component_update(entity, group_id, raw_data);

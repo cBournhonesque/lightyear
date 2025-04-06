@@ -1,9 +1,5 @@
 //! Logic related to delta compression (sending only the changes between two states, instead of the new state)
 
-use crate::prelude::{ComponentRegistry, Message, Tick};
-use crate::protocol::component::ComponentKind;
-use crate::shared::replication::components::ReplicationGroupId;
-use crate::utils::collections::HashMap;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity};
 use bevy::ptr::Ptr;
@@ -16,6 +12,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::ptr::NonNull;
 use lightyear_core::prelude::Tick;
+use lightyear_messages::Message;
 use lightyear_utils::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
@@ -81,7 +78,7 @@ impl<C> Default for DeltaComponentHistory<C> {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Component, Debug)]
 pub struct DeltaManager {
     pub(crate) data: DeltaComponentStore,
     /// Keeps track of how many clients have acked a specific tick for a specific replication group

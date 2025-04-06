@@ -4,10 +4,7 @@
 use crate::authority::{AuthorityPeer, HasAuthority};
 use crate::buffer::Replicate;
 use crate::components::*;
-use crate::delta::DeltaManager;
 use crate::hierarchy::ReplicateLike;
-use crate::receive::ReplicationReceiver;
-use crate::send::ReplicationSender;
 use bevy::prelude::*;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -19,18 +16,6 @@ pub enum ReplicationSet {
     // PostUpdate
     /// Flush the messages buffered in the Link to the io
     Send,
-}
-
-#[derive(Component)]
-pub struct ReplicationManager {
-    pub sender: ReplicationSender,
-    pub receiver: ReplicationReceiver,
-    // TODO: move this to a separate component?
-    pub(crate) delta: DeltaManager,
-
-    // List of entities that this peer replicates to the other peer
-    // We put it there to avoid split borrow issues
-    pub(crate) replicated_entities: Vec<Entity>,
 }
 
 pub(crate) struct SharedPlugin;

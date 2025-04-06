@@ -10,7 +10,7 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-mod registry;
+pub mod registry;
 
 
 pub(crate) mod archetypes;
@@ -27,13 +27,14 @@ pub(crate) mod send;
 
 pub(crate) mod systems;
 pub(crate) mod message;
-mod buffer;
+pub(crate) mod buffer;
 pub(crate) mod delta;
 
 pub mod prelude {
     pub use crate::buffer::Replicate;
     pub use crate::components::*;
-    pub use crate::plugin::{ReplicationManager, ReplicationSet};
+    pub use crate::plugin::ReplicationSet;
     pub use crate::receive::{ReplicationReceivePlugin, ReplicationReceiver};
+    pub use crate::registry::registry::ComponentRegistration;
     pub use crate::send::{ReplicationBufferSet, ReplicationSendPlugin, ReplicationSender};
 }

@@ -1,5 +1,6 @@
 //! Keep track of the archetypes that should be replicated
 use crate::authority::HasAuthority;
+use crate::buffer::Replicate;
 use crate::components::Replicating;
 use crate::hierarchy::ReplicateLike;
 use crate::registry::registry::ComponentRegistry;
@@ -68,42 +69,22 @@ fn send_to_client(direction: NetworkDirection) -> bool {
     )
 }
 
-pub(crate) type ClientReplicatedArchetypes = ReplicatedArchetypes<ReplicateToServer>;
-pub(crate) type ServerReplicatedArchetypes = ReplicatedArchetypes<ReplicateToClient>;
 
-impl FromWorld for ClientReplicatedArchetypes {
+impl<C: Component> FromWorld for ReplicatedArchetypes<C> {
     fn from_world(world: &mut World) -> Self {
         Self::client(world)
     }
 }
 
-impl FromWorld for ServerReplicatedArchetypes {
-    fn from_world(world: &mut World) -> Self {
-        Self::server(world)
-    }
-}
 
 impl<C: Component> ReplicatedArchetypes<C> {
     pub(crate) fn client(world: &mut World) -> Self {
         Self {
             send_direction: send_to_server,
-            replication_component_id: world.register_component::<ReplicateToServer>(),
+            replication_component_id: world.register_component::<Replicate>(),
             replicating_component_id: world.register_component::<Replicating>(),
             replicate_like_component_id: world.register_component::<ReplicateLike>(),
             has_authority_component_id: Some(world.register_component::<HasAuthority>()),
-            generation: ArchetypeGeneration::initial(),
-            archetypes: HashMap::default(),
-            marker: Default::default(),
-        }
-    }
-
-    pub(crate) fn server(world: &mut World) -> Self {
-        Self {
-            send_direction: send_to_client,
-            replication_component_id: world.register_component::<ReplicateToClient>(),
-            replicating_component_id: world.register_component::<Replicating>(),
-            replicate_like_component_id: world.register_component::<ReplicateLike>(),
-            has_authority_component_id: None,
             generation: ArchetypeGeneration::initial(),
             archetypes: HashMap::default(),
             marker: Default::default(),
