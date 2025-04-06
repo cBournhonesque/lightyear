@@ -1,11 +1,9 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
 
-use crate::components::ReplicationMarker;
-use crate::prelude::client::{InterpolationSet, PredictionSet};
+use crate::components::{DisableReplicateHierarchy, ReplicationMarker};
+use crate::plugin::ReplicationSet;
 use crate::prelude::PrePredicted;
-use crate::shared::replication::components::{DisableReplicateHierarchy, ReplicationMarker};
-use crate::shared::replication::ReplicationPeer;
-use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
+use crate::send::ReplicationBufferSet;
 use bevy::ecs::entity::MapEntities;
 use bevy::ecs::reflect::ReflectMapEntities;
 use bevy::ecs::relationship::Relationship;
@@ -134,11 +132,11 @@ impl<R: Relationship> Plugin for RelationshipSendPlugin<R> {
 }
 
 /// Plugin that lets you apply replication updates for a given [`Relationship`] `R`
-pub struct RelationshipReceivePlugin<P, R> {
-    _marker: core::marker::PhantomData<(P, R)>,
+pub struct RelationshipReceivePlugin<R> {
+    _marker: core::marker::PhantomData<R>,
 }
 
-impl<P, R> Default for RelationshipReceivePlugin<P, R> {
+impl<R> Default for RelationshipReceivePlugin<R> {
     fn default() -> Self {
         Self {
             _marker: core::marker::PhantomData,
@@ -146,7 +144,7 @@ impl<P, R> Default for RelationshipReceivePlugin<P, R> {
     }
 }
 
-impl<P: ReplicationPeer, R: Relationship + Debug> RelationshipReceivePlugin<P, R> {
+impl<R: Relationship + Debug> RelationshipReceivePlugin<R> {
     /// Update hierarchy on the receive side if RelationshipSync changed
     fn update_parent(
         mut commands: Commands,
@@ -176,8 +174,8 @@ impl<P: ReplicationPeer, R: Relationship + Debug> RelationshipReceivePlugin<P, R
     }
 }
 
-impl<P: ReplicationPeer, R: Relationship + Debug + GetTypeRegistration + TypePath> Plugin
-    for RelationshipReceivePlugin<P, R>
+impl<R: Relationship + Debug + GetTypeRegistration + TypePath> Plugin
+    for RelationshipReceivePlugin<R>
 {
     fn build(&self, app: &mut App) {
         // REFLECTION
@@ -188,11 +186,11 @@ impl<P: ReplicationPeer, R: Relationship + Debug + GetTypeRegistration + TypePat
         app.add_systems(
             PreUpdate,
             Self::update_parent
-                .after(InternalMainSet::<P::SetMarker>::Receive)
-                // we want update_parent to run in the same frame that ParentSync is propagated
-                // to the predicted/interpolated entities
-                .after(PredictionSet::Sync)
-                .after(InterpolationSet::SpawnHistory),
+                .after(ReplicationSet::Receive)
+                // // we want update_parent to run in the same frame that ParentSync is propagated
+                // // to the predicted/interpolated entities
+                // .after(PredictionSet::Sync)
+                // .after(InterpolationSet::SpawnHistory),
         );
     }
 }
@@ -230,19 +228,11 @@ pub struct ReplicateLike(pub(crate) Entity);
 /// Note that currently propagating the replication components and propagating `ChildOfSync` (which helps you
 /// replicate the `ChildOf` relationship) have the same logic. They use the same `DisableReplicateHierarchy` to
 /// determine when to stop the propagation.
-pub struct HierarchySendPlugin<R: ReplicationPeer> {
-    marker: core::marker::PhantomData<R>,
-}
+#[derive(Default)]
+pub struct HierarchySendPlugin;
 
-impl<R: ReplicationPeer> Default for HierarchySendPlugin<R> {
-    fn default() -> Self {
-        Self {
-            marker: core::marker::PhantomData,
-        }
-    }
-}
 
-impl<R: ReplicationPeer> Plugin for HierarchySendPlugin<R> {
+impl Plugin for HierarchySendPlugin {
     fn build(&self, app: &mut App) {
         // propagate ReplicateLike
         // app.add_observer(Self::propagate_replicate_like_children_updated);
@@ -251,16 +241,13 @@ impl<R: ReplicationPeer> Plugin for HierarchySendPlugin<R> {
         app.add_systems(
             PostUpdate,
             Self::propagate_through_hierarchy
-                // we don't need to run these every frame, only every send_interval
-                .in_set(InternalReplicationSet::<R::SetMarker>::SendMessages)
-                // run before the replication-send systems so that hierarchy updates
-                // are applied when replicating
-                .before(InternalReplicationSet::<R::SetMarker>::All),
+                // update replication components before we actually run the Buffer systems
+                .in_set(ReplicationBufferSet::BeforeBuffer)
         );
     }
 }
 
-impl<R: ReplicationPeer> HierarchySendPlugin<R> {
+impl HierarchySendPlugin {
     /// Propagate certain replication components through the hierarchy.
     /// - If new children are added, `ReplicationMarker` is added, `PrePredicted` is added, we recursively
     ///   go through the descendants and add `ReplicateLike`, `ChildOfSync`, ... if the child does not have

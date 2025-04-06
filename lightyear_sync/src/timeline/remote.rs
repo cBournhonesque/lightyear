@@ -38,7 +38,7 @@ pub struct RemoteEstimate {
 
 
 // We need to wrap the inner Timeline to avoid the orphan rule
-#[derive(Deref, DerefMut)]
+#[derive(Component, Deref, DerefMut)]
 pub struct RemoteTimeline(Timeline<RemoteEstimate>);
 
 impl RemoteTimeline  {
@@ -111,7 +111,7 @@ impl RemoteTimeline  {
 /// Should we use this only in FixedUpdate::First? because we need the tick in FixedUpdate to be correct for the timeline
 pub(crate) fn update_remote_timeline(
     trigger: Trigger<PacketReceived>,
-    mut query: Query<(&mut Timeline<RemoteEstimate>, &PingManager)>,
+    mut query: Query<(&mut RemoteTimeline, &PingManager)>,
 ) {
     if let Ok((mut t, ping_manager)) = query.get_mut(trigger.target()) {
         t.update(trigger.remote_tick, ping_manager);
@@ -121,7 +121,7 @@ pub(crate) fn update_remote_timeline(
 /// Advance our estimate of the remote timeline based on the real time
 pub(crate) fn advance_remote_timeline(
     fixed_time: Res<Time<Real>>,
-    mut query: Query<&mut Timeline<RemoteEstimate>>,
+    mut query: Query<&mut RemoteTimeline>,
 ) {
     let delta = fixed_time.delta();
     query.iter_mut().for_each(|mut t| {

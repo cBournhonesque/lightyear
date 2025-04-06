@@ -320,7 +320,6 @@ impl ComponentRegistry {
                 .replication_map
                 .get(kind)
                 .expect("the component is not part of the protocol");
-            events.push_remove_component(entity_world_mut.id(), *kind, tick);
             let remove_fn = replication_metadata
                 .remove
                 .expect("the component does not have a remove function");
@@ -350,27 +349,27 @@ impl ComponentRegistry {
     }
 }
 
-pub fn register_component_send<C: Component>(app: &mut App, direction: NetworkDirection) {
-    let is_client = app.world().get_resource::<ClientConfig>().is_some();
-    let is_server = app.world().get_resource::<ServerConfig>().is_some();
-    match direction {
-        NetworkDirection::ClientToServer => {
-            if is_client {
-                crate::client::replication::send::register_replicate_component_send::<C>(app);
-            }
-        }
-        NetworkDirection::ServerToClient => {
-            if is_server {
-                crate::server::replication::send::register_replicate_component_send::<C>(app);
-            }
-
-        }
-        NetworkDirection::Bidirectional => {
-            register_component_send::<C>(app, NetworkDirection::ServerToClient);
-            register_component_send::<C>(app, NetworkDirection::ClientToServer);
-        }
-    }
-}
+// pub fn register_component_send<C: Component>(app: &mut App, direction: NetworkDirection) {
+//     let is_client = app.world().get_resource::<ClientConfig>().is_some();
+//     let is_server = app.world().get_resource::<ServerConfig>().is_some();
+//     match direction {
+//         NetworkDirection::ClientToServer => {
+//             if is_client {
+//                 crate::client::replication::send::register_replicate_component_send::<C>(app);
+//             }
+//         }
+//         NetworkDirection::ServerToClient => {
+//             if is_server {
+//                 crate::server::replication::send::register_replicate_component_send::<C>(app);
+//             }
+//
+//         }
+//         NetworkDirection::Bidirectional => {
+//             register_component_send::<C>(app, NetworkDirection::ServerToClient);
+//             register_component_send::<C>(app, NetworkDirection::ClientToServer);
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod tests {

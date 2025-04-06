@@ -205,19 +205,20 @@ impl DeltaComponentStore {
         replication_group: ReplicationGroupId,
         registry: &ComponentRegistry,
     ) {
-        if let Some(data) = self.data.get_mut(&replication_group) {
-            // we can remove all the keys older than the acked key
-            let recent_data = data.split_off(&tick).into_iter().collect();
-            // call drop on all the data that we are removing
-            data.values_mut().for_each(|tick_data| {
-                tick_data.iter().for_each(|(kind, _, owned_ptr)| unsafe {
-                    // SAFETY: the ptr corresponds to the kind
-                    registry.erased_drop(*owned_ptr, *kind).unwrap();
-                });
-            });
-            // only keep the data that is more recent (inclusive) than the acked tick
-            *data = recent_data;
-        }
+        todo!()
+        // if let Some(data) = self.data.get_mut(&replication_group) {
+        //     // we can remove all the keys older than the acked key
+        //     let recent_data = data.split_off(&tick).into_iter().collect();
+        //     // call drop on all the data that we are removing
+        //     data.values_mut().for_each(|tick_data| {
+        //         tick_data.iter().for_each(|(kind, _, owned_ptr)| unsafe {
+        //             // SAFETY: the ptr corresponds to the kind
+        //             registry.erased_drop(*owned_ptr, *kind).unwrap();
+        //         });
+        //     });
+        //     // only keep the data that is more recent (inclusive) than the acked tick
+        //     *data = recent_data;
+        // }
     }
 }
 

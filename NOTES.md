@@ -50,6 +50,21 @@ But if you add a direction we will handle it automatically for the client-server
     - Ideally we also want the relationship to hold data. For example `is_replicating`, etc.
   - Should we do it by triggers? i.e. you trigger ReplicateOn<Entity> for your target entity?
 
+  - ReplicateOn<Entity> hook:
+    - if None, try to find a single Transport
+    - if client(), try to find a single Client
+    - if server(), try to find a single Server
+    - if entity:
+      - if entity is a Client, use that
+      - if entity is a Server, replicate to all their ClientOfs?
+    - if server(NetworkTarget)
+      - find all the ClientsOf that match the target
+
+  - The component is immutable. Via hook, we add to the component:
+    - the list of ReplicationSenders it is replicated on
+  - The list of components replicated should depend on list of Senders.
+    - Each sender has a 'sender-type' (client/server/peer), depending on that, we
+
 - How do you decide on which ReplicationSender the entity will be replicated?
   - ReplicateOn()
 

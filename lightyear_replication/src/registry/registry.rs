@@ -1,3 +1,4 @@
+use crate::registry::delta::ErasedDeltaFns;
 use crate::registry::replication::{register_component_send, ReplicationMetadata, TempWriteBuffer};
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 use bevy::app::App;
@@ -117,6 +118,7 @@ pub struct ComponentRegistry {
     pub(crate) kind_to_component_id: HashMap<ComponentKind, ComponentId>,
     pub replication_map: HashMap<ComponentKind, ReplicationMetadata>,
     pub(crate) serialize_fns_map: HashMap<ComponentKind, ErasedSerializeFns>,
+    pub(crate) delta_fns_map: HashMap<ComponentKind, ErasedDeltaFns>,
     pub kind_map: TypeMapper<ComponentKind>,
 }
 

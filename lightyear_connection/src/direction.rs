@@ -47,19 +47,19 @@ impl<C: Channel> AppChannelDirectionExt for ChannelRegistration<'_, C> {
 }
 
 
-pub trait AppComponentDirectionExt {
-    fn add_direction(&mut self, direction: NetworkDirection);
-}
-
-impl<C: Component> AppComponentDirectionExt for ComponentRegistration<'_, C> {
-    /// Add a new [`NetworkDirection`] to the registry
-    fn add_direction(&mut self, direction: NetworkDirection) {
-        #[cfg(feature = "client")]
-        <Self as crate::client::AppChannelDirectionExt>::add_direction(self, direction);
-        #[cfg(feature = "server")]
-        <Self as crate::server::AppChannelDirectionExt>::add_direction(self, direction);
-    }
-}
+// pub trait AppComponentDirectionExt {
+//     fn add_direction(&mut self, direction: NetworkDirection);
+// }
+//
+// impl<C: Component> AppComponentDirectionExt for ComponentRegistration<'_, C> {
+//     /// Add a new [`NetworkDirection`] to the registry
+//     fn add_direction(&mut self, direction: NetworkDirection) {
+//         #[cfg(feature = "client")]
+//         <Self as crate::client::AppChannelDirectionExt>::add_direction(self, direction);
+//         #[cfg(feature = "server")]
+//         <Self as crate::server::AppChannelDirectionExt>::add_direction(self, direction);
+//     }
+// }
 
 
 

@@ -17,6 +17,7 @@ lightyear_serde.workspace = true
 
 # utils
 hashbrown.workspace = true
+indexmap = { workspace = true, optional = true}
 paste.workspace = true
 tracing.workspace = true
 

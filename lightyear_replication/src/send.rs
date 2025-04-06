@@ -10,27 +10,28 @@ use crate::buffer::{replicate, Replicate};
 use crate::components::{DeltaCompression, DisabledComponents, ReplicateOnce, Replicating, ReplicationGroup, ReplicationGroupId, TargetEntity};
 use crate::delta::DeltaManager;
 use crate::hierarchy::ReplicateLike;
-use crate::plugin::{ReplicationManager, ReplicationSet};
+use crate::plugin::ReplicationSet;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::{ComponentKind, ComponentNetId};
 #[cfg(not(feature = "std"))]
 use alloc::{string::ToString, vec::Vec};
 use bevy::app::{App, Last, Plugin, PostUpdate, PreUpdate};
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::EntityHash;
+use bevy::ecs::entity::{EntityHash, UniqueEntityVec};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy::platform_support::collections::HashMap;
 use bevy::prelude::{ChildOf, Component, Entity, IntoScheduleConfigs, Query, Real, Reflect, Res, ResMut, Resource, SystemParamBuilder, SystemSet, Time, Timer, TimerMode, With};
 use bevy::ptr::Ptr;
 use bevy::time::common_conditions::on_timer;
 use bytes::Bytes;
+use core::time::Duration;
 use crossbeam_channel::Receiver;
 use lightyear_connection::prelude::NetworkDirection;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::plugin::MessageSet;
-use lightyear_messages::prelude::{MessageManager, MessageSender, MessageReceiver};
+use lightyear_messages::prelude::{MessageManager, MessageReceiver, MessageSender};
 use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
@@ -38,7 +39,6 @@ use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::packet::error::PacketError;
 use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::prelude::Transport;
-use std::time::Duration;
 use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
@@ -278,7 +278,7 @@ impl Plugin for ReplicationSendPlugin {
 #[require(Transport)]
 #[require(LocalTimeline)]
 pub struct ReplicationSender {
-    pub(crate) replicated_entities: Vec<Entity>,
+    pub(crate) replicated_entities: UniqueEntityVec<Entity>,
     pub(crate) writer: Writer,
     /// Get notified whenever a message-id that was sent has been received by the remote
     pub(crate) updates_ack_receiver: Receiver<MessageId>,
@@ -320,7 +320,7 @@ impl ReplicationSender {
     ) -> Self {
         Self {
             // SEND
-            replicated_entities: Vec::default(),
+            replicated_entities: UniqueEntityVec::default(),
             writer: Writer::default(),
             updates_ack_receiver,
             updates_nack_receiver,
@@ -336,6 +336,13 @@ impl ReplicationSender {
             message_send_receiver,
             bandwidth_cap_enabled,
         }
+    }
+
+    pub(crate) fn add_replicated_entity(&mut self, entity: Entity) {
+        match self.replicated_entities.binary_search(entity) {
+
+        }
+
     }
 
 

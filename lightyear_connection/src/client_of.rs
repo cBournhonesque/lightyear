@@ -7,13 +7,14 @@ use bevy::ecs::relationship::{Relationship, RelationshipHookMode};
 use bevy::ecs::system::entity_command;
 use bevy::ecs::world::DeferredWorld;
 use bevy::platform_support::collections::HashMap;
-use bevy::prelude::format;
+use bevy::prelude::{format, Query};
 use bevy::prelude::{Component, Entity, EntityWorldMut, RelationshipTarget};
 use lightyear_messages::MessageManager;
 use tracing::warn;
 
+use crate::prelude::NetworkTarget;
 #[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
+use alloc::{boxed::Box, vec, vec::Vec};
 
 /// Marker component to identify this entity as a Client
 #[derive(Component, Default, Debug, PartialEq, Eq)]
@@ -27,6 +28,33 @@ pub struct Server {
     /// Accessing this directly is unsafe, and is only necessary to solve some issues with split borrows
     pub clients: Vec<Entity>,
     pub client_map: HashMap<PeerId, Entity>,
+}
+
+impl Server {
+    pub fn targets<'a: 'b, 'b>(&'a self, target: &'b NetworkTarget) -> Box<dyn Iterator<Item = Entity> + 'b> {
+        match target {
+            NetworkTarget::All => Box::new(self.client_map.values().copied()),
+            NetworkTarget::AllExceptSingle(client_id) =>
+                Box::new(self.client_map
+                    .iter()
+                    .filter(move |(peer_id, _)| *peer_id != client_id)
+                    .map(|(_, e)| *e)),
+            NetworkTarget::AllExcept(client_ids) => Box::new(
+                self.client_map
+                    .iter()
+                    .filter(move |(peer_id, _)| !client_ids.contains(peer_id))
+                    .map(|(_, e)| *e)),
+            NetworkTarget::Single(client_id) => {
+                Box::new(self.client_map.get(client_id).copied().into_iter())
+            },
+            NetworkTarget::Only(client_ids) => Box::new(
+                self.client_map
+                    .iter()
+                    .filter(move |(peer_id, _)| client_ids.contains(peer_id))
+                    .map(|(_, e)| *e)),
+            NetworkTarget::None => Box::new(core::iter::empty()),
+        }
+    }
 }
 
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
