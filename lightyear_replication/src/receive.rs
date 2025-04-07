@@ -10,6 +10,7 @@ use alloc::vec::Vec;
 use bevy::app::{App, Plugin, PreUpdate};
 use bevy::ecs::entity::EntityHash;
 use bevy::ecs::system::SystemState;
+use bevy::ecs::world::WorldEntityFetch;
 use bevy::platform_support::collections::HashSet;
 use bevy::prelude::*;
 use lightyear_connection::id::PeerId;
@@ -53,31 +54,73 @@ impl ReplicationReceivePlugin {
         });
     }
 
+    // pub(crate) fn apply_to_world(
+    //     world: &mut World,
+    //     mut local: Local<SystemState<(
+    //         ResMut<ComponentRegistry>,
+    //         Query<(&mut ReplicationReceiver, Option<&ClientOf>, &mut MessageManager, &LocalTimeline)>,
+    //     )>>,
+    //     // mut component_registry: ResMut<ComponentRegistry>,
+    //     // mut query: Query<(&mut ReplicationReceiver, Option<&ClientOf>, &mut MessageManager, &LocalTimeline)>,
+    // ) {
+    //     let unsafe_world = world.as_unsafe_world_cell();
+    //     // SAFETY: we guarantee that the `world` is not used to update the ComponentRegistry or any components of the query
+    //     let (mut component_registry, mut query) = local.get_mut(unsafe { unsafe_world.world_mut() } );
+    //     // SAFETY: this world uses access that is independent from the previous access
+    //     let world = unsafe { unsafe_world.world_mut() };
+    //     query.iter_mut().for_each(|(mut receiver, client_of, mut manager, local_timeline)| {
+    //         // TODO: have some logic to get the remote peer independently from ClientOf or client-server
+    //         //  Maybe the link contains the remoteLinkId?
+    //
+    //         let tick = local_timeline.tick();
+    //         let remote_peer = client_of.map(|c| c.id);
+    //
+    //         // TODO: put the temp buffer inside the receiver, we shouldn't need write access
+    //         //   to the registry
+    //         receiver.apply_world(world, remote_peer, &mut manager.entity_mapper, component_registry.as_mut(), tick);
+    //         receiver.tick_cleanup(tick);
+    //     });
+    // }
+
     pub(crate) fn apply_to_world(
         world: &mut World,
-        mut local: Local<SystemState<(
-            ResMut<ComponentRegistry>,
-            Query<(&mut ReplicationReceiver, Option<&ClientOf>, &mut MessageManager, &LocalTimeline)>,
-        )>>,
-        // mut component_registry: ResMut<ComponentRegistry>,
-        // mut query: Query<(&mut ReplicationReceiver, Option<&ClientOf>, &mut MessageManager, &LocalTimeline)>,
+        query: &mut QueryState<Entity, (With<ReplicationReceiver>, With<MessageManager>, With<LocalTimeline>)>,
+        // buffer to avoid allocations
+        mut receiver_entities: Local<Vec<Entity>>
     ) {
-        let unsafe_world = world.as_unsafe_world_cell();
-        // SAFETY: we guarantee that the `world` is not used to update the ComponentRegistry or any components of the query
-        let (mut component_registry, mut query) = local.get_mut(unsafe { unsafe_world.world_mut() } );
-        // SAFETY: this world uses access that is independent from the previous access
-        let world = unsafe { unsafe_world.world_mut() };
-        query.iter_mut().for_each(|(mut receiver, client_of, mut manager, local_timeline)| {
-            // TODO: have some logic to get the remote peer independently from ClientOf or client-server
-            //  Maybe the link contains the remoteLinkId?
+        // we first collect the entities we need into a buffer
+        // We cannot use query.iter() and &mut World at the same time as this would be UB because they both access Archetypes
+        // See https://discord.com/channels/691052431525675048/1358658786851684393/1358793406679355593
+        receiver_entities.extend(query.iter(world));
 
-            let tick = local_timeline.tick();
-            let remote_peer = client_of.map(|c| c.id);
+        // TODO: maybe use `resource_scope`? but then observers that need `&ComponentRegistry` won't work...
+        // TODO: put the tempbuffer inside the ReplicationReceiver, not inside ComponentRegistry
+        // SAFETY: the other uses of `world` won't access the ComponentRegistry
+        // let unsafe_world = world.as_unsafe_world_cell();
+        // let mut component_registry = unsafe { unsafe_world.get_resource_mut::<ComponentRegistry>() }.unwrap();
 
-            // TODO: put the temp buffer inside the receiver, we shouldn't need write access
-            //   to the registry
-            receiver.apply_world(world, remote_peer, &mut manager.entity_mapper, component_registry.as_mut(), tick);
-            receiver.tick_cleanup(tick);
+        world.resource_scope(|world, mut component_registry: Mut<ComponentRegistry>| {
+            receiver_entities.drain(..).for_each(|entity| {
+                let unsafe_world = world.as_unsafe_world_cell();
+                // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
+                let mut receiver = unsafe { unsafe_world.world_mut() }.get_mut::<ReplicationReceiver>(entity).unwrap();
+                let client_of = unsafe { unsafe_world.world_mut() }.get::<ClientOf>(entity);
+                let mut manager = unsafe { unsafe_world.world_mut() }.get_mut::<MessageManager>(entity).unwrap();
+                let local_timeline = unsafe { unsafe_world.world_mut() }.get::<LocalTimeline>(entity).unwrap();
+                // SAFETY: the world will only be used to apply replication updates, which doesn't conflict with other accesses
+                let world = unsafe { unsafe_world.world_mut() };
+
+                // TODO: have some logic to get the remote peer independently from ClientOf or client-server
+                //  Maybe the link contains the remoteLinkId?
+
+                let tick = local_timeline.tick();
+                let remote_peer = client_of.map(|c| c.id);
+
+                // TODO: put the temp buffer inside the receiver, we shouldn't need write access
+                //   to the registry
+                receiver.apply_world(world, remote_peer, &mut manager.entity_mapper, component_registry.as_mut(), tick);
+                receiver.tick_cleanup(tick);
+            });
         });
     }
 }
