@@ -99,7 +99,6 @@ cfg-if = "1.0"
 enum_dispatch = "0.3"
 governor = "0.8.1"
 hashbrown = "0.15"
-indexmap = { version = "2.9.0", default-features = false }
 nonzero_ext = "0.3.0"
 numquant = { version = "0.2.0", features = ["serde"] }
 parking_lot = "0.12.3"

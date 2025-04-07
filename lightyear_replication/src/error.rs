@@ -6,6 +6,7 @@ use alloc::string::String;
 use crate::registry::ComponentError;
 use lightyear_messages::registry::MessageError;
 use lightyear_serde::SerializationError;
+use lightyear_transport::error::TransportError;
 
 pub type Result<T> = core::result::Result<T, ReplicationError>;
 
@@ -19,4 +20,6 @@ pub enum ReplicationError {
     MessageProtocolError(#[from] MessageError),
     #[error(transparent)]
     ComponentProtocolError(#[from] ComponentError),
+    #[error(transparent)]
+    TransportError(#[from] TransportError),
 }

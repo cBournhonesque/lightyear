@@ -5,7 +5,7 @@ use core::time::Duration;
 use super::*;
 use bevy::ecs::archetype::Archetypes;
 use bevy::ecs::component::{ComponentTicks, Components, HookContext};
-use bevy::ecs::entity::{UniqueEntitySlice, UniqueEntityVec};
+use bevy::ecs::entity::{EntityIndexSet, UniqueEntitySlice, UniqueEntityVec};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy::ecs::world::{DeferredWorld, FilteredEntityRef};
 use bevy::ptr::Ptr;
@@ -51,38 +51,41 @@ pub enum ReplicationMode {
 ///
 /// - If sender is an Entity that has a ReplicationSender, we will replicate on that entity
 /// - If the entity is None, we will try to find a unique ReplicationSender in the app
-#[derive(Component, Clone, Default, Debug, PartialEq, Reflect)]
-#[reflect(Component)]
+#[derive(Component, Clone, Default, Debug, PartialEq)]
 pub struct Replicate {
     mode: ReplicationMode,
-    senders: UniqueEntityVec<Entity>,
+    pub(crate) senders: EntityIndexSet,
 }
 
 impl Replicate {
     pub fn new(mode: ReplicationMode) -> Self {
         Self {
             mode,
-            senders: UniqueEntityVec::default(),
+            senders: EntityIndexSet::default(),
         }
     }
 
     pub fn to_server() -> Self {
         Self {
             mode: ReplicationMode::SingleClient,
-            senders: UniqueEntityVec::default(),
+            senders: EntityIndexSet::default(),
         }
     }
 
     /// List of [`ReplicationSender`] entities that this entity is being replicated on
-    pub fn senders(&self) -> &[Entity] {
-        &self.senders
+    pub fn senders(&self) -> impl Iterator<Item=Entity> {
+        self.senders.iter().copied()
     }
 
     pub fn on_add(mut world: DeferredWorld, context: HookContext) {
-        world.commands().queue(|world: &mut World| {
+        world.commands().queue(move |world: &mut World| {
             let unsafe_world = world.as_unsafe_world_cell();
-            // SAFETY: this is safe we only use the world to access ReplicationSender entities
-            let replicate = world.entity_mut(context.entity).get_mut::<Replicate>().unwrap();
+            // SAFETY: we will use this world to access the ReplicationSender
+            let world = unsafe { unsafe_world.world_mut() };
+            // SAFETY: we will use this world only to access the Replicated entity, so there is no aliasing issue
+            let mut replicate_entity_mut = unsafe { unsafe_world.world_mut().entity_mut(context.entity) };
+            let mut replicate = replicate_entity_mut.get_mut::<Replicate>().unwrap();
+
             // enable split borrows
             let replicate = &mut *replicate;
             match &mut replicate.mode {
@@ -94,10 +97,9 @@ impl Replicate {
                         error!("No ReplicationSender found in the world");
                         return;
                     };
-                    // TODO: use insertion sort?
-                    sender.replicated_entities.push(context.entity);
+                    sender.add_replicated_entity(context.entity);
                     // SAFETY: the senders are guaranteed to be unique because OnAdd recreates the component from scratch
-                    unsafe { replicate.senders.push(sender_entity); }
+                    unsafe { replicate.senders.insert(sender_entity); }
                 }
                 ReplicationMode::SingleClient => {
                     let Ok((sender_entity, mut sender)) = world
@@ -107,58 +109,58 @@ impl Replicate {
                         error!("No Client found in the world");
                         return;
                     };
-                    // TODO: use insertion sort?
-                    sender.replicated_entities.push(context.entity);
-                    // SAFETY: the senders are guaranteed to be unique because OnAdd recreates the component from scratch
-                    unsafe { replicate.senders.push(sender_entity); }
+                    sender.add_replicated_entity(context.entity);
+                    replicate.senders.insert(sender_entity);
                 }
                 ReplicationMode::SingleServer(target) => {
-                    let Ok(server) = world
-                        .query::<&Server>()
-                        .single(world)
-                    else {
+                    let unsafe_world = world.as_unsafe_world_cell();
+                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
+                    let server_world = unsafe { unsafe_world.world_mut() };
+                     let Some(server) = server_world.query::<&Server>().single(server_world) else {
                         error!("No Server found in the world");
                         return;
                     };
+                    let world = unsafe { unsafe_world.world_mut() };
+                    
                     server.targets(target).for_each(|client| {
                          let Ok(mut sender) = world
-                            .query_filtered::<&mut ReplicationSender, ClientOf>()
+                            .query_filtered::<&mut ReplicationSender, With<ClientOf>>()
+                             .get_mut(world, client)
                         else {
                             error!("No Client found in the world");
                             return;
                         };
-                        sender.replicated_entities.push(context.entity);
-                        // SAFETY: the senders are guaranteed to be unique because OnAdd recreates the component from scratch
-                        unsafe { replicate.senders.push(client); }
+                        sender.add_replicated_entity(context.entity);
+                        replicate.senders.insert(client);
                     });
                 }
                 ReplicationMode::Sender(entity) => {
-                    let Some(mut sender) = world.entity_mut(entity).get_mut::<ReplicationSender>()
+                    let Ok(mut sender) = world.query::<&mut ReplicationSender>().get_mut(world, *entity)
                     else {
                         error!("No ReplicationSender found in the world");
                         return;
                     };
-                    // TODO: use insertion sort?
-                    sender.replicated_entities.push(context.entity);
-                    // SAFETY: the senders are guaranteed to be unique because OnAdd recreates the component from scratch
-                    unsafe { replicate.senders.push(*entity); }
+                    sender.add_replicated_entity(context.entity);
+                    replicate.senders.insert(*entity);
                 }
                 ReplicationMode::Server(server, target) => {
-                     let Some(server) = world.entity(server).get::<Server>()
-                    else {
+                     let unsafe_world = world.as_unsafe_world_cell();
+                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
+                     let Some(server) = unsafe { unsafe_world.world() }.entity(*server).get::<Server>() else {
                         error!("No Server found in the world");
                         return;
                     };
+                    let world = unsafe { unsafe_world.world_mut() };
                     server.targets(target).for_each(|client| {
                          let Ok(mut sender) = world
-                            .query_filtered::<&mut ReplicationSender, ClientOf>()
+                             .query_filtered::<&mut ReplicationSender, With<ClientOf>>()
+                             .get_mut(world, client)
                         else {
                             error!("No Client found in the world");
                             return;
                         };
-                        sender.replicated_entities.push(context.entity);
-                        // SAFETY: the senders are guaranteed to be unique because OnAdd recreates the component from scratch
-                        unsafe { replicate.senders.push(client); }
+                        sender.add_replicated_entity(context.entity);
+                        replicate.senders.insert(client);
                     });
                 }
                 ReplicationMode::Target(_) => {
@@ -193,15 +195,19 @@ pub(crate) fn replicate(
 ) {
     replicated_archetypes.update(archetypes, components, component_registry.as_ref());
 
+
     // TODO: iterate per entity first, and then per sender (using UniqueSlice)
     manager_query.par_iter_mut().for_each(|(mut sender, mut delta_manager, mut message_manager, timeline)| {
         // enable split borrows
         let mut sender = &mut *sender;
 
-        sender.replicated_entities.iter().for_each(|&entity| {
+        // we iterate by index to avoid split borrow issues
+        for i in 0..sender.replicated_entities.len() {
+            let entity = sender.replicated_entities[i];
             // TODO: skip disabled entities?
             let Ok(entity_ref) = entity_query.get(entity) else {
                 error!("Replicated Entity {:?} not found in entity_query", entity);
+                return;
             };
 
             // get the value of the replication componentsk
@@ -371,7 +377,7 @@ pub(crate) fn replicate(
                     )
                 });
             }
-            });
+        }
     });
 }
 
@@ -437,9 +443,9 @@ pub(crate) fn buffer_entity_despawn(
         return
     };
     trace!(?entity, "Buffering entity despawn");
-    // SAFETY: we know that the entities in replicate are unique
-    let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(replicate.senders()) };
-    query.par_iter_many_unique_mut(unique_slice).for_each(|(mut sender, mut manager)| {
+    query
+        .par_iter_many_unique_mut(replicate.senders.as_slice())
+        .for_each(|(mut sender, mut manager)| {
         // convert the entity to a network entity (possibly mapped)
         entity = manager
             .entity_mapper
@@ -561,7 +567,6 @@ fn replicate_component_update(
                         component_kind,
                         component_data,
                         component_registry,
-                        writer,
                         delta,
                         current_tick,
                         entity_map,
@@ -602,25 +607,24 @@ pub(crate) fn buffer_component_removed<C: Component>(
         return
     };
 
-    let Ok((mut sender, mut manager)) = manager_query.get_mut(replicate_on.senders()) else {
-        return
-    };
-
-    // convert the entity to a network entity (possibly mapped)
-    entity = manager
-        .entity_mapper
-        .to_remote(entity);
-    // do not replicate components (even removals) that are disabled
-    if disabled_components
-        .is_some_and(|disabled_components| !disabled_components.enabled::<C>())
-    {
-        return;
-    }
-    let group_id = group.group_id(Some(root));
-    trace!(?entity, kind = ?core::any::type_name::<C>(), "Sending RemoveComponent");
-    let kind = registry.net_id::<C>();
-    sender
-        .prepare_component_remove(entity, group_id, kind);
+    manager_query
+        .par_iter_many_unique_mut(replicate_on.senders.as_slice())
+        .for_each(|(mut sender, mut manager)| {
+         // convert the entity to a network entity (possibly mapped)
+        entity = manager
+            .entity_mapper
+            .to_remote(entity);
+        // do not replicate components (even removals) that are disabled
+        if disabled_components
+            .is_some_and(|disabled_components| !disabled_components.enabled::<C>())
+        {
+            return;
+        }
+        let group_id = group.group_id(Some(root));
+        trace!(?entity, kind = ?core::any::type_name::<C>(), "Sending RemoveComponent");
+        let kind = registry.net_id::<C>();
+        sender.prepare_component_remove(entity, group_id, kind);
+    });
 }
 
 pub(crate) fn register_replicate_component_send<C: Component>(app: &mut App) {

@@ -6,9 +6,9 @@
 //! In this case C1 has authority even though the server is still replicating some states.
 //!
 
-use crate::prelude::{ClientId, Deserialize, Serialize};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
+use lightyear_connection::id::PeerId;
 use serde::{Deserialize, Serialize};
 
 /// Authority is used to define who is in charge of simulating an entity.
@@ -29,7 +29,7 @@ pub enum AuthorityPeer {
     None,
     #[default]
     Server,
-    Client(ClientId),
+    Client(PeerId),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]

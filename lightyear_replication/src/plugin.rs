@@ -2,7 +2,6 @@
 //! the replication of entities and resources.
 //!
 use crate::authority::{AuthorityPeer, HasAuthority};
-use crate::buffer::Replicate;
 use crate::components::*;
 use crate::hierarchy::ReplicateLike;
 use bevy::prelude::*;
@@ -27,7 +26,7 @@ impl Plugin for SharedPlugin {
             .register_type::<Replicated>()
             .register_type::<Controlled>()
             .register_type::<Replicating>()
-            .register_type::<Replicate>()
+            // .register_type::<Replicate>()
             .register_type::<DisableReplicateHierarchy>()
             .register_type::<ReplicateLike>()
             .register_type::<ReplicationGroupIdBuilder>()

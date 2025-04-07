@@ -1,5 +1,5 @@
 use crate::registry::delta::ErasedDeltaFns;
-use crate::registry::replication::{register_component_send, ReplicationMetadata, TempWriteBuffer};
+use crate::registry::replication::{ReplicationMetadata, TempWriteBuffer};
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 use bevy::app::App;
 use bevy::ecs::change_detection::Mut;

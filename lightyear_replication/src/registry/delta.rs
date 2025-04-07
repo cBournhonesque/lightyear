@@ -9,6 +9,7 @@ use bevy::prelude::{Component, EntityWorldMut, World};
 use bevy::ptr::{Ptr, PtrMut};
 use core::any::TypeId;
 use core::ptr::NonNull;
+use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
@@ -43,7 +44,7 @@ impl ComponentRegistry {
                     .replication_map
                     .get(&kind)
                     .map(|m| m.direction)
-                    .unwrap_or(ChannelDirection::Bidirectional),
+                    .unwrap_or(NetworkDirection::Bidirectional),
                 write,
                 buffer_insert_fn: Self::buffer_insert_delta::<C>,
                 // we never need to remove the DeltaMessage<C> component

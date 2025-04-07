@@ -9,6 +9,7 @@ use crate::buffer;
 use crate::buffer::{replicate, Replicate};
 use crate::components::{DeltaCompression, DisabledComponents, ReplicateOnce, Replicating, ReplicationGroup, ReplicationGroupId, TargetEntity};
 use crate::delta::DeltaManager;
+use crate::error::ReplicationError;
 use crate::hierarchy::ReplicateLike;
 use crate::plugin::ReplicationSet;
 use crate::registry::registry::ComponentRegistry;
@@ -17,7 +18,7 @@ use crate::registry::{ComponentKind, ComponentNetId};
 use alloc::{string::ToString, vec::Vec};
 use bevy::app::{App, Last, Plugin, PostUpdate, PreUpdate};
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::{EntityHash, UniqueEntityVec};
+use bevy::ecs::entity::{EntityHash, EntityIndexSet, UniqueEntityVec};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy::platform_support::collections::HashMap;
 use bevy::prelude::{ChildOf, Component, Entity, IntoScheduleConfigs, Query, Real, Reflect, Res, ResMut, Resource, SystemParamBuilder, SystemSet, Time, Timer, TimerMode, With};
@@ -32,6 +33,7 @@ use lightyear_core::tick::Tick;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageManager, MessageReceiver, MessageSender};
+use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
@@ -111,7 +113,7 @@ pub(crate) struct SendIntervalTimer {
 impl ReplicationSendPlugin {
 
     fn send_replication_messages(
-        time: Time<Real>,
+        time: Res<Time<Real>>,
         change_tick: SystemChangeTick,
         mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline)>,
     ) {
@@ -256,7 +258,6 @@ impl Plugin for ReplicationSendPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
-            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(replicate);
@@ -278,7 +279,7 @@ impl Plugin for ReplicationSendPlugin {
 #[require(Transport)]
 #[require(LocalTimeline)]
 pub struct ReplicationSender {
-    pub(crate) replicated_entities: UniqueEntityVec<Entity>,
+    pub(crate) replicated_entities: EntityIndexSet,
     pub(crate) writer: Writer,
     /// Get notified whenever a message-id that was sent has been received by the remote
     pub(crate) updates_ack_receiver: Receiver<MessageId>,
@@ -320,7 +321,7 @@ impl ReplicationSender {
     ) -> Self {
         Self {
             // SEND
-            replicated_entities: UniqueEntityVec::default(),
+            replicated_entities: EntityIndexSet::default(),
             writer: Writer::default(),
             updates_ack_receiver,
             updates_nack_receiver,
@@ -339,10 +340,7 @@ impl ReplicationSender {
     }
 
     pub(crate) fn add_replicated_entity(&mut self, entity: Entity) {
-        match self.replicated_entities.binary_search(entity) {
-
-        }
-
+        self.replicated_entities.insert(entity);
     }
 
 
@@ -653,6 +651,86 @@ impl ReplicationSender {
             .push(raw_data);
     }
 
+     /// Create a component update for a component that has delta compression enabled
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn prepare_delta_component_update(
+        &mut self,
+        entity: Entity,
+        group_id: ReplicationGroupId,
+        kind: ComponentKind,
+        component_data: Ptr,
+        registry: &ComponentRegistry,
+        delta_manager: &mut DeltaManager,
+        tick: Tick,
+        remote_entity_map: &mut RemoteEntityMap,
+    ) -> Result<(), ReplicationError> {
+        #[cfg(feature = "metrics")]
+        {
+            metrics::counter!("replication::send::component_update_delta").increment(1);
+        }
+        let group_channel = self.group_channels.entry(group_id).or_default();
+        // Get the latest acked tick for this entity/component
+        let raw_data = group_channel
+            .delta_ack_ticks
+            .get(&(entity, kind))
+            .map(|&ack_tick| {
+                // we have an ack tick for this replication group, get the corresponding component value
+                // so we can compute a diff
+                let old_data = delta_manager
+                    .data
+                    // NOTE: remember to use the local entity for local bookkeeping
+                    .get_component_value(entity, ack_tick, kind, group_id)
+                    .ok_or(ReplicationError::DeltaCompressionError(
+                        "could not find old component value to compute delta".to_string(),
+                    ))
+                    .inspect_err(|e| {
+                        error!(
+                            ?entity,
+                            name = ?registry.name(kind),
+                            "Could not find old component value from tick {:?} to compute delta",
+                            ack_tick
+                        );
+                        error!("DeltaManager data: {:?}", delta_manager.data);
+                    })?;
+                // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
+                unsafe {
+                    registry.serialize_diff(
+                        ack_tick,
+                        old_data,
+                        component_data,
+                        &mut self.writer,
+                        kind,
+                        &mut remote_entity_map.local_to_remote,
+                    )?;
+                }
+                Ok::<Bytes, ReplicationError>(self.writer.split())
+            })
+            .unwrap_or_else(|| {
+                // SAFETY: the component_data is a pointer to a component that corresponds to kind
+                unsafe {
+                    // compute a diff from the base value, and serialize that
+                    registry.serialize_diff_from_base_value(
+                        component_data,
+                        &mut self.writer,
+                        kind,
+                        &mut remote_entity_map.local_to_remote,
+                    )?;
+                }
+                Ok::<Bytes, ReplicationError>(self.writer.split())
+            })?;
+        trace!(?kind, "Inserting pending update!");
+        // use the network entity when serializing
+        let entity = remote_entity_map.to_remote(entity);
+        self.prepare_component_update(entity, group_id, raw_data);
+        self.group_channels
+            .entry(group_id)
+            .or_default()
+            .pending_delta_updates
+            .push((entity, kind));
+        Ok(())
+    }
+
     // TODO: the priority for entity actions should remain the base_priority,
     //  because the priority will get accumulated in the reliable channel
     //  For entity updates, we might want to use the multiplier, but not sure
@@ -685,7 +763,7 @@ impl ReplicationSender {
         tick: Tick,
         bevy_tick: BevyTick,
         sender: &mut Transport,
-    ) -> Result<(), PacketError> {
+    ) -> Result<(), ReplicationError> {
         self.group_with_actions.drain().try_for_each(|group_id| {
             // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
             let channel = self.group_channels.get_mut(&group_id).unwrap();
@@ -762,7 +840,7 @@ impl ReplicationSender {
             channel.pending_actions = message.actions;
             channel.pending_actions.clear();
 
-            Ok::<(), PacketError>(())
+            Ok::<(), ReplicationError>(())
         })
     }
 
@@ -774,7 +852,7 @@ impl ReplicationSender {
         tick: Tick,
         bevy_tick: BevyTick,
         transport: &mut Transport,
-    ) -> Result<(), PacketError> {
+    ) -> Result<(), ReplicationError> {
         self.group_with_updates.drain().try_for_each(|group_id| {
             let channel = self.group_channels.get_mut(&group_id).unwrap();
             let updates = core::mem::take(&mut channel.pending_updates);

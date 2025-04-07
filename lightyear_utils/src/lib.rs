@@ -33,4 +33,3 @@ pub mod collections;
 pub mod wrapping_id;
 pub mod registry;
 mod easings;
-mod entity;

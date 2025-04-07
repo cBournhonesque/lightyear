@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use bevy::app::{App, Plugin, PreUpdate};
 use bevy::ecs::entity::EntityHash;
 use bevy::platform_support::collections::HashSet;
-use bevy::prelude::{Component, Entity, EntityWorldMut, IntoScheduleConfigs, Query, Res, ResMut, World};
+use bevy::prelude::*;
 use lightyear_connection::id::PeerId;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::RemoteEntityMap;
