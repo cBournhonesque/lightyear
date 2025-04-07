@@ -9,6 +9,7 @@ use crate::registry::registry::ComponentRegistry;
 use alloc::vec::Vec;
 use bevy::app::{App, Plugin, PreUpdate};
 use bevy::ecs::entity::EntityHash;
+use bevy::ecs::system::SystemState;
 use bevy::platform_support::collections::HashSet;
 use bevy::prelude::*;
 use lightyear_connection::id::PeerId;
@@ -54,9 +55,18 @@ impl ReplicationReceivePlugin {
 
     pub(crate) fn apply_to_world(
         world: &mut World,
-        mut component_registry: ResMut<ComponentRegistry>,
-        mut query: Query<(&mut ReplicationReceiver, Option<&ClientOf>, &mut MessageManager, &LocalTimeline)>,
+        mut local: Local<SystemState<(
+            ResMut<ComponentRegistry>,
+            Query<(&mut ReplicationReceiver, Option<&ClientOf>, &mut MessageManager, &LocalTimeline)>,
+        )>>,
+        // mut component_registry: ResMut<ComponentRegistry>,
+        // mut query: Query<(&mut ReplicationReceiver, Option<&ClientOf>, &mut MessageManager, &LocalTimeline)>,
     ) {
+        let unsafe_world = world.as_unsafe_world_cell();
+        // SAFETY: we guarantee that the `world` is not used to update the ComponentRegistry or any components of the query
+        let (mut component_registry, mut query) = local.get_mut(unsafe { unsafe_world.world_mut() } );
+        // SAFETY: this world uses access that is independent from the previous access
+        let world = unsafe { unsafe_world.world_mut() };
         query.iter_mut().for_each(|(mut receiver, client_of, mut manager, local_timeline)| {
             // TODO: have some logic to get the remote peer independently from ClientOf or client-server
             //  Maybe the link contains the remoteLinkId?

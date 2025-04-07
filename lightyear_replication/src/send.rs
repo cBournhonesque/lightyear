@@ -40,8 +40,8 @@ use lightyear_transport::channel::builder::{EntityActionsChannel, EntityUpdatesC
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::packet::error::PacketError;
 use lightyear_transport::packet::message::MessageId;
-use lightyear_transport::prelude::Transport;
-use tracing::{debug, error, trace};
+use lightyear_transport::prelude::{ChannelRegistry, Transport};
+use tracing::{debug, error, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
@@ -214,6 +214,10 @@ impl Plugin for ReplicationSendPlugin {
     }
 
     fn finish(&self, app: &mut App) {
+        if !app.world().contains_resource::<ComponentRegistry>() {
+            warn!("ReplicationSendPlugin: ComponentRegistry not found, adding it");
+            app.world_mut().init_resource::<ComponentRegistry>();
+        }
         // temporarily remove component_registry from the app to enable split borrows
         let component_registry = app
             .world_mut()

@@ -13,14 +13,13 @@ use lightyear_connection::client::{Connect, Connected};
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::id::PeerId;
 use lightyear_connection::server::Start;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_netcode::auth::Authentication;
 use lightyear_netcode::client_plugin::NetcodeConfig;
 use lightyear_netcode::{NetcodeClient, NetcodeServer};
 use lightyear_server::plugin::ServerPlugins;
 use lightyear_server::Server;
-use lightyear_sync::prelude::LocalTimeline;
-use lightyear_sync::timeline::NetworkTimeline;
 
 pub const TEST_CLIENT_1: u64 = 1;
 const PROTOCOL_ID: u64 = 0;

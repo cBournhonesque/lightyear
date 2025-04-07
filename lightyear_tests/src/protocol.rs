@@ -67,6 +67,6 @@ impl Plugin for ProtocolPlugin {
             mode: ChannelMode::UnorderedUnreliableWithAcks,
             ..default()
         })
-        .add_direction(NetworkDirection::Bidirectional);;
+        .add_direction(NetworkDirection::Bidirectional);
     }
 }

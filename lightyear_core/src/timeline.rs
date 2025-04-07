@@ -6,7 +6,7 @@ use bevy::prelude::{Component, Fixed, IntoScheduleConfigs, Query, Res, Time, Tri
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Debug)]
 pub struct Timeline<T: TimelineContext> {
     pub context: T,
     pub tick_duration: Duration,

@@ -116,12 +116,11 @@ impl Replicate {
                     let unsafe_world = world.as_unsafe_world_cell();
                      // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
                     let server_world = unsafe { unsafe_world.world_mut() };
-                     let Some(server) = server_world.query::<&Server>().single(server_world) else {
+                     let Ok(server) = server_world.query::<&Server>().single(server_world) else {
                         error!("No Server found in the world");
                         return;
                     };
                     let world = unsafe { unsafe_world.world_mut() };
-                    
                     server.targets(target).for_each(|client| {
                          let Ok(mut sender) = world
                             .query_filtered::<&mut ReplicationSender, With<ClientOf>>()
@@ -447,7 +446,7 @@ pub(crate) fn buffer_entity_despawn(
         .par_iter_many_unique_mut(replicate.senders.as_slice())
         .for_each(|(mut sender, mut manager)| {
         // convert the entity to a network entity (possibly mapped)
-        entity = manager
+        let entity = manager
             .entity_mapper
             .to_remote(entity);
         sender.prepare_entity_despawn(entity, group.group_id(Some(entity)));
@@ -611,7 +610,7 @@ pub(crate) fn buffer_component_removed<C: Component>(
         .par_iter_many_unique_mut(replicate_on.senders.as_slice())
         .for_each(|(mut sender, mut manager)| {
          // convert the entity to a network entity (possibly mapped)
-        entity = manager
+        let entity = manager
             .entity_mapper
             .to_remote(entity);
         // do not replicate components (even removals) that are disabled

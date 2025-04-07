@@ -347,7 +347,7 @@ impl AppComponentExt for App {
                     registry.set_replication_fns::<C>(world, direction);
                 }
             });
-        register_component_send::<C>(self, direction);
+        // register_component_send::<C>(self, direction);
         ComponentRegistration {
             app: self,
             _phantom: core::marker::PhantomData,
@@ -367,7 +367,7 @@ impl AppComponentExt for App {
                 registry.set_replication_fns::<C>(world, direction);
                 debug!("register component {}", core::any::type_name::<C>());
             });
-        register_component_send::<C>(self, direction);
+        // register_component_send::<C>(self, direction);
         ComponentRegistration {
             app: self,
             _phantom: core::marker::PhantomData,

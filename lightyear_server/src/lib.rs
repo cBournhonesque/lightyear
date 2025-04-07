@@ -9,7 +9,7 @@ extern crate alloc;
 use bevy::prelude::{Component, SystemSet};
 
 
-use lightyear_sync::prelude::*;
+use lightyear_core::prelude::LocalTimeline;
 
 
 pub mod plugin;

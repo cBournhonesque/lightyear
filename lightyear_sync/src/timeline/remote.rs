@@ -23,7 +23,7 @@ use tracing::trace;
 /// // Create a new remote estimate with a 16ms tick duration and 0.1 smoothing factor
 /// let remote_estimate = RemoteTimeline::new(Duration::from_millis(16), 0.1);
 /// ```
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct RemoteEstimate {
     /// Most recent tick received from the Server
     last_received_tick: Option<Tick>,
@@ -38,7 +38,7 @@ pub struct RemoteEstimate {
 
 
 // We need to wrap the inner Timeline to avoid the orphan rule
-#[derive(Component, Deref, DerefMut)]
+#[derive(Component, Default, Debug, Deref, DerefMut)]
 pub struct RemoteTimeline(Timeline<RemoteEstimate>);
 
 impl RemoteTimeline  {
