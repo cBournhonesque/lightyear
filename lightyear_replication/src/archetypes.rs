@@ -70,6 +70,7 @@ fn send_to_client(direction: NetworkDirection) -> bool {
 }
 
 
+
 impl<C: Component> FromWorld for ReplicatedArchetypes<C> {
     fn from_world(world: &mut World) -> Self {
         Self::client(world)
