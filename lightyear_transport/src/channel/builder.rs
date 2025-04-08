@@ -318,22 +318,6 @@ impl ReliableSettings {
     }
 }
 
-/// Default channel to replicate entity actions.
-/// This is an Unordered Reliable channel.
-/// (SpawnEntity, DespawnEntity, InsertComponent, RemoveComponent)
-pub struct EntityActionsChannel;
-
-/// Default channel to replicate entity updates (ComponentUpdate)
-/// This is a Sequenced Unreliable channel
-pub struct EntityUpdatesChannel;
-
-/// Default channel to send pings. This is a Sequenced Unreliable channel, because
-/// there is no point in getting older pings.
-pub struct PingChannel;
-
-/// Default channel to send pongs. This is a Sequenced Unreliable channel, because
-/// there is no point in getting older pongs.
-pub struct PongChannel;
 
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
 pub struct InputChannel;

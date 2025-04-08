@@ -73,6 +73,7 @@ impl ClientServerStepper {
         };
         let client_entity = client_app.world_mut().spawn((
             Client,
+            // ReplicationSender::default(),
             NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
             crossbeam_client,
         )).id();

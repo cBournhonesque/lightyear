@@ -27,7 +27,6 @@ use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::{MessageManager, MessageNetId};
-use lightyear_transport::channel::builder::EntityActionsChannel;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::{ChannelRegistry, Transport};
 #[cfg(feature = "trace")]

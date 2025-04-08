@@ -1,7 +1,7 @@
 //! General struct handling replication
 use core::iter::Extend;
 
-use super::message::{EntityActions, SendEntityActionsMessage, SendEntityUpdatesMessage, SpawnAction};
+use super::message::{EntityActions, EntityActionsChannel, EntityUpdatesChannel, SendEntityActionsMessage, SendEntityUpdatesMessage, SpawnAction};
 #[cfg(test)]
 use super::message::{EntityActionsMessage, EntityUpdatesMessage};
 use crate::authority::HasAuthority;
@@ -36,7 +36,6 @@ use lightyear_messages::prelude::{MessageManager, MessageReceiver, MessageSender
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
-use lightyear_transport::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::packet::error::PacketError;
 use lightyear_transport::packet::message::MessageId;

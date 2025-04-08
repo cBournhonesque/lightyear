@@ -43,10 +43,39 @@ impl TransportPlugin {
     /// Depending on the [`ChannelId`], buffer the messages in the packet
     /// in the appropriate [`ChannelReceiver`]
     fn buffer_receive(
+        time: Res<Time<Real>>,
         par_commands: ParallelCommands,
         mut query: Query<(Entity, &mut Link, &mut Transport)>,
     ) {
         query.par_iter_mut().for_each(|(entity, mut link, mut transport)| {
+            // enable split borrows
+            let mut transport = &mut *transport;
+            // update with the latest time
+            transport.senders.values_mut().for_each(|sender_metadata| {
+                sender_metadata.sender.update(&time, &link.stats);
+            });
+            transport.receivers.values_mut().for_each(|receiver_metadata| {
+                receiver_metadata.receiver.update(time.elapsed());
+            });
+            // check which packets were lost
+            transport.packet_manager.header_manager.update(time.delta(), &link.stats);
+            transport.packet_manager.header_manager.lost_packets.drain(..).try_for_each(|lost_packet| {
+                if let Some(message_map) = transport.packet_to_message_ack_map.remove(&lost_packet) {
+                    for (channel_kind, message_ack) in message_map {
+                        let sender_metadata = transport.senders.get_mut(&channel_kind).ok_or(PacketError::ChannelNotFound)?;
+                        // TODO: batch the messages?
+                        trace!(
+                            ?lost_packet,
+                            ?channel_kind,
+                            "message lost: {:?}",
+                            message_ack.message_id
+                        );
+                        sender_metadata.sender.send_nacks(message_ack.message_id);
+                    }
+                }
+                Ok::<(), TransportError>(())
+            });
+
             link.recv.drain().try_for_each(|packet| {
                 let mut cursor = Reader::from(packet);
 
@@ -60,26 +89,10 @@ impl TransportPlugin {
                 });
 
                 // Update the packet acks
-                let acked_packets = transport
+                transport
                     .packet_manager
                     .header_manager
                     .process_recv_packet_header(&header);
-
-                // Update the list of messages that have been acked
-                for acked_packet in acked_packets {
-                    trace!("Acked packet {:?}", acked_packet);
-                    if let Some(message_acks) = transport.packet_to_message_ack_map.remove(&acked_packet) {
-                        for (channel_kind, message_ack) in message_acks {
-                            let sender_metadata = transport.senders.get_mut(&channel_kind).ok_or(PacketError::ChannelNotFound)?;
-                            trace!(
-                                "Acked message in packet: channel={:?},message_ack={:?}",
-                                sender_metadata.name,
-                                message_ack
-                            );
-                            sender_metadata.sender.receive_ack(&message_ack);
-                        }
-                    }
-                }
 
                 // Parse the payload into messages, put them in the internal buffers for each channel
                 // we read directly from the packet and don't create intermediary datastructures to avoid allocations
@@ -114,6 +127,23 @@ impl TransportPlugin {
             }).inspect_err(|e| {
                 error!("Error processing packet: {e:?}");
             }).ok();
+
+            // Update the list of messages that have been acked
+            transport.packet_manager.header_manager.newly_acked_packets.drain(..).try_for_each(|acked_packet| {
+                trace!("Acked packet {:?}", acked_packet);
+                if let Some(message_acks) = transport.packet_to_message_ack_map.remove(&acked_packet) {
+                    for (channel_kind, message_ack) in message_acks {
+                        let sender_metadata = transport.senders.get_mut(&channel_kind).ok_or(PacketError::ChannelNotFound)?;
+                        trace!(
+                            "Acked message in packet: channel={:?},message_ack={:?}",
+                            sender_metadata.name,
+                            message_ack
+                        );
+                        sender_metadata.sender.receive_ack(&message_ack);
+                    }
+                }
+                Ok::<(), TransportError>(())
+            });
         })
     }
 

@@ -63,7 +63,7 @@ impl UnorderedUnreliableWithAcksSender {
 impl ChannelSend for UnorderedUnreliableWithAcksSender {
     fn update(&mut self, real_time: &Time<Real>, _: &LinkStats) {
         self.fragment_ack_receiver
-            .cleanup(real_time.elapsed() - DISCARD_AFTER);
+            .cleanup(real_time.elapsed().saturating_sub(DISCARD_AFTER));
         if let Some(timer) = &mut self.timer {
             timer.tick(real_time.delta());
         }

@@ -10,7 +10,10 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = ["lightyear_link/std"]
+std = [
+    "lightyear_link/std",
+    "indexmap/std"
+]
 
 test_utils = []
 
@@ -34,6 +37,7 @@ bytes.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
 enum_dispatch.workspace = true
+indexmap.workspace = true
 governor.workspace = true
 nonzero_ext.workspace = true
 ringbuffer.workspace = true

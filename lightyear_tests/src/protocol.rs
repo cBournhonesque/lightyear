@@ -10,6 +10,7 @@ use cfg_if::cfg_if;
 use lightyear_connection::direction::{AppChannelDirectionExt, AppMessageDirectionExt, NetworkDirection};
 use lightyear_macros::ChannelInternal;
 use lightyear_messages::prelude::*;
+use lightyear_replication::registry::registry::AppComponentExt;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::{WriteInteger, Writer};
 use lightyear_serde::SerializationError;
@@ -46,8 +47,9 @@ pub struct Channel1;
 #[derive(Reflect)]
 pub struct Channel2;
 
-// Protocol
+// Components
 
+// Protocol
 pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
@@ -68,5 +70,7 @@ impl Plugin for ProtocolPlugin {
             ..default()
         })
         .add_direction(NetworkDirection::Bidirectional);
+        // components
+        // app.register_component()
     }
 }

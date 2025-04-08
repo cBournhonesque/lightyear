@@ -13,6 +13,15 @@ use lightyear_transport::packet::message::MessageId;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
+/// Default channel to replicate entity actions.
+/// This is an Unordered Reliable channel.
+/// (SpawnEntity, DespawnEntity, InsertComponent, RemoveComponent)
+pub struct EntityActionsChannel;
+
+/// Default channel to replicate entity updates (ComponentUpdate)
+/// This is a Sequenced Unreliable channel
+pub struct EntityUpdatesChannel;
+
 /// All the entity actions (Spawn/despawn/inserts/removals) for a single entity
 #[derive(Clone, PartialEq, Debug)]
 pub struct EntityActions {

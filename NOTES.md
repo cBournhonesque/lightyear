@@ -6,18 +6,15 @@
   - Register OnRemove<C> replication buffer
   - HostServer handling
 - Receive:
-  - re-add UpdateConfirmedTick
+  - re-add UpdateConfirmedTick in apply_world
 - Send:
 
 
-- NOTE:
-  - we do not use directly ActionsMessage and UpdatesMessage, instead we read directly the
-    raw bytes from the transport. There are several reasons:
-    - we need to get access to the MessageId when we buffer the message to the transport
-    - Transport automatically applies Remote/Send entity map to each message sent, but we might 
-      not want to do that. For example let's say we spawn a new entity.
-
 - EntityMap: maybe this should be directly on the Serialize level?
+
+
+TEST TODO:
+ - add ReplicationSender on the client entity. Need to figure out how to make acks flow better
   
 
 
@@ -39,7 +36,6 @@ But if you add a direction we will handle it automatically for the client-server
 - Visibility:
   - we could have ReplicationLayers similar to PhysicsLayers. Each layer could represent a subset of components that are disabled/enabled.
     An entity could be part of multiple of these layers.
-  - 
 
 
 - How to start replication?
@@ -65,8 +61,9 @@ But if you add a direction we will handle it automatically for the client-server
   - The list of components replicated should depend on list of Senders.
     - Each sender has a 'sender-type' (client/server/peer), depending on that, we
 
-- How do you decide on which ReplicationSender the entity will be replicated?
-  - ReplicateOn()
+- Does each ReplicationSender cache the list of components that they might want to replicate?
+  - Or do we have general ClientToServer archetypes, ServerToClient archetypes, Bidirectional archetypes?
+
 
 - ReplicationGroup:
   - the ReplicationSender has an internal timer, and the ReplicationGroup has one too?

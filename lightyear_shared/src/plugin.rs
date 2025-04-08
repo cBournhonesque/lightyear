@@ -59,8 +59,9 @@ impl Plugin for SharedPlugin {
                 tick_duration: self.tick_duration
             })
             .add_plugins(lightyear_core::time::TimePlugin)
+            // TODO: make this a plugin group so it's possible to disable plugins
             .add_plugins(lightyear_replication::prelude::ReplicationSendPlugin)
-        .add_plugins(lightyear_replication::prelude::ReplicationReceivePlugin);
+            .add_plugins(lightyear_replication::prelude::ReplicationReceivePlugin);
         ;
 
         Self::add_channels(app);

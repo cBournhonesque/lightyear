@@ -1,6 +1,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use core::time::Duration;
+use indexmap::{IndexMap, IndexSet};
 use lightyear_utils::collections::HashMap;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use tracing::trace;
@@ -106,12 +107,10 @@ pub struct PacketHeaderManager {
     // keep track of the packets (of type Data) we send out and that have not been acked yet,
     // so we can resend them when dropped
     // sent_packets_not_acked: HashSet<PacketId>,
-    sent_packets_not_acked: HashMap<PacketId, Duration>,
+    sent_packets_not_acked: IndexMap<PacketId, Duration>,
     stats_manager: PacketStatsManager,
-
-    // channel to notify the sender of the packet_id of the packets that were delivered
-    // ack_notification_sender: Sender<PacketId>,
-    // ack_notification_receiver: Receiver<PacketId>,
+    pub(crate) lost_packets: Vec<PacketId>,
+    pub(crate) newly_acked_packets: IndexSet<PacketId>,
 
     // keep track of the packets that were received (last packet received and the
     // `ACK_BITFIELD_SIZE` packets before that)
@@ -125,60 +124,43 @@ pub struct PacketHeaderManager {
 
 impl PacketHeaderManager {
     pub(crate) fn new(nack_rtt_multiple: f32) -> Self {
-        // let (ack_notification_sender, ack_notification_receiver) =
-        //     crossbeam::channel::bounded(MAX_SEND_PACKET_QUEUE_SIZE as usize);
         Self {
             next_packet_id: PacketId(0),
             stats_manager: PacketStatsManager::default(),
-            // sent_packets_not_acked: HashSet::with_capacity(MAX_SEND_PACKET_QUEUE_SIZE as usize),
-            sent_packets_not_acked: HashMap::default(),
+            sent_packets_not_acked: IndexMap::default(),
+            lost_packets: vec![],
+            newly_acked_packets: IndexSet::default(),
             recv_buffer: ReceiveBuffer::new(),
-            // ack_notification_sender,
-            // ack_notification_receiver,
             nack_rtt_multiple,
         }
     }
 
-    /// Internal bookkeeping.
-    /// Returns a list of packets that are considered NACKed (i.e. acknowledged as losts)
+    /// Internal bookkeeping. Updates the list of packets that are NACKed (acknowledged as losts)
     pub(crate) fn update(
         &mut self,
         real: Duration,
         link_stats: &LinkStats,
-    ) -> Vec<PacketId> {
+    ) {
         self.stats_manager.update(real);
         let rtt = link_stats.rtt;
         let nack_duration = rtt.mul_f32(self.nack_rtt_multiple)
             .min(Duration::from_secs(MAX_NACK_SECONDS))
             .max(Duration::from_millis(MIN_NACK_MILLIS));
         // clear sent packets that haven't received any ack for a while
-        let mut lost_packets = vec![];
         self.sent_packets_not_acked.retain(|packet_id, time_sent| {
-            if real - (*time_sent) > nack_duration {
+            if real.saturating_sub(*time_sent) > nack_duration {
                 trace!("sent packet got lost");
-                lost_packets.push(*packet_id);
+                self.lost_packets.push(*packet_id);
                 self.stats_manager.sent_packet_lost();
                 return false;
             }
             true
         });
-        lost_packets
     }
-
-    // /// Get the receiver for the ack notification channel
-    // /// It can be cloned if we need multiple receivers
-    // pub fn get_ack_receiver(&self) -> &Receiver<PacketId> {
-    //     &self.ack_notification_receiver
-    // }
 
     /// Return the packet id of the next packet to be sent
     pub fn next_packet_id(&self) -> PacketId {
         self.next_packet_id
-    }
-
-    #[cfg(test)]
-    pub fn sent_packets_not_acked(&self) -> &HashMap<PacketId, Duration> {
-        &self.sent_packets_not_acked
     }
 
     /// Increment the packet id of the next packet to be sent
@@ -189,29 +171,26 @@ impl PacketHeaderManager {
     /// Process the header of a received packet (update ack metadata)
     ///
     /// Returns the list of packets that have been newly acked by the remote
-    pub(crate) fn process_recv_packet_header(&mut self, header: &PacketHeader) -> Vec<PacketId> {
+    pub(crate) fn process_recv_packet_header(&mut self, header: &PacketHeader) {
         // update the receive buffer
         self.stats_manager.received_packet();
         self.recv_buffer.recv_packet(header.packet_id);
-
-        let mut newly_acked_packets = Vec::new();
 
         // read the ack information (ack id + ack bitfield) from the received header, and update
         // the list of our sent packets that have not been acked yet
         if let Some(packet) = self.update_sent_packets_not_acked(&header.last_ack_packet_id) {
             self.stats_manager.sent_packet_acked();
-            newly_acked_packets.push(packet);
+            self.newly_acked_packets.insert(packet);
         }
         for i in 1..=ACK_BITFIELD_SIZE {
             let packet_id = PacketId(header.last_ack_packet_id.wrapping_sub(i as u16));
             if header.get_bitfield_bit(i - 1) {
                 if let Some(packet) = self.update_sent_packets_not_acked(&packet_id) {
                     self.stats_manager.sent_packet_acked();
-                    newly_acked_packets.push(packet)
+                    self.newly_acked_packets.insert(packet);
                 }
             }
         }
-        newly_acked_packets
     }
 
     /// Update the list of sent packets that have not been acked yet
@@ -225,7 +204,7 @@ impl PacketHeaderManager {
             // TODO: important to compute RTT
             // self.ack_notification_sender.send(*packet_id)?;
 
-            self.sent_packets_not_acked.remove(packet_id);
+            self.sent_packets_not_acked.swap_remove(packet_id);
             return Some(*packet_id);
         }
         None

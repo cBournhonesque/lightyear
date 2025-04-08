@@ -73,7 +73,7 @@ pub(crate) mod packet {
             // remove stats older than stats buffer duration
             let removed = self
                 .stats_buffer
-                .drain_until(&(real - self.stats_buffer_duration));
+                .drain_until(&(real.saturating_sub(self.stats_buffer_duration)));
             for (_, stats) in removed {
                 self.rolling_stats -= stats;
             }

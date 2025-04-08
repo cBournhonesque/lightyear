@@ -1,4 +1,4 @@
-use crate::channel::builder::{AuthorityChannel, ChannelSettings, EntityActionsChannel, EntityUpdatesChannel, InputChannel, PingChannel, PongChannel};
+use crate::channel::builder::{AuthorityChannel, ChannelSettings, InputChannel};
 use crate::channel::Channel;
 use bevy::app::App;
 use bevy::ecs::component::ComponentId;
@@ -88,17 +88,19 @@ impl ChannelRegistry {
 
     /// Returns true if the net_id corresponds to a channel that is used for replication
     pub(crate) fn is_replication_channel(&self, net_id: NetId) -> bool {
-        self.kind_map.kind(net_id).is_some_and(|kind| {
-            *kind == ChannelKind::of::<EntityUpdatesChannel>()
-                || *kind == ChannelKind::of::<EntityActionsChannel>()
-        })
+        todo!()
+        // self.kind_map.kind(net_id).is_some_and(|kind| {
+        //     *kind == ChannelKind::of::<EntityUpdatesChannel>()
+        //         || *kind == ChannelKind::of::<EntityActionsChannel>()
+        // })
     }
 
     /// Returns true if the net_id corresponds to a channel that is used for replicating updates
     pub(crate) fn is_replication_update_channel(&self, net_id: NetId) -> bool {
-        self.kind_map
-            .kind(net_id)
-            .is_some_and(|kind| *kind == ChannelKind::of::<EntityUpdatesChannel>())
+        todo!()
+        // self.kind_map
+        //     .kind(net_id)
+        //     .is_some_and(|kind| *kind == ChannelKind::of::<EntityUpdatesChannel>())
     }
 
     pub fn kind_map(&self) -> TypeMapper<ChannelKind> {
