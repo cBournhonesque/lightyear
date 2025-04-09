@@ -8,7 +8,6 @@ use bevy::prelude::{Real, Time};
 use bevy::time::{Timer, TimerMode};
 use bytes::Bytes;
 use core::time::Duration;
-use crossbeam_channel::{Receiver, Sender};
 use lightyear_link::LinkStats;
 
 /// A sender that simply sends the messages without checking if they were received
@@ -24,8 +23,6 @@ pub struct SequencedUnreliableSender {
     next_send_message_id: MessageId,
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
-    /// List of senders that want to be notified when a message is lost
-    nack_senders: Vec<Sender<MessageId>>,
     /// Internal timer to determine if the channel is ready to send messages
     timer: Option<Timer>,
 }
@@ -42,7 +39,6 @@ impl SequencedUnreliableSender {
             fragmented_messages_to_send: VecDeque::new(),
             next_send_message_id: MessageId(0),
             fragment_sender: FragmentSender::new(),
-            nack_senders: vec![],
             timer,
         }
     }
@@ -101,25 +97,6 @@ impl ChannelSend for SequencedUnreliableSender {
     }
 
     fn receive_ack(&mut self, _message_ack: &MessageAck) {}
-
-    fn subscribe_acks(&mut self) -> Receiver<MessageId> {
-        unreachable!()
-    }
-
-    /// Create a new receiver that will receive a message id when a sent message on this channel
-    /// has been lost by the remote peer
-    fn subscribe_nacks(&mut self) -> Receiver<MessageId> {
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        self.nack_senders.push(sender);
-        receiver
-    }
-
-    /// Send nacks to the subscribers of nacks
-    fn send_nacks(&mut self, nack: MessageId) {
-        for sender in &self.nack_senders {
-            sender.send(nack).unwrap();
-        }
-    }
 }
 
 #[cfg(test)]

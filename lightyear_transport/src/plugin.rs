@@ -53,6 +53,9 @@ impl TransportPlugin {
             // update with the latest time
             transport.senders.values_mut().for_each(|sender_metadata| {
                 sender_metadata.sender.update(&time, &link.stats);
+                sender_metadata.message_acks.clear();
+                sender_metadata.message_nacks.clear();
+                sender_metadata.messages_sent.clear();
             });
             transport.receivers.values_mut().for_each(|receiver_metadata| {
                 receiver_metadata.receiver.update(time.elapsed());
@@ -70,7 +73,7 @@ impl TransportPlugin {
                             "message lost: {:?}",
                             message_ack.message_id
                         );
-                        sender_metadata.sender.send_nacks(message_ack.message_id);
+                        sender_metadata.message_nacks.push(message_ack.message_id);
                     }
                 }
                 Ok::<(), TransportError>(())
@@ -139,6 +142,7 @@ impl TransportPlugin {
                             sender_metadata.name,
                             message_ack
                         );
+                        sender_metadata.message_acks.push(message_ack.message_id);
                         sender_metadata.sender.receive_ack(&message_ack);
                     }
                 }
@@ -168,7 +172,6 @@ impl TransportPlugin {
             // allow split borrows
             let mut transport = &mut *transport;
 
-
             // buffer all new messages in the Sender
             transport.recv_channel.try_iter().try_for_each(|(channel_kind, bytes, priority)| {
                 let sender_metadata = transport.senders.get_mut(&channel_kind).ok_or(TransportError::ChannelNotFound(channel_kind))?;
@@ -191,7 +194,7 @@ impl TransportPlugin {
             // get the list of messages that we can send according to the bandwidth limiter
             let (single_data, fragment_data, num_bytes_added_to_limiter) = transport
                 .priority_manager
-                .priority_filter(&channel_registry, tick);
+                .priority_filter(&channel_registry, &mut transport.senders);
 
             // build actual packets from these messages
             // TODO: swap to try_for_each when available

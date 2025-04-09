@@ -3,7 +3,7 @@ use alloc::collections::BTreeMap;
 
 use crate::authority::{AuthorityPeer, HasAuthority};
 use crate::components::{InitialReplicated, Replicated, ReplicationGroupId};
-use crate::message::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
+use crate::message::{ActionsMessage, SpawnAction, UpdatesMessage};
 use crate::registry::registry::ComponentRegistry;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -41,10 +41,11 @@ pub struct ReplicationReceivePlugin;
 impl ReplicationReceivePlugin {
 
     pub(crate) fn receive_messages(
-        mut query: Query<(&mut MessageReceiver<EntityActionsMessage>, &mut MessageReceiver<EntityUpdatesMessage>, &mut ReplicationReceiver)>,
+        mut query: Query<(&mut MessageReceiver<ActionsMessage>, &mut MessageReceiver<UpdatesMessage>, &mut ReplicationReceiver)>,
     ) {
         query.par_iter_mut().for_each(|(mut actions, mut updates, mut receiver)| {
             for message in actions.receive_with_tick() {
+                info!("Received replication message: {message:?}");
                 receiver.recv_actions(message.data, message.remote_tick);
             }
             for message in updates.receive_with_tick() {
@@ -81,7 +82,7 @@ impl ReplicationReceivePlugin {
     //     });
     // }
 
-    pub(crate) fn apply_to_world(
+    pub(crate) fn apply_world(
         world: &mut World,
         query: &mut QueryState<Entity, (With<ReplicationReceiver>, With<MessageManager>, With<LocalTimeline>)>,
         // buffer to avoid allocations
@@ -136,7 +137,7 @@ impl Plugin for ReplicationReceivePlugin {
         app.add_systems(PreUpdate,
             (
                 Self::receive_messages,
-                Self::apply_to_world,
+                Self::apply_world,
             ).chain()
                 .in_set(ReplicationSet::Receive)
         );
@@ -161,6 +162,12 @@ pub struct ReplicationReceiver {
     pub(crate) last_cleanup_tick: Option<Tick>,
 }
 
+impl Default for ReplicationReceiver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReplicationReceiver {
     pub(crate) fn new() -> Self {
         Self {
@@ -173,11 +180,11 @@ impl ReplicationReceiver {
         }
     }
 
-    /// Buffer a received [`EntityActionsMessage`].
+    /// Buffer a received [`ActionsMessage`].
     ///
     /// The remote_tick is the tick at which the message was buffered and sent by the remote client.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn recv_actions(&mut self, actions: EntityActionsMessage, remote_tick: Tick) {
+    pub(crate) fn recv_actions(&mut self, actions: ActionsMessage, remote_tick: Tick) {
         trace!(
             ?actions,
             ?remote_tick,
@@ -199,11 +206,11 @@ impl ReplicationReceiver {
         trace!(?channel, "group channel after buffering");
     }
 
-    /// Buffer a received [`EntityUpdatesMessage`].
+    /// Buffer a received [`UpdatesMessage`].
     ///
     /// The remote_tick is the tick at which the message was buffered and sent by the remote client.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn recv_updates(&mut self, updates: EntityUpdatesMessage, remote_tick: Tick) {
+    pub(crate) fn recv_updates(&mut self, updates: UpdatesMessage, remote_tick: Tick) {
         trace!(?updates, ?remote_tick, "Received replication message");
         let channel = self.group_channels.entry(updates.group_id).or_default();
 
@@ -336,7 +343,6 @@ impl ReplicationReceiver {
         //     )
         // });
 
-        trace!(?current_tick, ?self.group_channels, "applying replication actions messages");
         self.group_channels
             .iter_mut()
             .for_each(|(group_id, channel)| {
@@ -378,7 +384,6 @@ impl ReplicationReceiver {
                 }
             });
 
-        trace!(?self.group_channels, "applying replication updates messages");
         self.group_channels
             .iter_mut()
             .for_each(|(group_id, channel)| {
@@ -446,7 +451,7 @@ pub struct GroupChannel {
     pub(crate) local_entities: HashSet<Entity>,
     // actions
     pub(crate) actions_pending_recv_message_id: MessageId,
-    pub(crate) actions_recv_message_buffer: BTreeMap<MessageId, (Tick, EntityActionsMessage)>,
+    pub(crate) actions_recv_message_buffer: BTreeMap<MessageId, (Tick, ActionsMessage)>,
     // updates
     pub(crate) buffered_updates: UpdatesBuffer,
     /// remote tick of the latest update/action that we applied to the local group
@@ -480,7 +485,7 @@ struct ActionsIterator<'a> {
 
 impl Iterator for ActionsIterator<'_> {
     /// The message along with the tick at which the remote message was sent
-    type Item = (Tick, EntityActionsMessage);
+    type Item = (Tick, ActionsMessage);
 
     fn next(&mut self) -> Option<Self::Item> {
         // TODO: maybe only get the message if our local client tick is >= to it? (so that we don't apply an update from the future)
@@ -512,18 +517,18 @@ impl Iterator for ActionsIterator<'_> {
 }
 
 // TODO: try a sequence buffer?
-/// Stores the [`EntityUpdatesMessage`] for a given [`ReplicationGroup`](crate::prelude::ReplicationGroup), sorted
+/// Stores the [`UpdatesMessage`] for a given [`ReplicationGroup`](crate::prelude::ReplicationGroup), sorted
 /// in descending remote tick order (the most recent tick first, the oldest tick last)
 ///
 /// The first element is the remote tick, the second is the message
 #[derive(Debug)]
-pub struct UpdatesBuffer(Vec<(Tick, EntityUpdatesMessage)>);
+pub struct UpdatesBuffer(Vec<(Tick, UpdatesMessage)>);
 
 /// Update that is given to `apply_world`
 #[derive(Debug, PartialEq)]
 struct Update {
     remote_tick: Tick,
-    message: EntityUpdatesMessage,
+    message: UpdatesMessage,
     /// If true, we don't want to apply the update to the world, because we are going
     /// to apply a more recent one
     is_history: bool,
@@ -540,7 +545,7 @@ impl UpdatesBuffer {
 
     /// Insert a new message in the right position to make sure that the buffer
     /// is still sorted in descending order
-    fn insert(&mut self, message: EntityUpdatesMessage, remote_tick: Tick) {
+    fn insert(&mut self, message: UpdatesMessage, remote_tick: Tick) {
         let index = self.0.partition_point(|(tick, _)| remote_tick < *tick);
         self.0.insert(index, (remote_tick, message));
     }
@@ -580,12 +585,12 @@ impl UpdatesBuffer {
         }
     }
     /// Pop the oldest tick from the buffer
-    fn pop_oldest(&mut self) -> Option<(Tick, EntityUpdatesMessage)> {
+    fn pop_oldest(&mut self) -> Option<(Tick, UpdatesMessage)> {
         self.0.pop()
     }
 }
 
-/// Iterator that returns all the available [`EntityUpdatesMessage`] for the current [`GroupChannel`]
+/// Iterator that returns all the available [`UpdatesMessage`] for the current [`GroupChannel`]
 ///
 /// We read from the [`UpdatesBuffer`] in ascending remote tick order:
 /// - if we have not reached the last_action_tick for a given update, we stop there
@@ -666,7 +671,7 @@ impl GroupChannel {
         remote: Option<PeerId>,
         component_registry: &mut ComponentRegistry,
         remote_tick: Tick,
-        message: EntityActionsMessage,
+        message: ActionsMessage,
         remote_entity_map: &mut RemoteEntityMap,
         local_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
     ) {
@@ -872,7 +877,7 @@ impl GroupChannel {
         component_registry: &ComponentRegistry,
         remote_tick: Tick,
         is_history: bool,
-        message: EntityUpdatesMessage,
+        message: UpdatesMessage,
         remote_entity_map: &mut RemoteEntityMap,
     ) {
         let group_id = message.group_id;
@@ -990,7 +995,7 @@ mod tests {
             .latest_tick = Some(Tick(1));
         // not even inserted because in the past compared to what we have applied
         manager.recv_updates(
-            EntityUpdatesMessage {
+            UpdatesMessage {
                 group_id,
                 last_action_tick: Some(Tick(0)),
                 updates: Default::default(),
@@ -999,7 +1004,7 @@ mod tests {
         );
         // insert some updates
         manager.recv_updates(
-            EntityUpdatesMessage {
+            UpdatesMessage {
                 group_id,
                 last_action_tick: Some(Tick(1)),
                 updates: Default::default(),
@@ -1007,7 +1012,7 @@ mod tests {
             Tick(2),
         );
         manager.recv_updates(
-            EntityUpdatesMessage {
+            UpdatesMessage {
                 group_id,
                 last_action_tick: Some(Tick(3)),
                 updates: Default::default(),
@@ -1015,7 +1020,7 @@ mod tests {
             Tick(5),
         );
         manager.recv_updates(
-            EntityUpdatesMessage {
+            UpdatesMessage {
                 group_id,
                 last_action_tick: Some(Tick(6)),
                 updates: Default::default(),
@@ -1023,7 +1028,7 @@ mod tests {
             Tick(10),
         );
         manager.recv_updates(
-            EntityUpdatesMessage {
+            UpdatesMessage {
                 group_id,
                 last_action_tick: Some(Tick(6)),
                 updates: Default::default(),
@@ -1050,7 +1055,7 @@ mod tests {
             it.next().unwrap(),
             Update {
                 remote_tick: Tick(2),
-                message: EntityUpdatesMessage {
+                message: UpdatesMessage {
                     group_id,
                     last_action_tick: Some(Tick(1)),
                     updates: Default::default(),
@@ -1084,7 +1089,7 @@ mod tests {
             it.next().unwrap(),
             Update {
                 remote_tick: Tick(5),
-                message: EntityUpdatesMessage {
+                message: UpdatesMessage {
                     group_id,
                     last_action_tick: Some(Tick(3)),
                     updates: Default::default(),
@@ -1096,7 +1101,7 @@ mod tests {
             it.next().unwrap(),
             Update {
                 remote_tick: Tick(10),
-                message: EntityUpdatesMessage {
+                message: UpdatesMessage {
                     group_id,
                     last_action_tick: Some(Tick(6)),
                     updates: Default::default(),
@@ -1108,7 +1113,7 @@ mod tests {
             it.next().unwrap(),
             Update {
                 remote_tick: Tick(15),
-                message: EntityUpdatesMessage {
+                message: UpdatesMessage {
                     group_id,
                     last_action_tick: Some(Tick(6)),
                     updates: Default::default(),
@@ -1127,7 +1132,7 @@ mod tests {
         let group_id = ReplicationGroupId(0);
         // recv an actions message that is too old: should be ignored
         manager.recv_actions(
-            EntityActionsMessage {
+            ActionsMessage {
                 group_id,
                 sequence_id: MessageId(0) - 1,
                 actions: Default::default(),
@@ -1151,7 +1156,7 @@ mod tests {
 
         // recv an actions message: in order, should be buffered
         manager.recv_actions(
-            EntityActionsMessage {
+            ActionsMessage {
                 group_id: ReplicationGroupId(0),
                 sequence_id: MessageId(0),
                 actions: Default::default(),
@@ -1167,7 +1172,7 @@ mod tests {
 
         // add an updates message
         manager.recv_updates(
-            EntityUpdatesMessage {
+            UpdatesMessage {
                 group_id: ReplicationGroupId(0),
                 last_action_tick: Some(Tick(0)),
                 updates: Default::default(),
@@ -1183,7 +1188,7 @@ mod tests {
                 .0,
             vec![(
                 Tick(1),
-                EntityUpdatesMessage {
+                UpdatesMessage {
                     group_id: ReplicationGroupId(0),
                     last_action_tick: Some(Tick(0)),
                     updates: Default::default(),
@@ -1193,7 +1198,7 @@ mod tests {
 
         // add updates before actions (last_action_tick is 2)
         manager.recv_updates(
-            EntityUpdatesMessage {
+            UpdatesMessage {
                 group_id: ReplicationGroupId(0),
                 last_action_tick: Some(Tick(3)),
                 updates: Default::default(),
@@ -1210,7 +1215,7 @@ mod tests {
             vec![
                 (
                     Tick(5),
-                    EntityUpdatesMessage {
+                    UpdatesMessage {
                         group_id: ReplicationGroupId(0),
                         last_action_tick: Some(Tick(3)),
                         updates: Default::default(),
@@ -1218,7 +1223,7 @@ mod tests {
                 ),
                 (
                     Tick(1),
-                    EntityUpdatesMessage {
+                    UpdatesMessage {
                         group_id: ReplicationGroupId(0),
                         last_action_tick: Some(Tick(0)),
                         updates: Default::default(),
@@ -1243,7 +1248,7 @@ mod tests {
 
         // recv actions-3: should be buffered, we are still waiting for actions-2
         manager.recv_actions(
-            EntityActionsMessage {
+            ActionsMessage {
                 group_id: ReplicationGroupId(0),
                 sequence_id: MessageId(2),
                 actions: Default::default(),
@@ -1254,7 +1259,7 @@ mod tests {
         assert!(manager.read_actions(Tick(2)).next().is_none());
         // recv actions-2: we should now be able to read actions-2, actions-3, updates-4
         manager.recv_actions(
-            EntityActionsMessage {
+            ActionsMessage {
                 group_id: ReplicationGroupId(0),
                 sequence_id: MessageId(1),
                 actions: Default::default(),
@@ -1286,7 +1291,7 @@ mod tests {
         let group_id = ReplicationGroupId(0);
         // recv an actions message that is too old: should be ignored
         manager.recv_actions(
-            EntityActionsMessage {
+            ActionsMessage {
                 group_id,
                 sequence_id: MessageId(0) - 1,
                 actions: Default::default(),
@@ -1310,7 +1315,7 @@ mod tests {
 
         // recv an actions message: in order, should be buffered
         manager.recv_actions(
-            EntityActionsMessage {
+            ActionsMessage {
                 group_id: ReplicationGroupId(0),
                 sequence_id: MessageId(0),
                 actions: Default::default(),
@@ -1326,7 +1331,7 @@ mod tests {
 
         // add an updates message
         manager.recv_updates(
-            EntityUpdatesMessage {
+            UpdatesMessage {
                 group_id: ReplicationGroupId(0),
                 last_action_tick: Some(Tick(0)),
                 updates: Default::default(),
@@ -1342,7 +1347,7 @@ mod tests {
                 .0,
             vec![(
                 Tick(1),
-                EntityUpdatesMessage {
+                UpdatesMessage {
                     group_id: ReplicationGroupId(0),
                     last_action_tick: Some(Tick(0)),
                     updates: Default::default(),
@@ -1352,7 +1357,7 @@ mod tests {
 
         // add updates before actions (last_action_tick is 3)
         manager.recv_updates(
-            EntityUpdatesMessage {
+            UpdatesMessage {
                 group_id: ReplicationGroupId(0),
                 last_action_tick: Some(Tick(3)),
                 updates: Default::default(),
@@ -1369,7 +1374,7 @@ mod tests {
             vec![
                 (
                     Tick(5),
-                    EntityUpdatesMessage {
+                    UpdatesMessage {
                         group_id: ReplicationGroupId(0),
                         last_action_tick: Some(Tick(3)),
                         updates: Default::default(),
@@ -1377,7 +1382,7 @@ mod tests {
                 ),
                 (
                     Tick(1),
-                    EntityUpdatesMessage {
+                    UpdatesMessage {
                         group_id: ReplicationGroupId(0),
                         last_action_tick: Some(Tick(0)),
                         updates: Default::default(),
@@ -1412,8 +1417,8 @@ mod tests {
                 .buffered_updates
                 .0,
             vec![(
-                Tick(5),
-                EntityUpdatesMessage {
+                     Tick(5),
+                     UpdatesMessage {
                     group_id: ReplicationGroupId(0),
                     last_action_tick: Some(Tick(3)),
                     updates: Default::default(),
@@ -1433,7 +1438,7 @@ mod tests {
 
         // recv actions-3: should be buffered, we are still waiting for actions-2
         manager.recv_actions(
-            EntityActionsMessage {
+            ActionsMessage {
                 group_id: ReplicationGroupId(0),
                 sequence_id: MessageId(2),
                 actions: Default::default(),
@@ -1460,7 +1465,7 @@ mod tests {
 
         // recv actions-2: we should now be able to read actions-2, actions-3, updates-4
         manager.recv_actions(
-            EntityActionsMessage {
+            ActionsMessage {
                 group_id: ReplicationGroupId(0),
                 sequence_id: MessageId(1),
                 actions: Default::default(),
@@ -1495,7 +1500,7 @@ mod tests {
         let local_entity = world.spawn_empty().id();
         let mut component_registry = ComponentRegistry::default();
         let mut events = ConnectionEvents::default();
-        let replication = EntityActionsMessage {
+        let replication = ActionsMessage {
             group_id: ReplicationGroupId(0),
             sequence_id: MessageId(0),
             actions: vec![(

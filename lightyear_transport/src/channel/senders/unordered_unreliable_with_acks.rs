@@ -9,7 +9,7 @@ use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
 use bytes::Bytes;
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Sender;
 use lightyear_link::LinkStats;
 
 const DISCARD_AFTER: Duration = Duration::from_millis(3000);
@@ -117,45 +117,12 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
 
     /// Notify any subscribers that a message was acked
     fn receive_ack(&mut self, ack: &MessageAck) {
-        ack.fragment_id.map_or_else(
-            || {
-                for sender in &self.ack_senders {
-                    sender.send(ack.message_id).unwrap();
-                }
-            },
-            |fragment_index| {
-                if self.fragment_ack_receiver.receive_fragment_ack(
-                    ack.message_id,
-                    fragment_index,
-                    None,
-                ) {
-                    for sender in &self.ack_senders {
-                        sender.send(ack.message_id).unwrap();
-                    }
-                }
-            },
-        );
-    }
-
-    /// Create a new receiver that will receive a message id when a message is acked
-    fn subscribe_acks(&mut self) -> Receiver<MessageId> {
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        self.ack_senders.push(sender);
-        receiver
-    }
-
-    /// Create a new receiver that will receive a message id when a sent message on this channel
-    /// has been lost by the remote peer
-    fn subscribe_nacks(&mut self) -> Receiver<MessageId> {
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        self.nack_senders.push(sender);
-        receiver
-    }
-
-    /// Send nacks to the subscribers of nacks
-    fn send_nacks(&mut self, nack: MessageId) {
-        for sender in &self.nack_senders {
-            sender.send(nack).unwrap();
+        if let Some(fragment_index) = ack.fragment_id {
+            self.fragment_ack_receiver.receive_fragment_ack(
+                ack.message_id,
+                fragment_index,
+                None,
+            );
         }
     }
 }

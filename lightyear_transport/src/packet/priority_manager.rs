@@ -4,7 +4,9 @@ use alloc::{vec, vec::Vec};
 use core::num::NonZeroU32;
 use lightyear_utils::collections::HashMap;
 
+use crate::channel::builder::SenderMetadata;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
+use crate::channel::ChannelKind;
 use crate::packet::message::{FragmentData, MessageData, MessageId, SendMessage, SingleData};
 use crossbeam_channel::{Receiver, Sender};
 use governor::{DefaultDirectRateLimiter, Quota};
@@ -53,9 +55,6 @@ pub(crate) struct PriorityManager {
     data_to_send: Vec<(NetId, (VecDeque<SendMessage>, VecDeque<SendMessage>))>,
     // Messages that could not be sent because of the bandwidth quota
     // buffered_data: Vec<BufferedMessage>,
-    /// List of senders to notify when a replication update message is actually sent (included in packet)
-    replication_update_senders: Vec<Sender<MessageId>>,
-
 }
 
 impl Default for PriorityManager {
@@ -73,16 +72,7 @@ impl PriorityManager {
             limiter: DefaultDirectRateLimiter::direct(quota),
             // data_to_send: BTreeMap::new(),
             // buffered_data: Vec::new(),
-            replication_update_senders: Vec::new(),
         }
-    }
-
-    /// Create a channel to notify when a replication update message is actually sent (included in packet)
-    /// (as opposed to dropped because of the bandwidth quota)
-    pub(crate) fn subscribe_replication_update_sent_messages(&mut self) -> Receiver<MessageId> {
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        self.replication_update_senders.push(sender);
-        receiver
     }
 
     pub(crate) fn buffer_messages(
@@ -104,7 +94,7 @@ impl PriorityManager {
     pub(crate) fn priority_filter(
         &mut self,
         channel_registry: &ChannelRegistry,
-        tick: Tick,
+        senders: &mut HashMap<ChannelKind, SenderMetadata>
     ) -> (
         Vec<(ChannelId, VecDeque<SingleData>)>,
         Vec<(ChannelId, VecDeque<FragmentData>)>,
@@ -205,18 +195,11 @@ impl PriorityManager {
             bytes_used += message_bytes;
 
             // notify the replication sender that the message was actually sent
-            if channel_registry.is_replication_update_channel(buffered_message.channel_net_id) {
-                // SAFETY: we are guaranteed in this situation to have a message id (because we use the unreliable with acks sender)
-                let message_id = buffered_message.data.message_id().unwrap();
-                for sender in self.replication_update_senders.iter() {
-                    trace!(
-                        ?message_id,
-                        "notifying replication sender that a message was actually sent."
-                    );
-                    let _ = sender.send(message_id).map_err(|e| {
-                        error!("error notifying replication sender that a message was actually sent: {:?}", e)
-                    });
-                }
+            if let Some(message_id) = buffered_message.data.message_id() {
+                let channel_kind = channel_registry
+                    .get_kind_from_net_id(buffered_message.channel_net_id)
+                    .unwrap();
+                senders.get_mut(channel_kind).unwrap().messages_sent.push(message_id);
             }
 
             // the message is allowed, add it to the list of messages to send

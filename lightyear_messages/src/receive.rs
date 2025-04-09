@@ -13,7 +13,7 @@ use lightyear_serde::ToBytes;
 use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::Transport;
-use tracing::error;
+use tracing::{error, trace};
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -29,6 +29,7 @@ pub struct MessageReceiver<M> {
     recv: Vec<ReceivedMessage<M>>
 }
 
+#[derive(Debug)]
 pub struct ReceivedMessage<M> {
     pub data: M,
     /// Tick on the remote peer when the message was sent,
@@ -96,6 +97,7 @@ impl<M: Message> MessageReceiver<M> {
             channel_kind,
             message_id,
         };
+        trace!("Pushing message {:?} on channel {channel_kind:?}", core::any::type_name::<M>());
         receiver.recv.push(received_message);
         Ok(())
     }
@@ -123,6 +125,7 @@ impl MessagePlugin {
             transport.receivers.values_mut().try_for_each(|receiver_metadata| {
                 let channel_kind = receiver_metadata.channel_kind;
                 while let Some((tick, bytes, message_id)) = receiver_metadata.receiver.read_message() {
+                    trace!("Received message {message_id:?} on channel {channel_kind:?}");
                     let mut reader = Reader::from(bytes);
                     // we receive the message NetId, and then deserialize the message
                     let message_net_id = MessageNetId::from_bytes(&mut reader)?;

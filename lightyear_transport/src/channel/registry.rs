@@ -86,23 +86,6 @@ impl ChannelRegistry {
         self.settings_map.get(kind)
     }
 
-    /// Returns true if the net_id corresponds to a channel that is used for replication
-    pub(crate) fn is_replication_channel(&self, net_id: NetId) -> bool {
-        todo!()
-        // self.kind_map.kind(net_id).is_some_and(|kind| {
-        //     *kind == ChannelKind::of::<EntityUpdatesChannel>()
-        //         || *kind == ChannelKind::of::<EntityActionsChannel>()
-        // })
-    }
-
-    /// Returns true if the net_id corresponds to a channel that is used for replicating updates
-    pub(crate) fn is_replication_update_channel(&self, net_id: NetId) -> bool {
-        todo!()
-        // self.kind_map
-        //     .kind(net_id)
-        //     .is_some_and(|kind| *kind == ChannelKind::of::<EntityUpdatesChannel>())
-    }
-
     pub fn kind_map(&self) -> TypeMapper<ChannelKind> {
         self.kind_map.clone()
     }
@@ -142,7 +125,6 @@ impl<C> ChannelRegistration<'_, C> {
             _marker: core::marker::PhantomData,
         }
     }
-
 }
 
 

@@ -18,6 +18,7 @@ use lightyear_core::tick::Tick;
 use lightyear_netcode::auth::Authentication;
 use lightyear_netcode::client_plugin::NetcodeConfig;
 use lightyear_netcode::{NetcodeClient, NetcodeServer};
+use lightyear_replication::prelude::{ReplicationReceiver, ReplicationSender};
 use lightyear_server::plugin::ServerPlugins;
 use lightyear_server::Server;
 
@@ -73,7 +74,8 @@ impl ClientServerStepper {
         };
         let client_entity = client_app.world_mut().spawn((
             Client,
-            // ReplicationSender::default(),
+            ReplicationSender::default(),
+            ReplicationReceiver::default(),
             NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
             crossbeam_client,
         )).id();
@@ -98,6 +100,8 @@ impl ClientServerStepper {
                 server: server_entity,
                 id: PeerId::Entity,
             },
+            ReplicationSender::default(),
+            ReplicationReceiver::default(),
             crossbeam_server
         )).id();
 

@@ -52,6 +52,7 @@ pub enum ReplicationMode {
 /// - If sender is an Entity that has a ReplicationSender, we will replicate on that entity
 /// - If the entity is None, we will try to find a unique ReplicationSender in the app
 #[derive(Component, Clone, Default, Debug, PartialEq)]
+#[component(on_add = Replicate::on_add)]
 pub struct Replicate {
     mode: ReplicationMode,
     pub(crate) senders: EntityIndexSet,
@@ -109,6 +110,7 @@ impl Replicate {
                         error!("No Client found in the world");
                         return;
                     };
+                    debug!("Adding replicated entity {} to sender {}", context.entity, sender_entity);
                     sender.add_replicated_entity(context.entity);
                     replicate.senders.insert(sender_entity);
                 }
@@ -185,6 +187,7 @@ pub struct ReplicatedEntities{
 pub(crate) fn replicate(
     // query &C + various replication components
     entity_query: Query<FilteredEntityRef>,
+    // TODO: should we put the DeltaManager in the same component?
     mut manager_query: Query<(&mut ReplicationSender, &mut DeltaManager, &mut MessageManager, &LocalTimeline)>,
     component_registry: Res<ComponentRegistry>,
     system_ticks: SystemChangeTick,

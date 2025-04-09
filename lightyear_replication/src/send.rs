@@ -1,9 +1,9 @@
 //! General struct handling replication
 use core::iter::Extend;
 
-use super::message::{EntityActions, EntityActionsChannel, EntityUpdatesChannel, SendEntityActionsMessage, SendEntityUpdatesMessage, SpawnAction};
+use super::message::{ActionsChannel, EntityActions, SendEntityActionsMessage, SpawnAction, UpdatesChannel, UpdatesSendMessage};
 #[cfg(test)]
-use super::message::{EntityActionsMessage, EntityUpdatesMessage};
+use super::message::{ActionsMessage, UpdatesMessage};
 use crate::authority::HasAuthority;
 use crate::buffer;
 use crate::buffer::{replicate, Replicate};
@@ -21,15 +21,16 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHash, EntityIndexSet, UniqueEntityVec};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy::platform_support::collections::HashMap;
-use bevy::prelude::{ChildOf, Component, Entity, IntoScheduleConfigs, Query, Real, Reflect, Res, ResMut, Resource, SystemParamBuilder, SystemSet, Time, Timer, TimerMode, With};
+use bevy::prelude::{ChildOf, Component, Entity, IntoScheduleConfigs, Query, Real, Reflect, Res, ResMut, Resource, SystemParamBuilder, SystemSet, Time, Timer, TimerMode, Trigger, With};
 use bevy::ptr::Ptr;
 use bevy::time::common_conditions::on_timer;
 use bytes::Bytes;
 use core::time::Duration;
 use crossbeam_channel::Receiver;
 use lightyear_connection::prelude::NetworkDirection;
-use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::prelude::{LocalTimeline, Timeline};
 use lightyear_core::tick::Tick;
+use lightyear_core::time::SetTickDuration;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageManager, MessageReceiver, MessageSender};
@@ -39,6 +40,7 @@ use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::packet::error::PacketError;
 use lightyear_transport::packet::message::MessageId;
+use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::{ChannelRegistry, Transport};
 use tracing::{debug, error, trace, warn};
 #[cfg(feature = "trace")]
@@ -110,32 +112,46 @@ pub(crate) struct SendIntervalTimer {
 }
 
 impl ReplicationSendPlugin {
-
     fn send_replication_messages(
         time: Res<Time<Real>>,
         change_tick: SystemChangeTick,
         mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline)>,
     ) {
         query.par_iter_mut().for_each(|(mut sender, mut transport, timeline)| {
+            let bevy_tick = change_tick.this_run();
+            let update_nacks = &mut transport.senders.get_mut(&ChannelKind::of::<UpdatesChannel>()).unwrap().message_nacks;
+            sender.update(bevy_tick, update_nacks);
+
             // TODO: also tick ReplicationGroups?
             sender.send_timer.tick(time.delta());
             if sender.send_timer.finished() {
                 sender.send_timer.reset();
-
                 sender.accumulate_priority(&time);
                 sender.send_actions_messages(
                     timeline.tick(),
-                    change_tick.this_run(),
+                    bevy_tick,
                     &mut transport
                 ).inspect_err(|e| error!("Error buffering ActionsMessage: {e:?}")).ok();
                 sender.send_updates_messages(
                     timeline.tick(),
-                    change_tick.this_run(),
+                    bevy_tick,
                     &mut transport
                 ).inspect_err(|e| error!("Error buffering UpdatesMessage: {e:?}")).ok();
             }
         });
     }
+
+    /// Check which replication messages were actually sent, and update the
+    /// priority accordingly
+    fn update_priority(
+        mut query: Query<(&mut ReplicationSender, &mut Transport)>,
+    ) {
+        query.par_iter_mut().for_each(|(mut sender, mut transport)| {
+            let messages_sent = &mut transport.senders.get_mut(&ChannelKind::of::<UpdatesChannel>()).unwrap().messages_sent;
+            sender.recv_send_notification(messages_sent);
+        });
+    }
+
 
     // /// Tick the internal timers of all replication groups.
     // fn tick_replication_group_timers(
@@ -199,6 +215,7 @@ impl Plugin for ReplicationSendPlugin {
         app.add_observer(buffer::buffer_entity_despawn);
 
         app.add_systems(PostUpdate, Self::send_replication_messages.in_set(ReplicationBufferSet::Flush));
+        app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
 
         // app.add_systems(
         //     PostUpdate,
@@ -281,14 +298,10 @@ impl Plugin for ReplicationSendPlugin {
 #[derive(Component, Debug)]
 #[require(Transport)]
 #[require(LocalTimeline)]
+#[require(DeltaManager)]
 pub struct ReplicationSender {
     pub(crate) replicated_entities: EntityIndexSet,
     pub(crate) writer: Writer,
-    /// Get notified whenever a message-id that was sent has been received by the remote
-    pub(crate) updates_ack_receiver: Receiver<MessageId>,
-    /// Get notified whenever a message-id that was sent has been lost by the remote
-    pub(crate) updates_nack_receiver: Receiver<MessageId>,
-
     /// Map from message-id to the corresponding group-id that sent this update message, as well as the `send_tick` BevyTick
     /// when we buffered the message. (so that when it's acked, we know we only need to include updates that happened after that tick,
     /// for that replication group)
@@ -298,26 +311,26 @@ pub struct ReplicationSender {
     pub group_with_updates: EntityHashSet<ReplicationGroupId>,
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
-
-    // PRIORITY
-    /// Get notified whenever a message for a given ReplicationGroup was actually sent
-    /// (sometimes they might not be sent because of bandwidth constraints)
-    ///
-    /// We update the `send_tick` only when the message was actually sent.
-    pub message_send_receiver: Receiver<MessageId>,
-
     /// Tick when we last did a cleanup
     send_timer: Timer,
     pub(crate) last_cleanup_tick: Option<Tick>,
     send_updates_mode: SendUpdatesMode,
+    // TODO: detect automatically if priority manager is enabled!
     bandwidth_cap_enabled: bool,
 }
 
+impl Default for ReplicationSender {
+    fn default() -> Self {
+        Self::new(
+            Duration::default(),
+            SendUpdatesMode::SinceLastAck,
+            false,
+        )
+    }
+}
+
 impl ReplicationSender {
-    pub(crate) fn new(
-        updates_ack_receiver: Receiver<MessageId>,
-        updates_nack_receiver: Receiver<MessageId>,
-        message_send_receiver: Receiver<MessageId>,
+    pub fn new(
         send_interval: Duration,
         send_updates_mode: SendUpdatesMode,
         bandwidth_cap_enabled: bool,
@@ -326,8 +339,6 @@ impl ReplicationSender {
             // SEND
             replicated_entities: EntityIndexSet::default(),
             writer: Writer::default(),
-            updates_ack_receiver,
-            updates_nack_receiver,
             updates_message_id_to_group_id: Default::default(),
             group_with_actions: EntityHashSet::default(),
             group_with_updates: EntityHashSet::default(),
@@ -337,7 +348,6 @@ impl ReplicationSender {
             // PRIORITY
             send_timer: Timer::new(send_interval, TimerMode::Repeating),
             last_cleanup_tick: None,
-            message_send_receiver,
             bandwidth_cap_enabled,
         }
     }
@@ -362,9 +372,9 @@ impl ReplicationSender {
 
     /// Internal bookkeeping:
     /// 1. handle all nack update messages (by resetting the send_tick to the previous ack_tick)
-    pub(crate) fn update(&mut self, world_tick: BevyTick) {
+    pub(crate) fn update(&mut self, world_tick: BevyTick, update_nacks: &mut Vec<MessageId>) {
         // 1. handle all nack update messages
-        while let Ok(message_id) = self.updates_nack_receiver.try_recv() {
+        update_nacks.drain(..).for_each(|message_id| {
             // remember to remove the entry from the map to avoid memory leakage
             match self.updates_message_id_to_group_id.remove(&message_id)
             { Some(UpdateMessageMetadata {
@@ -399,7 +409,7 @@ impl ReplicationSender {
                 // NOTE: this happens when a message-id is split between multiple packets (fragmented messages)
                 trace!("Received an update message-id nack ({message_id:?}) but we don't know the corresponding group id");
             }}
-        }
+        })
     }
 
     /// If we got notified that an update got send (included in a packet):
@@ -409,12 +419,11 @@ impl ReplicationSender {
     ///
     /// This should be call after the Send SystemSet.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn recv_send_notification(&mut self) {
+    pub(crate) fn recv_send_notification(&mut self, messages_sent: &mut Vec<MessageId>) {
         if !self.bandwidth_cap_enabled {
             return;
         }
-        // TODO: handle errors that are not channel::isEmpty
-        while let Ok(message_id) = self.message_send_receiver.try_recv() {
+        messages_sent.drain(..).for_each(|message_id| {
             match self.updates_message_id_to_group_id.get(&message_id)
             { Some(UpdateMessageMetadata {
                 group_id,
@@ -439,7 +448,7 @@ impl ReplicationSender {
                     "Received an send message-id notification but we don't know the corresponding group id"
                 );
             }}
-        }
+        })
     }
 
     // TODO: call this in a system after receive?
@@ -452,9 +461,9 @@ impl ReplicationSender {
         &mut self,
         component_registry: &ComponentRegistry,
         delta_manager: &mut DeltaManager,
+        update_acks: &mut Vec<MessageId>,
     ) {
-        // TODO: handle errors that are not channel::isEmpty
-        while let Ok(message_id) = self.updates_ack_receiver.try_recv() {
+        update_acks.drain(..).for_each(|message_id| {
             // remember to remove the entry from the map to avoid memory leakage
             match self.updates_message_id_to_group_id.remove(&message_id)
             { Some(UpdateMessageMetadata {
@@ -482,7 +491,7 @@ impl ReplicationSender {
             } _ => {
                 error!("Received an update message-id ack but we don't know the corresponding group id");
             }}
-        }
+        })
     }
 
     /// Do some internal bookkeeping:
@@ -826,7 +835,7 @@ impl ReplicationSender {
             // message.emit_send_logs("EntityActionsChannel");
             message.to_bytes(&mut self.writer).map_err(SerializationError::from)?;
             let message_bytes = self.writer.split();
-            let message_id = sender.send_mut_with_priority::<EntityActionsChannel>(
+            let message_id = sender.send_mut_with_priority::<ActionsChannel>(
                 message_bytes,
                 priority
             )?
@@ -861,7 +870,7 @@ impl ReplicationSender {
             let updates = core::mem::take(&mut channel.pending_updates);
             trace!(?group_id, "pending updates: {:?}", updates);
             let priority = channel.accumulated_priority;
-            let message = SendEntityUpdatesMessage {
+            let message = UpdatesSendMessage {
                 group_id,
                 // TODO: as an optimization (to avoid 1 byte for the Option), we can use `last_action_tick = tick`
                 //  to signify that there is no constraint!
@@ -876,7 +885,7 @@ impl ReplicationSender {
             message.to_bytes(&mut self.writer).map_err(SerializationError::from)?;
             let message_bytes = self.writer.split();
             let message_id = transport
-                .send_mut_with_priority::<EntityUpdatesChannel>(
+                .send_mut_with_priority::<UpdatesChannel>(
                     message_bytes,
                     priority,
                 )?
@@ -1387,7 +1396,7 @@ mod tests {
         assert_eq!(
             u,
             &(
-                EntityUpdatesMessage {
+                UpdatesMessage {
                     group_id: group_2,
                     last_action_tick: Some(Tick(3)),
                     updates: vec![(entity_3, vec![raw_4])],

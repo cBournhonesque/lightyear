@@ -7,7 +7,6 @@ use crate::prelude::{ChannelMode, ChannelSettings};
 use alloc::collections::VecDeque;
 use bevy::prelude::{Real, Time};
 use bytes::Bytes;
-use crossbeam_channel::Receiver;
 use enum_dispatch::enum_dispatch;
 use lightyear_link::LinkStats;
 
@@ -45,16 +44,6 @@ pub trait ChannelSend {
 
     /// Called when we receive acknowledgement that a Message has been received
     fn receive_ack(&mut self, message_ack: &MessageAck);
-
-    /// Create a new receiver that will receive a message id when a sent message is acked
-    fn subscribe_acks(&mut self) -> Receiver<MessageId>;
-
-    /// Create a new receiver that will receive a message id when a sent message on this channel
-    /// has been lost by the remote peer
-    fn subscribe_nacks(&mut self) -> Receiver<MessageId>;
-
-    /// Send nacks to the subscribers of nacks
-    fn send_nacks(&mut self, nack: MessageId);
 }
 
 /// Enum dispatch lets us derive ChannelSend on each enum variant

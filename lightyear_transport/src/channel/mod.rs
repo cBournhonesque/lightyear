@@ -11,6 +11,5 @@ pub mod senders;
 pub mod stats;
 pub mod registry;
 
-
 pub trait Channel: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> Channel for T {}

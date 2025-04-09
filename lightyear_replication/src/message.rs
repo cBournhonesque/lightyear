@@ -16,11 +16,11 @@ use alloc::vec::Vec;
 /// Default channel to replicate entity actions.
 /// This is an Unordered Reliable channel.
 /// (SpawnEntity, DespawnEntity, InsertComponent, RemoveComponent)
-pub struct EntityActionsChannel;
+pub struct ActionsChannel;
 
 /// Default channel to replicate entity updates (ComponentUpdate)
 /// This is a Sequenced Unreliable channel
-pub struct EntityUpdatesChannel;
+pub struct UpdatesChannel;
 
 /// All the entity actions (Spawn/despawn/inserts/removals) for a single entity
 #[derive(Clone, PartialEq, Debug)]
@@ -148,7 +148,7 @@ impl ToBytes for SendEntityActionsMessage {
 //  have an optimization for that
 /// All the entity actions (Spawn/despawn/inserts/removals) for the entities of a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
 #[derive(Clone, PartialEq, Debug)]
-pub struct EntityActionsMessage {
+pub struct ActionsMessage {
     pub(crate) sequence_id: MessageId,
     pub(crate) group_id: ReplicationGroupId,
     // TODO: for better compression, we should use columnar storage
@@ -156,7 +156,7 @@ pub struct EntityActionsMessage {
     pub(crate) actions: Vec<(Entity, EntityActions)>,
 }
 
-impl ToBytes for EntityActionsMessage {
+impl ToBytes for ActionsMessage {
     fn bytes_len(&self) -> usize {
         self.sequence_id.bytes_len() + self.group_id.bytes_len() + self.actions.bytes_len()
     }
@@ -179,7 +179,7 @@ impl ToBytes for EntityActionsMessage {
 
 /// Same as EntityUpdatesMessage, but avoids having to convert a hashmap into a vec
 #[derive(Clone, PartialEq, Debug)]
-pub struct SendEntityUpdatesMessage {
+pub struct UpdatesSendMessage {
     pub(crate) group_id: ReplicationGroupId,
     /// The last tick for which we sent an EntityActionsMessage for this group
     /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
@@ -192,7 +192,7 @@ pub struct SendEntityUpdatesMessage {
     // diff_updates: Vec<(Entity, Vec<RawData>)>,
 }
 
-impl ToBytes for SendEntityUpdatesMessage {
+impl ToBytes for UpdatesSendMessage {
     fn bytes_len(&self) -> usize {
         self.group_id.bytes_len() + self.last_action_tick.bytes_len() + self.updates.bytes_len()
     }
@@ -218,7 +218,7 @@ impl ToBytes for SendEntityUpdatesMessage {
 
 /// All the component updates for the entities of a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
 #[derive(Clone, PartialEq, Debug)]
-pub struct EntityUpdatesMessage {
+pub struct UpdatesMessage {
     pub(crate) group_id: ReplicationGroupId,
     /// The last tick for which we sent an EntityActionsMessage for this group
     /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
@@ -231,7 +231,7 @@ pub struct EntityUpdatesMessage {
     // diff_updates: Vec<(Entity, Vec<RawData>)>,
 }
 
-impl ToBytes for EntityUpdatesMessage {
+impl ToBytes for UpdatesMessage {
     fn bytes_len(&self) -> usize {
         self.group_id.bytes_len() + self.last_action_tick.bytes_len() + self.updates.bytes_len()
     }

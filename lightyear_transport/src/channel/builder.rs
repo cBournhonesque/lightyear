@@ -61,7 +61,7 @@ pub struct Transport {
     //  Also then we would only add the receiver/sender that we need!
     //  This should be independent from server or client, so it should
     pub receivers: HashMap<ChannelId, ReceiverMetadata>,
-    pub(crate) senders: HashMap<ChannelKind, SenderMetadata>,
+    pub senders: HashMap<ChannelKind, SenderMetadata>,
     /// PriorityManager shared between all channels of this transport
     pub(crate) priority_manager: PriorityManager,
     /// PacketBuilder shared between all channels of this transport
@@ -119,6 +119,9 @@ impl Transport {
             ChannelKind::of::<C>(),
             SenderMetadata {
                 sender,
+                message_acks: vec![],
+                message_nacks: vec![],
+                messages_sent: vec![],
                 channel_id,
                 mode,
                 name: core::any::type_name::<C>(),
@@ -188,9 +191,18 @@ pub struct ReceiverMetadata {
 }
 
 
-pub(crate) struct SenderMetadata {
+#[doc(hidden)]
+pub struct SenderMetadata {
     /// The component id of the ChannelSender<C> component
     pub sender: ChannelSenderEnum,
+    // TODO: these are currently only used by EntityUpdatesChannel. Maybe limit their computation only to that channel?
+    /// List of messages that have been acked; is cleared every frame.
+    pub message_acks: Vec<MessageId>,
+    /// List of messages that have been nacked; is cleared every frame.
+    pub message_nacks: Vec<MessageId>,
+    /// List of messages that have been sent; is cleared every frame. Note that buffering a message via ChannelSender::send does
+    /// not guarantee that the message will actually be sent, because of the PriorityManager.
+    pub messages_sent: Vec<MessageId>,
     pub(crate) channel_id: ChannelId,
     pub(crate) mode: ChannelMode,
     pub(crate) name: &'static str,

@@ -64,11 +64,6 @@ pub struct ReliableSender {
 
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
-
-    /// List of senders that want to be notified when a message is acked
-    ack_senders: Vec<Sender<MessageId>>,
-    /// List of senders that want to be notified when a message is lost
-    nack_senders: Vec<Sender<MessageId>>,
     current_rtt: Duration,
     current_time: Duration,
     /// Internal timer to determine if the channel is ready to send messages
@@ -93,8 +88,6 @@ impl ReliableSender {
             fragmented_messages_to_send: Default::default(),
             message_ids_to_send: Default::default(),
             fragment_sender: FragmentSender::new(),
-            ack_senders: vec![],
-            nack_senders: vec![],
             current_rtt: Duration::default(),
             current_time: Duration::default(),
             timer,
@@ -285,9 +278,6 @@ impl ChannelSend for ReliableSender {
                             "Received a message ack for a fragment but message is a single message"
                         )
                     }
-                    for sender in &self.ack_senders {
-                        sender.send(message_ack.message_id).unwrap();
-                    }
                     self.unacked_messages.remove(&message_ack.message_id);
                 }
                 UnackedMessage::Fragmented(fragment_acks) => {
@@ -300,35 +290,10 @@ impl ChannelSend for ReliableSender {
                         // all fragments were acked
                         if fragment_acks.iter().all(|f| f.acked) {
                             self.unacked_messages.remove(&message_ack.message_id);
-                            for sender in &self.ack_senders {
-                                sender.send(message_ack.message_id).unwrap();
-                            }
                         }
                     }
                 }
             }
-        }
-    }
-
-    /// Create a new receiver that will receive a message id when a message is acked
-    fn subscribe_acks(&mut self) -> Receiver<MessageId> {
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        self.ack_senders.push(sender);
-        receiver
-    }
-
-    /// Create a new receiver that will receive a message id when a sent message on this channel
-    /// has been lost by the remote peer
-    fn subscribe_nacks(&mut self) -> Receiver<MessageId> {
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        self.nack_senders.push(sender);
-        receiver
-    }
-
-    /// Send nacks to the subscribers of nacks
-    fn send_nacks(&mut self, nack: MessageId) {
-        for sender in &self.nack_senders {
-            sender.send(nack).unwrap();
         }
     }
 }

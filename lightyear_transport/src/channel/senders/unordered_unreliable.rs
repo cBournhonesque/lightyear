@@ -9,7 +9,6 @@ use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
 use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
 use bytes::Bytes;
-use crossbeam_channel::{Receiver, Sender};
 use lightyear_link::LinkStats;
 
 /// A sender that simply sends the messages without checking if they were received
@@ -25,8 +24,6 @@ pub struct UnorderedUnreliableSender {
     next_send_fragmented_message_id: MessageId,
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
-    /// List of senders that want to be notified when a message is lost
-    nack_senders: Vec<Sender<MessageId>>,
     /// Internal timer to determine if the channel is ready to send messages
     timer: Option<Timer>,
 }
@@ -43,7 +40,6 @@ impl UnorderedUnreliableSender {
             fragmented_messages_to_send: VecDeque::new(),
             next_send_fragmented_message_id: MessageId::default(),
             fragment_sender: FragmentSender::new(),
-            nack_senders: vec![],
             timer,
         }
     }
@@ -102,25 +98,6 @@ impl ChannelSend for UnorderedUnreliableSender {
     }
 
     fn receive_ack(&mut self, _: &MessageAck) {}
-
-    fn subscribe_acks(&mut self) -> Receiver<MessageId> {
-        unreachable!()
-    }
-
-    /// Create a new receiver that will receive a message id when a sent message on this channel
-    /// has been lost by the remote peer
-    fn subscribe_nacks(&mut self) -> Receiver<MessageId> {
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        self.nack_senders.push(sender);
-        receiver
-    }
-
-    /// Send nacks to the subscribers of nacks
-    fn send_nacks(&mut self, nack: MessageId) {
-        for sender in &self.nack_senders {
-            sender.send(nack).unwrap();
-        }
-    }
 }
 
 #[cfg(test)]

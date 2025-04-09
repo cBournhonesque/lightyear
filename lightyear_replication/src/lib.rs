@@ -29,10 +29,12 @@ pub(crate) mod buffer;
 pub(crate) mod delta;
 
 pub mod prelude {
+    pub use crate::authority::HasAuthority;
     pub use crate::buffer::Replicate;
     pub use crate::components::*;
+    pub use crate::message::*;
     pub use crate::plugin::ReplicationSet;
     pub use crate::receive::{ReplicationReceivePlugin, ReplicationReceiver};
     pub use crate::registry::registry::ComponentRegistration;
-    pub use crate::send::{ReplicationBufferSet, ReplicationSendPlugin, ReplicationSender};
+    pub use crate::send::{ReplicationBufferSet, ReplicationSendPlugin, ReplicationSender, SendUpdatesMode};
 }
