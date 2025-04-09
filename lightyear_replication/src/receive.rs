@@ -101,6 +101,8 @@ impl ReplicationReceivePlugin {
 
         world.resource_scope(|world, mut component_registry: Mut<ComponentRegistry>| {
             receiver_entities.drain(..).for_each(|entity| {
+                let span = trace_span!("ReplicationReceiver", entity = ?entity);
+                let _guard = span.enter();
                 let unsafe_world = world.as_unsafe_world_cell();
                 // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
                 let mut receiver = unsafe { unsafe_world.world_mut() }.get_mut::<ReplicationReceiver>(entity).unwrap();
@@ -148,8 +150,6 @@ impl Plugin for ReplicationReceivePlugin {
 #[derive(Debug, Component)]
 #[require(Transport)]
 pub struct ReplicationReceiver {
-    /// Map between local and remote entities. (used mostly on client because it's when we receive entity updates)
-    pub remote_entity_map: RemoteEntityMap,
     /// Map from local entity to the replication group-id
     /// We use the local entity because in some cases we don't have access to the remote entity at all, since the remote
     /// has pre-done the mapping! (for example C1 spawns 1 and sends to S who spawns 2. Then S transfers authority to C2,
@@ -172,7 +172,6 @@ impl ReplicationReceiver {
     pub(crate) fn new() -> Self {
         Self {
             // RECEIVE
-            remote_entity_map: RemoteEntityMap::default(),
             local_entity_to_group: Default::default(),
             // BOTH
             group_channels: Default::default(),

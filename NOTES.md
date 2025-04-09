@@ -12,9 +12,18 @@
 
 - EntityMap: maybe this should be directly on the Serialize level?
 
+- How to decide which components to replicate on each ReplicationSender?
+  - 1. each sender maintains a list of components to replicate?
+  - 2. We could also have ReplicationLayer similar to AvianLayer, which is basically a predefined list
+       of components to send/receive. Then Client/ClientOf can add a ReplicationLayer to pre-specify the components
+       to send-receive. Some pre-defined Layers: All, ClientToServer, ServerToClient.
+
 
 TEST TODO:
- - add ReplicationSender on the client entity. Need to figure out how to make acks flow better
+ - Need to require Authority, Replicating, etc. from Replicate
+ - Add ReplicationSender/ReplicationReceiver automatically on Client/ClientOf? But how to avoid 
+   perf issues?
+ - Errors seem to be swallowed
   
 
 

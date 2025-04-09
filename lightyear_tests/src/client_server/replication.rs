@@ -1,6 +1,7 @@
 //! Check various replication scenarios between 2 peers only
 
 use crate::stepper::ClientServerStepper;
+use lightyear_messages::MessageManager;
 use lightyear_replication::components::Replicating;
 use lightyear_replication::prelude::{HasAuthority, Replicate, ReplicationGroup};
 
@@ -18,6 +19,6 @@ fn test_entity_spawn() {
         stepper.frame_step();
     }
 
-    // stepper.client_1().get::<ReplicationManager>().unwrap().receiver.remote_entity_map.get_local(client_entity)
-    //     .expect("entity is not present in entity map");
+    stepper.client_1().get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+        .expect("entity is not present in entity map");
 }

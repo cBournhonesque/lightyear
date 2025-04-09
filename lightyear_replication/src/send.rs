@@ -2,7 +2,6 @@
 use core::iter::Extend;
 
 use super::message::{ActionsChannel, EntityActions, SendEntityActionsMessage, SpawnAction, UpdatesChannel, UpdatesSendMessage};
-#[cfg(test)]
 use super::message::{ActionsMessage, UpdatesMessage};
 use crate::authority::HasAuthority;
 use crate::buffer;
@@ -21,7 +20,7 @@ use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::{EntityHash, EntityIndexSet, UniqueEntityVec};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy::platform_support::collections::HashMap;
-use bevy::prelude::{ChildOf, Component, Entity, IntoScheduleConfigs, Query, Real, Reflect, Res, ResMut, Resource, SystemParamBuilder, SystemSet, Time, Timer, TimerMode, Trigger, With};
+use bevy::prelude::*;
 use bevy::ptr::Ptr;
 use bevy::time::common_conditions::on_timer;
 use bytes::Bytes;
@@ -34,6 +33,8 @@ use lightyear_core::time::SetTickDuration;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageManager, MessageReceiver, MessageSender};
+use lightyear_messages::registry::{MessageError, MessageKind, MessageRegistry};
+use lightyear_messages::MessageNetId;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -46,7 +47,7 @@ use tracing::{debug, error, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = bevy::platform_support::collections::HashSet<K, EntityHash>;
 
 
@@ -114,9 +115,12 @@ pub(crate) struct SendIntervalTimer {
 impl ReplicationSendPlugin {
     fn send_replication_messages(
         time: Res<Time<Real>>,
+        message_registry: Res<MessageRegistry>,
         change_tick: SystemChangeTick,
         mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline)>,
     ) {
+        let actions_net_id = *message_registry.kind_map.net_id(&MessageKind::of::<ActionsMessage>()).unwrap();
+        let updates_net_id = *message_registry.kind_map.net_id(&MessageKind::of::<UpdatesMessage>()).unwrap();
         query.par_iter_mut().for_each(|(mut sender, mut transport, timeline)| {
             let bevy_tick = change_tick.this_run();
             let update_nacks = &mut transport.senders.get_mut(&ChannelKind::of::<UpdatesChannel>()).unwrap().message_nacks;
@@ -130,12 +134,14 @@ impl ReplicationSendPlugin {
                 sender.send_actions_messages(
                     timeline.tick(),
                     bevy_tick,
-                    &mut transport
+                    &mut transport,
+                    actions_net_id,
                 ).inspect_err(|e| error!("Error buffering ActionsMessage: {e:?}")).ok();
                 sender.send_updates_messages(
                     timeline.tick(),
                     bevy_tick,
-                    &mut transport
+                    &mut transport,
+                    updates_net_id,
                 ).inspect_err(|e| error!("Error buffering UpdatesMessage: {e:?}")).ok();
             }
         });
@@ -775,6 +781,7 @@ impl ReplicationSender {
         tick: Tick,
         bevy_tick: BevyTick,
         sender: &mut Transport,
+        actions_net_id: MessageNetId,
     ) -> Result<(), ReplicationError> {
         self.group_with_actions.drain().try_for_each(|group_id| {
             // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
@@ -832,7 +839,8 @@ impl ReplicationSender {
 
             // buffer the message in the MessageManager
 
-            // message.emit_send_logs("EntityActionsChannel");
+            // Since we are serializing directly though the Transport, we need to serialize the message_net_id ourselves
+            actions_net_id.to_bytes(&mut self.writer).map_err(SerializationError::from)?;
             message.to_bytes(&mut self.writer).map_err(SerializationError::from)?;
             let message_bytes = self.writer.split();
             let message_id = sender.send_mut_with_priority::<ActionsChannel>(
@@ -864,6 +872,7 @@ impl ReplicationSender {
         tick: Tick,
         bevy_tick: BevyTick,
         transport: &mut Transport,
+        updates_net_id: MessageNetId,
     ) -> Result<(), ReplicationError> {
         self.group_with_updates.drain().try_for_each(|group_id| {
             let channel = self.group_channels.get_mut(&group_id).unwrap();
@@ -881,7 +890,9 @@ impl ReplicationSender {
                 updates,
             };
 
-            // message.emit_send_logs("EntityUpdatesChannel");
+
+            // Since we are serializing directly though the Transport, we need to serialize the message_net_id ourselves
+            updates_net_id.to_bytes(&mut self.writer).map_err(SerializationError::from)?;
             message.to_bytes(&mut self.writer).map_err(SerializationError::from)?;
             let message_bytes = self.writer.split();
             let message_id = transport

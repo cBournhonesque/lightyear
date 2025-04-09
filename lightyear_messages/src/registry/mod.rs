@@ -139,7 +139,7 @@ pub struct MessageRegistry {
     pub(crate) send_metadata: HashMap<MessageKind, SendMessageMetadata>,
     pub(crate) receive_metadata: HashMap<MessageKind, ReceiveMessageMetadata>,
     pub(crate) serialize_fns_map: HashMap<MessageKind, ErasedSerializeFns>,
-    pub(crate) kind_map: TypeMapper<MessageKind>,
+    pub kind_map: TypeMapper<MessageKind>,
 }
 
 impl MessageRegistry {

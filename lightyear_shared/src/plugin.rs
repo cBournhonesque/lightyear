@@ -74,8 +74,8 @@ impl SharedPlugin {
             .add_direction(NetworkDirection::Bidirectional);
         app.add_message_to_bytes::<ActionsMessage>()
             .add_direction(NetworkDirection::Bidirectional);
-        app.add_message_to_bytes::<UpdatesSendMessage>()
-            .add_direction(NetworkDirection::Bidirectional);
+        // app.add_message_to_bytes::<UpdatesSendMessage>()
+        //     .add_direction(NetworkDirection::Bidirectional);
         app.add_message_to_bytes::<UpdatesMessage>()
             .add_direction(NetworkDirection::Bidirectional);
     }
