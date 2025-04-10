@@ -11,10 +11,15 @@ use bevy::ecs::world::{DeferredWorld, FilteredEntityRef};
 use bevy::ptr::Ptr;
 
 use crate::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
-use crate::components::{DeltaCompression, DisabledComponents, ReplicateOnce, Replicating, ReplicationGroup, ReplicationGroupId, TargetEntity};
+use crate::authority::HasAuthority;
+use crate::components::{
+    DeltaCompression, DisabledComponents, ReplicateOnce, Replicating, ReplicationGroup,
+    ReplicationGroupId,
+};
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::ReplicateLike;
+use crate::prelude::Cached;
 use crate::receive::ReplicationReceiver;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::ComponentKind;
@@ -27,7 +32,7 @@ use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::prelude::Transport;
-use tracing::{debug, error, trace};
+use tracing::*;
 
 #[derive(Clone, Default, Debug, PartialEq, Reflect)]
 pub enum ReplicationMode {
@@ -45,6 +50,7 @@ pub enum ReplicationMode {
     /// Will assign to various ReplicationSenders to replicate to
     /// all peers in the NetworkTarget
     Target(NetworkTarget),
+    Manual(Vec<Entity>),
 }
 
 /// Insert this component to start replicating your entity.
@@ -52,7 +58,11 @@ pub enum ReplicationMode {
 /// - If sender is an Entity that has a ReplicationSender, we will replicate on that entity
 /// - If the entity is None, we will try to find a unique ReplicationSender in the app
 #[derive(Component, Clone, Default, Debug, PartialEq)]
-#[component(on_add = Replicate::on_add)]
+#[require(HasAuthority)]
+#[require(Replicating)]
+#[require(ReplicationGroup)]
+#[component(on_insert = Replicate::on_insert)]
+#[component(on_replace = Replicate::on_replace)]
 pub struct Replicate {
     mode: ReplicationMode,
     pub(crate) senders: EntityIndexSet,
@@ -73,18 +83,26 @@ impl Replicate {
         }
     }
 
+    pub fn manual(senders: Vec<Entity>) -> Self {
+        Self {
+            mode: ReplicationMode::Manual(senders),
+            senders: EntityIndexSet::default(),
+        }
+    }
+
     /// List of [`ReplicationSender`] entities that this entity is being replicated on
-    pub fn senders(&self) -> impl Iterator<Item=Entity> {
+    pub fn senders(&self) -> impl Iterator<Item = Entity> {
         self.senders.iter().copied()
     }
 
-    pub fn on_add(mut world: DeferredWorld, context: HookContext) {
+    pub fn on_insert(mut world: DeferredWorld, context: HookContext) {
         world.commands().queue(move |world: &mut World| {
             let unsafe_world = world.as_unsafe_world_cell();
             // SAFETY: we will use this world to access the ReplicationSender
             let world = unsafe { unsafe_world.world_mut() };
             // SAFETY: we will use this world only to access the Replicated entity, so there is no aliasing issue
-            let mut replicate_entity_mut = unsafe { unsafe_world.world_mut().entity_mut(context.entity) };
+            let mut replicate_entity_mut =
+                unsafe { unsafe_world.world_mut().entity_mut(context.entity) };
             let mut replicate = replicate_entity_mut.get_mut::<Replicate>().unwrap();
 
             // enable split borrows
@@ -100,7 +118,9 @@ impl Replicate {
                     };
                     sender.add_replicated_entity(context.entity);
                     // SAFETY: the senders are guaranteed to be unique because OnAdd recreates the component from scratch
-                    unsafe { replicate.senders.insert(sender_entity); }
+                    unsafe {
+                        replicate.senders.insert(sender_entity);
+                    }
                 }
                 ReplicationMode::SingleClient => {
                     let Ok((sender_entity, mut sender)) = world
@@ -110,23 +130,26 @@ impl Replicate {
                         error!("No Client found in the world");
                         return;
                     };
-                    debug!("Adding replicated entity {} to sender {}", context.entity, sender_entity);
+                    debug!(
+                        "Adding replicated entity {} to sender {}",
+                        context.entity, sender_entity
+                    );
                     sender.add_replicated_entity(context.entity);
                     replicate.senders.insert(sender_entity);
                 }
                 ReplicationMode::SingleServer(target) => {
                     let unsafe_world = world.as_unsafe_world_cell();
-                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
+                    // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
                     let server_world = unsafe { unsafe_world.world_mut() };
-                     let Ok(server) = server_world.query::<&Server>().single(server_world) else {
+                    let Ok(server) = server_world.query::<&Server>().single(server_world) else {
                         error!("No Server found in the world");
                         return;
                     };
                     let world = unsafe { unsafe_world.world_mut() };
                     server.targets(target).for_each(|client| {
-                         let Ok(mut sender) = world
+                        let Ok(mut sender) = world
                             .query_filtered::<&mut ReplicationSender, With<ClientOf>>()
-                             .get_mut(world, client)
+                            .get_mut(world, client)
                         else {
                             error!("No Client found in the world");
                             return;
@@ -136,7 +159,9 @@ impl Replicate {
                     });
                 }
                 ReplicationMode::Sender(entity) => {
-                    let Ok(mut sender) = world.query::<&mut ReplicationSender>().get_mut(world, *entity)
+                    let Ok(mut sender) = world
+                        .query::<&mut ReplicationSender>()
+                        .get_mut(world, *entity)
                     else {
                         error!("No ReplicationSender found in the world");
                         return;
@@ -145,17 +170,20 @@ impl Replicate {
                     replicate.senders.insert(*entity);
                 }
                 ReplicationMode::Server(server, target) => {
-                     let unsafe_world = world.as_unsafe_world_cell();
-                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
-                     let Some(server) = unsafe { unsafe_world.world() }.entity(*server).get::<Server>() else {
+                    let unsafe_world = world.as_unsafe_world_cell();
+                    // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
+                    let Some(server) = unsafe { unsafe_world.world() }
+                        .entity(*server)
+                        .get::<Server>()
+                    else {
                         error!("No Server found in the world");
                         return;
                     };
                     let world = unsafe { unsafe_world.world_mut() };
                     server.targets(target).for_each(|client| {
-                         let Ok(mut sender) = world
-                             .query_filtered::<&mut ReplicationSender, With<ClientOf>>()
-                             .get_mut(world, client)
+                        let Ok(mut sender) = world
+                            .query_filtered::<&mut ReplicationSender, With<ClientOf>>()
+                            .get_mut(world, client)
                         else {
                             error!("No Client found in the world");
                             return;
@@ -165,30 +193,76 @@ impl Replicate {
                     });
                 }
                 ReplicationMode::Target(_) => {
-                    todo!("need a global mapping from remote_peer to corresponding replication_sender")
+                    todo!(
+                        "need a global mapping from remote_peer to corresponding replication_sender"
+                    )
+                },
+                ReplicationMode::Manual(sender_entities) => {
+                    for sender_entity in sender_entities.iter() {
+                        let Ok(mut sender) = world
+                            .query::<&mut ReplicationSender>()
+                            .get_mut(world, *sender_entity)
+                        else {
+                            error!("No ReplicationSender found in the world");
+                            return;
+                        };
+                        sender.add_replicated_entity(context.entity);
+                        replicate.senders.insert(*sender_entity);
+                    }
                 }
             }
         });
     }
+
+    pub fn on_replace(mut world: DeferredWorld, context: HookContext) {
+        let mut replicate = world.get_mut::<Replicate>(context.entity).unwrap();
+        core::mem::take(&mut replicate.senders)
+            .iter()
+            .for_each(|sender_entity| {
+                if let Some(mut sender) = world.get_mut::<ReplicationSender>(*sender_entity) {
+                    sender.replicated_entities.swap_remove(&context.entity);
+                }
+            });
+    }
 }
-
-
-
 
 // TODO: component hook: immediately find the sender that we will replicate this on. Panic if no sender found
 
-#[derive(Component)]
-pub struct ReplicatedEntities{
-    pub entities: Vec<Entity>,
+#[derive(Component, Debug)]
+pub struct CachedReplicate {
+    senders: EntityIndexSet,
 }
 
-
+/// Keep a cached version of the [`ReplicateToClient`] component so that when it gets updated
+/// we can compute a diff with the previous value.
+///
+/// This needs to run after we compute the diff, so after the `replicate` system runs
+pub(crate) fn handle_replicate_update(
+    mut commands: Commands,
+    mut query: Query<(Entity, &Replicate, Option<&mut CachedReplicate>), Changed<Replicate>>,
+) {
+    for (entity, replicate, cached) in query.iter_mut() {
+        if let Some(mut cached) = cached {
+            cached.senders = replicate.senders.clone();
+        } else {
+            commands.entity(entity).insert(CachedReplicate {
+                senders: replicate.senders.clone(),
+            });
+        }
+    }
+}
 
 pub(crate) fn replicate(
     // query &C + various replication components
     entity_query: Query<FilteredEntityRef>,
     // TODO: should we put the DeltaManager in the same component?
-    mut manager_query: Query<(&mut ReplicationSender, &mut DeltaManager, &mut MessageManager, &LocalTimeline)>,
+    mut manager_query: Query<(
+        Entity,
+        &mut ReplicationSender,
+        &mut DeltaManager,
+        &mut MessageManager,
+        &LocalTimeline,
+    )>,
     component_registry: Res<ComponentRegistry>,
     system_ticks: SystemChangeTick,
     archetypes: &Archetypes,
@@ -197,225 +271,221 @@ pub(crate) fn replicate(
 ) {
     replicated_archetypes.update(archetypes, components, component_registry.as_ref());
 
-
     // TODO: iterate per entity first, and then per sender (using UniqueSlice)
-    manager_query.par_iter_mut().for_each(|(mut sender, mut delta_manager, mut message_manager, timeline)| {
-        // enable split borrows
-        let mut sender = &mut *sender;
+    manager_query.par_iter_mut().for_each(
+        |(sender_entity, mut sender, mut delta_manager, mut message_manager, timeline)| {
+            // enable split borrows
+            let mut sender = &mut *sender;
 
-        // we iterate by index to avoid split borrow issues
-        for i in 0..sender.replicated_entities.len() {
-            let entity = sender.replicated_entities[i];
-            // TODO: skip disabled entities?
-            let Ok(entity_ref) = entity_query.get(entity) else {
-                error!("Replicated Entity {:?} not found in entity_query", entity);
-                return;
-            };
-
-            // get the value of the replication componentsk
-            let (
-                group_id,
-                priority,
-                group_ready,
-                target_entity,
-                disabled_components,
-                delta_compression,
-                replicate_once,
-                replication_target_ticks,
-                is_replicate_like_added,
-            ) = match entity_ref.get::<ReplicateLike>() { Some(replicate_like) => {
-                // root entity does not exist
-                let Ok(root_entity_ref) = entity_query.get(replicate_like.0) else {
+            // we iterate by index to avoid split borrow issues
+            for i in 0..sender.replicated_entities.len() {
+                let entity = sender.replicated_entities[i];
+                info!("Replicating entity {:?}", entity);
+                // TODO: skip disabled entities?
+                let Ok(entity_ref) = entity_query.get(entity) else {
+                    error!("Replicated Entity {:?} not found in entity_query", entity);
                     return;
                 };
-                if root_entity_ref.get::<Replicate>().is_none() {
-                    // ReplicateLike points to a parent entity that doesn't have ReplicationToServer, skip
-                    return;
-                };
-                let (group_id, priority, group_ready) =
-                    entity_ref.get::<ReplicationGroup>().map_or_else(
-                        // if ReplicationGroup is not present, we use the parent entity
-                        || {
-                            root_entity_ref
-                                .get::<ReplicationGroup>()
-                                .map(|g| {
-                                    (
-                                        g.group_id(Some(replicate_like.0)),
-                                        g.priority(),
-                                        g.should_send,
-                                    )
-                                })
-                                .unwrap()
-                        },
-                        // we use the entity itself if ReplicationGroup is present
-                        |g| (g.group_id(Some(entity)), g.priority(), g.should_send),
-                    );
-                (
+
+                // get the value of the replication componentsk
+                let (
                     group_id,
                     priority,
                     group_ready,
-                    entity_ref
-                        .get::<TargetEntity>()
-                        .or_else(|| root_entity_ref.get()),
-                    entity_ref
-                        .get::<DisabledComponents>()
-                        .or_else(|| root_entity_ref.get()),
-                    entity_ref
-                        .get::<DeltaCompression>()
-                        .or_else(|| root_entity_ref.get()),
-                    entity_ref
-                        .get::<ReplicateOnce>()
-                        .or_else(|| root_entity_ref.get()),
-                    // SAFETY: we know that the entity has the ReplicateToServer component
-                    // because the archetype is in replicated_archetypes
-                    unsafe {
-                        entity_ref
-                            .get_change_ticks::<Replicate>()
-                            .or_else(|| root_entity_ref.get_change_ticks::<Replicate>())
-                            .unwrap_unchecked()
-                    },
-                    unsafe {
-                        entity_ref
-                            .get_change_ticks::<ReplicateLike>()
-                            .unwrap_unchecked()
-                            .is_changed(system_ticks.last_run(), system_ticks.this_run())
-                    },
-                )
-            } _ => {
-                let (group_id, priority, group_ready) = entity_ref
-                    .get::<ReplicationGroup>()
-                    .map(|g| (g.group_id(Some(entity)), g.priority(), g.should_send))
-                    .unwrap();
-                (
-                    group_id,
-                    priority,
-                    group_ready,
-                    entity_ref.get::<TargetEntity>(),
-                    entity_ref.get::<DisabledComponents>(),
-                    entity_ref.get::<DeltaCompression>(),
-                    entity_ref.get::<ReplicateOnce>(),
-                    // SAFETY: we know that the entity has the ReplicateOn component
-                    // because the archetype is in replicated_archetypes
-                    unsafe {
-                        entity_ref
-                            .get_change_ticks::<Replicate>()
-                            .unwrap_unchecked()
-                    },
-                    false,
-                )
-            }};
-
-            // the update will be 'insert' instead of update if the ReplicateOn component is new
-            // or the HasAuthority component is new. That's because the remote cannot receive update
-            // without receiving an action first (to populate the latest_tick on the replication-receiver)
-            let replication_is_changed = replication_target_ticks
-                .is_changed(system_ticks.last_run(), system_ticks.this_run());
-
-            // TODO: do the entity mapping here!
-
-            // b. add entity despawns from ReplicateToServer component being removed
-            // replicate_entity_despawn(
-            //     entity.id(),
-            //     group_id,
-            //     &replication_target,
-            //     visibility,
-            //     &mut sender,
-            // );
-
-            // c. add entity spawns
-            // we never want to send a spawn if the entity was replicated to us from the server
-            // (because the server already has the entity)
-            if replication_is_changed || is_replicate_like_added {
-                 buffer_entity_spawn(entity, group_id, priority, target_entity, sender);
-            }
-
-            // If the group is not set to send, skip this entity
-            if !group_ready {
-                return;
-            }
-
-            // TODO: should we pre-cache the list of components to replicate per archetype?
-            // d. all components that were added or changed and that are not disabled
-
-            // NOTE: we pre-cache the list of components for each archetype to not iterate through
-            //  all replicated components every time
-            for ReplicatedComponent { id, kind } in replicated_archetypes
-                .archetypes
-                .get(&entity_ref.archetype().id())
-                .unwrap()
-                .iter()
-                .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind)))
-            {
-                let Some(data) = entity_ref.get_by_id(*id) else {
-                    // component not present on entity, skip
-                    return;
-                };
-                let component_ticks = entity_ref.get_change_ticks_by_id(*id).unwrap();
-
-                // TODO: maybe the old method was faster because we had-precached the delta-compression data
-                //  for the archetype?
-                let delta_compression = delta_compression.is_some_and(|d| d.enabled_kind(*kind));
-                let replicate_once = replicate_once.is_some_and(|r| r.enabled_kind(*kind));
-                let _ = replicate_component_update(
-                    timeline.tick(),
-                    &component_registry,
-                    entity,
-                    *kind,
-                    data,
-                    component_ticks,
-                    replication_is_changed,
-                    group_id,
+                    disabled_components,
                     delta_compression,
                     replicate_once,
-                    &system_ticks,
-                    &mut message_manager.entity_mapper,
-                    &mut sender,
-                    &mut delta_manager,
-                )
-                .inspect_err(|e| {
-                    error!(
-                        "Error replicating component {:?} update for entity {:?}: {:?}",
-                        kind, entity, e
+                    replicate,
+                    cached_replicate,
+                    is_replicate_like_added,
+                ) = match entity_ref.get::<ReplicateLike>() {
+                    Some(replicate_like) => {
+                        // root entity does not exist
+                        let Ok(root_entity_ref) = entity_query.get(replicate_like.0) else {
+                            return;
+                        };
+                        if root_entity_ref.get::<Replicate>().is_none() {
+                            // ReplicateLike points to a parent entity that doesn't have ReplicationToServer, skip
+                            return;
+                        };
+                        let (group_id, priority, group_ready) =
+                            entity_ref.get::<ReplicationGroup>().map_or_else(
+                                // if ReplicationGroup is not present, we use the parent entity
+                                || {
+                                    root_entity_ref
+                                        .get::<ReplicationGroup>()
+                                        .map(|g| {
+                                            (
+                                                g.group_id(Some(replicate_like.0)),
+                                                g.priority(),
+                                                g.should_send,
+                                            )
+                                        })
+                                        .unwrap()
+                                },
+                                // we use the entity itself if ReplicationGroup is present
+                                |g| (g.group_id(Some(entity)), g.priority(), g.should_send),
+                            );
+                        (
+                            group_id,
+                            priority,
+                            group_ready,
+                            entity_ref
+                                .get::<DisabledComponents>()
+                                .or_else(|| root_entity_ref.get()),
+                            entity_ref
+                                .get::<DeltaCompression>()
+                                .or_else(|| root_entity_ref.get()),
+                            entity_ref
+                                .get::<ReplicateOnce>()
+                                .or_else(|| root_entity_ref.get()),
+                            // SAFETY: we know that the entity has the Replicate component
+                            entity_ref
+                                .get_ref::<Replicate>()
+                                .unwrap_or_else(|| root_entity_ref.get_ref::<Replicate>().unwrap()),
+                            entity_ref
+                                .get::<CachedReplicate>()
+                                .or_else(|| root_entity_ref.get::<CachedReplicate>()),
+                            unsafe {
+                                entity_ref
+                                    .get_change_ticks::<ReplicateLike>()
+                                    .unwrap_unchecked()
+                                    .is_changed(system_ticks.last_run(), system_ticks.this_run())
+                            },
+                        )
+                    }
+                    _ => {
+                        let (group_id, priority, group_ready) = entity_ref
+                            .get::<ReplicationGroup>()
+                            .map(|g| (g.group_id(Some(entity)), g.priority(), g.should_send))
+                            .unwrap();
+                        (
+                            group_id,
+                            priority,
+                            group_ready,
+                            entity_ref.get::<DisabledComponents>(),
+                            entity_ref.get::<DeltaCompression>(),
+                            entity_ref.get::<ReplicateOnce>(),
+                            entity_ref.get_ref::<Replicate>().unwrap(),
+                            entity_ref.get::<CachedReplicate>(),
+                            false,
+                        )
+                    }
+                };
+
+                // the update will be 'insert' instead of update if the ReplicateOn component is new
+                // or the HasAuthority component is new. That's because the remote cannot receive update
+                // without receiving an action first (to populate the latest_tick on the replication-receiver)
+
+                // TODO: do the entity mapping here!
+
+                // b. add entity despawns from Replicate changing
+                // todo!()
+
+                // c. add entity spawns for Replicate changing
+                replicate_entity_spawn(
+                    entity,
+                    group_id,
+                    priority,
+                    &replicate,
+                    cached_replicate,
+                    sender,
+                    sender_entity,
+                );
+
+                // If the group is not set to send, skip this entity
+                if !group_ready {
+                    return;
+                }
+
+                // TODO: should we pre-cache the list of components to replicate per archetype?
+                // d. all components that were added or changed and that are not disabled
+
+                // NOTE: we pre-cache the list of components for each archetype to not iterate through
+                //  all replicated components every time
+                for ReplicatedComponent { id, kind } in replicated_archetypes
+                    .archetypes
+                    .get(&entity_ref.archetype().id())
+                    .unwrap()
+                    .iter()
+                    .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind)))
+                {
+                    let Some(data) = entity_ref.get_by_id(*id) else {
+                        // component not present on entity, skip
+                        return;
+                    };
+                    let component_ticks = entity_ref.get_change_ticks_by_id(*id).unwrap();
+
+                    // TODO: maybe the old method was faster because we had-precached the delta-compression data
+                    //  for the archetype?
+                    let delta_compression =
+                        delta_compression.is_some_and(|d| d.enabled_kind(*kind));
+                    let replicate_once = replicate_once.is_some_and(|r| r.enabled_kind(*kind));
+                    let _ = replicate_component_update(
+                        timeline.tick(),
+                        &component_registry,
+                        entity,
+                        *kind,
+                        data,
+                        component_ticks,
+                        &replicate,
+                        group_id,
+                        delta_compression,
+                        replicate_once,
+                        &system_ticks,
+                        &mut message_manager.entity_mapper,
+                        &mut sender,
+                        &mut delta_manager,
                     )
-                });
+                    .inspect_err(|e| {
+                        error!(
+                            "Error replicating component {:?} update for entity {:?}: {:?}",
+                            kind, entity, e
+                        )
+                    });
+                }
             }
-        }
+        },
+    );
+}
+
+
+/// Send entity despawn if Replicate was updated and the entity should not be replicated to this sender anymore
+/// This cannot be part of `replicate` because replicate iterates through the sender's replicated_entities.
+pub(crate) fn replicate_entity_despawn(
+    query: Query<(Entity, &ReplicationGroup, &Replicate, &CachedReplicate)>,
+    mut senders: Query<&mut ReplicationSender>
+) {
+    query.iter().for_each(|(entity, group, replicate, cached_replicate)| {
+        let group_id = group.group_id(Some(entity));
+        cached_replicate.senders.difference(&replicate.senders).for_each(|sender_entity| {
+            if let Ok(mut sender) = senders.get_mut(*sender_entity) {
+                trace!(?entity, ?sender_entity, ?replicate, ?cached_replicate, "Sending Despawn because replicate changed");
+                sender.prepare_entity_despawn(entity, group_id);
+            }
+        })
     });
 }
 
-/// Send entity spawn replication messages to server when the ReplicationTarget component is added
-/// Also handles:
-/// - handles TargetEntity if it's a Preexisting entity
-/// - setting the priority
-pub(crate) fn buffer_entity_spawn(
+/// Send entity spawn if:
+/// 1) Replicate was added/updated and the sender was not in the previous Replicate's target
+pub(crate) fn replicate_entity_spawn(
     entity: Entity,
     group_id: ReplicationGroupId,
     priority: f32,
-    target_entity: Option<&TargetEntity>,
+    replicate: &Ref<Replicate>,
+    cached_replicate: Option<&CachedReplicate>,
     sender: &mut ReplicationSender,
+    sender_entity: Entity,
 ) {
-    // // if we had this entity mapped, that means it already exists on the server
-    // if let Some(remote_entity) = sender
-    //     .replication_receiver
-    //     .remote_entity_map
-    //     .local_to_remote
-    //     .get(&entity)
-    // {
-    //     return;
-    // }
-    debug!(?entity, "Prepare entity spawn to server");
-    if let Some(TargetEntity::Preexisting(remote_entity)) = target_entity {
-        sender
-            .prepare_entity_spawn_reuse(entity, group_id, *remote_entity);
-    } else {
-        sender
-            .prepare_entity_spawn(entity, group_id);
+    if replicate.is_changed() {
+        // NOTE: we know that the sender is part of replicate.senders thanks to the ReplicationHook
+        if cached_replicate.is_none_or(|cached| !cached.senders.contains(&sender_entity)) {
+            trace!(?entity, ?sender_entity, ?replicate, ?cached_replicate, "Sending Spawn because replicate changed");
+            sender.prepare_entity_spawn(entity, group_id, priority);
+        }
     }
-    // also set the priority for the group when we spawn it
-    sender
-        .update_base_priority(group_id, priority);
 }
-
 
 /// Buffer entity despawn if an entity had [`Replicating`] and either:
 /// - the [`Replicate`] component is removed
@@ -435,25 +505,26 @@ pub(crate) fn buffer_entity_despawn(
     //  in which case we don't want to replicate the despawn.
     //  i.e. if a user wants to despawn an entity without replicating the despawn
     //  I guess we can provide a command that first removes Replicating, and then despawns the entity.
-    entity_query: Query<(&ReplicationGroup, &Replicate), With<Replicating>>,
+    entity_query: Query<(&ReplicationGroup, &CachedReplicate), With<Replicating>>,
     mut query: Query<(&mut ReplicationSender, &mut MessageManager)>,
 ) {
     let mut entity = trigger.target();
     let root = root_query.get(entity).map_or(entity, |r| r.0);
     // TODO: use the child's ReplicationGroup if there is one that overrides the root's
-    let Ok((group, replicate)) = entity_query.get(root) else {
-        return
+    let Ok((group, cached_replicate)) = entity_query.get(root) else {
+        return;
     };
-    trace!(?entity, "Buffering entity despawn");
+    trace!(?entity, ?cached_replicate, "Buffering entity despawn");
+    // TODO: if ReplicateLike is removed, we need to use the root entity's Replicate
+    //  if Replicate is removed, we need to use the CachedReplicate (since Replicate is updated immediately via hook)
+    //  for the root_entity and its ReplicateLike children
     query
-        .par_iter_many_unique_mut(replicate.senders.as_slice())
+        .par_iter_many_unique_mut(cached_replicate.senders.as_slice())
         .for_each(|(mut sender, mut manager)| {
-        // convert the entity to a network entity (possibly mapped)
-        let entity = manager
-            .entity_mapper
-            .to_remote(entity);
-        sender.prepare_entity_despawn(entity, group.group_id(Some(entity)));
-    });
+            // convert the entity to a network entity (possibly mapped)
+            let entity = manager.entity_mapper.to_remote(entity);
+            sender.prepare_entity_despawn(entity, group.group_id(Some(entity)));
+        });
 }
 
 /// This system sends updates for all components that were added or changed
@@ -470,7 +541,7 @@ fn replicate_component_update(
     component_kind: ComponentKind,
     component_data: Ptr,
     component_ticks: ComponentTicks,
-    force_insert: bool,
+    replicate: &Ref<Replicate>,
     group_id: ReplicationGroupId,
     delta_compression: bool,
     replicate_once: bool,
@@ -486,9 +557,7 @@ fn replicate_component_update(
     // TODO: ideally we would use target.is_added(), but we do the trick of setting all the
     //  ReplicateToServer components to `changed` when the client first connects so that we replicate existing entities to the server
     //  That is why `force_insert = True` if ReplicateToServer is changed.
-    if component_ticks.is_added(system_ticks.last_run(), system_ticks.this_run())
-        || force_insert
-    {
+    if component_ticks.is_added(system_ticks.last_run(), system_ticks.this_run()) || replicate.is_changed() {
         trace!("component is added or replication_target is added");
         insert = true;
     } else {
@@ -510,8 +579,7 @@ fn replicate_component_update(
         // NOTE: we have to apply the entity mapping here because we are sending the message directly to the Transport
         //  instead of relying on the MessageManagers' remote_entity_map. This is because using the MessageManager
         //  wouldn't give us back a MessageId.
-        entity = entity_map
-            .to_remote(entity);
+        entity = entity_map.to_remote(entity);
 
         let writer = &mut sender.writer;
         if insert {
@@ -523,8 +591,7 @@ fn replicate_component_update(
                         component_data,
                         writer,
                         component_kind,
-                        &mut entity_map
-                            .local_to_remote,
+                        &mut entity_map.local_to_remote,
                     )?
                 }
             } else {
@@ -532,19 +599,14 @@ fn replicate_component_update(
                     component_data,
                     writer,
                     component_kind,
-                    &mut entity_map
-                        .local_to_remote,
+                    &mut entity_map.local_to_remote,
                 )?;
             };
             let raw_data = writer.split();
             sender.prepare_component_insert(entity, group_id, raw_data);
         } else {
             trace!(?entity, "send update");
-            let send_tick = sender
-                .group_channels
-                .entry(group_id)
-                .or_default()
-                .send_tick;
+            let send_tick = sender.group_channels.entry(group_id).or_default().send_tick;
 
             // send the update for all changes newer than the last send bevy tick for the group
             if send_tick.map_or(true, |c| {
@@ -578,7 +640,7 @@ fn replicate_component_update(
                         component_data,
                         writer,
                         component_kind,
-                        &mut entity_map.local_to_remote
+                        &mut entity_map.local_to_remote,
                     )?;
                     let raw_data = writer.split();
                     sender.prepare_component_update(entity, group_id, raw_data);
@@ -591,6 +653,9 @@ fn replicate_component_update(
 
 /// Send component remove message when a component gets removed
 // TODO: use a common observer for all removed components
+// TODO: you could have a case where you remove a component C, and then afterwards
+//   modify the replication target, but we still send messages to the old components.
+//   Maybe we should just add the components to a buffer?
 pub(crate) fn buffer_component_removed<C: Component>(
     trigger: Trigger<OnRemove, C>,
     registry: Res<ComponentRegistry>,
@@ -606,27 +671,25 @@ pub(crate) fn buffer_component_removed<C: Component>(
     let root = root_query.get(entity).map_or(entity, |r| r.0);
     // TODO: be able to override the root components with those from the child
     let Ok((group, replicate_on, disabled_components)) = query.get(root) else {
-        return
+        return;
     };
 
     manager_query
         .par_iter_many_unique_mut(replicate_on.senders.as_slice())
         .for_each(|(mut sender, mut manager)| {
-         // convert the entity to a network entity (possibly mapped)
-        let entity = manager
-            .entity_mapper
-            .to_remote(entity);
-        // do not replicate components (even removals) that are disabled
-        if disabled_components
-            .is_some_and(|disabled_components| !disabled_components.enabled::<C>())
-        {
-            return;
-        }
-        let group_id = group.group_id(Some(root));
-        trace!(?entity, kind = ?core::any::type_name::<C>(), "Sending RemoveComponent");
-        let kind = registry.net_id::<C>();
-        sender.prepare_component_remove(entity, group_id, kind);
-    });
+            // convert the entity to a network entity (possibly mapped)
+            let entity = manager.entity_mapper.to_remote(entity);
+            // do not replicate components (even removals) that are disabled
+            if disabled_components
+                .is_some_and(|disabled_components| !disabled_components.enabled::<C>())
+            {
+                return;
+            }
+            let group_id = group.group_id(Some(root));
+            trace!(?entity, kind = ?core::any::type_name::<C>(), "Sending RemoveComponent");
+            let kind = registry.net_id::<C>();
+            sender.prepare_component_remove(entity, group_id, kind);
+        });
 }
 
 pub(crate) fn register_replicate_component_send<C: Component>(app: &mut App) {
@@ -634,14 +697,12 @@ pub(crate) fn register_replicate_component_send<C: Component>(app: &mut App) {
     app.add_observer(buffer_component_removed::<C>);
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use crate::client::replication::send::ReplicateToServer;
     use crate::prelude::{
-        server, ChannelDirection, ClientId, ComponentRegistry, DisabledComponents,
-        ReplicateOnce, Replicated, TargetEntity,
+        server, ChannelDirection, ClientId, ComponentRegistry, DisabledComponents
+        , ReplicateOnce, TargetEntity,
     };
     use crate::protocol::component::ComponentKind;
     use crate::tests::protocol::{ComponentSyncModeFull, ComponentSyncModeOnce};
@@ -781,41 +842,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_entity_spawn_preexisting_target() {
-        let mut stepper = BevyStepper::default();
-
-        let server_entity = stepper.server_app.world_mut().spawn_empty().id();
-        stepper.frame_step();
-        let client_entity = stepper
-            .client_app
-            .world_mut()
-            .spawn((ReplicateToServer, TargetEntity::Preexisting(server_entity)))
-            .id();
-        for _ in 0..10 {
-            stepper.frame_step();
-        }
-
-        // check that the entity was replicated on the server entity
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .resource::<server::ConnectionManager>()
-                .connection(ClientId::Netcode(TEST_CLIENT_ID))
-                .unwrap()
-                .replication_receiver
-                .remote_entity_map
-                .get_local(client_entity)
-                .unwrap(),
-            server_entity
-        );
-        assert!(stepper
-            .server_app
-            .world()
-            .get::<Replicated>(server_entity)
-            .is_some());
-    }
 
     /// Check that if we remove ReplicationToServer
     /// the entity gets despawned on the server
@@ -860,11 +886,13 @@ mod tests {
         for _ in 0..10 {
             stepper.frame_step();
         }
-        assert!(stepper
-            .server_app
-            .world()
-            .get_entity(server_entity)
-            .is_err());
+        assert!(
+            stepper
+                .server_app
+                .world()
+                .get_entity(server_entity)
+                .is_err()
+        );
     }
 
     #[test]
@@ -913,11 +941,13 @@ mod tests {
         }
 
         // check that the entity was despawned
-        assert!(stepper
-            .server_app
-            .world()
-            .get_entity(server_entity)
-            .is_err());
+        assert!(
+            stepper
+                .server_app
+                .world()
+                .get_entity(server_entity)
+                .is_err()
+        );
         // check that the child was despawned
         assert!(stepper.server_app.world().get_entity(server_child).is_err());
     }
@@ -1043,12 +1073,14 @@ mod tests {
         }
 
         // check that the component was not  replicated
-        assert!(stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<ComponentSyncModeFull>()
-            .is_none());
+        assert!(
+            stepper
+                .server_app
+                .world()
+                .entity(server_entity)
+                .get::<ComponentSyncModeFull>()
+                .is_none()
+        );
     }
 
     // TODO: check that component insert for a component that doesn't have ClientToServer is not replicated!
@@ -1213,12 +1245,14 @@ mod tests {
         }
 
         // check that the component was removed
-        assert!(stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<ComponentSyncModeFull>()
-            .is_none());
+        assert!(
+            stepper
+                .server_app
+                .world()
+                .entity(server_entity)
+                .get::<ComponentSyncModeFull>()
+                .is_none()
+        );
     }
 
     #[test]
@@ -1352,18 +1386,22 @@ mod tests {
         }
 
         // check that the component was removed
-        assert!(stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<ComponentSyncModeFull>()
-            .is_none());
-        assert!(stepper
-            .server_app
-            .world()
-            .entity(server_child)
-            .get::<ComponentSyncModeFull>()
-            .is_none());
+        assert!(
+            stepper
+                .server_app
+                .world()
+                .entity(server_entity)
+                .get::<ComponentSyncModeFull>()
+                .is_none()
+        );
+        assert!(
+            stepper
+                .server_app
+                .world()
+                .entity(server_child)
+                .get::<ComponentSyncModeFull>()
+                .is_none()
+        );
     }
 
     /// Make sure that ServerToClient components are not replicated to the server
@@ -1402,10 +1440,12 @@ mod tests {
             .get_local(client_entity)
             .expect("entity was not replicated to client");
         // check that the component was not replicated to the server
-        assert!(stepper
-            .server_app
-            .world()
-            .get::<ComponentSyncModeOnce>(server_entity)
-            .is_none());
+        assert!(
+            stepper
+                .server_app
+                .world()
+                .get::<ComponentSyncModeOnce>(server_entity)
+                .is_none()
+        );
     }
 }

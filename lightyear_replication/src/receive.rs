@@ -25,6 +25,7 @@ use crate::plugin::ReplicationSet;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
+use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::{MessageManager, MessageNetId};
 use lightyear_transport::channel::ChannelKind;
@@ -136,6 +137,7 @@ impl Plugin for ReplicationReceivePlugin {
         }
 
         // SYSTEMS
+        app.configure_sets(PreUpdate, ReplicationSet::Receive.after(MessageSet::Receive));
         app.add_systems(PreUpdate,
             (
                 Self::receive_messages,
@@ -739,18 +741,6 @@ impl GroupChannel {
                     remote_entity_map.insert(*remote_entity, local_entity.id());
                     trace!("Updated remote entity map: {:?}", remote_entity_map);
                     debug!("Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}", local_entity.id());
-                }
-                SpawnAction::Reuse(local_entity) => {
-                    let Ok(mut entity_mut) = world.get_entity_mut(local_entity) else {
-                        // TODO: ignore the entity in the next steps because it does not exist!
-                        error!("Received ReuseEntity({local_entity:?}) but the entity does not exist in the world");
-                        continue;
-                    };
-                    entity_mut.insert(Replicated { from: remote });
-                    self.local_entities.insert(local_entity);
-                    local_entity_to_group.insert(local_entity, group_id);
-                    // no need to update the entity mapping since the remote already is aware of the mapping?
-                    remote_entity_map.insert(*remote_entity, local_entity);
                 }
                 _ => {}
             }

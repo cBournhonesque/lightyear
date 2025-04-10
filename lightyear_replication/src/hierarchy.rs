@@ -198,7 +198,7 @@ impl<R: Relationship + Debug + GetTypeRegistration + TypePath> Plugin
 /// Marker component that indicates that this entity should be replicated similarly to the entity
 /// contained in the component.
 ///
-/// This will be inserted automaticallyk
+/// This will be inserted automatically
 // TODO: should we make this immutable?
 #[derive(Component, Clone, Copy, MapEntities, Reflect, PartialEq, Debug)]
 #[reflect(

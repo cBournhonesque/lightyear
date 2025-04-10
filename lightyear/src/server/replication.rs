@@ -430,19 +430,6 @@ pub(crate) mod send {
         }
     }
 
-    // TODO: replace this with observers
-    /// Metadata that holds Replicate-information from the previous send_interval's replication.
-    /// - when the entity gets despawned, we will use this to know how to replicate the despawn
-    /// - when the replicate metadata changes, we will use this to compute diffs
-    #[derive(PartialEq, Debug)]
-    pub(crate) struct ReplicateCache {
-        pub(crate) replication_target: NetworkTarget,
-        pub(crate) replication_group: ReplicationGroup,
-        pub(crate) network_relevance_mode: NetworkRelevanceMode,
-        /// If mode = Room, the list of clients that could see the entity
-        pub(crate) replication_clients_cache: Vec<ClientId>,
-    }
-
     /// Keep a cached version of the [`ReplicateToClient`] component so that when it gets updated
     /// we can compute a diff with the previous value.
     ///

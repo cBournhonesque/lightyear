@@ -6,7 +6,7 @@ use super::message::{ActionsMessage, UpdatesMessage};
 use crate::authority::HasAuthority;
 use crate::buffer;
 use crate::buffer::{replicate, Replicate};
-use crate::components::{DeltaCompression, DisabledComponents, ReplicateOnce, Replicating, ReplicationGroup, ReplicationGroupId, TargetEntity};
+use crate::components::{DeltaCompression, DisabledComponents, ReplicateOnce, Replicating, ReplicationGroup, ReplicationGroupId};
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::ReplicateLike;
@@ -222,6 +222,9 @@ impl Plugin for ReplicationSendPlugin {
 
         app.add_systems(PostUpdate, Self::send_replication_messages.in_set(ReplicationBufferSet::Flush));
         app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
+        app.add_systems(PostUpdate, buffer::handle_replicate_update.in_set(ReplicationBufferSet::AfterBuffer));
+        app.add_systems(PostUpdate, buffer::replicate_entity_despawn.in_set(ReplicationBufferSet::EntityUpdates));
+
 
         // app.add_systems(
         //     PostUpdate,
@@ -262,7 +265,6 @@ impl Plugin for ReplicationSendPlugin {
                         &ReplicateLike,
                         &Replicate,
                         &ReplicationGroup,
-                        &TargetEntity,
                         &DisabledComponents,
                         &DeltaCompression,
                         &ReplicateOnce,
@@ -536,14 +538,6 @@ impl ReplicationSender {
 ///
 /// - all component inserts/removes/updates for an entity to be grouped together in a single message
 impl ReplicationSender {
-    /// Update the base priority for a given group
-    pub(crate) fn update_base_priority(&mut self, group_id: ReplicationGroupId, priority: f32) {
-        self.group_channels
-            .entry(group_id)
-            .or_default()
-            .base_priority = priority;
-    }
-
     // TODO: how can I emit metrics here that contain the channel kind?
     //  use a OnceCell that gets set with the channel name mapping when the protocol is finalized?
     //  the other option is to have wrappers in Connection, but that's pretty ugly
@@ -551,7 +545,7 @@ impl ReplicationSender {
     /// Host has spawned an entity, and we want to replicate this to remote
     /// Returns true if we should send a message
     // #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn prepare_entity_spawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
+    pub(crate) fn prepare_entity_spawn(&mut self, entity: Entity, group_id: ReplicationGroupId, priority: f32) {
         #[cfg(feature = "metrics")]
         {
             metrics::counter!("replication::send::entity_spawn").increment(1);
@@ -564,25 +558,10 @@ impl ReplicationSender {
             .entry(entity)
             .or_default()
             .spawn = SpawnAction::Spawn;
-    }
-
-    /// Host wants to start replicating an entity, but instead of spawning a new entity, it wants to reuse an existing entity
-    /// on the remote. This can be useful for transferring ownership of an entity from one player to another.
-    // #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn prepare_entity_spawn_reuse(
-        &mut self,
-        local_entity: Entity,
-        group_id: ReplicationGroupId,
-        remote_entity: Entity,
-    ) {
-        self.group_with_actions.insert(group_id);
         self.group_channels
             .entry(group_id)
             .or_default()
-            .pending_actions
-            .entry(local_entity)
-            .or_default()
-            .spawn = SpawnAction::Reuse(remote_entity);
+            .base_priority = priority;
     }
 
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]

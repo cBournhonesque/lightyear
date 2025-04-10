@@ -10,6 +10,7 @@ use bevy::prelude::{Resource, TypePath, World};
 use bevy::ptr::Ptr;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
+use lightyear_messages::registry::MessageRegistry;
 use lightyear_serde::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{ErasedSerializeFns, SerializeFns};
@@ -339,19 +340,7 @@ impl AppComponentExt for App {
         &mut self,
         direction: NetworkDirection,
     ) -> ComponentRegistration<'_, C> {
-        self.world_mut()
-            .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
-                if !registry.is_registered::<C>() {
-                    debug!("register component {}", core::any::type_name::<C>());
-                    registry.register_component::<C>(world);
-                    registry.set_replication_fns::<C>(world, direction);
-                }
-            });
-        // register_component_send::<C>(self, direction);
-        ComponentRegistration {
-            app: self,
-            _phantom: core::marker::PhantomData,
-        }
+        self.register_component_custom_serde(direction, SerializeFns::<C>::default())
     }
 
     fn register_component_custom_serde<C: Component<Mutability = Mutable> +  PartialEq>(
@@ -359,6 +348,9 @@ impl AppComponentExt for App {
         direction: NetworkDirection,
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C> {
+        if self.world_mut().get_resource_mut::<ComponentRegistry>().is_none() {
+            self.world_mut().init_resource::<ComponentRegistry>();
+        }
         self.world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
                 if !registry.is_registered::<C>() {

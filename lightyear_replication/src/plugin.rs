@@ -22,8 +22,7 @@ pub(crate) struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         // REFLECTION
-        app.register_type::<TargetEntity>()
-            .register_type::<Replicated>()
+        app.register_type::<Replicated>()
             .register_type::<Controlled>()
             .register_type::<Replicating>()
             // .register_type::<Replicate>()

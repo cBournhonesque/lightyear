@@ -63,8 +63,6 @@ pub(crate) enum SpawnAction {
     None,
     Spawn,
     Despawn,
-    // the u64 is the entity's bits (we cannot use Entity directly because it doesn't implement Encode/Decode)
-    Reuse(Entity),
 }
 
 impl ToBytes for SpawnAction {
@@ -73,7 +71,6 @@ impl ToBytes for SpawnAction {
             SpawnAction::None => 1,
             SpawnAction::Spawn => 1,
             SpawnAction::Despawn => 1,
-            SpawnAction::Reuse(entity) => 1 + entity.bytes_len(),
         }
     }
 
@@ -82,10 +79,6 @@ impl ToBytes for SpawnAction {
             SpawnAction::None => buffer.write_u8(0)?,
             SpawnAction::Spawn => buffer.write_u8(1)?,
             SpawnAction::Despawn => buffer.write_u8(2)?,
-            SpawnAction::Reuse(entity) => {
-                buffer.write_u8(3)?;
-                entity.to_bytes(buffer)?;
-            }
         }
         Ok(())
     }
@@ -98,7 +91,6 @@ impl ToBytes for SpawnAction {
             0 => Ok(SpawnAction::None),
             1 => Ok(SpawnAction::Spawn),
             2 => Ok(SpawnAction::Despawn),
-            3 => Ok(SpawnAction::Reuse(Entity::from_bytes(buffer)?)),
             _ => Err(SerializationError::InvalidPacketType),
         }
     }

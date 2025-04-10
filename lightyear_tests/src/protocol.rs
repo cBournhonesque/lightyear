@@ -48,6 +48,8 @@ pub struct Channel1;
 pub struct Channel2;
 
 // Components
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompA(pub f32);
 
 // Protocol
 pub(crate) struct ProtocolPlugin;
@@ -71,6 +73,6 @@ impl Plugin for ProtocolPlugin {
         })
         .add_direction(NetworkDirection::Bidirectional);
         // components
-        // app.register_component()
+        app.register_component::<CompA>(NetworkDirection::Bidirectional);
     }
 }

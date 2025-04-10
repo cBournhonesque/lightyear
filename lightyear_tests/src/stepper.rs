@@ -100,6 +100,7 @@ impl ClientServerStepper {
                 server: server_entity,
                 id: PeerId::Entity,
             },
+            // TODO: we want the ReplicationSender/Receiver to be added automatically when ClientOf is created, but with configs pre-specified by the server
             ReplicationSender::default(),
             ReplicationReceiver::default(),
             crossbeam_server
@@ -188,7 +189,7 @@ impl ClientServerStepper {
             if self.client().contains::<Connected>() {
                 break;
             }
-            self.frame_step();
+            self.frame_step(1);
         }
     }
 
@@ -222,15 +223,19 @@ impl ClientServerStepper {
     }
 
     /// Advance the world by one frame duration
-    pub(crate) fn frame_step(&mut self) {
-        self.advance_time(self.frame_duration);
-        self.client_app.update();
-        self.server_app.update();
+    pub(crate) fn frame_step(&mut self, n: usize) {
+        for _ in 0..n {
+            self.advance_time(self.frame_duration);
+            self.client_app.update();
+            self.server_app.update();
+        }
     }
 
-    pub(crate) fn tick_step(&mut self) {
-        self.advance_time(self.tick_duration);
-        self.client_app.update();
-        self.server_app.update();
+    pub(crate) fn tick_step(&mut self, n: usize) {
+        for _ in 0..n {
+            self.advance_time(self.tick_duration);
+            self.client_app.update();
+            self.server_app.update();
+        }
     }
 }

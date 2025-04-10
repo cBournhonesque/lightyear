@@ -82,22 +82,6 @@ pub struct Cached<C> {
     pub value: C,
 }
 
-/// Defines the target entity for the replication.
-///
-/// This can be used if you want to replicate this entity on an entity that already
-/// exists in the remote world.
-///
-/// This component is not part of the `Replicate` bundle as this is very infrequent.
-#[derive(Component, Default, Clone, Copy, Debug, PartialEq, Reflect)]
-#[reflect(Component)]
-pub enum TargetEntity {
-    /// Spawn a new entity on the remote peer
-    #[default]
-    Spawn,
-    /// Instead of spawning a new entity, we will apply the replication updates
-    /// to the existing remote entity
-    Preexisting(Entity),
-}
 
 /// Marker component that defines how the hierarchy of an entity (parent/children) should be replicated.
 ///
