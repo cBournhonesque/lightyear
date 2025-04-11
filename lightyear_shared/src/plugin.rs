@@ -2,6 +2,7 @@
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_connection::prelude::*;
+use lightyear_core::plugin::CorePlugins;
 use lightyear_core::time::SetTickDuration;
 use lightyear_messages::prelude::*;
 use lightyear_replication::prelude::{ActionsChannel, ActionsMessage, UpdatesChannel, UpdatesMessage, UpdatesSendMessage};
@@ -84,11 +85,11 @@ impl SharedPlugin {
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app
+            .add_plugins(CorePlugins {
+                tick_duration: self.tick_duration,
+            })
             .add_plugins(lightyear_transport::plugin::TransportPlugin)
             .add_plugins(lightyear_messages::plugin::MessagePlugin)
-            .add_plugins(lightyear_core::tick::TickPlugin {
-                tick_duration: self.tick_duration
-            })
             .add_plugins(lightyear_core::time::TimePlugin)
             // TODO: make this a plugin group so it's possible to disable plugins
             .add_plugins(lightyear_replication::prelude::ReplicationSendPlugin)

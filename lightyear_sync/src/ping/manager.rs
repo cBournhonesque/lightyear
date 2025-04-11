@@ -3,10 +3,13 @@ use crate::ping::message::{Ping, Pong};
 use crate::ping::store::{PingId, PingStore};
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
+use bevy::ecs::component::HookContext;
+use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Real, Time};
 use bevy::reflect::Reflect;
 use bevy::time::Stopwatch;
 use core::time::Duration;
+use lightyear_core::tick::TickDuration;
 use lightyear_core::time::TickDelta;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
 use lightyear_utils::ready_buffer::ReadyBuffer;
@@ -37,6 +40,7 @@ impl Default for PingConfig {
 /// and monitor pongs in order to estimate statistics (rtt, jitter) about the connection.
 #[derive(Debug, Default, Component)]
 #[require(MessageSender<Ping>, MessageReceiver<Ping>, MessageSender<Pong>, MessageReceiver<Pong>)]
+#[component(on_add = Self::on_add)]
 pub struct PingManager {
     pub(crate) tick_duration: Duration,
     config: PingConfig,
@@ -60,6 +64,13 @@ pub struct PingManager {
     pub(crate) pings_sent: u32,
     /// The number of pongs we have received
     pub(crate) pongs_recv: u32,
+}
+
+impl PingManager {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        let tick_duration = world.get_resource::<TickDuration>().expect("TickDuration not found. Did you add CorePlugins?").0;
+        world.get_mut::<PingManager>(context.entity).unwrap().tick_duration = tick_duration;
+    }
 }
 
 /// Connection stats aggregated over several [`SyncStats`]

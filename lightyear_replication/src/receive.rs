@@ -218,7 +218,7 @@ impl ReplicationReceiver {
         // NOTE: this is valid even after tick wrapping because we keep clamping the latest_tick values for each channel
         // if we have already applied a more recent update for this group, no need to keep this one (or should we keep it for history?)
         if channel.latest_tick.is_some_and(|t| remote_tick <= t) {
-            trace!("discard because the update is older than the latest tick");
+            trace!("discard because the update's tick {remote_tick:?} is older than the latest tick {:?}", channel.latest_tick);
             return;
         }
 
@@ -354,14 +354,16 @@ impl ReplicationReceiver {
                     else {
                         return;
                     };
-                    // if the message is from the future, keep it there
-                    if *remote_tick > current_tick {
-                        debug!(
-                            "message tick {:?} is from the future compared to our current tick {:?}",
-                            remote_tick, current_tick
-                        );
-                        return;
-                    }
+                    // TODO: should we store the message in a buffer if it's in the future,
+                    //  and only apply it at the correct tick?
+                    // // if the message is from the future, keep it there
+                    // if *remote_tick > current_tick {
+                    //     debug!(
+                    //         "message tick {:?} is from the future compared to our current tick {:?}",
+                    //         remote_tick, current_tick
+                    //     );
+                    //     return;
+                    // }
 
                     // We have received the message we are waiting for
                     let (remote_tick, message) = channel

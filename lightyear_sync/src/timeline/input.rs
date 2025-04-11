@@ -10,7 +10,7 @@ use lightyear_core::timeline::{NetworkTimeline, Timeline};
 
 /// Timeline that is used to make sure that Inputs from this peer will arrive on time
 /// on the remote peer
-#[derive(Default, Debug, Clone, Copy, Reflect)]
+#[derive(Debug, Clone, Copy, Reflect)]
 pub struct Input {
     pub(crate) config: SyncConfig,
     /// Current input_delay_ticks that are being applied
@@ -18,11 +18,20 @@ pub struct Input {
     relative_speed: f32,
 }
 
+impl Default for Input {
+    fn default() -> Self {
+        Self {
+            config: SyncConfig::default(),
+            input_delay_ticks: 0,
+            relative_speed: 1.0,
+        }
+    }
+}
+
 pub type InputTimeline = Timeline<Input>;
 
 impl SyncedTimeline for Timeline<Input> {
     // TODO: how can we make this configurable? or maybe just store the TICK_DURATION in the timeline itself?
-
 
     /// We want the Predicted timeline to be:
     /// - RTT/2 ahead of the server timeline, so that inputs sent from the server arrive on time

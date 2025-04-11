@@ -8,6 +8,8 @@ pub mod tick;
 
 
 pub mod network;
+
+pub mod plugin;
 pub mod time;
 mod prediction;
 mod history_buffer;

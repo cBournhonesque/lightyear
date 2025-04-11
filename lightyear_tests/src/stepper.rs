@@ -177,8 +177,8 @@ impl ClientServerStepper {
         self.server_app.cleanup();
     }
     pub(crate) fn init(&mut self) {
-        self.server_app.world_mut().trigger_targets(Start, self.server_entity);
         self.client_app.world_mut().trigger_targets(Connect, self.client_entity);
+        self.server_app.world_mut().trigger_targets(Start, self.server_entity);
         self.wait_for_connection();
         self.wait_for_sync();
     }

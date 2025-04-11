@@ -1,17 +1,27 @@
 use crate::prelude::Tick;
+use crate::tick::TickDuration;
 use crate::time::{Overstep, SetTickDuration, TickDelta, TickInstant};
 use bevy::app::{App, FixedFirst, Plugin, RunFixedMainLoop, RunFixedMainLoopSystem};
-use bevy::ecs::component::Mutable;
+use bevy::ecs::component::{HookContext, Mutable};
+use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Fixed, IntoScheduleConfigs, Query, Res, Time, Trigger};
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 
 #[derive(Component, Default, Debug)]
+#[component(on_add = Self::on_add)]
 pub struct Timeline<T: TimelineContext> {
     pub context: T,
     pub tick_duration: Duration,
     pub now: TickInstant,
     pub marker: core::marker::PhantomData<T>
+}
+
+impl<T: TimelineContext> Timeline<T> {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        let tick_duration = world.get_resource::<TickDuration>().expect("The CorePlugins have to be added before other plugnis in order to set the TickDuration").0;
+        world.get_mut::<Timeline<T>>(context.entity).unwrap().set_tick_duration(tick_duration);
+    }
 }
 
 impl<T: TimelineContext> From<T> for Timeline<T> {
@@ -73,6 +83,7 @@ impl<T: TimelineContext> NetworkTimeline for Timeline<T> {
 
     fn advance(&mut self, delta: Duration) {
         self.now = self.now + TickDelta::from_duration(delta, self.tick_duration());
+
     }
 }
 
@@ -102,18 +113,19 @@ pub type LocalTimeline = Timeline<Local>;
 
 /// Increment the local tick at each FixedUpdate
 pub(crate) fn increment_local_tick(
-    mut query: Query<&mut Timeline<Local>>,
+    mut query: Query<&mut LocalTimeline>,
 ) {
     query.iter_mut().for_each(|mut t| {
         let duration = t.tick_duration();
         t.advance(duration);
+        // trace!("Timeline::advance: now: {:?}, duration: {:?}", t.now(), duration);
     })
 }
 
 /// Update the overstep using the Time<Fixed> overstep
 pub(crate) fn set_local_overstep(
     fixed_time: Res<Time<Fixed>>,
-    mut query: Query<&mut Timeline<Local>>,
+    mut query: Query<&mut LocalTimeline>,
 ) {
     let overstep = fixed_time.overstep();
     query.iter_mut().for_each(|mut t| {
@@ -122,7 +134,9 @@ pub(crate) fn set_local_overstep(
 }
 
 
-pub struct TimelinePlugin;
+pub struct TimelinePlugin {
+    pub(crate) tick_duration: Duration
+}
 
 
 pub struct NetworkTimelinePlugin<T> {
@@ -140,6 +154,7 @@ impl<T> Default for NetworkTimelinePlugin<T> {
 
 impl<T: TimelineContext> NetworkTimelinePlugin<T> where Timeline<T>: NetworkTimeline  {
     pub(crate) fn update_tick_duration(
+        // TODO: replcae with OnAdd TickDuration resource?
         trigger: Trigger<SetTickDuration>,
         mut query: Query<&mut Timeline<T>>,
     ) {
@@ -157,6 +172,10 @@ impl<T: TimelineContext> Plugin for NetworkTimelinePlugin<T> where Timeline<T>: 
 
 impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(TickDuration(self.tick_duration));
+        app.world_mut().resource_mut::<Time<Fixed>>().set_timestep(self.tick_duration);
+
+
         app.add_plugins(NetworkTimelinePlugin::<Local>::default());
         app.add_systems(FixedFirst, increment_local_tick);
         app.add_systems(RunFixedMainLoop, set_local_overstep.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop));

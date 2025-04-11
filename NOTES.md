@@ -36,13 +36,12 @@
 
 
 - ReplicateLike:
-  - 
 
 TEST TODO:
- - Need to require Authority, Replicating, etc. from Replicate
  - Add ReplicationSender/ReplicationReceiver automatically on Client/ClientOf? But how to avoid 
    perf issues?
  - Errors seem to be swallowed
+ - ComponentUpdate doesn't work because ticks are not updated.
   
 
 

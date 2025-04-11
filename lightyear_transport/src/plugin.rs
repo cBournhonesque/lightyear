@@ -13,7 +13,8 @@ use bevy::ecs::world::FilteredEntityMut;
 use bevy::prelude::*;
 use bytes::Bytes;
 use lightyear_core::network::NetId;
-use lightyear_core::tick::{Tick, TickManager};
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::tick::Tick;
 use lightyear_link::{Link, LinkPlugin, LinkSet};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
@@ -163,12 +164,11 @@ impl TransportPlugin {
     /// Upload the packets to the [`Link`]
     fn buffer_send(
         real_time: Res<Time<Real>>,
-        mut query: Query<(&mut Link, &mut Transport)>,
+        mut query: Query<(&mut Link, &mut Transport, &LocalTimeline)>,
         channel_registry: Res<ChannelRegistry>,
-        tick_manager: Res<TickManager>,
     ) {
-        let tick = tick_manager.tick();
-        query.par_iter_mut().for_each(|(mut link, mut transport)| {
+        query.par_iter_mut().for_each(|(mut link, mut transport, timeline)| {
+            let tick = timeline.tick();
             // allow split borrows
             let mut transport = &mut *transport;
 

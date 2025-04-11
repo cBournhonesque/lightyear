@@ -11,7 +11,6 @@ use crate::packet::message::{FragmentData, MessageAck, MessageId, SendMessage, S
 use bytes::Bytes;
 use core::time::Duration;
 use crossbeam_channel::{Receiver, Sender};
-use lightyear_core::tick::TickManager;
 use lightyear_link::LinkStats;
 use lightyear_serde::SerializationError;
 use tracing::trace;
