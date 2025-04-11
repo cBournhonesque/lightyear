@@ -275,18 +275,11 @@ impl ReplicationReceiver {
         self.last_cleanup_tick = Some(tick);
         // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
         for group_channel in self.group_channels.values_mut() {
-            trace!(
-                "Checking group channel for tick cleanup: {:?}",
-                group_channel
-            );
             if let Some(latest_tick) = group_channel.latest_tick {
-                // delta = u16::MAX / 4
                 if tick - latest_tick > (i16::MAX / 2) {
-                    trace!(
-                    ?tick,
-                    ?latest_tick,
+                    debug!(
                     ?group_channel,
-                    "Setting the latest_tick tick to tick because there hasn't been any new updates in a while");
+                    "Setting the latest_tick {latest_tick:?} to tick {tick:?} because there hasn't been any new updates in a while");
                     group_channel.latest_tick = Some(tick);
                 }
             }

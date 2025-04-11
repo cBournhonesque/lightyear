@@ -43,7 +43,7 @@ use lightyear_transport::packet::error::PacketError;
 use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::{ChannelRegistry, Transport};
-use tracing::{debug, error, trace, warn};
+use tracing::*;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
@@ -504,7 +504,7 @@ impl ReplicationSender {
 
     /// Do some internal bookkeeping:
     /// - handle tick wrapping
-    pub(crate) fn cleanup(&mut self, tick: Tick) {
+    pub(crate) fn tick_cleanup(&mut self, tick: Tick) {
          // skip cleanup if we did one recently
         if self.last_cleanup_tick.is_some_and(|last| tick < last + (i16::MAX / 3) ) {
             return;
@@ -514,7 +514,6 @@ impl ReplicationSender {
         // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
         // (meaning that there's no need when we receive the update to check if we have already received a previous action)
         for group_channel in self.group_channels.values_mut() {
-            debug!("Checking group channel: {:?}", group_channel);
             if let Some(last_action_tick) = group_channel.last_action_tick {
                 if tick - last_action_tick > delta {
                     debug!(

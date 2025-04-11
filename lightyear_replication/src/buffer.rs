@@ -274,13 +274,13 @@ pub(crate) fn replicate(
     // TODO: iterate per entity first, and then per sender (using UniqueSlice)
     manager_query.par_iter_mut().for_each(
         |(sender_entity, mut sender, mut delta_manager, mut message_manager, timeline)| {
+            let tick = timeline.tick();
             // enable split borrows
             let mut sender = &mut *sender;
 
             // we iterate by index to avoid split borrow issues
             for i in 0..sender.replicated_entities.len() {
                 let entity = sender.replicated_entities[i];
-                info!("Replicating entity {:?}", entity);
                 // TODO: skip disabled entities?
                 let Ok(entity_ref) = entity_query.get(entity) else {
                     error!("Replicated Entity {:?} not found in entity_query", entity);
@@ -422,7 +422,7 @@ pub(crate) fn replicate(
                         delta_compression.is_some_and(|d| d.enabled_kind(*kind));
                     let replicate_once = replicate_once.is_some_and(|r| r.enabled_kind(*kind));
                     let _ = replicate_component_update(
-                        timeline.tick(),
+                        tick,
                         &component_registry,
                         entity,
                         *kind,
@@ -445,6 +445,10 @@ pub(crate) fn replicate(
                     });
                 }
             }
+
+            // TODO: maybe this should be in a separate system in AfterBuffer?
+            // cleanup after buffer
+            sender.tick_cleanup(tick);
         },
     );
 }

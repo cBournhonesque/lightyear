@@ -2,6 +2,7 @@
 
 use crate::protocol::CompA;
 use crate::stepper::ClientServerStepper;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::Replicate;
 use test_log::test;
@@ -137,4 +138,72 @@ fn test_component_update() {
             .expect("component missing"),
         &CompA(2.0)
     );
+}
+
+/// Test that replicating updates works even if the update happens after tick wrapping
+#[test]
+fn test_component_update_after_tick_wrap() {
+    let mut stepper = ClientServerStepper::default();
+
+    let client_entity = stepper.client_app.world_mut().spawn((
+        Replicate::to_server(),
+        CompA(1.0),
+    )).id();
+
+    stepper.frame_step(1);
+    let server_entity = stepper.client_1().get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
+
+    let tick_duration = stepper.tick_duration;
+    // we increase the ticks in 2 steps (otherwise we would directly go over tick wrapping and the tick cleanup
+    // systems would not run)
+    stepper.client_mut().get_mut::<LocalTimeline>().unwrap().advance(tick_duration * ((u16::MAX / 3  + 10) as u32));
+    stepper.client_1_mut().get_mut::<LocalTimeline>().unwrap().advance(tick_duration * ((u16::MAX / 3  + 10) as u32));
+    stepper.frame_step(1);
+    stepper.client_mut().get_mut::<LocalTimeline>().unwrap().advance(tick_duration * ((u16::MAX / 3  + 10) as u32));
+    stepper.client_1_mut().get_mut::<LocalTimeline>().unwrap().advance(tick_duration * ((u16::MAX / 3  + 10) as u32));
+    stepper.frame_step(1);
+
+    stepper.client_app.world_mut().entity_mut(client_entity).get_mut::<CompA>().unwrap().0 = 2.0;
+    stepper.frame_step(1);
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompA>()
+            .expect("component missing"),
+        &CompA(2.0)
+    );
+}
+
+
+#[test]
+fn test_component_remove() {
+    let mut stepper = ClientServerStepper::default();
+
+    let client_entity = stepper.client_app.world_mut().spawn((
+        Replicate::to_server(),
+        CompA(1.0),
+    )).id();
+    stepper.frame_step(1);
+    let server_entity = stepper.client_1().get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
+     assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompA>()
+            .expect("component missing"),
+        &CompA(1.0)
+    );
+
+    stepper.client_app.world_mut().entity_mut(client_entity).remove::<CompA>();
+    stepper.frame_step(1);
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompA>()
+            .is_none());
 }

@@ -18,20 +18,11 @@
        of components to send/receive. Then Client/ClientOf can add a ReplicationLayer to pre-specify the components
        to send-receive. Some pre-defined Layers: All, ClientToServer, ServerToClient.
 
-
-- ReplaceLogic:
-  - You add Replicate::with_target(target_1)
-  - Via OnAdd, we update the sender's replication_target
-  - Then we add Replicate::with_target(target_2)
-    - OPTION 1
-      - we want to remove the entity from all senders of target_1 via OnReplace + SendDespawn
-      - we want to add the entity to all senders of target_2 via OnAdd + SendSpawn
-      - SendSpawn will override the SendDespawn
-      - (Doing SendDespawn is needed here because otherwise the Despawn trigger does not have
-         access to the list of senders)
-    - OPTION 2
-      - we have a Cached<Replicate> component that stores the previous list of senders
-      - when Replicate is removed, we get the list of senders from the Cached<Replicate>
+- ReplicationConfig:
+  - Visibility:
+    - each entity has their own VisibilityManager, with the list of peers that they want to be visible to
+      (independently from the Replicate.senders)
+  - ReplicateComponent: bitmask with the components to replicate
        
 
 
@@ -41,7 +32,6 @@ TEST TODO:
  - Add ReplicationSender/ReplicationReceiver automatically on Client/ClientOf? But how to avoid 
    perf issues?
  - Errors seem to be swallowed
- - ComponentUpdate doesn't work because ticks are not updated.
   
 
 
