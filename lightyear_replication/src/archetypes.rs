@@ -1,13 +1,14 @@
 //! Keep track of the archetypes that should be replicated
 use crate::authority::HasAuthority;
 use crate::buffer::Replicate;
-use crate::components::Replicating;
+use crate::components::{ComponentReplicationConfig, ComponentReplicationOverrides, Replicating};
 use crate::hierarchy::ReplicateLike;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::ComponentKind;
 use bevy::ecs::archetype::Archetypes;
 use bevy::ecs::component::Components;
-use bevy::platform_support::collections::HashMap;
+use bevy::ecs::entity::{EntityIndexMap, EntityIndexSet};
+use bevy::platform_support::collections::{HashMap, HashSet};
 use bevy::{
     ecs::{
         archetype::{ArchetypeGeneration, ArchetypeId},
@@ -19,20 +20,15 @@ use core::mem;
 use lightyear_connection::direction::NetworkDirection;
 use tracing::trace;
 
-/// Cached information about all replicated archetypes.
+
+/// Cached information about the replicated archetypes for a given sender.
+/// This is used to iterate faster over the components that need to be replicated for a given entity.
 ///
-/// The generic component is the component that is used to identify if the archetype is used for Replication.
-/// This is the [`ReplicateToServer`] or [`ReplicateToClient`] component.
-/// (not the [`Replicating`], which just indicates if we are in the process of replicating.
 // NOTE: we keep the generic so that we can have both resources in the same world in
 // host-server mode
 #[derive(Resource)]
-pub(crate) struct ReplicatedArchetypes<C: Component> {
-    /// Function that returns true if the direction is compatible with sending from this peer
-    send_direction: SendDirectionFn,
-    /// ID of the component identifying if the archetype is used for Replication.
-    /// This is the [`ReplicateToServer`] or [`ReplicateToClient`] component.
-    /// (not the [`Replicating`], which just indicates if we are in the process of replicating.
+pub(crate) struct ReplicatedArchetypes {
+    /// ID of the component identifying if the archetype is used for Replication: `Replicate`
     replication_component_id: ComponentId,
     /// ID of the [`Replicating`] component, which indicates that the entity is being replicated.
     /// If this component is not present, we pause all replication (inserts/updates/spawns)
@@ -50,56 +46,30 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
 
     /// Archetypes marked as replicated.
     pub(crate) archetypes: HashMap<ArchetypeId, Vec<ReplicatedComponent>>,
-    marker: core::marker::PhantomData<C>,
 }
 
-pub type SendDirectionFn = fn(NetworkDirection) -> bool;
-
-fn send_to_server(direction: NetworkDirection) -> bool {
-    matches!(
-        direction,
-        NetworkDirection::Bidirectional | NetworkDirection::ClientToServer
-    )
-}
-
-fn send_to_client(direction: NetworkDirection) -> bool {
-    matches!(
-        direction,
-        NetworkDirection::Bidirectional | NetworkDirection::ServerToClient
-    )
-}
-
-
-
-impl<C: Component> FromWorld for ReplicatedArchetypes<C> {
+impl FromWorld for ReplicatedArchetypes {
     fn from_world(world: &mut World) -> Self {
-        Self::client(world)
-    }
-}
-
-
-impl<C: Component> ReplicatedArchetypes<C> {
-    pub(crate) fn client(world: &mut World) -> Self {
         Self {
-            send_direction: send_to_server,
             replication_component_id: world.register_component::<Replicate>(),
             replicating_component_id: world.register_component::<Replicating>(),
             replicate_like_component_id: world.register_component::<ReplicateLike>(),
             has_authority_component_id: Some(world.register_component::<HasAuthority>()),
             generation: ArchetypeGeneration::initial(),
             archetypes: HashMap::default(),
-            marker: Default::default(),
         }
     }
 }
 
+
 pub(crate) struct ReplicatedComponent {
     pub(crate) id: ComponentId,
     pub(crate) kind: ComponentKind,
+    pub(crate) has_overrides: bool,
 }
 
-impl<C: Component> ReplicatedArchetypes<C> {
-    /// Update the list of archetypes that should be replicated.
+impl ReplicatedArchetypes {
+    /// Update the list of entities/components that should be replicated for this sender
     pub(crate) fn update(
         &mut self,
         archetypes: &Archetypes,
@@ -120,9 +90,8 @@ impl<C: Component> ReplicatedArchetypes<C> {
                         .map_or(true, |id| archetype.contains(id)))
         }) {
             let mut replicated_archetype = Vec::new();
-            // add all components of the archetype that are present in the ComponentRegistry, and:
-            // - ignore component if the component is disabled
-            // - check if delta-compression is enabled
+
+            // add all components of the archetype that are present in the ComponentRegistry
             archetype.components().for_each(|component| {
                 let info = unsafe { components.get_info(component).unwrap_unchecked() };
                 // if the component has a type_id (i.e. is a rust type)
@@ -135,10 +104,15 @@ impl<C: Component> ReplicatedArchetypes<C> {
                         );
                         return;
                     };
-                    // ignore the components that are not registered for replication in this direction
-                    if !(self.send_direction)(replication_metadata.direction) {
+
+                    let has_replication_overrides = archetype.contains(replication_metadata.overrides_component_id);
+
+                    // ignore components that are disabled by default and don't have overrides
+                    if replication_metadata.config.disable
+                        && !has_replication_overrides
+                    {
                         trace!(
-                            "not including {:?} because it doesn't replicate in this direction",
+                            "not including {:?} because it is disabled by default",
                             info.name()
                         );
                         return;
@@ -147,6 +121,7 @@ impl<C: Component> ReplicatedArchetypes<C> {
                     replicated_archetype.push(ReplicatedComponent {
                         id: component,
                         kind,
+                        has_overrides: has_replication_overrides
                     });
                 }
             });

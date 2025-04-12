@@ -1,10 +1,11 @@
 //! Check various replication scenarios between 2 peers only
 
-use crate::protocol::CompA;
+use crate::protocol::{CompA, CompDisabled, CompReplicateOnce};
 use crate::stepper::ClientServerStepper;
+use bevy::prelude::default;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
-use lightyear_replication::prelude::Replicate;
+use lightyear_replication::prelude::{ComponentReplicationOverride, ComponentReplicationOverrides, Replicate};
 use test_log::test;
 
 #[test]
@@ -206,4 +207,167 @@ fn test_component_remove() {
             .entity(server_entity)
             .get::<CompA>()
             .is_none());
+}
+
+#[test]
+fn test_component_disabled() {
+    let mut stepper = ClientServerStepper::default();
+
+    let client_entity = stepper.client_app.world_mut().spawn((
+        Replicate::to_server(),
+        CompDisabled(1.0),
+    )).id();
+    stepper.frame_step(1);
+
+    let server_entity = stepper.client_1().get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompDisabled>().is_none()
+    );
+}
+
+#[test]
+fn test_component_replicate_once() {
+    let mut stepper = ClientServerStepper::default();
+
+    let client_entity = stepper.client_app.world_mut().spawn((
+        Replicate::to_server(),
+        CompReplicateOnce(1.0),
+    )).id();
+    stepper.frame_step(1);
+    let server_entity = stepper.client_1().get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
+     assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompReplicateOnce>()
+            .expect("component missing"),
+        &CompReplicateOnce(1.0)
+    );
+
+    stepper.client_app.world_mut().entity_mut(client_entity).get_mut::<CompReplicateOnce>().unwrap().0 = 2.0;
+    stepper.frame_step(1);
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompReplicateOnce>()
+            .expect("component missing"),
+        &CompReplicateOnce(1.0)
+    );
+}
+
+/// Default = replicate_once
+/// GlobalOverride = replicate_always
+/// PerSenderOverride = replicate_once
+#[test]
+fn test_component_replicate_once_overrides() {
+    let mut stepper = ClientServerStepper::default();
+
+    let client_entity = stepper.client_app.world_mut().spawn((
+        Replicate::to_server(),
+        CompReplicateOnce(1.0),
+    )).id();
+    stepper.frame_step(1);
+    let server_entity = stepper.client_1().get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
+     assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompReplicateOnce>()
+            .expect("component missing"),
+        &CompReplicateOnce(1.0)
+    );
+
+    let mut overrides = ComponentReplicationOverrides::<CompReplicateOnce>::default();
+    overrides.global_override(ComponentReplicationOverride {
+        replicate_always: true,
+        ..default()
+    });
+    stepper.client_app.world_mut().entity_mut(client_entity).insert(overrides);
+    stepper.client_app.world_mut().entity_mut(client_entity).get_mut::<CompReplicateOnce>().unwrap().0 = 2.0;
+    stepper.frame_step(1);
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompReplicateOnce>()
+            .expect("component missing"),
+        &CompReplicateOnce(2.0)
+    );
+
+    stepper.client_app.world_mut().entity_mut(client_entity).get_mut::<ComponentReplicationOverrides<CompReplicateOnce>>()
+        .unwrap().override_for_sender(ComponentReplicationOverride { replicate_once: true, ..default() }, stepper.client_entity);
+    stepper.client_app.world_mut().entity_mut(client_entity).get_mut::<CompReplicateOnce>().unwrap().0 = 3.0;
+    stepper.frame_step(1);
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompReplicateOnce>()
+            .expect("component missing"),
+        &CompReplicateOnce(2.0)
+    );
+}
+
+/// Default = disabled
+/// GlobalOverride = enabled
+/// PerSenderOverride = disabled
+#[test]
+fn test_component_disabled_overrides() {
+    let mut stepper = ClientServerStepper::default();
+
+    let client_entity = stepper.client_app.world_mut().spawn((
+        Replicate::to_server(),
+        CompDisabled(1.0),
+    )).id();
+    stepper.frame_step(1);
+    let server_entity = stepper.client_1().get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompDisabled>().is_none()
+    );
+
+    let mut overrides = ComponentReplicationOverrides::<CompDisabled>::default();
+    overrides.global_override(ComponentReplicationOverride {
+        enable: true,
+        ..default()
+    });
+    stepper.client_app.world_mut().entity_mut(client_entity).insert(overrides);
+    stepper.client_app.world_mut().entity_mut(client_entity).get_mut::<CompDisabled>().unwrap().0 = 2.0;
+    stepper.frame_step(1);
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompDisabled>()
+            .expect("component missing"),
+        &CompDisabled(2.0)
+    );
+
+    stepper.client_app.world_mut().entity_mut(client_entity).get_mut::<ComponentReplicationOverrides<CompDisabled>>()
+        .unwrap().override_for_sender(ComponentReplicationOverride { disable: true, ..default() }, stepper.client_entity);
+    stepper.client_app.world_mut().entity_mut(client_entity).get_mut::<CompDisabled>().unwrap().0 = 3.0;
+    stepper.frame_step(1);
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompDisabled>()
+            .expect("component missing"),
+        &CompDisabled(2.0)
+    );
 }

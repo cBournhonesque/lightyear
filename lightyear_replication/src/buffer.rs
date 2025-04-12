@@ -4,22 +4,23 @@ use core::time::Duration;
 
 use super::*;
 use bevy::ecs::archetype::Archetypes;
-use bevy::ecs::component::{ComponentTicks, Components, HookContext};
+use bevy::ecs::component::{ComponentId, ComponentTicks, Components, HookContext};
 use bevy::ecs::entity::{EntityIndexSet, UniqueEntitySlice, UniqueEntityVec};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy::ecs::world::{DeferredWorld, FilteredEntityRef};
+use bevy::platform_support::collections::HashSet;
 use bevy::ptr::Ptr;
 
 use crate::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
 use crate::authority::HasAuthority;
 use crate::components::{
-    DeltaCompression, DisabledComponents, ReplicateOnce, Replicating, ReplicationGroup,
+    Replicating, ReplicationGroup,
     ReplicationGroupId,
 };
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::ReplicateLike;
-use crate::prelude::Cached;
+use crate::prelude::{Cached, ComponentReplicationOverride, ComponentReplicationOverrides};
 use crate::receive::ReplicationReceiver;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::ComponentKind;
@@ -267,7 +268,7 @@ pub(crate) fn replicate(
     system_ticks: SystemChangeTick,
     archetypes: &Archetypes,
     components: &Components,
-    mut replicated_archetypes: Local<ReplicatedArchetypes<Replicate>>,
+    mut replicated_archetypes: Local<ReplicatedArchetypes>,
 ) {
     replicated_archetypes.update(archetypes, components, component_registry.as_ref());
 
@@ -275,6 +276,7 @@ pub(crate) fn replicate(
     manager_query.par_iter_mut().for_each(
         |(sender_entity, mut sender, mut delta_manager, mut message_manager, timeline)| {
             let tick = timeline.tick();
+
             // enable split borrows
             let mut sender = &mut *sender;
 
@@ -286,15 +288,20 @@ pub(crate) fn replicate(
                     error!("Replicated Entity {:?} not found in entity_query", entity);
                     return;
                 };
+                let Some(replicated_components) =
+                    replicated_archetypes
+                        .archetypes
+                        .get(&entity_ref.archetype().id())
+                else {
+                    // entity is not replicated, skip. This could happen if Replicating is not present on the entity
+                    return;
+                };
 
                 // get the value of the replication componentsk
                 let (
                     group_id,
                     priority,
                     group_ready,
-                    disabled_components,
-                    delta_compression,
-                    replicate_once,
                     replicate,
                     cached_replicate,
                     is_replicate_like_added,
@@ -304,8 +311,9 @@ pub(crate) fn replicate(
                         let Ok(root_entity_ref) = entity_query.get(replicate_like.0) else {
                             return;
                         };
+                        // TODO: we won't need this because we can remove ReplicateLike if Replicate is removed.
                         if root_entity_ref.get::<Replicate>().is_none() {
-                            // ReplicateLike points to a parent entity that doesn't have ReplicationToServer, skip
+                            // ReplicateLike points to a parent entity that doesn't have Replicate, skip
                             return;
                         };
                         let (group_id, priority, group_ready) =
@@ -330,15 +338,6 @@ pub(crate) fn replicate(
                             group_id,
                             priority,
                             group_ready,
-                            entity_ref
-                                .get::<DisabledComponents>()
-                                .or_else(|| root_entity_ref.get()),
-                            entity_ref
-                                .get::<DeltaCompression>()
-                                .or_else(|| root_entity_ref.get()),
-                            entity_ref
-                                .get::<ReplicateOnce>()
-                                .or_else(|| root_entity_ref.get()),
                             // SAFETY: we know that the entity has the Replicate component
                             entity_ref
                                 .get_ref::<Replicate>()
@@ -363,9 +362,6 @@ pub(crate) fn replicate(
                             group_id,
                             priority,
                             group_ready,
-                            entity_ref.get::<DisabledComponents>(),
-                            entity_ref.get::<DeltaCompression>(),
-                            entity_ref.get::<ReplicateOnce>(),
                             entity_ref.get_ref::<Replicate>().unwrap(),
                             entity_ref.get::<CachedReplicate>(),
                             false,
@@ -398,29 +394,42 @@ pub(crate) fn replicate(
                     return;
                 }
 
-                // TODO: should we pre-cache the list of components to replicate per archetype?
                 // d. all components that were added or changed and that are not disabled
 
                 // NOTE: we pre-cache the list of components for each archetype to not iterate through
                 //  all replicated components every time
-                for ReplicatedComponent { id, kind } in replicated_archetypes
-                    .archetypes
-                    .get(&entity_ref.archetype().id())
-                    .unwrap()
-                    .iter()
-                    .filter(|c| disabled_components.is_none_or(|d| d.enabled_kind(c.kind)))
-                {
+                for ReplicatedComponent { id, kind, has_overrides } in replicated_components {
+
+                    let mut replication_metadata = component_registry.replication_map.get(kind).unwrap();
+                    let mut disable = replication_metadata.config.disable;
+                    let mut replicate_once = replication_metadata.config.replicate_once;
+                    let mut delta_compression = replication_metadata.config.delta_compression;
+                    if *has_overrides {
+                        // TODO: get ComponentReplicationOverrides using root entity
+                        // SAFETY: we know that all overrides have the same shape
+                        if let Some(overrides) = unsafe { entity_ref.get_by_id(replication_metadata.overrides_component_id).unwrap().deref::<ComponentReplicationOverrides<Replicate>>() }.get_overrides(sender_entity) {
+                            if disable && overrides.enable {
+                                disable = false;
+                            }
+                            if !disable && overrides.disable {
+                                disable = true;
+                            }
+                            if replicate_once && overrides.replicate_always {
+                                replicate_once = false;
+                            }
+                            if !replicate_once && overrides.replicate_once {
+                                replicate_once = true;
+                            }
+                        }
+                    }
+                    if disable {
+                        continue;
+                    }
                     let Some(data) = entity_ref.get_by_id(*id) else {
                         // component not present on entity, skip
                         return;
                     };
                     let component_ticks = entity_ref.get_change_ticks_by_id(*id).unwrap();
-
-                    // TODO: maybe the old method was faster because we had-precached the delta-compression data
-                    //  for the archetype?
-                    let delta_compression =
-                        delta_compression.is_some_and(|d| d.enabled_kind(*kind));
-                    let replicate_once = replicate_once.is_some_and(|r| r.enabled_kind(*kind));
                     let _ = replicate_component_update(
                         tick,
                         &component_registry,
@@ -666,7 +675,8 @@ pub(crate) fn buffer_component_removed<C: Component>(
     root_query: Query<&ReplicateLike>,
     // only remove the component for entities that are being actively replicated
     query: Query<
-        (&ReplicationGroup, &Replicate, Option<&DisabledComponents>),
+        // TODO: handle disabled_components
+        (&ReplicationGroup, &Replicate),
         (With<Replicating>, With<Replicate>),
     >,
     mut manager_query: Query<(&mut ReplicationSender, &mut MessageManager)>,
@@ -674,7 +684,7 @@ pub(crate) fn buffer_component_removed<C: Component>(
     let mut entity = trigger.target();
     let root = root_query.get(entity).map_or(entity, |r| r.0);
     // TODO: be able to override the root components with those from the child
-    let Ok((group, replicate_on, disabled_components)) = query.get(root) else {
+    let Ok((group, replicate_on)) = query.get(root) else {
         return;
     };
 
@@ -683,12 +693,12 @@ pub(crate) fn buffer_component_removed<C: Component>(
         .for_each(|(mut sender, mut manager)| {
             // convert the entity to a network entity (possibly mapped)
             let entity = manager.entity_mapper.to_remote(entity);
-            // do not replicate components (even removals) that are disabled
-            if disabled_components
-                .is_some_and(|disabled_components| !disabled_components.enabled::<C>())
-            {
-                return;
-            }
+            // // do not replicate components (even removals) that are disabled
+            // if disabled_components
+            //     .is_some_and(|disabled_components| !disabled_components.enabled::<C>())
+            // {
+            //     return;
+            // }
             let group_id = group.group_id(Some(root));
             trace!(?entity, kind = ?core::any::type_name::<C>(), "Sending RemoveComponent");
             let kind = registry.net_id::<C>();

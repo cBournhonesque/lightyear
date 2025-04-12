@@ -1,3 +1,4 @@
+use crate::prelude::ComponentReplicationConfig;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 use bevy::ecs::component::{Component, ComponentId, Mutable};
@@ -98,7 +99,8 @@ impl TempWriteBuffer {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplicationMetadata {
-    pub direction: NetworkDirection,
+    pub config: ComponentReplicationConfig,
+    pub overrides_component_id: ComponentId,
     pub write: RawWriteFn,
     pub buffer_insert_fn: RawBufferInsertFn,
     pub remove: Option<RawBufferRemoveFn>,
@@ -121,21 +123,17 @@ type RawBufferInsertFn = fn(
 ) -> Result<(), ComponentError>;
 
 impl ComponentRegistry {
-    pub fn direction(&self, kind: ComponentKind) -> Option<NetworkDirection> {
-        self.replication_map
-            .get(&kind)
-            .map(|metadata| metadata.direction)
-    }
 
-    pub fn set_replication_fns<C: Component<Mutability = Mutable> + PartialEq>(
+    pub(crate) fn set_replication_fns<C: Component<Mutability = Mutable> + PartialEq>(
         &mut self,
-        world: &mut World,
-        direction: NetworkDirection,
+        config: ComponentReplicationConfig,
+        overrides_component_id: ComponentId,
     ) {
         self.replication_map.insert(
             ComponentKind::of::<C>(),
             ReplicationMetadata {
-                direction,
+                config,
+                overrides_component_id,
                 write: Self::write::<C>,
                 buffer_insert_fn: Self::buffer_insert::<C>,
                 remove: Some(Self::buffer_remove::<C>),

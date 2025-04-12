@@ -4,6 +4,7 @@ use crate::registry::ComponentKind;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::ecs::reflect::ReflectComponent;
+use bevy::platform_support::collections::HashSet;
 use bevy::prelude::{Component, Entity, Reflect};
 use bevy::time::{Timer, TimerMode};
 use lightyear_connection::id::PeerId;
@@ -11,6 +12,77 @@ use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
+
+use lightyear_utils::collections::EntityHashMap;
+
+// TODO: how to define which subset of components a sender iterates through?
+//  if a sender is only interested in a few components it might be expensive
+//  maybe we can have a 'direction' in ComponentReplicationConfig and Client/ClientOf peers can precompute
+//  a list of components based on this.
+
+#[derive(Debug, Default, PartialEq, Clone)]
+pub struct ComponentReplicationConfig {
+    /// by default we will replicate every update for the component. If this is True, we will only
+    /// replicate the inserts/removes of the component.
+    pub replicate_once: bool,
+    /// by default, a component in the registry will get replicated when added to a Replicated entity
+    /// If true, the default behaviour is flipped. The component is not replicated by default and has
+    /// to be explicitly enabled.
+    pub disable: bool,
+    /// If true, the component will be replicated using delta compression
+    pub delta_compression: bool,
+
+}
+
+#[derive(Debug, Default)]
+pub struct ComponentReplicationOverride {
+    pub disable: bool,
+    pub enable: bool,
+    pub replicate_once: bool,
+    pub replicate_always: bool,
+}
+
+#[derive(Component)]
+pub struct ComponentReplicationOverrides<C> {
+    /// Overrides that will be applied to all senders
+    pub(crate) all_senders: Option<ComponentReplicationOverride>,
+    /// Overrides that will be applied for a specific sender. Takes priority over `all_senders`
+    pub(crate) per_sender: EntityHashMap<ComponentReplicationOverride>,
+    _marker: core::marker::PhantomData<C>,
+}
+
+impl<C> Default for ComponentReplicationOverrides<C> {
+    fn default() -> Self {
+        Self {
+            all_senders: None,
+            per_sender: Default::default(),
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<C> ComponentReplicationOverrides<C> {
+    /// Get component overrides for a specific sender
+    pub(crate) fn get_overrides(
+        &self,
+        sender: Entity,
+    ) -> Option<&ComponentReplicationOverride> {
+        if let Some(overrides) = self.per_sender.get(&sender) {
+            return Some(overrides);
+        }
+        self.all_senders.as_ref()
+    }
+
+    /// Add an override for all senders
+    pub fn global_override(&mut self, overrides: ComponentReplicationOverride) {
+        self.all_senders = Some(overrides);
+    }
+
+    /// Add an override for a specific sender. Takes priority over any global override
+    pub fn override_for_sender(&mut self, overrides: ComponentReplicationOverride, sender: Entity) {
+        self.per_sender.insert(sender, overrides);
+    }
+}
 
 /// Marker that indicates that this entity is to be replicated.
 ///
@@ -82,6 +154,8 @@ pub struct Cached<C> {
     pub value: C,
 }
 
+// TODO: we need a ReplicateConfig similar to ComponentReplicationConfig
+//  for entity-specific config, such as replicate-hierarchy
 
 /// Marker component that defines how the hierarchy of an entity (parent/children) should be replicated.
 ///
@@ -96,146 +170,6 @@ pub struct Cached<C> {
 #[reflect(Component)]
 pub struct DisableReplicateHierarchy;
 
-// - each entity has a ReplicateLike(entity)
-//   - the entity can be itself or another one (usually a parent)
-// - when we spawn Replicate, etc., we insert a ReplicateLike(itself)
-//   - maybe this is not needed, and in the replication system we have 2 steps; one for ReplicateLike and one for entities that have Replication?
-// - in the replication systems, we iterate through all the ReplicateLike(entity), fetch the components on the 'like' entity, and then go
-//   - if the entity itself has a replication component, we will use that instead of the one from ReplicateLike
-// - if we add DisableReplicateHierarchy, we remove ReplicateLike from all children (but not from itself)
-// - when we remove ReplicateLike, we remove ReplicateLike recursively in all children as well
-
-// TODO: do we need this? or do we just check if delta compression fn is present in the registry?
-/// If this component is present, the component will be replicated via delta-compression.
-///
-/// Instead of sending the full component every time, we will only send the diffs between the old
-/// and new state.
-#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct DeltaCompression {
-    // we use a Vec instead of a HashSet to go faster, I doubt there would be many cases
-    // where we have duplicate kinds here
-    kinds: Vec<ComponentKind>,
-}
-
-impl DeltaCompression {
-    pub fn add<C: Component>(mut self) -> Self {
-        self.kinds.push(ComponentKind::of::<C>());
-        self
-    }
-
-    pub fn remove<C: Component>(mut self) -> Self {
-        self.kinds.retain(|kind| *kind != ComponentKind::of::<C>());
-        self
-    }
-
-    pub fn enabled<C: Component>(&self) -> bool {
-        self.enabled_kind(ComponentKind::of::<C>())
-    }
-
-    pub(crate) fn enabled_kind(&self, kind: ComponentKind) -> bool {
-        self.kinds.contains(&kind)
-    }
-}
-
-// TODO: maybe this can be merged with OverrideTargetComponent?
-//  we could think that Target=None means Disabled?
-/// If this component is present, we won't replicate the component
-///
-/// (By default, all components that are present in the [`ComponentRegistry`](crate::prelude::ComponentRegistry) will be replicated.)
-#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct DisabledComponents {
-    /// If `disable_all` is true, all components are disabled for replication. Only the components in `enabled` will be replicated
-    enabled: Vec<ComponentKind>,
-    /// if True, all components are disabled for replication. Only the components in `enabled` will be replicated
-    disable_all: bool,
-    /// If `disable_all` is false, all components are enabled for replication. Only the components in `disabled` will not be replicated
-    disabled: Vec<ComponentKind>,
-}
-
-impl DisabledComponents {
-    /// Returns true if a component is enabled for replication
-    pub(crate) fn enabled_kind(&self, kind: ComponentKind) -> bool {
-        if self.disable_all {
-            return self.enabled.contains(&kind);
-        }
-        !self.disabled.contains(&kind)
-    }
-
-    /// Returns true if a component is enabled for replication
-    pub(crate) fn enabled<C: Component>(&self) -> bool {
-        self.enabled_kind(ComponentKind::of::<C>())
-    }
-
-    /// Disables the replication of a component
-    pub fn disable<C: Component>(mut self) -> Self {
-        self.enabled.retain(|c| c != &ComponentKind::of::<C>());
-        self.disabled.push(ComponentKind::of::<C>());
-        self
-    }
-
-    /// Enables the replication of a component
-    pub fn enable<C: Component>(mut self) -> Self {
-        self.disabled.retain(|c| c != &ComponentKind::of::<C>());
-        self.enabled.push(ComponentKind::of::<C>());
-        self
-    }
-
-    /// Disables all components for replication. Only the components that are explicitly enabled will be replicated
-    pub fn disable_all(mut self) -> Self {
-        self.disable_all = true;
-        self.disabled.clear();
-        self.enabled.clear();
-        self
-    }
-
-    /// Enables all components for replication. Only the components that are explicitly disabled will not be replicated
-    pub fn enable_all(mut self) -> Self {
-        self.disable_all = false;
-        self.enabled.clear();
-        self.disabled.clear();
-        self
-    }
-}
-
-/// Component that can be used to specify which components we will only send inserts/removals
-/// but not component updates. The component will only get replicated once at entity spawn.
-#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct ReplicateOnce {
-    // we use a Vec instead of a HashSet to go faster, I doubt there would be many cases
-    // where we have duplicate kinds here
-    kinds: Vec<ComponentKind>,
-}
-
-impl ReplicateOnce {
-    pub fn add<C: Component>(mut self) -> Self {
-        self.add_mut::<C>();
-        self
-    }
-
-    pub fn add_mut<C: Component>(&mut self) {
-        self.kinds.push(ComponentKind::of::<C>());
-    }
-
-    pub fn remove<C: Component>(mut self) -> Self {
-        self.remove_mut::<C>();
-        self
-    }
-
-    pub fn remove_mut<C: Component>(&mut self) {
-        self.kinds.retain(|kind| *kind != ComponentKind::of::<C>());
-    }
-
-    pub fn enabled<C: Component>(&self) -> bool {
-        self.enabled_kind(ComponentKind::of::<C>())
-    }
-
-    pub(crate) fn enabled_kind(&self, kind: ComponentKind) -> bool {
-        self.kinds.contains(&kind)
-    }
-}
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Reflect)]
 pub enum ReplicationGroupIdBuilder {

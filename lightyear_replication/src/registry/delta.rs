@@ -1,10 +1,11 @@
+use crate::components::ComponentReplicationConfig;
 use crate::delta::{DeltaComponentHistory, DeltaMessage, DeltaType, Diffable};
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::replication::{RawWriteFn, ReplicationMetadata};
 use crate::registry::{ComponentError, ComponentKind};
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format};
-use bevy::ecs::component::Mutable;
+use bevy::ecs::component::{ComponentId, Mutable};
 use bevy::prelude::{Component, EntityWorldMut, World};
 use bevy::ptr::{Ptr, PtrMut};
 use core::any::TypeId;
@@ -39,12 +40,8 @@ impl ComponentRegistry {
         self.replication_map.insert(
             delta_kind,
             ReplicationMetadata {
-                // Note: the direction should always exist; adding unwrap_or for unit tests
-                direction: self
-                    .replication_map
-                    .get(&kind)
-                    .map(|m| m.direction)
-                    .unwrap_or(NetworkDirection::Bidirectional),
+                config: ComponentReplicationConfig::default(),
+                overrides_component_id: ComponentId::new(0),
                 write,
                 buffer_insert_fn: Self::buffer_insert_delta::<C>,
                 // we never need to remove the DeltaMessage<C> component

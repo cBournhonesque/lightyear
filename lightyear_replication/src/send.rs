@@ -6,7 +6,7 @@ use super::message::{ActionsMessage, UpdatesMessage};
 use crate::authority::HasAuthority;
 use crate::buffer;
 use crate::buffer::{replicate, Replicate};
-use crate::components::{DeltaCompression, DisabledComponents, ReplicateOnce, Replicating, ReplicationGroup, ReplicationGroupId};
+use crate::components::{Replicating, ReplicationGroup, ReplicationGroupId};
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::ReplicateLike;
@@ -265,18 +265,16 @@ impl Plugin for ReplicationSendPlugin {
                         &ReplicateLike,
                         &Replicate,
                         &ReplicationGroup,
-                        &DisabledComponents,
-                        &DeltaCompression,
-                        &ReplicateOnce,
                     )>();
-                    // include access to &C for all replication components with the right direction
+                    // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
                     component_registry
                         .replication_map
                         .iter()
-                        .filter(|(_, m)| m.direction != NetworkDirection::ServerToClient)
                         .for_each(|(kind, _)| {
                             let id = component_registry.kind_to_component_id.get(kind).unwrap();
                             b.ref_id(*id);
+                            let override_id = component_registry.replication_map.get(kind).unwrap().overrides_component_id;
+                            b.ref_id(override_id);
                         });
                 });
             }),

@@ -1,3 +1,5 @@
+use crate::components::ComponentReplicationConfig;
+use crate::prelude::ComponentReplicationOverrides;
 use crate::registry::delta::ErasedDeltaFns;
 use crate::registry::replication::{ReplicationMetadata, TempWriteBuffer};
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
@@ -318,17 +320,13 @@ pub trait AppComponentExt {
     /// This component can now be sent over the network.
     fn register_component<
         C: Component<Mutability = Mutable> + Serialize + DeserializeOwned + PartialEq,
-    >(
-        &mut self,
-        direction: NetworkDirection,
-    ) -> ComponentRegistration<'_, C>;
+    >(&mut self) -> ComponentRegistration<'_, C>;
 
     /// Registers the component in the Registry: this component can now be sent over the network.
     ///
     /// You need to provide your own [`SerializeFns`]
     fn register_component_custom_serde<C: Component<Mutability = Mutable>  + PartialEq>(
         &mut self,
-        direction: NetworkDirection,
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C>;
 }
@@ -338,14 +336,12 @@ impl AppComponentExt for App {
         C: Component<Mutability = Mutable> + PartialEq + Serialize + DeserializeOwned,
     >(
         &mut self,
-        direction: NetworkDirection,
     ) -> ComponentRegistration<'_, C> {
-        self.register_component_custom_serde(direction, SerializeFns::<C>::default())
+        self.register_component_custom_serde(SerializeFns::<C>::default())
     }
 
     fn register_component_custom_serde<C: Component<Mutability = Mutable> +  PartialEq>(
         &mut self,
-        direction: NetworkDirection,
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C> {
         if self.world_mut().get_resource_mut::<ComponentRegistry>().is_none() {
@@ -356,14 +352,12 @@ impl AppComponentExt for App {
                 if !registry.is_registered::<C>() {
                     registry.register_component_custom_serde::<C>(world, serialize_fns);
                 }
-                registry.set_replication_fns::<C>(world, direction);
                 debug!("register component {}", core::any::type_name::<C>());
             });
-        // register_component_send::<C>(self, direction);
         ComponentRegistration {
             app: self,
             _phantom: core::marker::PhantomData,
-        }
+        }.with_replication_config(ComponentReplicationConfig::default())
     }
 }
 
@@ -384,8 +378,16 @@ impl<C> ComponentRegistration<'_, C> {
         self
     }
 
-
+    pub fn with_replication_config(self, config: ComponentReplicationConfig) -> Self
+        where C: Component<Mutability=Mutable> + PartialEq
+    {
+        let overrides_component_id = self.app.world_mut().register_component::<ComponentReplicationOverrides<C>>();
+        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
+        registry.set_replication_fns::<C>(config, overrides_component_id);
+        self
+    }
 }
+
 
 #[cfg(test)]
 mod tests {

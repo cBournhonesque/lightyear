@@ -10,6 +10,7 @@ use cfg_if::cfg_if;
 use lightyear_connection::direction::{AppChannelDirectionExt, AppMessageDirectionExt, NetworkDirection};
 use lightyear_macros::ChannelInternal;
 use lightyear_messages::prelude::*;
+use lightyear_replication::components::ComponentReplicationConfig;
 use lightyear_replication::registry::registry::AppComponentExt;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::{WriteInteger, Writer};
@@ -51,6 +52,12 @@ pub struct Channel2;
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompA(pub f32);
 
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompDisabled(pub f32);
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompReplicateOnce(pub f32);
+
 // Protocol
 pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
@@ -73,6 +80,17 @@ impl Plugin for ProtocolPlugin {
         })
         .add_direction(NetworkDirection::Bidirectional);
         // components
-        app.register_component::<CompA>(NetworkDirection::Bidirectional);
+        app.register_component::<CompA>();
+        app.register_component::<CompDisabled>()
+            .with_replication_config(ComponentReplicationConfig {
+                disable: true,
+                ..default()
+            });
+        app.register_component::<CompReplicateOnce>()
+            .with_replication_config(ComponentReplicationConfig {
+                replicate_once: true,
+                ..default()
+            });
     }
+
 }

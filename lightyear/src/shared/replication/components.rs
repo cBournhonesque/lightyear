@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::connection::id::ClientId;
 use crate::protocol::component::ComponentKind;
 use crate::serialize::reader::{ReadInteger, Reader};
-use crate::serialize::{SerializationError, ToBytes};
 use crate::serialize::writer::WriteInteger;
+
 
 /// Marker that indicates that this entity is to be replicated.
 ///
