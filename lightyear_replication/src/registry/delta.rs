@@ -1,5 +1,6 @@
 use crate::components::ComponentReplicationConfig;
 use crate::delta::{DeltaComponentHistory, DeltaMessage, DeltaType, Diffable};
+use crate::receive::TempWriteBuffer;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::replication::{RawWriteFn, ReplicationMetadata};
 use crate::registry::{ComponentError, ComponentKind};
@@ -204,11 +205,12 @@ impl ComponentRegistry {
     /// If the component is not present on the entity, we put it in a temporary buffer
     /// so that all components can be inserted at once
     pub fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
-        &mut self,
+        &self,
         reader: &mut Reader,
         tick: Tick,
         entity_world_mut: &mut EntityWorldMut,
         entity_map: &mut ReceiveEntityMap,
+        temp_write_buffer: &mut TempWriteBuffer,
     ) -> Result<(), ComponentError> {
         let kind = ComponentKind::of::<C>();
         let component_id = self
@@ -243,7 +245,7 @@ impl ComponentRegistry {
                     // TODO: add safety comment
                     // use the component id of C, not DeltaMessage<C>
                     unsafe {
-                        self.temp_write_buffer
+                        temp_write_buffer
                             .buffer_insert_raw_ptrs::<C>(new_value, *component_id)
                     };
                 }

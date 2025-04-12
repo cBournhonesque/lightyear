@@ -5,14 +5,18 @@ use crate::authority::{AuthorityPeer, HasAuthority};
 use crate::components::{InitialReplicated, Replicated, ReplicationGroupId};
 use crate::message::{ActionsMessage, SpawnAction, UpdatesMessage};
 use crate::registry::registry::ComponentRegistry;
+use alloc::alloc::Layout;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::app::{App, Plugin, PreUpdate};
+use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::EntityHash;
 use bevy::ecs::system::SystemState;
 use bevy::ecs::world::WorldEntityFetch;
 use bevy::platform_support::collections::HashSet;
 use bevy::prelude::*;
+use bevy::ptr::OwningPtr;
+use core::ptr::NonNull;
 use lightyear_connection::id::PeerId;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::RemoteEntityMap;
@@ -94,36 +98,33 @@ impl ReplicationReceivePlugin {
         // See https://discord.com/channels/691052431525675048/1358658786851684393/1358793406679355593
         receiver_entities.extend(query.iter(world));
 
-        // TODO: maybe use `resource_scope`? but then observers that need `&ComponentRegistry` won't work...
-        // TODO: put the tempbuffer inside the ReplicationReceiver, not inside ComponentRegistry
         // SAFETY: the other uses of `world` won't access the ComponentRegistry
-        // let unsafe_world = world.as_unsafe_world_cell();
-        // let mut component_registry = unsafe { unsafe_world.get_resource_mut::<ComponentRegistry>() }.unwrap();
+        let unsafe_world = world.as_unsafe_world_cell();
+        let mut component_registry = unsafe { unsafe_world.get_resource::<ComponentRegistry>() }.unwrap();
+        let world = unsafe { unsafe_world.world_mut() };
 
-        world.resource_scope(|world, mut component_registry: Mut<ComponentRegistry>| {
-            receiver_entities.drain(..).for_each(|entity| {
-                let span = trace_span!("ReplicationReceiver", entity = ?entity);
-                let _guard = span.enter();
-                let unsafe_world = world.as_unsafe_world_cell();
-                // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
-                let mut receiver = unsafe { unsafe_world.world_mut() }.get_mut::<ReplicationReceiver>(entity).unwrap();
-                let client_of = unsafe { unsafe_world.world_mut() }.get::<ClientOf>(entity);
-                let mut manager = unsafe { unsafe_world.world_mut() }.get_mut::<MessageManager>(entity).unwrap();
-                let local_timeline = unsafe { unsafe_world.world_mut() }.get::<LocalTimeline>(entity).unwrap();
-                // SAFETY: the world will only be used to apply replication updates, which doesn't conflict with other accesses
-                let world = unsafe { unsafe_world.world_mut() };
+        receiver_entities.drain(..).for_each(|entity| {
+            let span = trace_span!("ReplicationReceiver", entity = ?entity);
+            let _guard = span.enter();
+            let unsafe_world = world.as_unsafe_world_cell();
+            // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
+            let mut receiver = unsafe { unsafe_world.world_mut() }.get_mut::<ReplicationReceiver>(entity).unwrap();
+            let client_of = unsafe { unsafe_world.world_mut() }.get::<ClientOf>(entity);
+            let mut manager = unsafe { unsafe_world.world_mut() }.get_mut::<MessageManager>(entity).unwrap();
+            let local_timeline = unsafe { unsafe_world.world_mut() }.get::<LocalTimeline>(entity).unwrap();
+            // SAFETY: the world will only be used to apply replication updates, which doesn't conflict with other accesses
+            let world = unsafe { unsafe_world.world_mut() };
 
-                // TODO: have some logic to get the remote peer independently from ClientOf or client-server
-                //  Maybe the link contains the remoteLinkId?
+            // TODO: have some logic to get the remote peer independently from ClientOf or client-server
+            //  Maybe the link contains the remoteLinkId?
 
-                let tick = local_timeline.tick();
-                let remote_peer = client_of.map(|c| c.id);
+            let tick = local_timeline.tick();
+            let remote_peer = client_of.map(|c| c.id);
 
-                // TODO: put the temp buffer inside the receiver, we shouldn't need write access
-                //   to the registry
-                receiver.apply_world(world, remote_peer, &mut manager.entity_mapper, component_registry.as_mut(), tick);
-                receiver.tick_cleanup(tick);
-            });
+            // TODO: put the temp buffer inside the receiver, we shouldn't need write access
+            //   to the registry
+            receiver.apply_world(world, remote_peer, &mut manager.entity_mapper, component_registry, tick);
+            receiver.tick_cleanup(tick);
         });
     }
 }
@@ -148,10 +149,94 @@ impl Plugin for ReplicationReceivePlugin {
     }
 }
 
+/// Temporary buffer to store component data that we want to insert
+/// using `entity_world_mut.insert_by_ids`
+#[derive(Debug, Default, Clone, PartialEq, TypePath)]
+pub struct TempWriteBuffer {
+    // temporary buffers to store the deserialized data to batch write
+    // Raw storage where we can store the deserialized data bytes
+    raw_bytes: Vec<u8>,
+    // Positions of each component in the `raw_bytes` buffer
+    component_ptrs_indices: Vec<usize>,
+    // List of component ids
+    pub(crate) component_ids: Vec<ComponentId>,
+    // Position of the `component_ptr_indices` and `component_ids` list
+    // This is needed because we can write into the buffer recursively.
+    // For example if we write component A in the buffer, then call entity_mut_world.insert(A),
+    // we might trigger an observer that inserts(B) in the buffer before it can be cleared
+    cursor: usize,
+}
+
+impl TempWriteBuffer {
+    fn is_empty(&self) -> bool {
+        self.cursor == self.component_ids.len()
+    }
+    // TODO: also write a similar function for component removals, to handle recursive removals!
+
+    /// Inserts the components that were buffered inside the EntityWorldMut
+    ///
+    /// SAFETY: `buffer_insert_raw_ptrs` must have been called beforehand
+    pub(crate) unsafe fn batch_insert(&mut self, entity_world_mut: &mut EntityWorldMut) {
+        if self.is_empty() {
+            return;
+        }
+        // apply all commands from start_cursor to end
+        // SAFETY: a value was insert in the cursor in a previous call to `buffer_insert_raw_ptrs`
+        let start = self.cursor;
+        // set the cursor position so that recursive calls only start reading the buffer from this
+        // position
+        self.cursor = self.component_ids.len();
+        let start_index = self.component_ptrs_indices[start];
+        // apply all buffer contents from `start` to the end
+        unsafe {
+            entity_world_mut.insert_by_ids(
+                &self.component_ids[start..],
+                self.component_ptrs_indices[start..].iter().map(|index| {
+                    let ptr = NonNull::new_unchecked(self.raw_bytes.as_mut_ptr().add(*index));
+                    OwningPtr::new(ptr)
+                }),
+            )
+        };
+        // clear the raw bytes that we inserted in the entity_world_mut
+        self.component_ptrs_indices.drain(start..);
+        self.component_ids.drain(start..);
+        self.raw_bytes.drain(start_index..);
+        self.cursor = start;
+    }
+
+    /// Store the component's raw bytes into a temporary buffer so that we can get an OwningPtr to it
+    /// This function is called for all components that will be added to an entity, so that we can
+    /// insert them all at once using `entity_world_mut.insert_by_ids`
+    ///
+    /// SAFETY:
+    /// - the component C must match the `component_id `
+    pub unsafe fn buffer_insert_raw_ptrs<C: Component>(
+        &mut self,
+        mut component: C,
+        component_id: ComponentId,
+    ) {
+        let layout = Layout::new::<C>();
+        // SAFETY: we are creating a pointer to the component data, which is non-null
+        let ptr = unsafe { NonNull::new_unchecked(&mut component).cast::<u8>() };
+        // make sure the Drop trait is not called when the `component` variable goes out of scope
+        core::mem::forget(component);
+        let count = layout.size();
+        self.raw_bytes.reserve(count);
+        let space = unsafe { NonNull::new_unchecked(self.raw_bytes.spare_capacity_mut()).cast::<u8>() };
+        unsafe { space.copy_from_nonoverlapping(ptr, count) } ;
+        let length = self.raw_bytes.len();
+        // SAFETY: we are using the spare capacity of the Vec, so we know that the length is correct
+        unsafe { self.raw_bytes.set_len(length + count) };
+        self.component_ptrs_indices.push(length);
+        self.component_ids.push(component_id);
+    }
+}
+
 
 #[derive(Debug, Component)]
 #[require(Transport)]
 pub struct ReplicationReceiver {
+    pub(crate) temp_write_buffer: TempWriteBuffer,
     /// Map from local entity to the replication group-id
     /// We use the local entity because in some cases we don't have access to the remote entity at all, since the remote
     /// has pre-done the mapping! (for example C1 spawns 1 and sends to S who spawns 2. Then S transfers authority to C2,
@@ -173,6 +258,7 @@ impl Default for ReplicationReceiver {
 impl ReplicationReceiver {
     pub(crate) fn new() -> Self {
         Self {
+            temp_write_buffer: TempWriteBuffer::default(),
             // RECEIVE
             local_entity_to_group: Default::default(),
             // BOTH
@@ -307,36 +393,10 @@ impl ReplicationReceiver {
         world: &mut World,
         remote: Option<PeerId>,
         remote_entity_map: &mut RemoteEntityMap,
-        component_registry: &mut ComponentRegistry,
+        component_registry: &ComponentRegistry,
         current_tick: Tick,
     ) {
-        // apply actions first
-
-        // TODO: this would be how we do it, but the borrow-checked prevents us...
-        // self.read_actions(current_tick)
-        //     .for_each(|(remote_tick, actions)| {
-        //         self.apply_actions_message(
-        //             world,
-        //             remote,
-        //             component_registry,
-        //             remote_tick,
-        //             actions,
-        //             events,
-        //         )
-        //     });
-        // // then updates
-        // self.read_updates().for_each(|update| {
-        //     self.apply_updates_message(
-        //         world,
-        //         remote,
-        //         component_registry,
-        //         update.remote_tick,
-        //         update.is_history,
-        //         update.message,
-        //         events,
-        //     )
-        // });
-
+        // apply all actions first
         self.group_channels
             .iter_mut()
             .for_each(|(group_id, channel)| {
@@ -376,6 +436,7 @@ impl ReplicationReceiver {
                         message,
                         remote_entity_map,
                         &mut self.local_entity_to_group,
+                        &mut self.temp_write_buffer,
                     );
                 }
             });
@@ -665,11 +726,12 @@ impl GroupChannel {
         &mut self,
         world: &mut World,
         remote: Option<PeerId>,
-        component_registry: &mut ComponentRegistry,
+        component_registry: &ComponentRegistry,
         remote_tick: Tick,
         message: ActionsMessage,
         remote_entity_map: &mut RemoteEntityMap,
         local_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
+        temp_write_buffer: &mut TempWriteBuffer
     ) {
         let group_id = message.group_id;
         debug!(
@@ -783,6 +845,7 @@ impl GroupChannel {
                     &mut local_entity_mut,
                     remote_tick,
                     &mut remote_entity_map.remote_to_local,
+                    temp_write_buffer,
                 )
                 .inspect_err(|e| error!("could not insert the components to the entity: {:?}", e));
 
@@ -809,6 +872,7 @@ impl GroupChannel {
                 actions.remove,
                 &mut local_entity_mut,
                 remote_tick,
+                temp_write_buffer,
             );
 
             // updates

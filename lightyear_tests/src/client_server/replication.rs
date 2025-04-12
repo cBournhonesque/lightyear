@@ -209,6 +209,47 @@ fn test_component_remove() {
             .is_none());
 }
 
+/// Test that a component removal is not replicated if the component is marked as disabled
+#[test]
+fn test_component_remove_disabled() {
+    let mut stepper = ClientServerStepper::default();
+
+    let client_entity = stepper.client_app.world_mut().spawn((
+        Replicate::to_server(),
+        CompA(1.0),
+    )).id();
+    stepper.frame_step(1);
+    let server_entity = stepper.client_1().get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
+     assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompA>()
+            .expect("component missing"),
+        &CompA(1.0)
+    );
+
+    let mut overrides = ComponentReplicationOverrides::<CompA>::default();
+    overrides.global_override(ComponentReplicationOverride {
+        disable: true,
+        ..default()
+    });
+    stepper.client_app.world_mut().entity_mut(client_entity).insert(overrides);
+    stepper.client_app.world_mut().entity_mut(client_entity).remove::<CompA>();
+    stepper.frame_step(1);
+    // the removal was not replicated since the component replication was disabled
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompA>()
+            .expect("component missing"),
+        &CompA(1.0)
+    );
+}
+
 #[test]
 fn test_component_disabled() {
     let mut stepper = ClientServerStepper::default();

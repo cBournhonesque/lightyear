@@ -1,7 +1,7 @@
 use crate::components::ComponentReplicationConfig;
 use crate::prelude::ComponentReplicationOverrides;
 use crate::registry::delta::ErasedDeltaFns;
-use crate::registry::replication::{ReplicationMetadata, TempWriteBuffer};
+use crate::registry::replication::ReplicationMetadata;
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 use bevy::app::App;
 use bevy::ecs::change_detection::Mut;
@@ -116,7 +116,6 @@ pub type LerpFn<C> = fn(start: &C, other: &C, t: f32) -> C;
 /// ```
 #[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct ComponentRegistry {
-    pub(crate) temp_write_buffer: TempWriteBuffer,
     pub(crate) component_id_to_kind: HashMap<ComponentId, ComponentKind>,
     pub(crate) kind_to_component_id: HashMap<ComponentKind, ComponentId>,
     pub replication_map: HashMap<ComponentKind, ReplicationMetadata>,

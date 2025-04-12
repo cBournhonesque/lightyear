@@ -482,6 +482,7 @@ pub(crate) fn replicate_entity_despawn(
 
 /// Send entity spawn if:
 /// 1) Replicate was added/updated and the sender was not in the previous Replicate's target
+///
 pub(crate) fn replicate_entity_spawn(
     entity: Entity,
     group_id: ReplicationGroupId,
@@ -664,52 +665,63 @@ fn replicate_component_update(
     Ok(())
 }
 
+// Removals for all replicated components
+// - check if the entity is in the sender's replication components
+
 /// Send component remove message when a component gets removed
 // TODO: use a common observer for all removed components
 // TODO: you could have a case where you remove a component C, and then afterwards
 //   modify the replication target, but we still send messages to the old components.
 //   Maybe we should just add the components to a buffer?
-pub(crate) fn buffer_component_removed<C: Component>(
-    trigger: Trigger<OnRemove, C>,
+pub(crate) fn buffer_component_removed(
+    trigger: Trigger<OnRemove>,
+    // Query<&C, Or<With<ReplicateLike>, (With<Replicate>, With<ReplicationGroup>)>>
+    query: Query<FilteredEntityRef>,
     registry: Res<ComponentRegistry>,
     root_query: Query<&ReplicateLike>,
-    // only remove the component for entities that are being actively replicated
-    query: Query<
-        // TODO: handle disabled_components
-        (&ReplicationGroup, &Replicate),
-        (With<Replicating>, With<Replicate>),
-    >,
-    mut manager_query: Query<(&mut ReplicationSender, &mut MessageManager)>,
+    mut manager_query: Query<(Entity, &mut ReplicationSender, &mut MessageManager)>,
 ) {
-    let mut entity = trigger.target();
+    let entity = trigger.target();
     let root = root_query.get(entity).map_or(entity, |r| r.0);
-    // TODO: be able to override the root components with those from the child
-    let Ok((group, replicate_on)) = query.get(root) else {
+    let Ok(entity_ref) = query.get(root) else {
         return;
     };
-
+    let Some(group) = entity_ref.get::<ReplicationGroup>() else {
+        return;
+    };
+    let group_id = group.group_id(Some(root));
+    let Some(replicate) = entity_ref.get::<Replicate>() else {
+        return;
+    };
     manager_query
-        .par_iter_many_unique_mut(replicate_on.senders.as_slice())
-        .for_each(|(mut sender, mut manager)| {
+        .par_iter_many_unique_mut(replicate.senders.as_slice())
+        .for_each(|(sender_entity, mut sender, mut manager)| {
             // convert the entity to a network entity (possibly mapped)
             let entity = manager.entity_mapper.to_remote(entity);
-            // // do not replicate components (even removals) that are disabled
-            // if disabled_components
-            //     .is_some_and(|disabled_components| !disabled_components.enabled::<C>())
-            // {
-            //     return;
-            // }
-            let group_id = group.group_id(Some(root));
-            trace!(?entity, kind = ?core::any::type_name::<C>(), "Sending RemoveComponent");
-            let kind = registry.net_id::<C>();
-            sender.prepare_component_remove(entity, group_id, kind);
+            for component_id in trigger.components() {
+                // check if the component is disabled
+                let kind = registry.component_id_to_kind.get(component_id).unwrap();
+                let metadata = registry.replication_map.get(kind).unwrap();
+                let mut disable = metadata.config.disable;
+                if let Some(overrides) = entity_ref.get_by_id(metadata.overrides_component_id).and_then(|o| unsafe { o.deref::<ComponentReplicationOverrides<Replicate>>() }.get_overrides(sender_entity)) {
+                    if disable && overrides.enable {
+                        disable = false;
+                    }
+                    if !disable && overrides.disable {
+                        disable = true;
+                    }
+                }
+                if disable {
+                    continue;
+                }
+                trace!(?entity, ?kind, "Sending RemoveComponent");
+                let net_id = *registry.kind_map.net_id(kind).unwrap();
+                sender.prepare_component_remove(entity, group_id, net_id);
+            }
         });
 }
 
-pub(crate) fn register_replicate_component_send<C: Component>(app: &mut App) {
-    // TODO: what if we remove and add within one replication_interval?
-    app.add_observer(buffer_component_removed::<C>);
-}
+
 
 #[cfg(test)]
 mod tests {

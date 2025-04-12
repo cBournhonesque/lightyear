@@ -16,12 +16,12 @@ use crate::registry::{ComponentKind, ComponentNetId};
 #[cfg(not(feature = "std"))]
 use alloc::{string::ToString, vec::Vec};
 use bevy::app::{App, Last, Plugin, PostUpdate, PreUpdate};
-use bevy::ecs::component::Tick as BevyTick;
+use bevy::ecs::component::{ComponentId, Tick as BevyTick};
 use bevy::ecs::entity::{EntityHash, EntityIndexSet, UniqueEntityVec};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy::platform_support::collections::HashMap;
 use bevy::prelude::*;
-use bevy::ptr::Ptr;
+use bevy::ptr::{OwningPtr, Ptr};
 use bevy::time::common_conditions::on_timer;
 use bytes::Bytes;
 use core::time::Duration;
@@ -287,6 +287,48 @@ impl Plugin for ReplicationSendPlugin {
         )
             .build_state(app.world_mut())
             .build_system(replicate);
+
+        let buffer_component_remove = (
+            QueryParamBuilder::new(|builder| {
+                // Or<(With<ReplicateLike>, (With<Replicating>, With<ReplicateToClient>, With<HasAuthority>))>
+                builder.or(|b| {
+                    b.with::<ReplicateLike>();
+                    b.and(|b| {
+                        b.with::<Replicating>();
+                        b.with::<Replicate>();
+                        b.with::<HasAuthority>();
+                    });
+                });
+                builder.optional(|b| {
+                    b.data::<(
+                        &ReplicateLike,
+                        &Replicate,
+                        &ReplicationGroup,
+                    )>();
+                    // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
+                    component_registry
+                        .replication_map
+                        .iter()
+                        .for_each(|(kind, _)| {
+                            let id = component_registry.kind_to_component_id.get(kind).unwrap();
+                            b.ref_id(*id);
+                            let override_id = component_registry.replication_map.get(kind).unwrap().overrides_component_id;
+                            b.ref_id(override_id);
+                        });
+                });
+            }),
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
+        )
+            .build_state(app.world_mut())
+            .build_system_with_input(buffer::buffer_component_removed);
+
+        let mut observer = Observer::new(buffer_component_remove);
+        for component in component_registry.component_id_to_kind.keys() {
+            observer = observer.with_component(*component);
+        }
+        app.world_mut().spawn(observer);
 
         app.add_systems(
             PostUpdate,
