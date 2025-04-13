@@ -717,7 +717,6 @@ impl GroupChannel {
         // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
         // Our solution is to first handle spawn for all entities separately.
         for (remote_entity, actions) in message.actions.iter() {
-            trace!(?remote_entity, ?remote, ?actions, "Received entity actions");
             // spawn
             match actions.spawn {
                 SpawnAction::Spawn => {
@@ -778,11 +777,8 @@ impl GroupChannel {
         }
 
         for (entity, actions) in message.actions.into_iter() {
-            trace!(remote_entity = ?entity, "Received entity actions");
-
             // despawn
             if actions.spawn == SpawnAction::Despawn {
-                trace!(remote_entity = ?entity, "Received entity despawn");
                 if let Some(local_entity) = remote_entity_map.remove_by_remote(entity) {
                     self.local_entities.remove(&local_entity);
                     // TODO: we despawn all children as well right now, but that might not be what we want?
@@ -812,7 +808,6 @@ impl GroupChannel {
 
             // inserts
             // TODO: remove updates that are duplicate for the same component
-            trace!(remote_entity = ?entity, "Received InsertComponent");
             let _ = component_registry
                 .batch_insert(
                     actions.insert,
@@ -850,7 +845,6 @@ impl GroupChannel {
             );
 
             // updates
-            trace!(remote_entity = ?entity, "Received UpdateComponent");
             for component in actions.updates {
                 let mut reader = Reader::from(component);
                 let _ = component_registry

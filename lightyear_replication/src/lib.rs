@@ -28,7 +28,7 @@ pub(crate) mod message;
 pub(crate) mod buffer;
 pub(crate) mod delta;
 
-pub(crate) mod relevance;
+pub mod visibility;
 
 pub mod prelude {
     pub use crate::authority::HasAuthority;
@@ -39,4 +39,7 @@ pub mod prelude {
     pub use crate::receive::{ReplicationReceivePlugin, ReplicationReceiver};
     pub use crate::registry::registry::ComponentRegistration;
     pub use crate::send::{ReplicationBufferSet, ReplicationSendPlugin, ReplicationSender, SendUpdatesMode};
+    pub use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin};
+    pub use crate::visibility::room::{Room, RoomPlugin};
 }
+

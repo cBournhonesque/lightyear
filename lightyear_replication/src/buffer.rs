@@ -24,8 +24,8 @@ use crate::prelude::{Cached, ComponentReplicationOverride, ComponentReplicationO
 use crate::receive::ReplicationReceiver;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::ComponentKind;
-use crate::relevance::immediate::NetworkVisibility;
 use crate::send::ReplicationSender;
+use crate::visibility::immediate::NetworkVisibility;
 use lightyear_connection::client::Client;
 use lightyear_connection::client_of::{ClientOf, Server};
 use lightyear_connection::prelude::NetworkTarget;
@@ -105,7 +105,10 @@ impl Replicate {
             // SAFETY: we will use this world only to access the Replicated entity, so there is no aliasing issue
             let mut replicate_entity_mut =
                 unsafe { unsafe_world.world_mut().entity_mut(context.entity) };
+
             let mut replicate = replicate_entity_mut.get_mut::<Replicate>().unwrap();
+
+
 
             // enable split borrows
             let replicate = &mut *replicate;
@@ -213,6 +216,7 @@ impl Replicate {
                     }
                 }
             }
+
         });
     }
 
@@ -513,8 +517,7 @@ pub(crate) fn replicate_entity_despawn(
 ) {
     if visibility.is_some_and(|v| v.lost.contains(&sender_entity)) {
         let entity = entity_map.to_remote(entity);
-        sender
-            .prepare_entity_despawn(entity, group_id);
+        sender.prepare_entity_despawn(entity, group_id);
     }
 }
 
@@ -536,7 +539,7 @@ pub(crate) fn replicate_entity_spawn(
     // 2. replicate was not updated but NetworkVisibility is gained for this sender
     let network_visibility_updated = network_visibility.is_some_and(|vis| vis.gained.contains(&sender_entity));
     if replicate_updated || network_visibility_updated {
-        trace!(?entity, ?sender_entity, ?replicate, ?cached_replicate, "Sending Spawn because replicate changed");
+        trace!(?entity, ?sender_entity, ?replicate, ?cached_replicate, ?replicate_updated, ?network_visibility_updated, "Sending Spawn");
         sender.prepare_entity_spawn(entity, group_id, priority);
     }
 }
@@ -559,25 +562,34 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
     //  in which case we don't want to replicate the despawn.
     //  i.e. if a user wants to despawn an entity without replicating the despawn
     //  I guess we can provide a command that first removes Replicating, and then despawns the entity.
-    entity_query: Query<(&ReplicationGroup, &CachedReplicate), With<Replicating>>,
-    mut query: Query<(&mut ReplicationSender, &mut MessageManager)>,
+    entity_query: Query<(&ReplicationGroup, &CachedReplicate, Option<&NetworkVisibility>), With<Replicating>>,
+    mut query: Query<(Entity, &mut ReplicationSender, &mut MessageManager)>,
 ) {
     let mut entity = trigger.target();
     let root = root_query.get(entity).map_or(entity, |r| r.0);
     // TODO: use the child's ReplicationGroup if there is one that overrides the root's
-    let Ok((group, cached_replicate)) = entity_query.get(root) else {
+    let Ok((group, cached_replicate, network_visibility)) = entity_query.get(root) else {
         return;
     };
     trace!(?entity, ?cached_replicate, "Buffering entity despawn");
     // TODO: if ReplicateLike is removed, we need to use the root entity's Replicate
     //  if Replicate is removed, we need to use the CachedReplicate (since Replicate is updated immediately via hook)
     //  for the root_entity and its ReplicateLike children
+
+    // If the entity has NetworkVisibility, we only send the Despawn to the senders that have visibility
+    // of this entity. Otherwise we send it to all senders that have the entity in their replicated_entities
+
     query
         .par_iter_many_unique_mut(cached_replicate.senders.as_slice())
-        .for_each(|(mut sender, mut manager)| {
+        .for_each(|(sender_entity, mut sender, mut manager)| {
+            if network_visibility.is_some_and(|v| !v.is_visible(sender_entity)) {
+                trace!(?entity, ?sender_entity, "Not sending despawn because the sender didn't have visibility of the entity");
+                return;
+            }
             // convert the entity to a network entity (possibly mapped)
             let entity = manager.entity_mapper.to_remote(entity);
             sender.prepare_entity_despawn(entity, group.group_id(Some(entity)));
+            trace!("prepareing despawn to sender");
         });
 }
 

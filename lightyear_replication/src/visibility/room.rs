@@ -44,9 +44,9 @@ use bevy::platform_support::collections::{hash_map::Entry, HashMap, HashSet};
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 
-use crate::relevance::error::NetworkVisibilityError;
-use crate::relevance::immediate::{NetworkRelevancePlugin, NetworkVisibility};
 use crate::send::ReplicationBufferSet;
+use crate::visibility::error::NetworkVisibilityError;
+use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin};
 use lightyear_connection::prelude::PeerId;
 use serde::{Deserialize, Serialize};
 
@@ -167,8 +167,8 @@ pub struct RoomEvents {
 
 impl Plugin for RoomPlugin {
     fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<NetworkRelevancePlugin>() {
-            app.add_plugins(NetworkRelevancePlugin);
+        if !app.is_plugin_added::<NetworkVisibilityPlugin>() {
+            app.add_plugins(NetworkVisibilityPlugin);
         }
         // REFLECT
         app.register_type::<Room>();

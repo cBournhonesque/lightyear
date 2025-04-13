@@ -5,12 +5,13 @@ use super::message::{ActionsChannel, EntityActions, SendEntityActionsMessage, Sp
 use super::message::{ActionsMessage, UpdatesMessage};
 use crate::authority::HasAuthority;
 use crate::buffer;
-use crate::buffer::{replicate, Replicate};
+use crate::buffer::Replicate;
 use crate::components::{Replicating, ReplicationGroup, ReplicationGroupId};
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::ReplicateLike;
 use crate::plugin::ReplicationSet;
+use crate::prelude::NetworkVisibility;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::{ComponentKind, ComponentNetId};
 #[cfg(not(feature = "std"))]
@@ -220,10 +221,10 @@ impl Plugin for ReplicationSendPlugin {
         // SYSTEMS
         app.add_observer(buffer::buffer_entity_despawn_replicate_remove);
 
-        app.add_systems(PostUpdate, Self::send_replication_messages.in_set(ReplicationBufferSet::Flush));
         app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
-        app.add_systems(PostUpdate, buffer::update_cached_replicate_post_buffer.in_set(ReplicationBufferSet::AfterBuffer));
         app.add_systems(PostUpdate, buffer::buffer_entity_despawn_replicate_updated.in_set(ReplicationBufferSet::EntityUpdates));
+        app.add_systems(PostUpdate, buffer::update_cached_replicate_post_buffer.in_set(ReplicationBufferSet::AfterBuffer));
+        app.add_systems(PostUpdate, Self::send_replication_messages.in_set(ReplicationBufferSet::Flush));
 
 
         // app.add_systems(
@@ -265,6 +266,7 @@ impl Plugin for ReplicationSendPlugin {
                         &ReplicateLike,
                         &Replicate,
                         &ReplicationGroup,
+                        &NetworkVisibility,
                     )>();
                     // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
                     component_registry
@@ -286,7 +288,7 @@ impl Plugin for ReplicationSendPlugin {
             ParamBuilder,
         )
             .build_state(app.world_mut())
-            .build_system(replicate);
+            .build_system(buffer::replicate);
 
         let buffer_component_remove = (
             QueryParamBuilder::new(|builder| {
