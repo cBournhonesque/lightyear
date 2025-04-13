@@ -511,13 +511,10 @@ pub(crate) fn replicate_entity_despawn(
     sender: &mut ReplicationSender,
     sender_entity: Entity,
 ) {
-    if visibility.is_some_and(|v| v.lost.contains(sender_entity)) {
+    if visibility.is_some_and(|v| v.lost.contains(&sender_entity)) {
         let entity = entity_map.to_remote(entity);
-        let _ = sender
-            .prepare_entity_despawn(entity, group_id)
-            .inspect_err(|e| {
-                error!("error sending entity despawn: {:?}", e);
-            });
+        sender
+            .prepare_entity_despawn(entity, group_id);
     }
 }
 
@@ -537,7 +534,7 @@ pub(crate) fn replicate_entity_spawn(
     // 1. replicate was added/updated and the sender was not in the previous Replicate's target
     let replicate_updated = replicate.is_changed() && cached_replicate.is_none_or(|cached| !cached.senders.contains(&sender_entity)) && network_visibility.is_none_or(|vis| vis.is_visible(sender_entity));
     // 2. replicate was not updated but NetworkVisibility is gained for this sender
-    let network_visibility_updated = network_visibility.is_some_and(|vis| vis.gained.contains(sender_entity));
+    let network_visibility_updated = network_visibility.is_some_and(|vis| vis.gained.contains(&sender_entity));
     if replicate_updated || network_visibility_updated {
         trace!(?entity, ?sender_entity, ?replicate, ?cached_replicate, "Sending Spawn because replicate changed");
         sender.prepare_entity_spawn(entity, group_id, priority);

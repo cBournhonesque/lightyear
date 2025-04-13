@@ -50,7 +50,7 @@ impl InterpolationConfig {
     }
 }
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Reflect)]
 pub struct Interpolation {
     tick_duration: Duration,
 

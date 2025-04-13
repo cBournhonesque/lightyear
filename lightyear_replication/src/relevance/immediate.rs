@@ -23,8 +23,10 @@ fn my_system(
 }
 ```
 */
+
 use crate::send::ReplicationBufferSet;
 use bevy::ecs::entity::hash_set::EntityHashSet;
+use bevy::ecs::entity::EntityIndexSet;
 use bevy::platform_support::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 use lightyear_connection::prelude::PeerId;
@@ -114,6 +116,8 @@ impl NetworkRelevancePlugin {
         mut query: Query<&mut NetworkVisibility>
     ) {
         query.iter_mut().for_each(|mut vis| {
+            // enable split borrows
+            let mut vis = vis.as_mut();
             vis.lost.clear();
             vis.gained.drain().for_each(|peer| {
                 vis.visible.insert(peer);

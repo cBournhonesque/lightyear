@@ -349,6 +349,15 @@ pub struct ShouldBeInterpolated;
 #[reflect(Component)]
 pub struct ShouldBePredicted;
 
+/// Indicates that an entity was pre-predicted
+// NOTE: we do not map entities for this component, we want to receive the entities as is
+//  because we already do the mapping at other steps
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct PrePredicted {
+    pub(crate) confirmed_entity: Option<Entity>,
+}
+
 
 
 /// Marks an entity that directly applies the replication updates from the remote

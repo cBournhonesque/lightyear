@@ -24,7 +24,7 @@ use serde::{
 ///
 /// Represents a value between 0.0 and 1.0 that indicates progress towards the next tick
 /// Serializes to a u8 value for network transmission
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, Reflect)]
 pub struct Overstep {
     value: f32,
 }
@@ -141,7 +141,7 @@ impl From<Overstep> for f32 {
 
 // TODO: maybe put this in lightyear_core?
 /// Uniquely identify a instant across all timelines
-#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Reflect)]
 pub struct TickInstant {
     pub tick: Tick,
     /// Overstep as a fraction towards the next tick

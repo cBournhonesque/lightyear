@@ -1,5 +1,5 @@
 use crate::ping::manager::PingManager;
-use bevy::prelude::{Component, Deref, DerefMut, Query, Real, Res, Time, Trigger};
+use bevy::prelude::{Component, Deref, DerefMut, Query, Real, Reflect, Res, Time, Trigger};
 use core::time::Duration;
 use lightyear_core::tick::Tick;
 use lightyear_core::time::{TickDelta, TickInstant, TimeDelta};
@@ -23,7 +23,7 @@ use tracing::trace;
 /// // Create a new remote estimate with a 16ms tick duration and 0.1 smoothing factor
 /// let remote_estimate = RemoteTimeline::new(Duration::from_millis(16), 0.1);
 /// ```
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Reflect)]
 pub struct RemoteEstimate {
     /// Most recent tick received from the Server
     last_received_tick: Option<Tick>,

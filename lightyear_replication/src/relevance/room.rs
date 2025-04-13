@@ -85,7 +85,7 @@ impl RoomPlugin {
         mut query: Query<&mut Room>
     ) -> Result {
         let Ok(mut room) = query.get_mut(trigger.target()) else {
-            return NetworkVisibilityError::RoomNotFound(trigger.target()).into()
+            return Err(NetworkVisibilityError::RoomNotFound(trigger.target()))?
         };
         match trigger.event() {
             RoomEvent::AddEntity(entity) => {
@@ -122,16 +122,16 @@ impl RoomPlugin {
         mut query: Query<&mut NetworkVisibility>
     ) {
         // TODO: should we use iter_mut here to keep the allocated NetworkVisibilty?
-        room_events.events.drain(..).for_each(|(entity, vis)| {
+        room_events.events.drain(..).for_each(|(entity, mut room_vis)| {
             if let Ok(mut vis) = query.get_mut(entity) {
-                vis.gained.drain().for_each(|sender| {
+                room_vis.gained.drain().for_each(|sender| {
                     vis.gain_visibility(sender);
                 });
-                vis.lost.drain().for_each(|sender| {
+                room_vis.lost.drain().for_each(|sender| {
                     vis.lose_visibility(sender);
                 });
             } else {
-                commands.entity(entity).insert(vis);
+                commands.entity(entity).insert(room_vis);
             }
         });
     }
@@ -145,6 +145,7 @@ pub enum RoomSet {
     ApplyRoomEvents,
 }
 
+#[derive(Event, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RoomEvent {
     AddEntity(Entity),
     RemoveEntity(Entity),
@@ -152,8 +153,7 @@ pub enum RoomEvent {
     RemoveSender(Entity),
 }
 
-#[derive(Default, Resource, Reflect)]
-#[reflect(Resource)]
+#[derive(Default, Resource)]
 pub struct RoomEvents {
     /// List of events that have been triggered by room events
     ///
@@ -171,7 +171,7 @@ impl Plugin for RoomPlugin {
             app.add_plugins(NetworkRelevancePlugin);
         }
         // REFLECT
-        app.register_type::<(RoomEvents, Room)>();
+        app.register_type::<Room>();
         // RESOURCES
         app.init_resource::<RoomEvents>();
         // SETS

@@ -94,7 +94,7 @@ impl ReplicationReceivePlugin {
 
             // TODO: put the temp buffer inside the receiver, we shouldn't need write access
             //   to the registry
-            receiver.apply_world(world, remote_peer, &mut manager.entity_mapper, component_registry, tick);
+            receiver.apply_world(world, entity, remote_peer, &mut manager.entity_mapper, component_registry, tick);
             receiver.tick_cleanup(tick);
         });
     }
@@ -362,6 +362,7 @@ impl ReplicationReceiver {
         &mut self,
         // TODO: should we use commands for command batching?
         world: &mut World,
+        receiver_entity: Entity,
         remote: Option<PeerId>,
         remote_entity_map: &mut RemoteEntityMap,
         component_registry: &ComponentRegistry,
@@ -401,6 +402,7 @@ impl ReplicationReceiver {
 
                     channel.apply_actions_message(
                         world,
+                        receiver_entity,
                         remote,
                         component_registry,
                         remote_tick,
@@ -696,6 +698,7 @@ impl GroupChannel {
     pub(crate) fn apply_actions_message(
         &mut self,
         world: &mut World,
+        receiver_entity: Entity,
         remote: Option<PeerId>,
         component_registry: &ComponentRegistry,
         remote_tick: Tick,
@@ -756,7 +759,7 @@ impl GroupChannel {
 
                     // TODO: maybe use command-batching?
                     let mut local_entity = world.spawn((
-                        Replicated { from: remote },
+                        Replicated { receiver: receiver_entity, from: remote },
                         InitialReplicated { from: remote },
                     ));
                     self.local_entities.insert(local_entity.id());

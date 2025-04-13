@@ -5,6 +5,7 @@ use bevy::app::{App, FixedFirst, Plugin, RunFixedMainLoop, RunFixedMainLoopSyste
 use bevy::ecs::component::{HookContext, Mutable};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Fixed, IntoScheduleConfigs, Query, Reflect, Res, Resource, Time, Trigger};
+use bevy::reflect::GetTypeRegistration;
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 use parking_lot::RwLock;
@@ -15,6 +16,7 @@ pub struct Timeline<T: TimelineContext> {
     pub context: T,
     pub tick_duration: Duration,
     pub now: TickInstant,
+    #[reflect(ignore)]
     pub marker: core::marker::PhantomData<T>
 }
 
@@ -36,9 +38,9 @@ impl<T: TimelineContext> From<T> for Timeline<T> {
     }
 }
 
-pub trait TimelineContext: Send + Sync + 'static {}
+pub trait TimelineContext: Send + Sync + Reflect + 'static {}
 
-impl<T: Send + Sync + 'static> TimelineContext for T {}
+impl<T: Send + Sync + Reflect + 'static> TimelineContext for T {}
 
 // TODO: should we get rid of this trait and just use the Timeline<T> struct?
 //  maybe a trait gives us more options in the future
@@ -179,10 +181,11 @@ impl Local {
 /// The local timeline that matches Time<Virtual>
 /// - the Tick is incremented every FixedUpdate
 /// - the overstep is set by the overstep of Time<Fixed>
-#[derive(Default)]
+#[derive(Default, Reflect)]
 pub struct Local {
     /// We use a RwLock because we want to be able to update this value from multiple systems
     /// in parallel.
+    #[reflect(ignore)]
     pub rollback: RwLock<RollbackState>,
 }
 
