@@ -90,4 +90,8 @@ fn test_despawn_with_visibility() {
     assert!(stepper.server_app.world().get_entity(server_entity_1).is_ok());
 }
 
-
+/// Test that when we add NetworkVisibility, the entity is despawned on senders
+/// that are not present in the NetworkVisibility?
+#[test]
+fn test_despawn_add_network_visibility() {
+}

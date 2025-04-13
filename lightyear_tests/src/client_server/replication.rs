@@ -17,7 +17,7 @@ fn test_spawn() {
     )).id();
     // TODO: might need to step more when syncing to avoid receiving updates from the past?
     stepper.frame_step(1);
-    stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+    stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
         .expect("entity is not present in entity map");
 }
 
@@ -29,7 +29,7 @@ fn test_entity_despawn() {
         Replicate::to_server(),
     )).id();
     stepper.frame_step(1);
-     let server_entity = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+     let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
         .expect("entity is not present in entity map");
 
     // despawn
@@ -52,7 +52,7 @@ fn test_despawn_from_replicate_change() {
         Replicate::to_server(),
     )).id();
     stepper.frame_step(1);
-     let server_entity = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+     let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
         .expect("entity is not present in entity map");
 
     // update replicate to exclude the previous sender
@@ -93,7 +93,7 @@ fn test_component_insert() {
         Replicate::to_server(),
     )).id();
     stepper.frame_step(1);
-    let server_entity = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
+    let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
 
     stepper.client_app.world_mut().entity_mut(client_entity).insert(CompA(1.0));
     stepper.frame_step(1);

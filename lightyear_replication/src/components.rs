@@ -31,7 +31,6 @@ pub struct ComponentReplicationConfig {
     pub disable: bool,
     /// If true, the component will be replicated using delta compression
     pub delta_compression: bool,
-
 }
 
 #[derive(Debug, Default)]
