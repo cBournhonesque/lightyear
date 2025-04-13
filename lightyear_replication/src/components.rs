@@ -8,12 +8,12 @@ use bevy::platform_support::collections::HashSet;
 use bevy::prelude::{Component, Entity, Reflect};
 use bevy::time::{Timer, TimerMode};
 use lightyear_connection::id::PeerId;
+use lightyear_core::tick::Tick;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
-use serde::{Deserialize, Serialize};
-
 use lightyear_utils::collections::EntityHashMap;
+use serde::{Deserialize, Serialize};
 
 // TODO: how to define which subset of components a sender iterates through?
 //  if a sender is only interested in a few components it might be expensive
@@ -122,6 +122,8 @@ impl InitialReplicated {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct Replicated {
+    /// Entity that holds the ReplicationReceiver for this entity
+    pub receiver: Entity,
     /// The peer that is actively replicating the entity
     /// If None, it's the server.
     pub from: Option<PeerId>,
@@ -319,17 +321,17 @@ impl ToBytes for ReplicationGroupId {
 #[derive(Component, Clone, Copy, Default, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub enum NetworkRelevanceMode {
-    /// We will replicate this entity to the clients specified in the `replication_target`.
-    /// On top of that, we will apply interest management logic to determine which clients should receive the entity
+    /// We will replicate this entity to the clients specified in the `Replicate` component.
+    /// On top of that, we will apply interest management logic to determine which peers should receive the entity
     ///
     /// You can use [`gain_relevance`](crate::prelude::server::RelevanceManager::gain_relevance) and [`lose_relevance`](crate::prelude::server::RelevanceManager::lose_relevance)
     /// to control the network relevance of entities.
     ///
     /// You can also use the [`RoomManager`](crate::prelude::server::RoomManager) if you want to use rooms to control network relevance.
     ///
-    /// (the client still needs to be included in the [`NetworkTarget`], the room is simply an additional constraint)
+    /// (the client still needs to be included in the [`Replicate`], the room is simply an additional constraint)
     InterestManagement,
-    /// We will replicate this entity to the client specified in the `replication_target`, without
+    /// We will replicate this entity to the peers specified in the `Replicate` component, without
     /// running any additional interest management logic
     #[default]
     All,
@@ -340,16 +342,29 @@ pub enum NetworkRelevanceMode {
 #[reflect(Component)]
 pub struct ShouldBeInterpolated;
 
-/// Indicates that an entity was pre-predicted
-// NOTE: we do not map entities for this component, we want to receive the entities as is
-//  because we already do the mapping at other steps
-#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct PrePredicted {
-    pub(crate) confirmed_entity: Option<Entity>,
-}
+
 
 /// Marker component that tells the client to spawn a Predicted entity
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct ShouldBePredicted;
+
+
+
+/// Marks an entity that directly applies the replication updates from the remote
+///
+/// In general, when an entity is replicated from the server to the client, multiple entities can be created on the client:
+/// - an entity that simply contains the replicated components. It will have the marker component [`Confirmed`]
+/// - an entity that is in the future compared to the confirmed entity, and does prediction with rollback. It will have the marker component [`Predicted`](crate::client::prediction::Predicted)
+/// - an entity that is in the past compared to the confirmed entity and interpolates between multiple server updates. It will have the marker component [`Interpolated`](crate::client::interpolation::Interpolated)
+#[derive(Component, Reflect, Default, Debug)]
+#[reflect(Component)]
+pub struct Confirmed {
+    /// The corresponding Predicted entity
+    pub predicted: Option<Entity>,
+    /// The corresponding Interpolated entity
+    pub interpolated: Option<Entity>,
+    /// The tick that the confirmed entity is at.
+    /// (this is latest server tick for which we applied updates to the entity)
+    pub tick: Tick,
+}

@@ -91,19 +91,8 @@ pub struct RemoteEntityMap {
     pub local_to_remote: SendEntityMap,
 }
 
-#[derive(Default, Debug, Reflect)]
-pub struct PredictedEntityMap {
-    /// Map from the confirmed entity to the predicted entity
-    /// useful for despawning, as we won't have access to the Confirmed/Predicted components anymore
-    pub(crate) confirmed_to_predicted: EntityMap,
-}
 
-#[derive(Default, Debug, Reflect)]
-pub struct InterpolatedEntityMap {
-    // map from the confirmed entity to the interpolated entity
-    // useful for despawning, as we won't have access to the Confirmed/Interpolated components anymore
-    pub(crate) confirmed_to_interpolated: EntityMap,
-}
+
 
 impl RemoteEntityMap {
     /// Insert a new mapping between a remote entity and a local entity

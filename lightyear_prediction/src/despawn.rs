@@ -1,10 +1,9 @@
 use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
 use tracing::{error, trace};
-
-use crate::client::components::Confirmed;
-use crate::client::prediction::Predicted;
-use crate::prelude::{is_server_ref, AppIdentityExt, NetworkIdentityState, PreSpawned, ShouldBePredicted, TickManager};
+use lightyear_replication::prelude::{Confirmed, ShouldBePredicted};
+use crate::Predicted;
+use crate::prespawn::PreSpawned;
 
 /// This command must be used to despawn Predicted entities.
 /// The reason is that we might want to not completely despawn the entity in case it gets 'restored' during a rollback.
@@ -30,9 +29,6 @@ pub(crate) struct PredictionDisable;
 
 impl Command for PredictionDespawnCommand {
     fn apply(self, world: &mut World) {
-        let tick_manager = world.get_resource::<TickManager>().unwrap();
-        let current_tick = tick_manager.tick();
-
         // if we are in host server mode, there is no rollback so we can despawn the entity immediately
         if world.is_host_server() {
             world.entity_mut(self.entity).despawn();
@@ -94,12 +90,12 @@ pub(crate) fn despawn_confirmed(
 
 #[cfg(test)]
 mod tests {
-    use crate::client::prediction::despawn::PredictionDisable;
-    use crate::client::prediction::resource::PredictionManager;
+    use crate::::despawn::PredictionDisable;
+    use crate::::resource::PredictionManager;
     use crate::prelude::client::{Confirmed, PredictionDespawnCommandsExt};
     use crate::prelude::server::SyncTarget;
     use crate::prelude::{client, server, NetworkTarget};
-    use crate::tests::protocol::{ComponentSyncModeFull, ComponentSyncModeSimple};
+    use crate::tests::protocol::{PredictionModeFull, PredictionModeSimple};
     use crate::tests::stepper::BevyStepper;
     use bevy::prelude::{default, Component};
 
@@ -116,8 +112,8 @@ mod tests {
             .server_app
             .world_mut()
             .spawn((
-                ComponentSyncModeFull(1.0),
-                ComponentSyncModeSimple(1.0),
+                PredictionModeFull(1.0),
+                PredictionModeSimple(1.0),
                 server::Replicate {
                     sync: SyncTarget {
                         prediction: NetworkTarget::All,
@@ -150,17 +146,17 @@ mod tests {
             stepper
                 .client_app
                 .world()
-                .get::<ComponentSyncModeFull>(predicted_entity)
+                .get::<PredictionModeFull>(predicted_entity)
                 .unwrap(),
-            &ComponentSyncModeFull(1.0)
+            &PredictionModeFull(1.0)
         );
         assert_eq!(
             stepper
                 .client_app
                 .world()
-                .get::<ComponentSyncModeSimple>(predicted_entity)
+                .get::<PredictionModeSimple>(predicted_entity)
                 .unwrap(),
-            &ComponentSyncModeSimple(1.0)
+            &PredictionModeSimple(1.0)
         );
         // try adding a non-protocol component (which could be some rendering component)
         stepper
@@ -193,7 +189,7 @@ mod tests {
         stepper
             .server_app
             .world_mut()
-            .get_mut::<ComponentSyncModeFull>(server_entity)
+            .get_mut::<PredictionModeFull>(server_entity)
             .unwrap()
             .0 = 2.0;
         stepper.frame_step();
@@ -209,18 +205,18 @@ mod tests {
             stepper
                 .client_app
                 .world()
-                .get::<ComponentSyncModeFull>(predicted_entity)
+                .get::<PredictionModeFull>(predicted_entity)
                 .unwrap(),
-            &ComponentSyncModeFull(2.0)
+            &PredictionModeFull(2.0)
         );
         // non-Full components are also present
         assert_eq!(
             stepper
                 .client_app
                 .world()
-                .get::<ComponentSyncModeSimple>(predicted_entity)
+                .get::<PredictionModeSimple>(predicted_entity)
                 .unwrap(),
-            &ComponentSyncModeSimple(1.0)
+            &PredictionModeSimple(1.0)
         );
     }
 
@@ -233,8 +229,8 @@ mod tests {
             .server_app
             .world_mut()
             .spawn((
-                ComponentSyncModeFull(1.0),
-                ComponentSyncModeSimple(1.0),
+                PredictionModeFull(1.0),
+                PredictionModeSimple(1.0),
                 server::Replicate {
                     sync: SyncTarget {
                         prediction: NetworkTarget::All,

@@ -1,13 +1,8 @@
-use crate::client::components::SyncComponent;
-use crate::client::config::ClientConfig;
-use crate::client::connection::ConnectionManager;
-use crate::client::interpolation::interpolation_history::ConfirmedHistory;
-use crate::prelude::{ComponentRegistry, TickManager};
-use crate::shared::tick_manager::Tick;
+use crate::interpolation_history::ConfirmedHistory;
 use bevy::ecs::component::Mutable;
 use bevy::prelude::*;
-use lightyear_core::tick::TickManager;
-use tracing::{debug, trace};
+use lightyear_core::prelude::Tick;
+use tracing::*;
 
 // if we haven't received updates since UPDATE_INTERPOLATION_START_TICK_FACTOR * send_interval
 // then we update the start_tick so that the interpolation looks good when we receive a new update

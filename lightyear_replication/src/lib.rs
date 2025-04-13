@@ -28,6 +28,8 @@ pub(crate) mod message;
 pub(crate) mod buffer;
 pub(crate) mod delta;
 
+pub(crate) mod relevance;
+
 pub mod prelude {
     pub use crate::authority::HasAuthority;
     pub use crate::buffer::Replicate;

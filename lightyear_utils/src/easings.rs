@@ -1,4 +1,4 @@
-pub(crate) fn ease_out_quad(x: f32) -> f32 {
+pub fn ease_out_quad(x: f32) -> f32 {
     1.0 - (1.0 - x) * (1.0 - x)
 }
 

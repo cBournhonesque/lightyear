@@ -5,12 +5,8 @@ use lightyear_connection::prelude::*;
 use lightyear_core::plugin::CorePlugins;
 use lightyear_core::time::SetTickDuration;
 use lightyear_messages::prelude::*;
-use lightyear_replication::prelude::{ActionsChannel, ActionsMessage, UpdatesChannel, UpdatesMessage, UpdatesSendMessage};
 use lightyear_sync::prelude::*;
-use lightyear_transport::channel::builder::ReliableSettings;
-use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::*;
-use tracing::*;
 // NOTE: we cannot use nested PluginGroups so let's just put everything in a plugin
 // #[derive(Default, Debug)]
 // pub struct SharedPlugins {
@@ -44,28 +40,6 @@ impl SharedPlugin {
                            priority: f32::INFINITY,
                        })
             .add_direction(NetworkDirection::Bidirectional);
-        app.add_channel::<UpdatesChannel>(ChannelSettings {
-            mode: ChannelMode::UnorderedUnreliableWithAcks,
-            // we do not send the send_frequency to `replication_interval` here
-            // because we want to make sure that the entity updates for tick T
-            // are sent on tick T, so we will set the `replication_interval`
-            // directly on the replication_sender
-            send_frequency: Duration::default(),
-            priority: 1.0,
-        })
-            .add_direction(NetworkDirection::Bidirectional);
-        app.add_channel::<ActionsChannel>(ChannelSettings {
-            mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
-            // we do not send the send_frequency to `replication_interval` here
-            // because we want to make sure that the entity updates for tick T
-            // are sent on tick T, so we will set the `replication_interval`
-            // directly on the replication_sender
-            send_frequency: Duration::default(),
-            // we want to send the entity actions as soon as possible
-            priority: 10.0,
-        })
-            .add_direction(NetworkDirection::Bidirectional);
-        info!("ActionsChannel: {:?}", ChannelKind::of::<ActionsChannel>());
     }
 
     fn add_messages(app: &mut App) {
@@ -73,12 +47,7 @@ impl SharedPlugin {
             .add_direction(NetworkDirection::Bidirectional);
         app.add_message_to_bytes::<Pong>()
             .add_direction(NetworkDirection::Bidirectional);
-        app.add_message_to_bytes::<ActionsMessage>()
-            .add_direction(NetworkDirection::Bidirectional);
-        // app.add_message_to_bytes::<UpdatesSendMessage>()
-        //     .add_direction(NetworkDirection::Bidirectional);
-        app.add_message_to_bytes::<UpdatesMessage>()
-            .add_direction(NetworkDirection::Bidirectional);
+
     }
 }
 

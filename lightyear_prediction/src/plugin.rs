@@ -6,30 +6,28 @@ use super::resource_history::{
 use super::rollback::{
     increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
     prepare_rollback_prespawn, prepare_rollback_resource, remove_prediction_disable, run_rollback,
-    Rollback, RollbackPlugin, RollbackState,
+    RollbackPlugin,
 };
 use super::spawn::spawn_predicted_entity;
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
-use crate::client::prediction::correction::{
+use crate::correction::{
     get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback,
 };
-use crate::client::prediction::despawn::{despawn_confirmed, PredictionDisable};
-use crate::client::prediction::predicted_history::{
+use crate::despawn::{despawn_confirmed, PredictionDisable};
+use crate::predicted_history::{
     add_prediction_history, add_sync_systems, apply_component_removal_confirmed,
     apply_component_removal_predicted, handle_tick_event_prediction_history,
     update_prediction_history,
 };
-use crate::client::prediction::prespawn::PreSpawnedPlayerObjectPlugin;
-use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::Predicted;
-use crate::prelude::client::is_connected;
-use crate::prelude::{is_host_server, PreSpawned};
-use crate::shared::sets::{ClientMarker, InternalMainSet};
+use crate::prespawn::{PreSpawned, PreSpawnedPlayerObjectPlugin};
+use crate::resource::PredictionManager;
+use crate::{Predicted, PredictionMode, SyncComponent};
 use bevy::ecs::component::Mutable;
 use bevy::ecs::entity_disabling::DefaultQueryFilters;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use core::time::Duration;
+use lightyear_core::prelude::LocalTimeline;
+use lightyear_replication::prelude::ReplicationSet;
 
 /// Configuration to specify how the prediction plugin should behave
 #[derive(Debug, Clone, Copy, Reflect)]
@@ -223,8 +221,8 @@ pub enum PredictionSet {
 }
 
 /// Returns true if we are doing rollback
-pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
-    rollback.is_some_and(|rollback| rollback.is_rollback())
+pub fn is_in_rollback(query: Query<&LocalTimeline>) -> bool {
+    query.single().is_ok_and(|t| t.is_rollback())
 }
 
 /// Enable rollbacking a component even if the component is not networked
@@ -271,9 +269,9 @@ pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
     );
 }
 
-pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: ComponentSyncMode) {
+pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: PredictionMode) {
     match prediction_mode {
-        ComponentSyncMode::Full => {
+        PredictionMode::Full => {
             #[cfg(feature = "metrics")]
             {
                 metrics::describe_counter!(format!(
@@ -346,7 +344,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
                 ),
             );
         }
-        ComponentSyncMode::Simple => {
+        PredictionMode::Simple => {
             app.add_observer(apply_component_removal_confirmed::<C>);
             app.add_systems(
                 PreUpdate,
@@ -372,16 +370,12 @@ impl Plugin for PredictionPlugin {
 
         // REFLECTION
         app.register_type::<Predicted>()
-            .register_type::<Confirmed>()
             .register_type::<PreSpawned>()
-            .register_type::<Rollback>()
-            .register_type::<RollbackState>()
             .register_type::<PredictionDisable>()
             .register_type::<PredictionConfig>();
 
         // RESOURCES
         app.init_resource::<PredictionManager>();
-        app.insert_resource(Rollback::new(RollbackState::Default));
 
         // Custom entity disabling
         let prediction_disable_id = app.world_mut().register_component::<PredictionDisable>();
@@ -397,7 +391,7 @@ impl Plugin for PredictionPlugin {
         app.configure_sets(
             PreUpdate,
             (
-                InternalMainSet::<ClientMarker>::ReceiveEvents,
+                ReplicationSet::Receive,
                 (
                     PredictionSet::SpawnPrediction,
                     PredictionSet::Sync,

@@ -1,10 +1,16 @@
 //! Defines bevy resources needed for Interpolation
-use crate::prelude::ComponentRegistry;
-use crate::protocol::component::ComponentError;
-use bevy::prelude::Resource;
+use bevy::prelude::{Reflect, Resource};
 use core::cell::UnsafeCell;
+use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::registry::ComponentError;
+use lightyear_serde::entity_map::EntityMap;
 
-use crate::shared::replication::entity_map::InterpolatedEntityMap;
+#[derive(Default, Debug, Reflect)]
+pub struct InterpolatedEntityMap {
+    // map from the confirmed entity to the interpolated entity
+    // useful for despawning, as we won't have access to the Confirmed/Interpolated components anymore
+    pub(crate) confirmed_to_interpolated: EntityMap,
+}
 
 #[derive(Resource, Default)]
 pub struct InterpolationManager {

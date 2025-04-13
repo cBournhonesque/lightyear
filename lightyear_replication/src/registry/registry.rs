@@ -116,8 +116,8 @@ pub type LerpFn<C> = fn(start: &C, other: &C, t: f32) -> C;
 /// ```
 #[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
 pub struct ComponentRegistry {
-    pub(crate) component_id_to_kind: HashMap<ComponentId, ComponentKind>,
-    pub(crate) kind_to_component_id: HashMap<ComponentKind, ComponentId>,
+    pub component_id_to_kind: HashMap<ComponentId, ComponentKind>,
+    pub kind_to_component_id: HashMap<ComponentKind, ComponentId>,
     pub replication_map: HashMap<ComponentKind, ReplicationMetadata>,
     pub(crate) serialize_fns_map: HashMap<ComponentKind, ErasedSerializeFns>,
     pub(crate) delta_fns_map: HashMap<ComponentKind, ErasedDeltaFns>,
@@ -298,7 +298,7 @@ impl ComponentRegistry {
         self.raw_deserialize(reader, entity_map)
     }
 
-    pub(crate) fn map_entities<C: 'static>(
+    pub fn map_entities<C: 'static>(
         &self,
         component: &mut C,
         entity_map: &mut EntityMap,

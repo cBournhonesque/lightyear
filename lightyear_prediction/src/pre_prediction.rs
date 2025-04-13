@@ -2,20 +2,21 @@
 //! then the ownership gets transferred to the server.
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 use tracing::debug;
+use lightyear_replication::components::DisableReplicateHierarchy;
+use lightyear_replication::prelude::{Confirmed, HasAuthority, Replicate, Replicating, ReplicationBufferSet, ReplicationGroup, ShouldBePredicted};
+use crate::resource::PredictionManager;
+use crate::Predicted;
 
-use crate::client::components::Confirmed;
-use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::Predicted;
-use crate::client::replication::send::ReplicateToServer;
-use crate::prelude::client::is_synced;
-use crate::prelude::{
-    is_host_server, DisableReplicateHierarchy, HasAuthority, NetworkIdentityState, ReplicateLike,
-    Replicating, ReplicationGroup, ShouldBePredicted, TickManager,
-};
-use crate::server::replication::send::ReplicateToClient;
-use crate::shared::replication::components::PrePredicted;
-use crate::shared::sets::{ClientMarker, InternalReplicationSet};
+/// Indicates that an entity was pre-predicted
+// NOTE: we do not map entities for this component, we want to receive the entities as is
+//  because we already do the mapping at other steps
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct PrePredicted {
+    pub(crate) confirmed_entity: Option<Entity>,
+}
 
 #[derive(Default)]
 pub(crate) struct PrePredictionPlugin;
@@ -32,9 +33,8 @@ impl Plugin for PrePredictionPlugin {
         app.configure_sets(
             PostUpdate,
             (
-                InternalReplicationSet::<ClientMarker>::Buffer,
+                ReplicationBufferSet::Buffer,
                 PrePredictionSet::Clean
-                    .in_set(InternalReplicationSet::<ClientMarker>::SendMessages),
             )
                 .chain()
                 .run_if(is_synced),
@@ -66,8 +66,7 @@ impl PrePredictionPlugin {
             // remove Replicating first so that we don't replicate a despawn
             commands.entity(entity).remove::<Replicating>();
             commands.entity(entity).remove::<(
-                ReplicateToClient,
-                ReplicateToServer,
+                Replicate,
                 ReplicationGroup,
                 DisableReplicateHierarchy,
                 ReplicateLike,
@@ -151,12 +150,12 @@ impl PrePredictionPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::client::prediction::predicted_history::PredictionHistory;
+    use crate::::predicted_history::PredictionHistory;
     use crate::prelude::server;
     use crate::prelude::server::AuthorityPeer;
     use crate::prelude::{client, ClientId};
     use crate::tests::host_server_stepper::HostServerStepper;
-    use crate::tests::protocol::{ComponentClientToServer, ComponentSyncModeFull};
+    use crate::tests::protocol::{ComponentClientToServer, PredictionModeFull};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::ecs::relationship::Relationship;
 
@@ -175,7 +174,7 @@ mod tests {
             .world_mut()
             .spawn((
                 client::Replicate::default(),
-                ComponentSyncModeFull(1.0),
+                PredictionModeFull(1.0),
                 PrePredicted::default(),
             ))
             .id();
@@ -222,7 +221,7 @@ mod tests {
             stepper
                 .server_app
                 .world()
-                .get::<ComponentSyncModeFull>(server_entity)
+                .get::<PredictionModeFull>(server_entity)
                 .unwrap()
                 .0,
             1.0
@@ -248,7 +247,7 @@ mod tests {
         stepper
             .server_app
             .world_mut()
-            .get_mut::<ComponentSyncModeFull>(server_entity)
+            .get_mut::<PredictionModeFull>(server_entity)
             .unwrap()
             .0 = 2.0;
 
@@ -258,7 +257,7 @@ mod tests {
             stepper
                 .client_app
                 .world()
-                .get::<ComponentSyncModeFull>(confirmed_entity)
+                .get::<PredictionModeFull>(confirmed_entity)
                 .unwrap()
                 .0,
             2.0
@@ -266,7 +265,7 @@ mod tests {
         assert!(stepper
             .client_app
             .world()
-            .get::<PredictionHistory<ComponentSyncModeFull>>(predicted_entity)
+            .get::<PredictionHistory<PredictionModeFull>>(predicted_entity)
             .is_some());
     }
 
@@ -283,7 +282,7 @@ mod tests {
         let child = stepper
             .client_app
             .world_mut()
-            .spawn(ComponentSyncModeFull(0.0))
+            .spawn(PredictionModeFull(0.0))
             .id();
         let parent = stepper
             .client_app
@@ -317,7 +316,7 @@ mod tests {
         let server_child = stepper
             .server_app
             .world_mut()
-            .query_filtered::<Entity, With<ComponentSyncModeFull>>()
+            .query_filtered::<Entity, With<PredictionModeFull>>()
             .single(stepper.server_app.world())
             .expect("child entity was not replicated");
         assert_eq!(
@@ -368,7 +367,7 @@ mod tests {
             .world_mut()
             .spawn((
                 client::Replicate::default(),
-                ComponentSyncModeFull(1.0),
+                PredictionModeFull(1.0),
                 PrePredicted::default(),
             ))
             .id();

@@ -2,16 +2,24 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{Entity, Resource};
-use core::cell::UnsafeCell;
 
-use crate::prelude::{ComponentRegistry, Tick};
-use crate::protocol::component::ComponentError;
-use crate::shared::replication::entity_map::PredictedEntityMap;
-use crate::utils::ready_buffer::ReadyBuffer;
+use bevy::ecs::entity::EntityHash;
+use bevy::prelude::{Entity, Reflect, Resource};
+use core::cell::UnsafeCell;
+use lightyear_core::prelude::Tick;
+use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::registry::ComponentError;
+use lightyear_serde::entity_map::EntityMap;
+use lightyear_utils::ready_buffer::ReadyBuffer;
 
 type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
+
+#[derive(Default, Debug, Reflect)]
+pub struct PredictedEntityMap {
+    /// Map from the confirmed entity to the predicted entity
+    /// useful for despawning, as we won't have access to the Confirmed/Predicted components anymore
+    pub confirmed_to_predicted: EntityMap,
+}
 
 #[derive(Resource, Default, Debug)]
 pub(crate) struct PredictionManager {

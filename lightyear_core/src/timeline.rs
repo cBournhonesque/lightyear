@@ -4,11 +4,12 @@ use crate::time::{Overstep, SetTickDuration, TickDelta, TickInstant};
 use bevy::app::{App, FixedFirst, Plugin, RunFixedMainLoop, RunFixedMainLoopSystem};
 use bevy::ecs::component::{HookContext, Mutable};
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Fixed, IntoScheduleConfigs, Query, Res, Time, Trigger};
+use bevy::prelude::{Component, Fixed, IntoScheduleConfigs, Query, Reflect, Res, Resource, Time, Trigger};
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
+use parking_lot::RwLock;
 
-#[derive(Component, Default, Debug)]
+#[derive(Component, Default, Debug, Reflect)]
 #[component(on_add = Self::on_add)]
 pub struct Timeline<T: TimelineContext> {
     pub context: T,
@@ -102,11 +103,88 @@ impl<T: TimelineContext> DerefMut for  Timeline<T> {
 }
 
 
+/// Resource that will track whether we should do rollback or not
+/// (We have this as a resource because if any predicted entity needs to be rolled-back; we should roll back all predicted entities)
+#[derive(Debug, Default, Reflect)]
+pub enum RollbackState {
+    /// We are not in a rollback state
+    #[default]
+    Default,
+    /// We should do a rollback starting from the current_tick
+    ShouldRollback {
+        /// Current tick of the rollback process
+        ///
+        /// (note: we will start the rollback from the next tick after we notice the mismatch)
+        current_tick: Tick,
+    },
+}
+
+impl LocalTimeline {
+    pub fn tick_or_rollback_tick(&self) -> Tick {
+        if self.is_rollback() {
+            self.get_rollback_tick().unwrap_or_default()
+        } else {
+            self.tick()
+        }
+    }
+}
+
+impl Local {
+    pub(crate) fn new(rollback: RollbackState) -> Self {
+        Self {
+            rollback: RwLock::new(rollback),
+        }
+    }
+
+    /// Returns true if we are currently in a rollback state
+    pub fn is_rollback(&self) -> bool {
+        match *self.rollback.read().deref() {
+            RollbackState::ShouldRollback { .. } => true,
+            RollbackState::Default => false,
+        }
+    }
+
+
+
+    /// Get the current rollback tick
+    pub fn get_rollback_tick(&self) -> Option<Tick> {
+        match *self.rollback.read().deref() {
+            RollbackState::ShouldRollback { current_tick } => Some(current_tick),
+            RollbackState::Default => None,
+        }
+    }
+
+    /// Increment the rollback tick
+    pub(crate) fn increment_rollback_tick(&self) {
+        if let RollbackState::ShouldRollback {
+            ref mut current_tick,
+        } = *self.rollback.write().deref_mut()
+        {
+            *current_tick += 1;
+        }
+    }
+
+    /// Set the rollback state back to non-rollback
+    pub fn set_non_rollback(&self) {
+        *self.rollback.write().deref_mut() = RollbackState::Default;
+    }
+
+    /// Set the rollback state to `ShouldRollback` with the given tick
+    pub fn set_rollback_tick(&self, tick: Tick) {
+        *self.rollback.write().deref_mut() = RollbackState::ShouldRollback { current_tick: tick };
+    }
+}
+
+
 /// The local timeline that matches Time<Virtual>
 /// - the Tick is incremented every FixedUpdate
 /// - the overstep is set by the overstep of Time<Fixed>
 #[derive(Default)]
-pub struct Local;
+pub struct Local {
+    /// We use a RwLock because we want to be able to update this value from multiple systems
+    /// in parallel.
+    pub rollback: RwLock<RollbackState>,
+}
 
 pub type LocalTimeline = Timeline<Local>;
 
@@ -172,6 +250,7 @@ impl<T: TimelineContext> Plugin for NetworkTimelinePlugin<T> where Timeline<T>: 
 
 impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<RollbackState>();
         app.insert_resource(TickDuration(self.tick_duration));
         app.world_mut().resource_mut::<Time<Fixed>>().set_timestep(self.tick_duration);
 

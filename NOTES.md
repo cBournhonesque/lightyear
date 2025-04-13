@@ -3,36 +3,59 @@
 - WebTransport: ai-generated, to be verified
 - Replication:
   - ReplicationGroup timer + priority
-  - Register OnRemove<C> replication buffer
   - HostServer handling
 - Receive:
   - re-add UpdateConfirmedTick in apply_world
-- Send:
 
 
 - EntityMap: maybe this should be directly on the Serialize level?
-
-- How to decide which components to replicate on each ReplicationSender?
-  - 1. each sender maintains a list of components to replicate?
-  - 2. We could also have ReplicationLayer similar to AvianLayer, which is basically a predefined list
-       of components to send/receive. Then Client/ClientOf can add a ReplicationLayer to pre-specify the components
-       to send-receive. Some pre-defined Layers: All, ClientToServer, ServerToClient.
 
 - ReplicationConfig:
   - Visibility:
     - each entity has their own VisibilityManager, with the list of peers that they want to be visible to
       (independently from the Replicate.senders)
-  - ReplicateComponent: bitmask with the components to replicate
-       
-
-
-- ReplicateLike:
+  - Per-Entity replication Config:
+    - DisableReplicationHierarchy
+  - ReplicateLike:
 
 TEST TODO:
  - Add ReplicationSender/ReplicationReceiver automatically on Client/ClientOf? But how to avoid 
    perf issues?
  - Errors seem to be swallowed
   
+
+# Prediction
+
+- Should we only apply prediction for a single timeline? Maybe not?
+  - we have a separate timeline per Receiver
+  - we could have a separate Rollback per receiver.
+  - we could do the rollback only for one of the receivers.
+  - for Resources, it would only work if we only have one receiver.
+- The problem is that the rollback re-runs the FixedUpdate schedule for the entire world.
+  - So realistically we can only have timeline with rollback per world.
+
+
+# Server
+
+- how can the server send messages to multiple peers?
+- OPTION 1:
+  - `Server` component has `send_message_to_target(NetworkTarget)` will find the subset of clients that should have the message sent, and buffer on each message sender?
+- OPTION 2:
+  - global resource that maps from network targets (from Link or Netcode) to entity.
+  - command/trigger `send_message_to_target` -> find all the entities that have a MessageSender that match
+    and buffer the message
+  - 
+
+
+# Host-server
+
+- You have a server with n ClientOf.
+- HostServer 
+  - The Server will have its own ServerMessageSender? send_to_target() and kllllll
+  - OPTION1: one of the ClientOfs is also a Client? with Transport via Channels? has a an extra component Host/Local
+    - PredictionManager and InterpolationManager are disabled
+    - Messages hjj
+
 
 
 # Replication
@@ -51,8 +74,19 @@ But if you add a direction we will handle it automatically for the client-server
     This is a big difference from lightyear where the server serializes only once if possible.
 
 - Visibility:
-  - we could have ReplicationLayers similar to PhysicsLayers. Each layer could represent a subset of components that are disabled/enabled.
-    An entity could be part of multiple of these layers.
+  - by default an entity is replicated to all clients specified in Senders.
+  - you can add NetworkVisibility on the replicated entity; where you specify which clients lost/gain visibility
+  - you can also add SenderNetworkVisibility on a sender, to specify which clients lost/gain visibility
+   
+  - Maybe enable whitelist/blacklist (currently it's only whitelist, i.e. by default no entities are visible). Can be done by simply adding all clients once as visible?
+  
+  - Rooms: 
+    - if entity 1 and 2 are in the same room as client 1, they will be visible.
+    - 
+
+
+- ReplicationConfig { network_relevance: bool }
+- ReplicationOverrides { global, per_sender }
 
 
 - How to start replication?

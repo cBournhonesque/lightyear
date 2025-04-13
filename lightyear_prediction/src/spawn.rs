@@ -1,19 +1,15 @@
 //! Logic to handle spawning Predicted entities
+use crate::Predicted;
 use bevy::prelude::{Added, Commands, Entity, Query, Res};
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_replication::prelude::{Confirmed, Replicated, ReplicationReceiver, ShouldBePredicted};
 use tracing::debug;
-
-use crate::client::components::Confirmed;
-use crate::client::connection::ConnectionManager;
-use crate::client::prediction::Predicted;
-use crate::prelude::{ShouldBePredicted, TickManager};
 
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
 /// The `Confirmed` entity could already exist because we share the Confirmed component for prediction and interpolation.
 // TODO: (although normally an entity shouldn't be both predicted and interpolated, so should we
 //  instead panic if we find an entity that is both predicted and interpolated?)
 pub(crate) fn spawn_predicted_entity(
-    tick_manager: Res<TickManager>,
-    connection: Res<ConnectionManager>,
     mut commands: Commands,
 
     // TODO: instead of listening to the ComponentInsertEvent, should we just directly query on Added<ShouldBePredicted>?
@@ -26,9 +22,14 @@ pub(crate) fn spawn_predicted_entity(
 
     // only handle predicted that have ShouldBePredicted
     // (if the entity was handled by prespawn or prepredicted before, ShouldBePredicted gets removed)
-    mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBePredicted>>,
+    mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>, &Replicated), Added<ShouldBePredicted>>,
+    receiver: Query<(&ReplicationReceiver, &LocalTimeline)>,
 ) {
-    for (confirmed_entity, confirmed) in confirmed_entities.iter_mut() {
+    for (confirmed_entity, confirmed, replicated) in confirmed_entities.iter_mut() {
+        let Ok((receiver, timeline)) = receiver.get(replicated.receiver) else {
+            debug!("No ReplicationReceiver found, skipping");
+            continue;
+        };
         // skip if the entity already has a predicted entity
         if confirmed.as_ref().is_some_and(|c| c.predicted.is_some()) {
             continue;
@@ -60,13 +61,12 @@ pub(crate) fn spawn_predicted_entity(
             //  and they are applied simultaneously
             // get the confirmed tick for the entity
             // if we don't have it, something has gone very wrong
-            let confirmed_tick = connection
-                .replication_receiver
+            let confirmed_tick = receiver
                 .get_confirmed_tick(confirmed_entity)
                 // in most cases we will have a confirmed tick. The only case where we don't is if
                 // the entity was originally spawned on this client, but then authority was removed
                 // and we not want to add Prediction
-                .unwrap_or(tick_manager.tick());
+                .unwrap_or(timeline.tick());
             confirmed_entity_mut.insert(Confirmed {
                 predicted: Some(predicted_entity),
                 interpolated: None,
@@ -76,7 +76,7 @@ pub(crate) fn spawn_predicted_entity(
     }
 }
 
-//
+
 #[cfg(test)]
 mod tests {
     use crate::client::components::Confirmed;

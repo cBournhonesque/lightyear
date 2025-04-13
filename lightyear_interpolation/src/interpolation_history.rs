@@ -1,17 +1,13 @@
 use core::ops::Deref;
 
+use crate::interpolate::InterpolateStatus;
+use crate::resource::InterpolationManager;
+use crate::{Interpolated, InterpolationMode};
 use bevy::prelude::*;
+use lightyear_core::prelude::Tick;
+use lightyear_replication::components::Confirmed;
+use lightyear_utils::ready_buffer::ReadyBuffer;
 use tracing::{debug, trace};
-
-use crate::client::components::Confirmed;
-use crate::client::components::{ComponentSyncMode, SyncComponent};
-use crate::client::connection::ConnectionManager;
-use crate::client::interpolation::interpolate::InterpolateStatus;
-use crate::client::interpolation::resource::InterpolationManager;
-use crate::client::interpolation::Interpolated;
-use crate::prelude::{ComponentRegistry, HasAuthority, TickManager};
-use crate::shared::tick_manager::Tick;
-use crate::utils::ready_buffer::ReadyBuffer;
 
 /// To know if we need to do rollback, we need to compare the interpolated entity's history with the server's state updates
 #[derive(Component, Debug)]
@@ -107,7 +103,7 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                 let mut new_component = confirmed_component.clone();
                 let _ = manager.map_entities(&mut new_component, component_registry.as_ref());
                 match component_registry.interpolation_mode::<C>() {
-                    ComponentSyncMode::Full => {
+                    InterpolationMode::Full => {
                         trace!(?interpolated_entity, tick=?tick_manager.tick(), "spawn interpolation history");
                         interpolated_entity_mut.insert((
                             // NOTE: we probably do NOT want to insert the component right away, instead we want to wait until we have two updates
@@ -123,11 +119,11 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                             },
                         ));
                     }
-                    ComponentSyncMode::Once | ComponentSyncMode::Simple => {
+                    InterpolationMode::Once | InterpolationMode::Simple => {
                         debug!("copy interpolation component");
                         interpolated_entity_mut.insert(new_component);
                     }
-                    ComponentSyncMode::None => {}
+                    InterpolationMode::None => {}
                 }
             }
         }

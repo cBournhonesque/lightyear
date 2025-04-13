@@ -1,9 +1,9 @@
 //! There's a lot of overlap with `client::prediction_history` because resources are components in ECS so rollback is going to look similar.
-use crate::prelude::{HistoryBuffer, HistoryState, TickManager};
-use bevy::prelude::*;
-
 use super::rollback::Rollback;
+use crate::prelude::{HistoryBuffer, HistoryState, TickManager};
 use crate::shared::tick_manager::TickEvent;
+use bevy::prelude::*;
+use lightyear_core::history_buffer::HistoryBuffer;
 
 pub(crate) type ResourceHistory<R> = HistoryBuffer<R>;
 

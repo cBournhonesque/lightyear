@@ -50,7 +50,6 @@ impl ReplicationReceivePlugin {
     ) {
         query.par_iter_mut().for_each(|(mut actions, mut updates, mut receiver)| {
             for message in actions.receive_with_tick() {
-                info!("Received replication message: {message:?}");
                 receiver.recv_actions(message.data, message.remote_tick);
             }
             for message in updates.receive_with_tick() {
@@ -58,34 +57,6 @@ impl ReplicationReceivePlugin {
             }
         });
     }
-
-    // pub(crate) fn apply_to_world(
-    //     world: &mut World,
-    //     mut local: Local<SystemState<(
-    //         ResMut<ComponentRegistry>,
-    //         Query<(&mut ReplicationReceiver, Option<&ClientOf>, &mut MessageManager, &LocalTimeline)>,
-    //     )>>,
-    //     // mut component_registry: ResMut<ComponentRegistry>,
-    //     // mut query: Query<(&mut ReplicationReceiver, Option<&ClientOf>, &mut MessageManager, &LocalTimeline)>,
-    // ) {
-    //     let unsafe_world = world.as_unsafe_world_cell();
-    //     // SAFETY: we guarantee that the `world` is not used to update the ComponentRegistry or any components of the query
-    //     let (mut component_registry, mut query) = local.get_mut(unsafe { unsafe_world.world_mut() } );
-    //     // SAFETY: this world uses access that is independent from the previous access
-    //     let world = unsafe { unsafe_world.world_mut() };
-    //     query.iter_mut().for_each(|(mut receiver, client_of, mut manager, local_timeline)| {
-    //         // TODO: have some logic to get the remote peer independently from ClientOf or client-server
-    //         //  Maybe the link contains the remoteLinkId?
-    //
-    //         let tick = local_timeline.tick();
-    //         let remote_peer = client_of.map(|c| c.id);
-    //
-    //         // TODO: put the temp buffer inside the receiver, we shouldn't need write access
-    //         //   to the registry
-    //         receiver.apply_world(world, remote_peer, &mut manager.entity_mapper, component_registry.as_mut(), tick);
-    //         receiver.tick_cleanup(tick);
-    //     });
-    // }
 
     pub(crate) fn apply_world(
         world: &mut World,

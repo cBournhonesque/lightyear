@@ -24,6 +24,7 @@ use crate::prelude::{Cached, ComponentReplicationOverride, ComponentReplicationO
 use crate::receive::ReplicationReceiver;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::ComponentKind;
+use crate::relevance::immediate::NetworkVisibility;
 use crate::send::ReplicationSender;
 use lightyear_connection::client::Client;
 use lightyear_connection::client_of::{ClientOf, Server};
@@ -216,6 +217,10 @@ impl Replicate {
     }
 
     pub fn on_replace(mut world: DeferredWorld, context: HookContext) {
+        // TODO: maybe we can just use the CachedReplicate?
+        // i.e. if you remove 2 clients from Replicate, than in PreBuffer, we will do the diff
+        // and remove those clients from sender.replicated_entities and send the despawn
+
         let mut replicate = world.get_mut::<Replicate>(context.entity).unwrap();
         core::mem::take(&mut replicate.senders)
             .iter()
@@ -234,11 +239,13 @@ pub struct CachedReplicate {
     senders: EntityIndexSet,
 }
 
-/// Keep a cached version of the [`ReplicateToClient`] component so that when it gets updated
-/// we can compute a diff with the previous value.
+
+
+/// Keep a cached version of the [`Replicate`] component so that when it gets updated
+/// we can compute a diff from the previous value.
 ///
 /// This needs to run after we compute the diff, so after the `replicate` system runs
-pub(crate) fn handle_replicate_update(
+pub(crate) fn update_cached_replicate_post_buffer(
     mut commands: Commands,
     mut query: Query<(Entity, &Replicate, Option<&mut CachedReplicate>), Changed<Replicate>>,
 ) {
@@ -304,6 +311,7 @@ pub(crate) fn replicate(
                     group_ready,
                     replicate,
                     cached_replicate,
+                    network_visibility,
                     is_replicate_like_added,
                 ) = match entity_ref.get::<ReplicateLike>() {
                     Some(replicate_like) => {
@@ -345,6 +353,9 @@ pub(crate) fn replicate(
                             entity_ref
                                 .get::<CachedReplicate>()
                                 .or_else(|| root_entity_ref.get::<CachedReplicate>()),
+                            entity_ref
+                                .get::<NetworkVisibility>()
+                                .or_else(|| root_entity_ref.get::<NetworkVisibility>()),
                             unsafe {
                                 entity_ref
                                     .get_change_ticks::<ReplicateLike>()
@@ -364,6 +375,7 @@ pub(crate) fn replicate(
                             group_ready,
                             entity_ref.get_ref::<Replicate>().unwrap(),
                             entity_ref.get::<CachedReplicate>(),
+                            entity_ref.get::<NetworkVisibility>(),
                             false,
                         )
                     }
@@ -375,8 +387,15 @@ pub(crate) fn replicate(
 
                 // TODO: do the entity mapping here!
 
-                // b. add entity despawns from Replicate changing
-                // todo!()
+                // b. add entity despawns from Visibility lost
+                replicate_entity_despawn(
+                    entity,
+                    group_id,
+                    &mut message_manager.entity_mapper,
+                    network_visibility,
+                    sender,
+                    sender_entity,
+                );
 
                 // c. add entity spawns for Replicate changing
                 replicate_entity_spawn(
@@ -385,6 +404,7 @@ pub(crate) fn replicate(
                     priority,
                     &replicate,
                     cached_replicate,
+                    network_visibility,
                     sender,
                     sender_entity,
                 );
@@ -464,8 +484,9 @@ pub(crate) fn replicate(
 
 
 /// Send entity despawn if Replicate was updated and the entity should not be replicated to this sender anymore
-/// This cannot be part of `replicate` because replicate iterates through the sender's replicated_entities.
-pub(crate) fn replicate_entity_despawn(
+/// This cannot be part of `replicate` because replicate iterates through the sender's replicated_entities and
+/// the entity was removed from the sender's replicated_entities list
+pub(crate) fn buffer_entity_despawn_replicate_updated(
     query: Query<(Entity, &ReplicationGroup, &Replicate, &CachedReplicate)>,
     mut senders: Query<&mut ReplicationSender>
 ) {
@@ -480,24 +501,46 @@ pub(crate) fn replicate_entity_despawn(
     });
 }
 
-/// Send entity spawn if:
+/// Send entity despawn is:
+/// 1) the client lost visibility of the entity
+pub(crate) fn replicate_entity_despawn(
+    entity: Entity,
+    group_id: ReplicationGroupId,
+    entity_map: &mut RemoteEntityMap,
+    visibility: Option<&NetworkVisibility>,
+    sender: &mut ReplicationSender,
+    sender_entity: Entity,
+) {
+    if visibility.is_some_and(|v| v.lost.contains(sender_entity)) {
+        let entity = entity_map.to_remote(entity);
+        let _ = sender
+            .prepare_entity_despawn(entity, group_id)
+            .inspect_err(|e| {
+                error!("error sending entity despawn: {:?}", e);
+            });
+    }
+}
+
+/// Send entity spawn if either of:
 /// 1) Replicate was added/updated and the sender was not in the previous Replicate's target
-///
+/// 2) NetworkVisibility is gained for this sender
 pub(crate) fn replicate_entity_spawn(
     entity: Entity,
     group_id: ReplicationGroupId,
     priority: f32,
     replicate: &Ref<Replicate>,
     cached_replicate: Option<&CachedReplicate>,
+    network_visibility: Option<&NetworkVisibility>,
     sender: &mut ReplicationSender,
     sender_entity: Entity,
 ) {
-    if replicate.is_changed() {
-        // NOTE: we know that the sender is part of replicate.senders thanks to the ReplicationHook
-        if cached_replicate.is_none_or(|cached| !cached.senders.contains(&sender_entity)) {
-            trace!(?entity, ?sender_entity, ?replicate, ?cached_replicate, "Sending Spawn because replicate changed");
-            sender.prepare_entity_spawn(entity, group_id, priority);
-        }
+    // 1. replicate was added/updated and the sender was not in the previous Replicate's target
+    let replicate_updated = replicate.is_changed() && cached_replicate.is_none_or(|cached| !cached.senders.contains(&sender_entity)) && network_visibility.is_none_or(|vis| vis.is_visible(sender_entity));
+    // 2. replicate was not updated but NetworkVisibility is gained for this sender
+    let network_visibility_updated = network_visibility.is_some_and(|vis| vis.gained.contains(sender_entity));
+    if replicate_updated || network_visibility_updated {
+        trace!(?entity, ?sender_entity, ?replicate, ?cached_replicate, "Sending Spawn because replicate changed");
+        sender.prepare_entity_spawn(entity, group_id, priority);
     }
 }
 
@@ -510,7 +553,7 @@ pub(crate) fn replicate_entity_spawn(
 ///   and that root entity is despawned? Maybe [`ReplicateLike`] should be a relationship?
 ///
 /// Note that if the entity does not [`Replicating`], we do not replicate the despawn
-pub(crate) fn buffer_entity_despawn(
+pub(crate) fn buffer_entity_despawn_replicate_remove(
     // this covers both cases
     trigger: Trigger<OnRemove, (Replicate, ReplicateLike)>,
     root_query: Query<&ReplicateLike>,

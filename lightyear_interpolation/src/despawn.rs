@@ -1,8 +1,7 @@
+use crate::interpolate::InterpolateStatus;
+use crate::interpolation_history::ConfirmedHistory;
 use bevy::prelude::*;
-
-use crate::client::components::{Confirmed, SyncComponent};
-use crate::client::interpolation::interpolate::InterpolateStatus;
-use crate::client::interpolation::interpolation_history::ConfirmedHistory;
+use lightyear_replication::prelude::Confirmed;
 
 /// Remove the component from interpolated entities when it gets removed from confirmed
 pub(crate) fn removed_components<C: SyncComponent>(

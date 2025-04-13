@@ -1,12 +1,13 @@
-use crate::client::prediction::Predicted;
-use crate::prelude::ComponentRegistry;
-use crate::protocol::component::ComponentKind;
-use crate::utils::collections::HashMap;
+use crate::registry::PredictionRegistry;
+use crate::Predicted;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::ecs::archetype::{ArchetypeGeneration, ArchetypeId, Archetypes};
 use bevy::ecs::component::{ComponentId, Components};
+use bevy::platform_support::collections::HashMap;
 use bevy::prelude::{FromWorld, Resource, World};
+use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::registry::ComponentKind;
 use tracing::trace;
 
 /// Cached list of archetypes that are predicted.
@@ -14,7 +15,7 @@ use tracing::trace;
 /// These archetypes have at least one component that needs to be synced from the Predicted entity
 /// to the Confirmed entity.
 ///
-/// We cache them to avoid having to run individual systems for each predicted component.
+/// We cache them to quickly iterate through all the components of an archetype that should be predicted
 #[derive(Resource)]
 pub(crate) struct PredictedArchetypes {
     /// Highest processed archetype ID.
@@ -46,7 +47,7 @@ impl PredictedArchetypes {
         &mut self,
         archetypes: &Archetypes,
         components: &Components,
-        registry: &ComponentRegistry,
+        prediction_registry: &PredictionRegistry,
     ) {
         let old_generation = core::mem::replace(&mut self.generation, archetypes.generation());
 
@@ -62,7 +63,7 @@ impl PredictedArchetypes {
                 // if the component has a type_id (i.e. is a rust type)
                 if let Some(kind) = info.type_id().map(ComponentKind) {
                     // the component is not registered for prediction in the ComponentProtocol
-                    let Some(prediction_metadata) = registry.prediction_map.get(&kind) else {
+                    let Some(prediction_metadata) = prediction_registry.prediction_map.get(&kind) else {
                         trace!(
                             "not including {:?} in the cached predicted archetype because it is not registered for prediction",
                             info.name()

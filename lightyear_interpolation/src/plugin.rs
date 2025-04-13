@@ -1,21 +1,16 @@
-use bevy::prelude::*;
-use core::time::Duration;
-
 use super::interpolation_history::{
     add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,
 };
-use crate::client::components::{ComponentSyncMode, SyncComponent};
-use crate::client::interpolation::despawn::{despawn_interpolated, removed_components};
-use crate::client::interpolation::interpolate::{
+use crate::despawn::{despawn_interpolated, removed_components};
+use crate::interpolate::{
     insert_interpolated_component, interpolate, update_interpolate_status,
 };
-use crate::client::interpolation::resource::InterpolationManager;
-use crate::client::interpolation::spawn::spawn_interpolated_entity;
-use crate::client::interpolation::Interpolated;
-use crate::client::run_conditions::is_synced;
-use crate::client::sync::SyncSet;
-use crate::prelude::{is_host_server, Deserialize, Serialize, Tick};
-use crate::shared::time_manager::WrappedTime;
+use crate::resource::InterpolationManager;
+use crate::spawn::spawn_interpolated_entity;
+use crate::{Interpolated, InterpolationMode};
+use bevy::prelude::*;
+use core::time::Duration;
+use serde::{Deserialize, Serialize};
 
 /// Interpolation delay of the client at the time the message is sent
 ///
@@ -137,7 +132,7 @@ pub enum InterpolationSet {
 /// Add per-component systems related to interpolation
 pub fn add_prepare_interpolation_systems<C: SyncComponent>(
     app: &mut App,
-    interpolation_mode: ComponentSyncMode,
+    interpolation_mode: InterpolationMode,
 ) {
     // TODO: maybe run this in PostUpdate?
     // TODO: maybe create an overarching prediction set that contains all others?
@@ -147,7 +142,7 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent>(
     );
     app.add_observer(removed_components::<C>);
     match interpolation_mode {
-        ComponentSyncMode::Full => {
+        InterpolationMode::Full => {
             app.add_systems(
                 Update,
                 (
@@ -161,7 +156,7 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent>(
                     .in_set(InterpolationSet::PrepareInterpolation),
             );
         }
-        ComponentSyncMode::Simple => {
+        InterpolationMode::Simple => {
             app.add_systems(
                 Update,
                 apply_confirmed_update_mode_simple::<C>

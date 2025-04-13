@@ -218,12 +218,12 @@ impl Plugin for ReplicationSendPlugin {
         );
 
         // SYSTEMS
-        app.add_observer(buffer::buffer_entity_despawn);
+        app.add_observer(buffer::buffer_entity_despawn_replicate_remove);
 
         app.add_systems(PostUpdate, Self::send_replication_messages.in_set(ReplicationBufferSet::Flush));
         app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
-        app.add_systems(PostUpdate, buffer::handle_replicate_update.in_set(ReplicationBufferSet::AfterBuffer));
-        app.add_systems(PostUpdate, buffer::replicate_entity_despawn.in_set(ReplicationBufferSet::EntityUpdates));
+        app.add_systems(PostUpdate, buffer::update_cached_replicate_post_buffer.in_set(ReplicationBufferSet::AfterBuffer));
+        app.add_systems(PostUpdate, buffer::buffer_entity_despawn_replicate_updated.in_set(ReplicationBufferSet::EntityUpdates));
 
 
         // app.add_systems(
@@ -324,11 +324,11 @@ impl Plugin for ReplicationSendPlugin {
             .build_state(app.world_mut())
             .build_system_with_input(buffer::buffer_component_removed);
 
-        let mut observer = Observer::new(buffer_component_remove);
+        let mut buffer_component_remove_observer = Observer::new(buffer_component_remove);
         for component in component_registry.component_id_to_kind.keys() {
-            observer = observer.with_component(*component);
+            buffer_component_remove_observer = buffer_component_remove_observer.with_component(*component);
         }
-        app.world_mut().spawn(observer);
+        app.world_mut().spawn(buffer_component_remove_observer);
 
         app.add_systems(
             PostUpdate,

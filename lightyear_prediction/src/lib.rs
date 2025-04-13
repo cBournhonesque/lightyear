@@ -1,18 +1,9 @@
-/*! # Lightyear IO
-
-Low-level IO primitives for the lightyear networking library.
-This crate provides abstractions for sending and receiving raw bytes over the network.
-*/
+//! Handles client-side prediction
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
-use bevy::prelude::{Component, SystemSet};
-use bytes::Bytes;
-
-
-//! Handles client-side prediction
-use crate::client::prediction::resource::PredictionManager;
+use crate::resource::PredictionManager;
 use bevy::ecs::component::{HookContext, Mutable, StorageType};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
@@ -30,6 +21,7 @@ pub(crate) mod resource;
 pub mod resource_history;
 pub mod rollback;
 pub mod spawn;
+mod registry;
 
 /// Marks an entity that is being predicted by the client
 #[derive(Debug, Reflect)]
@@ -88,3 +80,31 @@ impl Component for Predicted {
         );
     }
 }
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+/// Defines how a predicted or interpolated component will be replicated from confirmed to predicted/interpolated
+///
+/// We use a single enum instead of 2 separate enums because we want to be able to use the same enum for both predicted and interpolated components
+/// Otherwise it would be pretty tedious to have to set the values for both prediction and interpolation.
+pub enum PredictionMode {
+    /// Sync the component from the confirmed to the interpolated/predicted entity with the most precision
+    /// Predicted: we will check for rollback every tick
+    Full,
+
+    /// Simple sync: whenever the confirmed entity gets updated, we propagate the update to the interpolated/predicted entity
+    /// Use this for components that don't get updated often or are not time-sensitive
+    ///
+    /// Predicted: that means the component's state will be ~1-RTT behind the predicted entity's timeline
+    Simple,
+
+    /// The component will be copied only-once from the confirmed to the interpolated/predicted entity, and then won't stay in sync
+    /// Useful for components that you want to modify yourself on the predicted/interpolated entity
+    Once,
+
+    #[default]
+    /// The component is not copied from the Confirmed entity to the interpolated/predicted entity
+    None,
+}
+
+pub trait SyncComponent: Component<Mutability=Mutable> + Clone + PartialEq {}
+impl<T> SyncComponent for T where T: Component<Mutability=Mutable> + Clone + PartialEq {}

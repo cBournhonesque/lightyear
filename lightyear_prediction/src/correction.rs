@@ -23,11 +23,15 @@
 //! - FixedUpdate: run the simulation to compute C(T+2).
 //! - FixedPostUpdate: set the component value to the interpolation between PT (predicted value at rollback start T) and C(T+2)
 use bevy::prelude::{Added, Commands, Component, DetectChangesMut, Entity, Query, Res};
+use lightyear_core::tick::Tick;
+use lightyear_replication::registry::registry::ComponentRegistry;
 use tracing::{debug, trace};
-
-use crate::client::components::SyncComponent;
-use crate::client::easings::ease_out_quad;
-use crate::prelude::{ComponentRegistry, Tick, TickManager};
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_replication::components::Replicated;
+use lightyear_replication::prelude::Replicate;
+use lightyear_utils::easings::ease_out_quad;
+use crate::registry::PredictionRegistry;
+use crate::SyncComponent;
 
 #[derive(Component, Debug, PartialEq)]
 pub struct Correction<C: Component> {
@@ -57,14 +61,17 @@ impl<C: Component> Correction<C> {
 /// Perform the correction: we interpolate between the original (incorrect) prediction and the final confirmed value
 /// over a period of time. The intermediary state is called the Corrected state.
 pub(crate) fn get_corrected_state<C: SyncComponent>(
-    component_registry: Res<ComponentRegistry>,
-    tick_manager: Res<TickManager>,
+    prediction_registry: Res<PredictionRegistry>,
     mut commands: Commands,
-    mut query: Query<(Entity, &mut C, &mut Correction<C>)>,
+    mut query: Query<(Entity, &mut C, &mut Correction<C>, &Replicated)>,
+    sender_query: Query<&LocalTimeline>
 ) {
     let kind = core::any::type_name::<C>();
-    let current_tick = tick_manager.tick();
-    for (entity, mut component, mut correction) in query.iter_mut() {
+    for (entity, mut component, mut correction, replicated) in query.iter_mut() {
+        let Ok(timeline) = sender_query.get(replicated.receiver) else {
+            continue;
+        };
+        let current_tick = timeline.tick();
         let mut t = (current_tick - correction.original_tick) as f32
             / (correction.final_correction_tick - correction.original_tick) as f32;
         t = t.clamp(0.0, 1.0);
@@ -85,7 +92,7 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
             // TODO: avoid all these clones
             // visually update the component
             let visual =
-                component_registry.correct(&correction.original_prediction, component.as_ref(), t);
+                prediction_registry.correct(&correction.original_prediction, component.as_ref(), t);
             // store the current visual value
             correction.current_visual = Some(visual.clone());
             // set the component value to the visual value
@@ -144,9 +151,9 @@ mod tests {
     use super::*;
     use crate::client::components::Confirmed;
     use crate::client::config::ClientConfig;
-    use crate::client::prediction::predicted_history::PredictionHistory;
-    use crate::client::prediction::rollback::test_utils::received_confirmed_update;
-    use crate::client::prediction::Predicted;
+    use crate::::predicted_history::PredictionHistory;
+    use crate::::rollback::test_utils::received_confirmed_update;
+    use crate::::Predicted;
     use crate::prelude::client::PredictionConfig;
     use crate::prelude::{SharedConfig, TickConfig};
     use crate::tests::protocol::ComponentCorrection;

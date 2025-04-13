@@ -37,6 +37,7 @@ use bevy::transform::TransformSystem::TransformPropagate;
 use tracing::trace;
 
 use crate::client::components::SyncComponent;
+use crate::plugin::InterpolationSet;
 use crate::prelude::client::{is_in_rollback, Correction, InterpolationSet, PredictionSet};
 use crate::prelude::{ComponentRegistry, MainSet, TickManager, TimeManager};
 
@@ -233,13 +234,13 @@ mod tests {
         stepper.client_app.world_mut().insert_resource(Toggle(true));
         stepper
             .client_app
-            .add_plugins(VisualInterpolationPlugin::<ComponentSyncModeFull>::default());
+            .add_plugins(VisualInterpolationPlugin::<InterpolationModeFull>::default());
         let entity = stepper
             .client_app
             .world_mut()
             .spawn((
-                ComponentSyncModeFull(0.0),
-                VisualInterpolateStatus::<ComponentSyncModeFull>::default(),
+                InterpolationModeFull(0.0),
+                VisualInterpolateStatus::<InterpolationModeFull>::default(),
             ))
             .id();
         stepper.build();
@@ -247,7 +248,7 @@ mod tests {
     }
 
     fn fixed_update_increment(
-        mut query: Query<&mut ComponentSyncModeFull>,
+        mut query: Query<&mut InterpolationModeFull>,
         mut query_correction: Query<&mut ComponentCorrection>,
         enabled: Res<Toggle>,
     ) {
@@ -272,7 +273,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             1.0
@@ -282,12 +283,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
                 previous_value: None,
-                current_value: Some(ComponentSyncModeFull(1.0)),
+                current_value: Some(InterpolationModeFull(1.0)),
             }
         );
         assert_relative_eq!(
@@ -306,7 +307,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             1.66,
@@ -317,12 +318,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(1.0)),
-                current_value: Some(ComponentSyncModeFull(2.0)),
+                previous_value: Some(InterpolationModeFull(1.0)),
+                current_value: Some(InterpolationModeFull(2.0)),
             }
         );
         assert_relative_eq!(
@@ -341,7 +342,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             3.00,
@@ -352,12 +353,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(3.0)),
-                current_value: Some(ComponentSyncModeFull(4.0)),
+                previous_value: Some(InterpolationModeFull(3.0)),
+                current_value: Some(InterpolationModeFull(4.0)),
             }
         );
         assert_relative_eq!(
@@ -376,7 +377,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             4.33,
@@ -387,12 +388,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(4.0)),
-                current_value: Some(ComponentSyncModeFull(5.0)),
+                previous_value: Some(InterpolationModeFull(4.0)),
+                current_value: Some(InterpolationModeFull(5.0)),
             }
         );
         assert_relative_eq!(
@@ -417,7 +418,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             1.0
@@ -427,12 +428,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
                 previous_value: None,
-                current_value: Some(ComponentSyncModeFull(1.0)),
+                current_value: Some(InterpolationModeFull(1.0)),
             }
         );
         assert_relative_eq!(
@@ -451,7 +452,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             1.66,
@@ -462,12 +463,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(1.0)),
-                current_value: Some(ComponentSyncModeFull(2.0)),
+                previous_value: Some(InterpolationModeFull(1.0)),
+                current_value: Some(InterpolationModeFull(2.0)),
             }
         );
         assert_relative_eq!(
@@ -487,7 +488,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             2.00,
@@ -498,11 +499,11 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(2.0)),
+                previous_value: Some(InterpolationModeFull(2.0)),
                 current_value: None,
             }
         );
@@ -522,7 +523,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             2.0,
@@ -533,11 +534,11 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(2.0)),
+                previous_value: Some(InterpolationModeFull(2.0)),
                 current_value: None,
             }
         );
@@ -557,7 +558,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             2.66,
@@ -568,12 +569,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(2.0)),
-                current_value: Some(ComponentSyncModeFull(3.0)),
+                previous_value: Some(InterpolationModeFull(2.0)),
+                current_value: Some(InterpolationModeFull(3.0)),
             }
         );
         assert_relative_eq!(
@@ -597,7 +598,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             0.0
@@ -607,7 +608,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
@@ -631,7 +632,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             1.0,
@@ -642,12 +643,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
                 previous_value: None,
-                current_value: Some(ComponentSyncModeFull(1.0)),
+                current_value: Some(InterpolationModeFull(1.0)),
             }
         );
         assert_relative_eq!(
@@ -666,7 +667,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             1.25,
@@ -677,12 +678,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(1.0)),
-                current_value: Some(ComponentSyncModeFull(2.0)),
+                previous_value: Some(InterpolationModeFull(1.0)),
+                current_value: Some(InterpolationModeFull(2.0)),
             }
         );
         assert_relative_eq!(
@@ -701,7 +702,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             2.0,
@@ -712,12 +713,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(2.0)),
-                current_value: Some(ComponentSyncModeFull(3.0)),
+                previous_value: Some(InterpolationModeFull(2.0)),
+                current_value: Some(InterpolationModeFull(3.0)),
             }
         );
         assert_relative_eq!(
@@ -736,7 +737,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             2.75,
@@ -747,12 +748,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(2.0)),
-                current_value: Some(ComponentSyncModeFull(3.0)),
+                previous_value: Some(InterpolationModeFull(2.0)),
+                current_value: Some(InterpolationModeFull(3.0)),
             }
         );
         assert_relative_eq!(
@@ -776,7 +777,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             0.0
@@ -786,7 +787,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
@@ -810,7 +811,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             1.0,
@@ -821,12 +822,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
                 previous_value: None,
-                current_value: Some(ComponentSyncModeFull(1.0)),
+                current_value: Some(InterpolationModeFull(1.0)),
             }
         );
         assert_relative_eq!(
@@ -845,7 +846,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             1.25,
@@ -856,12 +857,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(1.0)),
-                current_value: Some(ComponentSyncModeFull(2.0)),
+                previous_value: Some(InterpolationModeFull(1.0)),
+                current_value: Some(InterpolationModeFull(2.0)),
             }
         );
         assert_relative_eq!(
@@ -881,7 +882,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             2.0,
@@ -892,11 +893,11 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(2.0)),
+                previous_value: Some(InterpolationModeFull(2.0)),
                 current_value: None,
             }
         );
@@ -916,7 +917,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             2.0,
@@ -927,11 +928,11 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(2.0)),
+                previous_value: Some(InterpolationModeFull(2.0)),
                 current_value: None,
             }
         );
@@ -952,7 +953,7 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<ComponentSyncModeFull>()
+                .get::<InterpolationModeFull>()
                 .unwrap()
                 .0,
             2.5,
@@ -963,12 +964,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<ComponentSyncModeFull>>()
+                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
                 .unwrap(),
             &VisualInterpolateStatus {
                 trigger_change_detection: false,
-                previous_value: Some(ComponentSyncModeFull(2.0)),
-                current_value: Some(ComponentSyncModeFull(3.0)),
+                previous_value: Some(InterpolationModeFull(2.0)),
+                current_value: Some(InterpolationModeFull(3.0)),
             }
         );
         assert_relative_eq!(

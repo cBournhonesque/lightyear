@@ -1,17 +1,8 @@
-/*! # Lightyear IO
-
-Low-level IO primitives for the lightyear networking library.
-This crate provides abstractions for sending and receiving raw bytes over the network.
-*/
+//! Handles interpolation of entities between server updates
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
-use bevy::prelude::{Component, SystemSet};
-use bytes::Bytes;
-
-
-//! Handles interpolation of entities between server updates
 use bevy::ecs::component::{HookContext, Mutable, StorageType};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
@@ -22,8 +13,6 @@ pub use interpolation_history::ConfirmedHistory;
 pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 pub use visual_interpolation::{VisualInterpolateStatus, VisualInterpolationPlugin};
 
-use crate::client::components::LerpFn;
-use crate::client::interpolation::resource::InterpolationManager;
 use crate::resource::InterpolationManager;
 
 mod despawn;
@@ -93,4 +82,26 @@ impl Component for Interpolated {
             };
         });
     }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+/// Defines how interpolated component will be copied from the confirmed entity to the interpolated entity
+pub enum InterpolationMode {
+    /// Sync the component from the confirmed to the interpolated entity with the most precision
+    /// Interpolated: we will run interpolation between the last 2 confirmed states
+    Full,
+
+    /// Simple sync: whenever the confirmed entity gets updated, we propagate the update to the interpolated entity
+    /// Use this for components that don't get updated often or are not time-sensitive
+    ///
+    /// Interpolated: that means the component might not be rendered smoothly as it will only be updated after we receive a server update
+    Simple,
+
+    /// The component will be copied only-once from the confirmed to the interpolated entity, and then won't stay in sync
+    /// Useful for components that you want to modify yourself on the interpolated entity
+    Once,
+
+    #[default]
+    /// The component is not copied from the Confirmed entity to the interpolated entity
+    None,
 }

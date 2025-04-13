@@ -11,20 +11,21 @@ use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
 use parking_lot::RwLock;
-use tracing::{debug, error, trace, trace_span, warn};
-
+use tracing::*;
+use lightyear_core::history_buffer::HistoryState;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::tick::Tick;
+use lightyear_replication::prelude::{Confirmed, Replicated, ReplicationReceiver};
+use lightyear_replication::registry::registry::ComponentRegistry;
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
-use super::Predicted;
-use crate::client::components::{ComponentSyncMode, Confirmed, SyncComponent};
-use crate::client::config::ClientConfig;
-use crate::client::connection::ConnectionManager;
-use crate::client::prediction::correction::Correction;
-use crate::client::prediction::despawn::PredictionDisable;
-use crate::client::prediction::diagnostics::PredictionMetrics;
-use crate::client::prediction::resource::PredictionManager;
-use crate::prelude::client::PredictionSet;
-use crate::prelude::{ComponentRegistry, HistoryState, PreSpawned, Tick, TickManager};
+use super::{Predicted, PredictionMode};
+use crate::correction::Correction;
+use crate::despawn::PredictionDisable;
+use crate::diagnostics::PredictionMetrics;
+use crate::plugin::PredictionSet;
+use crate::prespawn::PreSpawned;
+use crate::resource::PredictionManager;
 
 pub struct RollbackPlugin;
 
@@ -43,9 +44,9 @@ impl Plugin for RollbackPlugin {
             QueryParamBuilder::new(|builder| {
                 builder.data::<&Confirmed>();
                 builder.optional(|b| {
-                    // include access to &C for all ComponentSyncMode=Full components
+                    // include access to &C for all PredictionMode=Full components
                     component_registry
-                        .predicted_component_ids_with_mode(ComponentSyncMode::Full)
+                        .predicted_component_ids_with_mode(PredictionMode::Full)
                         .for_each(|id| {
                             b.ref_id(id);
                         });
@@ -59,11 +60,11 @@ impl Plugin for RollbackPlugin {
                     // include PredictionDisable entities (entities that are predicted and 'despawned'
                     // but we keep them around for rollback check)
                     b.data::<&PredictionDisable>();
-                    // include access to &mut PredictionHistory<C> for all ComponentSyncMode=Full components
+                    // include access to &mut PredictionHistory<C> for all PredictionMode=Full components
                     component_registry
                         .prediction_map
                         .values()
-                        .filter(|m| m.sync_mode == ComponentSyncMode::Full)
+                        .filter(|m| m.sync_mode == PredictionMode::Full)
                         .for_each(|m| {
                             b.mut_id(m.history_id.unwrap());
                         });
@@ -94,77 +95,6 @@ impl Plugin for RollbackPlugin {
 ///   past value from the PredictionHistory instead of the confirmed value
 pub struct DisableRollback;
 
-/// Resource that indicates whether we are in a rollback state or not
-#[derive(Default, Resource, Reflect)]
-#[reflect(Resource)]
-pub struct Rollback {
-    // have to reflect(ignore) this field because of RwLock unfortunately
-    #[reflect(ignore)]
-    /// We use a RwLock because we want to be able to update this value from multiple systems
-    /// in parallel.
-    pub state: RwLock<RollbackState>,
-    // pub rollback_groups: EntityHashMap<ReplicationGroupId, RollbackState>,
-}
-
-/// Resource that will track whether we should do rollback or not
-/// (We have this as a resource because if any predicted entity needs to be rolled-back; we should roll back all predicted entities)
-#[derive(Debug, Default, Reflect)]
-pub enum RollbackState {
-    /// We are not in a rollback state
-    #[default]
-    Default,
-    /// We should do a rollback starting from the current_tick
-    ShouldRollback {
-        /// Current tick of the rollback process
-        ///
-        /// (note: we will start the rollback from the next tick after we notice the mismatch)
-        current_tick: Tick,
-    },
-}
-
-impl Rollback {
-    pub(crate) fn new(state: RollbackState) -> Self {
-        Self {
-            state: RwLock::new(state),
-        }
-    }
-
-    /// Returns true if we are currently in a rollback state
-    pub fn is_rollback(&self) -> bool {
-        match *self.state.read().deref() {
-            RollbackState::ShouldRollback { .. } => true,
-            RollbackState::Default => false,
-        }
-    }
-
-    /// Get the current rollback tick
-    pub fn get_rollback_tick(&self) -> Option<Tick> {
-        match *self.state.read().deref() {
-            RollbackState::ShouldRollback { current_tick } => Some(current_tick),
-            RollbackState::Default => None,
-        }
-    }
-
-    /// Increment the rollback tick
-    pub(crate) fn increment_rollback_tick(&self) {
-        if let RollbackState::ShouldRollback {
-            ref mut current_tick,
-        } = *self.state.write().deref_mut()
-        {
-            *current_tick += 1;
-        }
-    }
-
-    /// Set the rollback state back to non-rollback
-    pub(crate) fn set_non_rollback(&self) {
-        *self.state.write().deref_mut() = RollbackState::Default;
-    }
-
-    /// Set the rollback state to `ShouldRollback` with the given tick
-    pub(crate) fn set_rollback_tick(&self, tick: Tick) {
-        *self.state.write().deref_mut() = RollbackState::ShouldRollback { current_tick: tick };
-    }
-}
 
 /// Check if we need to do a rollback.
 /// We do this separately from `prepare_rollback` because even we stop the `check_rollback` function
@@ -175,30 +105,16 @@ fn check_rollback(
     // we want Query<&mut PredictionHistory<C>, With<Predicted>>
     // make sure to include disabled entities
     mut predicted_entities: Query<FilteredEntityMut>,
+    receiver_query: Query<(&ReplicationReceiver, &LocalTimeline)>,
     component_registry: Res<ComponentRegistry>,
-    connection: Res<ConnectionManager>,
-    tick_manager: Res<TickManager>,
     system_ticks: SystemChangeTick,
-    rollback: ResMut<Rollback>,
 ) {
-    // TODO: maybe we can check if we receive any replication packets?
-    // no need to check for rollback if we didn't receive any packet
-    if !connection.received_new_server_tick() {
-        return;
-    }
-    let tick = tick_manager.tick();
-
     // TODO: iterate through each archetype in parallel? using rayon
 
     // TODO: maybe have a sparse-set component with ConfirmedUpdated to quickly query only through predicted entities
     //  that received a confirmed update? Would the iteration even be faster? since entities with or without sparse-set
     //  would still be in the same table
     predicted_entities.par_iter_mut().for_each(|mut predicted_mut| {
-        // we already know we are in rollback, no need to check again
-        if rollback.is_rollback() {
-            return
-        }
-        let predicted = predicted_mut.id();
         let Some(confirmed) = predicted_mut.get::<Predicted>().and_then(|p| p.confirmed_entity) else {
             // skip if the confirmed entity does not exist
             return
@@ -207,6 +123,22 @@ fn check_rollback(
             // skip if the confirmed entity does not exist
             return
         };
+        let Some(replicated) = confirmed_ref.get::<Replicated>() else {
+            return
+        };
+        let Ok((replication_receiver, timeline)) = receiver_query.get(replicated.receiver) else {
+            return
+        };
+        // TODO: maybe we can check if we receive any replication packets?
+        // no need to check for rollback if we didn't receive any packet
+        if !replication_receiver.received_new_server_tick() {
+            return;
+        }
+        // we already know we are in rollback, no need to check again
+        if timeline.is_rollback() {
+            return
+        }
+        let tick = timeline.tick();
 
         // let confirmed_component = get_ref::<Confirmed>(
         //     world,
@@ -239,11 +171,11 @@ fn check_rollback(
         //  that were removed from the entity, which would not appear in the archetype
         for (id, prediction_metadata) in component_registry.prediction_map
             .iter()
-            .filter(|(_, m)| m.sync_mode == ComponentSyncMode::Full)
+            .filter(|(_, m)| m.sync_mode == PredictionMode::Full)
             .map(|(kind, m)| (component_registry.kind_to_component_id[kind], m))
-            .take_while(|_| !rollback.is_rollback()) {
+            .take_while(|_| !timeline.is_rollback()) {
             if (prediction_metadata.check_rollback)(&component_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
-                rollback.set_rollback_tick(confirmed_tick + 1);
+                timeline.set_rollback_tick(confirmed_tick + 1);
                 return;
             }
         }
@@ -269,7 +201,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     // TODO: have a way to only get the updates of entities that are predicted?
     mut commands: Commands,
     config: Res<ClientConfig>,
-    tick_manager: Res<TickManager>,
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     mut predicted_query: Query<
@@ -282,7 +213,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         (With<Predicted>, Without<Confirmed>, Without<PreSpawned>),
     >,
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
-    rollback: Res<Rollback>,
+    timeline_query: Query<&LocalTimeline>,
     manager: Res<PredictionManager>,
 ) {
     let kind = core::any::type_name::<C>();
@@ -290,7 +221,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     let _span = trace_span!("client rollback prepare");
     debug!("in prepare rollback");
 
-    let current_tick = tick_manager.tick();
+    let timeline = timeline_query.single().unwrap();
+    let current_tick = timeline.tick();
     for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
         let rollback_tick = confirmed.tick;
 
@@ -438,7 +370,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
 pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
     // TODO: have a way to only get the updates of entities that are predicted?
     mut commands: Commands,
-    tick_manager: Res<TickManager>,
     // TODO: have a way to make these systems run in parallel
     //  - either by using RwLock in PredictionManager
     //  - or by using a system that iterates through archetypes, a la replicon?
@@ -449,14 +380,13 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
         (Entity, Option<&mut C>, &mut PredictionHistory<C>),
         (With<PreSpawned>, Without<Confirmed>, Without<Predicted>),
     >,
-    rollback: Res<Rollback>,
+    timeline_query: Query<&LocalTimeline>,
 ) {
     let kind = core::any::type_name::<C>();
     let _span = trace_span!("client prepare rollback for pre-spawned entities");
 
-    let current_tick = tick_manager.tick();
-
-    let Some(rollback_tick_plus_one) = rollback.get_rollback_tick() else {
+    let timeline = timeline_query.single().unwrap();
+    let Some(rollback_tick_plus_one) = timeline.get_rollback_tick() else {
         error!("prepare_rollback_prespawn should only be called when we are in rollback");
         return;
     };
@@ -540,20 +470,19 @@ pub(crate) fn prepare_rollback_non_networked<
 >(
     // TODO: have a way to only get the updates of entities that are predicted?
     mut commands: Commands,
-    tick_manager: Res<TickManager>,
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     mut predicted_query: Query<
         (Entity, Option<&mut C>, &mut PredictionHistory<C>),
         With<Predicted>,
     >,
-    rollback: Res<Rollback>,
+    timeline_query: Query<&LocalTimeline>,
 ) {
     let kind = core::any::type_name::<C>();
     let _span = trace_span!("client prepare rollback for non networked component", ?kind);
 
-    let current_tick = tick_manager.tick();
-    let Some(rollback_tick_plus_one) = rollback.get_rollback_tick() else {
+    let timeline = timeline_query.single().unwrap();
+    let Some(rollback_tick_plus_one) = timeline.get_rollback_tick() else {
         error!("prepare_rollback_non_networked_components should only be called when we are in rollback");
         return;
     };
@@ -597,16 +526,15 @@ pub(crate) fn prepare_rollback_non_networked<
 // Revert `resource` to its value at the tick that the incoming rollback will rollback to.
 pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
     mut commands: Commands,
-    tick_manager: Res<TickManager>,
-    rollback: Res<Rollback>,
+    timeline_query: Query<&LocalTimeline>,
     resource: Option<ResMut<R>>,
     mut history: ResMut<ResourceHistory<R>>,
 ) {
     let kind = core::any::type_name::<R>();
     let _span = trace_span!("client prepare rollback for resource", ?kind);
 
-    let current_tick = tick_manager.tick();
-    let Some(rollback_tick_plus_one) = rollback.get_rollback_tick() else {
+    let timeline = timeline_query.single().unwrap();
+    let Some(rollback_tick_plus_one) = timeline.get_rollback_tick() else {
         error!("prepare_rollback_resource should only be called when we are in rollback");
         return;
     };
@@ -681,13 +609,12 @@ fn rollback_fixed_time(current_fixed_time: &Time<Fixed>, num_rollback_ticks: i16
 }
 
 pub(crate) fn run_rollback(world: &mut World) {
-    let tick_manager = world.get_resource::<TickManager>().unwrap();
-    let rollback = world.get_resource::<Rollback>().unwrap();
-    let current_tick = tick_manager.tick();
+    let timeline = world.query::<&LocalTimeline>().single(world).unwrap();
+    let current_tick = timeline.tick();
 
     // NOTE: all predicted entities should be on the same tick!
     // TODO: might not need to check the state, because we only run this system if we are in rollback
-    let current_rollback_tick = rollback
+    let current_rollback_tick = timeline
         .get_rollback_tick()
         .expect("we should be in rollback");
 
@@ -759,8 +686,8 @@ pub(crate) fn run_rollback(world: &mut World) {
     metrics.rollback_ticks += num_rollback_ticks as u32;
 
     // revert the state of Rollback for the next frame
-    let rollback = world.get_resource_mut::<Rollback>().unwrap();
-    rollback.set_non_rollback();
+    let timeline = world.query::<&mut LocalTimeline>().single_mut(world).unwrap();
+    timeline.set_non_rollback();
 }
 
 #[cfg(feature = "metrics")]
@@ -809,12 +736,12 @@ pub(crate) mod test_utils {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
-    use crate::client::prediction::rollback::test_utils::received_confirmed_update;
+    use crate::::rollback::test_utils::received_confirmed_update;
     use crate::prelude::server::SyncTarget;
     use crate::prelude::{
         AppComponentExt, ChannelDirection, NetworkTarget, SharedConfig, TickConfig,
     };
-    use crate::tests::protocol::{ComponentRollback, ComponentSyncModeFull};
+    use crate::tests::protocol::{ComponentRollback, PredictionModeFull};
     use crate::tests::stepper::BevyStepper;
     #[cfg(not(feature = "std"))]
     use alloc::vec::Vec;
@@ -826,12 +753,12 @@ mod unit_tests {
     fn setup(increment_component: bool) -> (BevyStepper, Entity, Entity) {
         fn increment_component_system(
             mut commands: Commands,
-            mut query_networked: Query<(Entity, &mut ComponentSyncModeFull), With<Predicted>>,
+            mut query_networked: Query<(Entity, &mut PredictionModeFull), With<Predicted>>,
         ) {
             for (entity, mut component) in query_networked.iter_mut() {
                 component.0 += 1.0;
                 if component.0 == 5.0 {
-                    commands.entity(entity).remove::<ComponentSyncModeFull>();
+                    commands.entity(entity).remove::<PredictionModeFull>();
                 }
             }
         }
@@ -893,7 +820,7 @@ mod unit_tests {
                     tick,
                     ..Default::default()
                 },
-                ComponentSyncModeFull(1.0),
+                PredictionModeFull(1.0),
             ))
             .id();
         let predicted = stepper
@@ -914,7 +841,7 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .insert(ComponentSyncModeFull(1.0));
+            .insert(PredictionModeFull(1.0));
         // make sure we simulate that we received a server update
         stepper
             .client_app
@@ -941,7 +868,7 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(ComponentSyncModeFull(2.0));
+            .insert(PredictionModeFull(2.0));
         // simulate that we received a server message for the confirmed entity on tick `tick`
         // where the PredictionHistory had the value of 1.0
         received_confirmed_update(&mut stepper, confirmed, tick);
@@ -954,14 +881,14 @@ mod unit_tests {
                 .rollbacks,
             2
         );
-        // the predicted history now has ComponentSyncModeFull(2.0)
+        // the predicted history now has PredictionModeFull(2.0)
 
         // 2. Confirmed component does not exist but predicted component exists
         stepper
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .remove::<ComponentSyncModeFull>();
+            .remove::<PredictionModeFull>();
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
         stepper.frame_step();
@@ -980,12 +907,12 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .remove::<ComponentSyncModeFull>();
+            .remove::<PredictionModeFull>();
         stepper
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(ComponentSyncModeFull(2.0));
+            .insert(PredictionModeFull(2.0));
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
         stepper.frame_step();
@@ -1004,9 +931,9 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .get_mut::<PredictionHistory<ComponentSyncModeFull>>()
+            .get_mut::<PredictionHistory<PredictionModeFull>>()
             .unwrap()
-            .add_update(tick, ComponentSyncModeFull(2.0));
+            .add_update(tick, PredictionModeFull(2.0));
 
         // simulate that we received a server message for the confirmed entity on tick `tick`
         received_confirmed_update(&mut stepper, confirmed, tick);
@@ -1046,12 +973,12 @@ mod unit_tests {
         stepper
             .client_app
             .register_component::<ComponentWithEntity>(ChannelDirection::Bidirectional)
-            .add_prediction(ComponentSyncMode::Full)
+            .add_prediction(PredictionMode::Full)
             .add_map_entities();
         stepper
             .server_app
             .register_component::<ComponentWithEntity>(ChannelDirection::Bidirectional)
-            .add_prediction(ComponentSyncMode::Full)
+            .add_prediction(PredictionMode::Full)
             .add_map_entities();
         stepper.build();
         stepper.init();
@@ -1198,7 +1125,7 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(ComponentSyncModeFull(0.0));
+            .insert(PredictionModeFull(0.0));
         stepper.frame_step();
 
         // Check that the component got synced.
@@ -1206,9 +1133,9 @@ mod unit_tests {
             stepper
                 .client_app
                 .world()
-                .get::<ComponentSyncModeFull>(predicted)
+                .get::<PredictionModeFull>(predicted)
                 .unwrap(),
-            &ComponentSyncModeFull(0.0)
+            &PredictionModeFull(0.0)
         );
 
         // Trigger 2 rollback ticks by changing the confirmed's predicted
@@ -1217,7 +1144,7 @@ mod unit_tests {
         stepper
             .client_app
             .world_mut()
-            .get_mut::<ComponentSyncModeFull>(confirmed)
+            .get_mut::<PredictionModeFull>(confirmed)
             .unwrap()
             .0 = 1.0;
         received_confirmed_update(&mut stepper, confirmed, tick - 2);
@@ -1270,7 +1197,7 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(ComponentSyncModeFull(0.0));
+            .insert(PredictionModeFull(0.0));
         stepper.frame_step();
 
         // check that the component got synced
@@ -1278,9 +1205,9 @@ mod unit_tests {
             stepper
                 .client_app
                 .world()
-                .get::<ComponentSyncModeFull>(predicted)
+                .get::<PredictionModeFull>(predicted)
                 .unwrap(),
-            &ComponentSyncModeFull(1.0)
+            &PredictionModeFull(1.0)
         );
         // also insert a non-networked component directly on the predicted entity
         stepper
@@ -1298,7 +1225,7 @@ mod unit_tests {
         assert!(stepper
             .client_app
             .world()
-            .get::<ComponentSyncModeFull>(predicted)
+            .get::<PredictionModeFull>(predicted)
             .is_none());
         // also remove the non-networked component
         stepper
@@ -1312,7 +1239,7 @@ mod unit_tests {
         stepper
             .client_app
             .world_mut()
-            .get_mut::<ComponentSyncModeFull>(confirmed)
+            .get_mut::<PredictionModeFull>(confirmed)
             .unwrap()
             .0 = -10.0;
         received_confirmed_update(&mut stepper, confirmed, tick - 3);
@@ -1324,7 +1251,7 @@ mod unit_tests {
             stepper
                 .client_app
                 .world_mut()
-                .get_mut::<ComponentSyncModeFull>(predicted)
+                .get_mut::<PredictionModeFull>(predicted)
                 .unwrap()
                 .0,
             -6.0
@@ -1354,7 +1281,7 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(predicted)
-            .insert(ComponentSyncModeFull(1.0));
+            .insert(PredictionModeFull(1.0));
 
         stepper.frame_step();
 
@@ -1381,7 +1308,7 @@ mod unit_tests {
         assert!(stepper
             .client_app
             .world()
-            .get::<ComponentSyncModeFull>(predicted)
+            .get::<PredictionModeFull>(predicted)
             .is_none());
         // the non-networked component got removed from predicted as it wasn't present in the history
         assert!(stepper
@@ -1403,7 +1330,7 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(ComponentSyncModeFull(0.0));
+            .insert(PredictionModeFull(0.0));
         stepper.frame_step();
 
         // check that the component got synced
@@ -1411,9 +1338,9 @@ mod unit_tests {
             stepper
                 .client_app
                 .world()
-                .get::<ComponentSyncModeFull>(predicted)
+                .get::<PredictionModeFull>(predicted)
                 .unwrap(),
-            &ComponentSyncModeFull(1.0)
+            &PredictionModeFull(1.0)
         );
         // advance a bit more (if we don't then the history contains a component insertion on the first tick,
         // so the rollback will respawn the component)
@@ -1426,7 +1353,7 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .remove::<ComponentSyncModeFull>();
+            .remove::<PredictionModeFull>();
         let tick = stepper.client_tick();
         received_confirmed_update(&mut stepper, confirmed, tick - 1);
         stepper.frame_step();
@@ -1436,7 +1363,7 @@ mod unit_tests {
         assert!(stepper
             .client_app
             .world_mut()
-            .get_mut::<ComponentSyncModeFull>(predicted)
+            .get_mut::<PredictionModeFull>(predicted)
             .is_none());
     }
 
@@ -1451,7 +1378,7 @@ mod unit_tests {
         assert!(stepper
             .client_app
             .world_mut()
-            .get_mut::<ComponentSyncModeFull>(predicted)
+            .get_mut::<PredictionModeFull>(predicted)
             .is_none());
 
         // create a rollback situation (confirmed doesn't have a component that predicted has)
@@ -1459,7 +1386,7 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed)
-            .insert(ComponentSyncModeFull(1.0));
+            .insert(PredictionModeFull(1.0));
         let tick = stepper.client_tick();
         received_confirmed_update(&mut stepper, confirmed, tick - 2);
         stepper.frame_step();
@@ -1469,7 +1396,7 @@ mod unit_tests {
         stepper
             .client_app
             .world_mut()
-            .get_mut::<ComponentSyncModeFull>(predicted)
+            .get_mut::<PredictionModeFull>(predicted)
             .unwrap()
             .0 = 4.0;
     }
@@ -1491,7 +1418,7 @@ mod unit_tests {
                     tick,
                     ..Default::default()
                 },
-                ComponentSyncModeFull(1.0),
+                PredictionModeFull(1.0),
             ))
             .id();
         let predicted_a = stepper
@@ -1519,7 +1446,7 @@ mod unit_tests {
                     tick,
                     ..Default::default()
                 },
-                ComponentSyncModeFull(1.0),
+                PredictionModeFull(1.0),
             ))
             .id();
         let predicted_b = stepper
@@ -1542,12 +1469,12 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(predicted_a)
-            .insert(ComponentSyncModeFull(1000.0));
+            .insert(PredictionModeFull(1000.0));
         stepper
             .client_app
             .world_mut()
             .entity_mut(predicted_b)
-            .insert(ComponentSyncModeFull(1000.0));
+            .insert(PredictionModeFull(1000.0));
 
         // 1. check rollback doesn't trigger on disable-rollback entities
         let tick = stepper.client_tick();
@@ -1555,7 +1482,7 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed_a)
-            .get_mut::<ComponentSyncModeFull>()
+            .get_mut::<PredictionModeFull>()
             .unwrap()
             .0 = 2.0;
         // simulate that we received a server message for the confirmed entity on tick `tick`
@@ -1583,11 +1510,11 @@ mod unit_tests {
             .client_app
             .world_mut()
             .entity_mut(confirmed_b)
-            .get_mut::<ComponentSyncModeFull>()
+            .get_mut::<PredictionModeFull>()
             .unwrap()
             .0 = 3.0;
-        let mut history = PredictionHistory::<ComponentSyncModeFull>::default();
-        history.add_update(tick, ComponentSyncModeFull(10.0));
+        let mut history = PredictionHistory::<PredictionModeFull>::default();
+        history.add_update(tick, PredictionModeFull(10.0));
         stepper
             .client_app
             .world_mut()
@@ -1604,7 +1531,7 @@ mod unit_tests {
             stepper
                 .client_app
                 .world()
-                .get::<ComponentSyncModeFull>(predicted_a)
+                .get::<PredictionModeFull>(predicted_a)
                 .unwrap()
                 .0,
             10.0
@@ -1613,7 +1540,7 @@ mod unit_tests {
             stepper
                 .client_app
                 .world()
-                .get::<ComponentSyncModeFull>(predicted_b)
+                .get::<PredictionModeFull>(predicted_b)
                 .unwrap()
                 .0,
             3.0

@@ -1,10 +1,19 @@
 //! This module contains the `ReplicationReceivePlugin` and `ReplicationSendPlugin` plugins, which control
 //! the replication of entities and resources.
 //!
+
 use crate::authority::{AuthorityPeer, HasAuthority};
 use crate::components::*;
 use crate::hierarchy::ReplicateLike;
+use crate::message::{ActionsChannel, UpdatesChannel};
+use crate::prelude::{ActionsMessage, UpdatesMessage};
 use bevy::prelude::*;
+use core::time::Duration;
+use lightyear_connection::direction::AppChannelDirectionExt;
+use lightyear_connection::prelude::{AppMessageDirectionExt, NetworkDirection};
+use lightyear_messages::prelude::AppMessageExt;
+use lightyear_transport::channel::builder::ReliableSettings;
+use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ReplicationSet {
@@ -23,6 +32,7 @@ impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         // REFLECTION
         app.register_type::<Replicated>()
+            .register_type::<Confirmed>()
             .register_type::<Controlled>()
             .register_type::<Replicating>()
             // .register_type::<Replicate>()
@@ -37,6 +47,32 @@ impl Plugin for SharedPlugin {
             .register_type::<ShouldBePredicted>()
             .register_type::<HasAuthority>()
             .register_type::<AuthorityPeer>();
+
+        app.add_channel::<UpdatesChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliableWithAcks,
+            // we do not send the send_frequency to `replication_interval` here
+            // because we want to make sure that the entity updates for tick T
+            // are sent on tick T, so we will set the `replication_interval`
+            // directly on the replication_sender
+            send_frequency: Duration::default(),
+            priority: 1.0,
+        })
+            .add_direction(NetworkDirection::Bidirectional);
+        app.add_channel::<ActionsChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
+            // we do not send the send_frequency to `replication_interval` here
+            // because we want to make sure that the entity updates for tick T
+            // are sent on tick T, so we will set the `replication_interval`
+            // directly on the replication_sender
+            send_frequency: Duration::default(),
+            // we want to send the entity actions as soon as possible
+            priority: 10.0,
+        })
+            .add_direction(NetworkDirection::Bidirectional);
+        app.add_message_to_bytes::<ActionsMessage>()
+            .add_direction(NetworkDirection::Bidirectional);
+        app.add_message_to_bytes::<UpdatesMessage>()
+            .add_direction(NetworkDirection::Bidirectional);
     }
 
     fn finish(&self, app: &mut App) {

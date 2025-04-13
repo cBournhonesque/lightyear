@@ -4,9 +4,9 @@ use tracing::trace;
 use crate::client::components::Confirmed;
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
-use crate::client::interpolation::Interpolated;
 use crate::prelude::TickManager;
 use crate::shared::replication::components::ShouldBeInterpolated;
+use crate::Interpolated;
 
 /// Spawn an interpolated entity for each confirmed entity that has the `ShouldBeInterpolated` component added
 pub(crate) fn spawn_interpolated_entity(

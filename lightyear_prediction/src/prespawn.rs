@@ -4,16 +4,14 @@ use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, trace, warn};
-
-use crate::client::components::Confirmed;
-use crate::client::connection::ConnectionManager;
-use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::rollback::Rollback;
-use crate::client::prediction::Predicted;
-use crate::prelude::client::PredictionSet;
-use crate::prelude::{ComponentRegistry, Replicated, ShouldBePredicted, TickManager};
-
-use crate::shared::replication::prespawn::compute_default_hash;
+use lightyear_core::prelude::LocalTimeline;
+use lightyear_replication::components::Replicated;
+use lightyear_replication::prelude::{Confirmed, ReplicationReceiver, ShouldBePredicted};
+use lightyear_replication::registry::registry::ComponentRegistry;
+use crate::plugin::PredictionSet;
+use crate::resource::PredictionManager;
+use crate::rollback::Rollback;
+use crate::Predicted;
 
 #[derive(Default)]
 pub(crate) struct PreSpawnedPlayerObjectPlugin;
@@ -50,16 +48,19 @@ impl PreSpawnedPlayerObjectPlugin {
             // run this only when the component was added on a client-spawned entity (not server-replicated)
             Without<Replicated>,
         >,
+        receiver_query: Query<&LocalTimeline>,
         mut prediction_manager: ResMut<PredictionManager>,
-        component_registry: Res<ComponentRegistry>,
-        tick_manager: Res<TickManager>,
-        rollback: Res<Rollback>,
-        components: &Components,
     ) {
         let entity = trigger.target();
         if let Ok(prespawn) = query.get(entity) {
+            let Ok(timeline) = receiver_query.single() else {
+                return;
+            };
+
             // get the rollback tick if the pre-spawned entity is being recreated during rollback!
-            let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
+            let tick = timeline.tick_or_rollback_tick();
+
+
             // the hash can be None when PreSpawned is inserted, but the component
             // hook will calculate it, so it can't be None here.
             let hash = prespawn
@@ -105,7 +106,6 @@ impl PreSpawnedPlayerObjectPlugin {
     pub(crate) fn match_with_received_server_entity(
         trigger: Trigger<OnAdd, PreSpawned>,
         mut commands: Commands,
-        connection: Res<ConnectionManager>,
         mut manager: ResMut<PredictionManager>,
         query: Query<
             &PreSpawned,
@@ -116,8 +116,12 @@ impl PreSpawnedPlayerObjectPlugin {
             //  ReplicationGroup then the observer could run several times in a row
             With<Replicated>,
         >,
+        receiver_query: Query<&ReplicationReceiver>,
     ) {
         let confirmed_entity = trigger.target();
+        let Ok(receiver) = receiver_query.single() else {
+            return
+        };
         if let Ok(server_prespawn) = query.get(confirmed_entity) {
             // we handle the PreSpawned hash in this system and don't need it afterwards
             commands.entity(confirmed_entity).remove::<PreSpawned>();
@@ -180,8 +184,7 @@ impl PreSpawnedPlayerObjectPlugin {
             // 2. assign Confirmed to the server entity's counterpart, and remove PreSpawned
             // get the confirmed tick for the entity
             // if we don't have it, something has gone very wrong
-            let confirmed_tick = connection
-                .replication_receiver
+            let confirmed_tick = receiver
                 .get_confirmed_tick(confirmed_entity)
                 .unwrap();
             commands
@@ -278,6 +281,7 @@ impl PreSpawnedPlayerObjectPlugin {
 /// ``````
 #[reflect(Component)]
 pub struct PreSpawned {
+    // TODO: be able to specify for which receiver this pre-spawned entity is?
     /// The hash that will identify the spawned entity
     /// By default, if the hash is not set, it will be generated from the entity's archetype (list of components) and spawn tick
     /// Otherwise you can manually set it to a value that will be the same on both the client and server
@@ -361,9 +365,9 @@ impl Component for PreSpawned {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::prediction::despawn::PredictionDisable;
-    use crate::client::prediction::predicted_history::PredictionHistory;
-    use crate::client::prediction::resource::PredictionManager;
+    use crate::::despawn::PredictionDisable;
+    use crate::::predicted_history::PredictionHistory;
+    use crate::::resource::PredictionManager;
     use crate::prelude::client::{is_in_rollback, PredictionDespawnCommandsExt, PredictionSet};
     use crate::prelude::client::{Confirmed, Predicted};
     use crate::prelude::server::{Replicate, ReplicateToClient, SyncTarget};
@@ -382,12 +386,12 @@ mod tests {
         let entity_1 = stepper
             .client_app
             .world_mut()
-            .spawn((ComponentSyncModeFull(1.0), PreSpawned::default()))
+            .spawn((PredictionModeFull(1.0), PreSpawned::default()))
             .id();
         let entity_2 = stepper
             .client_app
             .world_mut()
-            .spawn((ComponentSyncModeFull(1.0), PreSpawned::default()))
+            .spawn((PredictionModeFull(1.0), PreSpawned::default()))
             .id();
         stepper.frame_step();
 
@@ -419,12 +423,12 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity_1)
-                .get::<PredictionHistory<ComponentSyncModeFull>>()
+                .get::<PredictionHistory<PredictionModeFull>>()
                 .unwrap()
                 .peek(),
             Some(&(
                 current_tick,
-                HistoryState::Updated(ComponentSyncModeFull(1.0)),
+                HistoryState::Updated(PredictionModeFull(1.0)),
             ))
         );
     }
@@ -732,8 +736,8 @@ mod tests {
             .world_mut()
             .spawn((
                 PreSpawned::new(1),
-                ComponentSyncModeFull(1.0),
-                ComponentSyncModeSimple(1.0),
+                PredictionModeFull(1.0),
+                PredictionModeSimple(1.0),
             ))
             .id();
         stepper.frame_step();
@@ -792,8 +796,8 @@ mod tests {
             .world_mut()
             .spawn((
                 PreSpawned::new(1),
-                ComponentSyncModeFull(1.0),
-                ComponentSyncModeSimple(1.0),
+                PredictionModeFull(1.0),
+                PredictionModeSimple(1.0),
             ))
             .id();
 
@@ -833,8 +837,8 @@ mod tests {
             .world_mut()
             .spawn((
                 PreSpawned::new(1),
-                ComponentSyncModeFull(1.0),
-                ComponentSyncModeSimple(1.0),
+                PredictionModeFull(1.0),
+                PredictionModeSimple(1.0),
                 ReplicateToClient::default(),
                 SyncTarget {
                     prediction: NetworkTarget::All,

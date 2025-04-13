@@ -125,7 +125,7 @@ impl<K: Ord + Clone, T> ReadyBuffer<K, T> {
     }
 
     /// Pop all items that are more recent or equal than the provided key, then return all the values that were popped
-    pub(crate) fn drain_after(&mut self, key: &K) -> Vec<(K, T)> {
+    pub fn drain_after(&mut self, key: &K) -> Vec<(K, T)> {
         if self.heap.is_empty() {
             return vec![];
         }
