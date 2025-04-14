@@ -46,6 +46,7 @@ fn test_despawn_lose_visibility() {
     assert!(stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).is_none());
 }
 
+/// https://github.com/cBournhonesque/lightyear/issues/637
 /// Test that if an entity with NetworkVisibility is despawned, the DespawnMessage
 /// is only sent to entities that have visibility on it.
 #[test]

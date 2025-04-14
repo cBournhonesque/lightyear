@@ -118,7 +118,12 @@ impl NetworkVisibilityPlugin {
             });
         })
     }
+}
 
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum VisibilitySet {
+    /// Update the [`NetworkVisibility`] components
+    UpdateVisibility,
 }
 
 impl Plugin for NetworkVisibilityPlugin {
@@ -126,10 +131,11 @@ impl Plugin for NetworkVisibilityPlugin {
         // REFLECT
         app.register_type::<NetworkVisibility>();
         // SYSTEMS
+        app.configure_sets(PostUpdate, VisibilitySet::UpdateVisibility.in_set(ReplicationBufferSet::AfterBuffer));
         app.add_systems(
             PostUpdate,
             (
-                Self::update_network_visibility.in_set(ReplicationBufferSet::AfterBuffer),
+                Self::update_network_visibility.in_set(VisibilitySet::UpdateVisibility),
             ),
         );
     }
@@ -176,77 +182,5 @@ mod tests {
         app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().lose_visibility(sender);
         assert!(!app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().gained.contains(&sender));
         assert!(!app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().lost.contains(&sender));
-    }
-
-    /// https://github.com/cBournhonesque/lightyear/issues/637
-    /// Make sure that entity despawns aren't replicated to clients that don't have visibility of the entity
-    /// E1 gains relevance with C1, E1 is replicated
-    /// E1 loses relevance with C1, E1 is despawned
-    /// E1 gets despawned on server -> we shouldn't send an extra despawn message to C1
-    #[test]
-    fn test_redundant_despawn() {
-        // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_max_level(tracing::Level::DEBUG)
-        //     .init();
-        let mut stepper = BevyStepper::default();
-
-        let client = PeerId::Netcode(TEST_CLIENT_ID);
-        let server_entity = stepper
-            .server_app
-            .world_mut()
-            .spawn(Replicate {
-                relevance_mode: NetworkRelevanceMode::InterestManagement,
-                ..Default::default()
-            })
-            .id();
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RelevanceManager>()
-            .gain_relevance(client, server_entity);
-
-        stepper.frame_step();
-        stepper.frame_step();
-
-        // check that entity is replicated, since it's relevant
-        let client_entity = stepper
-            .client_app
-            .world()
-            .resource::<client::ConnectionManager>()
-            .replication_receiver
-            .remote_entity_map
-            .get_local(server_entity)
-            .expect("server entity was not replicated to client");
-
-        // lose relevance, check that entity is despawned
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RelevanceManager>()
-            .lose_relevance(client, server_entity);
-        stepper.frame_step();
-        stepper.frame_step();
-        assert!(stepper
-            .client_app
-            .world()
-            .get_entity(client_entity)
-            .is_err());
-
-        // despawn entity on the server
-        // we shouldn't send an extra Despawn message to the client
-        // We check this by making sure that the next_action_message on the receiver channel is 2
-        // (because we received one spawn and one despawn)
-        stepper.server_app.world_mut().despawn(server_entity);
-        stepper.frame_step();
-        stepper.frame_step();
-        let channel = stepper
-            .client_app
-            .world()
-            .resource::<ClientConnectionManager>()
-            .replication_receiver
-            .group_channels
-            .get(&ReplicationGroupId(server_entity.to_bits()))
-            .unwrap();
-        assert_eq!(channel.actions_pending_recv_message_id.0, 2);
     }
 }

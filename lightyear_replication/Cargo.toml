@@ -21,6 +21,12 @@ std = [
     "lightyear_utils/std",
     "lightyear_core/std",
 ]
+client = [
+    "lightyear_connection/client",
+]
+server = [
+    "lightyear_connection/server",
+]
 
 [dependencies]
 lightyear_utils.workspace = true
@@ -43,6 +49,9 @@ bytes.workspace = true
 
 # bevy
 bevy.workspace = true
+
+[dev-dependencies]
+test-log.workspace = true
 
 [lints]
 workspace = true

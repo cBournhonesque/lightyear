@@ -355,18 +355,66 @@ impl ErasedDeltaFns {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::protocol::ComponentDeltaCompression;
     #[cfg(not(feature = "std"))]
     use alloc::{vec, vec::Vec};
+    use bevy::platform_support::collections::HashSet;
+    use bevy::prelude::Reflect;
+    use serde::Deserialize;
+
+    #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+    pub struct CompDelta(pub Vec<usize>);
+
+    // NOTE: for the delta-compression to work, the components must have the same prefix, starting with [1]
+    impl Diffable for CompDelta {
+        // const IDEMPOTENT: bool = false;
+        type Delta = Vec<usize>;
+
+        fn base_value() -> Self {
+            Self(vec![1])
+        }
+
+        fn diff(&self, other: &Self) -> Self::Delta {
+            Vec::from_iter(other.0[self.0.len()..].iter().cloned())
+        }
+
+        fn apply_diff(&mut self, delta: &Self::Delta) {
+            self.0.extend(delta);
+        }
+    }
+
+    #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+    pub struct CompDelta2(pub HashSet<usize>);
+
+    impl Diffable for CompDelta2 {
+        // const IDEMPOTENT: bool = true;
+        // additions, removals
+        type Delta = (HashSet<usize>, HashSet<usize>);
+
+        fn base_value() -> Self {
+            Self(HashSet::default())
+        }
+
+        fn diff(&self, other: &Self) -> Self::Delta {
+            let added = other.0.difference(&self.0).cloned().collect();
+            let removed = self.0.difference(&other.0).cloned().collect();
+            (added, removed)
+        }
+
+        fn apply_diff(&mut self, delta: &Self::Delta) {
+            let (added, removed) = delta;
+            self.0.extend(added);
+            self.0.retain(|x| !removed.contains(x));
+        }
+    }
 
     #[test]
     fn test_erased_clone() {
-        let erased_fns = ErasedDeltaFns::new::<ComponentDeltaCompression>();
-        let data = ComponentDeltaCompression(vec![1]);
+        let erased_fns = ErasedDeltaFns::new::<CompDelta>();
+        let data = CompDelta(vec![1]);
         // clone data
         let cloned = unsafe { (erased_fns.clone)(Ptr::from(&data)) };
         // cast the ptr to the original type
-        let casted = cloned.cast::<ComponentDeltaCompression>();
+        let casted = cloned.cast::<CompDelta>();
         assert_eq!(unsafe { casted.as_ref() }, &data);
         // free the leaked memory
         unsafe { (erased_fns.drop)(casted.cast()) };
@@ -388,9 +436,9 @@ mod tests {
 
     #[test]
     fn test_erased_diff() {
-        let erased_fns = ErasedDeltaFns::new::<ComponentDeltaCompression>();
-        let old_data = ComponentDeltaCompression(vec![1]);
-        let new_data = ComponentDeltaCompression(vec![1, 2]);
+        let erased_fns = ErasedDeltaFns::new::<CompDelta>();
+        let old_data = CompDelta(vec![1]);
+        let new_data = CompDelta(vec![1, 2]);
 
         let diff = old_data.diff(&new_data);
         assert_eq!(diff, vec![2]);
@@ -414,8 +462,8 @@ mod tests {
 
     #[test]
     fn test_erased_from_base_diff() {
-        let erased_fns = ErasedDeltaFns::new::<ComponentDeltaCompression>();
-        let new_data = ComponentDeltaCompression(vec![1, 2]);
+        let erased_fns = ErasedDeltaFns::new::<CompDelta>();
+        let new_data = CompDelta(vec![1, 2]);
         let delta = unsafe { (erased_fns.diff_from_base)(Ptr::from(&new_data)) };
         let casted = delta.cast::<DeltaMessage<Vec<usize>>>();
         let delta_message = unsafe { casted.as_ref() };
@@ -429,10 +477,10 @@ mod tests {
 
     #[test]
     fn test_apply_diff() {
-        let erased_fns = ErasedDeltaFns::new::<ComponentDeltaCompression>();
-        let mut old_data = ComponentDeltaCompression(vec![1]);
-        let diff: <ComponentDeltaCompression as Diffable>::Delta = vec![2];
+        let erased_fns = ErasedDeltaFns::new::<CompDelta>();
+        let mut old_data = CompDelta(vec![1]);
+        let diff: <CompDelta as Diffable>::Delta = vec![2];
         unsafe { (erased_fns.apply_diff)(PtrMut::from(&mut old_data), Ptr::from(&diff)) };
-        assert_eq!(old_data, ComponentDeltaCompression(vec![1, 2]));
+        assert_eq!(old_data, CompDelta(vec![1, 2]));
     }
 }

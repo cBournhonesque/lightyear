@@ -46,9 +46,10 @@ use bevy::reflect::Reflect;
 
 use crate::send::ReplicationBufferSet;
 use crate::visibility::error::NetworkVisibilityError;
-use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin};
+use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilitySet};
 use lightyear_connection::prelude::PeerId;
 use serde::{Deserialize, Serialize};
+use tracing::*;
 
 
 /// A [`Room`] is a data structure that is used to perform interest management.
@@ -90,27 +91,27 @@ impl RoomPlugin {
         match trigger.event() {
             RoomEvent::AddEntity(entity) => {
                 room.clients.iter().for_each(|c| {
-                    room_events.events.entry(*entity).or_default().gain_visibility(*c)
+                    room_events.events.entry(*entity).or_default().gain_visibility(*c);
                 });
                 room.entities.insert(*entity);
             }
             RoomEvent::RemoveEntity(entity) => {
                  room.clients.iter().for_each(|c| {
-                    room_events.events.entry(*entity).or_default().lose_visibility(*c)
+                    room_events.events.entry(*entity).or_default().lose_visibility(*c);
                  });
                  room.entities.remove(entity);
             }
             RoomEvent::AddSender(entity) => {
                 room.entities.iter().for_each(|e| {
-                    room_events.events.entry(*e).or_default().gain_visibility(*entity)
+                    room_events.events.entry(*e).or_default().gain_visibility(*entity);
                 });
                 room.clients.insert(*entity);
             }
             RoomEvent::RemoveSender(entity) => {
                 room.entities.iter().for_each(|e| {
-                    room_events.events.entry(*e).or_default().lose_visibility(*entity)
+                    room_events.events.entry(*e).or_default().lose_visibility(*entity);
                 });
-                room.clients.insert(*entity);
+                room.clients.remove(entity);
             }
         }
         Ok(())
@@ -131,7 +132,7 @@ impl RoomPlugin {
                     vis.lose_visibility(sender);
                 });
             } else {
-                commands.entity(entity).insert(room_vis);
+                commands.entity(entity).insert(NetworkVisibility::from(room_vis));
             }
         });
     }
@@ -153,7 +154,7 @@ pub enum RoomEvent {
     RemoveSender(Entity),
 }
 
-#[derive(Default, Resource)]
+#[derive(Default, Debug, Resource)]
 pub struct RoomEvents {
     /// List of events that have been triggered by room events
     ///
@@ -161,7 +162,41 @@ pub struct RoomEvents {
     /// we need to handle concurrent room moves correctly:
     /// if entity E1 and sender A both leave room R1 and join room R2, the visibility should be
     /// unchanged.
-    pub(crate) events: EntityIndexMap<NetworkVisibility>,
+    pub(crate) events: EntityIndexMap<RoomVisibility>,
+}
+
+#[derive(Debug, Default)]
+pub struct RoomVisibility {
+    /// List of clients that the entity is currently replicated to.
+    /// Will be updated before the other replication systems
+    gained: EntityHashSet,
+    lost: EntityHashSet,
+}
+
+impl RoomVisibility {
+    fn gain_visibility(&mut self, sender: Entity) {
+        if self.lost.remove(&sender) {
+            return
+        }
+        self.gained.insert(sender);
+    }
+
+    fn lose_visibility(&mut self, sender: Entity) {
+        if self.gained.remove(&sender) {
+            return
+        }
+        self.lost.insert(sender);
+    }
+}
+
+impl From<RoomVisibility> for NetworkVisibility {
+    fn from(value: RoomVisibility) -> Self {
+        Self {
+            gained: value.gained,
+            visible: EntityHashSet::default(),
+            lost: value.lost,
+        }
+    }
 }
 
 
@@ -181,7 +216,13 @@ impl Plugin for RoomPlugin {
         );
         // SYSTEMS
         app.add_systems(
-            PostUpdate, Self::apply_room_events.in_set(RoomSet::ApplyRoomEvents),
+            PostUpdate, Self::apply_room_events
+                .in_set(RoomSet::ApplyRoomEvents)
+        );
+        // needed in tests to make sure that commands are applied correctly
+        #[cfg(test)]
+        app.configure_sets(
+            PostUpdate, RoomSet::ApplyRoomEvents.before(VisibilitySet::UpdateVisibility)
         );
         app.add_observer(Self::handle_room_event);
     }
@@ -189,704 +230,135 @@ impl Plugin for RoomPlugin {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::collections::HashMap;
-    use bevy::ecs::system::RunSystemOnce;
-    use bevy::prelude::Events;
-
-    use crate::prelude::client::*;
-    use crate::prelude::server::Replicate;
-    use crate::prelude::*;
-    use crate::server::relevance::immediate::systems::{
-        add_cached_network_relevance, update_relevance_from_events,
-    };
-    use crate::server::relevance::immediate::{CachedNetworkRelevance, ClientRelevance};
-    use crate::shared::replication::components::NetworkRelevanceMode;
-    use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
-    use crate::tests::stepper::BevyStepper;
-
-    use super::systems::buffer_room_relevance_events;
-
     use super::*;
-
-    #[test]
-    // client is in a room
-    // we add an entity to that room, then we remove it
-    fn test_add_remove_entity_room() {
-        let mut stepper = BevyStepper::default();
-
-        // Client joins room
-        let client_id = PeerId::Netcode(111);
-        let room_id = RoomId(0);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_client(client_id, room_id);
-
-        // Spawn an entity on server
-        let server_entity = stepper
-            .server_app
-            .world_mut()
-            .spawn(Replicate {
-                relevance_mode: NetworkRelevanceMode::InterestManagement,
-                ..Default::default()
-            })
-            .id();
-
-        stepper.frame_step();
-        stepper.frame_step();
-
-        // Check room states
-        assert!(stepper
-            .server_app
-            .world()
-            .resource::<RoomManager>()
-            .has_client_id(client_id, room_id));
-
-        // Add the entity in the same room
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_entity(server_entity, room_id);
-        assert!(stepper
-            .server_app
-            .world()
-            .resource::<RoomManager>()
-            .events
-            .gained
-            .get(&client_id)
-            .unwrap()
-            .contains(&server_entity));
-        // Run update replication cache once
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        assert!(stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CachedNetworkRelevance>()
-            .is_some());
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Gained)])
-        );
-
-        stepper.frame_step();
-        // Bookkeeping should get applied
-        // Check room states
-        assert!(stepper
-            .server_app
-            .world()
-            .resource::<RoomManager>()
-            .has_entity(server_entity, room_id));
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
-        );
-
-        // Check that the entity gets replicated to client
-        stepper.frame_step();
-        assert_eq!(
-            stepper
-                .client_app
-                .world()
-                .resource::<Events<EntitySpawnEvent>>()
-                .len(),
-            1
-        );
-        let client_entity = stepper
-            .client_app
-            .world()
-            .resource::<client::ConnectionManager>()
-            .replication_receiver
-            .remote_entity_map
-            .get_local(server_entity)
-            .unwrap();
-
-        // Remove the entity from the room
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .remove_entity(server_entity, room_id);
-        assert!(stepper
-            .server_app
-            .world()
-            .resource::<RoomManager>()
-            .events
-            .lost
-            .get(&client_id)
-            .unwrap()
-            .contains(&server_entity));
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Lost)])
-        );
-        stepper.frame_step();
-        // after bookkeeping, the entity should not have any clients in its replication cache
-        assert!(stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CachedNetworkRelevance>()
-            .unwrap()
-            .clients_cache
-            .is_empty());
-
-        stepper.frame_step();
-        // Check that the entity gets despawned on client
-        assert_eq!(
-            stepper
-                .client_app
-                .world()
-                .resource::<Events<EntityDespawnEvent>>()
-                .len(),
-            1
-        );
-        assert!(stepper
-            .client_app
-            .world()
-            .get_entity(client_entity)
-            .is_err());
-    }
+    use bevy::ecs::system::RunSystemOnce;
+    use test_log::test;
 
     #[test]
     // entity is in a room
     // we add a client to that room, then we remove it
     fn test_add_remove_client_room() {
-        let mut stepper = BevyStepper::default();
+        let mut app = App::new();
+        app.add_plugins(RoomPlugin);
 
         // Client joins room
-        let client_id = PeerId::Netcode(111);
-        let room_id = RoomId(0);
+        let room = app.world_mut().spawn(Room::default()).id();
+        let entity = Entity::from_raw(1);
+        let sender = Entity::from_raw(2);
+        app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room);
+        app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room);
+        app.update();
+        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
 
-        // Spawn an entity on server
-        let server_entity = stepper
-            .server_app
-            .world_mut()
-            .spawn(Replicate {
-                relevance_mode: NetworkRelevanceMode::InterestManagement,
-                ..Default::default()
-            })
-            .id();
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_entity(server_entity, room_id);
-
-        stepper.frame_step();
-        stepper.frame_step();
-
-        // Check room states
-        assert!(stepper
-            .server_app
-            .world()
-            .resource::<RoomManager>()
-            .has_entity(server_entity, room_id));
-
-        // Add the client in the same room
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_client(client_id, room_id);
-        assert!(stepper
-            .server_app
-            .world()
-            .resource::<RoomManager>()
-            .events
-            .gained
-            .get(&client_id)
-            .unwrap()
-            .contains(&server_entity));
-        // Run update replication cache once
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Gained)])
-        );
-
-        stepper.frame_step();
-        // Bookkeeping should get applied
-        // Check room states
-        assert!(stepper
-            .server_app
-            .world()
-            .resource::<RoomManager>()
-            .has_entity(server_entity, room_id));
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
-        );
-
-        // Check that the entity gets replicated to client
-        stepper.frame_step();
-        assert_eq!(
-            stepper
-                .client_app
-                .world()
-                .resource::<Events<EntitySpawnEvent>>()
-                .len(),
-            1
-        );
-        let client_entity = stepper
-            .client_app
-            .world()
-            .resource::<client::ConnectionManager>()
-            .replication_receiver
-            .remote_entity_map
-            .get_local(server_entity)
-            .unwrap();
-
-        // Remove the client from the room
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .remove_client(client_id, room_id);
-        assert!(stepper
-            .server_app
-            .world()
-            .resource::<RoomManager>()
-            .events
-            .lost
-            .get(&client_id)
-            .unwrap()
-            .contains(&server_entity));
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Lost)])
-        );
-        stepper.frame_step();
-        // after bookkeeping, the entity should not have any clients in its replication cache
-        assert!(stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CachedNetworkRelevance>()
-            .unwrap()
-            .clients_cache
-            .is_empty());
-
-        stepper.frame_step();
-        // Check that the entity gets despawned on client
-        assert_eq!(
-            stepper
-                .client_app
-                .world()
-                .resource::<Events<EntityDespawnEvent>>()
-                .len(),
-            1
-        );
-        assert!(stepper
-            .client_app
-            .world()
-            .get_entity(client_entity)
-            .is_err());
+        // Client leaves room
+        app.world_mut().trigger_targets(RoomEvent::RemoveSender(sender), room);
+        app.world_mut().flush();
+        app.world_mut().run_system_once(RoomPlugin::apply_room_events).ok();
+        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().lost.contains(&sender));
     }
 
+    #[test]
+    // client is in a room
+    // we add an entity to that room, then we remove it
+    fn test_add_remove_entity_room() {
+        let mut app = App::new();
+        app.add_plugins(RoomPlugin);
 
-    // C1 is in room R1 with E1
+        // Entity joins room
+        let room = app.world_mut().spawn(Room::default()).id();
+        let entity = Entity::from_raw(1);
+        let sender = Entity::from_raw(2);
+        app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room);
+        app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room);
+        app.update();
+        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
 
-    // RoomManager.NetworkVisility: E1 visible C1
-    // C1 leaves R1: E1 loses C1
-    // C1 joins R2:
-    // E1 leaves R1:
-    // E1 joins R2: E1 gains C1
-    // RoomManager.gain_visibility -> nothing changes.
+        // Entity leaves room
+        app.world_mut().trigger_targets(RoomEvent::RemoveEntity(entity), room);
+        app.world_mut().flush();
+        app.world_mut().run_system_once(RoomPlugin::apply_room_events).ok();
+        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().lost.contains(&sender));
+    }
+
 
     /// The client is in a room with the entity
     /// We move the client and the entity to a different room (client first, then entity)
     /// There should be no change in relevance
     #[test]
     fn test_move_client_entity_room() {
-        let mut stepper = BevyStepper::default();
-        // Client join room
-        let client_id = PeerId::Netcode(111);
-        let room_id = RoomId(0);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_client(client_id, room_id);
+        let mut app = App::new();
+        app.add_plugins(RoomPlugin);
 
-        // Spawn an entity on server, in the same room
-        let server_entity = stepper
-            .server_app
-            .world_mut()
-            .spawn(Replicate {
-                relevance_mode: NetworkRelevanceMode::InterestManagement,
-                ..Default::default()
-            })
-            .id();
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(add_cached_network_relevance);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_entity(server_entity, room_id);
-        // Run update replication cache once
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Gained)])
-        );
-        // apply bookkeeping
-        stepper.frame_step();
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
-        );
+        let room = app.world_mut().spawn(Room::default()).id();
+        let entity = Entity::from_raw(1);
+        let sender = Entity::from_raw(2);
+        app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room);
+        app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room);
+        app.update();
 
-        let new_room_id = RoomId(1);
-        // client leaves previous room and joins new room
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .remove_client(client_id, room_id);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_client(client_id, new_room_id);
-        // entity leaves previous room and joins new room
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .remove_entity(server_entity, room_id);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_entity(server_entity, new_room_id);
-        // Run update replication cache once
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
-        );
+        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
+
+        // Entity leaves room
+        let room_2 = app.world_mut().spawn(Room::default()).id();
+        app.world_mut().trigger_targets(RoomEvent::RemoveEntity(entity), room);
+        app.world_mut().trigger_targets(RoomEvent::RemoveSender(sender), room);
+        app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room_2);
+        app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room_2);
+        app.world_mut().flush();
+        app.world_mut().run_system_once(RoomPlugin::apply_room_events).ok();
+        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
     }
-
-
-    // C1 is in rooms A and B
-    // E1 is in room A. RoomManager.NetworkVisibility: E1 visible C1
-    // E1 leaves room A: E1 loses C1
-    // E1 joins room B: E1 gains C1
-    // nothing changes
 
     /// The client is in room A and B
     /// Entity is in room A and moves to room B
     /// There should be no change in relevance
     #[test]
     fn test_move_entity_room() {
-        let mut stepper = BevyStepper::default();
-        // Client joins room 0 and 1
-        let client_id = PeerId::Netcode(111);
-        let room_id = RoomId(0);
-        let new_room_id = RoomId(1);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_client(client_id, room_id);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_client(client_id, new_room_id);
-        // Spawn an entity on server, in room 1
-        let server_entity = stepper
-            .server_app
-            .world_mut()
-            .spawn(Replicate {
-                relevance_mode: NetworkRelevanceMode::InterestManagement,
-                ..Default::default()
-            })
-            .id();
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(add_cached_network_relevance);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_entity(server_entity, room_id);
-        // Run update replication cache once
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Gained)])
-        );
-        // apply bookkeeping
-        stepper.frame_step();
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
-        );
+        let mut app = App::new();
+        app.add_plugins(RoomPlugin);
 
-        // entity leaves previous room and joins new room
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .remove_entity(server_entity, room_id);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_entity(server_entity, new_room_id);
-        // Run update replication cache once
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
-        );
+        let room = app.world_mut().spawn(Room::default()).id();
+        let room_2 = app.world_mut().spawn(Room::default()).id();
+        let entity = Entity::from_raw(1);
+        let sender = Entity::from_raw(2);
+        app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room);
+        app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room_2);
+        app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room);
+        app.update();
+        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
+
+        // Entity leaves room
+        app.world_mut().trigger_targets(RoomEvent::RemoveEntity(entity), room);
+        app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room_2);
+        app.update();
+        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
     }
 
-    // E1 is in rooms A and B
-    // C1 is in room A. RoomManager.NetworkVisibility: E1 visible C1
-    // C1 leaves room A: E1 loses C1
-    // E1 joins room B: E1 gains C1
-    // nothing changes
 
     /// The entity is in room A and B
     /// Client is in room A and moves to room B
     /// There should be no change in relevance
     #[test]
     fn test_move_client_room() {
-        let mut stepper = BevyStepper::default();
-        // Client joins room 0 and 1
-        let client_id = PeerId::Netcode(111);
-        let room_id = RoomId(0);
-        let new_room_id = RoomId(1);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_client(client_id, room_id);
-        // Spawn an entity on server, in room 1
-        let server_entity = stepper
-            .server_app
-            .world_mut()
-            .spawn(Replicate {
-                relevance_mode: NetworkRelevanceMode::InterestManagement,
-                ..Default::default()
-            })
-            .id();
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(add_cached_network_relevance);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_entity(server_entity, room_id);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_entity(server_entity, new_room_id);
-        // Run update replication cache once
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Gained)])
-        );
-        // apply bookkeeping
-        stepper.frame_step();
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
-        );
+        let mut app = App::new();
+        app.add_plugins(RoomPlugin);
 
-        // client leaves previous room and joins new room
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .remove_client(client_id, room_id);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_client(client_id, new_room_id);
-        // Run update replication cache once
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(server_entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Maintained)])
-        );
+        let room = app.world_mut().spawn(Room::default()).id();
+        let room_2 = app.world_mut().spawn(Room::default()).id();
+        let entity = Entity::from_raw(1);
+        let sender = Entity::from_raw(2);
+        app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room);
+        app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room);
+        app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room_2);
+        app.update();
+        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
+
+        // Entity leaves room
+        app.world_mut().trigger_targets(RoomEvent::RemoveSender(sender), room);
+        app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room_2);
+        app.update();
+        app.world_mut().run_system_once(RoomPlugin::apply_room_events).ok();
+        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
     }
 
 
@@ -897,350 +369,22 @@ mod tests {
     /// Entity-Client should lose relevance (not in the same room anymore)
     #[test]
     fn test_client_entity_both_leave_room() {
-        let mut stepper = BevyStepper::default();
-        let client_id = PeerId::Netcode(111);
-        let room_id = RoomId(0);
+        let mut app = App::new();
+        app.add_plugins(RoomPlugin);
 
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_client(client_id, room_id);
-        // Spawn an entity on server, in room 1
-        let entity = stepper
-            .server_app
-            .world_mut()
-            .spawn(Replicate {
-                relevance_mode: NetworkRelevanceMode::InterestManagement,
-                ..Default::default()
-            })
-            .id();
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_entity(entity, room_id);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(add_cached_network_relevance);
+        let room = app.world_mut().spawn(Room::default()).id();
+        let entity = Entity::from_raw(1);
+        let sender = Entity::from_raw(2);
+        app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room);
+        app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room);
+        app.update();
+        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
 
-        // Run update replication cache once
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Gained)])
-        );
+        // Entity leaves room
+        app.world_mut().trigger_targets(RoomEvent::RemoveSender(sender), room);
+        app.world_mut().trigger_targets(RoomEvent::RemoveEntity(entity), room);
+        app.update();
+        assert!(!app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
 
-        // Client and entity leave room
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .remove_client(client_id, room_id);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .remove_entity(entity, room_id);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        // make sure that visibility is lost
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(entity)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(client_id, ClientRelevance::Lost)])
-        );
-    }
-    // TODO: check that entity despawn/client disconnect cleans the room metadata
-
-    // Two clients in same room 1
-    // C1 and E1 leaves room 1 and joins room 2: visibility lost (and entity despawned)
-    // C1 and E2 leaves room 2 and joins room 1: visibility gained (and entity spawned)
-    #[test]
-    fn test_multiple_clients_leave_enter_room() {
-        // tracing_subscriber::FmtSubscriber::builder()
-        //     .with_max_level(tracing::Level::DEBUG)
-        //     .init();
-        let mut stepper = MultiBevyStepper::default();
-        let c1 = PeerId::Netcode(TEST_CLIENT_ID_1);
-        let c2 = PeerId::Netcode(TEST_CLIENT_ID_2);
-        let r1 = RoomId(1);
-        let r2 = RoomId(2);
-
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_client(c1, r1);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_client(c2, r1);
-        // spawn one entity for each client
-        let entity_1 = stepper
-            .server_app
-            .world_mut()
-            .spawn(Replicate {
-                relevance_mode: NetworkRelevanceMode::InterestManagement,
-                ..Default::default()
-            })
-            .id();
-        let entity_2 = stepper
-            .server_app
-            .world_mut()
-            .spawn(Replicate {
-                relevance_mode: NetworkRelevanceMode::InterestManagement,
-                ..Default::default()
-            })
-            .id();
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_entity(entity_1, r1);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_entity(entity_2, r1);
-
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(add_cached_network_relevance);
-
-        // Run update replication cache once
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(entity_1)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(c1, ClientRelevance::Gained), (c2, ClientRelevance::Gained)])
-        );
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(entity_2)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache,
-            HashMap::from_iter([(c1, ClientRelevance::Gained), (c2, ClientRelevance::Gained)])
-        );
-        stepper.frame_step();
-        stepper.frame_step();
-        let c1_entity_1 = stepper
-            .client_app_1
-            .world()
-            .resource::<client::ConnectionManager>()
-            .replication_receiver
-            .remote_entity_map
-            .get_local(entity_1)
-            .expect("entity 1 was not replicated to client 1");
-        let c1_entity_2 = stepper
-            .client_app_1
-            .world()
-            .resource::<client::ConnectionManager>()
-            .replication_receiver
-            .remote_entity_map
-            .get_local(entity_2)
-            .expect("entity 2 was not replicated to client 1");
-        let c2_entity_1 = stepper
-            .client_app_2
-            .world()
-            .resource::<client::ConnectionManager>()
-            .replication_receiver
-            .remote_entity_map
-            .get_local(entity_1)
-            .expect("entity 1 was not replicated to client 2");
-        let c2_entity_2 = stepper
-            .client_app_2
-            .world()
-            .resource::<client::ConnectionManager>()
-            .replication_receiver
-            .remote_entity_map
-            .get_local(entity_2)
-            .expect("entity 2 was not replicated to client 2");
-
-        // C1 and E1 leaves room 1 and joins room 2
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .remove_client(c1, r1);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .remove_entity(entity_1, r1);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_client(c1, r2);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_entity(entity_1, r2);
-
-        // check interest management internals
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(entity_2)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache
-                .get(&c1),
-            Some(&ClientRelevance::Lost)
-        );
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(entity_1)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache
-                .get(&c2),
-            Some(&ClientRelevance::Lost)
-        );
-
-        // check that the changes were impacted via replication
-        // entity_1 should be despawned on c2
-        // entity_2 should be despawned on c1
-        stepper.frame_step();
-        stepper.frame_step();
-        assert!(stepper
-            .client_app_1
-            .world()
-            .get_entity(c1_entity_2)
-            .is_err());
-        assert!(stepper
-            .client_app_2
-            .world()
-            .get_entity(c2_entity_1)
-            .is_err());
-
-        // C1 and E1 leaves room 2 and joins room 1
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .remove_client(c1, r2);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .remove_entity(entity_1, r2);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_client(c1, r1);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<RoomManager>()
-            .add_entity(entity_1, r1);
-
-        // check interest management internals
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(buffer_room_relevance_events);
-        let _ = stepper
-            .server_app
-            .world_mut()
-            .run_system_once(update_relevance_from_events);
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(entity_2)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache
-                .get(&c1),
-            Some(&ClientRelevance::Gained)
-        );
-        assert_eq!(
-            stepper
-                .server_app
-                .world()
-                .entity(entity_1)
-                .get::<CachedNetworkRelevance>()
-                .unwrap()
-                .clients_cache
-                .get(&c2),
-            Some(&ClientRelevance::Gained)
-        );
-        stepper.frame_step();
-        stepper.frame_step();
-        let c1_entity_2_v2 = stepper
-            .client_app_1
-            .world()
-            .resource::<client::ConnectionManager>()
-            .replication_receiver
-            .remote_entity_map
-            .get_local(entity_2)
-            .expect("entity 2 was not replicated to client 1");
-        assert_ne!(c1_entity_2, c1_entity_2_v2);
-        let c2_entity_1_v2 = stepper
-            .client_app_2
-            .world()
-            .resource::<client::ConnectionManager>()
-            .replication_receiver
-            .remote_entity_map
-            .get_local(entity_1)
-            .expect("entity 1 was not replicated to client 2");
-        assert_ne!(c2_entity_1, c2_entity_1_v2);
     }
 }

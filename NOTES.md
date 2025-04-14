@@ -4,6 +4,7 @@
 - Replication:
   - ReplicationGroup timer + priority
   - HostServer handling
+  - need to add tests for sender/receive/authority/hierarchy/delta
 - Receive:
   - re-add UpdateConfirmedTick in apply_world
 
