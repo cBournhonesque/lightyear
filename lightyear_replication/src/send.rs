@@ -9,7 +9,7 @@ use crate::buffer::Replicate;
 use crate::components::{Replicating, ReplicationGroup, ReplicationGroupId};
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
-use crate::hierarchy::ReplicateLike;
+use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
 use crate::plugin::ReplicationSet;
 use crate::prelude::NetworkVisibility;
 use crate::registry::registry::ComponentRegistry;
@@ -44,7 +44,7 @@ use lightyear_transport::packet::error::PacketError;
 use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::{ChannelRegistry, Transport};
-use tracing::*;
+use tracing::{debug, error, info, trace};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
@@ -209,12 +209,6 @@ impl Plugin for ReplicationSendPlugin {
                 )
                     .chain()
                     .in_set(ReplicationSet::Send),
-                (
-                    ReplicationBufferSet::ResourceUpdates,
-                    ReplicationBufferSet::EntityUpdates,
-                    ReplicationBufferSet::ComponentUpdates,
-                )
-                    .in_set(ReplicationBufferSet::Buffer),
             ),
         );
 
@@ -222,7 +216,7 @@ impl Plugin for ReplicationSendPlugin {
         app.add_observer(buffer::buffer_entity_despawn_replicate_remove);
 
         app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
-        app.add_systems(PostUpdate, buffer::buffer_entity_despawn_replicate_updated.in_set(ReplicationBufferSet::EntityUpdates));
+        app.add_systems(PostUpdate, buffer::buffer_entity_despawn_replicate_updated.in_set(ReplicationBufferSet::Buffer));
         app.add_systems(PostUpdate, buffer::update_cached_replicate_post_buffer.in_set(ReplicationBufferSet::AfterBuffer));
         app.add_systems(PostUpdate, Self::send_replication_messages.in_set(ReplicationBufferSet::Flush));
 
@@ -254,6 +248,7 @@ impl Plugin for ReplicationSendPlugin {
             QueryParamBuilder::new(|builder| {
                 // Or<(With<ReplicateLike>, (With<Replicating>, With<ReplicateToClient>, With<HasAuthority>))>
                 builder.or(|b| {
+                    b.with::<ReplicateLikeChildren>();
                     b.with::<ReplicateLike>();
                     b.and(|b| {
                         b.with::<Replicating>();
@@ -263,10 +258,11 @@ impl Plugin for ReplicationSendPlugin {
                 });
                 builder.optional(|b| {
                     b.data::<(
-                        &ReplicateLike,
                         &Replicate,
                         &ReplicationGroup,
                         &NetworkVisibility,
+                        &ReplicateLikeChildren,
+                        &ReplicateLike,
                     )>();
                     // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
                     component_registry
@@ -335,9 +331,7 @@ impl Plugin for ReplicationSendPlugin {
         app.add_systems(
             PostUpdate,
             // TODO: putting it here means we might miss entities that are spawned and despawned within the send_interval? bug or feature?
-            replicate
-                .in_set(ReplicationBufferSet::EntityUpdates)
-                .in_set(ReplicationBufferSet::ComponentUpdates)
+            replicate.in_set(ReplicationBufferSet::Buffer)
         );
 
         app.world_mut().insert_resource(component_registry);

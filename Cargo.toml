@@ -223,7 +223,7 @@ approx = "0.5.1"
 
 # Bevy
 # (we add back features needed for gui clients if desired)
-bevy = { git = "https://github.com/bevyengine/bevy.git", branch = "main", default-features = false, features = [
+bevy = { version = "0.16.0-rc.4", default-features = false, features = [
   "bevy_state",
   "serialize",
   "bevy_asset",

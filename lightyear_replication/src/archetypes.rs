@@ -62,6 +62,7 @@ impl FromWorld for ReplicatedArchetypes {
 }
 
 
+#[derive(Debug)]
 pub(crate) struct ReplicatedComponent {
     pub(crate) id: ComponentId,
     pub(crate) kind: ComponentKind,
@@ -117,7 +118,7 @@ impl ReplicatedArchetypes {
                         );
                         return;
                     }
-                    trace!("including {:?} in replicated components", info.name());
+                    info!("including {:?} in replicated components", info.name());
                     replicated_archetype.push(ReplicatedComponent {
                         id: component,
                         kind,

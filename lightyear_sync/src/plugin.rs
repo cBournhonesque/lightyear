@@ -5,7 +5,7 @@ use crate::timeline::DrivingTimeline;
 use bevy::app::{App, FixedFirst, Plugin};
 use bevy::prelude::*;
 use lightyear_core::timeline::{NetworkTimeline, NetworkTimelinePlugin, Timeline, TimelineContext};
-use tracing::*;
+use tracing::trace;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SyncSet {

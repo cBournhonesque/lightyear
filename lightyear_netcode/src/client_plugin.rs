@@ -10,7 +10,7 @@ use lightyear_connection::ConnectionSet;
 use lightyear_link::{Link, LinkSet, SendPayload};
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
-use tracing::*;
+use tracing::{debug, error, trace};
 
 pub struct NetcodeClientPlugin;
 

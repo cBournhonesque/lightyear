@@ -80,14 +80,16 @@ But if you add a direction we will handle it automatically for the client-server
   - you can also add SenderNetworkVisibility on a sender, to specify which clients lost/gain visibility
    
   - Maybe enable whitelist/blacklist (currently it's only whitelist, i.e. by default no entities are visible). Can be done by simply adding all clients once as visible?
-  
-  - Rooms: 
-    - if entity 1 and 2 are in the same room as client 1, they will be visible.
-    - 
 
+- Hierarchy:
+  - ReplicateLike is added recursively to all children.
+    - Hooks:
+      - when ReplicateLike is added, should we update the Sender's replicated entities? or should we add Replicate?
+        Or do we also go through every entity that is in ReplicatedEntities?
 
-- ReplicationConfig { network_relevance: bool }
-- ReplicationOverrides { global, per_sender }
+  - Other idea: 
+    - the 'root entity' is the ReplicationGroup. All children or ReplicateLike are part of the group.
+      - then the SendInterval data is part of the ReplicationGroup.
 
 
 - How to start replication?

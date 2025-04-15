@@ -15,7 +15,7 @@ use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use lightyear_link::{Link, LinkSet, Linked};
-use tracing::*;
+use tracing::error;
 
 /// Maximum transmission units; maximum size in bytes of a packet
 pub(crate) const MTU: usize = 1472;

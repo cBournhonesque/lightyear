@@ -10,7 +10,7 @@ use lightyear_connection::prelude::{server::*, *};
 use lightyear_link::{Link, LinkSet, LinkStart, Unlink, Unlinked};
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
-use tracing::*;
+use tracing::{error, info, trace};
 
 pub struct NetcodeServerPlugin;
 

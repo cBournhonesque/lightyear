@@ -35,7 +35,7 @@ lightyear_client = { workspace = true, features = ["crossbeam", "netcode"] }
 lightyear_server = { workspace = true, features = ["crossbeam", "netcode"] }
 lightyear_netcode = { workspace = true, features = ["client", "server", "test_utils"] }
 lightyear_messages.workspace = true
-lightyear_replication.workspace = true
+lightyear_replication =  { workspace = true, features = ["client", "server"]}
 lightyear_crossbeam.workspace = true
 lightyear_connection = { workspace = true, features = ["client", "server"]}
 lightyear_sync.workspace = true

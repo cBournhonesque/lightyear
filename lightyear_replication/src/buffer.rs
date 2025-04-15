@@ -19,7 +19,7 @@ use crate::components::{
 };
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
-use crate::hierarchy::ReplicateLike;
+use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
 use crate::prelude::{Cached, ComponentReplicationOverride, ComponentReplicationOverrides};
 use crate::receive::ReplicationReceiver;
 use crate::registry::registry::ComponentRegistry;
@@ -36,7 +36,7 @@ use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::prelude::Transport;
-use tracing::*;
+use tracing::{info, trace};
 
 #[derive(Clone, Default, Debug, PartialEq, Reflect)]
 pub enum ReplicationMode {
@@ -303,188 +303,40 @@ pub(crate) fn replicate(
             // we iterate by index to avoid split borrow issues
             for i in 0..sender.replicated_entities.len() {
                 let entity = sender.replicated_entities[i];
-                // TODO: skip disabled entities?
-                let Ok(entity_ref) = entity_query.get(entity) else {
+                let Ok(root_entity_ref) = entity_query.get(entity) else {
                     error!("Replicated Entity {:?} not found in entity_query", entity);
                     return;
                 };
-                let Some(replicated_components) =
-                    replicated_archetypes
-                        .archetypes
-                        .get(&entity_ref.archetype().id())
-                else {
-                    // entity is not replicated, skip. This could happen if Replicating is not present on the entity
-                    return;
-                };
-
-                // get the value of the replication componentsk
-                let (
-                    group_id,
-                    priority,
-                    group_ready,
-                    replicate,
-                    cached_replicate,
-                    network_visibility,
-                    is_replicate_like_added,
-                ) = match entity_ref.get::<ReplicateLike>() {
-                    Some(replicate_like) => {
-                        // root entity does not exist
-                        let Ok(root_entity_ref) = entity_query.get(replicate_like.0) else {
-                            return;
-                        };
-                        // TODO: we won't need this because we can remove ReplicateLike if Replicate is removed.
-                        if root_entity_ref.get::<Replicate>().is_none() {
-                            // ReplicateLike points to a parent entity that doesn't have Replicate, skip
-                            return;
-                        };
-                        let (group_id, priority, group_ready) =
-                            entity_ref.get::<ReplicationGroup>().map_or_else(
-                                // if ReplicationGroup is not present, we use the parent entity
-                                || {
-                                    root_entity_ref
-                                        .get::<ReplicationGroup>()
-                                        .map(|g| {
-                                            (
-                                                g.group_id(Some(replicate_like.0)),
-                                                g.priority(),
-                                                g.should_send,
-                                            )
-                                        })
-                                        .unwrap()
-                                },
-                                // we use the entity itself if ReplicationGroup is present
-                                |g| (g.group_id(Some(entity)), g.priority(), g.should_send),
-                            );
-                        (
-                            group_id,
-                            priority,
-                            group_ready,
-                            // SAFETY: we know that the entity has the Replicate component
-                            entity_ref
-                                .get_ref::<Replicate>()
-                                .unwrap_or_else(|| root_entity_ref.get_ref::<Replicate>().unwrap()),
-                            entity_ref
-                                .get::<CachedReplicate>()
-                                .or_else(|| root_entity_ref.get::<CachedReplicate>()),
-                            entity_ref
-                                .get::<NetworkVisibility>()
-                                .or_else(|| root_entity_ref.get::<NetworkVisibility>()),
-                            unsafe {
-                                entity_ref
-                                    .get_change_ticks::<ReplicateLike>()
-                                    .unwrap_unchecked()
-                                    .is_changed(system_ticks.last_run(), system_ticks.this_run())
-                            },
-                        )
-                    }
-                    _ => {
-                        let (group_id, priority, group_ready) = entity_ref
-                            .get::<ReplicationGroup>()
-                            .map(|g| (g.group_id(Some(entity)), g.priority(), g.should_send))
-                            .unwrap();
-                        (
-                            group_id,
-                            priority,
-                            group_ready,
-                            entity_ref.get_ref::<Replicate>().unwrap(),
-                            entity_ref.get::<CachedReplicate>(),
-                            entity_ref.get::<NetworkVisibility>(),
-                            false,
-                        )
-                    }
-                };
-
-                // the update will be 'insert' instead of update if the ReplicateOn component is new
-                // or the HasAuthority component is new. That's because the remote cannot receive update
-                // without receiving an action first (to populate the latest_tick on the replication-receiver)
-
-                // TODO: do the entity mapping here!
-
-                // b. add entity despawns from Visibility lost
-                replicate_entity_despawn(
+                replicate_entity(
                     entity,
-                    group_id,
+                    tick,
+                    &root_entity_ref,
+                    None,
+                    &system_ticks,
                     &mut message_manager.entity_mapper,
-                    network_visibility,
                     sender,
                     sender_entity,
+                    component_registry.as_ref(),
+                    &replicated_archetypes,
+                    &mut delta_manager,
                 );
-
-                // c. add entity spawns for Replicate changing
-                replicate_entity_spawn(
-                    entity,
-                    group_id,
-                    priority,
-                    &replicate,
-                    cached_replicate,
-                    network_visibility,
-                    sender,
-                    sender_entity,
-                );
-
-                // If the group is not set to send, skip this entity
-                if !group_ready {
-                    return;
-                }
-
-                // d. all components that were added or changed and that are not disabled
-
-                // NOTE: we pre-cache the list of components for each archetype to not iterate through
-                //  all replicated components every time
-                for ReplicatedComponent { id, kind, has_overrides } in replicated_components {
-
-                    let mut replication_metadata = component_registry.replication_map.get(kind).unwrap();
-                    let mut disable = replication_metadata.config.disable;
-                    let mut replicate_once = replication_metadata.config.replicate_once;
-                    let mut delta_compression = replication_metadata.config.delta_compression;
-                    if *has_overrides {
-                        // TODO: get ComponentReplicationOverrides using root entity
-                        // SAFETY: we know that all overrides have the same shape
-                        if let Some(overrides) = unsafe { entity_ref.get_by_id(replication_metadata.overrides_component_id).unwrap().deref::<ComponentReplicationOverrides<Replicate>>() }.get_overrides(sender_entity) {
-                            if disable && overrides.enable {
-                                disable = false;
-                            }
-                            if !disable && overrides.disable {
-                                disable = true;
-                            }
-                            if replicate_once && overrides.replicate_always {
-                                replicate_once = false;
-                            }
-                            if !replicate_once && overrides.replicate_once {
-                                replicate_once = true;
-                            }
-                        }
+                if let Some(children) = root_entity_ref.get::<ReplicateLikeChildren>() {
+                    for child in children.collection() {
+                        let child_entity_ref = entity_query.get(*child).unwrap();
+                        replicate_entity(
+                            *child,
+                            tick,
+                            &root_entity_ref,
+                            Some((child_entity_ref, entity)),
+                            &system_ticks,
+                            &mut message_manager.entity_mapper,
+                            sender,
+                            sender_entity,
+                            component_registry.as_ref(),
+                            &replicated_archetypes,
+                            &mut delta_manager,
+                        );
                     }
-                    if disable {
-                        continue;
-                    }
-                    let Some(data) = entity_ref.get_by_id(*id) else {
-                        // component not present on entity, skip
-                        return;
-                    };
-                    let component_ticks = entity_ref.get_change_ticks_by_id(*id).unwrap();
-                    let _ = replicate_component_update(
-                        tick,
-                        &component_registry,
-                        entity,
-                        *kind,
-                        data,
-                        component_ticks,
-                        &replicate,
-                        group_id,
-                        delta_compression,
-                        replicate_once,
-                        &system_ticks,
-                        &mut message_manager.entity_mapper,
-                        &mut sender,
-                        &mut delta_manager,
-                    )
-                    .inspect_err(|e| {
-                        error!(
-                            "Error replicating component {:?} update for entity {:?}: {:?}",
-                            kind, entity, e
-                        )
-                    });
                 }
             }
 
@@ -493,6 +345,188 @@ pub(crate) fn replicate(
             sender.tick_cleanup(tick);
         },
     );
+}
+
+pub(crate) fn replicate_entity(
+    entity: Entity,
+    tick: Tick,
+    entity_ref: &FilteredEntityRef,
+    child_entity_ref: Option<(FilteredEntityRef, Entity)>,
+    system_ticks: &SystemChangeTick,
+    entity_mapper: &mut RemoteEntityMap,
+    sender: &mut ReplicationSender,
+    sender_entity: Entity,
+    component_registry: &ComponentRegistry,
+    replicated_archetypes: &ReplicatedArchetypes,
+    delta_manager: &mut DeltaManager,
+) {
+    // get the value of the replication components
+    let (
+        group_id,
+        priority,
+        group_ready,
+        replicate,
+        cached_replicate,
+        network_visibility,
+        entity_ref,
+        is_replicate_like_added,
+    ) = match &child_entity_ref {
+        Some((child_entity_ref, root)) => {
+            let (group_id, priority, group_ready) =
+                child_entity_ref.get::<ReplicationGroup>().map_or_else(
+                    // if ReplicationGroup is not present, we use the parent entity
+                    || {
+                        entity_ref
+                            .get::<ReplicationGroup>()
+                            .map(|g| {
+                                (
+                                    g.group_id(Some(*root)),
+                                    g.priority(),
+                                    g.should_send,
+                                )
+                            })
+                            .unwrap()
+                    },
+                    // we use the entity itself if ReplicationGroup is present
+                    |g| (g.group_id(Some(entity)), g.priority(), g.should_send),
+                );
+            (
+                group_id,
+                priority,
+                group_ready,
+                // We use the root entity's Replicate/CachedReplicate component
+                // SAFETY: we know that the root entity has the Replicate component
+                entity_ref.get_ref::<Replicate>().unwrap(),
+                entity_ref.get::<CachedReplicate>(),
+                child_entity_ref
+                    .get::<NetworkVisibility>()
+                    .or_else(|| entity_ref.get::<NetworkVisibility>()),
+                child_entity_ref,
+                unsafe {
+                    child_entity_ref
+                        .get_change_ticks::<ReplicateLike>()
+                        .unwrap_unchecked()
+                        .is_changed(system_ticks.last_run(), system_ticks.this_run())
+                },
+            )
+        }
+        _ => {
+            let (group_id, priority, group_ready) = entity_ref
+                .get::<ReplicationGroup>()
+                .map(|g| (g.group_id(Some(entity)), g.priority(), g.should_send))
+                .unwrap();
+            (
+                group_id,
+                priority,
+                group_ready,
+                entity_ref.get_ref::<Replicate>().unwrap(),
+                entity_ref.get::<CachedReplicate>(),
+                entity_ref.get::<NetworkVisibility>(),
+                entity_ref,
+                false,
+            )
+        }
+    };
+    let replicated_components = replicated_archetypes
+        .archetypes
+        .get(&entity_ref.archetype().id())
+        .unwrap();
+
+    // the update will be 'insert' instead of update if the ReplicateOn component is new
+    // or the HasAuthority component is new. That's because the remote cannot receive update
+    // without receiving an action first (to populate the latest_tick on the replication-receiver)
+
+    // TODO: do the entity mapping here!
+
+    // b. add entity despawns from Visibility lost
+    replicate_entity_despawn(
+        entity,
+        group_id,
+        entity_mapper,
+        network_visibility,
+        sender,
+        sender_entity,
+    );
+
+    // c. add entity spawns for Replicate changing
+    replicate_entity_spawn(
+        entity,
+        group_id,
+        priority,
+        &replicate,
+        cached_replicate,
+        network_visibility,
+        sender,
+        sender_entity,
+        is_replicate_like_added,
+    );
+
+    // If the group is not set to send, skip this entity
+    if !group_ready {
+        return;
+    }
+
+    // d. all components that were added or changed and that are not disabled
+
+    // NOTE: we pre-cache the list of components for each archetype to not iterate through
+    //  all replicated components every time
+    for ReplicatedComponent { id, kind, has_overrides } in replicated_components {
+        let comp = component_registry.serialize_fns_map.get(kind).unwrap().type_name;
+
+
+        let mut replication_metadata = component_registry.replication_map.get(kind).unwrap();
+        let mut disable = replication_metadata.config.disable;
+        let mut replicate_once = replication_metadata.config.replicate_once;
+        let mut delta_compression = replication_metadata.config.delta_compression;
+        if *has_overrides {
+            // TODO: get ComponentReplicationOverrides using root entity
+            // SAFETY: we know that all overrides have the same shape
+            if let Some(overrides) = unsafe { entity_ref.get_by_id(replication_metadata.overrides_component_id).unwrap().deref::<ComponentReplicationOverrides<Replicate>>() }.get_overrides(sender_entity) {
+                if disable && overrides.enable {
+                    disable = false;
+                }
+                if !disable && overrides.disable {
+                    disable = true;
+                }
+                if replicate_once && overrides.replicate_always {
+                    replicate_once = false;
+                }
+                if !replicate_once && overrides.replicate_once {
+                    replicate_once = true;
+                }
+            }
+        }
+        if disable {
+            continue;
+        }
+        let Some(data) = entity_ref.get_by_id(*id) else {
+            // component not present on entity, skip
+            return;
+        };
+        let component_ticks = entity_ref.get_change_ticks_by_id(*id).unwrap();
+        let _ = replicate_component_update(
+            tick,
+            component_registry,
+            entity,
+            *kind,
+            data,
+            component_ticks,
+            &replicate,
+            group_id,
+            delta_compression,
+            replicate_once,
+            system_ticks,
+            entity_mapper,
+            sender,
+            delta_manager,
+        )
+        .inspect_err(|e| {
+            error!(
+                "Error replicating component {:?} update for entity {:?}: {:?}",
+                kind, entity, e
+            )
+        });
+    }
 }
 
 
@@ -533,6 +567,9 @@ pub(crate) fn replicate_entity_despawn(
 /// Send entity spawn if either of:
 /// 1) Replicate was added/updated and the sender was not in the previous Replicate's target
 /// 2) NetworkVisibility is gained for this sender
+/// 3) ReplicateLike was updated
+// TODO: 3) is not perfect, ReplicateLike could be changing from one entity to another, and in that case we don't want
+//  to send Spawn again
 pub(crate) fn replicate_entity_spawn(
     entity: Entity,
     group_id: ReplicationGroupId,
@@ -542,12 +579,13 @@ pub(crate) fn replicate_entity_spawn(
     network_visibility: Option<&NetworkVisibility>,
     sender: &mut ReplicationSender,
     sender_entity: Entity,
+    is_replicate_like_added: bool,
 ) {
     // 1. replicate was added/updated and the sender was not in the previous Replicate's target
     let replicate_updated = replicate.is_changed() && cached_replicate.is_none_or(|cached| !cached.senders.contains(&sender_entity)) && network_visibility.is_none_or(|vis| vis.is_visible(sender_entity));
     // 2. replicate was not updated but NetworkVisibility is gained for this sender
     let network_visibility_updated = network_visibility.is_some_and(|vis| vis.gained.contains(&sender_entity));
-    if replicate_updated || network_visibility_updated {
+    if replicate_updated || network_visibility_updated || is_replicate_like_added {
         trace!(?entity, ?sender_entity, ?replicate, ?cached_replicate, ?replicate_updated, ?network_visibility_updated, "Sending Spawn");
         sender.prepare_entity_spawn(entity, group_id, priority);
     }
@@ -575,7 +613,7 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
     mut query: Query<(Entity, &mut ReplicationSender, &mut MessageManager)>,
 ) {
     let mut entity = trigger.target();
-    let root = root_query.get(entity).map_or(entity, |r| r.0);
+    let root = root_query.get(entity).map_or(entity, |r| r.root);
     // TODO: use the child's ReplicationGroup if there is one that overrides the root's
     let Ok((group, cached_replicate, network_visibility)) = entity_query.get(root) else {
         return;
@@ -743,7 +781,7 @@ pub(crate) fn buffer_component_removed(
     mut manager_query: Query<(Entity, &mut ReplicationSender, &mut MessageManager)>,
 ) {
     let entity = trigger.target();
-    let root = root_query.get(entity).map_or(entity, |r| r.0);
+    let root = root_query.get(entity).map_or(entity, |r| r.root);
     let Ok(entity_ref) = query.get(root) else {
         return;
     };

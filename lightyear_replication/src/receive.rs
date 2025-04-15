@@ -22,7 +22,7 @@ use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_transport::packet::message::MessageId;
-use tracing::*;
+use tracing::{debug, error, info, trace};
 
 use crate::plugin;
 use crate::plugin::ReplicationSet;

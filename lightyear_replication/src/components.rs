@@ -83,17 +83,6 @@ impl<C> ComponentReplicationOverrides<C> {
     }
 }
 
-/// Marker that indicates that this entity is to be replicated.
-///
-/// This is not confused with `Replicating` which is only present on the entity when the entity
-/// is currently being replicated. (removing `Replicating` pauses replication updates).
-///
-/// `ReplicationMarker` is required by `ReplicateToServer` and `ReplicationTarget`
-#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
-#[reflect(Component)]
-#[require(ReplicationGroup, Replicating)]
-pub struct ReplicationMarker;
-
 /// Marker component that indicates that the entity was initially spawned via replication
 /// (it was being replicated from a remote world)
 ///
