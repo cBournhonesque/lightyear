@@ -56,7 +56,7 @@ pub trait NetworkTimeline: Component<Mutability=Mutable> {
 
     fn overstep(&self) -> Overstep;
 
-    fn advance(&mut self, delta: Duration);
+    fn apply_delta(&mut self, delta: TickDelta);
 }
 
 
@@ -84,9 +84,8 @@ impl<T: TimelineContext> NetworkTimeline for Timeline<T> {
         self.now().overstep
     }
 
-    fn advance(&mut self, delta: Duration) {
-        self.now = self.now + TickDelta::from_duration(delta, self.tick_duration());
-
+    fn apply_delta(&mut self, delta: TickDelta) {
+        self.now = self.now + delta;
     }
 }
 
@@ -189,6 +188,7 @@ pub struct Local {
     pub rollback: RwLock<RollbackState>,
 }
 
+// TODO: don't use Timeline<Local> but instead create your own struct
 pub type LocalTimeline = Timeline<Local>;
 
 
@@ -197,22 +197,11 @@ pub(crate) fn increment_local_tick(
     mut query: Query<&mut LocalTimeline>,
 ) {
     query.iter_mut().for_each(|mut t| {
-        let duration = t.tick_duration();
-        t.advance(duration);
+        t.apply_delta(TickDelta::from_i16(1));
         // trace!("Timeline::advance: now: {:?}, duration: {:?}", t.now(), duration);
     })
 }
 
-/// Update the overstep using the Time<Fixed> overstep
-pub(crate) fn set_local_overstep(
-    fixed_time: Res<Time<Fixed>>,
-    mut query: Query<&mut LocalTimeline>,
-) {
-    let overstep = fixed_time.overstep();
-    query.iter_mut().for_each(|mut t| {
-        t.advance(overstep);
-    })
-}
 
 
 pub struct TimelinePlugin {
@@ -260,6 +249,5 @@ impl Plugin for TimelinePlugin {
 
         app.add_plugins(NetworkTimelinePlugin::<Local>::default());
         app.add_systems(FixedFirst, increment_local_tick);
-        app.add_systems(RunFixedMainLoop, set_local_overstep.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop));
     }
 }

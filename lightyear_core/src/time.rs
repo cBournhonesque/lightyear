@@ -285,6 +285,33 @@ impl TickDelta {
         }
     }
 
+    /// Apply a delta number of ticks with no overstep
+    pub fn from_i16(delta: i16) -> Self {
+        if delta < 0 {
+            Self {
+                tick_diff: (-delta) as u16,
+                overstep: Overstep::default(),
+                neg: true,
+            }
+        } else {
+            Self {
+                tick_diff: delta as u16,
+                overstep: Overstep::default(),
+                neg: false,
+            }
+        }
+    }
+
+    /// Returns the number of tick difference (positive or negative) that this TickDelta represents,
+    /// rounding to the closes integer value
+    pub fn to_i16(&self) -> i16 {
+        if self.is_negative() {
+            -(self.tick_diff as i16 + self.overstep.value().round() as i16)
+        } else {
+            self.tick_diff as i16 + self.overstep.value().round() as i16
+        }
+    }
+
     pub fn from_time_delta(mut delta: TimeDelta, tick_duration: Duration) -> Self {
         let is_negative = !delta.is_positive();
         if is_negative {

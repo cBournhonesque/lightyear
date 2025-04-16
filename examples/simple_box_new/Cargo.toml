@@ -1,0 +1,44 @@
+[package]
+name = "simple_box_new"
+version = "0.1.0"
+authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
+edition = "2021"
+description = "Examples for the lightyearServer-client networking library for the Bevy game engine"
+readme = "README.md"
+repository = "https://github.com/cBournhonesque/lightyear"
+keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
+categories = ["game-development", "network-programming"]
+license = "MIT OR Apache-2.0"
+publish = false
+
+[features]
+client = ["lightyear_new/client"]
+server = ["lightyear_new/server"]
+#default = ["client", "server", "gui", "lightyear_examples_common/default"]
+#websocket = ["lightyear_examples_common/websocket"]
+#client = ["lightyear_examples_common/client", "gui"]
+#server = ["lightyear_examples_common/server"]
+#gui = ["lightyear_examples_common/gui"]
+#tls = ["dep:bevygap_client_plugin"]
+#steam = ["lightyear_examples_common/steam"]
+#metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
+#bevygap_client = ["lightyear_examples_common/bevygap_client", "client"]
+#bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
+#visualizer = ["lightyear_examples_common/visualizer", "gui"]
+
+[dependencies]
+lightyear_new.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+bevy.workspace = true
+rand.workspace = true
+metrics-exporter-prometheus = { workspace = true, optional = true }
+bevy-inspector-egui = { workspace = true, optional = true }
+bevygap_client_plugin = { workspace = true, optional = true, features = [
+  "matchmaker-tls",
+] }
+
+[lints]
+workspace = true

@@ -4,10 +4,13 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
+use lightyear_connection::identity::{is_host_server, NetworkIdentityState};
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::components::DisableReplicateHierarchy;
-use lightyear_replication::prelude::{Confirmed, HasAuthority, Replicate, Replicating, ReplicationBufferSet, ReplicationGroup, ShouldBePredicted};
+use lightyear_replication::prelude::{Confirmed, HasAuthority, Replicate, ReplicateLike, Replicating, ReplicationBufferSet, ReplicationGroup, ShouldBePredicted};
 use crate::resource::PredictionManager;
 use crate::Predicted;
+use crate::run_conditions::is_synced;
 
 /// Indicates that an entity was pre-predicted
 // NOTE: we do not map entities for this component, we want to receive the entities as is
@@ -121,7 +124,10 @@ impl PrePredictionPlugin {
                 // PrePredicted was added by the client:
                 // Spawn a Confirmed entity and update the mapping
                 commands.queue(move |world: &mut World| {
-                    let tick = world.resource::<TickManager>().tick();
+                    let Ok(timeline) = world.query::<&LocalTimeline>().single(world) else {
+                        return;
+                    };
+                    let tick = timeline.tick();
                     let confirmed_entity = world
                         .spawn(Confirmed {
                             predicted: Some(predicted_entity),

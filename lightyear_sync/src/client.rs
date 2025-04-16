@@ -5,12 +5,13 @@ use crate::timeline::input::Input;
 #[cfg(feature = "interpolation")]
 use crate::timeline::interpolation::Interpolation;
 use crate::timeline::remote::RemoteEstimate;
-use crate::timeline::sync::SyncedTimeline;
+use crate::timeline::sync::{SyncEvent, SyncedTimeline};
 use crate::timeline::{remote, DrivingTimeline};
 use bevy::prelude::*;
 use bevy::prelude::{Reflect, SystemSet};
 use bevy::time::time_system;
-use lightyear_core::prelude::NetworkTimelinePlugin;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin, Tick};
+use lightyear_core::time::TickDelta;
 use lightyear_core::timeline::Timeline;
 
 // When a Client is created; we want to add a PredictedTimeline? InterpolatedTimeline?
@@ -20,6 +21,17 @@ use lightyear_core::timeline::Timeline;
 //      what decides
 //  - we update
 pub struct ClientPlugin;
+
+impl ClientPlugin {
+    pub fn update_local_timeline(
+        trigger: Trigger<SyncEvent<Input>>,
+        query: Query<&mut LocalTimeline>,
+    ) {
+        if let Ok(mut timeline) = query.get(trigger.target()) {
+            timeline.apply_delta(TickDelta::from_i16(trigger.tick_delta));
+        }
+    }
+}
 
 // TODO: we might need a separate Predicted<Virtual> and Predicted<FixedUpdate>, and Predicted<()> fetches the correct one
 //  depending on the Schedule? exactly like bevy does
@@ -52,6 +64,8 @@ impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(SyncPlugin);
 
+        app.add_observer(Input::recompute_input_delay);
+
         app.add_plugins(SyncedTimelinePlugin::<Input, RemoteEstimate>::default());
 
         #[cfg(feature = "interpolation")]
@@ -62,7 +76,7 @@ impl Plugin for ClientPlugin {
         app.add_observer(remote::update_remote_timeline);
         app.add_systems(First, remote::advance_remote_timeline.after(time_system));
 
-        // TODO: should this be configurable?
+        // TODO: should the DrivingTimeline be configurable?
         // the client will use the Input timeline as the driving timeline
         app.register_required_components::<Timeline<Input>, DrivingTimeline<Input>>();
 

@@ -12,6 +12,7 @@ pub mod prelude {
 
     #[cfg(feature = "client")]
     pub mod client {
+        pub use lightyear_client::plugin::ClientPlugins;
         pub use lightyear_connection::prelude::client::*;
         pub use lightyear_sync::prelude::client::*;
     }
@@ -19,6 +20,7 @@ pub mod prelude {
     #[cfg(feature = "server")]
     pub mod server {
         pub use lightyear_connection::prelude::server::*;
+        pub use lightyear_server::plugin::ServerPlugins;
         pub use lightyear_sync::prelude::server::*;
     }
 }

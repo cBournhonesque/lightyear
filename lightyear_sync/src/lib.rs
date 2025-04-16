@@ -36,6 +36,7 @@ pub mod prelude {
         #[cfg(feature = "interpolation")]
         pub use crate::timeline::interpolation::{Interpolation, InterpolationTimeline};
         pub use crate::timeline::remote::{RemoteEstimate, RemoteTimeline};
+        pub use crate::timeline::sync::IsSynced;
     }
 
     #[cfg(feature = "server")]

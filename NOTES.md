@@ -11,13 +11,12 @@
 
 - EntityMap: maybe this should be directly on the Serialize level?
 
-- ReplicationConfig:
-  - Visibility:
-    - each entity has their own VisibilityManager, with the list of peers that they want to be visible to
-      (independently from the Replicate.senders)
-  - Per-Entity replication Config:
-    - DisableReplicationHierarchy
-  - ReplicateLike:
+TODOs:
+- Maybe have a DummyConnection that is just pass-through on top of the io? and then everything else can react to Connected/Disconnected events?
+- When we get a Disconnection, use the Sender's replicated-entities to update the Replicate components
+- When we get a Connection, how do specify which Replicate will handle that new client?
+  Maybe we can have some Access or bitmask of all connections, and the access could have `accept_all`, etc.?
+
 
 TEST TODO:
  - Add ReplicationSender/ReplicationReceiver automatically on Client/ClientOf? But how to avoid 
@@ -45,7 +44,6 @@ TEST TODO:
   - global resource that maps from network targets (from Link or Netcode) to entity.
   - command/trigger `send_message_to_target` -> find all the entities that have a MessageSender that match
     and buffer the message
-  - 
 
 
 # Host-server
@@ -56,6 +54,7 @@ TEST TODO:
   - OPTION1: one of the ClientOfs is also a Client? with Transport via Channels? has a an extra component Host/Local
     - PredictionManager and InterpolationManager are disabled
     - Messages hjj
+  - OPTION2: the ClientOf has a Link but no io (or just a dummy io). 
 
 
 

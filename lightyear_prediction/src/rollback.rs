@@ -19,7 +19,7 @@ use lightyear_replication::prelude::{Confirmed, Replicated, ReplicationReceiver}
 use lightyear_replication::registry::registry::ComponentRegistry;
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
-use super::{Predicted, PredictionMode};
+use super::{Predicted, PredictionMode, SyncComponent};
 use crate::correction::Correction;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;

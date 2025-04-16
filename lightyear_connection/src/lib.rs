@@ -36,6 +36,7 @@ pub mod direction;
 
 #[cfg(feature = "server")]
 pub mod client_of;
+pub mod identity;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ConnectionSet {

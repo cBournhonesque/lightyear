@@ -29,6 +29,7 @@ pub(crate) struct PredictionDisable;
 
 impl Command for PredictionDespawnCommand {
     fn apply(self, world: &mut World) {
+
         // if we are in host server mode, there is no rollback so we can despawn the entity immediately
         if world.is_host_server() {
             world.entity_mut(self.entity).despawn();
@@ -65,11 +66,12 @@ impl PredictionDespawnCommandsExt for EntityCommands<'_> {
     fn prediction_despawn(&mut self) {
         let entity = self.id();
         self.queue(move |entity_mut: EntityWorldMut| {
-            if is_server_ref(entity_mut.world().get_resource_ref::<State<NetworkIdentityState>>()) {
-                entity_mut.despawn();
-            } else {
-                PredictionDespawnCommand { entity }.apply(entity_mut.into_world_mut());
-            }
+            // TODO: if we are the server, just despawn!
+            // if is_server_ref(entity_mut.world().get_resource_ref::<State<NetworkIdentityState>>()) {
+            //     entity_mut.despawn();
+            // } else {
+            PredictionDespawnCommand { entity }.apply(entity_mut.into_world_mut());
+            // }
         });
     }
 }

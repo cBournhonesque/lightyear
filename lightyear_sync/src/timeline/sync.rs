@@ -1,20 +1,29 @@
 use crate::ping::manager::PingManager;
-use bevy::prelude::{Event, Reflect};
-use lightyear_core::time::{TickInstant, TimeDelta};
+use bevy::prelude::{Component, Event, Reflect};
+use lightyear_core::prelude::Tick;
+use lightyear_core::time::{TickDelta, TickInstant, TimeDelta};
 use lightyear_core::timeline::NetworkTimeline;
 
 #[derive(Event, Debug)]
 pub struct SyncEvent<T> {
-    pub(crate) old: TickInstant,
-    pub(crate) new: TickInstant,
+    // NOTE: it's inconvenient to re-sync the Timeline from a TickInstant to another TickInstant,
+    //  so instead we will apply a delta number of ticks with no overstep (so that it's easy
+    //  to update the LocalTimeline
+    /// Delta in number of ticks to apply to the timeline
+    pub(crate) tick_delta: i16,
+    pub(crate) marker: core::marker::PhantomData<T>,
+}
+
+/// Marker component to indicate that the timeline has been synced
+#[derive(Component, Default, Debug)]
+pub struct IsSynced<T> {
     pub(crate) marker: core::marker::PhantomData<T>,
 }
 
 impl<T> Clone for SyncEvent<T> {
     fn clone(&self) -> Self {
         SyncEvent {
-            old: self.old,
-            new: self.new,
+            tick_delta: self.tick_delta,
             marker: core::marker::PhantomData,
         }
     }

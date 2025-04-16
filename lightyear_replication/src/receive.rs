@@ -312,7 +312,7 @@ impl ReplicationReceiver {
 
     /// Gets the tick at which the provided confirmed entity currently is
     /// (i.e. the latest server tick at which we received an update for that entity)
-    pub(crate) fn get_confirmed_tick(&self, confirmed_entity: Entity) -> Option<Tick> {
+    pub fn get_confirmed_tick(&self, confirmed_entity: Entity) -> Option<Tick> {
         self.channel_by_local(confirmed_entity)
             .and_then(|channel| channel.latest_tick)
     }

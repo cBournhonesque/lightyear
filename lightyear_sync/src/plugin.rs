@@ -1,6 +1,6 @@
 use crate::ping::manager::PingManager;
 use crate::ping::plugin::PingPlugin;
-use crate::timeline::sync::SyncedTimeline;
+use crate::timeline::sync::{IsSynced, SyncedTimeline};
 use crate::timeline::DrivingTimeline;
 use bevy::app::{App, FixedFirst, Plugin};
 use bevy::prelude::*;
@@ -77,16 +77,18 @@ impl SyncPlugin {
     /// Sync timeline T to timeline M by either
     /// - speeding up/slowing down the timeline T to match timeline M
     /// - emitting a SyncEvent<T>
-    pub(crate) fn sync_timelines<T: SyncedTimeline, M: NetworkTimeline>(
+    pub(crate) fn sync_timelines<T: TimelineContext, M: TimelineContext> (
         mut commands: Commands,
-        mut query: Query<(Entity, &mut T, &M, &PingManager)>,
-    ) {
+        mut query: Query<(Entity, &mut Timeline<T>, &Timeline<M>, &PingManager)>,
+    ) where Timeline<T>: SyncedTimeline {
         query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, ping_manager)| {
             if let Some(sync_event) = sync_timeline.sync(main_timeline, ping_manager) {
                 commands.trigger_targets(sync_event, entity);
+                commands.entity(entity).insert(IsSynced::<T>::default());
             }
         })
     }
+
 }
 
 

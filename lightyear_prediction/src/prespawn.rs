@@ -4,13 +4,13 @@ use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, trace, warn};
-use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::components::Replicated;
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver, ShouldBePredicted};
 use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_sync::prelude::client::InterpolationTimeline;
 use crate::plugin::PredictionSet;
 use crate::resource::PredictionManager;
-use crate::rollback::Rollback;
 use crate::Predicted;
 
 #[derive(Default)]
@@ -213,15 +213,17 @@ impl PreSpawnedPlayerObjectPlugin {
     /// Cleanup the client prespawned entities for which we couldn't find a mapped server entity
     pub(crate) fn pre_spawned_player_object_cleanup(
         mut commands: Commands,
-        tick_manager: Res<TickManager>,
-        connection: Res<ConnectionManager>,
+        receiver_query: Query<(&ReplicationReceiver, &LocalTimeline, &InterpolationTimeline)>,
         mut manager: ResMut<PredictionManager>,
     ) {
-        let tick = tick_manager.tick();
+        let Ok((receiver, timeline, interpolation_timeline)) = receiver_query.single() else {
+            return;
+        };
+        let tick = timeline.tick();
         // TODO: why is interpolation tick not good enough and we need to use an earlier tick?
         // TODO: for some reason at interpolation_tick we often haven't received the update from the server yet!
         //  use a tick that it's even more in the past
-        let interpolation_tick = connection.sync_manager.interpolation_tick(&tick_manager);
+        let interpolation_tick = interpolation_timeline.tick();
         trace!(
             ?tick,
             ?interpolation_tick,

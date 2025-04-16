@@ -8,7 +8,10 @@ This crate provides abstractions for sending and receiving raw bytes over the ne
 extern crate alloc;
 extern crate core;
 
+#[cfg(feature = "client")]
 mod client;
+
+#[cfg(feature = "server")]
 mod server;
 mod input_buffer;
 mod config;
