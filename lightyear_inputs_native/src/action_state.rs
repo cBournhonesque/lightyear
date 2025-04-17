@@ -18,19 +18,13 @@ There are several steps to use the `InputPlugin`:
 
 
 */
-
-use crate::inputs::native::input_buffer::{InputBuffer, InputData};
-use crate::prelude::Deserialize;
 use bevy::ecs::component::Mutable;
 use bevy::prelude::{Component, Reflect};
 use core::fmt::Debug;
 use core::marker::PhantomData;
+use lightyear_inputs::{UserAction, UserActionState};
 use serde::de::DeserializeOwned;
-use serde::Serialize;
-
-/// Defines an [`InputBuffer`](InputBuffer) buffer to store the inputs of a player for each tick
-pub mod input_buffer;
-pub(crate) mod input_message;
+use serde::{Deserialize, Serialize};
 
 /// The component that will store the current status of the action for the entity
 #[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize, Reflect)]

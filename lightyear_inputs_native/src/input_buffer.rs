@@ -1,3 +1,7 @@
+use crate::action_state::ActionState;
+use lightyear_core::prelude::Tick;
+use lightyear_inputs::input_buffer::{InputBuffer, InputData};
+use lightyear_inputs::UserAction;
 
 impl<T: UserAction> InputBuffer<ActionState<T>> {
     /// Upon receiving an [`InputMessage`](super::input_message::InputMessage), update the InputBuffer with all the inputs

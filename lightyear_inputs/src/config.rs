@@ -1,8 +1,9 @@
-use bevy::prelude::{Reflect, Resource};
+use bevy::prelude::{Component, Reflect, Resource};
 use std::marker::PhantomData;
 use std::time::Duration;
 
-#[derive(Debug, Clone, Copy, Reflect, Resource)]
+#[derive(Debug, Clone, Copy, Reflect, Component)]
+#[require(InputTimeline)]
 pub struct InputConfig<A> {
     /// If enabled, the client will send the interpolation_delay to the server so that the server
     /// can apply lag compensation when the predicted client is shooting at interpolated enemies.

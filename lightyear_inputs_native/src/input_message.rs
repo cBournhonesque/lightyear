@@ -1,13 +1,14 @@
-use crate::inputs::native::input_buffer::{InputBuffer, InputData};
-use crate::inputs::native::ActionState;
-use crate::prelude::client::InterpolationDelay;
-use crate::prelude::{Deserialize, Serialize, Tick, UserAction};
+use crate::action_state::ActionState;
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec, vec::Vec};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Reflect};
 use core::cmp::max;
 use core::fmt::{Formatter, Write};
+use lightyear_core::prelude::Tick;
+use lightyear_inputs::input_buffer::{InputBuffer, InputData};
+use lightyear_inputs::UserAction;
+use serde::{Deserialize, Serialize};
 
 // TODO: use Mode to specify how to serialize a message (serde vs bitcode)! + can specify custom serialize function as well (similar to interpolation mode)
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]

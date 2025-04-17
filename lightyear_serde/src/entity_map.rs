@@ -156,7 +156,7 @@ impl RemoteEntityMap {
 
     /// Get the remote entity corresponding to the local entity in the entity map
     #[inline]
-    pub(crate) fn get_remote(&self, local_entity: Entity) -> Option<Entity> {
+    pub fn get_remote(&self, local_entity: Entity) -> Option<Entity> {
         self.local_to_remote.get(&local_entity).copied()
     }
 

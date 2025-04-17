@@ -10,7 +10,7 @@ pub struct SyncEvent<T> {
     //  so instead we will apply a delta number of ticks with no overstep (so that it's easy
     //  to update the LocalTimeline
     /// Delta in number of ticks to apply to the timeline
-    pub(crate) tick_delta: i16,
+    pub tick_delta: i16,
     pub(crate) marker: core::marker::PhantomData<T>,
 }
 

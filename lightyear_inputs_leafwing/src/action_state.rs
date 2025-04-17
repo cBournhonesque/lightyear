@@ -1,3 +1,6 @@
+use leafwing_input_manager::action_state::ActionState;
+use leafwing_input_manager::Actionlike;
+use lightyear_inputs::{UserAction, UserActionState};
 
 pub trait LeafwingUserAction:
     UserAction + Copy + Actionlike + bevy::reflect::GetTypeRegistration

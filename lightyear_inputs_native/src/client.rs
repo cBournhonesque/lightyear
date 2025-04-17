@@ -53,26 +53,23 @@
 //! That module is more up-to-date and has more features.
 //! This module is kept for simplicity but might get removed in the future.
 
+use crate::action_state::{ActionState, InputMarker};
+use crate::input_message::{InputMessage, InputTarget};
 use bevy::prelude::*;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_inputs::client::{BaseInputPlugin, InputSet};
+use lightyear_inputs::config::InputConfig;
+use lightyear_inputs::input_buffer::InputBuffer;
+use lightyear_inputs::UserAction;
+use lightyear_messages::prelude::MessageSender;
+use lightyear_messages::MessageManager;
+use lightyear_prediction::Predicted;
+use lightyear_sync::prelude::client::{Input, IsSynced};
+use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::timeline::sync::SyncEvent;
+use lightyear_transport::channel::builder::InputChannel;
+use lightyear_transport::prelude::ChannelRegistry;
 use tracing::{debug, error, trace};
-
-use crate::channel::builder::InputChannel;
-use crate::client::components::Confirmed;
-use crate::client::config::ClientConfig;
-use crate::client::connection::ConnectionManager;
-use crate::client::input::{BaseInputPlugin, InputSystemSet};
-use crate::client::prediction::plugin::is_in_rollback;
-use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::Predicted;
-use crate::inputs::native::input_buffer::InputBuffer;
-use crate::inputs::native::input_message::{InputMessage, InputTarget};
-use crate::inputs::native::{ActionState, InputMarker, UserAction};
-use crate::prelude::{
-    ChannelKind, ChannelRegistry, ClientReceiveMessage, MessageRegistry, PrePredicted, TickManager,
-    TimeManager,
-};
-use crate::shared::input::InputConfig;
-use crate::shared::tick_manager::TickEvent;
 
 pub struct InputPlugin<A> {
     config: InputConfig<A>,
@@ -125,19 +122,19 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
             app.add_systems(
                 RunFixedMainLoop,
                 receive_remote_player_input_messages::<A>
-                    .in_set(InputSystemSet::ReceiveInputMessages),
+                    .in_set(InputSet::ReceiveInputMessages),
             );
         }
         app.add_systems(
             FixedPostUpdate,
             prepare_input_message::<A>
-                .in_set(InputSystemSet::PrepareInputMessage)
+                .in_set(InputSet::PrepareInputMessage)
                 // no need to prepare messages to send if in rollback
                 .run_if(not(is_in_rollback)),
         );
         app.add_systems(
             PostUpdate,
-            send_input_messages::<A>.in_set(InputSystemSet::SendInputMessage),
+            send_input_messages::<A>.in_set(InputSet::SendInputMessage),
         );
         // if the client tick is updated because of a desync, update the ticks in the input buffers
         app.add_observer(receive_tick_events::<A>);
@@ -146,12 +143,11 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
 
 /// Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<A: UserAction>(
-    connection: Res<ConnectionManager>,
     mut message_buffer: ResMut<MessageBuffer<A>>,
     channel_registry: Res<ChannelRegistry>,
     config: Res<ClientConfig>,
     input_config: Res<InputConfig<A>>,
-    tick_manager: Res<TickManager>,
+    sender: Query<(&LocalTimeline, &InputTimeline, &MessageManager), With<IsSynced<Input>>>,
     input_buffer_query: Query<
         (
             Entity,
@@ -162,11 +158,16 @@ fn prepare_input_message<A: UserAction>(
         With<InputMarker<A>>,
     >,
 ) {
+
+    let Ok((local_timeline, input_timeline, message_manager)) = sender.single() else {
+        return
+    };
+
     // we send a message from the latest tick that we have available, which is the delayed tick
-    let input_delay_ticks = connection.input_delay_ticks() as i16;
-    let tick = tick_manager.tick() + input_delay_ticks;
+    let current_tick = local_timeline.tick();
+    let tick = current_tick + input_timeline.input_delay() as i16;
     // TODO: the number of messages should be in SharedConfig
-    trace!(delayed_tick = ?tick, current_tick = ?tick_manager.tick(), "prepare_input_message");
+    trace!(delayed_tick = ?tick, ?current_tick, "prepare_input_message");
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
     //  this system what the latest acked input tick is?
@@ -227,9 +228,8 @@ fn prepare_input_message<A: UserAction>(
             // 1. if the entity is confirmed, we need to convert the entity to the server's entity
             // 2. if the entity is predicted, we need to first convert the entity to confirmed, and then from confirmed to remote
             if let Some(confirmed) = predicted.map_or(Some(entity), |p| p.confirmed_entity) {
-                if let Some(server_entity) = connection
-                    .replication_receiver
-                    .remote_entity_map
+                if let Some(server_entity) = message_manager
+                    .entity_mapper
                     .get_remote(confirmed)
                 {
                     trace!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
@@ -258,6 +258,7 @@ fn prepare_input_message<A: UserAction>(
 
     // NOTE: keep the older input values in the InputBuffer! because they might be needed when we rollback for client prediction
 }
+
 
 /// Read the InputMessages of other clients from the server to update their InputBuffer and ActionState.
 /// This is useful if we want to do client-prediction for remote players.
@@ -352,9 +353,9 @@ fn receive_remote_player_input_messages<A: UserAction>(
 
 /// Drain the messages from the buffer and send them to the server
 fn send_input_messages<A: UserAction>(
-    mut connection: ResMut<ConnectionManager>,
     input_config: Res<InputConfig<A>>,
     mut message_buffer: ResMut<MessageBuffer<A>>,
+    mut sender: Query<&mut MessageSender<InputMessage<A>>, With<LocalTimeline>>,
     time_manager: Res<TimeManager>,
     tick_manager: Res<TickManager>,
 ) {
@@ -362,6 +363,9 @@ fn send_input_messages<A: UserAction>(
         "Number of input messages to send: {:?}",
         message_buffer.0.len()
     );
+    let Ok(mut sender) = sender.single_mut() else {
+        return
+    };
     for mut message in message_buffer.0.drain(..) {
         // if lag compensation is enabled, we send the current delay to the server
         // (this runs here because the delay is only correct after the SyncSet has run)
@@ -374,36 +378,29 @@ fn send_input_messages<A: UserAction>(
                     .interpolation_delay(tick_manager.as_ref(), time_manager.as_ref()),
             );
         }
-        connection
-            .send_message::<InputChannel, InputMessage<A>>(&message)
-            .unwrap_or_else(|err| {
-                error!("Error while sending input message: {:?}", err);
-            });
+        sender.send::<InputChannel>(message);
     }
 }
 
 /// In case the client tick changes suddenly, we also update the InputBuffer accordingly
 fn receive_tick_events<A: UserAction>(
-    trigger: Trigger<TickEvent>,
+    trigger: Trigger<SyncEvent<Input>>,
     mut message_buffer: ResMut<MessageBuffer<A>>,
     mut input_buffer_query: Query<&mut InputBuffer<ActionState<A>>>,
 ) {
-    match *trigger.event() {
-        TickEvent::TickSnap { old_tick, new_tick } => {
-            for mut input_buffer in input_buffer_query.iter_mut() {
-                if let Some(start_tick) = input_buffer.start_tick {
-                    input_buffer.start_tick = Some(start_tick + (new_tick - old_tick));
-                    debug!(
-                        "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
-                        trigger.event(),
-                        input_buffer.start_tick
-                    );
-                }
-            }
-            for message in message_buffer.0.iter_mut() {
-                message.end_tick = message.end_tick + (new_tick - old_tick);
-            }
+    let delta = trigger.tick_delta;
+    for mut input_buffer in input_buffer_query.iter_mut() {
+        if let Some(start_tick) = input_buffer.start_tick {
+            input_buffer.start_tick = Some(start_tick + delta);
+            debug!(
+                "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
+                trigger.event(),
+                input_buffer.start_tick
+            );
         }
+    }
+    for message in message_buffer.0.iter_mut() {
+        message.end_tick = message.end_tick + delta;
     }
 }
 

@@ -32,30 +32,13 @@
 //! Currently, global inputs (that are stored in a [`Resource`] instead of being attached to a specific [`Entity`] are not supported)
 use core::fmt::Debug;
 
+use crate::action_state::LeafwingUserAction;
+use crate::input_message::InputMessage;
 use bevy::prelude::*;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
+use lightyear_inputs::client::{BaseInputPlugin, InputSet};
 use tracing::{error, trace};
-
-use crate::channel::builder::InputChannel;
-use crate::client::components::Confirmed;
-use crate::client::config::ClientConfig;
-use crate::client::connection::ConnectionManager;
-use crate::client::input::{BaseInputPlugin, InputSystemSet};
-use crate::client::prediction::plugin::is_in_rollback;
-use crate::client::prediction::resource::PredictionManager;
-use crate::client::prediction::Predicted;
-use crate::inputs::leafwing::input_buffer::InputBuffer;
-use crate::inputs::leafwing::input_message::InputTarget;
-use crate::inputs::leafwing::LeafwingUserAction;
-use crate::prelude::{
-    is_host_server, ChannelKind, ChannelRegistry, ClientReceiveMessage, InputMessage,
-    MessageRegistry, TickManager, TimeManager,
-};
-use crate::shared::input::InputConfig;
-use crate::shared::replication::components::PrePredicted;
-use crate::shared::tick_manager::TickEvent;
-use crate::tests::protocol::ComponentSyncModeFull;
 
 // TODO: is this actually necessary? The sync happens in PostUpdate,
 //  so maybe it's ok if the InputMessages contain the pre-sync tick! (since those inputs happened
@@ -125,7 +108,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
         // SETS
         app.configure_sets(
             FixedPostUpdate,
-            InputSystemSet::RestoreInputs.before(InputManagerSystem::Tick),
+            InputSet::RestoreInputs.before(InputManagerSystem::Tick),
         );
 
         // SYSTEMS
@@ -133,20 +116,20 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A>
             app.add_systems(
                 RunFixedMainLoop,
                 receive_remote_player_input_messages::<A>
-                    .in_set(InputSystemSet::ReceiveInputMessages),
+                    .in_set(InputSet::ReceiveInputMessages),
             );
         }
 
         app.add_systems(
             FixedPostUpdate,
             prepare_input_message::<A>
-                .in_set(InputSystemSet::PrepareInputMessage)
+                .in_set(InputSet::PrepareInputMessage)
                 // no need to prepare messages to send if in rollback
                 .run_if(not(is_in_rollback)),
         );
         app.add_systems(
             PostUpdate,
-            send_input_messages::<A>.in_set(InputSystemSet::SendInputMessage),
+            send_input_messages::<A>.in_set(InputSet::SendInputMessage),
         );
         // if the client tick is updated because of a desync, update the ticks in the input buffers
         app.add_observer(receive_tick_events::<A>);

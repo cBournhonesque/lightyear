@@ -14,7 +14,10 @@ mod action_state;
 mod input_buffer;
 
 mod input_message;
+#[cfg(feature = "client")]
 mod client;
+
+#[cfg(feature = "server")]
 mod server;
 mod plugin;
 

@@ -1,15 +1,13 @@
 //! Handles client-generated inputs
+use crate::action_state::{ActionState, InputMarker};
+use crate::input_message::{InputMessage, InputTarget};
 use bevy::prelude::*;
-
-use crate::client::config::ClientConfig;
-use crate::connection::client::{ClientConnection, NetClient};
-use crate::inputs::native::input_buffer::InputBuffer;
-use crate::inputs::native::input_message::{InputMessage, InputTarget};
-use crate::inputs::native::{ActionState, InputMarker};
-use crate::prelude::{is_host_server, ChannelKind, ChannelRegistry, ClientConnectionManager, InputChannel, MessageRegistry, NetworkTarget, ServerReceiveMessage, ServerSendMessage, TickManager, UserAction};
-use crate::server::connection::ConnectionManager;
-use crate::server::input::InputSystemSet;
-use crate::shared::input::InputConfig;
+use lightyear_connection::client_of::ClientOf;
+use lightyear_inputs::input_buffer::InputBuffer;
+use lightyear_inputs::server::{BaseInputPlugin, InputSet};
+use lightyear_inputs::UserAction;
+use lightyear_messages::prelude::MessageReceiver;
+use lightyear_messages::registry::MessageRegistry;
 use tracing::{debug, trace};
 
 pub struct InputPlugin<A> {
@@ -32,7 +30,7 @@ impl<A> Default for InputPlugin<A> {
 
 impl<A: UserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
-        app.add_plugins(super::BaseInputPlugin::<ActionState<A>> {
+        app.add_plugins(BaseInputPlugin::<ActionState<A>> {
             rebroadcast_inputs: self.rebroadcast_inputs,
             marker: core::marker::PhantomData,
         });
@@ -40,8 +38,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         // we don't need this for native inputs because InputBuffer is required by ActionState
         // app.add_observer(add_action_state_buffer::<A>);
         app.add_systems(
-            PreUpdate,
-            (receive_input_message::<A>,).in_set(InputSystemSet::ReceiveInputs),
+            PreUpdate, receive_input_message::<A>.in_set(InputSet::ReceiveInputs),
         );
 
         // TODO: make this changeable dynamically by putting this in a resource?
@@ -53,7 +50,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
                     rebroadcast_inputs::<A>,
                 )
                     .chain()
-                    .in_set(InputSystemSet::RebroadcastInputs),
+                    .in_set(InputSet::RebroadcastInputs),
             );
         }
     }
@@ -62,65 +59,67 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<A: UserAction>(
     message_registry: Res<MessageRegistry>,
-    // we use an EventReader and not an event because the user might want to re-broadcast the inputs
-    mut received_inputs: EventReader<ServerReceiveMessage<InputMessage<A>>>,
-    connection_manager: Res<ConnectionManager>,
+
+    mut receivers: Query<(&ClientOf, &mut MessageReceiver<InputMessage<A>>)>,
     // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<Option<&mut InputBuffer<ActionState<A>>>>,
     mut commands: Commands,
 ) {
-    received_inputs.read().for_each(|event| {
-        let message = &event.message;
-        let client_id = event.from;
-        // ignore input messages from the local client (if running in host-server mode)
-        if client_id.is_local() {
-            return
-        }
-        trace!(?client_id, action = ?core::any::type_name::<A>(), ?message.end_tick, ?message.inputs, "received input message");
-
-        // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
-        //  that the message was intended for?
-        if let Some(interpolation_delay) = message.interpolation_delay {
-            // update the interpolation delay estimate for the client
-            if let Ok(client_entity) = connection_manager.client_entity(client_id) {
-                commands.entity(client_entity).insert(interpolation_delay);
+    receivers.par_iter_mut().for_each(|(client_of, mut receiver)| {
+        // TODO: this drains the messages... but the user might want to re-broadcast them?
+        //  should we just read insteaD?
+        let client_id = client_of.id;
+        receiver.receive().for_each(|message| {
+            // ignore input messages from the local client (if running in host-server mode)
+            if client_id.is_local() {
+                return
             }
-        }
+            trace!(?client_id, action = ?core::any::type_name::<A>(), ?message.end_tick, ?message.inputs, "received input message");
 
-        for data in &message.inputs {
-            match data.target {
-                // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
-                // (which is possible because the server received the entity)
-                // - for non-pre predicted entities, the mapping was already done on client side
-                // (client converted from their local entity to the remote server entity)
-                InputTarget::Entity(entity)
-                | InputTarget::PrePredictedEntity(entity) => {
-                    // TODO Don't update input buffer if inputs arrived too late?
-                    trace!("received input for entity: {:?}", entity);
+            // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
+            //  that the message was intended for?
+            if let Some(interpolation_delay) = message.interpolation_delay {
+                // update the interpolation delay estimate for the client
+                if let Ok(client_entity) = connection_manager.client_entity(client_id) {
+                    commands.entity(client_entity).insert(interpolation_delay);
+                }
+            }
 
-                    if let Ok(buffer) = query.get_mut(entity) {
-                        if let Some(mut buffer) = buffer {
-                            buffer.update_from_message(message.end_tick, &data.states);
-                            trace!(
-                                "Updated InputBuffer: {} using InputMessage: {:?}",
-                                buffer.as_ref(),
-                                message
-                            );
+            for data in &message.inputs {
+                match data.target {
+                    // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
+                    // (which is possible because the server received the entity)
+                    // - for non-pre predicted entities, the mapping was already done on client side
+                    // (client converted from their local entity to the remote server entity)
+                    InputTarget::Entity(entity)
+                    | InputTarget::PrePredictedEntity(entity) => {
+                        // TODO Don't update input buffer if inputs arrived too late?
+                        trace!("received input for entity: {:?}", entity);
+
+                        if let Ok(buffer) = query.get_mut(entity) {
+                            if let Some(mut buffer) = buffer {
+                                buffer.update_from_message(message.end_tick, &data.states);
+                                trace!(
+                                    "Updated InputBuffer: {} using InputMessage: {:?}",
+                                    buffer.as_ref(),
+                                    message
+                                );
+                            } else {
+                                trace!("Adding InputBuffer and ActionState which are missing on the entity");
+                                let mut buffer = InputBuffer::<ActionState<A>>::default();
+                                buffer.update_from_message(message.end_tick, &data.states);
+                                commands.entity(entity).insert((
+                                    buffer,
+                                    ActionState::<A>::default(),
+                                ));
+                            }
                         } else {
-                            trace!("Adding InputBuffer and ActionState which are missing on the entity");
-                            let mut buffer = InputBuffer::<ActionState<A>>::default();
-                            buffer.update_from_message(message.end_tick, &data.states);
-                            commands.entity(entity).insert((
-                                buffer,
-                                ActionState::<A>::default(),
-                            ));
+                            debug!(?entity, ?data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                         }
-                    } else {
-                        debug!(?entity, ?data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                     }
                 }
             }
-        }
+        })
     });
 }
 

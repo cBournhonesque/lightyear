@@ -1,7 +1,8 @@
-use crate::prelude::{Deserialize, LeafwingUserAction, Serialize};
+use crate::action_state::LeafwingUserAction;
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::Reflect;
 use leafwing_input_manager::action_state::{ActionKindData, ActionState};
+use serde::{Deserialize, Serialize};
 
 // TODO: can reuse the ActionDiff from leafwing_input_manager?
 /// Stores presses and releases of buttons without timing information
@@ -171,10 +172,7 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        inputs::leafwing::action_diff::ActionDiff,
-        prelude::{Deserialize, Serialize},
-    };
+    use super::*;
     use bevy::{
         math::{Vec2, Vec3},
         prelude::Reflect,

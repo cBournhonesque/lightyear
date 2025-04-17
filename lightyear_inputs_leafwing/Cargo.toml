@@ -12,14 +12,18 @@ repository = "https://github.com/cBournhonesque/lightyear"
 default = ["std"]
 std = [
     "bevy/std",
-    "bytes/std",
-    "serde/std",
+]
+client = [
+    "lightyear_inputs/client"
+]
+server = [
+    "lightyear_inputs/server"
 ]
 
 [dependencies]
-lightyear_utils.workspace = true
-lightyear_serde.workspace = true
-lightyear_core.workspace = true
+lightyear_inputs.workspace = true
+
+leafwing-input-manager.workspace = true
 
 # utils
 tracing.workspace = true

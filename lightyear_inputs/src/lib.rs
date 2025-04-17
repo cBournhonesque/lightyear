@@ -9,12 +9,12 @@ extern crate alloc;
 extern crate core;
 
 #[cfg(feature = "client")]
-mod client;
+pub mod client;
 
 #[cfg(feature = "server")]
-mod server;
-mod input_buffer;
-mod config;
+pub mod server;
+pub mod input_buffer;
+pub mod config;
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;

@@ -10,8 +10,8 @@ use tracing::trace;
 
 #[derive(Component, Debug)]
 pub struct InputBuffer<T> {
-    pub(crate) start_tick: Option<Tick>,
-    pub(crate) buffer: VecDeque<InputData<T>>,
+    pub start_tick: Option<Tick>,
+    pub buffer: VecDeque<InputData<T>>,
 }
 
 impl<T: Debug> core::fmt::Display for InputBuffer<T> {
@@ -42,7 +42,7 @@ impl<T: Debug> core::fmt::Display for InputBuffer<T> {
 
 /// We use this structure to efficiently compress the inputs that we send to the server
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
-pub(crate) enum InputData<T> {
+pub enum InputData<T> {
     Absent,
     SameAsPrecedent,
     Input(T),
@@ -99,7 +99,7 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
         self.set_raw(tick, InputData::Absent);
     }
 
-    pub(crate) fn set_raw(&mut self, tick: Tick, value: InputData<T>) {
+    pub fn set_raw(&mut self, tick: Tick, value: InputData<T>) {
         let Some(start_tick) = self.start_tick else {
             // initialize the buffer
             self.start_tick = Some(tick);
