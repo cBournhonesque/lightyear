@@ -56,6 +56,7 @@
 use crate::action_state::{ActionState, InputMarker};
 use crate::input_message::{InputMessage, InputTarget};
 use bevy::prelude::*;
+use core::time::Duration;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_inputs::client::{BaseInputPlugin, InputSet};
 use lightyear_inputs::config::InputConfig;
@@ -63,6 +64,7 @@ use lightyear_inputs::input_buffer::InputBuffer;
 use lightyear_inputs::UserAction;
 use lightyear_messages::prelude::MessageSender;
 use lightyear_messages::MessageManager;
+use lightyear_prediction::pre_prediction::PrePredicted;
 use lightyear_prediction::Predicted;
 use lightyear_sync::prelude::client::{Input, IsSynced};
 use lightyear_sync::prelude::InputTimeline;
@@ -127,10 +129,7 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         }
         app.add_systems(
             FixedPostUpdate,
-            prepare_input_message::<A>
-                .in_set(InputSet::PrepareInputMessage)
-                // no need to prepare messages to send if in rollback
-                .run_if(not(is_in_rollback)),
+            prepare_input_message::<A>.in_set(InputSet::PrepareInputMessage)
         );
         app.add_systems(
             PostUpdate,
@@ -144,8 +143,6 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
 /// Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<A: UserAction>(
     mut message_buffer: ResMut<MessageBuffer<A>>,
-    channel_registry: Res<ChannelRegistry>,
-    config: Res<ClientConfig>,
     input_config: Res<InputConfig<A>>,
     sender: Query<(&LocalTimeline, &InputTimeline, &MessageManager), With<IsSynced<Input>>>,
     input_buffer_query: Query<
@@ -158,8 +155,11 @@ fn prepare_input_message<A: UserAction>(
         With<InputMarker<A>>,
     >,
 ) {
-
     let Ok((local_timeline, input_timeline, message_manager)) = sender.single() else {
+        return
+    };
+    // no need to prepare messages to send if in rollback
+    if local_timeline.is_rollback() {
         return
     };
 
@@ -171,11 +171,12 @@ fn prepare_input_message<A: UserAction>(
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
     //  this system what the latest acked input tick is?
-    let input_send_interval = channel_registry
-        .get_builder_from_kind(&ChannelKind::of::<InputChannel>())
-        .unwrap()
-        .settings
-        .send_frequency;
+    // let input_send_interval = channel_registry
+    //     .get_builder_from_kind(&ChannelKind::of::<InputChannel>())
+    //     .unwrap()
+    //     .settings
+    //     .send_frequency;
+    let input_send_interval = Duration::default();
     // we send redundant inputs, so that if a packet is lost, we can still recover
     // A redundancy of 2 means that we can recover from 1 lost packet
     let mut num_tick: u16 =

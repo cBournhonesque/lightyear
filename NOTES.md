@@ -24,6 +24,18 @@ TEST TODO:
    perf issues?
  - Errors seem to be swallowed
 
+# Messages
+
+- Need to find a way to broadcast messages from other players to a player.
+  - option 1: all messages are wrapped with FromPeer<M> which indicates the original sender?
+   
+- Client sends message to Server, with a given target.
+  - maybe it's wrapped as BroadcastMessage<>?
+  - the client-of receives it
+  - the target is mapped to the correct client-of entities on the server
+    
+- or the message itself should support it? i.e. we have InputMessage<> (for the server) and RebroadcastInput? Rebroadcast input gets added only if the user requests it in the registry.
+
 # Inputs
 
 - Add Started to each ClientOf when the server starts

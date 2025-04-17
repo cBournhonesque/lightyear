@@ -38,7 +38,7 @@ pub struct RemoteEstimate {
 
 
 // We need to wrap the inner Timeline to avoid the orphan rule
-#[derive(Component, Default, Debug, Deref, DerefMut)]
+#[derive(Component, Default, Debug, Deref, DerefMut, Reflect)]
 pub struct RemoteTimeline(Timeline<RemoteEstimate>);
 
 impl RemoteTimeline  {
@@ -125,6 +125,6 @@ pub(crate) fn advance_remote_timeline(
 ) {
     let delta = fixed_time.delta();
     query.iter_mut().for_each(|mut t| {
-        t.advance(delta);
+        t.apply_duration(delta);
     })
 }

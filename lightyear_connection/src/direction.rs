@@ -1,9 +1,14 @@
+use crate::prelude::PeerId;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{App, Component};
+use lightyear_messages::prelude::AppMessageExt;
 use lightyear_messages::receive::MessageReceiver;
-use lightyear_messages::registry::MessageRegistration;
+use lightyear_messages::registry::{MessageKind, MessageRegistration, MessageRegistry};
 use lightyear_messages::send::MessageSender;
 use lightyear_messages::Message;
+use lightyear_serde::registry::{SerializeFn, SerializeFns};
+use lightyear_serde::writer::Writer;
+use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::registry::ChannelRegistration;
 use lightyear_transport::channel::Channel;
 
@@ -15,10 +20,43 @@ pub enum NetworkDirection {
     Bidirectional,
 }
 
+/// Wrapper when sending messages that originally came from another peer
+#[derive(Debug)]
+pub struct Rebroadcast<M: Message> {
+    message: M,
+    from: PeerId,
+}
+
+impl <M: Message> Rebroadcast<M> {
+    pub fn new(message: M, from: PeerId) -> Self {
+        Self { message, from }
+    }
+
+    pub fn message(&self) -> &M {
+        &self.message
+    }
+
+    pub fn from(&self) -> PeerId {
+        self.from
+    }
+
+    fn serialize(ser: SerializeFn<M>) -> SerializeFn<M> {
+        let _serialize = |message: &Rebroadcast<M>, writer: &mut Writer| -> Result<(), SerializationError> {
+            ser(message.message(), writer)?;
+            message.from.to_bytes(writer)?;
+            Ok(())
+        };
+        _serialize
+    }
+}
+
 
 pub trait AppMessageDirectionExt {
     /// Add a new [`NetworkDirection`] to the registry
     fn add_direction(&mut self, direction: NetworkDirection);
+
+    /// Add an extra
+    fn add_rebroadcast(&mut self);
 }
 
 impl<M: Message> AppMessageDirectionExt for MessageRegistration<'_, M> {
@@ -29,6 +67,18 @@ impl<M: Message> AppMessageDirectionExt for MessageRegistration<'_, M> {
         <Self as crate::client::AppMessageDirectionExt>::add_direction(self, direction);
         #[cfg(feature = "server")]
         <Self as crate::server::AppMessageDirectionExt>::add_direction(self, direction);
+    }
+
+    fn add_rebroadcast(&mut self) {
+        // SAFETY: we know that the message M was registerd with kind M
+        let erased = unsafe { self.app.world().resource::<MessageRegistry>().serialize_fns_map.get(&MessageKind::of::<M>()).unwrap().typed() };
+        self.app.add_message_custom_serde::<Rebroadcast<M>>(
+            SerializeFns {
+                serialize: Rebroadcast::<M>::serialize(erased.serialize),
+
+                deserialize: erased.deserialize
+            }
+        );
     }
 }
 

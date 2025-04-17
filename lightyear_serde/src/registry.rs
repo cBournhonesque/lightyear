@@ -58,10 +58,10 @@ type ErasedSerializeFn = unsafe fn(
 ) -> Result<(), SerializationError>;
 
 /// Type of the serialize function without entity mapping
-type SerializeFn<M> = fn(message: &M, writer: &mut Writer) -> Result<(), SerializationError>;
+pub type SerializeFn<M> = fn(message: &M, writer: &mut Writer) -> Result<(), SerializationError>;
 
 /// Type of the deserialize function without entity mapping
-type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<M, SerializationError>;
+pub type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<M, SerializationError>;
 
 type CloneFn<M> = fn(&M) -> M;
 
@@ -191,7 +191,7 @@ impl ErasedSerializeFns {
         }
     }
 
-    pub(crate) unsafe fn typed<M: 'static>(&self) -> SerializeFns<M> {
+    pub unsafe fn typed<M: 'static>(&self) -> SerializeFns<M> {
         debug_assert_eq!(
             self.type_id,
             TypeId::of::<M>(),

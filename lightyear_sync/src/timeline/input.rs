@@ -5,7 +5,7 @@ use core::time::Duration;
 use lightyear_core::tick::Tick;
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, Timeline};
-use lightyear_link::LinkStats;
+use lightyear_link::{Link, LinkStats};
 
 
 /// Timeline that is used to make sure that Inputs from this peer will arrive on time
@@ -33,10 +33,10 @@ impl Input {
     /// when there is a SyncEvent
     pub(crate) fn recompute_input_delay(
         trigger: Trigger<SyncEvent<Input>>,
-        mut query: Query<(&LinkStats, &mut Timeline<Input>)>
+        mut query: Query<(&Link, &mut Timeline<Input>)>
     ) {
-        if let Ok((stats, mut timeline)) = query.get_mut(trigger.target()) {
-            let rtt = stats.rtt();
+        if let Ok((link, mut timeline)) = query.get_mut(trigger.target()) {
+            let rtt = link.stats.rtt;
             let tick_duration = timeline.tick_duration;
             timeline.input_delay_ticks =  timeline.input_delay_config.input_delay_ticks(rtt, tick_duration);
         }

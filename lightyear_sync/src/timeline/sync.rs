@@ -15,9 +15,17 @@ pub struct SyncEvent<T> {
 }
 
 /// Marker component to indicate that the timeline has been synced
-#[derive(Component, Default, Debug)]
+#[derive(Component, Debug)]
 pub struct IsSynced<T> {
     pub(crate) marker: core::marker::PhantomData<T>,
+}
+
+impl<T> Default for IsSynced<T> {
+    fn default() -> Self {
+        IsSynced {
+            marker: core::marker::PhantomData,
+        }
+    }
 }
 
 impl<T> Clone for SyncEvent<T> {

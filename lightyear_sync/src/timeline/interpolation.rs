@@ -79,8 +79,7 @@ impl SyncedTimeline for Timeline<Interpolation> {
         let target = sync_objective;
         self.now = target;
         SyncEvent::<Self> {
-            old: now,
-            new: target,
+            tick_delta: (target-now).to_i16(),
             marker: core::marker::PhantomData,
         }
     }

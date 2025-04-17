@@ -38,9 +38,9 @@ impl<T: TimelineContext> From<T> for Timeline<T> {
     }
 }
 
-pub trait TimelineContext: Send + Sync + Reflect + 'static {}
+pub trait TimelineContext: Send + Sync + 'static {}
 
-impl<T: Send + Sync + Reflect + 'static> TimelineContext for T {}
+impl<T: Send + Sync + 'static> TimelineContext for T {}
 
 // TODO: should we get rid of this trait and just use the Timeline<T> struct?
 //  maybe a trait gives us more options in the future
@@ -57,6 +57,10 @@ pub trait NetworkTimeline: Component<Mutability=Mutable> {
     fn overstep(&self) -> Overstep;
 
     fn apply_delta(&mut self, delta: TickDelta);
+
+    fn apply_duration(&mut self, duration: Duration) {
+        self.apply_delta(TickDelta::from_duration(duration, self.tick_duration()));
+    }
 }
 
 

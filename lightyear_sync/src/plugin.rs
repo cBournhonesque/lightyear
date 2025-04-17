@@ -26,7 +26,12 @@ impl<Synced, Remote> Default for SyncedTimelinePlugin<Synced, Remote> {
     }
 }
 
-impl<Synced: TimelineContext, Remote: TimelineContext + Default> Plugin for SyncedTimelinePlugin<Synced, Remote> where Timeline<Synced>: SyncedTimeline, Timeline<Remote>: NetworkTimeline {
+impl<Synced: TimelineContext, Remote: TimelineContext + Default> Plugin
+for SyncedTimelinePlugin<Synced, Remote>
+where
+    Timeline<Synced>: SyncedTimeline,
+    Timeline<Remote>: NetworkTimeline
+{
     fn build(&self, app: &mut App) {
         app.add_plugins(NetworkTimelinePlugin::<Synced>::default());
 
@@ -35,7 +40,7 @@ impl<Synced: TimelineContext, Remote: TimelineContext + Default> Plugin for Sync
         app.add_systems(FixedFirst, SyncPlugin::advance_synced_timelines::<Synced>);
         // NOTE: we don't have to run this in PostUpdate, we could run this right after RunFixedMainLoop?
         app.add_systems(PostUpdate,
-            SyncPlugin::sync_timelines::<Timeline<Synced>, Timeline<Remote>>.in_set(SyncSet::Sync));
+            SyncPlugin::sync_timelines::<Synced, Remote>.in_set(SyncSet::Sync));
     }
 }
 
@@ -66,10 +71,10 @@ impl SyncPlugin {
         query.iter_mut().for_each(|(mut t, is_main)| {
             // the main timeline has already been used to update the game's speed, so we don't want to apply the relative_speed again!
             if is_main {
-                t.advance(delta);
+                t.apply_duration(delta);
             } else {
                 let new_delta = delta.mul_f32(t.relative_speed());
-                t.advance(new_delta);
+                t.apply_duration(new_delta);
             }
         })
     }
