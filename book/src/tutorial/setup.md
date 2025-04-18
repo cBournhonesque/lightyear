@@ -77,6 +77,11 @@ It can also contain additional metadata for each component, such as prediction o
 Let's define our components protocol:
 
 ```rust
+# use bevy::prelude::*;
+# use lightyear::prelude::{client::ComponentSyncMode, *};
+# use serde::{Deserialize, Serialize};
+# use std::ops::{Add, Mul};
+#
 /// A component that will identify which player the box belongs to
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(ClientId);
@@ -85,6 +90,22 @@ pub struct PlayerId(ClientId);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerPosition(Vec2);
 
+# impl Mul<f32> for &PlayerPosition {
+#     type Output = PlayerPosition;
+#
+#     fn mul(self, rhs: f32) -> Self::Output {
+#         PlayerPosition(self.0 * rhs)
+#     }
+# }
+#
+# impl Add for PlayerPosition {
+#     type Output = PlayerPosition;
+#     #[inline]
+#     fn add(self, rhs: PlayerPosition) -> PlayerPosition {
+#         PlayerPosition(self.0.add(rhs.0))
+#     }
+# }
+#
 /// A component that will store the color of the box, so that each player can have a different color.
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
@@ -108,6 +129,8 @@ impl Plugin for ProtocolPlugin{
     }
 }
 ```
+
+Make sure `PlayerPosition` implements the `Linear` trait by implementing `Add` and `Mul` for it.
 
 ### Message
 
@@ -219,6 +242,7 @@ We create a channel by simply deriving the `Channel` trait on an empty struct.
 ### Protocol
 
 The complete protocol looks like this:
+
 ```rust
 pub(crate) struct ProtocolPlugin;
 
@@ -249,7 +273,6 @@ impl Plugin for ProtocolPlugin {
     }
 }
 ```
-
 
 ## Summary
 
