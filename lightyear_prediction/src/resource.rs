@@ -12,7 +12,7 @@ use lightyear_replication::registry::ComponentError;
 use lightyear_serde::entity_map::EntityMap;
 use lightyear_utils::ready_buffer::ReadyBuffer;
 
-type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
 #[derive(Default, Debug, Reflect)]
 pub struct PredictedEntityMap {

@@ -4,7 +4,7 @@ use crate::Predicted;
 use alloc::vec::Vec;
 use bevy::ecs::archetype::{ArchetypeGeneration, ArchetypeId, Archetypes};
 use bevy::ecs::component::{ComponentId, Components};
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::{FromWorld, Resource, World};
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_replication::registry::ComponentKind;

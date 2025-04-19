@@ -5,7 +5,7 @@ use core::time::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::{default, App, Commands, Mut, Plugin, Real, Resource, Time};
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
@@ -48,7 +48,7 @@ pub struct LocalBevyStepper {
     pub frame_duration: Duration,
     /// fixed timestep duration
     pub tick_duration: Duration,
-    pub current_time: bevy::platform_support::time::Instant,
+    pub current_time: bevy::platform::time::Instant,
 }
 
 impl Default for LocalBevyStepper {
@@ -82,7 +82,7 @@ impl LocalBevyStepper {
         interpolation_config: InterpolationConfig,
         frame_duration: Duration,
     ) -> Self {
-        let now = bevy::platform_support::time::Instant::now();
+        let now = bevy::platform::time::Instant::now();
         // Local channels transport only works with server socket = LOCAL_SOCKET
         let server_addr = LOCAL_SOCKET;
 

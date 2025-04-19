@@ -1,3 +1,16 @@
+
+- all examples just showcase the actual logic being tested
+  - if you start with 'main' (as a binary), it will start it in a simple mode
+  - maybe just client or server?
+- we can have a 'template' wrapper with a UI that can activate all examples + all modes
+  - the examples are just plugins we can import, so that's fine
+    - if we trigger SpawnExampleClient, which example will it be?
+      Maybe each client should have their own MyClient? that also triggers a SpawnExampleClient?
+  - the modes:
+    - client: just spawn a client
+    - server: can start a separate app, etc.
+
+
 # Status:
 
 - WebTransport: ai-generated, to be verified

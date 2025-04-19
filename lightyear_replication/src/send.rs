@@ -20,7 +20,7 @@ use bevy::app::{App, Last, Plugin, PostUpdate, PreUpdate};
 use bevy::ecs::component::{ComponentId, Tick as BevyTick};
 use bevy::ecs::entity::{EntityHash, EntityIndexSet, UniqueEntityVec};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::ptr::{OwningPtr, Ptr};
 use bevy::time::common_conditions::on_timer;
@@ -49,7 +49,7 @@ use tracing::{debug, error, info, trace};
 use tracing::{instrument, Level};
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
-type EntityHashSet<K> = bevy::platform_support::collections::HashSet<K, EntityHash>;
+type EntityHashSet<K> = bevy::platform::collections::HashSet<K, EntityHash>;
 
 
 /// When a [`EntityUpdatesMessage`](super::EntityUpdatesMessage) message gets buffered (and we have access to its [`MessageId`]),

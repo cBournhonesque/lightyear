@@ -8,7 +8,7 @@ use crate::registry::ComponentKind;
 use bevy::ecs::archetype::Archetypes;
 use bevy::ecs::component::Components;
 use bevy::ecs::entity::{EntityIndexMap, EntityIndexSet};
-use bevy::platform_support::collections::{HashMap, HashSet};
+use bevy::platform::collections::{HashMap, HashSet};
 use bevy::{
     ecs::{
         archetype::{ArchetypeGeneration, ArchetypeId},

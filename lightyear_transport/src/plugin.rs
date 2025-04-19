@@ -331,7 +331,7 @@ pub mod tests {
 
         // transfer that payload to the recv side of the link
         let payload = app.world_mut().entity_mut(entity).get_mut::<Link>().unwrap().send.pop().unwrap();
-        app.world_mut().entity_mut(entity).get_mut::<Link>().unwrap().recv.push(payload);
+        app.world_mut().entity_mut(entity).get_mut::<Link>().unwrap().recv.push_raw(payload);
 
         app.update();
         // check that the bytes are received in the channel

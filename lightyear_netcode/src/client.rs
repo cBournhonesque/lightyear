@@ -16,7 +16,7 @@ use super::{
     utils, ClientId, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
 };
 use bevy::prelude::Resource;
-use lightyear_connection::client::{ConnectionError, ConnectionState};
+use lightyear_connection::client::ConnectionError;
 use lightyear_connection::id;
 use lightyear_link::{Link, LinkReceiver, LinkSender, RecvPayload, SendPayload};
 use lightyear_serde::writer::Writer;
@@ -34,7 +34,7 @@ type Callback<Ctx> = Box<dyn FnMut(ClientState, ClientState, &mut Ctx) + Send + 
 /// ```
 /// # struct MyContext;
 /// #
-/// # use lightyear_netcode::{generate_key, ClientConfig, ClientState, Client, Server};
+/// # use lightyear_netcode::{generate_key, client::{ClientConfig, ClientState, Client}, Server};
 /// # let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 40007));
 /// # let private_key = generate_key();
 /// # let token = Server::new(0x11223344, private_key).unwrap().token(123u64, addr).generate().unwrap();
@@ -166,7 +166,7 @@ pub enum ClientState {
 /// # use std::time::{Instant, Duration};
 /// # use std::thread;
 /// # use lightyear_link::Link;
-/// # use lightyear_netcode::{Client, Server};
+/// # use lightyear_netcode::{client::Client, Server};
 /// # let addr =  SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
 /// # let mut link = Link::default();
 /// # let mut server = Server::new(0, [0; 32]).unwrap();
@@ -243,7 +243,7 @@ impl Client {
     ///
     /// # Example
     /// ```
-    /// # use lightyear_netcode::{generate_key, ConnectToken, NetcodeClient};
+    /// # use lightyear_netcode::{generate_key, ConnectToken, client::Client};
     /// // Generate a connection token for the client
     /// let private_key = generate_key();
     /// let token_bytes = ConnectToken::build("127.0.0.1:0", 0, 0, private_key)
@@ -252,7 +252,7 @@ impl Client {
     ///     .try_into_bytes()
     ///     .unwrap();
     ///
-    /// let mut client = NetcodeClient::new(&token_bytes).unwrap();
+    /// let mut client = Client::new(&token_bytes).unwrap();
     /// ```
     pub fn new(token_bytes: &[u8]) -> Result<Self> {
         let client = Client::from_token(token_bytes, ClientConfig::default())?;
@@ -268,7 +268,7 @@ impl<Ctx> Client<Ctx> {
     ///
     /// # Example
     /// ```
-    /// # use lightyear_netcode::{generate_key, ClientConfig, ClientState, ConnectToken, NetcodeClient};
+    /// # use lightyear_netcode::{generate_key, client::{ClientConfig, ClientState}, ConnectToken, NetcodeClient};
     /// # let private_key = generate_key();
     /// # let token_bytes = ConnectToken::build("127.0.0.1:0", 0, 0, private_key)
     /// #    .generate()
@@ -523,7 +523,7 @@ impl<Ctx> Client<Ctx> {
         for _ in 0..receiver.len() {
             if let Some(recv_packet) = receiver.pop() {
                 if let Some(payload) = self.recv_packet(recv_packet, now)? {
-                    receiver.push(payload);
+                    receiver.push_raw(payload);
                 }
             }
         }

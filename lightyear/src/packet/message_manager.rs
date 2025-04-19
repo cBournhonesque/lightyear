@@ -1,7 +1,7 @@
 use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
 use tracing::trace;

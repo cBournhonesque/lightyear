@@ -38,7 +38,7 @@ pub mod prelude {
     pub use crate::message::*;
     pub use crate::plugin::ReplicationSet;
     pub use crate::receive::{ReplicationReceivePlugin, ReplicationReceiver};
-    pub use crate::registry::registry::ComponentRegistration;
+    pub use crate::registry::registry::{AppComponentExt, ComponentRegistration};
     pub use crate::send::{ReplicationBufferSet, ReplicationSendPlugin, ReplicationSender, SendUpdatesMode};
     pub use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin};
     pub use crate::visibility::room::{Room, RoomPlugin};

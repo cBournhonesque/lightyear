@@ -13,7 +13,10 @@ default = ["std"]
 std = [
     "bevy/std",
     "serde/std",
-    "lightyear_sync/std"
+    "lightyear_sync/std",
+    "lightyear_core/std",
+    "lightyear_messages/std",
+    "lightyear_connection/std"
 ]
 client = [
     "lightyear_connection/client",

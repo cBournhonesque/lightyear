@@ -1,18 +1,11 @@
-//! Defines the [`ClientPlugins`] PluginGroup
-//!
-//! The client consists of multiple different plugins, each with their own responsibilities. These plugins
-//! are grouped into the [`ClientPlugins`] plugin group, which allows you to easily configure and disable
-//! any of the existing plugins.
-//!
-//! This means that users can simply disable existing functionality and replace it with specialized solutions,
-//! while keeping the rest of the features intact.
-//!
-//! Most plugins are truly necessary for the server functionality to work properly, but some could be disabled.
-
-use bevy::app::PluginGroupBuilder;
-use bevy::prelude::*;
+use crate::prelude::client::RemoteTimeline;
+use crate::prelude::InputTimeline;
+use crate::shared::SharedPlugin;
+use bevy::app::{App, Plugin, PluginGroup, PluginGroupBuilder};
+use bevy::prelude::Component;
 use core::time::Duration;
-use lightyear_shared::plugin::SharedPlugin;
+use lightyear_connection::client::Client;
+
 
 /// A plugin group containing all the client plugins.
 ///
@@ -66,6 +59,12 @@ struct SetupPlugin {
 //  before the plugin is ready
 impl Plugin for SetupPlugin {
     fn build(&self, app: &mut App) {
+
+        app.register_required_components::<Client, RemoteTimeline>();
+        app.register_required_components::<Client, InputTimeline>();
+        #[cfg(feature = "interpolation")]
+        app.register_required_components::<Client, lightyear_sync::prelude::client::InterpolationTimeline>();
+
         if !app.is_plugin_added::<SharedPlugin>() {
             app
                 // PLUGINS

@@ -28,7 +28,7 @@ pub struct HostServerStepper {
     pub server_app: App,
     pub frame_duration: Duration,
     pub tick_duration: Duration,
-    pub current_time: bevy::platform_support::time::Instant,
+    pub current_time: bevy::platform::time::Instant,
 }
 
 impl Default for HostServerStepper {
@@ -163,7 +163,7 @@ impl HostServerStepper {
         }
 
         // Initialize Real time (needed only for the first TimeSystem run)
-        let now = bevy::platform_support::time::Instant::now();
+        let now = bevy::platform::time::Instant::now();
         client_app
             .world_mut()
             .get_resource_mut::<Time<Real>>()

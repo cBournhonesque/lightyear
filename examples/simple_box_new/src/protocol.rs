@@ -11,10 +11,8 @@ use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
 };
 use bevy::prelude::{App, Plugin};
+use lightyear_new::prelude::*;
 use serde::{Deserialize, Serialize};
-
-use lightyear::client::components::ComponentSyncMode;
-use lightyear::prelude::*;
 
 // Player
 #[derive(Bundle)]
@@ -25,7 +23,7 @@ pub(crate) struct PlayerBundle {
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
+    pub(crate) fn new(id: PeerId, position: Vec2) -> Self {
         // Generate pseudo random color from client id.
         let h = (((id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
@@ -42,7 +40,7 @@ impl PlayerBundle {
 // Components
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct PlayerId(ClientId);
+pub struct PlayerId(PeerId);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
 pub struct PlayerPosition(pub Vec2);
@@ -81,8 +79,6 @@ impl MapEntities for PlayerParent {
 }
 
 // Channels
-
-#[derive(Channel)]
 pub struct Channel1;
 
 // Messages
@@ -122,22 +118,26 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.register_message::<Message1>(ChannelDirection::Bidirectional);
+        app.add_message::<Message1>()
+            // add a direction so that a MessageSender<Message1> is automatically added to your clients or servers
+            .add_direction(NetworkDirection::Bidirectional);
+
         // inputs
-        app.add_plugins(InputPlugin::<Inputs>::default());
+        // app.add_plugins(InputPlugin::<Inputs>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<PlayerId>();
+            // .add_prediction(ComponentSyncMode::Once)
+            // .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
-            .add_linear_interpolation_fn();
+        app.register_component::<PlayerPosition>();
+            // .add_prediction(ComponentSyncMode::Full)
+            // .add_interpolation(ComponentSyncMode::Full)
+            // .add_linear_interpolation_fn();
 
-        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<PlayerColor>();
+            // .add_prediction(ComponentSyncMode::Once)
+            // .add_interpolation(ComponentSyncMode::Once);
+
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),

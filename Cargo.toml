@@ -3,7 +3,6 @@ resolver = "2"
 members = [
   "lightyear",
   "lightyear_new",
-  "lightyear_client",
   "lightyear_core",
   "lightyear_crossbeam",
   "lightyear_inputs",
@@ -18,9 +17,7 @@ members = [
   "lightyear_netcode",
   "lightyear_prediction",
   "lightyear_replication",
-  "lightyear_shared",
   "lightyear_serde",
-  "lightyear_server",
   "lightyear_steam",
   "lightyear_sync",
   "lightyear_tests",
@@ -68,7 +65,6 @@ lightyear_examples_common = { path = "./examples/common", default-features = fal
 lightyear = { path = "./lightyear", version = "0.19.0", default-features = false }
 lightyear_macros = { path = "./lightyear_macros", version = "0.19.0", default-features = false}
 lightyear_netcode = { path = "./lightyear_netcode", version = "0.19.0", default-features = false }
-lightyear_client = { path = "./lightyear_client", version = "0.19.0", default-features = false }
 lightyear_connection = { path = "./lightyear_connection", version = "0.19.0", default-features = false }
 lightyear_core = { path = "./lightyear_core", version = "0.19.0", default-features = false }
 lightyear_crossbeam = { path = "./lightyear_crossbeam", version = "0.19.0", default-features = false }
@@ -83,13 +79,14 @@ lightyear_prediction = { path = "./lightyear_prediction", version = "0.19.0", de
 lightyear_link = { path = "./lightyear_link", version = "0.19.0", default-features = false }
 lightyear_replication = { path = "./lightyear_replication", version = "0.19.0", default-features = false }
 lightyear_serde = { path = "./lightyear_serde", version = "0.19.0", default-features = false }
-lightyear_server = { path = "./lightyear_server", version = "0.19.0", default-features = false }
-lightyear_shared = { path = "./lightyear_shared", version = "0.19.0", default-features = false }
 lightyear_steam = { path = "./lightyear_steam", version = "0.19.0", default-features = false }
 lightyear_sync = { path = "./lightyear_sync", version = "0.19.0", default-features = false }
 lightyear_udp = { path = "./lightyear_udp", version = "0.19.0", default-features = false }
 lightyear_utils = { path = "./lightyear_utils", version = "0.19.0", default-features = false }
 lightyear_webtransport = { path = "./lightyear_webtransport", version = "0.19.0", default-features = false }
+
+# examples
+lightyear_examples_common_new = { path = "./examples/common_new", version = "0.19.0", default-features = false }
 
 # utils
 anyhow = { version = "1.0.75", features = [] }
@@ -223,8 +220,9 @@ approx = "0.5.1"
 
 # Bevy
 # (we add back features needed for gui clients if desired)
-bevy = { version = "0.16.0-rc.4", default-features = false, features = [
+bevy = { version = "0.16.0-rc.5", default-features = false, features = [
   "bevy_state",
+  "bevy_log",
   "serialize",
   "bevy_asset",
   "bevy_state",

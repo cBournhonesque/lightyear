@@ -98,6 +98,12 @@ pub struct Started;
 #[derive(Component, Event)]
 pub struct Stopped;
 
+#[derive(Component, Event)]
+pub struct ClientConnected(pub PeerId);
+
+#[derive(Component, Event)]
+pub struct ClientDisconnected;
+
 pub(crate) trait AppMessageDirectionExt {
     /// Add a new [`NetworkDirection`] to the registry
     fn add_direction(&mut self, direction: NetworkDirection);

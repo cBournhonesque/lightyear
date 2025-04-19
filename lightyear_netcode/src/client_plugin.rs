@@ -1,5 +1,6 @@
 use crate::auth::Authentication;
-use crate::{ClientConfig, ClientState, Error};
+use crate::client::{ClientConfig, ClientState};
+use crate::Error;
 use bevy::ecs::component::{ComponentHook, ComponentId, ComponentsRegistrator, HookContext, Mutable, RequiredComponents, StorageType};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
@@ -76,6 +77,7 @@ impl NetcodeClient {
     }
 
     pub fn id(&self) -> PeerId {
+        // TODO: returns PeerId::Entity if not connected.
         PeerId::Netcode(self.inner.id())
     }
 }
@@ -133,7 +135,9 @@ impl NetcodeClientPlugin {
                 if state == ClientState::Connected && connecting {
                     info!("Client {} connected", client.id());
                     parallel_commands.command_scope(|mut commands| {
-                        commands.entity(entity).insert(Connected).remove::<Connecting>();
+                        commands.entity(entity).insert(Connected {
+                            peer_id: client.id()
+                        }).remove::<Connecting>();
                     });
                 }
             }
@@ -168,7 +172,7 @@ impl NetcodeClientPlugin {
 
 impl Plugin for NetcodeClientPlugin {
     fn build(&self, app: &mut App) {
-        app.configure_sets(PreUpdate, (LinkSet::Receive, ConnectionSet::Receive,  TransportSet::Receive).chain());
+        app.configure_sets(PreUpdate, (LinkSet::ApplyConditioner, ConnectionSet::Receive,  TransportSet::Receive).chain());
         app.configure_sets(PostUpdate, (TransportSet::Send, ConnectionSet::Send, LinkSet::Send).chain());
 
         app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSet::Receive));

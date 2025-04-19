@@ -30,7 +30,7 @@ pub struct MultiBevyStepper {
     pub frame_duration: Duration,
     /// fixed timestep duration
     pub tick_duration: Duration,
-    pub current_time: bevy::platform_support::time::Instant,
+    pub current_time: bevy::platform::time::Instant,
 }
 
 impl Default for MultiBevyStepper {
@@ -65,7 +65,7 @@ impl MultiBevyStepper {
         interpolation_config: InterpolationConfig,
         frame_duration: Duration,
     ) -> Self {
-        let now = bevy::platform_support::time::Instant::now();
+        let now = bevy::platform::time::Instant::now();
 
         // both clients will use the same client id
         let server_addr = LOCAL_SOCKET;

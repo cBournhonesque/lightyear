@@ -13,7 +13,7 @@ use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::EntityHash;
 use bevy::ecs::system::SystemState;
 use bevy::ecs::world::WorldEntityFetch;
-use bevy::platform_support::collections::HashSet;
+use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use bevy::ptr::OwningPtr;
 use core::ptr::NonNull;
@@ -36,7 +36,7 @@ use lightyear_transport::prelude::{ChannelRegistry, Transport};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
 
 pub struct ReplicationReceivePlugin;

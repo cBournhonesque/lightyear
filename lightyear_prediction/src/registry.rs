@@ -2,7 +2,7 @@ use crate::predicted_history::PredictionHistory;
 use crate::{PredictionMode, SyncComponent};
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::tick::Tick;

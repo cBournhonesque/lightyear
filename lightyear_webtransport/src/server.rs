@@ -8,10 +8,10 @@ use lightyear_link::{Link, LinkSet};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use wtransport::{self, Endpoint, ServerConfig, Identity};
-use tracing::{info, error, debug};
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tracing::{debug, error, info};
 use wtransport::datagram::Datagram;
-use tokio::sync::mpsc::{self, UnboundedSender, UnboundedReceiver};
+use wtransport::{self, Endpoint, Identity, ServerConfig};
 
 /// Maximum transmission units; maximum size in bytes of a WebTransport datagram
 const MTU: usize = 1200; // WebTransport usually has slightly smaller MTU than UDP
@@ -108,6 +108,7 @@ impl ServerWebTransportPlugin {
     }
 
     fn receive(
+        time: Res<Time<Real>>,
         mut commands: Commands,
         mut server_query: Query<(Entity, &mut ServerWebTransportIo, &Server)>,
         mut link_query: Query<&mut Link>,
@@ -126,7 +127,7 @@ impl ServerWebTransportPlugin {
                     Some(entity) => {
                         // Existing client, add message to their link
                         if let Ok(mut link) = link_query.get_mut(entity) {
-                            link.recv.push(payload.freeze());
+                            link.recv.push(payload.freeze(), time.elapsed());
                         } else {
                             error!("Received WebTransport packet for unknown entity: {}", entity);
                         }
@@ -135,8 +136,8 @@ impl ServerWebTransportPlugin {
                     None => {
                         // New client, create a new link
                         debug!("Received WebTransport packet from new address: {}", address);
-                        let mut link = Link::new(address);
-                        link.recv.push(payload.freeze());
+                        let mut link = Link::new(address, None);
+                        link.recv.push(payload.freeze(), time.elapsed());
                         
                         // Spawn a new entity for this client
                         commands.spawn((

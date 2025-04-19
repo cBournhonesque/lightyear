@@ -3,7 +3,7 @@ use crate::send::{MessageSender, SendMessageFn};
 use crate::{Message, MessageNetId};
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::MapEntities;
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use core::any::TypeId;
 use lightyear_core::network::NetId;

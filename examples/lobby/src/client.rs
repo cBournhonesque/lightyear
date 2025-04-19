@@ -200,7 +200,7 @@ mod game {
 mod lobby {
     use std::net::SocketAddr;
 
-    use bevy::platform_support::collections::HashMap;
+    use bevy::platform::collections::HashMap;
     use bevy_egui::egui::Separator;
     use bevy_egui::{egui, EguiContexts};
     use egui_extras::{Column, TableBuilder};

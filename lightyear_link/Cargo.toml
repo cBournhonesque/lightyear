@@ -20,10 +20,9 @@ test_utils = []
 
 [dependencies]
 lightyear_utils.workspace = true
-lightyear_serde.workspace = true
-lightyear_core.workspace = true
 
 # utils
+rand.workspace = true
 tracing.workspace = true
 
 # serde

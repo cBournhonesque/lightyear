@@ -34,8 +34,8 @@ use {
     crate::utils::captures::Captures,
 };
 
-type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
-type EntityHashSet<K> = bevy::platform_support::collections::HashSet<K, EntityHash>;
+type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
+type EntityHashSet<K> = bevy::platform::collections::HashSet<K, EntityHash>;
 
 /// When a [`EntityUpdatesMessage`](super::EntityUpdatesMessage) message gets buffered (and we have access to its [`MessageId`]),
 /// we keep track of some information related to this message.

@@ -2,7 +2,7 @@ use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::ToString, vec, vec::Vec};
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::Resource;
 use bevy::reflect::List;
 use core::net::SocketAddr;
@@ -862,7 +862,7 @@ impl<Ctx> Server<Ctx> {
         for _ in 0..receiver.len() {
             if let Some(recv_packet) = receiver.pop() {
                 match self.recv_packet(recv_packet, now, remote_addr) {
-                    Ok(Some(payload)) => receiver.push(payload),
+                    Ok(Some(payload)) => receiver.push_raw(payload),
                     Err(e) => self.handle_client_error(e),
                     _ => {}
                 }

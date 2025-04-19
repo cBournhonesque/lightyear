@@ -15,9 +15,9 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{debug, error, info, trace};
 use wtransport;
-use wtransport::ClientConfig;
 use wtransport::datagram::Datagram;
 use wtransport::error::ConnectingError;
+use wtransport::ClientConfig;
 
 /// Maximum transmission units for WebTransport (must be at least 1200 bytes for QUIC)
 pub(crate) const MTU: usize = 1200;
@@ -154,6 +154,7 @@ impl ClientWebTransportPlugin {
     }
 
     fn receive(
+        time: Res<Time<Real>>,
         mut client_query: Query<(&mut ClientWebTransportIo, &mut Link)>
     ) {
         client_query.par_iter_mut().for_each(|(mut client_io, mut link)| {
@@ -163,7 +164,7 @@ impl ClientWebTransportPlugin {
                     Ok(datagram) => {
                         // Convert the datagram to bytes and add it to the link's receive queue
                         let payload = Bytes::copy_from_slice(datagram.payload().as_ref());
-                        link.recv.push(payload);
+                        link.recv.push(payload, time.elapsed());
                     },
                     Err(TryRecvError::Empty) => {
                         // No more messages to process

@@ -7,6 +7,7 @@ use bevy::tasks::futures_lite::StreamExt;
 use core::net::SocketAddr;
 use lightyear_connection::client::{Connected, Connecting};
 use lightyear_connection::prelude::{server::*, *};
+use lightyear_connection::server::ClientConnected;
 use lightyear_link::{Link, LinkSet, LinkStart, Unlink, Unlinked};
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
@@ -26,6 +27,7 @@ pub struct NetcodeServer {
 }
 
 
+// TODO: should be part of the NetcodeServer component
 #[derive(Debug, Clone)]
 pub struct NetcodeConfig {
     pub num_disconnect_packets: usize,
@@ -199,10 +201,11 @@ impl NetcodeServerPlugin {
                     server.client_map.insert(PeerId::Netcode(id), entity);
                     parallel_commands.command_scope(|mut c| {
                         trace!("Adding ClientOf with id {:?}", id);
+                        let peer_id = PeerId::Netcode(id);
                         c.entity(entity)
-                            .insert((Connected, ClientOf {
+                            .insert((ClientConnected(peer_id), ClientOf {
                                 server: client_of.server,
-                                id: PeerId::Netcode(id),
+                                id: peer_id,
                             }))
                             .remove::<Connecting>();
                     })
@@ -263,7 +266,7 @@ impl NetcodeServerPlugin {
 impl Plugin for NetcodeServerPlugin {
     fn build(&self, app: &mut App) {
         // TODO: should these be shared? or do we use Markers like in lightyear to distinguish between client and server?
-        app.configure_sets(PreUpdate, (LinkSet::Receive, ConnectionSet::Receive, TransportSet::Receive).chain());
+        app.configure_sets(PreUpdate, (LinkSet::ApplyConditioner, ConnectionSet::Receive, TransportSet::Receive).chain());
         app.configure_sets(PostUpdate, (TransportSet::Send, ConnectionSet::Send, LinkSet::Send).chain());
 
         app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSet::Receive));

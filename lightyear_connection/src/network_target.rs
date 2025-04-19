@@ -1,8 +1,8 @@
 use crate::id::PeerId;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::platform_support::collections::HashSet;
-use bevy::platform_support::hash::FixedHasher;
+use bevy::platform::collections::HashSet;
+use bevy::platform::hash::FixedHasher;
 use bevy::prelude::Reflect;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;

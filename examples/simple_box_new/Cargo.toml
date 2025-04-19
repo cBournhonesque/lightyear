@@ -12,8 +12,28 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
-client = ["lightyear_new/client"]
-server = ["lightyear_new/server"]
+default = ["client", "gui", "server", "netcode", "udp"]
+client = [
+  "gui",
+  "lightyear_new/client",
+  "lightyear_examples_common_new/client"
+]
+gui = [
+  "lightyear_examples_common_new/gui"
+]
+server = [
+  "lightyear_new/server",
+  "lightyear_examples_common_new/server"
+]
+netcode = [
+  "lightyear_examples_common_new/netcode"
+]
+udp = [
+  "lightyear_examples_common_new/udp",
+  # udp requires std
+  "lightyear_new/std",
+  "lightyear_new/udp",
+]
 #default = ["client", "server", "gui", "lightyear_examples_common/default"]
 #websocket = ["lightyear_examples_common/websocket"]
 #client = ["lightyear_examples_common/client", "gui"]
@@ -28,6 +48,7 @@ server = ["lightyear_new/server"]
 
 [dependencies]
 lightyear_new.workspace = true
+lightyear_examples_common_new.workspace = true
 serde.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

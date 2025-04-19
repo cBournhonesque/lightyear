@@ -6,21 +6,21 @@ This crate provides abstractions for sending and receiving raw bytes over the ne
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
+mod conditioner;
 
 use alloc::collections::vec_deque::Drain;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
+use crate::conditioner::LinkConditioner;
 use alloc::collections::VecDeque;
-use bevy::app::{App, Plugin, PostUpdate, PreUpdate};
-use bevy::prelude::Event;
-use bevy::prelude::{Component, SystemSet};
+use bevy::prelude::*;
 use bytes::Bytes;
 use core::net::SocketAddr;
 use core::time::Duration;
 
 pub mod prelude {
-    pub use crate::{Link, LinkSet, LinkStats};
+    pub use crate::{Link, LinkSet, LinkStats, RecvLinkConditioner};
 }
 
 pub type RecvPayload = Bytes;
@@ -45,11 +45,16 @@ pub struct Link {
     pub remote_addr: Option<SocketAddr>,
 }
 
+pub type RecvLinkConditioner = LinkConditioner<RecvPayload>;
+
 impl Link {
     /// Creates a new Link with the given remote address.
-    pub fn new(remote_addr: SocketAddr) -> Self {
+    pub fn new(remote_addr: SocketAddr, recv_conditioner: Option<RecvLinkConditioner>) -> Self {
         Self {
-            recv: LinkReceiver::default(),
+            recv: LinkReceiver {
+                buffer: VecDeque::new(),
+                conditioner: recv_conditioner,
+            },
             send: LinkSender::default(),
             stats: LinkStats::default(),
             remote_addr: Some(remote_addr),
@@ -58,36 +63,48 @@ impl Link {
 }
 
 #[derive(Default)]
-pub struct LinkReceiver(VecDeque<RecvPayload>);
+pub struct LinkReceiver{
+    buffer: VecDeque<RecvPayload>,
+    conditioner: Option<LinkConditioner<RecvPayload>>,
+}
 
 impl LinkReceiver {
 
     pub fn drain(&mut self) -> Drain<RecvPayload> {
-        self.0.drain(..)
+        self.buffer.drain(..)
     }
 
     pub fn pop(&mut self) -> Option<RecvPayload> {
-        self.0.pop_front()
+        self.buffer.pop_front()
     }
 
-    pub fn push(&mut self, value: RecvPayload) {
-        self.0.push_back(value)
+    /// Push the payload directly to the buffer with no conditioning
+    pub fn push_raw(&mut self, value: RecvPayload) {
+        self.buffer.push_back(value);
+    }
+
+    pub fn push(&mut self, value: RecvPayload, elapsed: Duration) {
+        if let Some(conditioner) = &mut self.conditioner {
+            conditioner.condition_packet(value, elapsed);
+        } else {
+            self.push_raw(value);
+        }
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.buffer.len()
     }
 
     #[cfg(any(test, feature = "test_utils"))]
     pub fn iter(&self) -> impl Iterator<Item = &SendPayload> {
-         self.0.iter()
+         self.buffer.iter()
     }
 
 }
 #[derive(Default)]
 pub struct LinkSender(VecDeque<SendPayload>);
 
-  impl LinkSender {
+impl LinkSender {
 
     pub fn drain(&mut self) -> Drain<SendPayload> {
         self.0.drain(..)
@@ -105,11 +122,11 @@ pub struct LinkSender(VecDeque<SendPayload>);
         self.0.len()
     }
 
-      #[cfg(any(test, feature = "test_utils"))]
+    #[cfg(any(test, feature = "test_utils"))]
     pub fn iter(&self) -> impl Iterator<Item = &SendPayload> {
-         self.0.iter()
+        self.0.iter()
     }
-  }
+}
 
 impl Link {
     pub fn send(&mut self, payload: SendPayload) {
@@ -142,6 +159,8 @@ pub enum LinkSet {
     // PRE UPDATE
     /// Receive bytes from the IO and buffer them into the Link
     Receive,
+    /// Apply Link Conditioner on the receive side
+    ApplyConditioner,
 
     // PostUpdate
     /// Flush the messages buffered in the Link to the io
@@ -166,9 +185,27 @@ pub struct Unlinked;
 
 pub struct LinkPlugin;
 
+impl LinkPlugin {
+    pub fn apply_link_conditioner(
+        time: Res<Time<Real>>,
+        mut query: Query<&mut Link>,
+    ) {
+        query.par_iter_mut().for_each(|mut link| {
+            // enable split borrows
+            let recv = &mut link.recv;
+            if let Some(conditioner) = &mut recv.conditioner {
+                while let Some(packet) = conditioner.pop_packet(time.elapsed()) {
+                    // cannot use push_raw() because of partial borrows issue
+                    recv.buffer.push_back(packet);
+                }
+            }
+        });
+    }
+}
+
 impl Plugin for LinkPlugin {
     fn build(&self, app: &mut App) {
-        app.configure_sets(PreUpdate, LinkSet::Receive);
+        app.configure_sets(PreUpdate, (LinkSet::Receive, LinkSet::ApplyConditioner).chain());
         app.configure_sets(PostUpdate, LinkSet::Send);
     }
 }

@@ -1,5 +1,5 @@
 use bevy::app::App;
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::{Resource, TypePath};
 use core::any::TypeId;
 use core::time::Duration;

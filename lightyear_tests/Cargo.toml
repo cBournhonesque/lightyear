@@ -25,14 +25,12 @@ std = [
 
 
 [dependencies]
-lightyear_new = { workspace = true, features = ["client", "server"]}
+lightyear_new = { workspace = true, features = ["client", "server", "crossbeam", "netcode"]}
 lightyear_macros.workspace = true
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_transport.workspace = true
 lightyear_core.workspace = true
-lightyear_client = { workspace = true, features = ["crossbeam", "netcode"] }
-lightyear_server = { workspace = true, features = ["crossbeam", "netcode"] }
 lightyear_netcode = { workspace = true, features = ["client", "server", "test_utils"] }
 lightyear_messages.workspace = true
 lightyear_replication =  { workspace = true, features = ["client", "server"]}

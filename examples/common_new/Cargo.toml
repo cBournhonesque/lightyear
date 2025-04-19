@@ -1,0 +1,71 @@
+[package]
+name = "lightyear_examples_common_new"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Common harness for the lightyear examples"
+readme = "../README.md"
+repository = "https://github.com/cBournhonesque/lightyear"
+keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
+categories = ["game-development", "network-programming"]
+license = "MIT OR Apache-2.0"
+exclude = ["/tests"]
+
+[features]
+default = ["client", "server", "gui", "netcode", "udp"]
+client = ["lightyear_new/client", "gui"]
+server = ["lightyear_new/server"]
+netcode = ["lightyear_new/netcode"]
+udp = ["lightyear_new/udp"]
+
+# this serves as a bit of "workspace-hack" crate by enabling all bevy features needed by examples.
+# you can read about workspace-hack crates here: https://docs.rs/cargo-hakari/latest/cargo_hakari/about/index.html
+# even though we're not using cargo-hakari.
+
+gui = [
+  "dep:bevy-inspector-egui",
+  "bevy/bevy_asset",
+  "bevy/bevy_render",
+  "bevy/bevy_pbr",
+  "bevy/bevy_scene",
+  "bevy/bevy_core_pipeline",
+  "bevy/bevy_gizmos",
+  "bevy/tonemapping_luts",
+  "bevy/smaa_luts",
+  "bevy/default_font",
+  "bevy/png",
+  "bevy/hdr",
+  "bevy/x11",
+  "bevy/webgl2",
+  "bevy/bevy_winit",
+  "bevy/bevy_picking",
+  "bevy/bevy_sprite",
+  "bevy/bevy_text",
+  "bevy/bevy_ui",
+  "bevy/bevy_window",
+]
+
+[dependencies]
+lightyear_new.workspace = true
+#lightyear = { workspace = true, features = ["webtransport"] }
+anyhow.workspace = true
+async-compat.workspace = true
+cfg-if.workspace = true
+clap.workspace = true
+crossbeam-channel.workspace = true
+rand.workspace = true
+serde.workspace = true
+bevy.workspace = true
+#bevy = { workspace = true, features = ["bevy_log"]}
+bevygap_client_plugin = { workspace = true, optional = true }
+bevygap_server_plugin = { workspace = true, optional = true }
+bevy-inspector-egui = { workspace = true, optional = true }
+bevy_metrics_dashboard = { workspace = true, optional = true }
+bevy_egui = { workspace = true, optional = true }
+tracing.workspace = true
+
+[target."cfg(target_family = \"wasm\")".dependencies]
+web-sys = { workspace = true, features = ["Window", "Location"] }
+
+[lints]
+workspace = true

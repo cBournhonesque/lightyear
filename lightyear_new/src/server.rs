@@ -8,12 +8,15 @@
 //! while keeping the rest of the features intact.
 //!
 //! Most plugins are truly necessary for the server functionality to work properly, but some could be disabled.
+use crate::prelude::LocalTimeline;
+use crate::shared::SharedPlugin;
 use bevy::app::PluginGroupBuilder;
+use bevy::prelude::Component;
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear_connection::client_of::ClientOf;
-use lightyear_shared::plugin::SharedPlugin;
+use lightyear_connection::client_of::{ClientOf, Server};
 use lightyear_sync::prelude::PingManager;
+
 
 /// A plugin group containing all the server plugins.
 ///
@@ -43,10 +46,14 @@ impl PluginGroup for ServerPlugins {
             .add(lightyear_sync::prelude::SyncPlugin);
             // .add(lightyear_sync::server::ServerPlugin);
 
+        // IO
+        #[cfg(feature = "udp")]
+        let builder = builder.add(lightyear_udp::server::ServerUdpPlugin);
+
+
         // CONNECTION
         #[cfg(feature = "netcode")]
         let builder = builder.add(lightyear_netcode::server_plugin::NetcodeServerPlugin);
-
         builder
     }
 }
@@ -60,6 +67,9 @@ struct SetupPlugin {
 
 impl Plugin for SetupPlugin {
     fn build(&self, app: &mut App) {
+
+        app.register_required_components::<Server, LocalTimeline>();
+
         // PLUGINS
         // make sure that SharedPlugin is not added twice if adding Server and Client Plugins in the same App
         if !app.is_plugin_added::<SharedPlugin>() {

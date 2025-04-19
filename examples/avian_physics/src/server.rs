@@ -3,7 +3,7 @@ use crate::shared;
 use crate::shared::{color_from_id, shared_movement_behaviour};
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;

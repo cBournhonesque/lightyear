@@ -13,7 +13,7 @@ use crate::reader::{ReadInteger, ReadVarInt, Reader};
 use crate::varint::varint_len;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bytes::Bytes;
 use core::hash::{BuildHasher, Hash};
 use no_std_io2::io;

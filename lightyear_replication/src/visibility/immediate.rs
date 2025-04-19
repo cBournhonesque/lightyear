@@ -27,7 +27,7 @@ fn my_system(
 use crate::send::ReplicationBufferSet;
 use bevy::ecs::entity::hash_set::EntityHashSet;
 use bevy::ecs::entity::EntityIndexSet;
-use bevy::platform_support::collections::{HashMap, HashSet};
+use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 use lightyear_connection::prelude::PeerId;
 use tracing::*;

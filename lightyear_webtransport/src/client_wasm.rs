@@ -9,8 +9,8 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{debug, error, info, trace};
 use xwt_core::prelude::*;
 
-use lightyear_connection::id::PeerId;
 use lightyear_connection::client::Disconnected;
+use lightyear_connection::id::PeerId;
 use lightyear_link::{Link, LinkSet};
 
 #[derive(Component)]
@@ -192,6 +192,7 @@ impl ClientWebTransportPlugin {
     }
 
     fn receive(
+        time: Res<Time<Real>>,
         mut client_query: Query<(&mut ClientWebTransportIo, &mut Link)>,
     ) {
         client_query.par_iter_mut().for_each(|(mut client_io, mut link)| {
@@ -200,7 +201,7 @@ impl ClientWebTransportPlugin {
                     client_io.buffer.clear();
                     client_io.buffer.extend_from_slice(&datagram);
                     let payload = client_io.buffer.split().freeze();
-                    link.recv.push(payload);
+                    link.recv.push(payload, time.elapsed());
                 }
             }
         });

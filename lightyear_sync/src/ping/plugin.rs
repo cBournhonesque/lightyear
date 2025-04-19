@@ -1,7 +1,7 @@
 use crate::ping::manager::PingManager;
 use crate::ping::message::{Ping, Pong};
 use crate::ping::PingChannel;
-use bevy::platform_support::time::Instant;
+use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use lightyear_core::time::{SetTickDuration, TickDelta};
 use lightyear_link::Link;

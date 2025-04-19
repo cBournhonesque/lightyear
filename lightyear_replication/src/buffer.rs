@@ -8,7 +8,7 @@ use bevy::ecs::component::{ComponentId, ComponentTicks, Components, HookContext}
 use bevy::ecs::entity::{EntityIndexSet, UniqueEntitySlice, UniqueEntityVec};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy::ecs::world::{DeferredWorld, FilteredEntityRef};
-use bevy::platform_support::collections::HashSet;
+use bevy::platform::collections::HashSet;
 use bevy::ptr::Ptr;
 
 use crate::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
@@ -87,6 +87,14 @@ impl Replicate {
     pub fn to_server() -> Self {
         Self {
             mode: ReplicationMode::SingleClient,
+            senders: EntityIndexSet::default(),
+        }
+    }
+
+    #[cfg(feature = "server")]
+    pub fn to_clients(target: NetworkTarget) -> Self {
+        Self {
+            mode: ReplicationMode::SingleServer(target),
             senders: EntityIndexSet::default(),
         }
     }

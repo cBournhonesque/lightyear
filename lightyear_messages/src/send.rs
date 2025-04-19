@@ -27,6 +27,13 @@ pub struct MessageSender<M: Message> {
     writer: Writer,
 }
 
+// enable sending with target?
+// send: Vec<(M, ChannelKind, Priority, Option<NetworkTarget>)>
+// receiver can check what the intended target was.
+
+// server send to clients:
+//  server can just send on each sender. so we need a way to send with just borrowing
+
 impl<M: Message> Default for MessageSender<M> {
     fn default() -> Self {
         Self {

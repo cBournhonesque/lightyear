@@ -7,7 +7,7 @@ use bevy::app::App;
 use bevy::ecs::change_detection::Mut;
 use bevy::ecs::component::{Component, ComponentId, Mutable};
 use bevy::ecs::entity::MapEntities;
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::{Resource, TypePath, World};
 use bevy::ptr::Ptr;
 use lightyear_connection::direction::NetworkDirection;

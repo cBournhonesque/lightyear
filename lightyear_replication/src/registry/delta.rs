@@ -357,7 +357,7 @@ mod tests {
     use super::*;
     #[cfg(not(feature = "std"))]
     use alloc::{vec, vec::Vec};
-    use bevy::platform_support::collections::HashSet;
+    use bevy::platform::collections::HashSet;
     use bevy::prelude::Reflect;
     use serde::Deserialize;
 

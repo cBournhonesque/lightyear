@@ -3,7 +3,7 @@ use std::f32::consts::TAU;
 use avian3d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::math::VectorSpace;
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use client::Rollback;

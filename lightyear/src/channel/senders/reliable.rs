@@ -1,7 +1,7 @@
 use alloc::collections::{BTreeMap, VecDeque};
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::platform_support::collections::HashSet;
+use bevy::platform::collections::HashSet;
 use bevy::prelude::{Timer, TimerMode};
 
 use bytes::Bytes;

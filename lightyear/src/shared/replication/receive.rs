@@ -22,7 +22,7 @@ use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
 #[derive(Debug)]
 pub struct ReplicationReceiver {

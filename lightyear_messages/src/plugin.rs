@@ -245,7 +245,7 @@ mod tests {
 
         // transfer that payload to the recv side of the link
         let payload = link.send.pop().unwrap();
-        link.recv.push(payload);
+        link.recv.push_raw(payload);
 
         app.update();
         // check that the message has been received

@@ -1,4 +1,7 @@
 use crate::direction::NetworkDirection;
+use crate::id::PeerId;
+use bevy::ecs::component::HookContext;
+use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Event, OnAdd, Query, Res, Trigger};
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::registry::MessageRegistration;
@@ -7,15 +10,6 @@ use lightyear_messages::{Message, MessageManager};
 use lightyear_transport::channel::registry::ChannelRegistration;
 use lightyear_transport::channel::Channel;
 use lightyear_transport::prelude::{ChannelRegistry, Transport};
-
-// TODO: should this be a component?
-#[derive(Debug)]
-pub enum ConnectionState {
-    Disconnected { reason: Option<ConnectionError> },
-    Connecting,
-    Connected,
-}
-
 
 /// Errors related to the client connection
 #[derive(thiserror::Error, Debug)]
@@ -28,11 +22,23 @@ pub enum ConnectionError {
     NotConnected,
 }
 
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientState {
+    /// Client is connected to the server
+    Connected(PeerId),
+    /// Client is connecting to the server
+    Connecting,
+    #[default]
+    /// Client is disconnected from the server
+    Disconnected,
+}
 
 /// Marker component to identify this entity as a Client
 #[derive(Component, Default)]
 #[require(MessageManager)]
-pub struct Client;
+pub struct Client {
+    pub state: ClientState
+}
 
 impl Client {
     pub(crate) fn add_sender_channel<C: Channel>(trigger: Trigger<OnAdd, Client>, mut query: Query<&mut Transport>, registry: Res<ChannelRegistry>) {
@@ -57,16 +63,45 @@ pub struct Connect;
 pub struct Disconnect;
 
 // TODO: on_add: remove Connecting/Disconnected
-#[derive(Component, Default, Debug)]
-pub struct Connected;
+#[derive(Component, Event, Default, Debug)]
+#[component(on_add = Connected::on_add)]
+pub struct Connected {
+    pub peer_id: PeerId,
+}
+
+impl Connected {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        let peer_id = world.get::<Connected>(context.entity).unwrap().peer_id;
+        if let Some(mut client) = world.get_mut::<Client>(context.entity) {
+            client.state = ClientState::Connected(peer_id);
+        };
+    }
+}
 
 // TODO: add automatic disconnection for entities that are Connecting for too long
 #[derive(Component, Event, Default, Debug)]
+#[component(on_add = Connecting::on_add)]
 pub struct Connecting;
 
-#[derive(Component, Default, Debug)]
+impl Connecting {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        if let Some(mut client) = world.get_mut::<Client>(context.entity) {
+            client.state = ClientState::Connecting;
+        }
+    }
+}
+
+#[derive(Component, Event, Default, Debug)]
+#[component(on_add = Disconnected::on_add)]
 pub struct Disconnected;
 
+impl Disconnected {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        if let Some(mut client) = world.get_mut::<Client>(context.entity) {
+            client.state = ClientState::Disconnected;
+        }
+    }
+}
 
 pub(crate) trait AppMessageDirectionExt {
     /// Add a new [`NetworkDirection`] to the registry
@@ -114,13 +149,10 @@ impl<C: Channel> AppChannelDirectionExt for ChannelRegistration<'_, C> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     #[test]
     fn test_connection() {
 
     }
-
-
 }

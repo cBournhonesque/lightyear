@@ -9,7 +9,7 @@
 use crate::protocol::*;
 use crate::shared;
 use bevy::app::PluginGroupBuilder;
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear::client::components::Confirmed;
 use lightyear::client::prediction::Predicted;

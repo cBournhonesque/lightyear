@@ -4,7 +4,7 @@ use crate::registry::ComponentKind;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::ecs::reflect::ReflectComponent;
-use bevy::platform_support::collections::HashSet;
+use bevy::platform::collections::HashSet;
 use bevy::prelude::{Component, Entity, Reflect};
 use bevy::time::{Timer, TimerMode};
 use lightyear_connection::id::PeerId;

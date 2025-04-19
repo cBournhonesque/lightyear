@@ -9,7 +9,7 @@ extern crate alloc;
 
 use crate::registry::MessageKind;
 use bevy::ecs::component::ComponentId;
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::Component;
 use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::RemoteEntityMap;

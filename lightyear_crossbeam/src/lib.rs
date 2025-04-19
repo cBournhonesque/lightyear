@@ -67,6 +67,7 @@ impl CrossbeamPlugin {
     }
 
     fn receive(
+        time: Res<Time<Real>>,
         mut query: Query<(&mut Link, &mut CrossbeamIo)>
     ) {
         // TODO: parallelize
@@ -75,7 +76,7 @@ impl CrossbeamPlugin {
             loop {
                 match crossbeam_io.receiver.try_recv() {
                     Ok(data) => {
-                        link.recv.push(data)
+                        link.recv.push(data, time.elapsed())
                     }
                     Err(TryRecvError::Empty) => {break},
                     Err(TryRecvError::Disconnected) => {

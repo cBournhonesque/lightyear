@@ -6,7 +6,7 @@ use bevy::ecs::error::{ignore, panic, CommandWithEntity};
 use bevy::ecs::relationship::{Relationship, RelationshipHookMode};
 use bevy::ecs::system::entity_command;
 use bevy::ecs::world::DeferredWorld;
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::{format, Query};
 use bevy::prelude::{Component, Entity, EntityWorldMut, RelationshipTarget};
 use lightyear_messages::MessageManager;

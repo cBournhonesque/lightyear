@@ -23,6 +23,7 @@ bevy.workspace = true
 
 # utils
 tracing.workspace = true
+smallvec.workspace = true
 
 # serde
 bytes.workspace = true

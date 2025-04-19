@@ -27,20 +27,32 @@ std = [
   "bytes/std",
   "chacha20poly1305/std",
   "no_std_io2/std",
+  "lightyear_udp?/std",
+  "lightyear_netcode?/std",
 ]
 client = [
-  "dep:lightyear_client"
+  "lightyear_connection/client",
+  "lightyear_netcode?/client",
+  "lightyear_sync/client",
+  "lightyear_replication/client",
+  "lightyear_inputs?/client",
+  "lightyear_inputs_leafwing?/client",
 ]
 server = [
-  "dep:lightyear_server"
+  "lightyear_connection/server",
+  "lightyear_netcode?/server",
+  "lightyear_sync/server",
+  "lightyear_replication/server",
+  "lightyear_inputs?/server",
+  "lightyear_inputs_leafwing?/server",
+  "lightyear_udp?/server",
 ]
 prediction = [
-#  "dep:lightyear_prediction"
+  "dep:lightyear_prediction",
 ]
 interpolation = [
-#  "dep:lightyear_interpolation",
+  "dep:lightyear_interpolation",
   "lightyear_sync/interpolation",
-  "lightyear_client?/interpolation",
 ]
 trace = []
 metrics = [
@@ -48,6 +60,9 @@ metrics = [
   "dep:metrics-util",
   "dep:metrics-tracing-context",
   "dep:metrics-exporter-prometheus",
+]
+netcode = [
+  "dep:lightyear_netcode",
 ]
 visualizer = ["dep:bevy_metrics_dashboard", "metrics"]
 mock_time = ["dep:mock_instant"]
@@ -59,11 +74,23 @@ webtransport = [
   "dep:web-sys",
   "dep:wasm-bindgen-futures",
 ]
-leafwing = ["dep:leafwing-input-manager"]
+leafwing = [
+  "dep:leafwing-input-manager",
+  "dep:lightyear_inputs_leafwing",
+]
 # NOTE: because lightyear doesn't enable any features of avian by default, your crate must
 #       enable essential features (like f32 or f64).
-avian2d = ["dep:avian2d"]
-avian3d = ["dep:avian3d", "avian3d/3d"]
+avian2d = [
+  "dep:avian2d",
+#  "dep:lightyear_avian",
+#  "lightyear_avian/2d",
+]
+avian3d = [
+  "dep:avian3d",
+  "avian3d/3d",
+#  "dep:lightyear_avian",
+#  "lightyear_avian/3d",
+]
 udp = [
   "dep:lightyear_udp",
 ]
@@ -75,7 +102,16 @@ websocket = [
   "dep:wasm-bindgen",
   "dep:wasm-bindgen-futures",
 ]
-steam = ["dep:steamworks", "std"]
+steam = [
+  "dep:steamworks",
+  "std",
+]
+crossbeam = [
+  "dep:lightyear_crossbeam",
+]
+#lag_compensation = [
+#  "lightyear_avian?/lag_compensation",
+#]
 track_location = ["bevy/track_location"]
 
 # compression
@@ -87,17 +123,20 @@ zstd = ["dep:zstd"]
 lightyear_macros.workspace = true
 lightyear_connection.workspace = true
 lightyear_core.workspace = true
-lightyear_client = {workspace = true, optional = true}
 lightyear_link.workspace = true
+lightyear_netcode = {workspace = true, optional = true}
 lightyear_interpolation = {workspace = true, optional = true}
 lightyear_prediction = {workspace = true, optional = true}
 lightyear_messages.workspace = true
+lightyear_replication.workspace = true
 lightyear_sync.workspace = true
 lightyear_transport.workspace = true
-lightyear_server = {workspace = true, optional = true}
 lightyear_serde.workspace = true
 lightyear_utils.workspace = true
-lightyear_udp = {workspace = true, optional = true}
+#lightyear_avian = {workspace = true, optional = true}
+lightyear_inputs = {workspace = true, optional = true}
+lightyear_inputs_leafwing = {workspace = true, optional = true}
+lightyear_crossbeam = {workspace = true, optional = true}
 
 # utils
 chrono.workspace = true
@@ -171,6 +210,7 @@ async-compat.workspace = true
 async-channel.workspace = true
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
+lightyear_udp = { workspace = true, optional = true }
 steamworks = { workspace = true, optional = true }
 quinn = { workspace = true, optional = true }
 quinn-proto = { workspace = true, optional = true }
@@ -206,5 +246,5 @@ tokio = { workspace = true, features = ["time"] }
 # we cannot use all-features = true, because we need to provide additional features for avian
 # when building the docs
 # NOTE: building docs.rs doesn't work if I include avian
-features = ["metrics", "udp", "webtransport", "leafwing", "websocket", "steam", "zstd"]
+features = ["metrics", "udp", "webtransport", "leafwing", "websocket", "steam", "zstd", "crossbeam", "lag_compensation"]
 rustdoc-args = ["--cfg", "docsrs"]

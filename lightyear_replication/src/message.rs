@@ -1,7 +1,7 @@
 use crate::components::ReplicationGroupId;
 use crate::registry::ComponentNetId;
 use bevy::ecs::entity::EntityHash;
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::Entity;
 use bytes::Bytes;
 use lightyear_core::tick::Tick;

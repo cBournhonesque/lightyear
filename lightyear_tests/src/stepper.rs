@@ -7,8 +7,6 @@ use bevy::time::TimeUpdateStrategy;
 use bevy::MinimalPlugins;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
-use lightyear_client::plugin::ClientPlugins;
-use lightyear_client::Client;
 use lightyear_connection::client::{Connect, Connected};
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::id::PeerId;
@@ -19,9 +17,8 @@ use lightyear_netcode::auth::Authentication;
 use lightyear_netcode::client_plugin::NetcodeConfig;
 use lightyear_netcode::{NetcodeClient, NetcodeServer};
 use lightyear_new::prelude::Link;
+use lightyear_new::prelude::{client, server, *};
 use lightyear_replication::prelude::{NetworkVisibilityPlugin, ReplicationReceiver, ReplicationSender};
-use lightyear_server::plugin::ServerPlugins;
-use lightyear_server::Server;
 
 const PROTOCOL_ID: u64 = 0;
 const KEY: [u8; 32] = [0; 32];
@@ -40,7 +37,7 @@ pub struct ClientServerStepper<const N: usize = 1> {
     pub client_of_entities: [Entity; N],
     pub frame_duration: Duration,
     pub tick_duration: Duration,
-    pub current_time: bevy::platform_support::time::Instant,
+    pub current_time: bevy::platform::time::Instant,
 }
 
 impl ClientServerStepper<1> {
@@ -60,11 +57,11 @@ impl<const N: usize> ClientServerStepper<N> {
         server_app.add_plugins((MinimalPlugins, StatesPlugin));
         server_app.add_plugins(ProtocolPlugin);
         server_app.add_plugins(NetworkVisibilityPlugin);
-        server_app.add_plugins(ServerPlugins {
+        server_app.add_plugins(server::ServerPlugins {
             tick_duration
         });
         let server_entity = server_app.world_mut().spawn((
-            Server,
+            server::Server,
             NetcodeServer::new(lightyear_netcode::server_plugin::NetcodeConfig {
                 protocol_id: PROTOCOL_ID,
                 private_key: KEY,
@@ -76,12 +73,12 @@ impl<const N: usize> ClientServerStepper<N> {
         client_app.add_plugins((MinimalPlugins, StatesPlugin));
         client_app.add_plugins(ProtocolPlugin);
         client_app.add_plugins(NetworkVisibilityPlugin);
-        client_app.add_plugins(ClientPlugins {
+        client_app.add_plugins(client::ClientPlugins {
             tick_duration,
         });
 
         // Initialize Real time (needed only for the first TimeSystem run)
-        let now = bevy::platform_support::time::Instant::now();
+        let now = bevy::platform::time::Instant::now();
         client_app
             .world_mut()
             .get_resource_mut::<Time<Real>>()
@@ -105,7 +102,7 @@ impl<const N: usize> ClientServerStepper<N> {
                 client_id: client_id as u64,
             };
             client_entities[client_id] = client_app.world_mut().spawn((
-                Client,
+                client::Client,
                 ReplicationSender::default(),
                 ReplicationReceiver::default(),
                 NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),

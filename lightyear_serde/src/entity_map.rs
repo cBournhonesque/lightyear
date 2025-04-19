@@ -7,7 +7,7 @@ use crate::{SerializationError, ToBytes};
 use bevy::ecs::entity::{hash_map::EntityHashMap, EntityMapper};
 use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
-use std::hash::Hasher;
+use core::hash::Hasher;
 use tracing::{debug, error, trace};
 
 const MARKED: u64 = 1 << 62;

@@ -112,7 +112,7 @@ fn default_serialize<M: Serialize>(
 
 #[cfg(not(feature = "std"))]
 /// Default serialize function using bincode
-fn default_serialize<M: Message + Serialize>(
+fn default_serialize<M: Serialize>(
     message: &M,
     buffer: &mut Writer,
 ) -> Result<(), SerializationError> {
@@ -131,7 +131,7 @@ fn default_deserialize<M: DeserializeOwned>(
 
 #[cfg(not(feature = "std"))]
 /// Default deserialize function using bincode
-fn default_deserialize<M: Message + DeserializeOwned>(
+fn default_deserialize<M: DeserializeOwned>(
     buffer: &mut Reader,
 ) -> Result<M, SerializationError> {
     let data = bincode::serde::decode_from_reader(buffer, bincode::config::standard())?;
