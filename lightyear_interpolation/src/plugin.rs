@@ -5,11 +5,13 @@ use crate::despawn::{despawn_interpolated, removed_components};
 use crate::interpolate::{
     insert_interpolated_component, interpolate, update_interpolate_status,
 };
-use crate::resource::InterpolationManager;
+use crate::manager::InterpolationManager;
 use crate::spawn::spawn_interpolated_entity;
-use crate::{Interpolated, InterpolationMode};
+use crate::{Interpolated, InterpolationMode, SyncComponent};
 use bevy::prelude::*;
 use core::time::Duration;
+use lightyear_core::prelude::Tick;
+use lightyear_sync::plugin::SyncSet;
 use serde::{Deserialize, Serialize};
 
 /// Interpolation delay of the client at the time the message is sent
@@ -31,14 +33,7 @@ pub struct InterpolationDelay {
 impl InterpolationDelay {
     /// What Tick the interpolation delay corresponds to, knowing the current tick
     pub fn tick_and_overstep(&self, current_tick: Tick, tick_duration: Duration) -> (Tick, f32) {
-        let delay_time = WrappedTime::new(self.delay_ms as u32);
-        let delay_tick = delay_time.to_tick(tick_duration).0;
-        let delay_overstep = delay_time.tick_overstep(tick_duration);
-        if delay_overstep == 0.0 {
-            (current_tick - delay_tick, 0.0)
-        } else {
-            (current_tick - delay_tick - 1, 1.0 - delay_overstep)
-        }
+        todo!()
     }
 
     /// What overstep the interpolation delay corresponds to
@@ -46,7 +41,7 @@ impl InterpolationDelay {
     /// The exact interpolation value is
     /// `interpolation_tick + interpolation_overstep * tick_duration`
     fn overstep(&self, current_tick: Tick, tick_duration: Duration) -> f32 {
-        1.0 - WrappedTime::new(self.delay_ms as u32).tick_overstep(tick_duration)
+        todo!()
     }
 }
 
@@ -105,12 +100,6 @@ impl InterpolationPlugin {
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InterpolationSet {
-    // PreUpdate Sets
-    /// Restore the correct component values
-    RestoreVisualInterpolation,
-    // FixedUpdate
-    /// Update the previous/current component values used for visual interpolation
-    UpdateVisualInterpolationState,
     // Update Sets,
     /// Spawn interpolation entities,
     SpawnInterpolation,
@@ -121,9 +110,6 @@ pub enum InterpolationSet {
     /// Interpolate between last 2 server states. Has to be overriden if
     /// `InterpolationConfig.custom_interpolation_logic` is set to true
     Interpolate,
-    // PostUpdate sets
-    /// Interpolate the visual state of the game with 1 tick of delay
-    VisualInterpolation,
 
     /// SystemSet encompassing all other interpolation sets
     All,
@@ -147,7 +133,7 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent>(
                 Update,
                 (
                     apply_confirmed_update_mode_full::<C>,
-                    update_interpolate_status::<C>.run_if(is_synced),
+                    update_interpolate_status::<C>,
                     // TODO: that means we could insert the component twice, here and then in interpolate...
                     //  need to optimize this
                     insert_interpolated_component::<C>,
@@ -178,14 +164,10 @@ pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
 
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
-        let should_run_interpolation = not(is_host_server).and(is_synced);
-
         // REFLECT
         app.register_type::<InterpolationConfig>()
             .register_type::<Interpolated>();
 
-        // RESOURCES
-        app.init_resource::<InterpolationManager>();
         // SETS
         app.configure_sets(
             Update,
@@ -193,7 +175,7 @@ impl Plugin for InterpolationPlugin {
                 InterpolationSet::SpawnInterpolation,
                 InterpolationSet::SpawnHistory,
                 // PrepareInterpolation uses the sync values (which are used to compute interpolation)
-                InterpolationSet::PrepareInterpolation.after(SyncSet),
+                InterpolationSet::PrepareInterpolation.after(SyncSet::Sync),
                 InterpolationSet::Interpolate,
             )
                 .in_set(InterpolationSet::All)
@@ -201,7 +183,7 @@ impl Plugin for InterpolationPlugin {
         );
         app.configure_sets(
             Update,
-            InterpolationSet::All.run_if(should_run_interpolation),
+            InterpolationSet::All
         );
         // SYSTEMS
         app.add_systems(

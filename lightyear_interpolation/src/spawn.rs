@@ -1,21 +1,19 @@
-use bevy::prelude::*;
-use tracing::trace;
-
-use crate::client::components::Confirmed;
-use crate::client::config::ClientConfig;
-use crate::client::connection::ConnectionManager;
-use crate::prelude::TickManager;
-use crate::shared::replication::components::ShouldBeInterpolated;
+use crate::manager::InterpolationManager;
 use crate::Interpolated;
+use bevy::prelude::*;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_replication::components::ShouldBeInterpolated;
+use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
+use lightyear_sync::prelude::client::InterpolationTimeline;
+use tracing::trace;
 
 /// Spawn an interpolated entity for each confirmed entity that has the `ShouldBeInterpolated` component added
 pub(crate) fn spawn_interpolated_entity(
-    tick_manager: Res<TickManager>,
-    config: Res<ClientConfig>,
-    connection: Res<ConnectionManager>,
+    connection: Single<(&ReplicationReceiver, &LocalTimeline), With<InterpolationManager>>,
     mut commands: Commands,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBeInterpolated>>,
 ) -> Result {
+    let (receiver, timeline) = connection.into_inner();
     for (confirmed_entity, confirmed) in confirmed_entities.iter_mut() {
         // skip if the entity already has an interpolated entity
         if confirmed.as_ref().is_some_and(|c| c.interpolated.is_some()) {
@@ -35,13 +33,12 @@ pub(crate) fn spawn_interpolated_entity(
                 "Adding Confirmed component on entity {:?} after we spawned Interpolated entity {:?}",
                 confirmed_entity, interpolated
             );
-            let confirmed_tick = connection
-                .replication_receiver
+            let confirmed_tick = receiver
                 .get_confirmed_tick(confirmed_entity)
                 // in most cases we will have a confirmed tick. The only case where we don't is if
                 // the entity was originally spawned on this client, but then authority was removed
                 // and we not want to add Interpolation
-                .unwrap_or(tick_manager.tick());
+                .unwrap_or(timeline.tick());
             confirmed_entity_mut.insert(Confirmed {
                 interpolated: Some(interpolated),
                 predicted: None,

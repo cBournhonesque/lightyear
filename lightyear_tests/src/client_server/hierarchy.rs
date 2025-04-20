@@ -3,8 +3,7 @@
 use crate::stepper::ClientServerStepper;
 use bevy::prelude::*;
 use lightyear_messages::MessageManager;
-use lightyear_replication::components::DisableReplicateHierarchy;
-use lightyear_replication::prelude::{ChildOfSync, Replicate, ReplicateLike};
+use lightyear_replication::prelude::{ChildOfSync, DisableReplicateHierarchy, Replicate, ReplicateLike};
 use test_log::test;
 
 // TODO:

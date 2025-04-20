@@ -1,3 +1,8 @@
+//! Handles interpolation of entities between server updates
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
 //! This module is not related to the interpolating between server updates.
 //! Instead, it is responsible for interpolating between FixedUpdate ticks during the Update state.
 //!
@@ -31,21 +36,30 @@
 // - we need to store the component values of the previous tick
 // - then in PostUpdate (visual interpolation) we interpolate between the previous tick and the current tick using the overstep
 // - in PreUpdate, we restore the component value to the previous tick values
-
 use bevy::prelude::*;
 use bevy::transform::TransformSystem::TransformPropagate;
+use lightyear_core::prelude::LocalTimeline;
+use lightyear_prediction::correction::Correction;
+use lightyear_prediction::plugin::{is_in_rollback, PredictionSet};
+use lightyear_prediction::prelude::PredictionManager;
+use lightyear_replication::prelude::ReplicationSet;
+use lightyear_replication::registry::registry::ComponentRegistry;
 use tracing::trace;
 
-use crate::client::components::SyncComponent;
-use crate::plugin::InterpolationSet;
-use crate::prelude::client::{is_in_rollback, Correction, InterpolationSet, PredictionSet};
-use crate::prelude::{ComponentRegistry, MainSet, TickManager, TimeManager};
-
-pub struct VisualInterpolationPlugin<C: SyncComponent> {
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum FixedUpdateInterpolationSet {
+    /// Restore the correct component values
+    Restore,
+    /// Update the previous/current component values used for visual interpolation
+    Update,
+    /// Interpolate the visual state of the game with 1 tick of delay
+    Interpolate,
+}
+pub struct FixedUpdateInterpolationPlugin<C> {
     _marker: core::marker::PhantomData<C>,
 }
 
-impl<C: SyncComponent> Default for VisualInterpolationPlugin<C> {
+impl<C> Default for FixedUpdateInterpolationPlugin<C> {
     fn default() -> Self {
         Self {
             _marker: core::marker::PhantomData,
@@ -53,14 +67,14 @@ impl<C: SyncComponent> Default for VisualInterpolationPlugin<C> {
     }
 }
 
-impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
+impl<C: Component + Clone + Ease> Plugin for FixedUpdateInterpolationPlugin<C> {
     fn build(&self, app: &mut App) {
         // SETS
         app.configure_sets(
             PreUpdate,
             // make sure that we restore the actual component value before we perform a rollback check
             (
-                InterpolationSet::RestoreVisualInterpolation,
+                FixedUpdateInterpolationSet::Restore,
                 // the correct value to avoid rollbacks is the corrected value
                 PredictionSet::RestoreVisualCorrection,
                 PredictionSet::CheckRollback,
@@ -73,30 +87,30 @@ impl<C: SyncComponent> Plugin for VisualInterpolationPlugin<C> {
         //   after Correction)
         app.configure_sets(
             FixedLast,
-            InterpolationSet::UpdateVisualInterpolationState.run_if(not(is_in_rollback)),
+            FixedUpdateInterpolationSet::Update.run_if(not(is_in_rollback)),
         );
         app.configure_sets(
             PostUpdate,
-            InterpolationSet::VisualInterpolation
+            FixedUpdateInterpolationSet::Interpolate
                 .before(TransformPropagate)
                 // we don't want the visual interpolation value to be the one replicated!
-                .after(MainSet::Send),
+                .after(ReplicationSet::Send),
         );
 
         // SYSTEMS
         app.add_systems(
             PreUpdate,
             restore_from_visual_interpolation::<C>
-                .in_set(InterpolationSet::RestoreVisualInterpolation),
+                .in_set(FixedUpdateInterpolationSet::Restore),
         );
         app.add_systems(
             FixedLast,
             update_visual_interpolation_status::<C>
-                .in_set(InterpolationSet::UpdateVisualInterpolationState),
+                .in_set(FixedUpdateInterpolationSet::Update),
         );
         app.add_systems(
             PostUpdate,
-            visual_interpolation::<C>.in_set(InterpolationSet::VisualInterpolation),
+            visual_interpolation::<C>.in_set(FixedUpdateInterpolationSet::Interpolate),
         );
     }
 }
@@ -135,15 +149,14 @@ impl<C: Component> Default for VisualInterpolateStatus<C> {
 // TODO: explore how we could allow this for non-marker components, user would need to specify the interpolation function?
 //  (to avoid orphan rule)
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
-pub(crate) fn visual_interpolation<C: SyncComponent>(
-    component_registry: Res<ComponentRegistry>,
-    tick_manager: Res<TickManager>,
-    time_manager: Res<TimeManager>,
+pub(crate) fn visual_interpolation<C: Component + Clone + Ease>(
+    // TODO: handle multiple timelines
+    timeline: Single<&LocalTimeline, With<PredictionManager>>,
     mut query: Query<(&mut C, &VisualInterpolateStatus<C>)>,
 ) {
     let kind = core::any::type_name::<C>();
-    let tick = tick_manager.tick();
-    let overstep = time_manager.overstep();
+    let tick = timeline.now.tick;
+    let overstep = timeline.now.overstep;
     for (mut component, interpolate_status) in query.iter_mut() {
         let Some(previous_value) = &interpolate_status.previous_value else {
             trace!(?kind, "No previous value, skipping visual interpolation");
@@ -159,18 +172,19 @@ pub(crate) fn visual_interpolation<C: SyncComponent>(
             ?overstep,
             "Visual interpolation of fixed-update component!"
         );
+        let curve = EasingCurve::new(previous_value, current_value, EaseFunction::Linear);
+        let interpolated = curve.sample_unchecked(overstep).clone();
         if !interpolate_status.trigger_change_detection {
-            *component.bypass_change_detection() =
-                component_registry.interpolate(previous_value, current_value, overstep);
+            *component.bypass_change_detection() = interpolated;
         } else {
-            *component = component_registry.interpolate(previous_value, current_value, overstep);
+            *component = interpolated;
         }
     }
 }
 
 /// Update the previous and current tick values.
 /// Runs in FixedUpdate after FixedUpdate::Main (where the component values are updated)
-pub(crate) fn update_visual_interpolation_status<C: SyncComponent>(
+pub(crate) fn update_visual_interpolation_status<C: Component>(
     mut query: Query<(Ref<C>, &mut VisualInterpolateStatus<C>)>,
 ) {
     for (component, mut interpolate_status) in query.iter_mut() {
@@ -189,7 +203,7 @@ pub(crate) fn update_visual_interpolation_status<C: SyncComponent>(
 }
 
 /// Restore the component value to the non-interpolated value
-pub(crate) fn restore_from_visual_interpolation<C: SyncComponent>(
+pub(crate) fn restore_from_visual_interpolation<C: Component>(
     // if correction is enabled, we will restore the value from the Correction component
     mut query: Query<(&mut C, &mut VisualInterpolateStatus<C>), Without<Correction<C>>>,
 ) {
@@ -234,7 +248,7 @@ mod tests {
         stepper.client_app.world_mut().insert_resource(Toggle(true));
         stepper
             .client_app
-            .add_plugins(VisualInterpolationPlugin::<InterpolationModeFull>::default());
+            .add_plugins(FixedUpdateInterpolationPlugin::<InterpolationModeFull>::default());
         let entity = stepper
             .client_app
             .world_mut()
@@ -1006,7 +1020,7 @@ mod tests {
             .add_systems(FixedUpdate, fixed_update_increment);
         stepper
             .client_app
-            .add_plugins(VisualInterpolationPlugin::<ComponentCorrection>::default());
+            .add_plugins(FixedUpdateInterpolationPlugin::<ComponentCorrection>::default());
         stepper.build();
         stepper.init();
         let tick = stepper.client_tick();

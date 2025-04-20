@@ -1,7 +1,12 @@
 use crate::interpolation_history::ConfirmedHistory;
+use crate::registry::InterpolationRegistry;
+use crate::SyncComponent;
 use bevy::ecs::component::Mutable;
 use bevy::prelude::*;
-use lightyear_core::prelude::Tick;
+use core::time::Duration;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
+use lightyear_sync::prelude::client::{Input, InterpolationTimeline, IsSynced};
+use lightyear_sync::timeline::interpolation::Interpolation;
 use tracing::*;
 
 // if we haven't received updates since UPDATE_INTERPOLATION_START_TICK_FACTOR * send_interval
@@ -47,9 +52,9 @@ impl<C: Component> InterpolateStatus<C> {
 /// At the end of each frame, interpolate the components between the last 2 confirmed server states
 /// Invariant: start_tick <= current_interpolate_tick + overstep < end_tick
 pub(crate) fn update_interpolate_status<C: SyncComponent>(
-    config: Res<ClientConfig>,
-    connection: Res<ConnectionManager>,
-    tick_manager: Res<TickManager>,
+    // TODO: handle multiple interpolation timelines
+    // TODO: exclude host-server
+    interpolation: Single<(&InterpolationTimeline), With<IsSynced<Interpolation>>>,
     mut query: Query<(
         Entity,
         Option<&mut C>,
@@ -58,19 +63,19 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
     )>,
 ) {
     let kind = core::any::type_name::<C>();
+    let timeline = interpolation.into_inner();
 
+    // TODO: compute this from an average of the last N updates for an entity?
+    // // how many ticks between each interpolation (add 1 to roughly take the ceil)
+    // let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
+    //     * config.shared.server_replication_send_interval.as_secs_f32()
+    //     / config.shared.tick.tick_duration.as_secs_f32()) as i16
+    //     + 1;
     // how many ticks between each interpolation (add 1 to roughly take the ceil)
-    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
-        * config.shared.server_replication_send_interval.as_secs_f32()
-        / config.shared.tick.tick_duration.as_secs_f32()) as i16
-        + 1;
+    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR * 5.0) as i16 + 1;
 
-    let current_interpolate_tick = connection
-        .sync_manager
-        .interpolation_tick(tick_manager.as_ref());
-    let current_interpolate_overstep = connection
-        .sync_manager
-        .interpolation_overstep(tick_manager.as_ref());
+    let current_interpolate_tick = timeline.now().tick;
+    let current_interpolate_overstep = timeline.now().overstep;
     for (entity, component, mut status, mut history) in query.iter_mut() {
         let mut start = status.start.take();
         let mut end = status.end.take();
@@ -180,14 +185,14 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
             component = ?kind,
             ?current_interpolate_tick,
             ?current_interpolate_overstep,
-            last_received_server_tick = ?connection.latest_received_server_tick(),
+            // last_received_server_tick = ?connection.latest_received_server_tick(),
             start_tick = ?start.as_ref().map(|(tick, _)| tick),
             end_tick = ?end.as_ref().map(|(tick, _) | tick),
             "update_interpolate_status");
         status.start = start;
         status.end = end;
         status.current_tick = current_interpolate_tick;
-        status.current_overstep = current_interpolate_overstep;
+        status.current_overstep = current_interpolate_overstep.value();
         if status.start.is_none() {
             trace!("no lerp start tick");
         }
@@ -208,19 +213,19 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
 ///   one update; for example if we spawn the player and then they don't move. If we didn't do this
 ///   the interpolated entity would simply not appear)
 pub(crate) fn insert_interpolated_component<C: SyncComponent>(
-    component_registry: Res<ComponentRegistry>,
-    config: Res<ClientConfig>,
-    tick_manager: Res<TickManager>,
+    component_registry: Res<InterpolationRegistry>,
+    tick_manager: Single<&LocalTimeline>,
     mut commands: Commands,
     mut query: Query<(Entity, &InterpolateStatus<C>), Without<C>>,
 ) {
     let tick = tick_manager.tick();
-    // how many ticks between each interpolation update (add 1 to roughly take the ceil)
-    // TODO: use something more precise, with the interpolation overstep?
-    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
-        * config.shared.server_replication_send_interval.as_secs_f32()
-        / config.shared.tick.tick_duration.as_secs_f32()) as i16
-        + 1;
+    // // how many ticks between each interpolation update (add 1 to roughly take the ceil)
+    // // TODO: use something more precise, with the interpolation overstep?
+    // let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
+    //     * config.shared.server_replication_send_interval.as_secs_f32()
+    //     / config.shared.tick.tick_duration.as_secs_f32()) as i16
+    //     + 1;
+    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR * 5.0) as i16 + 1;
     for (entity, status) in query.iter_mut() {
         trace!("checking if we need to insert the component on the Interpolated entity");
         let mut entity_commands = commands.entity(entity);
@@ -233,8 +238,8 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent>(
                 assert_ne!(start_tick, end_tick);
                 trace!("insert interpolated comp value because we have 2 updates");
                 let t = status.interpolation_fraction().unwrap();
-                let value = component_registry.interpolate(start_value, end_value, t);
-                entity_commands.insert(value);
+                let value = component_registry.interpolate(start_value.clone(), end_value.clone(), t);
+                entity_commands.insert(value.clone());
             } _ => {
                 // we only have one update, but enough time has passed that we should add the component anyway
                 if tick - *start_tick >= send_interval_delta_tick {
@@ -248,7 +253,7 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent>(
 
 /// Update the component value on the Interpolate entity
 pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
-    component_registry: Res<ComponentRegistry>,
+    component_registry: Res<InterpolationRegistry>,
     mut query: Query<(&mut C, &InterpolateStatus<C>)>,
 ) {
     for (mut component, status) in query.iter_mut() {
@@ -260,8 +265,8 @@ pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
                 assert!(status.current_tick < *end_tick);
                 if start_tick != end_tick {
                     let t = status.interpolation_fraction().unwrap();
-                    let value = component_registry.interpolate(start_value, end_value, t);
-                    *component = value;
+                    let value = component_registry.interpolate(start_value.clone(), end_value.clone(), t);
+                    *component = value.clone();
                 } else {
                     *component = start_value.clone();
                 }

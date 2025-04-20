@@ -1,9 +1,11 @@
 //! Defines bevy resources needed for Interpolation
-use bevy::prelude::{Reflect, Resource};
+use bevy::prelude::{Component, Entity, Reflect, Resource};
 use core::cell::UnsafeCell;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_replication::registry::ComponentError;
 use lightyear_serde::entity_map::EntityMap;
+// TODO: the interpolation timeline should be defined in lightyear_interpolation
+use lightyear_sync::timeline::interpolation::InterpolationTimeline;
 
 #[derive(Default, Debug, Reflect)]
 pub struct InterpolatedEntityMap {
@@ -12,7 +14,8 @@ pub struct InterpolatedEntityMap {
     pub(crate) confirmed_to_interpolated: EntityMap,
 }
 
-#[derive(Resource, Default)]
+#[derive(Component, Default)]
+#[require(InterpolationTimeline)]
 pub struct InterpolationManager {
     /// Map between confirmed and interpolated entities
     ///

@@ -1,11 +1,15 @@
 use core::ops::Deref;
 
 use crate::interpolate::InterpolateStatus;
-use crate::resource::InterpolationManager;
-use crate::{Interpolated, InterpolationMode};
+use crate::manager::InterpolationManager;
+use crate::registry::InterpolationRegistry;
+use crate::{Interpolated, InterpolationMode, SyncComponent};
 use bevy::prelude::*;
-use lightyear_core::prelude::Tick;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
 use lightyear_replication::components::Confirmed;
+use lightyear_replication::prelude::HasAuthority;
+use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_sync::prelude::client::InterpolationTimeline;
 use lightyear_utils::ready_buffer::ReadyBuffer;
 use tracing::{debug, trace};
 
@@ -72,11 +76,11 @@ impl<C: SyncComponent> ConfirmedHistory<C> {
 /// Add a component history for all Interpolated entities, that will store the history of the Confirmed component
 /// that we want to interpolate between entities that have the `Confirmed` component
 pub(crate) fn add_component_history<C: SyncComponent>(
+    interpolation_registry: Res<InterpolationRegistry>,
     component_registry: Res<ComponentRegistry>,
-    manager: Res<InterpolationManager>,
-    tick_manager: Res<TickManager>,
+    // TODO: handle multiple receivers
+    query: Single<(&LocalTimeline, &InterpolationTimeline, &InterpolationManager)>,
     mut commands: Commands,
-    connection: Res<ConnectionManager>,
     interpolated_entities: Query<
         Entity,
         (Without<ConfirmedHistory<C>>, Without<C>, With<Interpolated>),
@@ -86,12 +90,9 @@ pub(crate) fn add_component_history<C: SyncComponent>(
     // (in case of authority transfer)
     confirmed_entities: Query<(&Confirmed, &C)>,
 ) -> Result {
-    let current_tick = connection
-        .sync_manager
-        .interpolation_tick(tick_manager.as_ref());
-    let current_overstep = connection
-        .sync_manager
-        .interpolation_overstep(tick_manager.as_ref());
+    let (local_timeline, timeline, manager) = query.into_inner();
+    let current_tick = timeline.now.tick;
+    let current_overstep = timeline.now.overstep;
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed_entity.interpolated {
             if let Ok(interpolated_entity) = interpolated_entities.get(p) {
@@ -102,9 +103,9 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                 // map any entities from confirmed to interpolated
                 let mut new_component = confirmed_component.clone();
                 let _ = manager.map_entities(&mut new_component, component_registry.as_ref());
-                match component_registry.interpolation_mode::<C>() {
+                match interpolation_registry.interpolation_mode::<C>() {
                     InterpolationMode::Full => {
-                        trace!(?interpolated_entity, tick=?tick_manager.tick(), "spawn interpolation history");
+                        trace!(?interpolated_entity, tick=?local_timeline.tick(), "spawn interpolation history");
                         interpolated_entity_mut.insert((
                             // NOTE: we probably do NOT want to insert the component right away, instead we want to wait until we have two updates
                             //  we can interpolate between. Otherwise it will look jarring if send_interval is low. (because the entity will
@@ -115,7 +116,7 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                                 start: Some((current_tick, new_component)),
                                 end: None,
                                 current_tick,
-                                current_overstep,
+                                current_overstep: current_overstep.value(),
                             },
                         ));
                     }
@@ -134,8 +135,8 @@ pub(crate) fn add_component_history<C: SyncComponent>(
 /// When we receive a server update for an interpolated component, we need to store it in the confirmed history,
 pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,
-    tick_manager: Res<TickManager>,
-    manager: Res<InterpolationManager>,
+    // TODO: use the interpolation receiver corresponding to the Confirmed entity (via Replicated)
+    query: Single<(&LocalTimeline, &InterpolationManager)>,
     mut interpolated_entities: Query<
         &mut ConfirmedHistory<C>,
         (With<Interpolated>, Without<Confirmed>),
@@ -143,6 +144,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
     confirmed_entities: Query<(Entity, &Confirmed, Ref<C>, Has<HasAuthority>)>,
 ) {
     let kind = core::any::type_name::<C>();
+    let (timeline, manager) = query.into_inner();
     for (confirmed_entity, confirmed, confirmed_component, has_authority) in
         confirmed_entities.iter()
     {
@@ -154,7 +156,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
                     // TODO: as an alternative, we could set the confirmed.tick to be equal to the current tick
                     //  if we have authority! Then it would also work for prediction?
                     let tick = if has_authority {
-                        tick_manager.tick()
+                        timeline.tick()
                     } else {
                         confirmed.tick
                     };
@@ -187,7 +189,8 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
 /// When we receive a server update for a simple component, we just update the entity directly
 pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,
-    manager: Res<InterpolationManager>,
+    // TODO: handle multiple interpolation receivers
+    manager: Single<&InterpolationManager>,
     mut interpolated_entities: Query<&mut C, (With<Interpolated>, Without<Confirmed>)>,
     confirmed_entities: Query<(Entity, &Confirmed, Ref<C>)>,
 ) {

@@ -157,11 +157,11 @@ fn test_component_update_after_tick_wrap() {
     let tick_duration = stepper.tick_duration;
     // we increase the ticks in 2 steps (otherwise we would directly go over tick wrapping and the tick cleanup
     // systems would not run)
-    stepper.client_mut(0).get_mut::<LocalTimeline>().unwrap().advance(tick_duration * ((u16::MAX / 3  + 10) as u32));
-    stepper.client_of_mut(0).get_mut::<LocalTimeline>().unwrap().advance(tick_duration * ((u16::MAX / 3  + 10) as u32));
+    stepper.client_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32));
+    stepper.client_of_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32));
     stepper.frame_step(1);
-    stepper.client_mut(0).get_mut::<LocalTimeline>().unwrap().advance(tick_duration * ((u16::MAX / 3  + 10) as u32));
-    stepper.client_of_mut(0).get_mut::<LocalTimeline>().unwrap().advance(tick_duration * ((u16::MAX / 3  + 10) as u32));
+    stepper.client_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32));
+    stepper.client_of_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32));
     stepper.frame_step(1);
 
     stepper.client_app.world_mut().entity_mut(client_entity).get_mut::<CompA>().unwrap().0 = 2.0;

@@ -61,7 +61,7 @@ impl<const N: usize> ClientServerStepper<N> {
             tick_duration
         });
         let server_entity = server_app.world_mut().spawn((
-            server::Server,
+            server::Server::default(),
             NetcodeServer::new(lightyear_netcode::server_plugin::NetcodeConfig {
                 protocol_id: PROTOCOL_ID,
                 private_key: KEY,
@@ -102,7 +102,7 @@ impl<const N: usize> ClientServerStepper<N> {
                 client_id: client_id as u64,
             };
             client_entities[client_id] = client_app.world_mut().spawn((
-                client::Client,
+                client::Client::default(),
                 ReplicationSender::default(),
                 ReplicationReceiver::default(),
                 NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
@@ -117,7 +117,7 @@ impl<const N: usize> ClientServerStepper<N> {
                 ReplicationSender::default(),
                 ReplicationReceiver::default(),
                 // we will act like each client has a different port
-                Link::new(SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LOCALHOST), client_id as u16)),
+                Link::new(SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LOCALHOST), client_id as u16), None),
                 crossbeam_server
             )).id();
         }

@@ -1,5 +1,5 @@
 [package]
-name = "lightyear_interpolation"
+name = "lightyear_fixed_update_interpolation"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -22,6 +22,8 @@ lightyear_serde.workspace = true
 lightyear_core.workspace = true
 lightyear_replication = {workspace = true, features = ["interpolation"]}
 lightyear_sync = {workspace = true, features = ["interpolation"]}
+lightyear_interpolation.workspace = true
+lightyear_prediction.workspace = true
 
 # utils
 tracing.workspace = true

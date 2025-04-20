@@ -7,22 +7,21 @@ use bevy::ecs::component::{HookContext, Mutable, StorageType};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
 use core::ops::{Add, Mul};
-
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
+use lightyear_replication::prelude::{InitialReplicated, Replicated};
 pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
-pub use visual_interpolation::{VisualInterpolateStatus, VisualInterpolationPlugin};
+use tracing::error;
 
-use crate::resource::InterpolationManager;
+use crate::manager::InterpolationManager;
 
 mod despawn;
 pub mod interpolate;
 pub mod interpolation_history;
 pub mod plugin;
-mod resource;
+mod manager;
 mod spawn;
-pub mod visual_interpolation;
-
+mod registry;
 
 /// Marker component for an entity that is being interpolated by the client
 #[derive(Debug, Reflect)]
@@ -47,8 +46,12 @@ impl Component for Interpolated {
                 .get::<Interpolated>(interpolated)
                 .unwrap()
                 .confirmed_entity;
-
-            if let Some(mut manager) = deferred_world.get_resource_mut::<InterpolationManager>() {
+            // TODO: maybe we need InitialReplicated?
+            let Some(replicated) = deferred_world.get::<Replicated>(confirmed) else {
+                error!("Could not find the receiver assocaited with the interpolated entity {:?}", interpolated);
+                return;
+            };
+            if let Some(mut manager) = deferred_world.get_mut::<InterpolationManager>(replicated.receiver) {
                 manager
                     .interpolated_entity_map
                     .get_mut()
@@ -62,7 +65,11 @@ impl Component for Interpolated {
                 .get::<Interpolated>(interpolated)
                 .unwrap()
                 .confirmed_entity;
-            if let Some(mut manager) = deferred_world.get_resource_mut::<InterpolationManager>() {
+            let Some(replicated) = deferred_world.get::<Replicated>(confirmed) else {
+                error!("Could not find the receiver assocaited with the interpolated entity {:?}", interpolated);
+                return;
+            };
+            if let Some(mut manager) = deferred_world.get_mut::<InterpolationManager>(replicated.receiver) {
                 manager
                     .interpolated_entity_map
                     .get_mut()
@@ -94,3 +101,7 @@ pub enum InterpolationMode {
     /// The component is not copied from the Confirmed entity to the interpolated entity
     None,
 }
+
+
+pub trait SyncComponent: Component<Mutability=Mutable> + Clone + PartialEq {}
+impl<T> SyncComponent for T where T: Component<Mutability=Mutable> + Clone + PartialEq {}
