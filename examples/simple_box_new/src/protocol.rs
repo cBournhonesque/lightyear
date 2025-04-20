@@ -4,12 +4,10 @@
 //! You can use the `#[protocol]` attribute to specify additional behaviour:
 //! - how entities contained in the message should be mapped from the remote world to the local world
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
-use core::ops::{Add, Mul};
 
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{
-    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
-};
+use bevy::math::Curve;
+use bevy::prelude::*;
 use bevy::prelude::{App, Plugin};
 use lightyear_new::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -45,21 +43,12 @@ pub struct PlayerId(PeerId);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
 pub struct PlayerPosition(pub Vec2);
 
-impl Add for PlayerPosition {
-    type Output = PlayerPosition;
-    #[inline]
-    fn add(self, rhs: PlayerPosition) -> PlayerPosition {
-        PlayerPosition(self.0.add(rhs.0))
+impl Ease for PlayerPosition {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| PlayerPosition(Vec2::lerp(start.0, end.0, t)))
     }
 }
 
-impl Mul<f32> for &PlayerPosition {
-    type Output = PlayerPosition;
-
-    fn mul(self, rhs: f32) -> Self::Output {
-        PlayerPosition(self.0 * rhs)
-    }
-}
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);

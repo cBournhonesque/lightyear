@@ -25,7 +25,7 @@ use tracing::debug;
 
 /// Function used to interpolate from one component state (`start`) to another (`other`)
 /// t goes from 0.0 (`start`) to 1.0 (`other`)
-pub type LerpFn<C> = fn(start: &C, other: &C, t: f32) -> C;
+pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 
 /// A [`Resource`] that will keep track of all the [`Components`](Component) that can be replicated.
 ///

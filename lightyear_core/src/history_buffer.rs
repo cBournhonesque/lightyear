@@ -124,7 +124,7 @@ impl<R> HistoryBuffer<R> {
     }
 
     /// In case of a TickEvent where the client tick is changed, we need to update the ticks in the buffer
-    pub(crate) fn update_ticks(&mut self, delta: i16) {
+    pub fn update_ticks(&mut self, delta: i16) {
         self.buffer.iter_mut().for_each(|(tick, _)| {
             *tick = *tick + delta;
         });

@@ -1,16 +1,15 @@
 //! Module to handle pre-prediction logic (entities that are created on the client first),
 //! then the ownership gets transferred to the server.
 
+use crate::resource::PredictionManager;
+use crate::run_conditions::is_synced;
+use crate::Predicted;
 use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
-use tracing::debug;
 use lightyear_connection::identity::{is_host_server, NetworkIdentityState};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_replication::components::DisableReplicateHierarchy;
-use lightyear_replication::prelude::{Confirmed, HasAuthority, Replicate, ReplicateLike, Replicating, ReplicationBufferSet, ReplicationGroup, ShouldBePredicted};
-use crate::resource::PredictionManager;
-use crate::Predicted;
-use crate::run_conditions::is_synced;
+use lightyear_replication::prelude::{Confirmed, DisableReplicateHierarchy, HasAuthority, Replicate, ReplicateLike, Replicating, ReplicationBufferSet, ReplicationGroup, ShouldBePredicted};
+use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 /// Indicates that an entity was pre-predicted
 // NOTE: we do not map entities for this component, we want to receive the entities as is
@@ -83,12 +82,11 @@ impl PrePredictionPlugin {
     pub(crate) fn handle_prepredicted(
         trigger: Trigger<OnAdd, PrePredicted>,
         mut commands: Commands,
-        prediction_manager: Res<PredictionManager>,
-        identity: Option<Res<State<NetworkIdentityState>>>,
+        prediction_query: Single<&PredictionManager>,
         // TODO: should we fetch the value of PrePredicted to confirm that it matches what we expect?
     ) {
         let predicted_map = unsafe {
-            prediction_manager
+            prediction_query
                 .predicted_entity_map
                 .get()
                 .as_ref()
@@ -97,66 +95,68 @@ impl PrePredictionPlugin {
         // PrePredicted was replicated from the server:
         // When we receive an update from the server that confirms a pre-predicted entity,
         // we will add the Predicted component
-        match predicted_map.confirmed_to_predicted.get(&trigger.target()) { Some(&predicted) => {
-            let confirmed = trigger.target();
-            debug!("Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}");
-            commands.queue(move |world: &mut World| {
-                world
-                    .entity_mut(predicted)
-                    .insert(Predicted {
-                        confirmed_entity: Some(confirmed),
-                    })
-                    .remove::<ShouldBePredicted>();
-            });
-        } _ => {
-            let predicted_entity = trigger.target();
-            if is_host_server(identity) {
-                // for host-server, we don't want to spawn a separate entity because
-                //  the confirmed/predicted/server entity are the same! Instead we just want
-                //  to remove PrePredicted and add Predicted
+        match predicted_map.confirmed_to_predicted.get(&trigger.target()) {
+            Some(&predicted) => {
+                let confirmed = trigger.target();
+                debug!("Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}");
                 commands.queue(move |world: &mut World| {
-                    // world.entity_mut(predicted_entity).remove::<PrePredicted>();
-                    world.entity_mut(predicted_entity).insert(Predicted {
-                        confirmed_entity: Some(predicted_entity),
-                    });
-                });
-            } else {
-                // PrePredicted was added by the client:
-                // Spawn a Confirmed entity and update the mapping
-                commands.queue(move |world: &mut World| {
-                    let Ok(timeline) = world.query::<&LocalTimeline>().single(world) else {
-                        return;
-                    };
-                    let tick = timeline.tick();
-                    let confirmed_entity = world
-                        .spawn(Confirmed {
-                            predicted: Some(predicted_entity),
-                            interpolated: None,
-                            tick,
+                    world
+                        .entity_mut(predicted)
+                        .insert(Predicted {
+                            confirmed_entity: Some(confirmed),
                         })
-                        .id();
-                    debug!("Added PrePredicted on the client. Spawning confirmed entity: {confirmed_entity:?} for pre-predicted: {predicted_entity:?}");
-                    world
-                        .entity_mut(predicted_entity)
-                        .get_mut::<PrePredicted>()
-                        .unwrap()
-                        .confirmed_entity = Some(confirmed_entity);
-                    world
-                        .resource_mut::<PredictionManager>()
-                        .predicted_entity_map
-                        .get_mut()
-                        .confirmed_to_predicted
-                        .insert(confirmed_entity, predicted_entity);
+                        .remove::<ShouldBePredicted>();
                 });
-            }
-        }}
+            } _ => {
+                let predicted_entity = trigger.target();
+                let is_host_server = false;
+                if is_host_server {
+                    // for host-server, we don't want to spawn a separate entity because
+                    //  the confirmed/predicted/server entity are the same! Instead we just want
+                    //  to remove PrePredicted and add Predicted
+                    commands.queue(move |world: &mut World| {
+                        // world.entity_mut(predicted_entity).remove::<PrePredicted>();
+                        world.entity_mut(predicted_entity).insert(Predicted {
+                            confirmed_entity: Some(predicted_entity),
+                        });
+                    });
+                } else {
+                    // PrePredicted was added by the client:
+                    // Spawn a Confirmed entity and update the mapping
+                    commands.queue(move |world: &mut World| {
+                        let Ok(timeline) = world.query::<&LocalTimeline>().single(world) else {
+                            return;
+                        };
+                        let tick = timeline.tick();
+                        let confirmed_entity = world
+                            .spawn(Confirmed {
+                                predicted: Some(predicted_entity),
+                                interpolated: None,
+                                tick,
+                            })
+                            .id();
+                        debug!("Added PrePredicted on the client. Spawning confirmed entity: {confirmed_entity:?} for pre-predicted: {predicted_entity:?}");
+                        world
+                            .entity_mut(predicted_entity)
+                            .get_mut::<PrePredicted>()
+                            .unwrap()
+                            .confirmed_entity = Some(confirmed_entity);
+                        world
+                            .resource_mut::<PredictionManager>()
+                            .predicted_entity_map
+                            .get_mut()
+                            .confirmed_to_predicted
+                            .insert(confirmed_entity, predicted_entity);
+                    });
+                }
+            }}
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::::predicted_history::PredictionHistory;
+    use crate::predicted_history::PredictionHistory;
     use crate::prelude::server;
     use crate::prelude::server::AuthorityPeer;
     use crate::prelude::{client, ClientId};

@@ -1,6 +1,9 @@
 //! Handles client-generated inputs
+
 use crate::action_state::{ActionState, InputMarker};
+use crate::input_buffer::update_from_message;
 use crate::input_message::{InputMessage, InputTarget};
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_inputs::input_buffer::InputBuffer;
@@ -28,7 +31,7 @@ impl<A> Default for ServerInputPlugin<A> {
     }
 }
 
-impl<A: UserAction> Plugin for ServerInputPlugin<A> {
+impl<A: UserAction + MapEntities> Plugin for ServerInputPlugin<A> {
     fn build(&self, app: &mut App) {
         app.add_message::<InputMessage<A>>()
             // add entity mapping for:
@@ -67,14 +70,12 @@ impl<A: UserAction> Plugin for ServerInputPlugin<A> {
 
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<A: UserAction>(
-    message_registry: Res<MessageRegistry>,
-
     mut receivers: Query<(&ClientOf, &mut MessageReceiver<InputMessage<A>>)>,
-    // TODO: currently we do not handle entities that are controlled by multiple clients
     mut query: Query<Option<&mut InputBuffer<ActionState<A>>>>,
     mut commands: Commands,
 ) {
-    receivers.par_iter_mut().for_each(|(client_of, mut receiver)| {
+    // TODO: use par_iter_mut
+    receivers.iter_mut().for_each(|(client_of, mut receiver)| {
         // TODO: this drains the messages... but the user might want to re-broadcast them?
         //  should we just read insteaD?
         let client_id = client_of.id;
@@ -107,7 +108,7 @@ fn receive_input_message<A: UserAction>(
 
                         if let Ok(buffer) = query.get_mut(entity) {
                             if let Some(mut buffer) = buffer {
-                                buffer.update_from_message(message.end_tick, &data.states);
+                                update_from_message(&mut buffer, message.end_tick, &data.states);
                                 trace!(
                                     "Updated InputBuffer: {} using InputMessage: {:?}",
                                     buffer.as_ref(),
@@ -116,11 +117,17 @@ fn receive_input_message<A: UserAction>(
                             } else {
                                 trace!("Adding InputBuffer and ActionState which are missing on the entity");
                                 let mut buffer = InputBuffer::<ActionState<A>>::default();
-                                buffer.update_from_message(message.end_tick, &data.states);
+                                update_from_message(&mut buffer, message.end_tick, &data.states);
                                 commands.entity(entity).insert((
                                     buffer,
                                     ActionState::<A>::default(),
                                 ));
+                                // commands.command_scope(|mut commands| {
+                                //     commands.entity(entity).insert((
+                                //         buffer,
+                                //         ActionState::<A>::default(),
+                                //     ));
+                                // });
                             }
                         } else {
                             debug!(?entity, ?data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");

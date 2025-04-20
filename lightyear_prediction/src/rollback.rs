@@ -7,8 +7,9 @@ use super::{Predicted, PredictionMode, SyncComponent};
 use crate::correction::Correction;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
-use crate::plugin::PredictionSet;
+use crate::plugin::{is_in_rollback, PredictionSet};
 use crate::prespawn::PreSpawned;
+use crate::registry::PredictionRegistry;
 use crate::resource::PredictionManager;
 use bevy::app::FixedMain;
 use bevy::ecs::component::Mutable;
@@ -30,7 +31,15 @@ use tracing::*;
 pub struct RollbackPlugin;
 
 impl Plugin for RollbackPlugin {
-    fn build(&self, app: &mut App) {}
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            FixedLast,
+            increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
+        );
+        app.configure_sets(
+            FixedLast, PredictionSet::IncrementRollbackTick.in_set(PredictionSet::All),
+        );
+    }
 
     /// Wait until every component has been registered in the ComponentRegistry
     fn finish(&self, app: &mut App) {
@@ -39,14 +48,21 @@ impl Plugin for RollbackPlugin {
             .world_mut()
             .remove_resource::<ComponentRegistry>()
             .unwrap();
+        let prediction_registry = app
+            .world_mut()
+            .remove_resource::<PredictionRegistry>()
+            .unwrap();
 
         let check_rollback = (
             QueryParamBuilder::new(|builder| {
                 builder.data::<&Confirmed>();
                 builder.optional(|b| {
                     // include access to &C for all PredictionMode=Full components
-                    component_registry
-                        .predicted_component_ids_with_mode(PredictionMode::Full)
+                    prediction_registry.prediction_map
+                        .iter()
+                        .filter(|(_, m)| m.sync_mode == PredictionMode::Full)
+                        .map(|(kind, _)| component_registry.kind_to_component_id[kind])
+
                         .for_each(|id| {
                             b.ref_id(id);
                         });
@@ -61,8 +77,7 @@ impl Plugin for RollbackPlugin {
                     // but we keep them around for rollback check)
                     b.data::<&PredictionDisable>();
                     // include access to &mut PredictionHistory<C> for all PredictionMode=Full components
-                    component_registry
-                        .prediction_map
+                    prediction_registry.prediction_map
                         .values()
                         .filter(|m| m.sync_mode == PredictionMode::Full)
                         .for_each(|m| {
@@ -70,7 +85,6 @@ impl Plugin for RollbackPlugin {
                         });
                 });
             }),
-            ParamBuilder,
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
@@ -85,6 +99,7 @@ impl Plugin for RollbackPlugin {
         );
 
         app.insert_resource(component_registry);
+        app.insert_resource(prediction_registry);
     }
 }
 
@@ -106,6 +121,7 @@ fn check_rollback(
     // make sure to include disabled entities
     mut predicted_entities: Query<FilteredEntityMut>,
     receiver_query: Query<(&ReplicationReceiver, &LocalTimeline)>,
+    prediction_registry: Res<PredictionRegistry>,
     component_registry: Res<ComponentRegistry>,
     system_ticks: SystemChangeTick,
 ) {
@@ -131,7 +147,7 @@ fn check_rollback(
         };
         // TODO: maybe we can check if we receive any replication packets?
         // no need to check for rollback if we didn't receive any packet
-        if !replication_receiver.received_new_server_tick() {
+        if !replication_receiver.has_received_this_frame() {
             return;
         }
         // we already know we are in rollback, no need to check again
@@ -169,12 +185,12 @@ fn check_rollback(
         // TODO: maybe pre-cache the components of the archetypes that we want to iterate over?
         //  it's not straightforward because we also want to handle rollbacks for components
         //  that were removed from the entity, which would not appear in the archetype
-        for (id, prediction_metadata) in component_registry.prediction_map
+        for (id, prediction_metadata) in prediction_registry.prediction_map
             .iter()
             .filter(|(_, m)| m.sync_mode == PredictionMode::Full)
             .map(|(kind, m)| (component_registry.kind_to_component_id[kind], m))
             .take_while(|_| !timeline.is_rollback()) {
-            if (prediction_metadata.check_rollback)(&component_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
+            if (prediction_metadata.check_rollback)(&prediction_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
                 timeline.set_rollback_tick(confirmed_tick + 1);
                 return;
             }
@@ -197,10 +213,10 @@ pub(crate) fn remove_prediction_disable(
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_rollback<C: SyncComponent>(
+    prediction_registry: Res<PredictionRegistry>,
     component_registry: Res<ComponentRegistry>,
     // TODO: have a way to only get the updates of entities that are predicted?
     mut commands: Commands,
-    config: Res<ClientConfig>,
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     mut predicted_query: Query<
@@ -213,7 +229,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         (With<Predicted>, Without<Confirmed>, Without<PreSpawned>),
     >,
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
-    timeline_query: Query<&LocalTimeline>,
+    timeline_query: Single<(&LocalTimeline, &PredictionManager)>,
     manager: Res<PredictionManager>,
 ) {
     let kind = core::any::type_name::<C>();
@@ -221,7 +237,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     let _span = trace_span!("client rollback prepare");
     debug!("in prepare rollback");
 
-    let timeline = timeline_query.single().unwrap();
+    let (timeline, prediction_manager) = timeline_query.into_inner();
     let current_tick = timeline.tick();
     for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
         let rollback_tick = confirmed.tick;
@@ -316,10 +332,10 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
 
                         // insert the Correction information only if the component exists on both confirmed and predicted
                         let correction_ticks = ((current_tick - rollback_tick) as f32
-                            * config.prediction.correction_ticks_factor)
+                            * prediction_manager.correction_ticks_factor)
                             .round() as i16;
                         // no need to add the Correction if the correction is instant
-                        if correction_ticks != 0 && component_registry.has_correction::<C>() {
+                        if correction_ticks != 0 && prediction_registry.has_correction::<C>() {
                             let final_correction_tick = current_tick + correction_ticks;
                             if let Some(correction) = correction.as_mut() {
                                 trace!("updating existing correction");
@@ -696,9 +712,11 @@ pub(crate) fn no_rollback() {
     metrics::gauge!("prediction::rollbacks::ticks").set(0);
 }
 
-pub(crate) fn increment_rollback_tick(rollback: Res<Rollback>) {
-    trace!("increment rollback tick");
-    rollback.increment_rollback_tick();
+pub(crate) fn increment_rollback_tick(timeline: Single<&LocalTimeline, With<PredictionManager>>) {
+    if timeline.is_rollback() {
+        trace!("increment rollback tick");
+        timeline.increment_rollback_tick();
+    }
 }
 
 #[cfg(test)]

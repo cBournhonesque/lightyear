@@ -20,7 +20,7 @@ pub(crate) mod authority;
 pub mod error;
 pub(crate) mod hierarchy;
 pub(crate) mod plugin;
-pub(crate) mod receive;
+pub mod receive;
 
 pub(crate) mod send;
 
@@ -29,13 +29,13 @@ pub(crate) mod buffer;
 pub(crate) mod delta;
 
 pub mod visibility;
-mod control;
+pub mod control;
 
 pub mod prelude {
     pub use crate::authority::HasAuthority;
     pub use crate::buffer::Replicate;
     pub use crate::components::*;
-    pub use crate::hierarchy::{ChildOfSync, HierarchySendPlugin, RelationshipReceivePlugin, RelationshipSendPlugin, RelationshipSync, ReplicateLike, ReplicateLikeChildren};
+    pub use crate::hierarchy::{ChildOfSync, DisableReplicateHierarchy, HierarchySendPlugin, RelationshipReceivePlugin, RelationshipSendPlugin, RelationshipSync, ReplicateLike, ReplicateLikeChildren};
     pub use crate::message::*;
     pub use crate::plugin::ReplicationSet;
     pub use crate::receive::{ReplicationReceivePlugin, ReplicationReceiver};

@@ -6,9 +6,10 @@ use alloc::vec::Vec;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::entity::EntityHash;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Entity, Reflect, Resource};
+use bevy::prelude::{Component, Entity, Reflect, Resource, World};
 use core::cell::UnsafeCell;
 use lightyear_core::prelude::Tick;
+use lightyear_replication::receive::TempWriteBuffer;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_replication::registry::ComponentError;
 use lightyear_serde::entity_map::EntityMap;
@@ -30,9 +31,17 @@ pub struct PredictedEntityMap {
     pub confirmed_to_predicted: EntityMap,
 }
 
-#[derive(Resource, Component, Default, Debug)]
+#[derive(Resource, Component, Debug)]
 #[component(on_add = PredictionManager::on_add)]
-pub(crate) struct PredictionManager {
+pub struct PredictionManager {
+    /// If true, we always rollback whenever we receive a server update, instead of checking
+    /// ff the confirmed state matches the predicted state history
+    pub always_rollback: bool,
+    /// The number of correction ticks will be a multiplier of the number of ticks between
+    /// the client and the server correction
+    /// (i.e. if the client is 10 ticks head and correction_ticks is 1.0, then the correction will be done over 10 ticks)
+    // Number of ticks it will take to visually update the Predicted state to the new Corrected state
+    pub correction_ticks_factor: f32,
     /// Map between confirmed and predicted entities
     ///
     /// We wrap it into an UnsafeCell because the MapEntities trait requires a mutable reference to the EntityMap,
@@ -48,13 +57,28 @@ pub(crate) struct PredictionManager {
     pub(crate) prespawn_hash_to_entities: EntityHashMap<u64, Vec<Entity>>,
     /// Store the spawn tick of the entity, as well as the corresponding hash
     pub(crate) prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
+    pub(crate) temp_write_buffer: TempWriteBuffer,
+}
+
+impl Default for PredictionManager {
+    fn default() -> Self {
+        Self {
+            always_rollback: false,
+            correction_ticks_factor: 1.0,
+            predicted_entity_map: UnsafeCell::new(PredictedEntityMap::default()),
+            prespawn_hash_to_entities: EntityHashMap::default(),
+            prespawn_tick_to_hash: ReadyBuffer::default(),
+            temp_write_buffer: TempWriteBuffer::default(),
+        }
+    }
 }
 
 impl PredictionManager {
     fn on_add(mut deferred: DeferredWorld, context: HookContext) {
-        deferred.commands().queue(|mut world| {
+        let entity = context.entity;
+        deferred.commands().queue(move |world: &mut World| {
             world.insert_resource(PredictionResource {
-                link_entity: context.entity,
+                link_entity: entity,
             });
         })
     }
@@ -65,13 +89,6 @@ unsafe impl Send for PredictionManager {}
 unsafe impl Sync for PredictionManager {}
 
 impl PredictionManager {
-    pub(crate) fn new() -> Self {
-        Self {
-            predicted_entity_map: Default::default(),
-            prespawn_hash_to_entities: Default::default(),
-            prespawn_tick_to_hash: Default::default(),
-        }
-    }
 
     /// Call MapEntities on the given component.
     ///

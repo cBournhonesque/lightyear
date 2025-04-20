@@ -1,6 +1,6 @@
 use bevy::prelude::{Component, Reflect, Resource};
-use std::marker::PhantomData;
-use std::time::Duration;
+use core::marker::PhantomData;
+use core::time::Duration;
 
 // TODO: make this a component
 #[derive(Debug, Clone, Copy, Reflect, Resource)]

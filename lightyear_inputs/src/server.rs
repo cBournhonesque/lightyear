@@ -5,12 +5,11 @@ use bevy::prelude::*;
 use lightyear_connection::server::Started;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::plugin::MessageSet;
-use lightyear_replication::prelude::Replicate;
 use tracing::trace;
 
 pub struct BaseInputPlugin<A> {
     pub rebroadcast_inputs: bool,
-    marker: core::marker::PhantomData<A>,
+    pub marker: core::marker::PhantomData<A>,
 }
 
 impl<A> Default for BaseInputPlugin<A> {

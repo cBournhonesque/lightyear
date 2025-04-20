@@ -5,7 +5,7 @@ use crate::plugin::PredictionSet;
 use crate::pre_prediction::PrePredicted;
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
-use crate::resource::PredictionManager;
+use crate::resource::{PredictionManager, PredictionResource};
 use crate::{Predicted, PredictionMode, SyncComponent};
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -151,15 +151,25 @@ fn apply_predicted_sync(world: &mut World) {
             //  might trigger other Observers that might also use the ComponentRegistry
             //  Instead we'll use UnsafeWorldCell since the rest of the world does not modify the registry
             let unsafe_world = world.as_unsafe_world_cell();
-            let mut prediction_registry =
-                unsafe { unsafe_world.get_resource_mut::<PredictionRegistry>() }.unwrap();
+            let prediction_registry =
+                unsafe { unsafe_world.get_resource::<PredictionRegistry>() }.unwrap();
+            let component_registry =
+                unsafe { unsafe_world.get_resource::<ComponentRegistry>() }.unwrap();
+            let link_entity = unsafe { unsafe_world
+                .get_resource::<PredictionResource>()
+                .unwrap().link_entity };
+            let temp_write_buffer = &mut unsafe { unsafe_world.world_mut().get_mut::<PredictionManager>(link_entity) }.unwrap().temp_write_buffer;
+
             let world = unsafe { unsafe_world.world_mut() };
+
             // sync all components from the predicted to the confirmed entity and possibly add the PredictedHistory
             prediction_registry.batch_sync(
+                component_registry,
                 &event.components,
                 event.confirmed,
                 event.predicted,
                 world,
+                temp_write_buffer
             );
         })
     });
@@ -295,11 +305,12 @@ pub(crate) fn add_sync_systems(app: &mut App) {
     // we don't need to automatically update the events because they will be drained every frame
     app.init_resource::<Events<PredictedSyncEvent>>();
 
+    let prediction_registry = app.world().resource::<PredictionRegistry>();
     let component_registry = app.world().resource::<ComponentRegistry>();
 
     // Sync components that are added on the Confirmed entity
     let mut observer = Observer::new(added_on_confirmed_sync);
-    for component in component_registry.predicted_component_ids() {
+    for component in prediction_registry.prediction_map.keys().map(|k| component_registry.kind_to_component_id[k]) {
         observer = observer.with_component(component);
     }
     app.world_mut().spawn(observer);

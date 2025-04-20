@@ -1,9 +1,10 @@
 //! There's a lot of overlap with `client::prediction_history` because resources are components in ECS so rollback is going to look similar.
-use super::rollback::Rollback;
-use crate::prelude::{HistoryBuffer, HistoryState, TickManager};
-use crate::shared::tick_manager::TickEvent;
+use crate::resource::PredictionManager;
 use bevy::prelude::*;
-use lightyear_core::history_buffer::HistoryBuffer;
+use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
+use lightyear_core::prelude::LocalTimeline;
+use lightyear_sync::prelude::client::Input;
+use lightyear_sync::timeline::sync::SyncEvent;
 
 pub(crate) type ResourceHistory<R> = HistoryBuffer<R>;
 
@@ -13,15 +14,11 @@ pub(crate) type ResourceHistory<R> = HistoryBuffer<R>;
 /// The history buffer ticks are only relevant relative to the current client tick.
 /// (i.e. X ticks in the past compared to the current tick)
 pub(crate) fn handle_tick_event_resource_history<R: Resource>(
-    trigger: Trigger<TickEvent>,
+    trigger: Trigger<SyncEvent<Input>>,
     res: Option<ResMut<ResourceHistory<R>>>,
 ) {
-    match *trigger.event() {
-        TickEvent::TickSnap { old_tick, new_tick } => {
-            if let Some(mut history) = res {
-                history.update_ticks(new_tick - old_tick)
-            }
-        }
+    if let Some(mut history) = res {
+        history.update_ticks(trigger.tick_delta)
     }
 }
 
@@ -29,11 +26,10 @@ pub(crate) fn handle_tick_event_resource_history<R: Resource>(
 pub(crate) fn update_resource_history<R: Resource + Clone>(
     resource: Option<Res<R>>,
     mut history: ResMut<ResourceHistory<R>>,
-    tick_manager: Res<TickManager>,
-    rollback: Res<Rollback>,
+    query: Single<&LocalTimeline, With<PredictionManager>>,
 ) {
     // tick for which we will record the history (either the current client tick or the current rollback tick)
-    let tick = tick_manager.tick_or_rollback_tick(rollback.as_ref());
+    let tick = query.tick_or_rollback_tick();
 
     if let Some(resource) = resource {
         if resource.is_changed() {

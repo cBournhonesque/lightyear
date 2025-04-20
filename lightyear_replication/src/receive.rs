@@ -48,6 +48,7 @@ impl ReplicationReceivePlugin {
         mut query: Query<(&mut MessageReceiver<ActionsMessage>, &mut MessageReceiver<UpdatesMessage>, &mut ReplicationReceiver)>,
     ) {
         query.par_iter_mut().for_each(|(mut actions, mut updates, mut receiver)| {
+            receiver.received_this_frame = false;
             for message in actions.receive_with_tick() {
                 receiver.recv_actions(message.data, message.remote_tick);
             }
@@ -149,7 +150,7 @@ impl TempWriteBuffer {
     /// Inserts the components that were buffered inside the EntityWorldMut
     ///
     /// SAFETY: `buffer_insert_raw_ptrs` must have been called beforehand
-    pub(crate) unsafe fn batch_insert(&mut self, entity_world_mut: &mut EntityWorldMut) {
+    pub unsafe fn batch_insert(&mut self, entity_world_mut: &mut EntityWorldMut) {
         if self.is_empty() {
             return;
         }
@@ -220,6 +221,8 @@ pub struct ReplicationReceiver {
 
     /// Tick when we last did a cleanup
     pub(crate) last_cleanup_tick: Option<Tick>,
+    /// Flag to indicate if we received a replication message this frame
+    pub(crate) received_this_frame: bool,
 }
 
 impl Default for ReplicationReceiver {
@@ -237,7 +240,13 @@ impl ReplicationReceiver {
             // BOTH
             group_channels: Default::default(),
             last_cleanup_tick: None,
+            received_this_frame: false,
         }
+    }
+
+    /// Returns true if we received a replication message this frame
+    pub fn has_received_this_frame(&self) -> bool {
+        self.received_this_frame
     }
 
     /// Buffer a received [`ActionsMessage`].
@@ -257,6 +266,7 @@ impl ReplicationReceiver {
             trace!(message_id= ?actions.sequence_id, pending_message_id = ?channel.actions_pending_recv_message_id, "message is too old, ignored");
             return;
         }
+        self.received_this_frame = true;
 
         // add the message to the buffer
         // TODO: I guess this handles potential duplicates?
@@ -280,6 +290,8 @@ impl ReplicationReceiver {
             trace!("discard because the update's tick {remote_tick:?} is older than the latest tick {:?}", channel.latest_tick);
             return;
         }
+
+        self.received_this_frame = true;
 
         // TODO: what we want is
         //  - if the update is for a tick in the past compared to our local state, we can safely ignore immediately

@@ -1,4 +1,6 @@
 use crate::action_state::ActionState;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::UserAction;
@@ -9,7 +11,7 @@ use lightyear_inputs::UserAction;
 pub(crate) fn update_from_message<T: UserAction>(
     input_buffer: &mut InputBuffer<ActionState<T>>,
     end_tick: Tick,
-    values: &Vec<InputData<impl UserAction>>,
+    values: &Vec<InputData<T>>,
 ) {
     let start_tick = end_tick + 1 - values.len() as u16;
         // the first value is guaranteed to not be SameAsPrecedent

@@ -92,7 +92,7 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
             // TODO: avoid all these clones
             // visually update the component
             let visual =
-                prediction_registry.correct(&correction.original_prediction, component.as_ref(), t);
+                prediction_registry.correct(correction.original_prediction.clone(), component.clone(), t);
             // store the current visual value
             correction.current_visual = Some(visual.clone());
             // set the component value to the visual value

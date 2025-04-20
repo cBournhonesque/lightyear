@@ -25,6 +25,7 @@ lightyear_replication.workspace = true
 lightyear_sync.workspace = true
 
 # utils
+seahash.workspace = true
 parking_lot.workspace = true
 tracing.workspace = true
 

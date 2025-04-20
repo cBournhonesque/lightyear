@@ -22,8 +22,9 @@ use bevy::ecs::component::Mutable;
 use bevy::prelude::{Component, Reflect};
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use lightyear_inputs::input_buffer::InputData;
+use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::{UserAction, UserActionState};
+
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 

@@ -160,7 +160,7 @@ impl Local {
     }
 
     /// Increment the rollback tick
-    pub(crate) fn increment_rollback_tick(&self) {
+    pub fn increment_rollback_tick(&self) {
         if let RollbackState::ShouldRollback {
             ref mut current_tick,
         } = *self.rollback.write().deref_mut()

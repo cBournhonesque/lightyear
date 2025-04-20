@@ -1,3 +1,16 @@
+use crate::config::InputConfig;
+use crate::input_buffer::InputBuffer;
+use crate::{UserAction, UserActionState};
+use bevy::prelude::*;
+use core::marker::PhantomData;
+use lightyear_core::prelude::NetworkTimeline;
+use lightyear_core::timeline::LocalTimeline;
+use lightyear_messages::plugin::MessageSet;
+use lightyear_sync::plugin::SyncSet;
+use lightyear_sync::prelude::client::{Input, IsSynced};
+use lightyear_sync::prelude::InputTimeline;
+use tracing::trace;
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSet {
     // PRE UPDATE
@@ -26,20 +39,6 @@ pub enum InputSet {
     /// Clean up old values to prevent the buffers from growing indefinitely
     CleanUp,
 }
-
-use crate::config::InputConfig;
-use crate::input_buffer::InputBuffer;
-use crate::{UserAction, UserActionState};
-use bevy::prelude::*;
-use core::marker::PhantomData;
-use lightyear_core::prelude::NetworkTimeline;
-use lightyear_core::timeline::LocalTimeline;
-use lightyear_messages::plugin::MessageSet;
-use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::client::{Input, IsSynced};
-use lightyear_sync::prelude::InputTimeline;
-use tracing::log::kv::Source;
-use tracing::trace;
 
 pub struct BaseInputPlugin<A, F> {
     config: InputConfig<A>,

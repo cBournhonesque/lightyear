@@ -1,26 +1,51 @@
-ent::Components, Hookble, StoragePlayerObjectType};
-use bevy:ecs::world::DefrredWorld;
-use evy::prelude::;
-use lightyea_core::prelud::{LocalTimelne, NetworkTieline};
-use lghrObjectcoponrObjecteplicaObjecteluderObjectionRerObjectcd};
-rObjecttion::ObjectCompentbjectyear_sybject::IntroljecteerObjebject td::aObjecteId;
-us jectrObjectcjectrObjectcjectwObject
-jectrObjectEjectrObjectbjectrObjecte necssary inferObObjectton component beorebject// Clean p thePreSpbjecthiyerObjectld't findjectntiy
-   CleanUp,
+//! Handles spawning entities that are predicted
 
+use crate::plugin::PredictionSet;
+use crate::pre_prediction::PrePredicted;
+use crate::resource::{PredictionManager, PredictionResource};
+use crate::Predicted;
+use bevy::ecs::archetype::Archetype;
+use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
+use bevy::ecs::world::DeferredWorld;
+use bevy::prelude::*;
+use core::any::TypeId;
+use core::hash::{Hash, Hasher};
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
+use lightyear_replication::components::{Replicated, ShouldBeInterpolated};
+use lightyear_replication::control::Controlled;
+use lightyear_replication::prelude::{Confirmed, ReplicateLike, ReplicationReceiver, ShouldBePredicted};
+use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::registry::ComponentKind;
+use serde::{Deserialize, Serialize};
+use tracing::{debug, error, trace, warn};
 
-bjectSpbjectlayeObjectPObjectself, app: &mu Ap) {jectgure_sets(
-         ject       PrepwnedSet::jectdictionSet:All),
-   jectpp.add_observr(Self:jectved_server_entity)
-bjectserver(Self::regiter_prespawn_hashs);
-        app.ad_systems(
-           PostUpdate,
-           Self::pr_spawned_player_oject_cleanup.in_st(PreSpawnedSet::leanUp),
-        ;
+#[derive(Default)]
+pub(crate) struct PreSpawnedPlugin;
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum PreSpawnedSet {
+    // PostUpdate Sets
+    /// Add the necessary information to the PrePrediction component (before replication)
+    /// Clean up the PreSpawned entities for which we couldn't find a mapped server entity
+    CleanUp,
+}
+
+impl Plugin for PreSpawnedPlugin {
+    fn build(&self, app: &mut App) {
+        app.configure_sets(
+            PostUpdate,
+            PreSpawnedSet::CleanUp.in_set(PredictionSet::All),
+        );
+        app.add_observer(Self::match_with_received_server_entity);
+        app.add_observer(Self::register_prespawn_hashes);
+        app.add_systems(
+            PostUpdate,
+            Self::pre_spawned_player_object_cleanup.in_set(PreSpawnedSet::CleanUp),
+        );
     }
 }
 
-impl PreSpawnedPlayerObjectPlugin {
+impl PreSpawnedPlugin {
     /// For all newly added prespawn hashes, register them in the prediction manager
     pub(crate) fn register_prespawn_hashes(
         trigger: Trigger<OnAdd, PreSpawned>,
@@ -194,31 +219,16 @@ impl PreSpawnedPlayerObjectPlugin {
     /// Cleanup the client prespawned entities for which we couldn't find a mapped server entity
     pub(crate) fn pre_spawned_player_object_cleanup(
         mut commands: Commands,
-        receiver_query: Query<(&ReplicationReceiver, &LocalTimeline, &InterpolationTimeline)>,
+        receiver_query: Query<(&ReplicationReceiver, &LocalTimeline)>,
         mut manager: ResMut<PredictionManager>,
     ) {
-        let Ok((receiver, timeline, interpolation_timeline)) = receiver_query.single() else {
+        let Ok((receiver, timeline)) = receiver_query.single() else {
             return;
         };
         let tick = timeline.tick();
-        // TODO: why is interpolation tick not good enough and we need to use an earlier tick?
-        // TODO: for some reason at interpolation_tick we often haven't received the update from the server yet!
-        //  use a tick that it's even more in the past
-        let interpolation_tick = interpolation_timeline.tick();
-        trace!(
-            ?tick,
-            ?interpolation_tick,
-            "cleaning up prespawned player objects"
-        );
-        // NOTE: cannot assert because of tick_wrap tests
-        // assert!(
-        //     tick >= interpolation_tick,
-        //     "tick {:?} should be greater than interpolation_tick {:?}",
-        //     tick,
-        //     interpolation_tick
-        // );
-        let tick_diff = (tick - interpolation_tick).saturating_mul(2) as u16;
-        let past_tick = tick - tick_diff;
+
+        // TODO: choose a past tick based on the replication frequency received.
+        let past_tick = tick - 50;
         // remove all the prespawned entities that have not been matched with a server entity
         for (_, hash) in manager.prespawn_tick_to_hash.drain_until(&past_tick) {
             manager

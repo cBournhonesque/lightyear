@@ -4,7 +4,7 @@ use super::resource_history::{
     handle_tick_event_resource_history, update_resource_history, ResourceHistory,
 };
 use super::rollback::{
-    increment_rollback_tick, prepare_rollback, prepare_rollback_non_networked,
+    prepare_rollback, prepare_rollback_non_networked,
     prepare_rollback_prespawn, prepare_rollback_resource, remove_prediction_disable, run_rollback,
     RollbackPlugin,
 };
@@ -18,7 +18,7 @@ use crate::predicted_history::{
     apply_component_removal_predicted, handle_tick_event_prediction_history,
     update_prediction_history,
 };
-use crate::prespawn::{PreSpawned, PreSpawnedPlayerObjectPlugin};
+use crate::prespawn::{PreSpawned, PreSpawnedPlugin};
 use crate::resource::PredictionManager;
 use crate::{Predicted, PredictionMode, SyncComponent};
 use bevy::ecs::component::Mutable;
@@ -29,142 +29,6 @@ use core::time::Duration;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_replication::prelude::ReplicationSet;
 
-/// Configuration to specify how the prediction plugin should behave
-#[derive(Debug, Clone, Copy, Reflect)]
-pub struct PredictionConfig {
-    /// If true, we always rollback whenever we receive a server update, instead of checking
-    /// ff the confirmed state matches the predicted state history
-    pub always_rollback: bool,
-    /// Minimum number of input delay ticks that will be applied, regardless of latency.
-    ///
-    /// This should almost always be set to 0 to ensure that your game is as responsive as possible.
-    /// Some games might prefer enforcing a minimum input delay to ensure a consistent game feel even
-    /// when the latency conditions are changing.
-    pub minimum_input_delay_ticks: u16,
-    /// Maximum amount of input delay that will be applied in order to cover latency, before any prediction
-    /// is done to cover additional latency.
-    ///
-    /// Input delay can be ideal in low-latency situations to avoid rollbacks and networking artifacts, but it
-    /// must be balanced against the responsiveness of the game. Even at higher latencies, it's useful to add
-    /// some input delay to reduce the amount of rollback ticks that are needed. (to reduce the rollback visual artifacts
-    /// and CPU costs)
-    ///
-    /// The default value is 3 (or about 50ms at 60Hz): for clients that have less than 50ms ping, we will apply input delay
-    /// to cover the latency, and there should no rollback.
-    ///
-    /// Set to 0ms if you won't want any input delay. (for example for shooters)
-    pub maximum_input_delay_before_prediction: u16,
-    /// This setting describes how far ahead the client simulation is allowed to predict to cover latency.
-    /// This controls the maximum amount of rollback ticks. Any additional latency will be covered by adding more input delays.
-    ///
-    /// The default value is 7 ticks (or about 100ms of prediction at 60Hz)
-    ///
-    /// If you set `maximum_input_delay_before_prediction` to 50ms and `maximum_predicted_time` to 100ms, and the client has:
-    /// - 30ms ping: there will be 30ms of input delay and no prediction
-    /// - 120ms ping: there will be 50ms of input delay and 70ms of prediction/rollback
-    /// - 200ms ping: there will be 100ms of input delay, and 100ms of prediction/rollback
-    pub maximum_predicted_ticks: u16,
-    /// The number of correction ticks will be a multiplier of the number of ticks between
-    /// the client and the server correction
-    /// (i.e. if the client is 10 ticks head and correction_ticks is 1.0, then the correction will be done over 10 ticks)
-    // Number of ticks it will take to visually update the Predicted state to the new Corrected state
-    pub correction_ticks_factor: f32,
-}
-
-impl Default for PredictionConfig {
-    /// By default we don't apply any input delay, because input_delay is only compatible with
-    /// the leafwing inputs
-    /// (Adding input delay would mess up the client timeline)
-    fn default() -> Self {
-        Self::no_input_delay()
-    }
-}
-
-impl PredictionConfig {
-    /// Cover up to 50ms of latency with input delay, and after that use prediction for up to 100ms
-    /// - `minimum_input_delay_ticks`: no minimum input delay
-    /// - `minimum_input_delay_before_prediction`: 3 ticks (or about 50ms at 60Hz), cover 50ms of latency with input delay
-    /// - `maximum_predicted_ticks`: 7 ticks (or about 100ms at 60Hz), cover the next 100ms of latency with prediction
-    ///   (the rest will be covered by more input delay)
-    pub fn balanced() -> Self {
-        Self {
-            always_rollback: false,
-            minimum_input_delay_ticks: 0,
-            maximum_input_delay_before_prediction: 3,
-            maximum_predicted_ticks: 7,
-            correction_ticks_factor: 1.0,
-        }
-    }
-
-    /// No input-delay, all the latency will be covered by prediction
-    pub fn no_input_delay() -> Self {
-        Self {
-            always_rollback: false,
-            minimum_input_delay_ticks: 0,
-            maximum_input_delay_before_prediction: 0,
-            maximum_predicted_ticks: 100,
-            correction_ticks_factor: 1.0,
-        }
-    }
-
-    /// All the latency will be covered by adding input-delay
-    pub fn no_prediction() -> Self {
-        Self {
-            always_rollback: false,
-            minimum_input_delay_ticks: 0,
-            maximum_input_delay_before_prediction: 0,
-            maximum_predicted_ticks: 0,
-            correction_ticks_factor: 0.0,
-        }
-    }
-
-    pub fn always_rollback(mut self, always_rollback: bool) -> Self {
-        self.always_rollback = always_rollback;
-        self
-    }
-
-    /// Ensures that there is a fixed amount of input delay in all cases
-    pub fn set_fixed_input_delay_ticks(&mut self, tick: u16) {
-        self.minimum_input_delay_ticks = tick;
-        self.maximum_input_delay_before_prediction = tick;
-        self.maximum_predicted_ticks = 100;
-    }
-
-    /// Update the amount of input delay (number of ticks)
-    pub fn with_minimum_input_delay_ticks(mut self, tick: u16) -> Self {
-        self.minimum_input_delay_ticks = tick;
-        self
-    }
-
-    /// Update the amount of input delay (number of ticks)
-    pub fn with_correction_ticks_factor(mut self, factor: f32) -> Self {
-        self.correction_ticks_factor = factor;
-        self
-    }
-
-    /// Compute the amount of input delay that should be applied, considering the current RTT
-    pub fn input_delay_ticks(&self, rtt: Duration, tick_interval: Duration) -> u16 {
-        assert!(self.minimum_input_delay_ticks <= self.maximum_input_delay_before_prediction,
-                "The minimum amount of input_delay should be lower than the maximum_input_delay_before_prediction");
-        let rtt_ticks = (rtt.as_nanos() as f32 / tick_interval.as_nanos() as f32).ceil() as u16;
-        // if the rtt is lower than the minimum input delay, we will apply the minimum input delay
-        if rtt_ticks <= self.minimum_input_delay_ticks {
-            return self.minimum_input_delay_ticks;
-        }
-        // else, apply input delay up to the maximum input delay
-        if rtt_ticks <= self.maximum_input_delay_before_prediction {
-            return rtt_ticks;
-        }
-        // else, apply input delay up to the maximum input delay, and cover the rest with prediction
-        // if not possible, add even more input delay
-        if rtt_ticks <= (self.maximum_predicted_ticks + self.maximum_input_delay_before_prediction)
-        {
-            self.maximum_input_delay_before_prediction
-        } else {
-            rtt_ticks - self.maximum_predicted_ticks
-        }
-    }
-}
 
 /// Plugin that enables client-side prediction
 #[derive(Default)]
@@ -221,8 +85,8 @@ pub enum PredictionSet {
 }
 
 /// Returns true if we are doing rollback
-pub fn is_in_rollback(query: Query<&LocalTimeline>) -> bool {
-    query.single().is_ok_and(|t| t.is_rollback())
+pub fn is_in_rollback(query: Single<&LocalTimeline, With<PredictionManager>>) -> bool {
+    query.is_rollback()
 }
 
 /// Enable rollbacking a component even if the component is not networked
@@ -360,19 +224,18 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
 
 impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
-        // we only run prediction:
-        // - if we're not in host-server mode
-        // - after the client is connected
-        // NOTE: we need to run the prediction systems even if we're not synced, because we want
-        //  our HistoryBuffer to contain values for components/resources that were updated before syncing
-        //  is done.
-        let should_prediction_run = not(is_host_server).and(is_connected);
+        // // we only run prediction:
+        // // - if we're not in host-server mode
+        // // - after the client is connected
+        // // NOTE: we need to run the prediction systems even if we're not synced, because we want
+        // //  our HistoryBuffer to contain values for components/resources that were updated before syncing
+        // //  is done.
+        // let should_prediction_run = not(is_host_server).and(is_connected);
 
         // REFLECTION
         app.register_type::<Predicted>()
             .register_type::<PreSpawned>()
-            .register_type::<PredictionDisable>()
-            .register_type::<PredictionConfig>();
+            .register_type::<PredictionDisable>();
 
         // RESOURCES
         app.init_resource::<PredictionManager>();
@@ -405,10 +268,6 @@ impl Plugin for PredictionPlugin {
                     .in_set(PredictionSet::All),
             )
                 .chain(),
-        )
-        .configure_sets(
-            PreUpdate,
-            PredictionSet::All.run_if(should_prediction_run.clone()),
         );
         app.add_systems(
             PreUpdate,
@@ -434,10 +293,6 @@ impl Plugin for PredictionPlugin {
         app.configure_sets(
             FixedPreUpdate,
             PredictionSet::RestoreVisualCorrection.in_set(PredictionSet::All),
-        )
-        .configure_sets(
-            FixedPreUpdate,
-            PredictionSet::All.run_if(should_prediction_run.clone()),
         );
 
         // FixedUpdate systems
@@ -458,10 +313,6 @@ impl Plugin for PredictionPlugin {
             )
                 .in_set(PredictionSet::All)
                 .chain(),
-        )
-        .configure_sets(
-            FixedPostUpdate,
-            PredictionSet::All.run_if(should_prediction_run.clone()),
         );
 
         // NOTE: this needs to run in FixedPostUpdate because the order we want is (if we replicate Position):
@@ -482,25 +333,11 @@ impl Plugin for PredictionPlugin {
         //         .run_if(not(is_in_rollback))
         //         .in_set(PredictionSet::All),
         // );
-        app.add_systems(
-            FixedLast,
-            increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
-        );
-        app.configure_sets(
-            FixedLast,
-            PredictionSet::IncrementRollbackTick
-                .run_if(is_in_rollback)
-                .in_set(PredictionSet::All),
-        )
-        .configure_sets(
-            FixedLast,
-            PredictionSet::All.run_if(should_prediction_run.clone()),
-        );
 
         // PLUGINS
         app.add_plugins((
             PrePredictionPlugin,
-            PreSpawnedPlayerObjectPlugin,
+            PreSpawnedPlugin,
             RollbackPlugin,
         ));
     }

@@ -1,4 +1,5 @@
 use crate::predicted_history::PredictionHistory;
+use crate::resource::{PredictionManager, PredictionResource};
 use crate::{PredictionMode, SyncComponent};
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
@@ -6,8 +7,14 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::tick::Tick;
-use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::receive::TempWriteBuffer;
+use lightyear_replication::registry::registry::{ComponentRegistry, LerpFn};
 use lightyear_replication::registry::{ComponentError, ComponentKind};
+
+fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
+    let curve = EasingCurve::new(start, other, EaseFunction::Linear);
+    curve.sample_unchecked(t)
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PredictionMetadata {
@@ -23,10 +30,10 @@ pub struct PredictionMetadata {
     pub check_rollback: CheckRollbackFn,
 }
 
-type SyncFn = fn(&mut ComponentRegistry, confirmed: Entity, predicted: Entity, &World);
+type SyncFn = fn(&PredictionRegistry, &ComponentRegistry, confirmed: Entity, predicted: Entity, &World, &mut TempWriteBuffer);
 
 type CheckRollbackFn = fn(
-    &ComponentRegistry,
+    &PredictionRegistry,
     confirmed_tick: Tick,
     confirmed_ref: &FilteredEntityRef,
     predicted_mut: &mut FilteredEntityMut,
@@ -47,8 +54,8 @@ impl PredictionMetadata {
                     should_rollback,
                 )
             },
-            buffer_sync: ComponentRegistry::buffer_sync::<C>,
-            check_rollback: ComponentRegistry::check_rollback::<C>,
+            buffer_sync: PredictionRegistry::buffer_sync::<C>,
+            check_rollback: PredictionRegistry::check_rollback::<C>,
         }
     }
 }
@@ -64,22 +71,6 @@ pub struct PredictionRegistry {
 }
 
 impl PredictionRegistry {
-    pub fn predicted_component_ids(&self, component_registry: &ComponentRegistry) -> impl Iterator<Item = ComponentId> + use<'_> {
-        self.prediction_map
-            .keys()
-            .filter_map(|kind| component_registry.kind_to_component_id.get(kind).copied())
-    }
-
-    pub fn predicted_component_ids_with_mode(
-        &self,
-        mode: PredictionMode,
-        component_registry: &ComponentRegistry
-    ) -> impl Iterator<Item = ComponentId> + use<'_> {
-        self.prediction_map
-            .iter()
-            .filter(move |(_, m)| m.sync_mode == mode)
-            .filter_map(|(kind, _)| component_registry.kind_to_component_id.get(kind).copied())
-    }
 
     pub fn set_prediction_mode<C: SyncComponent>(
         &mut self,
@@ -106,8 +97,8 @@ impl PredictionRegistry {
             };
     }
 
-    pub fn set_linear_correction<C: SyncComponent + Linear + PartialEq>(&mut self) {
-        self.set_correction(<C as Linear>::lerp);
+    pub fn set_linear_correction<C: SyncComponent + Ease + PartialEq>(&mut self) {
+        self.set_correction(lerp::<C>);
     }
 
     pub fn set_correction<C: SyncComponent + PartialEq>(&mut self, correction_fn: LerpFn<C>) {
@@ -115,7 +106,7 @@ impl PredictionRegistry {
                 .get_mut(&ComponentKind::of::<C>())
                 .expect("The component has not been registered for prediction. Did you call `.add_prediction(PredictionMode::Full)`")
                 .correction = Some(unsafe {
-                core::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C, f32) -> C, unsafe fn()>(
+                core::mem::transmute(
                     correction_fn,
                 )
             });
@@ -162,7 +153,7 @@ impl PredictionRegistry {
         should_rollback_fn(this, that)
     }
 
-    pub fn correct<C: Component>(&self, predicted: &C, corrected: &C, t: f32) -> C {
+    pub fn correct<C: Component>(&self, predicted: C, corrected: C, t: f32) -> C {
         let kind = ComponentKind::of::<C>();
         let prediction_metadata = self
             .prediction_map
@@ -176,34 +167,38 @@ impl PredictionRegistry {
     /// Clone the components from the confirmed entity to the predicted entity
     /// All the cloned components are inserted at once.
     pub fn batch_sync(
-        &mut self,
+        &self,
+        component_registry: &ComponentRegistry,
         component_ids: &[ComponentId],
         confirmed: Entity,
         predicted: Entity,
         world: &mut World,
+        temp_write_buffer: &mut TempWriteBuffer,
     ) {
         // clone each component to be synced into a temporary buffer
         component_ids.iter().for_each(|component_id| {
-            let kind = self.component_id_to_kind.get(component_id).unwrap();
+            let kind = component_registry.component_id_to_kind.get(component_id).unwrap();
             let prediction_metadata = self
                 .prediction_map
                 .get(kind)
                 .expect("the component is not part of the protocol");
-            (prediction_metadata.buffer_sync)(self, confirmed, predicted, world);
+            (prediction_metadata.buffer_sync)(self, component_registry, confirmed, predicted, world, temp_write_buffer);
         });
         // insert all the components in the predicted entity
         if let Ok(mut entity_world_mut) = world.get_entity_mut(predicted) {
             // SAFETY: we call `buffer_insert_raw_pts` inside the `buffer_sync` function
-            unsafe { self.temp_write_buffer.batch_insert(&mut entity_world_mut) };
+            unsafe { temp_write_buffer.batch_insert(&mut entity_world_mut) };
         };
     }
 
     /// Sync a component value from the confirmed entity to the predicted entity
     pub fn buffer_sync<C: SyncComponent>(
-        &mut self,
+        &self,
+        component_registry: &ComponentRegistry,
         confirmed: Entity,
         predicted: Entity,
         world: &World,
+        temp_write_buffer: &mut TempWriteBuffer,
     ) {
         let kind = ComponentKind::of::<C>();
         let prediction_metadata = self
@@ -242,12 +237,14 @@ impl PredictionRegistry {
         }
         if let Some(value) = world.get::<C>(confirmed) {
             let mut clone = value.clone();
+            let prediction_entity = world.resource::<PredictionResource>().link_entity;
             world
-                .resource::<PredictionManager>()
-                .map_entities(&mut clone, self)
+                .get::<PredictionManager>(prediction_entity)
+                .unwrap()
+                .map_entities(&mut clone, component_registry)
                 .unwrap();
             unsafe {
-                self.temp_write_buffer
+                temp_write_buffer
                     .buffer_insert_raw_ptrs(clone, world.component_id::<C>().unwrap())
             };
         }

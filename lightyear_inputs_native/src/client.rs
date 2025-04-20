@@ -55,6 +55,7 @@
 
 use crate::action_state::{ActionState, InputMarker};
 use crate::input_message::{InputMessage, InputTarget};
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
@@ -108,7 +109,7 @@ impl<A> Default for MessageBuffer<A> {
     }
 }
 
-impl<A: UserAction> Plugin for ClientInputPlugin<A> {
+impl<A: UserAction + MapEntities> Plugin for ClientInputPlugin<A> {
     fn build(&self, app: &mut App) {
          app.add_message::<InputMessage<A>>()
             // add entity mapping for:

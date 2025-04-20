@@ -30,11 +30,11 @@ pub(crate) struct PredictionDisable;
 impl Command for PredictionDespawnCommand {
     fn apply(self, world: &mut World) {
 
-        // if we are in host server mode, there is no rollback so we can despawn the entity immediately
-        if world.is_host_server() {
-            world.entity_mut(self.entity).despawn();
-            return;
-        }
+        // // if we are in host server mode, there is no rollback so we can despawn the entity immediately
+        // if world.is_host_server() {
+        //     world.entity_mut(self.entity).despawn();
+        //     return;
+        // }
 
         if let Ok(mut entity) = world.get_entity_mut(self.entity) {
             if entity.get::<Predicted>().is_some()
