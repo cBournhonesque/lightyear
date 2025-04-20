@@ -66,7 +66,6 @@ impl UdpPlugin {
         query.par_iter_mut().for_each(|(mut link, mut udp_io)| {
             if let Some(remote_addr) = link.remote_addr {
                 link.send.drain().for_each(|payload| {
-                    info!("Sending UDP packet of size {:?} to {}", payload.len(), remote_addr);
                     // TODO: how do we get the link address?
                     //   Maybe Link has multiple states?
                     // TODO: we don't want to short-circuit on error

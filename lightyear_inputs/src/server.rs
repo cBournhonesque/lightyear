@@ -5,10 +5,11 @@ use bevy::prelude::*;
 use lightyear_connection::server::Started;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::plugin::MessageSet;
+use lightyear_replication::prelude::Replicate;
 use tracing::trace;
 
 pub struct BaseInputPlugin<A> {
-    rebroadcast_inputs: bool,
+    pub rebroadcast_inputs: bool,
     marker: core::marker::PhantomData<A>,
 }
 
@@ -63,8 +64,9 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
 
 /// Read the InputState for the current tick from the buffer, and use them to update the ActionState
 fn update_action_state<A: UserActionState>(
-    // TODO: what if there are multiple servers? we need to check on which connection we are replicating the inputs,
+    // TODO: what if there are multiple servers? maybe we can use Replicate to figure out which inputs should be replicating on which servers?
     //  and use the timeline from that connection?
+    //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
     server: Query<&LocalTimeline, With<Started>>,
     mut action_state_query: Query<(Entity, &mut A, &mut InputBuffer<A>)>,
 ) {

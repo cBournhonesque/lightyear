@@ -202,6 +202,7 @@ impl NetcodeServerPlugin {
                     parallel_commands.command_scope(|mut c| {
                         trace!("Adding ClientOf with id {:?}", id);
                         let peer_id = PeerId::Netcode(id);
+                        // TODO: also trigger ClientConnected? or OnAdd is enough?
                         c.entity(entity)
                             .insert((ClientConnected(peer_id), ClientOf {
                                 server: client_of.server,

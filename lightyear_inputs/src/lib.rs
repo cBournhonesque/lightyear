@@ -38,3 +38,17 @@ pub trait UserActionState: UserAction + Component<Mutability = Mutable> + Defaul
     type UserAction: UserAction;
 }
 
+
+pub mod prelude {
+    pub use crate::config::InputConfig;
+    pub use crate::input_buffer::InputBuffer;
+
+    #[cfg(feature = "client")]
+    pub mod client {
+        pub use crate::client::InputSet;
+    }
+    #[cfg(feature = "server")]
+    pub mod server {
+        pub use crate::server::InputSet;
+    }
+}

@@ -29,6 +29,7 @@ pub(crate) mod buffer;
 pub(crate) mod delta;
 
 pub mod visibility;
+mod control;
 
 pub mod prelude {
     pub use crate::authority::HasAuthority;

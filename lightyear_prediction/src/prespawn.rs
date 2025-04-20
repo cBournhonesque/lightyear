@@ -1,41 +1,22 @@
-//! Handles spawning entities that are predicted
+ent::Components, Hookble, StoragePlayerObjectType};
+use bevy:ecs::world::DefrredWorld;
+use evy::prelude::;
+use lightyea_core::prelud::{LocalTimelne, NetworkTieline};
+use lghrObjectcoponrObjecteplicaObjecteluderObjectionRerObjectcd};
+rObjecttion::ObjectCompentbjectyear_sybject::IntroljecteerObjebject td::aObjecteId;
+us jectrObjectcjectrObjectcjectwObject
+jectrObjectEjectrObjectbjectrObjecte necssary inferObObjectton component beorebject// Clean p thePreSpbjecthiyerObjectld't findjectntiy
+   CleanUp,
 
-use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
-use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
-use tracing::{debug, error, trace, warn};
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_replication::components::Replicated;
-use lightyear_replication::prelude::{Confirmed, ReplicationReceiver, ShouldBePredicted};
-use lightyear_replication::registry::registry::ComponentRegistry;
-use lightyear_sync::prelude::client::InterpolationTimeline;
-use crate::plugin::PredictionSet;
-use crate::resource::PredictionManager;
-use crate::Predicted;
 
-#[derive(Default)]
-pub(crate) struct PreSpawnedPlayerObjectPlugin;
-
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum PreSpawnedPlayerObjectSet {
-    // PostUpdate Sets
-    /// Add the necessary information to the PrePrediction component (before replication)
-    /// Clean up the PreSpawned entities for which we couldn't find a mapped server entity
-    CleanUp,
-}
-
-impl Plugin for PreSpawnedPlayerObjectPlugin {
-    fn build(&self, app: &mut App) {
-        app.configure_sets(
-            PostUpdate,
-            PreSpawnedPlayerObjectSet::CleanUp.in_set(PredictionSet::All),
-        );
-        app.add_observer(Self::match_with_received_server_entity);
-        app.add_observer(Self::register_prespawn_hashes);
-        app.add_systems(
-            PostUpdate,
-            Self::pre_spawned_player_object_cleanup.in_set(PreSpawnedPlayerObjectSet::CleanUp),
-        );
+bjectSpbjectlayeObjectPObjectself, app: &mu Ap) {jectgure_sets(
+         ject       PrepwnedSet::jectdictionSet:All),
+   jectpp.add_observr(Self:jectved_server_entity)
+bjectserver(Self::regiter_prespawn_hashs);
+        app.ad_systems(
+           PostUpdate,
+           Self::pr_spawned_player_oject_cleanup.in_st(PreSpawnedSet::leanUp),
+        ;
     }
 }
 
@@ -322,7 +303,7 @@ impl Component for PreSpawned {
     type Mutability = Mutable;
 
     fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
-        hooks.on_add(|mut deferred_world, context: HookContext| {
+        hooks.on_add(|mut deferred_world: DeferredWorld, context: HookContext| {
             let entity = context.entity;
             let prespawned_obj = deferred_world.entity(entity).get::<PreSpawned>().unwrap();
             // The user may have provided the hash for us, or the hash is already present because the component
@@ -333,14 +314,10 @@ impl Component for PreSpawned {
             // Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
             // ignore replicated entities, we only want to iterate through entities spawned on the client directly
             let components = deferred_world.components();
-            let tick_manager = deferred_world.resource::<TickManager>();
+            let link_entity = deferred_world.resource::<PredictionResource>().link_entity;
+            let local_timeline  = deferred_world.get::<LocalTimeline>(link_entity).unwrap();
+            let tick = local_timeline.tick_or_rollback_tick();
             let component_registry = deferred_world.resource::<ComponentRegistry>();
-            let rollback = deferred_world.get_resource::<Rollback>();
-            let tick = if let Some(rollback) = rollback {
-                tick_manager.tick_or_rollback_tick(rollback)
-            } else {
-                tick_manager.tick()
-            };
             let entity_ref = deferred_world.entity(entity);
             let hash = compute_default_hash(
                 component_registry,
@@ -365,18 +342,76 @@ impl Component for PreSpawned {
     }
 }
 
+/// Compute the default PreSpawned hash used to match server entities with prespawned client entities
+pub(crate) fn compute_default_hash(
+    component_registry: &ComponentRegistry,
+    components: &Components,
+    archetype: &Archetype,
+    tick: Tick,
+    salt: Option<u64>,
+) -> u64 {
+    // TODO: try EntityHasher instead since we only hash the 64 lower bits of TypeId
+    // TODO: should I create the hasher once outside?
+
+    // NOTE: tried
+    // - bevy::utils::RandomState::with_seeds(1, 2, 3, 4).build_hasher();
+    // - xxhash_rust::xxh3::Xxh3Builder::new().with_seed(1).build_hasher();
+    // - bevy::utils::AHasher::default();
+    // but they were not deterministic across processes
+    let mut hasher = seahash::SeaHasher::new();
+
+    // TODO: this only works currently for entities that are spawned during FixedUpdate!
+    //  if we want the tick to be valid, compute_hash should also be run at the end of FixedUpdate::Main
+    //  so that we have the exact spawn tick! Solutions: run compute_hash in post-update as well?
+    // we include the spawn tick in the hash
+    tick.hash(&mut hasher);
+
+    // NOTE: we cannot call hash() multiple times because the components in the archetype
+    //  might get iterated in any order!
+    //  Instead we will get the sorted list of types to hash first, sorted by type_id
+    let mut kinds_to_hash = archetype
+        .components()
+        .filter_map(|component_id| {
+            if let Some(type_id) = components.get_info(component_id).unwrap().type_id() {
+                // ignore some book-keeping components that are included in the component registry
+                if type_id != TypeId::of::<PrePredicted>()
+                    && type_id != TypeId::of::<PreSpawned>()
+                    && type_id != TypeId::of::<ShouldBePredicted>()
+                    && type_id != TypeId::of::<ShouldBeInterpolated>()
+                    && type_id != TypeId::of::<Controlled>()
+                    && type_id != TypeId::of::<ReplicateLike>()
+                {
+                    return component_registry
+                        .kind_map
+                        .net_id(&ComponentKind::from(type_id))
+                        .copied();
+                }
+            }
+            None
+        })
+        // TODO: avoid this allocation, maybe provide a preallocated vec
+        .collect::<Vec<_>>();
+    kinds_to_hash.sort();
+    kinds_to_hash.into_iter().for_each(|kind| {
+        trace!(?kind, "using kind for hash");
+        kind.hash(&mut hasher)
+    });
+
+    // if a user salt is provided, hash after the sorted component list
+    if let Some(salt) = salt {
+        salt.hash(&mut hasher);
+    }
+
+    hasher.finish()
+}
+
+
 #[cfg(test)]
 mod tests {
-    use crate::::despawn::PredictionDisable;
-    use crate::::predicted_history::PredictionHistory;
-    use crate::::resource::PredictionManager;
-    use crate::prelude::client::{is_in_rollback, PredictionDespawnCommandsExt, PredictionSet};
-    use crate::prelude::client::{Confirmed, Predicted};
-    use crate::prelude::server::{Replicate, ReplicateToClient, SyncTarget};
-    use crate::prelude::*;
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::BevyStepper;
-    use crate::utils::ready_buffer::ItemWithReadyKey;
+    use super::*;
+    use crate::despawn::PredictionDisable;
+    use crate::predicted_history::PredictionHistory;
+    use crate::resource::PredictionManager;
     use bevy::app::PreUpdate;
     use bevy::prelude::{default, Entity, IntoScheduleConfigs, With};
 

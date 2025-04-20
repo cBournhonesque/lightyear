@@ -16,7 +16,9 @@ use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use core::time::Duration;
 use lightyear_examples_common_new::client::ExampleClient;
+use lightyear_new::prelude::client::input::*;
 use lightyear_new::prelude::client::*;
+use lightyear_new::prelude::input::native::*;
 use lightyear_new::prelude::*;
 
 
@@ -24,11 +26,11 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // // Inputs have to be buffered in the FixedPreUpdate schedule
-        // app.add_systems(
-        //     FixedPreUpdate,
-        //     buffer_input.in_set(InputSystemSet::WriteClientInputs),
-        // );
+        // Inputs have to be buffered in the FixedPreUpdate schedule
+        app.add_systems(
+            FixedPreUpdate,
+            buffer_input.in_set(InputSet::WriteClientInputs),
+        );
         // app.add_systems(FixedUpdate, player_movement);
 
         app.add_systems(
@@ -46,42 +48,42 @@ impl Plugin for ExampleClientPlugin {
 }
 
 
-// /// System that reads from peripherals and adds inputs to the buffer
-// /// This system must be run in the `InputSystemSet::BufferInputs` set in the `FixedPreUpdate` schedule
-// /// to work correctly.
-// ///
-// /// I would also advise to use the `leafwing` feature to use the `LeafwingInputPlugin` instead of the
-// /// `InputPlugin`, which contains more features.
-// pub(crate) fn buffer_input(
-//     mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
-//     keypress: Res<ButtonInput<KeyCode>>,
-// ) {
-//     if let Ok(mut action_state) = query.single_mut() {
-//         let mut input = None;
-//         let mut direction = Direction {
-//             up: false,
-//             down: false,
-//             left: false,
-//             right: false,
-//         };
-//         if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
-//             direction.up = true;
-//         }
-//         if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
-//             direction.down = true;
-//         }
-//         if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
-//             direction.left = true;
-//         }
-//         if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
-//             direction.right = true;
-//         }
-//         if !direction.is_none() {
-//             input = Some(Inputs::Direction(direction));
-//         }
-//         action_state.value = input;
-//     }
-// }
+/// System that reads from peripherals and adds inputs to the buffer
+/// This system must be run in the `InputSystemSet::BufferInputs` set in the `FixedPreUpdate` schedule
+/// to work correctly.
+///
+/// I would also advise to use the `leafwing` feature to use the `LeafwingInputPlugin` instead of the
+/// `InputPlugin`, which contains more features.
+pub(crate) fn buffer_input(
+    mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
+    keypress: Res<ButtonInput<KeyCode>>,
+) {
+    if let Ok(mut action_state) = query.single_mut() {
+        let mut input = None;
+        let mut direction = Direction {
+            up: false,
+            down: false,
+            left: false,
+            right: false,
+        };
+        if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
+            direction.up = true;
+        }
+        if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
+            direction.down = true;
+        }
+        if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
+            direction.left = true;
+        }
+        if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
+            direction.right = true;
+        }
+        if !direction.is_none() {
+            input = Some(Inputs::Direction(direction));
+        }
+        action_state.value = input;
+    }
+}
 
 // /// The client input only gets applied to predicted entities that we own
 // /// This works because we only predict the user's controlled entity.

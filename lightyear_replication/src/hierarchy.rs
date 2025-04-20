@@ -1,7 +1,6 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
 
 use crate::buffer::Replicate;
-use crate::components::DisableReplicateHierarchy;
 use crate::plugin::ReplicationSet;
 use crate::prelude::PrePredicted;
 use crate::registry::registry::AppComponentExt;
@@ -15,6 +14,19 @@ use core::fmt::{Debug, Formatter};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use tracing::{info, trace};
+
+/// Marker component that defines how the hierarchy of an entity (parent/children) should be replicated.
+///
+/// When `DisableReplicateHierarchy` is added to an entity, we will stop replicating their children.
+///
+/// If the component is added on an entity with `Replicate`, it's children will be replicated using
+/// the same replication settings as the Parent.
+/// This is achieved via the marker component `ReplicateLikeParent` added on each child.
+/// You can remove the `ReplicateLikeParent` component to disable this on a child entity. You can then
+/// add the replication components on the child to replicate it independently from the parents.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct DisableReplicateHierarchy;
 
 pub type ChildOfSync = RelationshipSync<ChildOf>;
 

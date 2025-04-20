@@ -37,6 +37,7 @@ client = [
   "lightyear_replication/client",
   "lightyear_inputs?/client",
   "lightyear_inputs_leafwing?/client",
+  "lightyear_inputs_native?/client",
 ]
 server = [
   "lightyear_connection/server",
@@ -45,6 +46,7 @@ server = [
   "lightyear_replication/server",
   "lightyear_inputs?/server",
   "lightyear_inputs_leafwing?/server",
+  "lightyear_inputs_native?/server",
   "lightyear_udp?/server",
 ]
 prediction = [
@@ -74,7 +76,12 @@ webtransport = [
   "dep:web-sys",
   "dep:wasm-bindgen-futures",
 ]
-leafwing = [
+input_native = [
+  "dep:lightyear_inputs",
+  "dep:lightyear_inputs_native",
+]
+input_leafwing = [
+  "dep:lightyear_inputs",
   "dep:leafwing-input-manager",
   "dep:lightyear_inputs_leafwing",
 ]
@@ -136,6 +143,7 @@ lightyear_utils.workspace = true
 #lightyear_avian = {workspace = true, optional = true}
 lightyear_inputs = {workspace = true, optional = true}
 lightyear_inputs_leafwing = {workspace = true, optional = true}
+lightyear_inputs_native = {workspace = true, optional = true}
 lightyear_crossbeam = {workspace = true, optional = true}
 
 # utils

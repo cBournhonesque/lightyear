@@ -124,10 +124,7 @@ impl Replicated {
     }
 }
 
-/// Marker component to indicate that the entity is under the control of the local peer
-#[derive(Component, Clone, Copy, PartialEq, Debug, Reflect, Serialize, Deserialize)]
-#[reflect(Component)]
-pub struct Controlled;
+
 
 /// Marker component to indicate that updates for this entity are being replicated.
 ///
@@ -146,19 +143,6 @@ pub struct Cached<C> {
 
 // TODO: we need a ReplicateConfig similar to ComponentReplicationConfig
 //  for entity-specific config, such as replicate-hierarchy
-
-/// Marker component that defines how the hierarchy of an entity (parent/children) should be replicated.
-///
-/// When `DisableReplicateHierarchy` is added to an entity, we will stop replicating their children.
-///
-/// If the component is added on an entity with `Replicate`, it's children will be replicated using
-/// the same replication settings as the Parent.
-/// This is achieved via the marker component `ReplicateLikeParent` added on each child.
-/// You can remove the `ReplicateLikeParent` component to disable this on a child entity. You can then
-/// add the replication components on the child to replicate it independently from the parents.
-#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct DisableReplicateHierarchy;
 
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Reflect)]
@@ -304,32 +288,11 @@ impl ToBytes for ReplicationGroupId {
     }
 }
 
-// NOTE: we don't add a #[require(ReplicateToClient)] attribute here
-//  so that it's possible to override the NetworkRelevanceMode for a ReplicateLike entity
-#[derive(Component, Clone, Copy, Default, Debug, PartialEq, Reflect)]
-#[reflect(Component)]
-pub enum NetworkRelevanceMode {
-    /// We will replicate this entity to the clients specified in the `Replicate` component.
-    /// On top of that, we will apply interest management logic to determine which peers should receive the entity
-    ///
-    /// You can use [`gain_relevance`](crate::prelude::server::RelevanceManager::gain_relevance) and [`lose_relevance`](crate::prelude::server::RelevanceManager::lose_relevance)
-    /// to control the network relevance of entities.
-    ///
-    /// You can also use the [`RoomManager`](crate::prelude::server::RoomManager) if you want to use rooms to control network relevance.
-    ///
-    /// (the client still needs to be included in the [`Replicate`], the room is simply an additional constraint)
-    InterestManagement,
-    /// We will replicate this entity to the peers specified in the `Replicate` component, without
-    /// running any additional interest management logic
-    #[default]
-    All,
-}
 
 /// Marker component that tells the client to spawn an Interpolated entity
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct ShouldBeInterpolated;
-
 
 
 /// Marker component that tells the client to spawn a Predicted entity

@@ -123,7 +123,7 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::Bidirectional);
 
         // inputs
-        // app.add_plugins(InputPlugin::<Inputs>::default());
+        app.add_plugins(input::native::InputPlugin::<Inputs>::default());
         // components
         app.register_component::<PlayerId>();
             // .add_prediction(ComponentSyncMode::Once)

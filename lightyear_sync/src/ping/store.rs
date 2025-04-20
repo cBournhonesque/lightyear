@@ -1,6 +1,6 @@
 //! Store the latest pings sent to remote
 
-use core::time::Duration;
+use bevy::platform::time::Instant;
 use lightyear_utils::sequence_buffer::SequenceBuffer;
 use lightyear_utils::wrapping_id;
 
@@ -15,7 +15,7 @@ pub struct PingStore {
     latest_ping_id: PingId,
     /// Buffer storing the latest pings sent along with their associated time
     /// Older pings will get overwritten by newer pings
-    buffer: SequenceBuffer<PingId, Duration, PING_BUFFER_SIZE>,
+    buffer: SequenceBuffer<PingId, Instant, PING_BUFFER_SIZE>,
 }
 
 impl Default for PingStore {
@@ -33,7 +33,7 @@ impl PingStore {
     }
 
     /// Pushes a new ping into the store and returns the corresponding ping id
-    pub fn push_new(&mut self, now: Duration) -> PingId {
+    pub fn push_new(&mut self, now: Instant) -> PingId {
         // save current ping index and add a new ping instant associated with it
         let ping_id = self.latest_ping_id;
         self.latest_ping_id += 1;
@@ -42,7 +42,7 @@ impl PingStore {
     }
 
     /// Remove a ping from the store and returns the corresponding time if it exists
-    pub fn remove(&mut self, ping_id: PingId) -> Option<Duration> {
+    pub fn remove(&mut self, ping_id: PingId) -> Option<Instant> {
         self.buffer.remove(&ping_id)
     }
 }

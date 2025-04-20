@@ -5,6 +5,7 @@ use crate::ping::store::{PingId, PingStore};
 use alloc::{vec, vec::Vec};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
+use bevy::platform::time::Instant;
 use bevy::prelude::{Component, Real, Time};
 use bevy::reflect::Reflect;
 use bevy::time::Stopwatch;
@@ -52,7 +53,7 @@ pub struct PingManager {
     most_recent_received_ping: PingId,
     /// We received time-sync pongs; we keep track that we will have to send pongs back when we can
     /// (when the connection's send_timer is ready)
-    pongs_to_send: Vec<(Pong, Duration)>,
+    pongs_to_send: Vec<(Pong, Instant)>,
 
     // stats
     // TODO: we could actually compute stats from every single packet, not just pings/pongs
@@ -96,7 +97,7 @@ pub struct SyncStats {
     pub(crate) round_trip_delay: Duration,
 }
 
-pub type SyncStatsBuffer = ReadyBuffer<Duration, SyncStats>;
+pub type SyncStatsBuffer = ReadyBuffer<Instant, SyncStats>;
 
 impl PingManager {
     pub fn new(config: PingConfig, tick_duration: Duration) -> Self {
@@ -131,7 +132,9 @@ impl PingManager {
         self.ping_timer.tick(time.delta());
 
         // clear stats that are older than a threshold, such as 2 seconds
-        let oldest_time = time.elapsed().saturating_sub(self.config.stats_buffer_duration);
+        let Some(oldest_time) = Instant::now().checked_sub(self.config.stats_buffer_duration) else {
+            return
+        };
         let old_len = self.sync_stats.len();
         self.sync_stats.pop_until(&oldest_time);
         let new_len = self.sync_stats.len();
@@ -150,7 +153,7 @@ impl PingManager {
     }
 
     /// Check if we are ready to send a ping to the remote
-    pub(crate) fn maybe_prepare_ping(&mut self, now: Duration) -> Option<Ping> {
+    pub(crate) fn maybe_prepare_ping(&mut self, now: Instant) -> Option<Ping> {
         // TODO: should we have something to start sending a sync ping right away? (so we don't wait for initial timer)
         if self.ping_timer.elapsed() >= self.config.ping_interval {
             self.ping_timer.reset();
@@ -237,8 +240,7 @@ impl PingManager {
 
     /// Received a pong: update
     /// Returns true if we have enough pongs to finalize the handshake
-    pub(crate) fn process_pong(&mut self, pong: &Pong, now: Duration) {
-        trace!("Received pong: {:?}", pong);
+    pub(crate) fn process_pong(&mut self, pong: &Pong, now: Instant) {
         self.pongs_recv += 1;
         let received_time = now;
 
@@ -253,11 +255,10 @@ impl PingManager {
             self.most_recent_received_ping = pong.ping_id;
 
             // round-trip-delay
-            let rtt = received_time - ping_sent_time;
-
+            let rtt = received_time.saturating_duration_since(ping_sent_time);
             let server_process_time = TickDelta::from(pong.frame_time).to_duration(self.tick_duration);
-            trace!(?rtt, ?received_time, ?ping_sent_time, ?server_process_time, ?pong.frame_time,  "process pong");
-            let round_trip_delay = rtt - server_process_time;
+            trace!(?rtt, ?received_time, ?ping_sent_time, ?pong.frame_time,  "process received pong");
+            let round_trip_delay = rtt.saturating_sub(server_process_time);
             // update stats buffer
             self.sync_stats
                 .push(received_time, SyncStats { round_trip_delay });
@@ -270,14 +271,13 @@ impl PingManager {
     /// When we receive a Ping, we prepare a Pong in response.
     /// However we cannot send it immediately because we send packets at a regular interval
     /// Keep track of the pongs we need to send
-    pub(crate) fn buffer_pending_pong(&mut self, ping: &Ping, now: Duration) {
+    pub(crate) fn buffer_pending_pong(&mut self, ping: &Ping, now: Instant) {
         self.pongs_to_send.push((Pong {
             ping_id: ping.id,
-            // TODO: we want to use real time instead of just time_manager.current_time() no?
             frame_time: Default::default(),
         }, now))
     }
-    pub(crate) fn take_pending_pongs(&mut self) -> Vec<(Pong, Duration)> {
+    pub(crate) fn take_pending_pongs(&mut self) -> Vec<(Pong, Instant)> {
         core::mem::take(&mut self.pongs_to_send)
     }
 }
@@ -296,7 +296,7 @@ mod tests {
         let mut real = Time::<Real>::default();
         real.update();
 
-        assert_eq!(ping_manager.maybe_prepare_ping(real.elapsed()), None);
+        assert_eq!(ping_manager.maybe_prepare_ping(real.last_update().unwrap()), None);
 
         let delta = Duration::from_millis(100);
         real.update_with_duration(delta);
@@ -304,7 +304,7 @@ mod tests {
 
         // send pings
         assert_eq!(
-            ping_manager.maybe_prepare_ping(real.elapsed()),
+            ping_manager.maybe_prepare_ping(real.last_update().unwrap()),
             Some(Ping { id: PingId(0) })
         );
         let delta = Duration::from_millis(60);
@@ -312,11 +312,11 @@ mod tests {
         ping_manager.update(&real);
 
         // ping timer hasn't gone off yet, send nothing
-        assert_eq!(ping_manager.maybe_prepare_ping(real.elapsed()), None);
+        assert_eq!(ping_manager.maybe_prepare_ping(real.last_update().unwrap()), None);
         real.update_with_duration(delta);
         ping_manager.update(&real);
         assert_eq!(
-            ping_manager.maybe_prepare_ping(real.elapsed()),
+            ping_manager.maybe_prepare_ping(real.last_update().unwrap()),
             Some(Ping { id: PingId(1) })
         );
 
@@ -324,12 +324,12 @@ mod tests {
         real.update_with_duration(delta);
         ping_manager.update(&real);
         assert_eq!(
-            ping_manager.maybe_prepare_ping(real.elapsed()),
+            ping_manager.maybe_prepare_ping(real.last_update().unwrap()),
             Some(Ping { id: PingId(2) })
         );
 
         // we sent all the pings we need
-        assert_eq!(ping_manager.maybe_prepare_ping(real.elapsed()), None);
+        assert_eq!(ping_manager.maybe_prepare_ping(real.last_update().unwrap()), None);
 
         // check ping store
         assert_eq!(

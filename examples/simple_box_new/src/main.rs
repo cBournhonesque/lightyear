@@ -11,14 +11,17 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
+use crate::client::ExampleClientPlugin;
 use crate::protocol::ProtocolPlugin;
+use crate::server::ExampleServerPlugin;
 use bevy::prelude::*;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 use core::time::Duration;
 use lightyear_examples_common_new::cli::{Cli, Mode};
 use lightyear_examples_common_new::server::{ExampleServer, ServerTransports};
 use lightyear_examples_common_new::shared::SharedSettings;
-
+use lightyear_new::connection::client::Connect;
+use lightyear_new::connection::server::Start;
 
 #[cfg(feature = "client")]
 mod client;
@@ -57,10 +60,10 @@ fn main() {
 
     #[cfg(feature = "client")]
     {
+        app.add_plugins(ExampleClientPlugin);
         if matches!(cli.mode, Some(Mode::Client { .. })) {
             use lightyear_new::prelude::client::Connect;
             use lightyear_examples_common_new::client::{ClientTransports, ExampleClient};
-            
             let client = app.world_mut().spawn(ExampleClient {
                 client_id: cli.client_id().expect("You need to specify a client_id via `-c ID`"),
                 client_port: CLIENT_PORT,
@@ -75,15 +78,17 @@ fn main() {
 
     #[cfg(feature = "server")]
     {
+        app.add_plugins(ExampleServerPlugin);
         if matches!(cli.mode, Some(Mode::Server)) {
             use lightyear_examples_common_new::server::ExampleServer;
-            app.world_mut().spawn(ExampleServer {
+            let server = app.world_mut().spawn(ExampleServer {
                 conditioner: None,
                 transport: ServerTransports::Udp {
                     local_port: SERVER_PORT
                 },
                 shared: SHARED_SETTINGS
-            });
+            }).id();
+            app.world_mut().trigger_targets(Start, server);
         }
     }
 

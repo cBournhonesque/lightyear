@@ -13,7 +13,7 @@
 //! This trait is a marker trait that is used to tell Lightyear that this type can be used as an input.
 //! In particular inputs must be `Serialize`, `Deserialize`, `Clone` and `PartialEq`.
 //!
-//! You can then add the input type by adding the [`InputPlugin<InputType>`](crate::prelude::InputPlugin) to your app.
+//! You can then add the input type by adding the [`InputPlugin<InputType>`](crate::prelude::ClientInputPlugin) to your app.
 //!
 //! ```rust
 //! use bevy::ecs::entity::MapEntities;
@@ -62,7 +62,7 @@ use lightyear_inputs::client::{BaseInputPlugin, InputSet};
 use lightyear_inputs::config::InputConfig;
 use lightyear_inputs::input_buffer::InputBuffer;
 use lightyear_inputs::UserAction;
-use lightyear_messages::prelude::MessageSender;
+use lightyear_messages::prelude::{AppMessageExt, MessageSender};
 use lightyear_messages::MessageManager;
 use lightyear_prediction::pre_prediction::PrePredicted;
 use lightyear_prediction::Predicted;
@@ -73,17 +73,17 @@ use lightyear_transport::channel::builder::InputChannel;
 use lightyear_transport::prelude::ChannelRegistry;
 use tracing::{debug, error, trace};
 
-pub struct InputPlugin<A> {
+pub struct ClientInputPlugin<A> {
     config: InputConfig<A>,
 }
 
-impl<A: UserAction> InputPlugin<A> {
+impl<A: UserAction> ClientInputPlugin<A> {
     pub(crate) fn new(config: InputConfig<A>) -> Self {
         Self { config }
     }
 }
 
-impl<A: UserAction> Default for InputPlugin<A> {
+impl<A: UserAction> Default for ClientInputPlugin<A> {
     fn default() -> Self {
         Self::new(InputConfig::default())
     }
@@ -108,8 +108,16 @@ impl<A> Default for MessageBuffer<A> {
     }
 }
 
-impl<A: UserAction> Plugin for InputPlugin<A> {
+impl<A: UserAction> Plugin for ClientInputPlugin<A> {
     fn build(&self, app: &mut App) {
+         app.add_message::<InputMessage<A>>()
+            // add entity mapping for:
+            // - server receiving pre-predicted entities
+            // - client receiving other players' inputs
+            // - input itself containing entities
+            .add_map_entities();
+        app.register_required_components::<InputBuffer<ActionState<A>>, ActionState<A>>();
+
         app.add_plugins(BaseInputPlugin::<ActionState<A>, InputMarker<A>>::default());
 
         // RESOURCES
@@ -120,13 +128,13 @@ impl<A: UserAction> Plugin for InputPlugin<A> {
         // we don't need this for native inputs because it's handled by required components
         // app.add_observer(add_action_state::<A>);
         // app.add_observer(add_input_buffer::<A>);
-        if self.config.rebroadcast_inputs {
-            app.add_systems(
-                RunFixedMainLoop,
-                receive_remote_player_input_messages::<A>
-                    .in_set(InputSet::ReceiveInputMessages),
-            );
-        }
+        // if self.config.rebroadcast_inputs {
+        //     app.add_systems(
+        //         RunFixedMainLoop,
+        //         receive_remote_player_input_messages::<A>
+        //             .in_set(InputSet::ReceiveInputMessages),
+        //     );
+        // }
         app.add_systems(
             FixedPostUpdate,
             prepare_input_message::<A>.in_set(InputSet::PrepareInputMessage)
@@ -180,7 +188,7 @@ fn prepare_input_message<A: UserAction>(
     // we send redundant inputs, so that if a packet is lost, we can still recover
     // A redundancy of 2 means that we can recover from 1 lost packet
     let mut num_tick: u16 =
-        ((input_send_interval.as_nanos() / config.shared.tick.tick_duration.as_nanos()) + 1)
+        ((input_send_interval.as_nanos() / local_timeline.tick_duration.as_nanos()) + 1)
             .try_into()
             .unwrap();
     num_tick *= input_config.packet_redundancy;
@@ -261,104 +269,104 @@ fn prepare_input_message<A: UserAction>(
 }
 
 
-/// Read the InputMessages of other clients from the server to update their InputBuffer and ActionState.
-/// This is useful if we want to do client-prediction for remote players.
-///
-/// If the InputBuffer/ActionState is missing, we will add it.
-///
-/// We will apply the diffs on the Predicted entity.
-fn receive_remote_player_input_messages<A: UserAction>(
-    mut commands: Commands,
-    tick_manager: Res<TickManager>,
-    mut received_inputs: ResMut<Events<ClientReceiveMessage<InputMessage<A>>>>,
-    connection: Res<ConnectionManager>,
-    prediction_manager: Res<PredictionManager>,
-    message_registry: Res<MessageRegistry>,
-    // TODO: currently we do not handle entities that are controlled by multiple clients
-    confirmed_query: Query<&Confirmed, Without<InputMarker<A>>>,
-    mut predicted_query: Query<
-        Option<&mut InputBuffer<ActionState<A>>>,
-        (With<Predicted>, Without<InputMarker<A>>),
-    >,
-) {
-    let tick = tick_manager.tick();
-    received_inputs.drain().for_each(|event| {
-        let message = event.message;
-        trace!(?message.end_tick, %message, "received remote input message for action: {:?}", core::any::type_name::<A>());
-        for target_data in &message.inputs {
-            // - the input target has already been set to the server entity in the InputMessage
-            // - it has been mapped to a client-entity on the client during deserialization
-            //   ONLY if it's PrePredicted (look at the MapEntities implementation)
-            let entity = match target_data.target {
-                InputTarget::Entity(entity) => {
-                    // TODO: find a better way!
-                    // if InputTarget = Entity, we still need to do the mapping
-                    connection
-                        .replication_receiver
-                        .remote_entity_map
-                        .get_local(entity)
-                }
-                InputTarget::PrePredictedEntity(entity) => Some(entity),
-            };
-            if let Some(entity) = entity {
-                debug!(
-                    "received input message for entity: {:?}. Applying to diff buffer.",
-                    entity
-                );
-                if let Ok(confirmed) = confirmed_query.get(entity) {
-                    if let Some(predicted) = confirmed.predicted {
-                        if let Ok(input_buffer) = predicted_query.get_mut(predicted) {
-                            trace!(confirmed= ?entity, ?predicted, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
-                            if let Some(mut input_buffer) = input_buffer {
-                                input_buffer.update_from_message(message.end_tick, &target_data.states);
-                                #[cfg(feature = "metrics")]
-                                {
-                                    let margin = input_buffer.end_tick().unwrap() - tick;
-                                    metrics::gauge!(format!(
-                                                    "inputs::{}::remote_player::{}::buffer_margin",
-                                                    core::any::type_name::<A>(),
-                                                    entity
-                                                ))
-                                        .set(margin as f64);
-                                    metrics::gauge!(format!(
-                                                    "inputs::{}::remote_player::{}::buffer_size",
-                                                    core::any::type_name::<A>(),
-                                                    entity
-                                                ))
-                                        .set(input_buffer.len() as f64);
-                                }
-                            } else {
-                                // add the ActionState or InputBuffer if they are missing
-                                let mut input_buffer = InputBuffer::<ActionState<A>>::default();
-                                input_buffer.update_from_message(
-                                    message.end_tick,
-                                    &target_data.states,
-                                );
-                                // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
-                                commands.entity(predicted).insert((
-                                    input_buffer,
-                                    ActionState::<A>::default(),
-                                ));
-                            };
-                        }
-                    }
-                } else {
-                    error!(?entity, ?target_data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
-                }
-            } else {
-                error!("received remote player input message for unrecognized entity");
-            }
-        }
-    });
-}
+// /// Read the InputMessages of other clients from the server to update their InputBuffer and ActionState.
+// /// This is useful if we want to do client-prediction for remote players.
+// ///
+// /// If the InputBuffer/ActionState is missing, we will add it.
+// ///
+// /// We will apply the diffs on the Predicted entity.
+// fn receive_remote_player_input_messages<A: UserAction>(
+//     mut commands: Commands,
+//     tick_manager: Res<TickManager>,
+//     mut received_inputs: ResMut<Events<ClientReceiveMessage<InputMessage<A>>>>,
+//     connection: Res<ConnectionManager>,
+//     prediction_manager: Res<PredictionManager>,
+//     message_registry: Res<MessageRegistry>,
+//     // TODO: currently we do not handle entities that are controlled by multiple clients
+//     confirmed_query: Query<&Confirmed, Without<InputMarker<A>>>,
+//     mut predicted_query: Query<
+//         Option<&mut InputBuffer<ActionState<A>>>,
+//         (With<Predicted>, Without<InputMarker<A>>),
+//     >,
+// ) {
+//     let tick = tick_manager.tick();
+//     received_inputs.drain().for_each(|event| {
+//         let message = event.message;
+//         trace!(?message.end_tick, %message, "received remote input message for action: {:?}", core::any::type_name::<A>());
+//         for target_data in &message.inputs {
+//             // - the input target has already been set to the server entity in the InputMessage
+//             // - it has been mapped to a client-entity on the client during deserialization
+//             //   ONLY if it's PrePredicted (look at the MapEntities implementation)
+//             let entity = match target_data.target {
+//                 InputTarget::Entity(entity) => {
+//                     // TODO: find a better way!
+//                     // if InputTarget = Entity, we still need to do the mapping
+//                     connection
+//                         .replication_receiver
+//                         .remote_entity_map
+//                         .get_local(entity)
+//                 }
+//                 InputTarget::PrePredictedEntity(entity) => Some(entity),
+//             };
+//             if let Some(entity) = entity {
+//                 debug!(
+//                     "received input message for entity: {:?}. Applying to diff buffer.",
+//                     entity
+//                 );
+//                 if let Ok(confirmed) = confirmed_query.get(entity) {
+//                     if let Some(predicted) = confirmed.predicted {
+//                         if let Ok(input_buffer) = predicted_query.get_mut(predicted) {
+//                             trace!(confirmed= ?entity, ?predicted, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
+//                             if let Some(mut input_buffer) = input_buffer {
+//                                 input_buffer.update_from_message(message.end_tick, &target_data.states);
+//                                 #[cfg(feature = "metrics")]
+//                                 {
+//                                     let margin = input_buffer.end_tick().unwrap() - tick;
+//                                     metrics::gauge!(format!(
+//                                                     "inputs::{}::remote_player::{}::buffer_margin",
+//                                                     core::any::type_name::<A>(),
+//                                                     entity
+//                                                 ))
+//                                         .set(margin as f64);
+//                                     metrics::gauge!(format!(
+//                                                     "inputs::{}::remote_player::{}::buffer_size",
+//                                                     core::any::type_name::<A>(),
+//                                                     entity
+//                                                 ))
+//                                         .set(input_buffer.len() as f64);
+//                                 }
+//                             } else {
+//                                 // add the ActionState or InputBuffer if they are missing
+//                                 let mut input_buffer = InputBuffer::<ActionState<A>>::default();
+//                                 input_buffer.update_from_message(
+//                                     message.end_tick,
+//                                     &target_data.states,
+//                                 );
+//                                 // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
+//                                 commands.entity(predicted).insert((
+//                                     input_buffer,
+//                                     ActionState::<A>::default(),
+//                                 ));
+//                             };
+//                         }
+//                     }
+//                 } else {
+//                     error!(?entity, ?target_data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+//                 }
+//             } else {
+//                 error!("received remote player input message for unrecognized entity");
+//             }
+//         }
+//     });
+// }
 
 /// Drain the messages from the buffer and send them to the server
 fn send_input_messages<A: UserAction>(
     input_config: Res<InputConfig<A>>,
     mut message_buffer: ResMut<MessageBuffer<A>>,
     mut sender: Query<&mut MessageSender<InputMessage<A>>, With<LocalTimeline>>,
-    time_manager: Res<TimeManager>,
-    tick_manager: Res<TickManager>,
+    // time_manager: Res<TimeManager>,
+    // tick_manager: Res<TickManager>,
 ) {
     trace!(
         "Number of input messages to send: {:?}",
@@ -368,17 +376,18 @@ fn send_input_messages<A: UserAction>(
         return
     };
     for mut message in message_buffer.0.drain(..) {
-        // if lag compensation is enabled, we send the current delay to the server
-        // (this runs here because the delay is only correct after the SyncSet has run)
-        // TODO: or should we actually use the interpolation_delay BEFORE SyncSet
-        //  because the user is reacting to stuff from the previous frame?
-        if input_config.lag_compensation {
-            message.interpolation_delay = Some(
-                connection
-                    .sync_manager
-                    .interpolation_delay(tick_manager.as_ref(), time_manager.as_ref()),
-            );
-        }
+
+        // // if lag compensation is enabled, we send the current delay to the server
+        // // (this runs here because the delay is only correct after the SyncSet has run)
+        // // TODO: or should we actually use the interpolation_delay BEFORE SyncSet
+        // //  because the user is reacting to stuff from the previous frame?
+        // if input_config.lag_compensation {
+        //     message.interpolation_delay = Some(
+        //         connection
+        //             .sync_manager
+        //             .interpolation_delay(tick_manager.as_ref(), time_manager.as_ref()),
+        //     );
+        // }
         sender.send::<InputChannel>(message);
     }
 }

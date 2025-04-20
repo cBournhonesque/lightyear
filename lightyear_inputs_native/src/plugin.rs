@@ -30,22 +30,15 @@ impl<A: UserAction + MapEntities> Plugin for InputPlugin<A> {
             // - client receiving other players' inputs
             // - input itself containing entities
             .add_map_entities();
-        let is_client = app.world().get_resource::<ClientConfig>().is_some();
-        let is_server = app.world().get_resource::<ServerConfig>().is_some();
-        assert!(is_client || is_server, "Either ClientConfig or ServerConfig must be present! Make sure that your SharedPlugin is registered after the ClientPlugins/ServerPlugins");
-
         app.register_required_components::<InputBuffer<ActionState<A>>, ActionState<A>>();
 
-        if is_client {
-            app.add_plugins(super::client::InputPlugin::<A>::new(
-                self.config.clone(),
-            ));
-        }
-        if is_server {
-            app.add_plugins(super::server::InputPlugin::<A> {
-                rebroadcast_inputs: self.config.rebroadcast_inputs,
-                marker: core::marker::PhantomData,
-            });
-        }
+        // TODO: for simplicity, we currently register both client and server input plugins
+        app.add_plugins(super::client::ClientInputPlugin::<A>::new(
+            self.config.clone(),
+        ));
+        app.add_plugins(super::server::ServerInputPlugin::<A> {
+            rebroadcast_inputs: self.config.rebroadcast_inputs,
+            marker: core::marker::PhantomData,
+        });
     }
 }

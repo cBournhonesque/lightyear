@@ -16,3 +16,18 @@ pub mod plugin;
 
 #[cfg(feature = "server")]
 mod server;
+
+pub mod prelude {
+    pub use crate::action_state::{ActionState, InputMarker};
+    pub use crate::plugin::InputPlugin;
+
+    #[cfg(feature = "client")]
+    pub mod client {
+        pub use crate::client::ClientInputPlugin;
+    }
+
+    #[cfg(feature = "server")]
+    pub mod server {
+        pub use crate::server::ServerInputPlugin;
+    }
+}

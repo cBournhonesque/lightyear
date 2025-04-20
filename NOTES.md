@@ -1,14 +1,42 @@
+# Examples
 
 - all examples just showcase the actual logic being tested
   - if you start with 'main' (as a binary), it will start it in a simple mode
   - maybe just client or server?
 - we can have a 'template' wrapper with a UI that can activate all examples + all modes
-  - the examples are just plugins we can import, so that's fine
-    - if we trigger SpawnExampleClient, which example will it be?
+  - the examples are just plugins we can import, so that's fine, we can import all of them
+    - if we trigger SpawnExampleClient, which example will it be? maybe a marker component per example?
       Maybe each client should have their own MyClient? that also triggers a SpawnExampleClient?
+    - Or just a 'example_launcher' that supports all modes but will only run one of the examples (via cli)
   - the modes:
     - client: just spawn a client
     - server: can start a separate app, etc.
+
+# Inputs
+- client connects to to server
+- server spawns a player entity for them, with ControlledBy
+
+- client adds InputMarker to the entity that they are actively controlling.
+- there is only one sender with an InputTimeline
+- 
+
+
+# Server sending messages
+
+- We need a ServerMessageSender on the server, where you can serialize a message once and it will be sent to a subset
+  of network targets (ClientOf) of that server.
+
+# Server creating ClientOfs
+
+- ServerUdpIo receives a packet from a new address: creates an entity with a Link + LinkOf?
+- ServerNetcode:
+  - iterates through all LinkOfs to see if they are going to be connected. If they are, add ClientOf
+  - uses Has<ClientOf> to check if they were already connected or not
+  - on new connection, spawns a new ClientOf.
+  - if the LinkOf becomes unlinked, remove the ClientOf as well.
+- We will have a 'RawConnection' that just uses ClientOf::Entity as the peer_id.
+
+- The user can react on Added<ClientConnected> or Added<ClientOf> to add the replication components 
 
 
 # Status:

@@ -168,11 +168,12 @@ impl Replicate {
                     };
                     let world = unsafe { unsafe_world.world_mut() };
                     server.targets(target).for_each(|client| {
+                        trace!("Adding replicated entity {} to ClientOf {}", context.entity, client);
                         let Ok(mut sender) = world
                             .query_filtered::<&mut ReplicationSender, With<ClientOf>>()
                             .get_mut(world, client)
                         else {
-                            error!("No Client found in the world");
+                            error!("ClientOf {client:?} not found");
                             return;
                         };
                         sender.add_replicated_entity(context.entity);

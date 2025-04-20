@@ -160,17 +160,17 @@ fn buffer_action_state<A: UserActionState, F: Component>(
 
 /// Retrieve the ActionState for the current tick.
 fn get_action_state<A: UserActionState>(
-    sender: Query<&LocalTimeline, With<InputTimeline>>,
+    sender: Query<(&LocalTimeline, &InputTimeline)>,
     // NOTE: we want to apply the Inputs for BOTH the local player and the remote player.
     // - local player: we need to get the input from the InputBuffer because of input delay
     // - remote player: we want to reduce the amount of rollbacks by updating the ActionState
     //   as fast as possible (the inputs are broadcasted with no delay)
     mut action_state_query: Query<(Entity, &mut A, &InputBuffer<A>)>,
 ) {
-    let Ok(local_timeline) = sender.single() else {
+    let Ok((local_timeline, input_timeline)) = sender.single() else {
         return;
     };
-    let input_delay = local_timeline.input_delay() as i16;
+    let input_delay = input_timeline.input_delay() as i16;
     let tick = if !local_timeline.is_rollback() {
         // If there is no rollback and no input_delay, we just buffered the input so there is nothing to do.
         if input_delay == 0 {

@@ -11,7 +11,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear_new::connection::server::ClientConnected;
-use lightyear_new::prelude::{MessageSender, NetworkTarget, Replicate};
+use lightyear_new::prelude::{MessageSender, NetworkTarget, Replicate, ReplicationSender};
 use std::sync::Arc;
 
 pub struct ExampleServerPlugin;
@@ -31,10 +31,15 @@ impl Plugin for ExampleServerPlugin {
 
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
-    trigger: Trigger<ClientConnected>,
+    trigger: Trigger<OnAdd, ClientConnected>,
+    mut query: Query<&ClientConnected>,
     mut commands: Commands,
 ) {
-    let client_id = trigger.0;
+    let connected = query.get(trigger.target()).unwrap();
+    let client_id = connected.0;
+    commands.entity(trigger.target()).insert(
+        ReplicationSender::default(),
+    );
     let entity = commands
         .spawn((
             PlayerBundle::new(client_id, Vec2::ZERO),

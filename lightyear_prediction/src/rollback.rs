@@ -1,22 +1,6 @@
 use core::fmt::Debug;
 use core::ops::{Deref, DerefMut};
 
-use bevy::app::FixedMain;
-use bevy::ecs::component::Mutable;
-use bevy::ecs::entity::hash_set::EntityHashSet;
-use bevy::ecs::reflect::ReflectResource;
-use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
-use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
-use bevy::prelude::*;
-use bevy::reflect::Reflect;
-use bevy::time::{Fixed, Time};
-use parking_lot::RwLock;
-use tracing::*;
-use lightyear_core::history_buffer::HistoryState;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_core::tick::Tick;
-use lightyear_replication::prelude::{Confirmed, Replicated, ReplicationReceiver};
-use lightyear_replication::registry::registry::ComponentRegistry;
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
 use super::{Predicted, PredictionMode, SyncComponent};
@@ -26,6 +10,22 @@ use crate::diagnostics::PredictionMetrics;
 use crate::plugin::PredictionSet;
 use crate::prespawn::PreSpawned;
 use crate::resource::PredictionManager;
+use bevy::app::FixedMain;
+use bevy::ecs::component::Mutable;
+use bevy::ecs::entity::hash_set::EntityHashSet;
+use bevy::ecs::reflect::ReflectResource;
+use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
+use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
+use bevy::prelude::*;
+use bevy::reflect::Reflect;
+use bevy::time::{Fixed, Time};
+use lightyear_core::history_buffer::HistoryState;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::tick::Tick;
+use lightyear_replication::prelude::{Confirmed, Replicated, ReplicationReceiver};
+use lightyear_replication::registry::registry::ComponentRegistry;
+use parking_lot::RwLock;
+use tracing::*;
 
 pub struct RollbackPlugin;
 
@@ -703,10 +703,7 @@ pub(crate) fn increment_rollback_tick(rollback: Res<Rollback>) {
 
 #[cfg(test)]
 pub(crate) mod test_utils {
-    use crate::client::components::Confirmed;
-    use crate::client::connection::ConnectionManager;
-    use crate::prelude::Tick;
-    use crate::tests::stepper::BevyStepper;
+    use super::*;
     use bevy::prelude::Entity;
     use core::time::Duration;
 
@@ -736,13 +733,7 @@ pub(crate) mod test_utils {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
-    use crate::::rollback::test_utils::received_confirmed_update;
-    use crate::prelude::server::SyncTarget;
-    use crate::prelude::{
-        AppComponentExt, ChannelDirection, NetworkTarget, SharedConfig, TickConfig,
-    };
-    use crate::tests::protocol::{ComponentRollback, PredictionModeFull};
-    use crate::tests::stepper::BevyStepper;
+    use crate::rollback::test_utils::received_confirmed_update;
     #[cfg(not(feature = "std"))]
     use alloc::vec::Vec;
     use bevy::ecs::entity::MapEntities;

@@ -425,7 +425,7 @@ impl<Ctx> Client<Ctx> {
                 None
             }
             (Packet::Payload(pkt), ClientState::Connected) => {
-                trace!(?pkt.buf, "client received payload packet from server");
+                // trace!(?pkt.buf, "client received payload packet from server");
                 // TODO: control the size of the packet queue?
                 Some(pkt.buf)
             }

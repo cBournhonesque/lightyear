@@ -15,10 +15,10 @@ use serde::{Deserialize, Serialize};
 /// Message that we use to send the client inputs to the server
 /// We will store the last N inputs starting from start_tick (in case of packet loss)
 pub struct InputMessage<T> {
-    /// Interpolation delay of the client at the time the message is sent
-    ///
-    /// We don't need any extra redundancy for the InterpolationDelay so we'll just send the value at `end_tick`.
-    pub(crate) interpolation_delay: Option<InterpolationDelay>,
+    // Interpolation delay of the client at the time the message is sent
+    //
+    // We don't need any extra redundancy for the InterpolationDelay so we'll just send the value at `end_tick`.
+    // pub(crate) interpolation_delay: Option<InterpolationDelay>,
     pub(crate) end_tick: Tick,
     // first element is tick end_tick-N+1, last element is end_tick
     pub(crate) inputs: Vec<PerTargetData<T>>,
@@ -86,7 +86,7 @@ impl<A: UserAction> core::fmt::Display for InputMessage<A> {
 impl<T: UserAction> InputMessage<T> {
     pub fn new(end_tick: Tick) -> Self {
         Self {
-            interpolation_delay: None,
+            // interpolation_delay: None,
             end_tick,
             inputs: vec![],
         }

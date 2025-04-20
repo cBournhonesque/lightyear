@@ -22,16 +22,16 @@
 //!   - if there is a rollback, restart correction from the current corrected value
 //! - FixedUpdate: run the simulation to compute C(T+2).
 //! - FixedPostUpdate: set the component value to the interpolation between PT (predicted value at rollback start T) and C(T+2)
-use bevy::prelude::{Added, Commands, Component, DetectChangesMut, Entity, Query, Res};
-use lightyear_core::tick::Tick;
-use lightyear_replication::registry::registry::ComponentRegistry;
-use tracing::{debug, trace};
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_replication::components::Replicated;
-use lightyear_replication::prelude::Replicate;
-use lightyear_utils::easings::ease_out_quad;
 use crate::registry::PredictionRegistry;
 use crate::SyncComponent;
+use bevy::prelude::{Added, Commands, Component, DetectChangesMut, Entity, Query, Res};
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::tick::Tick;
+use lightyear_replication::components::Replicated;
+use lightyear_replication::prelude::Replicate;
+use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_utils::easings::ease_out_quad;
+use tracing::{debug, trace};
 
 #[derive(Component, Debug, PartialEq)]
 pub struct Correction<C: Component> {
@@ -151,13 +151,13 @@ mod tests {
     use super::*;
     use crate::client::components::Confirmed;
     use crate::client::config::ClientConfig;
-    use crate::::predicted_history::PredictionHistory;
-    use crate::::rollback::test_utils::received_confirmed_update;
-    use crate::::Predicted;
+    use crate::predicted_history::PredictionHistory;
     use crate::prelude::client::PredictionConfig;
     use crate::prelude::{SharedConfig, TickConfig};
+    use crate::rollback::test_utils::received_confirmed_update;
     use crate::tests::protocol::ComponentCorrection;
     use crate::tests::stepper::BevyStepper;
+    use crate::Predicted;
     use approx::assert_relative_eq;
     use bevy::app::FixedUpdate;
     use bevy::prelude::default;

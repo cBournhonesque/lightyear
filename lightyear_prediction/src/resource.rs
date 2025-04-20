@@ -3,14 +3,23 @@
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
+use bevy::ecs::component::HookContext;
 use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{Entity, Reflect, Resource};
+use bevy::ecs::world::DeferredWorld;
+use bevy::prelude::{Component, Entity, Reflect, Resource};
 use core::cell::UnsafeCell;
 use lightyear_core::prelude::Tick;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_replication::registry::ComponentError;
 use lightyear_serde::entity_map::EntityMap;
 use lightyear_utils::ready_buffer::ReadyBuffer;
+
+#[derive(Resource)]
+pub struct PredictionResource {
+    // entity that holds the InputTimeline
+    // We use this to avoid having to run a mutable query in component hook
+    pub(crate) link_entity: Entity,
+}
 
 type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
@@ -21,7 +30,8 @@ pub struct PredictedEntityMap {
     pub confirmed_to_predicted: EntityMap,
 }
 
-#[derive(Resource, Default, Debug)]
+#[derive(Resource, Component, Default, Debug)]
+#[component(on_add = PredictionManager::on_add)]
 pub(crate) struct PredictionManager {
     /// Map between confirmed and predicted entities
     ///
@@ -38,6 +48,16 @@ pub(crate) struct PredictionManager {
     pub(crate) prespawn_hash_to_entities: EntityHashMap<u64, Vec<Entity>>,
     /// Store the spawn tick of the entity, as well as the corresponding hash
     pub(crate) prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
+}
+
+impl PredictionManager {
+    fn on_add(mut deferred: DeferredWorld, context: HookContext) {
+        deferred.commands().queue(|mut world| {
+            world.insert_resource(PredictionResource {
+                link_entity: context.entity,
+            });
+        })
+    }
 }
 
 // SAFETY: We never use UnsafeCell to mutate the predicted_entity_map, so it's safe to send and sync

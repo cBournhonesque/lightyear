@@ -10,6 +10,15 @@ pub mod netcode {
     pub use lightyear_netcode::*;
 }
 
+pub mod input {
+    pub use lightyear_inputs::*;
+    #[cfg(feature = "input_native")]
+    pub mod native {
+        pub use lightyear_inputs_native::*;
+    }
+}
+
+
 pub mod connection {
     pub use lightyear_connection::*;
 }
@@ -29,6 +38,14 @@ pub mod prelude {
     #[cfg(feature = "netcode")]
     pub use lightyear_netcode::prelude::*;
 
+    pub mod input {
+        pub use lightyear_inputs::prelude::*;
+        #[cfg(feature = "input_native")]
+        pub mod native {
+            pub use lightyear_inputs_native::prelude::*;
+        }
+    }
+
 
     #[cfg(feature = "client")]
     pub mod client {
@@ -38,6 +55,15 @@ pub mod prelude {
 
         #[cfg(feature = "netcode")]
         pub use lightyear_netcode::prelude::client::*;
+
+        pub mod input {
+            pub use lightyear_inputs::prelude::client::*;
+            #[cfg(feature = "input_native")]
+            pub mod native {
+                pub use lightyear_inputs_native::prelude::client::*;
+            }
+        }
+
     }
 
     #[cfg(feature = "server")]
@@ -52,5 +78,13 @@ pub mod prelude {
 
         #[cfg(feature = "netcode")]
         pub use lightyear_netcode::prelude::server::*;
+
+        pub mod input {
+            pub use lightyear_inputs::prelude::server::*;
+            #[cfg(feature = "input_native")]
+            pub mod native {
+                pub use lightyear_inputs_native::prelude::server::*;
+            }
+        }
     }
 }

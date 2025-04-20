@@ -4,7 +4,8 @@
 
 use crate::authority::{AuthorityPeer, HasAuthority};
 use crate::components::*;
-use crate::hierarchy::ReplicateLike;
+use crate::control::Controlled;
+use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
 use crate::message::{ActionsChannel, UpdatesChannel};
 use crate::prelude::{ActionsMessage, UpdatesMessage};
 use bevy::prelude::*;
@@ -41,7 +42,6 @@ impl Plugin for SharedPlugin {
             .register_type::<ReplicationGroupIdBuilder>()
             .register_type::<ReplicationGroup>()
             .register_type::<ReplicationGroupId>()
-            .register_type::<NetworkRelevanceMode>()
             .register_type::<ShouldBeInterpolated>()
             .register_type::<PrePredicted>()
             .register_type::<ShouldBePredicted>()

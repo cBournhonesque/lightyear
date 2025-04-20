@@ -31,12 +31,12 @@ impl PingPlugin {
 
             // receive pings
             ping_receiver.receive().for_each(|ping| {
-                m.buffer_pending_pong(&ping, real_time.elapsed());
+                m.buffer_pending_pong(&ping, Instant::now());
             });
             // receive pongs
             pong_receiver.receive().for_each(|pong| {
                 // process the pong
-                m.process_pong(&pong, real_time.elapsed());
+                m.process_pong(&pong, Instant::now());
             });
 
             link.stats.rtt = m.rtt();
@@ -49,17 +49,20 @@ impl PingPlugin {
     /// We modify the pongs that were buffered so that we can write the correct
     /// time spent between PostUpdate and PreUpdate
     fn send(
-        real_time: Res<Time<Real>>,
         fixed_time: Res<Time<Fixed>>,
         mut query: Query<(&mut PingManager, &mut MessageSender<Ping>, &mut MessageSender<Pong>)>,
     ) {
         let now = Instant::now();
+        // NOTE: the real_time.last_update() is the time from the Render World! It seems like it cannot be compared directly
+        //  with the time from Instant::now(), so we stick to only using Instant::now() for now.
+        // let Some(frame_start) = real_time.last_update() else {
+        //     return
+        // };
+        // let frame_time = now - frame_start;
         query.par_iter_mut().for_each(|(mut m, mut ping_sender, mut pong_sender)| {
-            let Some(frame_start) = real_time.last_update() else {
-                return
-            };
+
             // send the pings
-            if let Some(ping) = m.maybe_prepare_ping(real_time.elapsed()) {
+            if let Some(ping) = m.maybe_prepare_ping(Instant::now()) {
                 ping_sender.send::<PingChannel>(ping);
             }
             // prepare the pong messages with the correct send time
@@ -67,7 +70,8 @@ impl PingPlugin {
             .take_pending_pongs()
             .into_iter()
             .for_each(|(mut pong, ping_receive_time)| {
-                pong.frame_time = TickDelta::from_duration(now - frame_start, m.tick_duration).into();
+                pong.frame_time = TickDelta::from_duration(now - ping_receive_time, m.tick_duration).into();
+                trace!(?now, ?ping_receive_time, ?pong, "computing send pong frame time");
 
                 // TODO: maybe include the tick + overstep in every packet?
                 // TODO: how to use the overstep?

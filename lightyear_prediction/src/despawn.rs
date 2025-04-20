@@ -1,9 +1,9 @@
+use crate::prespawn::PreSpawned;
+use crate::Predicted;
 use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
-use tracing::{error, trace};
 use lightyear_replication::prelude::{Confirmed, ShouldBePredicted};
-use crate::Predicted;
-use crate::prespawn::PreSpawned;
+use tracing::{error, trace};
 
 /// This command must be used to despawn Predicted entities.
 /// The reason is that we might want to not completely despawn the entity in case it gets 'restored' during a rollback.
@@ -92,13 +92,9 @@ pub(crate) fn despawn_confirmed(
 
 #[cfg(test)]
 mod tests {
-    use crate::::despawn::PredictionDisable;
-    use crate::::resource::PredictionManager;
-    use crate::prelude::client::{Confirmed, PredictionDespawnCommandsExt};
-    use crate::prelude::server::SyncTarget;
-    use crate::prelude::{client, server, NetworkTarget};
-    use crate::tests::protocol::{PredictionModeFull, PredictionModeSimple};
-    use crate::tests::stepper::BevyStepper;
+    use super::*;
+    use crate::despawn::PredictionDisable;
+    use crate::resource::PredictionManager;
     use bevy::prelude::{default, Component};
 
     #[derive(Component, Debug, PartialEq)]
