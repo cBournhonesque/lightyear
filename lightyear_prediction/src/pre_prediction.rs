@@ -1,7 +1,7 @@
 //! Module to handle pre-prediction logic (entities that are created on the client first),
 //! then the ownership gets transferred to the server.
 
-use crate::resource::PredictionManager;
+use crate::manager::{PredictionManager, PredictionResource};
 use crate::run_conditions::is_synced;
 use crate::Predicted;
 use bevy::prelude::*;
@@ -141,8 +141,10 @@ impl PrePredictionPlugin {
                             .get_mut::<PrePredicted>()
                             .unwrap()
                             .confirmed_entity = Some(confirmed_entity);
+                        let manager_entity = world.resource::<PredictionResource>().link_entity;
                         world
-                            .resource_mut::<PredictionManager>()
+                            .get_mut::<PredictionManager>(manager_entity)
+                            .unwrap()
                             .predicted_entity_map
                             .get_mut()
                             .confirmed_to_predicted

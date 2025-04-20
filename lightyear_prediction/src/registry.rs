@@ -1,5 +1,5 @@
+use crate::manager::{PredictionManager, PredictionResource};
 use crate::predicted_history::PredictionHistory;
-use crate::resource::{PredictionManager, PredictionResource};
 use crate::{PredictionMode, SyncComponent};
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};

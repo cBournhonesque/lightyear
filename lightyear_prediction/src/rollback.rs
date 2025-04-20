@@ -7,10 +7,10 @@ use super::{Predicted, PredictionMode, SyncComponent};
 use crate::correction::Correction;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
+use crate::manager::PredictionManager;
 use crate::plugin::{is_in_rollback, PredictionSet};
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
-use crate::resource::PredictionManager;
 use bevy::app::FixedMain;
 use bevy::ecs::component::Mutable;
 use bevy::ecs::entity::hash_set::EntityHashSet;
@@ -229,15 +229,14 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         (With<Predicted>, Without<Confirmed>, Without<PreSpawned>),
     >,
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
-    timeline_query: Single<(&LocalTimeline, &PredictionManager)>,
-    manager: Res<PredictionManager>,
+    manager_query: Single<(&LocalTimeline, &PredictionManager)>,
 ) {
     let kind = core::any::type_name::<C>();
 
     let _span = trace_span!("client rollback prepare");
     debug!("in prepare rollback");
 
-    let (timeline, prediction_manager) = timeline_query.into_inner();
+    let (timeline, manager) = manager_query.into_inner();
     let current_tick = timeline.tick();
     for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
         let rollback_tick = confirmed.tick;
@@ -332,7 +331,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
 
                         // insert the Correction information only if the component exists on both confirmed and predicted
                         let correction_ticks = ((current_tick - rollback_tick) as f32
-                            * prediction_manager.correction_ticks_factor)
+                            * manager.correction_ticks_factor)
                             .round() as i16;
                         // no need to add the Correction if the correction is instant
                         if correction_ticks != 0 && prediction_registry.has_correction::<C>() {
@@ -386,22 +385,21 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
 pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
     // TODO: have a way to only get the updates of entities that are predicted?
     mut commands: Commands,
-    // TODO: have a way to make these systems run in parallel
-    //  - either by using RwLock in PredictionManager
-    //  - or by using a system that iterates through archetypes, a la replicon?
-    mut prediction_manager: ResMut<PredictionManager>,
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     mut predicted_query: Query<
         (Entity, Option<&mut C>, &mut PredictionHistory<C>),
         (With<PreSpawned>, Without<Confirmed>, Without<Predicted>),
     >,
-    timeline_query: Query<&LocalTimeline>,
+    // TODO: have a way to make these systems run in parallel
+    //  - either by using RwLock in PredictionManager
+    //  - or by using a system that iterates through archetypes, a la replicon?
+    timeline_query: Single<(&LocalTimeline, &mut PredictionManager)>,
 ) {
     let kind = core::any::type_name::<C>();
     let _span = trace_span!("client prepare rollback for pre-spawned entities");
 
-    let timeline = timeline_query.single().unwrap();
+    let (timeline, mut prediction_manager) = timeline_query.into_inner();
     let Some(rollback_tick_plus_one) = timeline.get_rollback_tick() else {
         error!("prepare_rollback_prespawn should only be called when we are in rollback");
         return;
@@ -492,12 +490,11 @@ pub(crate) fn prepare_rollback_non_networked<
         (Entity, Option<&mut C>, &mut PredictionHistory<C>),
         With<Predicted>,
     >,
-    timeline_query: Query<&LocalTimeline>,
+    timeline: Single<&LocalTimeline, With<PredictionManager>>,
 ) {
     let kind = core::any::type_name::<C>();
     let _span = trace_span!("client prepare rollback for non networked component", ?kind);
 
-    let timeline = timeline_query.single().unwrap();
     let Some(rollback_tick_plus_one) = timeline.get_rollback_tick() else {
         error!("prepare_rollback_non_networked_components should only be called when we are in rollback");
         return;
@@ -542,14 +539,13 @@ pub(crate) fn prepare_rollback_non_networked<
 // Revert `resource` to its value at the tick that the incoming rollback will rollback to.
 pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
     mut commands: Commands,
-    timeline_query: Query<&LocalTimeline>,
+    timeline: Single<&LocalTimeline, With<PredictionManager>>,
     resource: Option<ResMut<R>>,
     mut history: ResMut<ResourceHistory<R>>,
 ) {
     let kind = core::any::type_name::<R>();
     let _span = trace_span!("client prepare rollback for resource", ?kind);
 
-    let timeline = timeline_query.single().unwrap();
     let Some(rollback_tick_plus_one) = timeline.get_rollback_tick() else {
         error!("prepare_rollback_resource should only be called when we are in rollback");
         return;

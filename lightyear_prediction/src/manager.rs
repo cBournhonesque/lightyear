@@ -13,6 +13,7 @@ use lightyear_replication::receive::TempWriteBuffer;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_replication::registry::ComponentError;
 use lightyear_serde::entity_map::EntityMap;
+use lightyear_sync::prelude::InputTimeline;
 use lightyear_utils::ready_buffer::ReadyBuffer;
 
 #[derive(Resource)]
@@ -31,8 +32,9 @@ pub struct PredictedEntityMap {
     pub confirmed_to_predicted: EntityMap,
 }
 
-#[derive(Resource, Component, Debug)]
+#[derive(Component, Debug)]
 #[component(on_add = PredictionManager::on_add)]
+#[require(InputTimeline)]
 pub struct PredictionManager {
     /// If true, we always rollback whenever we receive a server update, instead of checking
     /// ff the confirmed state matches the predicted state history

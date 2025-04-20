@@ -145,7 +145,7 @@ impl<A: UserAction + MapEntities> Plugin for ClientInputPlugin<A> {
 fn prepare_input_message<A: UserAction>(
     mut message_buffer: ResMut<MessageBuffer<A>>,
     input_config: Res<InputConfig<A>>,
-    sender: Query<(&LocalTimeline, &InputTimeline, &MessageManager), With<IsSynced<Input>>>,
+    sender: Single<(&LocalTimeline, &InputTimeline, &MessageManager), With<IsSynced<Input>>>,
     input_buffer_query: Query<
         (
             Entity,
@@ -156,9 +156,7 @@ fn prepare_input_message<A: UserAction>(
         With<InputMarker<A>>,
     >,
 ) {
-    let Ok((local_timeline, input_timeline, message_manager)) = sender.single() else {
-        return
-    };
+    let ((local_timeline, input_timeline, message_manager)) = sender.into_inner();
     // no need to prepare messages to send if in rollback
     if local_timeline.is_rollback() {
         return

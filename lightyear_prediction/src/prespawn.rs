@@ -1,8 +1,8 @@
 //! Handles spawning entities that are predicted
 
+use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::PredictionSet;
 use crate::pre_prediction::PrePredicted;
-use crate::resource::{PredictionManager, PredictionResource};
 use crate::Predicted;
 use bevy::ecs::archetype::Archetype;
 use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
@@ -54,14 +54,11 @@ impl PreSpawnedPlugin {
             // run this only when the component was added on a client-spawned entity (not server-replicated)
             Without<Replicated>,
         >,
-        receiver_query: Query<&LocalTimeline>,
-        mut prediction_manager: ResMut<PredictionManager>,
+        manager_query: Single<(&LocalTimeline, &mut PredictionManager)>,
     ) {
         let entity = trigger.target();
         if let Ok(prespawn) = query.get(entity) {
-            let Ok(timeline) = receiver_query.single() else {
-                return;
-            };
+            let (timeline, mut prediction_manager) = manager_query.into_inner();
 
             // get the rollback tick if the pre-spawned entity is being recreated during rollback!
             let tick = timeline.tick_or_rollback_tick();
@@ -112,7 +109,6 @@ impl PreSpawnedPlugin {
     pub(crate) fn match_with_received_server_entity(
         trigger: Trigger<OnAdd, PreSpawned>,
         mut commands: Commands,
-        mut manager: ResMut<PredictionManager>,
         query: Query<
             &PreSpawned,
             // only trigger this when the entity is received on the client via server-replication
@@ -122,12 +118,10 @@ impl PreSpawnedPlugin {
             //  ReplicationGroup then the observer could run several times in a row
             With<Replicated>,
         >,
-        receiver_query: Query<&ReplicationReceiver>,
+        manager_query: Single<(&ReplicationReceiver, &mut PredictionManager)>,
     ) {
         let confirmed_entity = trigger.target();
-        let Ok(receiver) = receiver_query.single() else {
-            return
-        };
+        let (receiver, mut manager) = manager_query.into_inner();
         if let Ok(server_prespawn) = query.get(confirmed_entity) {
             // we handle the PreSpawned hash in this system and don't need it afterwards
             commands.entity(confirmed_entity).remove::<PreSpawned>();
@@ -219,12 +213,9 @@ impl PreSpawnedPlugin {
     /// Cleanup the client prespawned entities for which we couldn't find a mapped server entity
     pub(crate) fn pre_spawned_player_object_cleanup(
         mut commands: Commands,
-        receiver_query: Query<(&ReplicationReceiver, &LocalTimeline)>,
-        mut manager: ResMut<PredictionManager>,
+        manager_query: Single<(&LocalTimeline, &mut PredictionManager)>,
     ) {
-        let Ok((receiver, timeline)) = receiver_query.single() else {
-            return;
-        };
+        let (timeline, mut manager) = manager_query.into_inner();
         let tick = timeline.tick();
 
         // TODO: choose a past tick based on the replication frequency received.
@@ -420,8 +411,8 @@ pub(crate) fn compute_default_hash(
 mod tests {
     use super::*;
     use crate::despawn::PredictionDisable;
+    use crate::manager::PredictionManager;
     use crate::predicted_history::PredictionHistory;
-    use crate::resource::PredictionManager;
     use bevy::app::PreUpdate;
     use bevy::prelude::{default, Entity, IntoScheduleConfigs, With};
 

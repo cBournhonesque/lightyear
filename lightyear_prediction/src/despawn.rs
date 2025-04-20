@@ -94,7 +94,7 @@ pub(crate) fn despawn_confirmed(
 mod tests {
     use super::*;
     use crate::despawn::PredictionDisable;
-    use crate::resource::PredictionManager;
+    use crate::manager::PredictionManager;
     use bevy::prelude::{default, Component};
 
     #[derive(Component, Debug, PartialEq)]

@@ -46,7 +46,7 @@ gui = [
 ]
 
 [dependencies]
-lightyear_new.workspace = true
+lightyear_new = {"workspace" = true, features = ["prediction"]}
 #lightyear = { workspace = true, features = ["webtransport"] }
 anyhow.workspace = true
 async-compat.workspace = true

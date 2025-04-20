@@ -1,11 +1,11 @@
 //! Managed the history buffer, which is a buffer of the past predicted component states,
 //! so that whenever we receive an update from the server we can compare the predicted entity's history with the server update.
 use crate::correction::Correction;
+use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::PredictionSet;
 use crate::pre_prediction::PrePredicted;
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
-use crate::resource::{PredictionManager, PredictionResource};
 use crate::{Predicted, PredictionMode, SyncComponent};
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -107,7 +107,7 @@ pub(crate) fn apply_component_removal_confirmed<C: Component>(
 pub(crate) fn apply_confirmed_update<C: SyncComponent>(
     prediction_registry: Res<PredictionRegistry>,
     component_registry: Res<ComponentRegistry>,
-    manager: Res<PredictionManager>,
+    manager: Single<&PredictionManager>,
     mut predicted_entities: Query<
         &mut C,
         (

@@ -10,6 +10,11 @@ pub mod netcode {
     pub use lightyear_netcode::*;
 }
 
+#[cfg(feature = "prediction")]
+pub mod prediction {
+    pub use lightyear_prediction::*;
+}
+
 pub mod input {
     pub use lightyear_inputs::*;
     #[cfg(feature = "input_native")]
@@ -37,6 +42,10 @@ pub mod prelude {
 
     #[cfg(feature = "netcode")]
     pub use lightyear_netcode::prelude::*;
+
+    // TODO: maybe put this in prelude::client?
+    #[cfg(feature = "prediction")]
+    pub use lightyear_prediction::prelude::*;
 
     pub mod input {
         pub use lightyear_inputs::prelude::*;

@@ -64,6 +64,7 @@ impl ExampleClient {
                 Link::new(settings.server_addr, settings.conditioner.clone()),
                 ReplicationSender::default(),
                 ReplicationReceiver::default(),
+                PredictionManager::default(),
             ));
 
             if cfg!(feature = "netcode") {

@@ -13,13 +13,14 @@ use crate::correction::{
     get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback,
 };
 use crate::despawn::{despawn_confirmed, PredictionDisable};
+use crate::manager::PredictionManager;
 use crate::predicted_history::{
     add_prediction_history, add_sync_systems, apply_component_removal_confirmed,
     apply_component_removal_predicted, handle_tick_event_prediction_history,
     update_prediction_history,
 };
 use crate::prespawn::{PreSpawned, PreSpawnedPlugin};
-use crate::resource::PredictionManager;
+use crate::registry::PredictionRegistry;
 use crate::{Predicted, PredictionMode, SyncComponent};
 use bevy::ecs::component::Mutable;
 use bevy::ecs::entity_disabling::DefaultQueryFilters;
@@ -28,7 +29,6 @@ use bevy::reflect::Reflect;
 use core::time::Duration;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_replication::prelude::ReplicationSet;
-
 
 /// Plugin that enables client-side prediction
 #[derive(Default)]
@@ -238,7 +238,7 @@ impl Plugin for PredictionPlugin {
             .register_type::<PredictionDisable>();
 
         // RESOURCES
-        app.init_resource::<PredictionManager>();
+        app.init_resource::<PredictionRegistry>();
 
         // Custom entity disabling
         let prediction_disable_id = app.world_mut().register_component::<PredictionDisable>();

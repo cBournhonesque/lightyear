@@ -29,6 +29,7 @@ std = [
   "no_std_io2/std",
   "lightyear_udp?/std",
   "lightyear_netcode?/std",
+  "lightyear_prediction?/std",
 ]
 client = [
   "lightyear_connection/client",

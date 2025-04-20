@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-use crate::resource::PredictionManager;
+use crate::manager::{PredictionManager, PredictionResource};
 use bevy::ecs::component::{HookContext, Mutable, StorageType};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
@@ -17,12 +17,18 @@ pub mod plugin;
 pub mod pre_prediction;
 pub mod predicted_history;
 pub mod prespawn;
-pub(crate) mod resource;
+pub(crate) mod manager;
 pub mod resource_history;
 pub mod rollback;
 pub mod spawn;
 mod registry;
 mod run_conditions;
+
+pub mod prelude {
+    pub use crate::manager::PredictionManager;
+    pub use crate::plugin::PredictionPlugin;
+    pub use crate::{Predicted, PredictionMode};
+}
 
 /// Marks an entity that is being predicted by the client
 #[derive(Debug, Reflect)]
@@ -42,41 +48,50 @@ impl Component for Predicted {
         hooks.on_add(
             |mut deferred_world: DeferredWorld, hook_context: HookContext| {
                 let predicted = hook_context.entity;
-                if let Some(confirmed) = deferred_world
+                let Some(confirmed) = deferred_world
                     .get::<Predicted>(predicted)
                     .unwrap()
-                    .confirmed_entity
-                {
-                    if let Some(mut manager) =
-                        deferred_world.get_resource_mut::<PredictionManager>()
-                    {
-                        manager
-                            .predicted_entity_map
-                            .get_mut()
-                            .confirmed_to_predicted
-                            .insert(confirmed, predicted);
-                    };
-                }
+                    .confirmed_entity else {
+                    return
+                };
+                let Some(mut resource) =
+                        deferred_world.get_resource::<PredictionResource>() else {
+                    return
+                };
+                let Some(mut manager) =
+                    deferred_world.get_mut::<PredictionManager>(resource.link_entity) else {
+                    return
+                };
+                manager
+                    .predicted_entity_map
+                    .get_mut()
+                    .confirmed_to_predicted
+                    .insert(confirmed, predicted);
             },
         );
         hooks.on_remove(
             |mut deferred_world: DeferredWorld, hook_context: HookContext| {
                 let predicted = hook_context.entity;
-                if let Some(confirmed) = deferred_world
+                let Some(confirmed) = deferred_world
                     .get::<Predicted>(predicted)
                     .unwrap()
-                    .confirmed_entity
-                {
-                    if let Some(mut manager) =
-                        deferred_world.get_resource_mut::<PredictionManager>()
-                    {
-                        manager
-                            .predicted_entity_map
-                            .get_mut()
-                            .confirmed_to_predicted
-                            .remove(&confirmed);
-                    };
-                }
+                    .confirmed_entity else {
+                    return
+                };
+                let Some(mut resource) =
+                        deferred_world.get_resource::<PredictionResource>() else {
+                    return
+                };
+                let Some(mut manager) =
+                    deferred_world.get_mut::<PredictionManager>(resource.link_entity) else {
+                    return
+                };
+                manager
+                    .predicted_entity_map
+                    .get_mut()
+                    .confirmed_to_predicted
+                    .remove(&confirmed);
+
             },
         );
     }

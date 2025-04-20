@@ -7,12 +7,13 @@
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
 use crate::protocol::*;
+use crate::shared;
 use bevy::app::PluginGroupBuilder;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use lightyear_new::connection::server::ClientConnected;
-use lightyear_new::prelude::{MessageSender, NetworkTarget, Replicate, ReplicationSender};
-use std::sync::Arc;
+use lightyear_new::prelude::input::native::*;
+use lightyear_new::prelude::server::*;
+use lightyear_new::prelude::*;
 
 pub struct ExampleServerPlugin;
 
@@ -86,22 +87,22 @@ pub(crate) fn handle_connections(
 //         }
 //     }
 // }
-//
-// /// Read client inputs and move players in server therefore giving a basis for other clients
-// fn movement(
-//     mut position_query: Query<
-//         (&mut PlayerPosition, &ActionState<Inputs>),
-//         // if we run in host-server mode, we don't want to apply this system to the local client's entities
-//         // because they are already moved by the client plugin
-//         (Without<Confirmed>, Without<Predicted>),
-//     >,
-// ) {
-//     for (position, inputs) in position_query.iter_mut() {
-//         if let Some(inputs) = &inputs.value {
-//             shared::shared_movement_behaviour(position, inputs);
-//         }
-//     }
-// }
+
+/// Read client inputs and move players in server therefore giving a basis for other clients
+fn movement(
+    mut position_query: Query<
+        (&mut PlayerPosition, &ActionState<Inputs>),
+        // if we run in host-server mode, we don't want to apply this system to the local client's entities
+        // because they are already moved by the client plugin
+        (Without<Confirmed>, Without<Predicted>),
+    >,
+) {
+    for (position, inputs) in position_query.iter_mut() {
+        if let Some(inputs) = &inputs.value {
+            shared::shared_movement_behaviour(position, inputs);
+        }
+    }
+}
 
 // only run this in dedicated server mode
 #[cfg(not(feature = "client"))]
