@@ -146,6 +146,7 @@ impl<T: UserAction> InputMessage<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input_buffer::update_from_message;
 
     #[test]
     fn test_create_message() {
@@ -156,7 +157,7 @@ mod tests {
         input_buffer.set(Tick(7), ActionState { value: Some(1) });
 
         let mut message = InputMessage::<u8> {
-            interpolation_delay: None,
+            // interpolation_delay: None,
             end_tick: Tick(10),
             inputs: vec![],
         };
@@ -164,7 +165,7 @@ mod tests {
         assert_eq!(
             message,
             InputMessage {
-                interpolation_delay: None,
+                // interpolation_delay: None,
                 end_tick: Tick(10),
                 inputs: vec![PerTargetData {
                     target: InputTarget::Entity(Entity::PLACEHOLDER),
@@ -185,9 +186,7 @@ mod tests {
     #[test]
     fn test_update_from_message() {
         let mut input_buffer = InputBuffer::default();
-        input_buffer.update_from_message(
-            Tick(20),
-            &vec![
+        update_from_message(&mut input_buffer, Tick(20),  &vec![
                 InputData::Absent,
                 InputData::Input(0),
                 InputData::SameAsPrecedent,
@@ -196,8 +195,7 @@ mod tests {
                 InputData::Absent,
                 InputData::SameAsPrecedent,
                 InputData::SameAsPrecedent,
-            ],
-        );
+            ]);
         assert_eq!(
             input_buffer.get(Tick(20)),
             Some(&ActionState::<i32> { value: None })

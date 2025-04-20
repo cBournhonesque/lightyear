@@ -23,17 +23,6 @@ mod resource;
 mod spawn;
 pub mod visual_interpolation;
 
-/// Interpolator that performs linear interpolation.
-pub struct LinearInterpolator;
-impl<C> LerpFn<C> for LinearInterpolator
-where
-    for<'a> &'a C: Mul<f32, Output = C>,
-    C: Add<C, Output = C>,
-{
-    fn lerp(start: &C, other: &C, t: f32) -> C {
-        start * (1.0 - t) + other * t
-    }
-}
 
 /// Marker component for an entity that is being interpolated by the client
 #[derive(Debug, Reflect)]

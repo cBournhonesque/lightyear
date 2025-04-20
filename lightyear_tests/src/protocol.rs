@@ -10,6 +10,8 @@ use cfg_if::cfg_if;
 use lightyear_connection::direction::{AppChannelDirectionExt, AppMessageDirectionExt, NetworkDirection};
 use lightyear_macros::ChannelInternal;
 use lightyear_messages::prelude::*;
+use lightyear_new::prelude::input::native::*;
+use lightyear_new::prelude::input::*;
 use lightyear_replication::components::ComponentReplicationConfig;
 use lightyear_replication::registry::registry::AppComponentExt;
 use lightyear_serde::reader::{ReadInteger, Reader};
@@ -58,6 +60,14 @@ pub struct CompDisabled(pub f32);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompReplicateOnce(pub f32);
 
+// Inputs
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
+pub struct NativeInput(pub i16);
+
+impl MapEntities for NativeInput {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
+}
+
 // Protocol
 pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
@@ -91,6 +101,13 @@ impl Plugin for ProtocolPlugin {
                 replicate_once: true,
                 ..default()
             });
+        // inputs
+        app.add_plugins(InputPlugin::<NativeInput> {
+            config: InputConfig::<NativeInput> {
+                rebroadcast_inputs: false,
+                ..default()
+            },
+        });
     }
 
 }

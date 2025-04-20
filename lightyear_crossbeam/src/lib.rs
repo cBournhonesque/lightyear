@@ -23,7 +23,7 @@ const LOCALHOST: SocketAddr = SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LO
 
 
 #[derive(Component)]
-#[require(Link::new(LOCALHOST))]
+#[require(Link::new(LOCALHOST, None))]
 #[require(Linked)]
 pub struct CrossbeamIo {
     sender: Sender<Bytes>,
