@@ -33,14 +33,6 @@ impl<A> Default for ServerInputPlugin<A> {
 
 impl<A: UserAction + MapEntities> Plugin for ServerInputPlugin<A> {
     fn build(&self, app: &mut App) {
-        app.add_message::<InputMessage<A>>()
-            // add entity mapping for:
-            // - server receiving pre-predicted entities
-            // - client receiving other players' inputs
-            // - input itself containing entities
-            .add_map_entities();
-        app.register_required_components::<InputBuffer<ActionState<A>>, ActionState<A>>();
-
         app.add_plugins(BaseInputPlugin::<ActionState<A>> {
             rebroadcast_inputs: self.rebroadcast_inputs,
             ..default()
