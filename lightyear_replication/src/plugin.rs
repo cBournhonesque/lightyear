@@ -7,7 +7,7 @@ use crate::components::*;
 use crate::control::Controlled;
 use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
 use crate::message::{ActionsChannel, UpdatesChannel};
-use crate::prelude::{ActionsMessage, UpdatesMessage};
+use crate::prelude::{ActionsMessage, AppComponentExt, UpdatesMessage};
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_connection::direction::AppChannelDirectionExt;
@@ -42,11 +42,16 @@ impl Plugin for SharedPlugin {
             .register_type::<ReplicationGroupIdBuilder>()
             .register_type::<ReplicationGroup>()
             .register_type::<ReplicationGroupId>()
-            .register_type::<ShouldBeInterpolated>()
-            .register_type::<PrePredicted>()
-            .register_type::<ShouldBePredicted>()
             .register_type::<HasAuthority>()
             .register_type::<AuthorityPeer>();
+
+        #[cfg(feature = "interpolation")]
+        app.register_type::<ShouldBeInterpolated>();
+        #[cfg(feature = "prediction")]
+        app.register_type::<(ShouldBePredicted, PrePredicted)>();
+
+        app.register_component::<ShouldBePredicted>();
+        app.register_component::<ShouldBeInterpolated>();
 
         app.add_channel::<UpdatesChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliableWithAcks,
@@ -83,8 +88,9 @@ impl Plugin for SharedPlugin {
         // - the replication::SharedPlugin should only be added once, even when running in host-server mode
         // app.register_component::<PreSpawned>(ChannelDirection::Bidirectional);
         // app.register_component::<PrePredicted>(ChannelDirection::Bidirectional);
-        // app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
-        // app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
+
+        // TODO: add direction?
+
         // app.register_component::<RelationshipSync<ChildOf>>(ChannelDirection::Bidirectional)
         //     // to replicate ReplicationSync on the predicted/interpolated entities so that they spawn their own hierarchies
         //     .add_prediction(ComponentSyncMode::Simple)

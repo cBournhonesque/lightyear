@@ -27,6 +27,8 @@ client = [
 server = [
     "lightyear_connection/server",
 ]
+prediction = []
+interpolation = []
 
 [dependencies]
 lightyear_utils.workspace = true

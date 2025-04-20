@@ -123,12 +123,10 @@ fn buffer_action_state<A: UserActionState, F: Component>(
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
-    sender: Query<(&InputTimeline, &LocalTimeline)>,
+    sender: Single<(&InputTimeline, &LocalTimeline)>,
     mut action_state_query: Query<(Entity, &A, &mut InputBuffer<A>), With<F>>,
 ) {
-    let Ok((timeline, local_timeline)) = sender.single() else {
-        return;
-    };
+    let (timeline, local_timeline) = sender.into_inner();
     // In rollback, we don't want to write any inputs
     if local_timeline.is_rollback() {
         return;
@@ -159,16 +157,14 @@ fn buffer_action_state<A: UserActionState, F: Component>(
 
 /// Retrieve the ActionState for the current tick.
 fn get_action_state<A: UserActionState>(
-    sender: Query<(&LocalTimeline, &InputTimeline)>,
+    sender: Single<(&LocalTimeline, &InputTimeline)>,
     // NOTE: we want to apply the Inputs for BOTH the local player and the remote player.
     // - local player: we need to get the input from the InputBuffer because of input delay
     // - remote player: we want to reduce the amount of rollbacks by updating the ActionState
     //   as fast as possible (the inputs are broadcasted with no delay)
     mut action_state_query: Query<(Entity, &mut A, &InputBuffer<A>)>,
 ) {
-    let Ok((local_timeline, input_timeline)) = sender.single() else {
-        return;
-    };
+    let (local_timeline, input_timeline) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
     let tick = if !local_timeline.is_rollback() {
         // If there is no rollback and no input_delay, we just buffered the input so there is nothing to do.

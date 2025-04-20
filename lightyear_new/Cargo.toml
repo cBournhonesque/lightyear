@@ -35,7 +35,7 @@ client = [
   "lightyear_connection/client",
   "lightyear_netcode?/client",
   "lightyear_sync/client",
-  "lightyear_replication/client",
+  "lightyear_replication?/client",
   "lightyear_inputs?/client",
   "lightyear_inputs_leafwing?/client",
   "lightyear_inputs_native?/client",
@@ -44,18 +44,25 @@ server = [
   "lightyear_connection/server",
   "lightyear_netcode?/server",
   "lightyear_sync/server",
-  "lightyear_replication/server",
+  "lightyear_replication?/server",
   "lightyear_inputs?/server",
   "lightyear_inputs_leafwing?/server",
   "lightyear_inputs_native?/server",
   "lightyear_udp?/server",
 ]
+replication = [
+  "dep:lightyear_replication"
+]
 prediction = [
   "dep:lightyear_prediction",
+  "dep:lightyear_replication",
+  "lightyear_replication?/prediction",
 ]
 interpolation = [
   "dep:lightyear_interpolation",
+  "dep:lightyear_replication",
   "lightyear_sync/interpolation",
+  "lightyear_replication?/interpolation",
 ]
 trace = []
 metrics = [
@@ -136,7 +143,7 @@ lightyear_netcode = {workspace = true, optional = true}
 lightyear_interpolation = {workspace = true, optional = true}
 lightyear_prediction = {workspace = true, optional = true}
 lightyear_messages.workspace = true
-lightyear_replication.workspace = true
+lightyear_replication = {workspace = true, optional = true}
 lightyear_sync.workspace = true
 lightyear_transport.workspace = true
 lightyear_serde.workspace = true

@@ -47,6 +47,7 @@ pub(crate) fn handle_connections(
             // we replicate the Player entity to all clients that are connected to this server
             // TODO: the Server (and not ClientOf) should have a list of Replicate entities that are related to that server
             Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
             // SyncTarget {
             //     prediction: NetworkTarget::Single(client_id),
             //     interpolation: NetworkTarget::AllExceptSingle(client_id),

@@ -1,20 +1,28 @@
 //! Components used for replication
 
+use crate::buffer::{Replicate, ReplicationMode};
+use crate::prelude::ReplicationSender;
 use crate::registry::ComponentKind;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+use bevy::ecs::component::HookContext;
+use bevy::ecs::entity::EntityIndexSet;
 use bevy::ecs::reflect::ReflectComponent;
+use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashSet;
-use bevy::prelude::{Component, Entity, Reflect};
+use bevy::prelude::{Component, Entity, Reflect, With, World};
 use bevy::time::{Timer, TimerMode};
+use lightyear_connection::client::Client;
+use lightyear_connection::client_of::{ClientOf, Server};
 use lightyear_connection::id::PeerId;
+use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::tick::Tick;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::collections::EntityHashMap;
 use serde::{Deserialize, Serialize};
-
+use tracing::{debug, error, trace, warn};
 // TODO: how to define which subset of components a sender iterates through?
 //  if a sender is only interested in a few components it might be expensive
 //  maybe we can have a 'direction' in ComponentReplicationConfig and Client/ClientOf peers can precompute
@@ -289,25 +297,7 @@ impl ToBytes for ReplicationGroupId {
 }
 
 
-/// Marker component that tells the client to spawn an Interpolated entity
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct ShouldBeInterpolated;
 
-
-/// Marker component that tells the client to spawn a Predicted entity
-#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct ShouldBePredicted;
-
-/// Indicates that an entity was pre-predicted
-// NOTE: we do not map entities for this component, we want to receive the entities as is
-//  because we already do the mapping at other steps
-#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct PrePredicted {
-    pub(crate) confirmed_entity: Option<Entity>,
-}
 
 
 
@@ -327,4 +317,203 @@ pub struct Confirmed {
     /// The tick that the confirmed entity is at.
     /// (this is latest server tick for which we applied updates to the entity)
     pub tick: Tick,
+}
+
+#[cfg(feature = "prediction")]
+/// Indicates that an entity was pre-predicted
+// NOTE: we do not map entities for this component, we want to receive the entities as is
+//  because we already do the mapping at other steps
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct PrePredicted {
+    pub(crate) confirmed_entity: Option<Entity>,
+}
+
+
+
+#[cfg(feature = "prediction")]
+/// Marker component that tells the client to spawn a Predicted entity
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct ShouldBePredicted;
+
+#[cfg(feature = "prediction")]
+pub type PredictionTarget = ReplicationTarget<ShouldBePredicted>;
+
+
+#[cfg(feature = "interpolation")]
+/// Marker component that tells the client to spawn an Interpolated entity
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct ShouldBeInterpolated;
+
+#[cfg(feature = "interpolation")]
+pub type InterpolationTarget = ReplicationTarget<ShouldBeInterpolated>;
+
+/// Insert this component to specify which remote peers will start predicting the entity
+/// upon receiving the entity.
+#[derive(Component, Clone, Default, Debug, PartialEq)]
+#[require(Replicate)]
+#[component(on_insert = ReplicationTarget::<T>::on_insert)]
+#[component(on_replace = ReplicationTarget::<T>::on_replace)]
+pub struct ReplicationTarget<T: Sync + Send + 'static> {
+    mode: ReplicationMode,
+    pub(crate) senders: EntityIndexSet,
+    marker: core::marker::PhantomData<T>,
+}
+
+impl<T: Sync + Send + 'static> ReplicationTarget<T> {
+    pub fn new(mode: ReplicationMode) -> Self {
+        Self {
+            mode,
+            senders: EntityIndexSet::default(),
+            marker: core::marker::PhantomData,
+        }
+    }
+
+    #[cfg(feature = "client")]
+    pub fn to_server() -> Self {
+        Self::new(ReplicationMode::SingleClient)
+    }
+
+    #[cfg(feature = "server")]
+    pub fn to_clients(target: NetworkTarget) -> Self {
+        Self::new(ReplicationMode::SingleServer(target))
+    }
+
+    // TODO: small vec
+    pub fn manual(senders: Vec<Entity>) -> Self {
+        Self::new(ReplicationMode::Manual(senders))
+    }
+
+    /// List of [`ReplicationSender`] entities that this entity targets
+    pub fn senders(&self) -> impl Iterator<Item = Entity> {
+        self.senders.iter().copied()
+    }
+
+    pub fn on_insert(mut world: DeferredWorld, context: HookContext) {
+        world.commands().queue(move |world: &mut World| {
+            let unsafe_world = world.as_unsafe_world_cell();
+            // SAFETY: we will use this world to access the ReplicationSender
+            let world = unsafe { unsafe_world.world_mut() };
+            // SAFETY: we will use this world only to access the Replicated entity, so there is no aliasing issue
+            let mut replicate_entity_mut =
+                unsafe { unsafe_world.world_mut().entity_mut(context.entity) };
+
+            let mut replicate = replicate_entity_mut.get_mut::<ReplicationTarget<T>>().unwrap();
+            // enable split borrows
+            let replicate = &mut *replicate;
+            match &mut replicate.mode {
+                ReplicationMode::SingleSender => {
+                    let Ok(sender_entity) = world
+                        .query::<Entity>()
+                        .single_mut(world)
+                    else {
+                        error!("No ReplicationSender found in the world");
+                        return;
+                    };
+                    // SAFETY: the senders are guaranteed to be unique because OnAdd recreates the component from scratch
+                    unsafe {
+                        replicate.senders.insert(sender_entity);
+                    }
+                }
+                #[cfg(feature = "client")]
+                ReplicationMode::SingleClient => {
+                    let Ok(sender_entity) = world
+                        .query_filtered::<Entity, With<Client>>()
+                        .single_mut(world)
+                    else {
+                        error!("No Client found in the world");
+                        return;
+                    };
+                    debug!(
+                        "Adding replicated entity {} to sender {}",
+                        context.entity, sender_entity
+                    );
+                    replicate.senders.insert(sender_entity);
+                }
+                #[cfg(feature = "server")]
+                ReplicationMode::SingleServer(target) => {
+                    let unsafe_world = world.as_unsafe_world_cell();
+                    // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
+                    let server_world = unsafe { unsafe_world.world_mut() };
+                    let Ok(server) = server_world.query::<&Server>().single(server_world) else {
+                        error!("No Server found in the world");
+                        return;
+                    };
+                    let world = unsafe { unsafe_world.world_mut() };
+                    server.targets(target).for_each(|client| {
+                        trace!("Adding ReplicationTarget<{}>, entity {} to ClientOf {}", core::any::type_name::<T>(), context.entity, client);
+                        let Ok(()) = world
+                            .query_filtered::<(), (With<ClientOf>, With<ReplicationSender>)>()
+                            .get_mut(world, client)
+                        else {
+                            error!("ClientOf {client:?} not found");
+                            return;
+                        };
+                        replicate.senders.insert(client);
+                    });
+                }
+                ReplicationMode::Sender(entity) => {
+                    let Ok(()) = world
+                        .query_filtered::<(), With<ReplicationSender>>()
+                        .get_mut(world, *entity)
+                    else {
+                        error!("No ReplicationSender found in the world");
+                        return;
+                    };
+                    replicate.senders.insert(*entity);
+                }
+                #[cfg(feature = "server")]
+                ReplicationMode::Server(server, target) => {
+                    let unsafe_world = world.as_unsafe_world_cell();
+                    // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
+                    let Some(server) = unsafe { unsafe_world.world() }
+                        .entity(*server)
+                        .get::<Server>()
+                    else {
+                        error!("No Server found in the world");
+                        return;
+                    };
+                    let world = unsafe { unsafe_world.world_mut() };
+                    server.targets(target).for_each(|client| {
+                        let Ok(()) = world
+                            .query_filtered::<(), (With<ClientOf>, With<ReplicationSender>)>()
+                            .get_mut(world, client)
+                        else {
+                            error!("No Client found in the world");
+                            return;
+                        };
+                        replicate.senders.insert(client);
+                    });
+                }
+                ReplicationMode::Target(_) => {
+                    todo!(
+                        "need a global mapping from remote_peer to corresponding replication_sender"
+                    )
+                },
+                ReplicationMode::Manual(sender_entities) => {
+                    for sender_entity in sender_entities.iter() {
+                        let Ok(()) = world
+                            .query_filtered::<(), With<ReplicationSender>>()
+                            .get_mut(world, *sender_entity)
+                        else {
+                            error!("No ReplicationSender found in the world");
+                            return;
+                        };
+                        replicate.senders.insert(*sender_entity);
+                    }
+                }
+            }
+        });
+    }
+
+    pub fn on_replace(mut world: DeferredWorld, context: HookContext) {
+        // TODO: maybe we can just use the CachedReplicate?
+        // i.e. if you remove 2 clients from Replicate, than in PreBuffer, we will do the diff
+        // and remove those clients from sender.replicated_entities and send the despawn
+
+        let mut replicate = world.get_mut::<ReplicationTarget<T>>(context.entity).unwrap();
+        replicate.senders = EntityIndexSet::default();
+    }
 }

@@ -13,10 +13,9 @@ use bevy::ptr::Ptr;
 
 use crate::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
 use crate::authority::HasAuthority;
-use crate::components::{
-    Replicating, ReplicationGroup,
-    ReplicationGroupId,
-};
+#[cfg(feature = "prediction")]
+use crate::components::{PredictionTarget, ShouldBePredicted};
+use crate::components::{Replicating, ReplicationGroup, ReplicationGroupId};
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
@@ -26,6 +25,7 @@ use crate::registry::registry::ComponentRegistry;
 use crate::registry::ComponentKind;
 use crate::send::ReplicationSender;
 use crate::visibility::immediate::NetworkVisibility;
+
 #[cfg(feature = "client")]
 use lightyear_connection::client::Client;
 #[cfg(feature = "server")]
@@ -34,7 +34,7 @@ use lightyear_connection::prelude::NetworkTarget;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
-use lightyear_serde::entity_map::RemoteEntityMap;
+use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
 use lightyear_transport::prelude::Transport;
 use tracing::{info, trace};
 
@@ -336,7 +336,7 @@ pub(crate) fn replicate(
                             *child,
                             tick,
                             &root_entity_ref,
-                            Some((child_entity_ref, entity)),
+                            Some(&(child_entity_ref, entity)),
                             &system_ticks,
                             &mut message_manager.entity_mapper,
                             sender,
@@ -356,11 +356,12 @@ pub(crate) fn replicate(
     );
 }
 
+
 pub(crate) fn replicate_entity(
     entity: Entity,
     tick: Tick,
     entity_ref: &FilteredEntityRef,
-    child_entity_ref: Option<(FilteredEntityRef, Entity)>,
+    child_entity_ref: Option<&(FilteredEntityRef, Entity)>,
     system_ticks: &SystemChangeTick,
     entity_mapper: &mut RemoteEntityMap,
     sender: &mut ReplicationSender,
@@ -379,7 +380,7 @@ pub(crate) fn replicate_entity(
         network_visibility,
         entity_ref,
         is_replicate_like_added,
-    ) = match &child_entity_ref {
+    ) = match child_entity_ref {
         Some((child_entity_ref, root)) => {
             let (group_id, priority, group_ready) =
                 child_entity_ref.get::<ReplicationGroup>().map_or_else(
@@ -436,6 +437,15 @@ pub(crate) fn replicate_entity(
             )
         }
     };
+
+    #[cfg(feature = "prediction")]
+    let prediction_target= child_entity_ref.map_or_else(
+        || entity_ref.get::<PredictionTarget>(),
+        |(c, _)| c
+            .get::<PredictionTarget>()
+            .or_else(|| entity_ref.get::<PredictionTarget>()),
+    );
+
     let replicated_components = replicated_archetypes
         .archetypes
         .get(&entity_ref.archetype().id())
@@ -463,8 +473,11 @@ pub(crate) fn replicate_entity(
         group_id,
         priority,
         &replicate,
+        #[cfg(feature = "prediction")]
+        prediction_target,
         cached_replicate,
         network_visibility,
+        component_registry,
         sender,
         sender_entity,
         is_replicate_like_added,
@@ -584,8 +597,11 @@ pub(crate) fn replicate_entity_spawn(
     group_id: ReplicationGroupId,
     priority: f32,
     replicate: &Ref<Replicate>,
+    #[cfg(feature = "prediction")]
+    prediction_target: Option<&PredictionTarget>,
     cached_replicate: Option<&CachedReplicate>,
     network_visibility: Option<&NetworkVisibility>,
+    component_registry: &ComponentRegistry,
     sender: &mut ReplicationSender,
     sender_entity: Entity,
     is_replicate_like_added: bool,
@@ -597,6 +613,16 @@ pub(crate) fn replicate_entity_spawn(
     if replicate_updated || network_visibility_updated || is_replicate_like_added {
         trace!(?entity, ?sender_entity, ?replicate, ?cached_replicate, ?replicate_updated, ?network_visibility_updated, "Sending Spawn");
         sender.prepare_entity_spawn(entity, group_id, priority);
+
+        #[cfg(feature = "prediction")]
+        if prediction_target.is_some_and(|p| p.senders.contains(&sender_entity)) {
+            sender.prepare_typed_component_insert(
+                entity,
+                group_id,
+                component_registry,
+                &mut ShouldBePredicted,
+            ).unwrap();
+        }
     }
 }
 

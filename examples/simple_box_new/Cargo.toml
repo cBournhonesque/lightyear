@@ -47,7 +47,9 @@ udp = [
 #visualizer = ["lightyear_examples_common/visualizer", "gui"]
 
 [dependencies]
-lightyear_new = { "workspace" = true, features = ["input_native", "prediction"]}
+lightyear_new = { "workspace" = true, features = [
+  "input_native",
+]}
 lightyear_examples_common_new.workspace = true
 serde.workspace = true
 anyhow.workspace = true

@@ -125,7 +125,11 @@ pub(crate) fn handle_predicted_spawn(
         info!("Add InputMarker to entity: {:?}", entity);
         commands
             .entity(entity)
-            .insert(InputMarker::<Inputs>::default());
+            .insert((
+                InputMarker::<Inputs>::default(),
+                // InputBuffer::<ActionState<Inputs>>::default(),
+                // ActionState::<Inputs>::default(),
+            ));
     }
 }
 //

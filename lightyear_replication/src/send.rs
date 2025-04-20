@@ -6,6 +6,10 @@ use super::message::{ActionsMessage, UpdatesMessage};
 use crate::authority::HasAuthority;
 use crate::buffer;
 use crate::buffer::Replicate;
+#[cfg(feature = "interpolation")]
+use crate::components::InterpolationTarget;
+#[cfg(feature = "prediction")]
+use crate::components::PredictionTarget;
 use crate::components::{Replicating, ReplicationGroup, ReplicationGroupId};
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
@@ -13,7 +17,7 @@ use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
 use crate::plugin::ReplicationSet;
 use crate::prelude::NetworkVisibility;
 use crate::registry::registry::ComponentRegistry;
-use crate::registry::{ComponentKind, ComponentNetId};
+use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 #[cfg(not(feature = "std"))]
 use alloc::{string::ToString, vec::Vec};
 use bevy::app::{App, Last, Plugin, PostUpdate, PreUpdate};
@@ -36,7 +40,7 @@ use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageManager, MessageReceiver, MessageSender};
 use lightyear_messages::registry::{MessageError, MessageKind, MessageRegistry};
 use lightyear_messages::MessageNetId;
-use lightyear_serde::entity_map::RemoteEntityMap;
+use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
 use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::ChannelKind;
@@ -264,6 +268,10 @@ impl Plugin for ReplicationSendPlugin {
                         &ReplicateLikeChildren,
                         &ReplicateLike,
                     )>();
+                    #[cfg(feature = "prediction")]
+                    b.data::<&PredictionTarget>();
+                    #[cfg(feature = "interpolation")]
+                    b.data::<&InterpolationTarget>();
                     // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
                     component_registry
                         .replication_map
@@ -613,6 +621,22 @@ impl ReplicationSender {
             .entry(entity)
             .or_default()
             .spawn = SpawnAction::Despawn;
+    }
+
+    /// Helper function to prepare component insert for components for which we know the type
+    ///
+    /// Only use this for components where we don't need EntityMapping
+    pub(crate) fn prepare_typed_component_insert<C: Component>(
+        &mut self,
+        entity: Entity,
+        group_id: ReplicationGroupId,
+        component_registry: &ComponentRegistry,
+        data: &C,
+    ) -> Result<(), ComponentError> {
+        component_registry.serialize(data, &mut self.writer, &mut SendEntityMap::default())?;
+        let raw_data = self.writer.split();
+        self.prepare_component_insert(entity, group_id, raw_data);
+        Ok(())
     }
 
     // we want to send all component inserts that happen together for the same entity in a single message

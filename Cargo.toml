@@ -59,6 +59,7 @@ codegen-units = 1
 incremental = false
 debug = false
 
+
 [workspace.dependencies]
 lightyear_avian = { path = "./lightyear_avian", version = "0.19.0", default-features = false }
 lightyear_examples_common = { path = "./examples/common", default-features = false }

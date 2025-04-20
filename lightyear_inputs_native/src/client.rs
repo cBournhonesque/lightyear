@@ -359,13 +359,13 @@ fn send_input_messages<A: UserAction>(
     // time_manager: Res<TimeManager>,
     // tick_manager: Res<TickManager>,
 ) {
+    let Ok(mut sender) = sender.single_mut() else {
+        return
+    };
     trace!(
         "Number of input messages to send: {:?}",
         message_buffer.0.len()
     );
-    let Ok(mut sender) = sender.single_mut() else {
-        return
-    };
     for mut message in message_buffer.0.drain(..) {
 
         // // if lag compensation is enabled, we send the current delay to the server
