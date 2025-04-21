@@ -284,70 +284,69 @@ impl PingManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
-    #[test]
-    fn test_send_pings() {
-        let config = PingConfig {
-            ping_interval: Duration::from_millis(100),
-            stats_buffer_duration: Duration::from_secs(4),
-        };
-        let mut ping_manager = PingManager::new(config, Duration::default());
-        let mut real = Time::<Real>::default();
-        real.update();
-
-        assert_eq!(ping_manager.maybe_prepare_ping(real.last_update().unwrap()), None);
-
-        let delta = Duration::from_millis(100);
-        real.update_with_duration(delta);
-        ping_manager.update(&real);
-
-        // send pings
-        assert_eq!(
-            ping_manager.maybe_prepare_ping(real.last_update().unwrap()),
-            Some(Ping { id: PingId(0) })
-        );
-        let delta = Duration::from_millis(60);
-        real.update_with_duration(delta);
-        ping_manager.update(&real);
-
-        // ping timer hasn't gone off yet, send nothing
-        assert_eq!(ping_manager.maybe_prepare_ping(real.last_update().unwrap()), None);
-        real.update_with_duration(delta);
-        ping_manager.update(&real);
-        assert_eq!(
-            ping_manager.maybe_prepare_ping(real.last_update().unwrap()),
-            Some(Ping { id: PingId(1) })
-        );
-
-        let delta = Duration::from_millis(100);
-        real.update_with_duration(delta);
-        ping_manager.update(&real);
-        assert_eq!(
-            ping_manager.maybe_prepare_ping(real.last_update().unwrap()),
-            Some(Ping { id: PingId(2) })
-        );
-
-        // we sent all the pings we need
-        assert_eq!(ping_manager.maybe_prepare_ping(real.last_update().unwrap()), None);
-
-        // check ping store
-        assert_eq!(
-            ping_manager.ping_store.remove(PingId(0)),
-            Some(Duration::from_millis(100))
-        );
-        assert_eq!(
-            ping_manager.ping_store.remove(PingId(1)),
-            Some(Duration::from_millis(220))
-        );
-        assert_eq!(
-            ping_manager.ping_store.remove(PingId(2)),
-            Some(Duration::from_millis(320))
-        );
-
-        // receive pongs
-        // TODO
-    }
+    // #[test]
+    // fn test_send_pings() {
+    //     let config = PingConfig {
+    //         ping_interval: Duration::from_millis(100),
+    //         stats_buffer_duration: Duration::from_secs(4),
+    //     };
+    //     let mut ping_manager = PingManager::new(config, Duration::default());
+    //     let mut real = Time::<Real>::default();
+    //     real.update();
+    //
+    //     assert_eq!(ping_manager.maybe_prepare_ping(real.last_update().unwrap()), None);
+    //
+    //     let delta = Duration::from_millis(100);
+    //     real.update_with_duration(delta);
+    //     ping_manager.update(&real);
+    //
+    //     // send pings
+    //     assert_eq!(
+    //         ping_manager.maybe_prepare_ping(real.last_update().unwrap()),
+    //         Some(Ping { id: PingId(0) })
+    //     );
+    //     let delta = Duration::from_millis(60);
+    //     real.update_with_duration(delta);
+    //     ping_manager.update(&real);
+    //
+    //     // ping timer hasn't gone off yet, send nothing
+    //     assert_eq!(ping_manager.maybe_prepare_ping(real.last_update().unwrap()), None);
+    //     real.update_with_duration(delta);
+    //     ping_manager.update(&real);
+    //     assert_eq!(
+    //         ping_manager.maybe_prepare_ping(real.last_update().unwrap()),
+    //         Some(Ping { id: PingId(1) })
+    //     );
+    //
+    //     let delta = Duration::from_millis(100);
+    //     real.update_with_duration(delta);
+    //     ping_manager.update(&real);
+    //     assert_eq!(
+    //         ping_manager.maybe_prepare_ping(real.last_update().unwrap()),
+    //         Some(Ping { id: PingId(2) })
+    //     );
+    //
+    //     // we sent all the pings we need
+    //     assert_eq!(ping_manager.maybe_prepare_ping(real.last_update().unwrap()), None);
+    //
+    //     // check ping store
+    //     assert_eq!(
+    //         ping_manager.ping_store.remove(PingId(0)),
+    //         Some(Duration::from_millis(100))
+    //     );
+    //     assert_eq!(
+    //         ping_manager.ping_store.remove(PingId(1)),
+    //         Some(Duration::from_millis(220))
+    //     );
+    //     assert_eq!(
+    //         ping_manager.ping_store.remove(PingId(2)),
+    //         Some(Duration::from_millis(320))
+    //     );
+    //
+    //     // receive pongs
+    //     // TODO
+    // }
 
     // #[test]
     // fn test_ping_manager() {

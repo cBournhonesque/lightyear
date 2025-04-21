@@ -1,4 +1,4 @@
-use crate::{ClientId, Key, NetcodeClient, ServerConfig, PRIVATE_KEY_BYTES};
+use crate::{ClientId, Key, ServerConfig, PRIVATE_KEY_BYTES};
 use alloc::rc::Rc;
 use alloc::sync::Arc;
 use bevy::ecs::entity::unique_slice::UniqueEntitySlice;

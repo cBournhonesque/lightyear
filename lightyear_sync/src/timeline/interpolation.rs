@@ -3,14 +3,15 @@ use crate::prelude::InputTimeline;
 use crate::timeline::sync::{SyncConfig, SyncEvent, SyncedTimeline};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Deref, DerefMut, Reflect};
+use bevy::prelude::{default, Component, Deref, DerefMut, Reflect};
 use core::time::Duration;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{Overstep, TickDelta, TickInstant, TimeDelta};
 use lightyear_core::timeline::{NetworkTimeline, Timeline};
+use tracing::trace;
 
 /// Config to specify how the snapshot interpolation should behave
-#[derive(Clone, Copy, Reflect)]
+#[derive(Clone, Copy, Debug, Reflect)]
 pub struct InterpolationConfig {
     /// The minimum delay that we will apply for interpolation
     /// This should be big enough so that the interpolated entity always has a server snapshot
@@ -21,7 +22,6 @@ pub struct InterpolationConfig {
     /// The higher the server update_rate (i.e. smaller send_interval), the smaller the interpolation delay
     /// Set to 0.0 if you want to only use the Delay
     pub send_interval_ratio: f32,
-    pub relative_speed: f32,
 }
 
 impl Default for InterpolationConfig {
@@ -29,7 +29,6 @@ impl Default for InterpolationConfig {
         Self {
             min_delay: Duration::from_millis(5),
             send_interval_ratio: 1.3,
-            relative_speed: 1.0,
         }
     }
 }
@@ -66,9 +65,22 @@ pub struct Interpolation {
 
 
 #[derive(Component, Deref, DerefMut, Default, Reflect)]
+#[component(on_add = InterpolationTimeline::on_add)]
 pub struct InterpolationTimeline(Timeline<Interpolation>);
 
 impl InterpolationTimeline {
+
+    fn new(tick_duration: Duration, interpolation_config: InterpolationConfig, sync_config: SyncConfig) -> Self {
+        let mut interpolation = Interpolation {
+            tick_duration,
+            interpolation_config,
+            sync_config,
+            ..default()
+        };
+        InterpolationTimeline(interpolation.into())
+    }
+
+
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         let tick_duration = world.get_resource::<TickDuration>().expect("The CorePlugins have to be added before other plugins in order to set the TickDuration").0;
         world.get_mut::<InterpolationTimeline>(context.entity).unwrap().set_tick_duration(tick_duration);
@@ -76,12 +88,12 @@ impl InterpolationTimeline {
 }
 
 impl SyncedTimeline for InterpolationTimeline {
-    // TODO: how can we make this configurable? or maybe just store the TICK_DURATION in the timeline itself?
-
     fn sync_objective<T: NetworkTimeline>(&self, main: &T, ping_manager: &PingManager) -> TickInstant {
         let delay = TickDelta::from_duration(self.context.interpolation_config.to_duration(self.context.remote_send_interval), self.tick_duration());
         let target = main.now();
-        target - delay
+        let obj = target - delay;
+        trace!(?target, ?delay, config = ?self.context.interpolation_config, send_interval = ?self.context.remote_send_interval, "InterpolationTimeline obj: {:?}", obj);
+        obj
     }
 
     fn resync(&mut self, sync_objective: TickInstant) -> SyncEvent<Self> {
@@ -121,6 +133,10 @@ impl SyncedTimeline for InterpolationTimeline {
                 1.0 * self.context.sync_config.speedup_factor
             };
             self.set_relative_speed(ratio);
+        }
+        // if it's the first time, we still send a SyncEvent (so that IsSynced is inserted)
+        if ping_manager.pongs_recv == self.context.sync_config.handshake_pings as u32 {
+            return Some(SyncEvent::new(0));
         }
         None
     }

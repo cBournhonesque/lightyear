@@ -5,12 +5,14 @@ use lightyear_messages::MessageManager;
 use lightyear_new::input::native::prelude::InputMarker;
 use lightyear_new::input::prelude::InputBuffer;
 use lightyear_new::prelude::input::native::ActionState;
-use lightyear_replication::prelude::Replicate;
+use lightyear_replication::components::Confirmed;
+use lightyear_replication::prelude::{PredictionTarget, Replicate};
 use test_log::test;
+use tracing::info;
 
 /// Test a remote client's replicated entity sending inputs to the server
 #[test]
-fn test_remote_client_replicated_entity_input() {
+fn test_remote_client_replicated_input() {
     let mut stepper = ClientServerStepper::single();
 
     // SETUP
@@ -72,176 +74,152 @@ fn test_remote_client_replicated_entity_input() {
     );
 }
 
-// /// Test a remote client's predicted entity sending inputs to the server
-// #[test]
-// fn test_remote_client_predicted_entity_input() {
-//     let mut stepper = HostServerStepper::default();
-//
-//     // SETUP
-//     let remote_entity = stepper
-//         .server_app
-//         .world_mut()
-//         .spawn(Replicate {
-//             sync: SyncTarget {
-//                 prediction: NetworkTarget::All,
-//                 ..default()
-//             },
-//             ..default()
-//         })
-//         .id();
-//
-//     for _ in 0..10 {
-//         stepper.frame_step();
-//     }
-//
-//     let client_entity_confirmed = stepper
-//         .client_app
-//         .world()
-//         .resource::<client::ConnectionManager>()
-//         .replication_receiver
-//         .remote_entity_map
-//         .get_local(remote_entity)
-//         .expect("entity was not replicated to client");
-//
-//     let client_entity_predicted = stepper
-//         .client_app
-//         .world()
-//         .get::<Confirmed>(client_entity_confirmed)
-//         .unwrap()
-//         .predicted
-//         .unwrap();
-//
-//     // TEST
-//     stepper
-//         .client_app
-//         .world_mut()
-//         .entity_mut(client_entity_predicted)
-//         .insert(InputMarker::<MyInput>::default());
-//     stepper
-//         .client_app
-//         .world_mut()
-//         .get_mut::<ActionState<MyInput>>(client_entity_predicted)
-//         .unwrap()
-//         .value = Some(MyInput(2));
-//
-//     stepper.frame_step();
-//     let server_tick = stepper.server_tick();
-//     let client_tick = stepper.client_tick();
-//
-//     // ASSERT
-//     assert_eq!(
-//         stepper
-//             .server_app
-//             .world()
-//             .get::<InputBuffer<ActionState<MyInput>>>(remote_entity)
-//             .unwrap()
-//             .get(client_tick)
-//             .unwrap(),
-//         &ActionState {
-//             value: Some(MyInput(2))
-//         }
-//     );
-//
-//     // Advance to client tick to verify server applies the input
-//     for tick in (server_tick.0 as usize)..(client_tick.0 as usize) {
-//         stepper.frame_step();
-//     }
-//
-//     assert_eq!(
-//         stepper
-//             .server_app
-//             .world()
-//             .get::<ActionState<MyInput>>(remote_entity)
-//             .unwrap(),
-//         &ActionState {
-//             value: Some(MyInput(2))
-//         }
-//     );
-// }
-//
-// /// Test a remote client's confirmed entity sending inputs to the server
-// #[test]
-// fn test_remote_client_confirmed_entity_input() {
-//     let mut stepper = HostServerStepper::default();
-//
-//     // SETUP
-//     let remote_entity = stepper
-//         .server_app
-//         .world_mut()
-//         .spawn(Replicate {
-//             sync: SyncTarget {
-//                 prediction: NetworkTarget::All,
-//                 ..default()
-//             },
-//             ..default()
-//         })
-//         .id();
-//
-//     for _ in 0..10 {
-//         stepper.frame_step();
-//     }
-//
-//     let client_entity_confirmed = stepper
-//         .client_app
-//         .world()
-//         .resource::<client::ConnectionManager>()
-//         .replication_receiver
-//         .remote_entity_map
-//         .get_local(remote_entity)
-//         .expect("entity was not replicated to client");
-//
-//     // TEST
-//     stepper
-//         .client_app
-//         .world_mut()
-//         .entity_mut(client_entity_confirmed)
-//         .insert(InputMarker::<MyInput>::default());
-//     stepper
-//         .client_app
-//         .world_mut()
-//         .get_mut::<ActionState<MyInput>>(client_entity_confirmed)
-//         .unwrap()
-//         .value = Some(MyInput(3));
-//
-//     stepper.frame_step();
-//     let server_tick = stepper.server_tick();
-//     let client_tick = stepper.client_tick();
-//
-//     // ASSERT
-//     assert_eq!(
-//         stepper
-//             .server_app
-//             .world()
-//             .get::<InputBuffer<ActionState<MyInput>>>(remote_entity)
-//             .unwrap()
-//             .get(client_tick)
-//             .unwrap(),
-//         &ActionState {
-//             value: Some(MyInput(3))
-//         }
-//     );
-//
-//     // Advance to client tick to verify server applies the input
-//     for tick in (server_tick.0 as usize)..(client_tick.0 as usize) {
-//         stepper.frame_step();
-//     }
-//
-//     assert_eq!(
-//         stepper
-//             .server_app
-//             .world()
-//             .get::<ActionState<MyInput>>(remote_entity)
-//             .unwrap(),
-//         &ActionState {
-//             value: Some(MyInput(3))
-//         }
-//     );
-// }
-//
+/// Test a remote client's predicted entity sending inputs to the server
+#[test]
+fn test_remote_client_predicted_input() {
+    let mut stepper = ClientServerStepper::single();
+
+    // SETUP
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All)
+        ))
+        .id();
+
+    stepper.frame_step(2);
+
+    let client_confirmed = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(server_entity)
+        .expect("entity was not replicated to client");
+
+    let client_predicted = stepper
+        .client_app
+        .world()
+        .get::<Confirmed>(client_confirmed)
+        .unwrap()
+        .predicted
+        .unwrap();
+    info!(?client_predicted, ?client_confirmed, "client entities");
+
+    // TEST
+    stepper
+        .client_app
+        .world_mut()
+        .entity_mut(client_predicted)
+        .insert(InputMarker::<MyInput>::default());
+    stepper
+        .client_app
+        .world_mut()
+        .get_mut::<ActionState<MyInput>>(client_predicted)
+        .unwrap()
+        .value = Some(MyInput(2));
+
+    stepper.frame_step(1);
+    let server_tick = stepper.server_tick();
+    let client_tick = stepper.client_tick(0);
+
+    // ASSERT
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<InputBuffer<ActionState<MyInput>>>(server_entity)
+            .unwrap()
+            .get(client_tick)
+            .unwrap(),
+        &ActionState {
+            value: Some(MyInput(2))
+        }
+    );
+
+    // Advance to client tick to verify server applies the input
+    stepper.frame_step((client_tick.0 - server_tick.0) as usize);
+
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<ActionState<MyInput>>(server_entity)
+            .unwrap(),
+        &ActionState {
+            value: Some(MyInput(2))
+        }
+    );
+}
+
+/// Test a remote client's confirmed entity sending inputs to the server
+#[test]
+fn test_remote_client_confirmed_input() {
+    let mut stepper = ClientServerStepper::single();
+
+    // SETUP
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All)
+        ))
+        .id();
+
+    stepper.frame_step(2);
+
+    let client_confirmed = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(server_entity)
+        .expect("entity was not replicated to client");
+
+    // TEST
+    stepper
+        .client_app
+        .world_mut()
+        .entity_mut(client_confirmed)
+        .insert(InputMarker::<MyInput>::default());
+    stepper
+        .client_app
+        .world_mut()
+        .get_mut::<ActionState<MyInput>>(client_confirmed)
+        .unwrap()
+        .value = Some(MyInput(3));
+
+    stepper.frame_step(1);
+    let server_tick = stepper.server_tick();
+    let client_tick = stepper.client_tick(0);
+
+    // ASSERT
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<InputBuffer<ActionState<MyInput>>>(server_entity)
+            .unwrap()
+            .get(client_tick)
+            .unwrap(),
+        &ActionState {
+            value: Some(MyInput(3))
+        }
+    );
+
+
+    // Advance to client tick to verify server applies the input
+    stepper.frame_step((client_tick.0 - server_tick.0) as usize);
+
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<ActionState<MyInput>>(server_entity)
+            .unwrap(),
+        &ActionState {
+            value: Some(MyInput(3))
+        }
+    );
+}
+
 // /// Test a remote client's pre-predicted entity sending inputs to the server
 // #[test]
 // fn test_remote_client_prepredicted_entity_input() {
-//     let mut stepper = HostServerStepper::default();
+//     let mut stepper = ClientServerStepper::default();
 //
 //     // SETUP
 //     let client_pre_predicted_entity = stepper
@@ -318,13 +296,13 @@ fn test_remote_client_replicated_entity_input() {
 //         }
 //     );
 // }
-//
+
 // /// Test local client inputs being sent to the server
 // #[test]
 // fn test_local_client_input_to_server() {
 //     // Note: In a host-server mode, local client inputs are automatically
 //     // applied to the server as they share the same process
-//     let mut stepper = HostServerStepper::default();
+//     let mut stepper = ClientServerStepper::default();
 //
 //     // SETUP
 //     // Entity controlled by the local client
@@ -375,7 +353,7 @@ fn test_remote_client_replicated_entity_input() {
 // /// Test local host-server client inputs being sent to remote client for prediction
 // #[test]
 // fn test_local_client_input_for_prediction() {
-//     let mut stepper = HostServerStepper::default();
+//     let mut stepper = ClientServerStepper::default();
 //
 //     // SETUP
 //     // Entity controlled by the local client

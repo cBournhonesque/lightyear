@@ -13,7 +13,7 @@ use lightyear_serde::ToBytes;
 use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::Transport;
-use tracing::{error, trace};
+use tracing::{error, info, trace};
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;

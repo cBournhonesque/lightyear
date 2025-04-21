@@ -54,7 +54,7 @@ impl<C: Component> InterpolateStatus<C> {
 pub(crate) fn update_interpolate_status<C: SyncComponent>(
     // TODO: handle multiple interpolation timelines
     // TODO: exclude host-server
-    interpolation: Single<(&InterpolationTimeline), With<IsSynced<Interpolation>>>,
+    interpolation: Single<(&InterpolationTimeline), With<IsSynced<InterpolationTimeline>>>,
     mut query: Query<(
         Entity,
         Option<&mut C>,

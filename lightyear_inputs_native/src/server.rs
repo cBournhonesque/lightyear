@@ -39,8 +39,6 @@ impl<A: UserAction + MapEntities> Plugin for ServerInputPlugin<A> {
         });
 
         // SYSTEMS
-        // we don't need this for native inputs because InputBuffer is required by ActionState
-        // app.add_observer(add_action_state_buffer::<A>);
         app.add_systems(
             PreUpdate, receive_input_message::<A>.in_set(InputSet::ReceiveInputs),
         );

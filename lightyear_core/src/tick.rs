@@ -1,4 +1,4 @@
-use bevy::prelude::Resource;
+use bevy::prelude::{Deref, DerefMut, Reflect, Resource};
 use core::time::Duration;
 use lightyear_utils::wrapping_id;
 
@@ -6,5 +6,6 @@ use lightyear_utils::wrapping_id;
 wrapping_id!(Tick);
 
 
-#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+/// Resource that contains the global TickDuration
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Reflect, Deref, DerefMut)]
 pub struct TickDuration(pub Duration);

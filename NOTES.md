@@ -62,10 +62,15 @@ TODOs:
 TEST TODO:
  - Add ReplicationSender/ReplicationReceiver automatically on Client/ClientOf? But how to avoid 
    perf issues?
- - Errors seem to be swallowed
+ - There seems to be a very weird ordering issue? Adding MessageDirection messed up some of the message receive/send
  - SYNCING IS NOT DONE! DO SYNC. ADD TESTS FOR SYNC!
+ - ReplicationSender needs to send a message at the start with their replication interval so that the receiver can adjust the interpolation timeline.
 
 # Messages
+
+- Maybe we remove NetworkDirection, and the user can add required_components to specify which of their entities 
+  will add which components?
+  - and we add by default some required components, for example for Inputs?
 
 - Need to find a way to broadcast messages from other players to a player.
   - option 1: all messages are wrapped with FromPeer<M> which indicates the original sender?

@@ -26,7 +26,7 @@ std = [
 
 [dependencies]
 lightyear_new = { workspace = true, features = [
-    "client", "server", "crossbeam", "netcode", "input_native"
+    "client", "server", "crossbeam", "netcode", "input_native", "prediction"
 ]}
 lightyear_macros.workspace = true
 lightyear_utils.workspace = true

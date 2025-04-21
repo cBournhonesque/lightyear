@@ -6,6 +6,7 @@ This module contains some helper functions to compute the difference between two
 use crate::tick::Tick;
 use bevy::prelude::*;
 use core::cmp::Ordering;
+use core::fmt::{Debug, Formatter};
 use core::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 use core::time::Duration;
@@ -141,11 +142,17 @@ impl From<Overstep> for f32 {
 
 // TODO: maybe put this in lightyear_core?
 /// Uniquely identify a instant across all timelines
-#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Reflect)]
+#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Reflect)]
 pub struct TickInstant {
     pub tick: Tick,
     /// Overstep as a fraction towards the next tick
     pub overstep: Overstep,
+}
+
+impl Debug for TickInstant {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}:{:.2}", self.tick.0, self.overstep.value())
+    }
 }
 
 impl TickInstant {
@@ -200,12 +207,19 @@ impl From<Tick> for TickInstant {
 }
 
 /// Represents the difference between two TickInstants
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct TickDelta {
     tick_diff: u16,
     overstep: Overstep,
     /// True if the delta is negative
     neg: bool,
+}
+
+impl Debug for TickDelta {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        let sign = if self.neg { "-" } else { "" };
+        write!(f, "{}{}:{:.2}", sign, self.tick_diff, self.overstep.value())
+    }
 }
 
 impl From<Tick> for TickDelta {
@@ -261,6 +275,7 @@ impl TickDelta {
     }
 
     pub fn from_duration(duration: Duration, tick_duration: Duration) -> Self {
+        debug_assert!(tick_duration > Duration::ZERO, "Tick duration must be positive");
         let total_ticks_f = duration.as_secs_f32() / tick_duration.as_secs_f32();
         let tick_diff = total_ticks_f.floor() as u16;
         let overstep_value = total_ticks_f - tick_diff as f32;

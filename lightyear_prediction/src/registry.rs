@@ -1,12 +1,15 @@
 use crate::manager::{PredictionManager, PredictionResource};
+use crate::plugin::add_prediction_systems;
 use crate::predicted_history::PredictionHistory;
 use crate::{PredictionMode, SyncComponent};
 use bevy::ecs::component::ComponentId;
+use bevy::ecs::entity::MapEntities;
 use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::tick::Tick;
+use lightyear_replication::prelude::ComponentRegistration;
 use lightyear_replication::receive::TempWriteBuffer;
 use lightyear_replication::registry::registry::{ComponentRegistry, LerpFn};
 use lightyear_replication::registry::{ComponentError, ComponentKind};
@@ -325,5 +328,63 @@ impl PredictionRegistry {
                 },
             ),
         }
+    }
+}
+
+
+
+pub trait PredictionRegistrationExt<C> {
+    fn add_prediction(self, prediction_mode: PredictionMode) -> Self
+        where C: SyncComponent;
+    fn add_linear_correction_fn(self) -> Self
+        where C: SyncComponent + Ease;
+    fn add_correction_fn(self, correction_fn: LerpFn<C>) -> Self where C: SyncComponent;
+    fn add_should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self where C: SyncComponent;
+}
+
+impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
+    fn add_prediction(self, prediction_mode: PredictionMode) -> Self
+    where C: SyncComponent {
+        let history_id = (prediction_mode == PredictionMode::Full).then(|| {
+            self.app.world_mut()
+                .register_component::<PredictionHistory<C>>()
+        });
+        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
+        let Some(mut registry) = self.app.world_mut().get_resource_mut::<PredictionRegistry>() else {
+            return self
+        };
+        registry.set_prediction_mode::<C>(history_id, prediction_mode);
+        add_prediction_systems::<C>(self.app, prediction_mode);
+        self
+    }
+
+    fn add_linear_correction_fn(self) -> Self
+    where C: SyncComponent + Ease {
+        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
+        let Some(mut registry) = self.app.world_mut().get_resource_mut::<PredictionRegistry>() else {
+            return self
+        };
+        registry.set_linear_correction::<C>();
+        self
+    }
+
+    fn add_correction_fn(self, correction_fn: LerpFn<C>) -> Self
+    where C: SyncComponent{
+        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
+        let Some(mut registry) = self.app.world_mut().get_resource_mut::<PredictionRegistry>() else {
+            return self
+        };
+        registry.set_correction::<C>(correction_fn);
+        self
+    }
+
+    fn add_should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self
+    where C: SyncComponent{
+        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
+        let Some(mut registry) = self.app.world_mut().get_resource_mut::<PredictionRegistry>() else {
+            return self
+        };
+        registry.set_should_rollback::<C>(should_rollback);
+        self
     }
 }

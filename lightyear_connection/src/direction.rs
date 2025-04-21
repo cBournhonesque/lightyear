@@ -21,32 +21,34 @@ pub enum NetworkDirection {
 
 pub trait AppMessageDirectionExt {
     /// Add a new [`NetworkDirection`] to the registry
-    fn add_direction(&mut self, direction: NetworkDirection);
+    fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self;
 
 }
 
 impl<M: Message> AppMessageDirectionExt for MessageRegistration<'_, M> {
     // TODO: as much as possible, don't include server code for dedicated clients and vice-versa
     //   see how we can achieve this. Maybe half of the funciton is in lightyear_client and the other half in lightyear_server ?
-    fn add_direction(&mut self, direction: NetworkDirection) {
+    fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self {
         #[cfg(feature = "client")]
         <Self as crate::client::AppMessageDirectionExt>::add_direction(self, direction);
         #[cfg(feature = "server")]
         <Self as crate::server::AppMessageDirectionExt>::add_direction(self, direction);
+        self
     }
 }
 
 pub trait AppChannelDirectionExt {
-    fn add_direction(&mut self, direction: NetworkDirection);
+    fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self;
 }
 
 impl<C: Channel> AppChannelDirectionExt for ChannelRegistration<'_, C> {
     /// Add a new [`NetworkDirection`] to the registry
-    fn add_direction(&mut self, direction: NetworkDirection) {
+    fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self {
         #[cfg(feature = "client")]
         <Self as crate::client::AppChannelDirectionExt>::add_direction(self, direction);
         #[cfg(feature = "server")]
         <Self as crate::server::AppChannelDirectionExt>::add_direction(self, direction);
+        self
     }
 }
 

@@ -3,12 +3,15 @@ use crate::ping::message::{Ping, Pong};
 use crate::ping::PingChannel;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
+use core::time::Duration;
+use lightyear_connection::direction::{AppChannelDirectionExt, AppMessageDirectionExt, NetworkDirection};
 use lightyear_core::time::{SetTickDuration, TickDelta};
 use lightyear_link::Link;
 use lightyear_messages::plugin::MessageSet;
+use lightyear_messages::prelude::AppMessageExt;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
-use lightyear_transport::prelude::Transport;
+use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, Transport};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PingSet {
@@ -71,7 +74,7 @@ impl PingPlugin {
             .into_iter()
             .for_each(|(mut pong, ping_receive_time)| {
                 pong.frame_time = TickDelta::from_duration(now - ping_receive_time, m.tick_duration).into();
-                trace!(?now, ?ping_receive_time, ?pong, "computing send pong frame time");
+                trace!(?now, ?ping_receive_time, ?pong, "Sending pong");
 
                 // TODO: maybe include the tick + overstep in every packet?
                 // TODO: how to use the overstep?
@@ -94,6 +97,17 @@ impl PingPlugin {
 
 impl Plugin for PingPlugin {
     fn build(&self, app: &mut App) {
+        app.add_channel::<PingChannel>(ChannelSettings {
+                           mode: ChannelMode::SequencedUnreliable,
+                           send_frequency: Duration::default(),
+                           // we always want to include the ping in the packet
+                           priority: f32::INFINITY,
+                       })
+            .add_direction(NetworkDirection::Bidirectional);
+        app.add_message_to_bytes::<Ping>()
+            .add_direction(NetworkDirection::Bidirectional);
+        app.add_message_to_bytes::<Pong>()
+            .add_direction(NetworkDirection::Bidirectional);
 
         // NOTE: the Transport's PacketBuilder needs accurate LinkStats to function correctly.
         //   Theoretically anything can modify the LinkStats but in practice it's done in the PingManager

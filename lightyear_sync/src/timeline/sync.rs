@@ -1,8 +1,10 @@
 use crate::ping::manager::PingManager;
 use bevy::prelude::{Component, Event, Reflect};
+use core::time::Duration;
 use lightyear_core::prelude::Tick;
+use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{TickDelta, TickInstant, TimeDelta};
-use lightyear_core::timeline::NetworkTimeline;
+use lightyear_core::timeline::{NetworkTimeline, TimelineContext};
 
 #[derive(Event, Debug)]
 pub struct SyncEvent<T> {
@@ -12,6 +14,15 @@ pub struct SyncEvent<T> {
     /// Delta in number of ticks to apply to the timeline
     pub tick_delta: i16,
     pub(crate) marker: core::marker::PhantomData<T>,
+}
+
+impl<T: TimelineContext> SyncEvent<T> {
+    pub(crate) fn new(tick_delta: i16) -> Self {
+        SyncEvent {
+            tick_delta,
+            marker: core::marker::PhantomData,
+        }
+    }
 }
 
 /// Marker component to indicate that the timeline has been synced
@@ -74,13 +85,13 @@ pub trait SyncedTimeline: NetworkTimeline {
 pub struct SyncConfig {
     /// How much multiple of jitter do we apply as margin when computing the time
     /// a packet will get received by the server
-    /// (worst case will be RTT / 2 + jitter * multiple_margin)
+    /// (worst case will be RTT / 2 + jitter * multiple_margin + jitter_margin)
     /// % of packets that will be received within k * jitter
     /// 1: 65%, 2: 95%, 3: 99.7%
-    pub jitter_multiple_margin: u8,
+    pub jitter_multiple: u8,
     /// How many ticks to we apply as margin when computing the time
     ///  a packet will get received by the server
-    pub tick_margin: u8,
+    pub jitter_margin: Duration,
     /// Number of pings to exchange with the server before finalizing the handshake
     pub handshake_pings: u8,
     /// Error margin for upstream throttle (in multiple of ticks)
@@ -95,8 +106,8 @@ pub struct SyncConfig {
 impl Default for SyncConfig {
     fn default() -> Self {
         SyncConfig {
-            jitter_multiple_margin: 3,
-            tick_margin: 1,
+            jitter_multiple: 3,
+            jitter_margin: Duration::default(),
             handshake_pings: 3,
             error_margin: 0.5,
             max_error_margin: 5.0,

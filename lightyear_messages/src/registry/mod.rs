@@ -274,7 +274,7 @@ impl<M> MessageRegistration<'_, M> {
 
     /// Specify that the message contains entities which should be mapped from the remote world to the local world
     /// upon deserialization
-    pub fn add_map_entities(self) -> Self
+    pub fn add_map_entities(&mut self) -> &mut Self
     where
         M: Clone + MapEntities + 'static,
     {

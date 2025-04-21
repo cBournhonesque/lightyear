@@ -10,8 +10,12 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-client = []
-server = []
+client = [
+    "lightyear_connection/client"
+]
+server = [
+    "lightyear_connection/server"
+]
 std = [
     "bevy/std",
     "bytes/std",
@@ -24,6 +28,7 @@ lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_core.workspace = true
 lightyear_link.workspace = true
+lightyear_connection.workspace = true
 lightyear_messages.workspace = true
 lightyear_transport.workspace = true
 
@@ -36,6 +41,9 @@ bytes.workspace = true
 
 # bevy
 bevy.workspace = true
+
+#[dev-dependencies]
+test-log.workspace = true
 
 [lints]
 workspace = true

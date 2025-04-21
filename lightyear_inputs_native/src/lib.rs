@@ -19,6 +19,7 @@ mod server;
 
 pub mod prelude {
     pub use crate::action_state::{ActionState, InputMarker};
+    pub use crate::input_message::InputMessage;
     pub use crate::plugin::InputPlugin;
 
     #[cfg(feature = "client")]

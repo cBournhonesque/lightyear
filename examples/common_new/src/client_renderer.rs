@@ -130,7 +130,7 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
 }
 
 pub(crate) fn update_button_text(
-    query: Query<&lightyear_new::connection::client::Client>,
+    query: Query<&Client>,
     mut text_query: Query<&mut Text, With<Button>>,
 ) {
     let Ok(client) = query.get_single() else {
@@ -139,13 +139,13 @@ pub(crate) fn update_button_text(
     if let Ok(mut text) = text_query.single_mut() {
         match client.state {
             ClientState::Disconnected => {
-                text.0 = "Disconnect".to_string();
+                text.0 = "Connect".to_string();
             }
             ClientState::Connecting => {
                 text.0 = "Connecting".to_string();
             }
             ClientState::Connected { ..} => {
-                text.0 = "Connect".to_string();
+                text.0 = "Disconnect".to_string();
             }
         }
     }

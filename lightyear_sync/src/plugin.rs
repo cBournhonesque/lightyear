@@ -4,8 +4,7 @@ use crate::timeline::sync::{IsSynced, SyncedTimeline};
 use crate::timeline::DrivingTimeline;
 use bevy::app::{App, FixedFirst, Plugin};
 use bevy::prelude::*;
-use lightyear_core::timeline::{NetworkTimeline, NetworkTimelinePlugin, Timeline, TimelineContext};
-use tracing::trace;
+use lightyear_core::timeline::{NetworkTimeline, NetworkTimelinePlugin};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SyncSet {
@@ -51,7 +50,7 @@ impl SyncPlugin {
         query: Query<&Synced, With<DrivingTimeline<Synced>>>)
     {
         if let Ok(timeline) = query.single() {
-            trace!("Set virtual time relative speed to {}", timeline.relative_speed());
+            trace!("Timeline {} sets the virtual time relative speed to {}", core::any::type_name::<Synced>(), timeline.relative_speed());
             // TODO: be able to apply the speed_ratio on top of any speed ratio already applied by the user.
             virtual_time.set_relative_speed(timeline.relative_speed());
         }
@@ -86,6 +85,7 @@ impl SyncPlugin {
             if let Some(sync_event) = sync_timeline.sync(main_timeline, ping_manager) {
                 commands.trigger_targets(sync_event, entity);
                 commands.entity(entity).insert(IsSynced::<Synced>::default());
+                // trace!("Timeline {:?} is synced to {:?}", core::any::type_name::<Synced>(), core::any::type_name::<Remote>());
             }
         })
     }

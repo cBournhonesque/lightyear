@@ -11,7 +11,7 @@ use lightyear_serde::writer::Writer;
 use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -90,6 +90,7 @@ impl<M: Message> MessageSender<M> {
             net_id.to_bytes(&mut sender.writer)?;
             serialize_metadata.serialize::<M>(&message, &mut sender.writer, entity_map)?;
             let bytes = sender.writer.split();
+            trace!("Sending message of type {:?} with net_id {net_id:?} on channel {channel_kind:?}. Bytes: {bytes:?}", core::any::type_name::<M>());
             transport.send_erased(channel_kind, bytes, priority)?;
             Ok(())
         })

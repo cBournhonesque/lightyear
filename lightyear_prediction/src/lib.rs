@@ -28,6 +28,7 @@ mod run_conditions;
 pub mod prelude {
     pub use crate::manager::PredictionManager;
     pub use crate::plugin::PredictionPlugin;
+    pub use crate::registry::PredictionRegistrationExt;
     pub use crate::{Predicted, PredictionMode};
 }
 

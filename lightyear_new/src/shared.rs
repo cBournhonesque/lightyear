@@ -1,12 +1,8 @@
 //! Bevy [`Plugin`] used by both the server and the client
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear_connection::prelude::*;
 use lightyear_core::plugin::CorePlugins;
 use lightyear_core::time::SetTickDuration;
-use lightyear_messages::prelude::*;
-use lightyear_sync::prelude::*;
-use lightyear_transport::prelude::*;
 // NOTE: we cannot use nested PluginGroups so let's just put everything in a plugin
 // #[derive(Default, Debug)]
 // pub struct SharedPlugins {
@@ -31,25 +27,6 @@ pub struct SharedPlugin{
     pub tick_duration: Duration
 }
 
-impl SharedPlugin {
-    fn add_channels(app: &mut App) {
-        app.add_channel::<PingChannel>(ChannelSettings {
-                           mode: ChannelMode::SequencedUnreliable,
-                           send_frequency: Duration::default(),
-                           // we always want to include the ping in the packet
-                           priority: f32::INFINITY,
-                       })
-            .add_direction(NetworkDirection::Bidirectional);
-    }
-
-    fn add_messages(app: &mut App) {
-        app.add_message_to_bytes::<Ping>()
-            .add_direction(NetworkDirection::Bidirectional);
-        app.add_message_to_bytes::<Pong>()
-            .add_direction(NetworkDirection::Bidirectional);
-
-    }
-}
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
@@ -66,11 +43,6 @@ impl Plugin for SharedPlugin {
             .add_plugins(lightyear_replication::prelude::RelationshipReceivePlugin::<ChildOf>::default())
             .add_plugins(lightyear_replication::prelude::HierarchySendPlugin)
             .add_plugins(lightyear_replication::prelude::ReplicationReceivePlugin);
-        ;
-
-        Self::add_channels(app);
-        Self::add_messages(app);
-
 
         // IO
         #[cfg(feature = "crossbeam")]

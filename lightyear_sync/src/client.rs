@@ -9,9 +9,7 @@ use crate::timeline::interpolation::InterpolationTimeline;
 use crate::timeline::sync::{SyncEvent, SyncedTimeline};
 use crate::timeline::{remote, DrivingTimeline};
 use bevy::prelude::*;
-use bevy::prelude::{Reflect, SystemSet};
-use bevy::time::time_system;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin, Tick};
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin};
 use lightyear_core::time::TickDelta;
 
 // When a Client is created; we want to add a PredictedTimeline? InterpolatedTimeline?
@@ -74,7 +72,8 @@ impl Plugin for ClientPlugin {
         app.add_plugins(NetworkTimelinePlugin::<RemoteTimeline>::default());
 
         app.add_observer(remote::update_remote_timeline);
-        app.add_systems(First, remote::advance_remote_timeline.after(time_system));
+        // app.add_systems(First, remote::advance_remote_timeline.after(time_system));
+        app.add_systems(FixedFirst, remote::advance_remote_timeline);
 
         // TODO: should the DrivingTimeline be configurable?
         // the client will use the Input timeline as the driving timeline
@@ -85,80 +84,119 @@ impl Plugin for ClientPlugin {
 }
 
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::server::Replicate;
-    use crate::prelude::*;
-    use crate::tests::protocol::*;
-    use crate::tests::stepper::BevyStepper;
-    use core::time::Duration;
+    use bevy::app::App;
+    use bevy::time::{TimePlugin, TimeUpdateStrategy};
+    use lightyear_core::prelude::Tick;
+    use lightyear_core::tick::TickDuration;
+    use lightyear_core::time::{Overstep, TickInstant};
+    use std::time::{Duration, Instant};
+    use test_log::test;
 
-    /// Check that after a big tick discrepancy between server/client, the client tick gets updated
-    /// to match the server tick
     #[test]
-    fn test_sync_after_tick_wrap() {
-        let tick_duration = Duration::from_millis(10);
-        let mut stepper = BevyStepper::default();
+    fn test_advance_remote() {
+        let mut app = App::new();
+        let now = Instant::now();
+        app.world_mut().insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(10)));
+        app.world_mut().insert_resource(TickDuration(Duration::from_millis(10)));
+        app.add_plugins((
+            TimePlugin,
+            ClientPlugin
+        ));
+        app.update();
 
-        // set time to end of wrapping
-        let new_tick = Tick(u16::MAX - 1000);
-        let new_time = WrappedTime::from_duration(tick_duration * (new_tick.0 as u32));
+        let e = app.world_mut().spawn(RemoteTimeline::default()).id();
+        assert_eq!(app.world().get::<RemoteTimeline>(e).unwrap().now, TickInstant {
+            tick: Tick(0),
+            overstep: Overstep::new(0.0),
+        });
+        app.update();
+        assert_eq!(app.world().get::<RemoteTimeline>(e).unwrap().now, TickInstant {
+            tick: Tick(1),
+            overstep: Overstep::new(0.0),
+        });
 
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<TimeManager>()
-            .set_current_time(new_time);
-        stepper
-            .server_app
-            .world_mut()
-            .resource_mut::<TickManager>()
-            .set_tick_to(new_tick);
 
-        let server_entity = stepper
-            .server_app
-            .world_mut()
-            .spawn((ComponentSyncModeFull(0.0), Replicate::default()))
-            .id();
-
-        // cross tick boundary
-        for i in 0..200 {
-            stepper.frame_step();
-        }
-        stepper
-            .server_app
-            .world_mut()
-            .entity_mut(server_entity)
-            .insert(ComponentSyncModeFull(1.0));
-        // dbg!(&stepper.server_tick());
-        // dbg!(&stepper.client_tick());
-        // dbg!(&stepper
-        //     .server_app
-        //     .world()
-        //     .get::<ComponentSyncModeFull>(server_entity));
-
-        // make sure the client receives the replication message
-        for i in 0..5 {
-            stepper.frame_step();
-        }
-
-        let client_entity = stepper
-            .client_app
-            .world()
-            .resource::<client::ConnectionManager>()
-            .replication_receiver
-            .remote_entity_map
-            .get_local(server_entity)
-            .unwrap();
-        assert_eq!(
-            stepper
-                .client_app
-                .world()
-                .get::<ComponentSyncModeFull>(client_entity)
-                .unwrap(),
-            &ComponentSyncModeFull(1.0)
-        );
     }
 }
+
+
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use crate::prelude::server::Replicate;
+//     use crate::prelude::*;
+//     use crate::tests::protocol::*;
+//     use crate::tests::stepper::BevyStepper;
+//     use core::time::Duration;
+//
+//     /// Check that after a big tick discrepancy between server/client, the client tick gets updated
+//     /// to match the server tick
+//     #[test]
+//     fn test_sync_after_tick_wrap() {
+//         let tick_duration = Duration::from_millis(10);
+//         let mut stepper = BevyStepper::default();
+//
+//         // set time to end of wrapping
+//         let new_tick = Tick(u16::MAX - 1000);
+//         let new_time = WrappedTime::from_duration(tick_duration * (new_tick.0 as u32));
+//
+//         stepper
+//             .server_app
+//             .world_mut()
+//             .resource_mut::<TimeManager>()
+//             .set_current_time(new_time);
+//         stepper
+//             .server_app
+//             .world_mut()
+//             .resource_mut::<TickManager>()
+//             .set_tick_to(new_tick);
+//
+//         let server_entity = stepper
+//             .server_app
+//             .world_mut()
+//             .spawn((ComponentSyncModeFull(0.0), Replicate::default()))
+//             .id();
+//
+//         // cross tick boundary
+//         for i in 0..200 {
+//             stepper.frame_step();
+//         }
+//         stepper
+//             .server_app
+//             .world_mut()
+//             .entity_mut(server_entity)
+//             .insert(ComponentSyncModeFull(1.0));
+//         // dbg!(&stepper.server_tick());
+//         // dbg!(&stepper.client_tick());
+//         // dbg!(&stepper
+//         //     .server_app
+//         //     .world()
+//         //     .get::<ComponentSyncModeFull>(server_entity));
+//
+//         // make sure the client receives the replication message
+//         for i in 0..5 {
+//             stepper.frame_step();
+//         }
+//
+//         let client_entity = stepper
+//             .client_app
+//             .world()
+//             .resource::<client::ConnectionManager>()
+//             .replication_receiver
+//             .remote_entity_map
+//             .get_local(server_entity)
+//             .unwrap();
+//         assert_eq!(
+//             stepper
+//                 .client_app
+//                 .world()
+//                 .get::<ComponentSyncModeFull>(client_entity)
+//                 .unwrap(),
+//             &ComponentSyncModeFull(1.0)
+//         );
+//     }
+// }

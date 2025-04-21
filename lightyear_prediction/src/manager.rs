@@ -15,6 +15,7 @@ use lightyear_replication::registry::ComponentError;
 use lightyear_serde::entity_map::EntityMap;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_utils::ready_buffer::ReadyBuffer;
+use tracing::info;
 
 #[derive(Resource)]
 pub struct PredictionResource {

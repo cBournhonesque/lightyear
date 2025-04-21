@@ -122,13 +122,11 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        info!("Add InputMarker to entity: {:?}", entity);
+        warn!("Add InputMarker to entity: {:?}", entity);
         commands
             .entity(entity)
             .insert((
                 InputMarker::<Inputs>::default(),
-                // InputBuffer::<ActionState<Inputs>>::default(),
-                // ActionState::<Inputs>::default(),
             ));
     }
 }

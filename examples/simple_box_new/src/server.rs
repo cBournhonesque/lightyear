@@ -20,7 +20,7 @@ pub struct ExampleServerPlugin;
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         // the physics/FixedUpdates systems that consume inputs should be run in this set.
-        // app.add_systems(FixedUpdate, movement);
+        app.add_systems(FixedUpdate, movement);
         app.add_observer(handle_connections);
         // app.add_systems(Update, (send_message, handle_connections));
         #[cfg(not(feature = "client"))]
@@ -45,13 +45,9 @@ pub(crate) fn handle_connections(
         .spawn((
             PlayerBundle::new(client_id, Vec2::ZERO),
             // we replicate the Player entity to all clients that are connected to this server
-            // TODO: the Server (and not ClientOf) should have a list of Replicate entities that are related to that server
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
-            // SyncTarget {
-            //     prediction: NetworkTarget::Single(client_id),
-            //     interpolation: NetworkTarget::AllExceptSingle(client_id),
-            // },
+            InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id))
             // ControlledBy {
             //     target: NetworkTarget::Single(client_id),
             //     ..default()

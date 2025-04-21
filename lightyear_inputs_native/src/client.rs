@@ -145,7 +145,7 @@ impl<A: UserAction + MapEntities> Plugin for ClientInputPlugin<A> {
 fn prepare_input_message<A: UserAction>(
     mut message_buffer: ResMut<MessageBuffer<A>>,
     input_config: Res<InputConfig<A>>,
-    sender: Single<(&LocalTimeline, &InputTimeline, &MessageManager), With<IsSynced<Input>>>,
+    sender: Single<(&LocalTimeline, &InputTimeline, &MessageManager), With<IsSynced<InputTimeline>>>,
     input_buffer_query: Query<
         (
             Entity,
@@ -355,13 +355,8 @@ fn prepare_input_message<A: UserAction>(
 fn send_input_messages<A: UserAction>(
     input_config: Res<InputConfig<A>>,
     mut message_buffer: ResMut<MessageBuffer<A>>,
-    mut sender: Query<&mut MessageSender<InputMessage<A>>, With<LocalTimeline>>,
-    // time_manager: Res<TimeManager>,
-    // tick_manager: Res<TickManager>,
+    mut sender: Single<&mut MessageSender<InputMessage<A>>, With<IsSynced<InputTimeline>>>,
 ) {
-    let Ok(mut sender) = sender.single_mut() else {
-        return
-    };
     trace!(
         "Number of input messages to send: {:?}",
         message_buffer.0.len()

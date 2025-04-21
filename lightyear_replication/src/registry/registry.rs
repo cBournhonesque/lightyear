@@ -361,7 +361,7 @@ impl AppComponentExt for App {
 }
 
 pub struct ComponentRegistration<'a, C> {
-    app: &'a mut App,
+    pub app: &'a mut App,
     _phantom: core::marker::PhantomData<C>,
 }
 

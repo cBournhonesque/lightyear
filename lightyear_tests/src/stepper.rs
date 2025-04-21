@@ -1,6 +1,7 @@
 use crate::protocol::ProtocolPlugin;
 #[cfg(not(feature = "std"))]
 use alloc::vec;
+use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
@@ -19,7 +20,7 @@ use lightyear_netcode::{NetcodeClient, NetcodeServer};
 use lightyear_new::prelude::Link;
 use lightyear_new::prelude::{client, server, *};
 use lightyear_replication::prelude::{NetworkVisibilityPlugin, ReplicationReceiver, ReplicationSender};
-use lightyear_sync::prelude::client::{Input, Interpolation, IsSynced};
+use lightyear_sync::prelude::client::{Input, Interpolation, InterpolationTimeline, IsSynced};
 
 const PROTOCOL_ID: u64 = 0;
 const KEY: [u8; 32] = [0; 32];
@@ -113,6 +114,7 @@ impl<const N: usize> ClientServerStepper<N> {
                 ReplicationReceiver::default(),
                 NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
                 crossbeam_client,
+                PredictionManager::default(),
             )).id();
             client_of_entities[client_id] = server_app.world_mut().spawn((
                 ClientOf {
@@ -207,7 +209,7 @@ impl<const N: usize> ClientServerStepper<N> {
 
     /// Frame step until all clients are connected
     pub(crate) fn wait_for_connection(&mut self) {
-        for _ in 0..100 {
+        for _ in 0..20 {
             if (0..N).all(|client_id| self.client(client_id).contains::<Connected>()) {
                 info!("Clients are all connected");
                 break
@@ -218,8 +220,8 @@ impl<const N: usize> ClientServerStepper<N> {
 
     // Advance the world until the client is synced
     pub(crate) fn wait_for_sync(&mut self) {
-        for _ in 0..100 {
-            if (0..N).all(|client_id| self.client(client_id).contains::<IsSynced<Input>>() && self.client(client_id).contains::<IsSynced<Interpolation>>()) {
+        for _ in 0..10 {
+            if (0..N).all(|client_id| self.client(client_id).contains::<IsSynced<InputTimeline>>() && self.client(client_id).contains::<IsSynced<InterpolationTimeline>>()) {
                 info!("Clients are all synced");
                 break
             }
@@ -245,9 +247,12 @@ impl<const N: usize> ClientServerStepper<N> {
     pub(crate) fn frame_step(&mut self, n: usize) {
         for _ in 0..n {
             self.advance_time(self.frame_duration);
+            // we want to log the next frame's tick before the frame starts
+            let client_tick = self.client_tick(0) + 1;
+            let server_tick = self.server_tick() + 1;
+            info!(?client_tick, ?server_tick, "Frame step");
             self.client_app.update();
             self.server_app.update();
-            info!(client_tick = ?self.client_tick(0), server_tick = ?self.server_tick(), "Frame step");
         }
     }
 

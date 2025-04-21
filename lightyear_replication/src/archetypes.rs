@@ -118,7 +118,7 @@ impl ReplicatedArchetypes {
                         );
                         return;
                     }
-                    info!("including {:?} in replicated components", info.name());
+                    trace!("including {:?} in replicated components", info.name());
                     replicated_archetype.push(ReplicatedComponent {
                         id: component,
                         kind,

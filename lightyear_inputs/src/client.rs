@@ -157,6 +157,7 @@ fn buffer_action_state<A: UserActionState, F: Component>(
 
 /// Retrieve the ActionState for the current tick.
 fn get_action_state<A: UserActionState>(
+    // TODO: Disable this in Host-server mode!
     sender: Single<(&LocalTimeline, &InputTimeline)>,
     // NOTE: we want to apply the Inputs for BOTH the local player and the remote player.
     // - local player: we need to get the input from the InputBuffer because of input delay
@@ -200,7 +201,7 @@ fn get_action_state<A: UserActionState>(
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<A: UserActionState, F: Component>(
-    sender: Query<(&InputTimeline, &LocalTimeline), With<IsSynced<Input>>>,
+    sender: Query<(&InputTimeline, &LocalTimeline), With<IsSynced<InputTimeline>>>,
     mut action_state_query: Query<
         (Entity, &mut A, &InputBuffer<A>),
         // Filter so that this is only for directly controlled players, not remote players
@@ -242,9 +243,9 @@ fn clean_buffers<A: UserAction>(
     };
     let old_tick = timeline.tick() - 20;
 
-    trace!(
-        "popping all input buffers since old tick: {old_tick:?}",
-    );
+    // trace!(
+    //     "popping all input buffers since old tick: {old_tick:?}",
+    // );
     for mut input_buffer in input_buffer_query.iter_mut() {
         input_buffer.pop(old_tick);
     }

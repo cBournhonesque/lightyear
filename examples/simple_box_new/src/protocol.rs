@@ -114,17 +114,17 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(input::native::InputPlugin::<Inputs>::default());
         // components
-        app.register_component::<PlayerId>();
-            // .add_prediction(ComponentSyncMode::Once)
+        app.register_component::<PlayerId>()
+            .add_prediction(PredictionMode::Once);
             // .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<PlayerPosition>();
-            // .add_prediction(ComponentSyncMode::Full)
+        app.register_component::<PlayerPosition>()
+            .add_prediction(PredictionMode::Full);
             // .add_interpolation(ComponentSyncMode::Full)
             // .add_linear_interpolation_fn();
 
-        app.register_component::<PlayerColor>();
-            // .add_prediction(ComponentSyncMode::Once)
+        app.register_component::<PlayerColor>()
+            .add_prediction(PredictionMode::Once);
             // .add_interpolation(ComponentSyncMode::Once);
 
         // channels

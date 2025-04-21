@@ -1,7 +1,10 @@
 use crate::ping::manager::PingManager;
-use bevy::prelude::{Component, Deref, DerefMut, Query, Real, Reflect, Res, Time, Trigger};
+use crate::prelude::InputTimeline;
+use bevy::ecs::component::HookContext;
+use bevy::ecs::world::DeferredWorld;
+use bevy::prelude::{Component, Deref, DerefMut, Fixed, Query, Real, Reflect, Res, Time, Trigger};
 use core::time::Duration;
-use lightyear_core::tick::Tick;
+use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{Overstep, TickDelta, TickInstant, TimeDelta};
 use lightyear_core::timeline::{NetworkTimeline, Timeline};
 use lightyear_transport::plugin::PacketReceived;
@@ -23,7 +26,7 @@ use tracing::trace;
 /// // Create a new remote estimate with a 16ms tick duration and 0.1 smoothing factor
 /// let remote_estimate = RemoteTimeline::new(Duration::from_millis(16), 0.1);
 /// ```
-#[derive(Default, Debug, Reflect)]
+#[derive(Debug, Reflect)]
 pub struct RemoteEstimate {
     /// Most recent tick received from the Server
     last_received_tick: Option<Tick>,
@@ -36,10 +39,28 @@ pub struct RemoteEstimate {
     first_estimate: bool,
 }
 
+impl Default for RemoteEstimate {
+    fn default() -> Self {
+        Self {
+            last_received_tick: None,
+            remote_estimate_smoothing: 0.1,
+            first_estimate: true,
+        }
+    }
+}
+
 
 // We need to wrap the inner Timeline to avoid the orphan rule
 #[derive(Component, Default, Debug, Deref, DerefMut, Reflect)]
+#[component(on_add = RemoteTimeline::on_add)]
 pub struct RemoteTimeline(Timeline<RemoteEstimate>);
+
+impl RemoteTimeline {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        let tick_duration = world.get_resource::<TickDuration>().expect("The CorePlugins have to be added before other plugins in order to set the TickDuration").0;
+        world.get_mut::<RemoteTimeline>(context.entity).unwrap().set_tick_duration(tick_duration);
+    }
+}
 
 impl RemoteTimeline  {
     /// Returns the most recent tick received from the remote peer.
@@ -90,7 +111,9 @@ impl RemoteTimeline  {
             // for the first time, don't apply smoothing
             if self.context.first_estimate {
                 self.now = new_estimate;
+                self.context.first_estimate = false;
             } else {
+                trace!(now = ?TickDelta::from(self.now), new_val = ?TickDelta::from(new_estimate), "new estimate");
                 // we transform the instant into deltas to apply some transformations.
                 // not all transformations are safe, but these are
                 let smoothed_estimate = TickDelta::from(self.now) * self.context.remote_estimate_smoothing + TickDelta::from(new_estimate) * (1.0 - self.context.remote_estimate_smoothing);
@@ -118,9 +141,10 @@ pub(crate) fn update_remote_timeline(
     }
 }
 
+// TODO: should this be based on real time?
 /// Advance our estimate of the remote timeline based on the real time
 pub(crate) fn advance_remote_timeline(
-    fixed_time: Res<Time<Real>>,
+    fixed_time: Res<Time<Fixed>>,
     mut query: Query<&mut RemoteTimeline>,
 ) {
     let delta = fixed_time.delta();
@@ -128,3 +152,4 @@ pub(crate) fn advance_remote_timeline(
         t.apply_duration(delta);
     })
 }
+
