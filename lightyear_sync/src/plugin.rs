@@ -26,17 +26,14 @@ impl<Synced, Remote> Default for SyncedTimelinePlugin<Synced, Remote> {
     }
 }
 
-impl<Synced: TimelineContext, Remote: TimelineContext + Default> Plugin
+impl<Synced: SyncedTimeline, Remote: NetworkTimeline + Default> Plugin
 for SyncedTimelinePlugin<Synced, Remote>
-where
-    Timeline<Synced>: SyncedTimeline,
-    Timeline<Remote>: NetworkTimeline
 {
     fn build(&self, app: &mut App) {
         app.add_plugins(NetworkTimelinePlugin::<Synced>::default());
 
-        app.register_required_components::<Timeline<Synced>, PingManager>();
-        app.register_required_components::<Timeline<Synced>, Timeline<Remote>>();
+        app.register_required_components::<Synced, PingManager>();
+        app.register_required_components::<Synced, Remote>();
         app.add_systems(FixedFirst, SyncPlugin::advance_synced_timelines::<Synced>);
         // NOTE: we don't have to run this in PostUpdate, we could run this right after RunFixedMainLoop?
         app.add_systems(PostUpdate,
@@ -49,10 +46,9 @@ pub struct SyncPlugin;
 impl SyncPlugin {
 
 
-    pub(crate) fn update_virtual_time<T: TimelineContext>(
+    pub(crate) fn update_virtual_time<Synced: SyncedTimeline>(
         mut virtual_time: ResMut<Time<Virtual>>,
-        query: Query<&Timeline<T>, With<DrivingTimeline<T>>>)
-    where Timeline<T>: SyncedTimeline
+        query: Query<&Synced, With<DrivingTimeline<Synced>>>)
     {
         if let Ok(timeline) = query.single() {
             trace!("Set virtual time relative speed to {}", timeline.relative_speed());
@@ -63,10 +59,10 @@ impl SyncPlugin {
 
     /// Update the timeline in FixedUpdate based on the Time<Virtual>
     /// Should we use this only in FixedUpdate::First? because we need the tick in FixedUpdate to be correct for the timeline
-    pub(crate) fn advance_synced_timelines<T: TimelineContext>(
+    pub(crate) fn advance_synced_timelines<Synced: SyncedTimeline>(
         fixed_time: Res<Time<Fixed>>,
-        mut query: Query<(&mut Timeline<T>, Has<DrivingTimeline<T>>)>,
-    ) where Timeline<T>: SyncedTimeline {
+        mut query: Query<(&mut Synced, Has<DrivingTimeline<Synced>>)>,
+    ) {
         let delta = fixed_time.delta();
         query.iter_mut().for_each(|(mut t, is_main)| {
             // the main timeline has already been used to update the game's speed, so we don't want to apply the relative_speed again!
@@ -79,17 +75,17 @@ impl SyncPlugin {
         })
     }
 
-    /// Sync timeline T to timeline M by either
-    /// - speeding up/slowing down the timeline T to match timeline M
+    /// Sync timeline T to timeline Remote by either
+    /// - speeding up/slowing down the timeline T to match timeline Remote
     /// - emitting a SyncEvent<T>
-    pub(crate) fn sync_timelines<T: TimelineContext, M: TimelineContext> (
+    pub(crate) fn sync_timelines<Synced: SyncedTimeline, Remote: NetworkTimeline> (
         mut commands: Commands,
-        mut query: Query<(Entity, &mut Timeline<T>, &Timeline<M>, &PingManager)>,
-    ) where Timeline<T>: SyncedTimeline {
+        mut query: Query<(Entity, &mut Synced, &Remote, &PingManager)>,
+    ) {
         query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, ping_manager)| {
             if let Some(sync_event) = sync_timeline.sync(main_timeline, ping_manager) {
                 commands.trigger_targets(sync_event, entity);
-                commands.entity(entity).insert(IsSynced::<T>::default());
+                commands.entity(entity).insert(IsSynced::<Synced>::default());
             }
         })
     }

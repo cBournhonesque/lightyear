@@ -1,10 +1,11 @@
 /*! Handles syncing the time between the client and the server
 */
 use crate::plugin::{SyncPlugin, SyncedTimelinePlugin};
+use crate::prelude::client::RemoteTimeline;
+use crate::prelude::InputTimeline;
 use crate::timeline::input::Input;
 #[cfg(feature = "interpolation")]
-use crate::timeline::interpolation::Interpolation;
-use crate::timeline::remote::RemoteEstimate;
+use crate::timeline::interpolation::InterpolationTimeline;
 use crate::timeline::sync::{SyncEvent, SyncedTimeline};
 use crate::timeline::{remote, DrivingTimeline};
 use bevy::prelude::*;
@@ -12,7 +13,6 @@ use bevy::prelude::{Reflect, SystemSet};
 use bevy::time::time_system;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin, Tick};
 use lightyear_core::time::TickDelta;
-use lightyear_core::timeline::Timeline;
 
 // When a Client is created; we want to add a PredictedTimeline? InterpolatedTimeline?
 //  or should we let the user do it?
@@ -66,21 +66,21 @@ impl Plugin for ClientPlugin {
 
         app.add_observer(Input::recompute_input_delay);
 
-        app.add_plugins(SyncedTimelinePlugin::<Input, RemoteEstimate>::default());
+        app.add_plugins(SyncedTimelinePlugin::<InputTimeline, RemoteTimeline>::default());
 
         #[cfg(feature = "interpolation")]
-        app.add_plugins(SyncedTimelinePlugin::<Interpolation, RemoteEstimate>::default());
+        app.add_plugins(SyncedTimelinePlugin::<InterpolationTimeline, RemoteTimeline>::default());
 
-        app.add_plugins(NetworkTimelinePlugin::<RemoteEstimate>::default());
+        app.add_plugins(NetworkTimelinePlugin::<RemoteTimeline>::default());
 
         app.add_observer(remote::update_remote_timeline);
         app.add_systems(First, remote::advance_remote_timeline.after(time_system));
 
         // TODO: should the DrivingTimeline be configurable?
         // the client will use the Input timeline as the driving timeline
-        app.register_required_components::<Timeline<Input>, DrivingTimeline<Input>>();
+        app.register_required_components::<InputTimeline, DrivingTimeline<InputTimeline>>();
 
-        app.add_systems(Last, SyncPlugin::update_virtual_time::<Input>);
+        app.add_systems(Last, SyncPlugin::update_virtual_time::<InputTimeline>);
     }
 }
 

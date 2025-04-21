@@ -4,14 +4,13 @@ use crate::time::{Overstep, SetTickDuration, TickDelta, TickInstant};
 use bevy::app::{App, FixedFirst, Plugin, RunFixedMainLoop, RunFixedMainLoopSystem};
 use bevy::ecs::component::{HookContext, Mutable};
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Fixed, IntoScheduleConfigs, Query, Reflect, Res, Resource, Time, Trigger};
+use bevy::prelude::{Component, Deref, DerefMut, Fixed, IntoScheduleConfigs, Query, Reflect, Res, Resource, Time, Trigger};
 use bevy::reflect::GetTypeRegistration;
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 use parking_lot::RwLock;
 
-#[derive(Component, Default, Debug, Reflect)]
-#[component(on_add = Self::on_add)]
+#[derive(Default, Debug, Reflect)]
 pub struct Timeline<T: TimelineContext> {
     pub context: T,
     pub tick_duration: Duration,
@@ -20,12 +19,7 @@ pub struct Timeline<T: TimelineContext> {
     pub marker: core::marker::PhantomData<T>
 }
 
-impl<T: TimelineContext> Timeline<T> {
-    fn on_add(mut world: DeferredWorld, context: HookContext) {
-        let tick_duration = world.get_resource::<TickDuration>().expect("The CorePlugins have to be added before other plugnis in order to set the TickDuration").0;
-        world.get_mut::<Timeline<T>>(context.entity).unwrap().set_tick_duration(tick_duration);
-    }
-}
+
 
 impl<T: TimelineContext> From<T> for Timeline<T> {
     fn from(value: T) -> Self {
@@ -64,8 +58,36 @@ pub trait NetworkTimeline: Component<Mutability=Mutable> {
 }
 
 
-/// An extension trait for [`Time<Physics>`](Physics).
-impl<T: TimelineContext> NetworkTimeline for Timeline<T> {
+// /// An extension trait for [`Time<Physics>`](Physics).
+// impl<T: TimelineContext> NetworkTimeline for Timeline<T> {
+//
+//     /// Estimate of the current time in the [`Timeline`]
+//     fn now(&self) -> TickInstant {
+//         self.now
+//     }
+//
+//     fn tick_duration(&self) -> Duration {
+//         self.tick_duration
+//     }
+//
+//     fn set_tick_duration(&mut self, duration: Duration) {
+//         self.tick_duration = duration;
+//     }
+//
+//     fn tick(&self) -> Tick {
+//         self.now().tick
+//     }
+//
+//     fn overstep(&self) -> Overstep {
+//         self.now().overstep
+//     }
+//
+//     fn apply_delta(&mut self, delta: TickDelta) {
+//         self.now = self.now + delta;
+//     }
+// }
+
+impl<C: TimelineContext, T: Component<Mutability=Mutable> + DerefMut<Target=Timeline<C>>> NetworkTimeline for T {
 
     /// Estimate of the current time in the [`Timeline`]
     fn now(&self) -> TickInstant {
@@ -192,8 +214,16 @@ pub struct Local {
     pub rollback: RwLock<RollbackState>,
 }
 
-// TODO: don't use Timeline<Local> but instead create your own struct
-pub type LocalTimeline = Timeline<Local>;
+#[derive(Component, Deref, DerefMut, Default, Reflect)]
+#[component(on_add = LocalTimeline::on_add)]
+pub struct LocalTimeline(Timeline<Local>);
+
+impl LocalTimeline {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        let tick_duration = world.get_resource::<TickDuration>().expect("The CorePlugins have to be added before other plugins in order to set the TickDuration").0;
+        world.get_mut::<LocalTimeline>(context.entity).unwrap().set_tick_duration(tick_duration);
+    }
+}
 
 
 /// Increment the local tick at each FixedUpdate
@@ -226,11 +256,11 @@ impl<T> Default for NetworkTimelinePlugin<T> {
     }
 }
 
-impl<T: TimelineContext> NetworkTimelinePlugin<T> where Timeline<T>: NetworkTimeline  {
+impl<T: NetworkTimeline> NetworkTimelinePlugin<T> {
     pub(crate) fn update_tick_duration(
         // TODO: replcae with OnAdd TickDuration resource?
         trigger: Trigger<SetTickDuration>,
-        mut query: Query<&mut Timeline<T>>,
+        mut query: Query<&mut T>,
     ) {
         if let Ok(mut t) = query.get_mut(trigger.target()) {
             t.set_tick_duration(trigger.0);
@@ -238,7 +268,7 @@ impl<T: TimelineContext> NetworkTimelinePlugin<T> where Timeline<T>: NetworkTime
     }
 }
 
-impl<T: TimelineContext> Plugin for NetworkTimelinePlugin<T> where Timeline<T>: NetworkTimeline {
+impl<T: NetworkTimeline> Plugin for NetworkTimelinePlugin<T> {
     fn build(&self, app: &mut App) {
         app.add_observer(Self::update_tick_duration);
     }
@@ -250,8 +280,7 @@ impl Plugin for TimelinePlugin {
         app.insert_resource(TickDuration(self.tick_duration));
         app.world_mut().resource_mut::<Time<Fixed>>().set_timestep(self.tick_duration);
 
-
-        app.add_plugins(NetworkTimelinePlugin::<Local>::default());
+        app.add_plugins(NetworkTimelinePlugin::<LocalTimeline>::default());
         app.add_systems(FixedFirst, increment_local_tick);
     }
 }

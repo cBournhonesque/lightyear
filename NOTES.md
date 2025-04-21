@@ -18,7 +18,6 @@
 
 - client adds InputMarker to the entity that they are actively controlling.
 - there is only one sender with an InputTimeline
-- 
 
 
 # Server sending messages
@@ -42,13 +41,14 @@
 # Status:
 
 - WebTransport: ai-generated, to be verified
+- WebSocket/Steam: TODO
 - Replication:
   - ReplicationGroup timer + priority
   - HostServer handling
+  - Authority/Controlled
   - need to add tests for sender/receive/authority/hierarchy/delta
 - Receive:
   - re-add UpdateConfirmedTick in apply_world
-
 
 - EntityMap: maybe this should be directly on the Serialize level?
 
@@ -59,11 +59,11 @@ TODOs:
   Maybe we can have some Access or bitmask of all connections, and the access could have `accept_all`, etc.?
   
 
-
 TEST TODO:
  - Add ReplicationSender/ReplicationReceiver automatically on Client/ClientOf? But how to avoid 
    perf issues?
  - Errors seem to be swallowed
+ - SYNCING IS NOT DONE! DO SYNC. ADD TESTS FOR SYNC!
 
 # Messages
 

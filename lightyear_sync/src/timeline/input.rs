@@ -1,12 +1,15 @@
 use crate::ping::manager::PingManager;
 use crate::timeline::sync::{SyncConfig, SyncEvent, SyncedTimeline};
-use bevy::prelude::{Component, Query, Reflect, Trigger};
+use bevy::ecs::component::HookContext;
+use bevy::ecs::world::DeferredWorld;
+use bevy::prelude::{Component, Deref, DerefMut, Query, Reflect, Trigger};
 use core::time::Duration;
-use lightyear_core::tick::Tick;
+use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, Timeline};
 use lightyear_link::{Link, LinkStats};
-
+use tracing::trace;
 
 /// Timeline that is used to make sure that Inputs from this peer will arrive on time
 /// on the remote peer
@@ -33,7 +36,7 @@ impl Input {
     /// when there is a SyncEvent
     pub(crate) fn recompute_input_delay(
         trigger: Trigger<SyncEvent<Input>>,
-        mut query: Query<(&Link, &mut Timeline<Input>)>
+        mut query: Query<(&Link, &mut InputTimeline)>
     ) {
         if let Ok((link, mut timeline)) = query.get_mut(trigger.target()) {
             let rtt = link.stats.rtt;
@@ -143,9 +146,18 @@ impl InputDelayConfig {
     }
 }
 
-pub type InputTimeline = Timeline<Input>;
+#[derive(Component, Deref, DerefMut, Default, Reflect)]
+#[component(on_add = InputTimeline::on_add)]
+pub struct InputTimeline(Timeline<Input>);
 
-impl SyncedTimeline for Timeline<Input> {
+impl InputTimeline {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        let tick_duration = world.get_resource::<TickDuration>().expect("The CorePlugins have to be added before other plugins in order to set the TickDuration").0;
+        world.get_mut::<InputTimeline>(context.entity).unwrap().set_tick_duration(tick_duration);
+    }
+}
+
+impl SyncedTimeline for InputTimeline {
     // TODO: how can we make this configurable? or maybe just store the TICK_DURATION in the timeline itself?
 
     /// We want the Predicted timeline to be:
@@ -159,7 +171,9 @@ impl SyncedTimeline for Timeline<Input> {
         let network_delay = TickDelta::from_duration(ping_manager.rtt() / 2, self.tick_duration());
         let jitter_margin = TickDelta::from_duration(ping_manager.jitter() * self.context.config.jitter_multiple_margin as u32 + self.tick_duration() * self.context.config.tick_margin as u32, self.tick_duration());
         let input_delay: TickDelta = Tick(self.context.input_delay_ticks).into();
-        target + network_delay + jitter_margin - input_delay
+        let obj = target + network_delay + jitter_margin - input_delay;
+        trace!(?target, ?network_delay, ?jitter_margin, ?input_delay, "InputTimeline objective: {:?}", obj);
+        obj
     }
 
     fn resync(&mut self, sync_objective: TickInstant) -> SyncEvent<Self> {
@@ -190,6 +204,7 @@ impl SyncedTimeline for Timeline<Input> {
         let error_duration = error.to_duration(self.tick_duration());
         let error_margin = self.tick_duration().mul_f32(self.context.config.error_margin);
         let max_error_margin = self.tick_duration().mul_f32(self.context.config.max_error_margin);
+        trace!(?error_duration, ?is_ahead, ?error_margin, ?max_error_margin, ?target, ?objective, "InputTimeline sync");
         if error_duration > max_error_margin {
             return Some(self.resync(objective));
         } else if error_duration > error_margin {

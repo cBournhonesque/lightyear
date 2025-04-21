@@ -2,7 +2,7 @@ use crate::ping::manager::PingManager;
 use bevy::prelude::{Component, Deref, DerefMut, Query, Real, Reflect, Res, Time, Trigger};
 use core::time::Duration;
 use lightyear_core::tick::Tick;
-use lightyear_core::time::{TickDelta, TickInstant, TimeDelta};
+use lightyear_core::time::{Overstep, TickDelta, TickInstant, TimeDelta};
 use lightyear_core::timeline::{NetworkTimeline, Timeline};
 use lightyear_transport::plugin::PacketReceived;
 use tracing::trace;
@@ -97,8 +97,8 @@ impl RemoteTimeline  {
                 self.now = smoothed_estimate.into();
             }
             trace!(
-                update_estimate = ?new_estimate,
-                new_estimate = ?self.now,
+                raw_estimate = ?new_estimate,
+                smoothed_estimate = ?self.now,
                 "updated remote timeline estimate"
             );
         }

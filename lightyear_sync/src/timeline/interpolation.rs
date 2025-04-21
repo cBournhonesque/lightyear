@@ -1,8 +1,11 @@
 use crate::ping::manager::PingManager;
+use crate::prelude::InputTimeline;
 use crate::timeline::sync::{SyncConfig, SyncEvent, SyncedTimeline};
-use bevy::prelude::{Component, Reflect};
+use bevy::ecs::component::HookContext;
+use bevy::ecs::world::DeferredWorld;
+use bevy::prelude::{Component, Deref, DerefMut, Reflect};
 use core::time::Duration;
-use lightyear_core::tick::Tick;
+use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{Overstep, TickDelta, TickInstant, TimeDelta};
 use lightyear_core::timeline::{NetworkTimeline, Timeline};
 
@@ -61,11 +64,18 @@ pub struct Interpolation {
     pub(crate) now: TickInstant,
 }
 
-// TODO: should this be contained in a 'BaseTimeline'?
 
-pub type InterpolationTimeline = Timeline<Interpolation>;
+#[derive(Component, Deref, DerefMut, Default, Reflect)]
+pub struct InterpolationTimeline(Timeline<Interpolation>);
 
-impl SyncedTimeline for Timeline<Interpolation> {
+impl InterpolationTimeline {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        let tick_duration = world.get_resource::<TickDuration>().expect("The CorePlugins have to be added before other plugins in order to set the TickDuration").0;
+        world.get_mut::<InterpolationTimeline>(context.entity).unwrap().set_tick_duration(tick_duration);
+    }
+}
+
+impl SyncedTimeline for InterpolationTimeline {
     // TODO: how can we make this configurable? or maybe just store the TICK_DURATION in the timeline itself?
 
     fn sync_objective<T: NetworkTimeline>(&self, main: &T, ping_manager: &PingManager) -> TickInstant {

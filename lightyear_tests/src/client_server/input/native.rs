@@ -21,7 +21,7 @@ fn test_remote_client_replicated_entity_input() {
         .spawn(Replicate::to_clients(NetworkTarget::All))
         .id();
     
-    stepper.frame_step(1);
+    stepper.frame_step(2);
 
     let client_entity = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(server_entity)
         .expect("entity was not replicated to client");

@@ -19,6 +19,7 @@ use lightyear_netcode::{NetcodeClient, NetcodeServer};
 use lightyear_new::prelude::Link;
 use lightyear_new::prelude::{client, server, *};
 use lightyear_replication::prelude::{NetworkVisibilityPlugin, ReplicationReceiver, ReplicationSender};
+use lightyear_sync::prelude::client::{Input, Interpolation, IsSynced};
 
 const PROTOCOL_ID: u64 = 0;
 const KEY: [u8; 32] = [0; 32];
@@ -103,6 +104,11 @@ impl<const N: usize> ClientServerStepper<N> {
             };
             client_entities[client_id] = client_app.world_mut().spawn((
                 client::Client::default(),
+                // Send pings every frame, so that the Acks are sent every frame
+                PingManager::new(PingConfig {
+                    ping_interval: Duration::default(),
+                    ..default()
+                }, tick_duration),
                 ReplicationSender::default(),
                 ReplicationReceiver::default(),
                 NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
@@ -113,6 +119,11 @@ impl<const N: usize> ClientServerStepper<N> {
                     server: server_entity,
                     id: PeerId::Entity,
                 },
+                // Send pings every frame, so that the Acks are sent every frame
+                PingManager::new(PingConfig {
+                    ping_interval: Duration::default(),
+                    ..default()
+                }, tick_duration),
                 // TODO: we want the ReplicationSender/Receiver to be added automatically when ClientOf is created, but with configs pre-specified by the server
                 ReplicationSender::default(),
                 ReplicationReceiver::default(),
@@ -198,6 +209,7 @@ impl<const N: usize> ClientServerStepper<N> {
     pub(crate) fn wait_for_connection(&mut self) {
         for _ in 0..100 {
             if (0..N).all(|client_id| self.client(client_id).contains::<Connected>()) {
+                info!("Clients are all connected");
                 break
             }
             self.frame_step(1);
@@ -206,17 +218,13 @@ impl<const N: usize> ClientServerStepper<N> {
 
     // Advance the world until the client is synced
     pub(crate) fn wait_for_sync(&mut self) {
-        // for _ in 0..100 {
-        //     if self
-        //         .client_app
-        //         .world()
-        //         .resource::<client::ConnectionManager>()
-        //         .is_synced()
-        //     {
-        //         break;
-        //     }
-        //     self.frame_step();
-        // }
+        for _ in 0..100 {
+            if (0..N).all(|client_id| self.client(client_id).contains::<IsSynced<Input>>() && self.client(client_id).contains::<IsSynced<Interpolation>>()) {
+                info!("Clients are all synced");
+                break
+            }
+            self.frame_step(1);
+        }
     }
 
     pub(crate) fn advance_time(&mut self, duration: Duration) {
@@ -239,6 +247,7 @@ impl<const N: usize> ClientServerStepper<N> {
             self.advance_time(self.frame_duration);
             self.client_app.update();
             self.server_app.update();
+            info!(client_tick = ?self.client_tick(0), server_tick = ?self.server_tick(), "Frame step");
         }
     }
 
