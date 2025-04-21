@@ -95,7 +95,7 @@ crossbeam-channel = { version = "0.5.13", features = [] }
 metrics = "0.24"
 metrics-util = "0.19"
 metrics-tracing-context = "0.18"
-metrics-exporter-prometheus = { version = "0.16", default-features = false, features = [
+metrics-exporter-prometheus = { version = "0.17", default-features = false, features = [
   "http-listener",
 ] }
 
