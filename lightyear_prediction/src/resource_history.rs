@@ -3,7 +3,7 @@ use crate::manager::PredictionManager;
 use bevy::prelude::*;
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::LocalTimeline;
-use lightyear_sync::prelude::client::Input;
+use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::timeline::sync::SyncEvent;
 
 pub(crate) type ResourceHistory<R> = HistoryBuffer<R>;
@@ -14,7 +14,7 @@ pub(crate) type ResourceHistory<R> = HistoryBuffer<R>;
 /// The history buffer ticks are only relevant relative to the current client tick.
 /// (i.e. X ticks in the past compared to the current tick)
 pub(crate) fn handle_tick_event_resource_history<R: Resource>(
-    trigger: Trigger<SyncEvent<Input>>,
+    trigger: Trigger<SyncEvent<InputTimeline>>,
     res: Option<ResMut<ResourceHistory<R>>>,
 ) {
     if let Some(mut history) = res {

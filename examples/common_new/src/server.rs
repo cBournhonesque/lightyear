@@ -14,10 +14,8 @@ use bevy::ecs::world::DeferredWorld;
 #[cfg(not(target_family = "wasm"))]
 use bevy::tasks::IoTaskPool;
 
-use crate::client::{ClientTransports, ExampleClient};
 use crate::shared::SharedSettings;
-use lightyear::connection::client::Client;
-use lightyear::netcode::{NetcodeClient, NetcodeServer, PRIVATE_KEY_BYTES};
+use lightyear::netcode::{NetcodeServer, PRIVATE_KEY_BYTES};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use tracing::warn;

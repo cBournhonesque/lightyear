@@ -88,7 +88,7 @@ input_native = [
   "dep:lightyear_inputs",
   "dep:lightyear_inputs_native",
 ]
-input_leafwing = [
+leafwing = [
   "dep:lightyear_inputs",
   "dep:leafwing-input-manager",
   "dep:lightyear_inputs_leafwing",

@@ -23,8 +23,8 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(FixedUpdate, movement);
         app.add_observer(handle_connections);
         // app.add_systems(Update, (send_message, handle_connections));
-        #[cfg(not(feature = "client"))]
-        app.add_systems(Update, server_start_stop);
+        // #[cfg(not(feature = "client"))]
+        // app.add_systems(Update, server_start_stop);
     }
 }
 
@@ -101,21 +101,21 @@ fn movement(
     }
 }
 
-// only run this in dedicated server mode
-#[cfg(not(feature = "client"))]
-pub(crate) fn server_start_stop(
-    mut commands: Commands,
-    state: Res<State<NetworkingState>>,
-    input: Option<Res<ButtonInput<KeyCode>>>,
-) {
-    if input.is_some_and(|input| input.just_pressed(KeyCode::KeyS)) {
-        if state.get() == &NetworkingState::Stopped {
-            commands.start_server();
-        } else {
-            commands.stop_server();
-        }
-    }
-}
+// // only run this in dedicated server mode
+// #[cfg(not(feature = "client"))]
+// pub(crate) fn server_start_stop(
+//     mut commands: Commands,
+//     state: Res<State<NetworkingState>>,
+//     input: Option<Res<ButtonInput<KeyCode>>>,
+// ) {
+//     if input.is_some_and(|input| input.just_pressed(KeyCode::KeyS)) {
+//         if state.get() == &NetworkingState::Stopped {
+//             commands.start_server();
+//         } else {
+//             commands.stop_server();
+//         }
+//     }
+// }
 
 // TODO: how do we send a message to all clients of a server?
 //  we could just iterate through all clients, but ideally we only serialize once, no?

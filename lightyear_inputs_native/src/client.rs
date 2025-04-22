@@ -380,7 +380,7 @@ fn send_input_messages<A: UserAction>(
 
 /// In case the client tick changes suddenly, we also update the InputBuffer accordingly
 fn receive_tick_events<A: UserAction>(
-    trigger: Trigger<SyncEvent<Input>>,
+    trigger: Trigger<SyncEvent<InputTimeline>>,
     mut message_buffer: ResMut<MessageBuffer<A>>,
     mut input_buffer_query: Query<&mut InputBuffer<ActionState<A>>>,
 ) {

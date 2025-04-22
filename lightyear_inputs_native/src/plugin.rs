@@ -49,9 +49,11 @@ impl<A: UserAction + MapEntities> Plugin for InputPlugin<A> {
         app.register_required_components::<InputBuffer<ActionState<A>>, ActionState<A>>();
 
         // TODO: for simplicity, we currently register both client and server input plugins
+        #[cfg(feature="client")]
         app.add_plugins(super::client::ClientInputPlugin::<A>::new(
             self.config.clone(),
         ));
+        #[cfg(feature="server")]
         app.add_plugins(super::server::ServerInputPlugin::<A> {
             rebroadcast_inputs: self.config.rebroadcast_inputs,
             marker: core::marker::PhantomData,

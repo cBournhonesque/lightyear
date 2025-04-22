@@ -17,7 +17,7 @@ use lightyear_core::history_buffer::HistoryBuffer;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_replication::prelude::Confirmed;
 use lightyear_replication::registry::registry::ComponentRegistry;
-use lightyear_sync::prelude::client::Input;
+use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::timeline::sync::SyncEvent;
 
 pub(crate) type PredictionHistory<C> = HistoryBuffer<C>;
@@ -50,7 +50,7 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
 /// The history buffer ticks are only relevant relative to the current client tick.
 /// (i.e. X ticks in the past compared to the current tick)
 pub(crate) fn handle_tick_event_prediction_history<C: Component>(
-    trigger: Trigger<SyncEvent<Input>>,
+    trigger: Trigger<SyncEvent<InputTimeline>>,
     mut query: Query<(&mut PredictionHistory<C>, Option<&mut Correction<C>>)>,
 ) {
     // match *trigger.event() {

@@ -76,6 +76,7 @@ fn update_action_state<A: UserActionState>(
 
     let tick = timeline.tick();
     for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
+        trace!("entitk");
         // We only apply the ActionState from the buffer if we have one.
         // If we don't (because the input packet is late or lost), we won't do anything.
         // This is equivalent to considering that the player will keep playing the last action they played.

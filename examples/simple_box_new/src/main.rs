@@ -11,8 +11,10 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
+#[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
 use crate::protocol::ProtocolPlugin;
+#[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use bevy::prelude::*;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};

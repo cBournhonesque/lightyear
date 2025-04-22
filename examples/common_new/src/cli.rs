@@ -4,25 +4,18 @@
 #![allow(dead_code)]
 
 use core::time::Duration;
-use std::net::SocketAddr;
 use std::str::FromStr;
 
-use bevy::asset::ron;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 
-use bevy::diagnostic::{DiagnosticsPlugin, LogDiagnosticsPlugin};
+use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::state::app::StatesPlugin;
 use bevy::DefaultPlugins;
-use clap::{Parser, Subcommand, ValueEnum};
-
-use serde::{Deserialize, Serialize};
-use tracing::info;
+use clap::{Parser, Subcommand};
 
 #[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
-#[cfg(all(feature = "gui", feature = "server"))]
-use crate::server_renderer::ExampleServerRendererPlugin;
 #[cfg(feature = "gui")]
 use bevy::window::PresentMode;
 
@@ -63,11 +56,13 @@ impl Cli {
             }
             #[cfg(feature = "server")]
             Some(Mode::Server) => {
-                let mut app = if cfg!(feature = "gui") {
-                    new_gui_app(add_inspector)
-                } else {
-                    new_headless_app()
-                };
+                cfg_if::cfg_if! {
+                    if #[cfg(feature = "gui")] {
+                        let mut app = new_gui_app(add_inspector);
+                    } else {
+                        let mut app = new_headless_app();
+                    }
+                }
                 app.add_plugins(lightyear::prelude::server::ServerPlugins {
                     tick_duration,
                 });

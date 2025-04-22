@@ -22,7 +22,7 @@ lightyear_serde.workspace = true
 lightyear_connection = {workspace = true, features = ["client"]}
 lightyear_core.workspace = true
 lightyear_replication = {workspace = true, features = ["prediction", "interpolation"]}
-lightyear_sync.workspace = true
+lightyear_sync = {workspace = true, features = ["client"]}
 
 # utils
 seahash.workspace = true
