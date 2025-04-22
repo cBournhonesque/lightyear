@@ -11,9 +11,9 @@ use crate::shared;
 use bevy::app::PluginGroupBuilder;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use lightyear_new::prelude::input::native::*;
-use lightyear_new::prelude::server::*;
-use lightyear_new::prelude::*;
+use lightyear::prelude::input::native::*;
+use lightyear::prelude::server::*;
+use lightyear::prelude::*;
 
 pub struct ExampleServerPlugin;
 

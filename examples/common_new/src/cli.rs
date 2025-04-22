@@ -54,7 +54,7 @@ impl Cli {
             Some(Mode::Client { client_id }) => {
                 let mut app = new_gui_app(add_inspector);
                 app.add_plugins((
-                    lightyear_new::prelude::client::ClientPlugins {
+                    lightyear::prelude::client::ClientPlugins {
                         tick_duration,
                     },
                     ExampleClientRendererPlugin::new(String::new()),
@@ -68,7 +68,7 @@ impl Cli {
                 } else {
                     new_headless_app()
                 };
-                app.add_plugins(lightyear_new::prelude::server::ServerPlugins {
+                app.add_plugins(lightyear::prelude::server::ServerPlugins {
                     tick_duration,
                 });
                 app

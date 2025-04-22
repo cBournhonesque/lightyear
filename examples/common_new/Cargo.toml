@@ -13,10 +13,10 @@ exclude = ["/tests"]
 
 [features]
 default = ["client", "server", "gui", "netcode", "udp"]
-client = ["lightyear_new/client", "gui"]
-server = ["lightyear_new/server"]
-netcode = ["lightyear_new/netcode"]
-udp = ["lightyear_new/udp"]
+client = ["lightyear/client", "gui"]
+server = ["lightyear/server"]
+netcode = ["lightyear/netcode"]
+udp = ["lightyear/udp"]
 
 # this serves as a bit of "workspace-hack" crate by enabling all bevy features needed by examples.
 # you can read about workspace-hack crates here: https://docs.rs/cargo-hakari/latest/cargo_hakari/about/index.html
@@ -46,7 +46,7 @@ gui = [
 ]
 
 [dependencies]
-lightyear_new = {"workspace" = true, features = [
+lightyear = {"workspace" = true, features = [
   "prediction",
   "replication",
 ]}

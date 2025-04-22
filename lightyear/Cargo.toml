@@ -1,5 +1,5 @@
 [package]
-name = "lightyear_new"
+name = "lightyear"
 version.workspace = true
 authors.workspace = true
 rust-version.workspace = true

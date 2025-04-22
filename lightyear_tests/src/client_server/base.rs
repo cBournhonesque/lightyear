@@ -1,9 +1,9 @@
 use crate::protocol::StringMessage;
 use crate::stepper::ClientServerStepper;
+use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 use lightyear_connection::server::Started;
 use lightyear_crossbeam::CrossbeamIo;
-use lightyear_new::prelude::client::*;
-use lightyear_new::prelude::*;
 
 /// Check that the client/server setup is correct:
 /// - the various components we expect are present

@@ -1,10 +1,10 @@
 use crate::protocol::NativeInput as MyInput;
 use crate::stepper::ClientServerStepper;
+use lightyear::input::native::prelude::InputMarker;
+use lightyear::input::prelude::InputBuffer;
+use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
-use lightyear_new::input::native::prelude::InputMarker;
-use lightyear_new::input::prelude::InputBuffer;
-use lightyear_new::prelude::input::native::ActionState;
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
 use test_log::test;

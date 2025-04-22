@@ -16,10 +16,10 @@ use bevy::tasks::IoTaskPool;
 
 use crate::client::{ClientTransports, ExampleClient};
 use crate::shared::SharedSettings;
-use lightyear_new::connection::client::Client;
-use lightyear_new::netcode::{NetcodeClient, NetcodeServer, PRIVATE_KEY_BYTES};
-use lightyear_new::prelude::server::*;
-use lightyear_new::prelude::*;
+use lightyear::connection::client::Client;
+use lightyear::netcode::{NetcodeClient, NetcodeServer, PRIVATE_KEY_BYTES};
+use lightyear::prelude::server::*;
+use lightyear::prelude::*;
 use tracing::warn;
 
 /// Read certificate digest from alternate sources, for WASM builds.

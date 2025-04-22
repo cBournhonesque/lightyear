@@ -11,7 +11,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 [features]
 default = [
     "std",
-    "lightyear_new/interpolation"
+    "lightyear/interpolation"
 ]
 std = [
     "bevy/std",
@@ -25,7 +25,7 @@ std = [
 
 
 [dependencies]
-lightyear_new = { workspace = true, features = [
+lightyear = { workspace = true, features = [
     "client", "server", "crossbeam", "netcode", "input_native", "prediction"
 ]}
 lightyear_macros.workspace = true

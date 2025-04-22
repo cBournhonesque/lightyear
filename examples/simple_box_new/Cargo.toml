@@ -15,14 +15,14 @@ publish = false
 default = ["client", "gui", "server", "netcode", "udp"]
 client = [
   "gui",
-  "lightyear_new/client",
+  "lightyear/client",
   "lightyear_examples_common_new/client"
 ]
 gui = [
   "lightyear_examples_common_new/gui"
 ]
 server = [
-  "lightyear_new/server",
+  "lightyear/server",
   "lightyear_examples_common_new/server"
 ]
 netcode = [
@@ -31,8 +31,8 @@ netcode = [
 udp = [
   "lightyear_examples_common_new/udp",
   # udp requires std
-  "lightyear_new/std",
-  "lightyear_new/udp",
+  "lightyear/std",
+  "lightyear/udp",
 ]
 #default = ["client", "server", "gui", "lightyear_examples_common/default"]
 #websocket = ["lightyear_examples_common/websocket"]
@@ -47,7 +47,7 @@ udp = [
 #visualizer = ["lightyear_examples_common/visualizer", "gui"]
 
 [dependencies]
-lightyear_new = { "workspace" = true, features = [
+lightyear = { "workspace" = true, features = [
   "input_native",
 ]}
 lightyear_examples_common_new.workspace = true

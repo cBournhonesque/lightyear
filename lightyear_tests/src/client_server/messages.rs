@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::stepper::ClientServerStepper;
-use lightyear_new::prelude::*;
+use lightyear::prelude::*;
 use tracing::trace;
 
 /// Check that the client/server setup is correct:

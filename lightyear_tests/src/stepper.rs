@@ -8,6 +8,8 @@ use bevy::time::TimeUpdateStrategy;
 use bevy::MinimalPlugins;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
+use lightyear::prelude::Link;
+use lightyear::prelude::{client, server, *};
 use lightyear_connection::client::{Connect, Connected};
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::id::PeerId;
@@ -17,8 +19,6 @@ use lightyear_core::tick::Tick;
 use lightyear_netcode::auth::Authentication;
 use lightyear_netcode::client_plugin::NetcodeConfig;
 use lightyear_netcode::{NetcodeClient, NetcodeServer};
-use lightyear_new::prelude::Link;
-use lightyear_new::prelude::{client, server, *};
 use lightyear_replication::prelude::{NetworkVisibilityPlugin, ReplicationReceiver, ReplicationSender};
 use lightyear_sync::prelude::client::{Input, Interpolation, InterpolationTimeline, IsSynced};
 

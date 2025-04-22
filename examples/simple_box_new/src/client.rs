@@ -16,12 +16,12 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use core::time::Duration;
+use lightyear::prelude::client::input::*;
+use lightyear::prelude::client::*;
+use lightyear::prelude::input::native::*;
+use lightyear::prelude::input::*;
+use lightyear::prelude::*;
 use lightyear_examples_common_new::client::ExampleClient;
-use lightyear_new::prelude::client::input::*;
-use lightyear_new::prelude::client::*;
-use lightyear_new::prelude::input::native::*;
-use lightyear_new::prelude::input::*;
-use lightyear_new::prelude::*;
 
 pub struct ExampleClientPlugin;
 

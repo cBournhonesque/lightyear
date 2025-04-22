@@ -15,11 +15,11 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::tasks::IoTaskPool;
 
 use crate::shared::SharedSettings;
-use lightyear_new::input::prelude::InputBuffer;
-use lightyear_new::netcode::client_plugin::NetcodeConfig;
-use lightyear_new::netcode::{NetcodeClient, PRIVATE_KEY_BYTES};
-use lightyear_new::prelude::client::*;
-use lightyear_new::prelude::*;
+use lightyear::input::prelude::InputBuffer;
+use lightyear::netcode::client_plugin::NetcodeConfig;
+use lightyear::netcode::{NetcodeClient, PRIVATE_KEY_BYTES};
+use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 use tracing::warn;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]

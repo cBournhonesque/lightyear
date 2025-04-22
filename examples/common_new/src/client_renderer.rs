@@ -2,8 +2,8 @@ use bevy::picking::prelude::{Click, Pointer};
 use bevy::prelude::*;
 #[cfg(feature = "bevygap_client")]
 use bevygap_client_plugin::prelude::*;
-use lightyear_new::connection::client::ClientState;
-use lightyear_new::prelude::client::*;
+use lightyear::connection::client::ClientState;
+use lightyear::prelude::client::*;
 
 pub struct ExampleClientRendererPlugin {
     /// The name of the example, which must also match the edgegap application name.
@@ -112,7 +112,7 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                 .observe(
                     |_: Trigger<Pointer<Click>>,
                      mut commands: Commands,
-                     query: Query<(Entity, &lightyear_new::connection::client::Client)>| {
+                     query: Query<(Entity, &lightyear::connection::client::Client)>| {
                         let Ok((entity, client)) = query.get_single() else {
                             return;
                         };
