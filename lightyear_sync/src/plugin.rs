@@ -1,9 +1,12 @@
 use crate::ping::manager::PingManager;
 use crate::ping::plugin::PingPlugin;
+use crate::prelude::InputTimeline;
 use crate::timeline::sync::{IsSynced, SyncedTimeline};
 use crate::timeline::DrivingTimeline;
 use bevy::app::{App, FixedFirst, Plugin};
 use bevy::prelude::*;
+use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::time::TickDelta;
 use lightyear_core::timeline::{NetworkTimeline, NetworkTimelinePlugin};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -13,11 +16,14 @@ pub enum SyncSet {
 }
 
 
-pub struct SyncedTimelinePlugin<Synced, Remote>{
+/// Plugin to sync the Synced timeline to the Remote timeline
+///
+/// The const generic is used to indicate if the timeline is driving/updating the Time<Virtual> and LocalTimeline.
+pub struct SyncedTimelinePlugin<Synced, Remote, const DRIVING: bool = false>{
     pub(crate) _marker: core::marker::PhantomData<(Synced, Remote)>,
 }
 
-impl<Synced, Remote> Default for SyncedTimelinePlugin<Synced, Remote> {
+impl<Synced, Remote, const DRIVING: bool> Default for SyncedTimelinePlugin<Synced, Remote, DRIVING> {
     fn default() -> Self {
         Self {
             _marker: core::marker::PhantomData,
@@ -25,8 +31,8 @@ impl<Synced, Remote> Default for SyncedTimelinePlugin<Synced, Remote> {
     }
 }
 
-impl<Synced: SyncedTimeline, Remote: NetworkTimeline + Default> Plugin
-for SyncedTimelinePlugin<Synced, Remote>
+impl<Synced: SyncedTimeline, Remote: NetworkTimeline + Default, const DRIVING: bool> Plugin
+for SyncedTimelinePlugin<Synced, Remote, DRIVING>
 {
     fn build(&self, app: &mut App) {
         app.add_plugins(NetworkTimelinePlugin::<Synced>::default());
@@ -36,14 +42,16 @@ for SyncedTimelinePlugin<Synced, Remote>
         app.add_systems(FixedFirst, SyncPlugin::advance_synced_timelines::<Synced>);
         // NOTE: we don't have to run this in PostUpdate, we could run this right after RunFixedMainLoop?
         app.add_systems(PostUpdate,
-            SyncPlugin::sync_timelines::<Synced, Remote>.in_set(SyncSet::Sync));
+            SyncPlugin::sync_timelines::<Synced, Remote, DRIVING>.in_set(SyncSet::Sync));
+        if DRIVING {
+            app.add_systems(Last, SyncPlugin::update_virtual_time::<Synced>);
+        }
     }
 }
 
 pub struct SyncPlugin;
 
 impl SyncPlugin {
-
 
     pub(crate) fn update_virtual_time<Synced: SyncedTimeline>(
         mut virtual_time: ResMut<Time<Virtual>>,
@@ -77,16 +85,20 @@ impl SyncPlugin {
     /// Sync timeline T to timeline Remote by either
     /// - speeding up/slowing down the timeline T to match timeline Remote
     /// - emitting a SyncEvent<T>
-    pub(crate) fn sync_timelines<Synced: SyncedTimeline, Remote: NetworkTimeline> (
+    pub(crate) fn sync_timelines<Synced: SyncedTimeline, Remote: NetworkTimeline, const DRIVING: bool> (
         mut commands: Commands,
-        mut query: Query<(Entity, &mut Synced, &Remote, &PingManager, Has<IsSynced<Synced>>)>,
+        mut query: Query<(Entity, &mut Synced, &Remote, &mut LocalTimeline, &PingManager, Has<IsSynced<Synced>>)>,
     ) {
-        query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, ping_manager, has_is_synced)| {
+        query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, mut local_timeline, ping_manager, has_is_synced)| {
             if !has_is_synced && sync_timeline.is_synced()  {
                 trace!("Timeline {:?} is synced to {:?}", core::any::type_name::<Synced>(), core::any::type_name::<Remote>());
                 commands.entity(entity).insert(IsSynced::<Synced>::default());
             }
             if let Some(sync_event) = sync_timeline.sync(main_timeline, ping_manager) {
+                // if it's the driving pipeline, also update the LocalTimeline
+                if DRIVING {
+                    local_timeline.apply_delta(TickDelta::from_i16(sync_event.tick_delta));
+                }
                 commands.trigger_targets(sync_event, entity);
             }
         })

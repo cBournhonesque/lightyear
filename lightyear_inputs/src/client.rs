@@ -123,16 +123,16 @@ fn buffer_action_state<A: UserActionState, F: Component>(
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
-    sender: Single<(&InputTimeline, &LocalTimeline)>,
+    sender: Single<(&InputTimeline, &LocalTimeline), With<IsSynced<InputTimeline>>>,
     mut action_state_query: Query<(Entity, &A, &mut InputBuffer<A>), With<F>>,
 ) {
-    let (timeline, local_timeline) = sender.into_inner();
+    let (input_timeline, local_timeline) = sender.into_inner();
     // In rollback, we don't want to write any inputs
-    if local_timeline.is_rollback() {
+    if input_timeline.is_rollback() {
         return;
     }
-    let current_tick = timeline.tick();
-    let tick = current_tick + timeline.input_delay() as i16;
+    let current_tick = local_timeline.tick();
+    let tick = current_tick + input_timeline.input_delay() as i16;
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         input_buffer.set(tick, action_state.clone());
         trace!(
@@ -167,7 +167,7 @@ fn get_action_state<A: UserActionState>(
 ) {
     let (local_timeline, input_timeline) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
-    let tick = if !local_timeline.is_rollback() {
+    let tick = if !input_timeline.is_rollback() {
         // If there is no rollback and no input_delay, we just buffered the input so there is nothing to do.
         if input_delay == 0 {
             return;
@@ -176,7 +176,7 @@ fn get_action_state<A: UserActionState>(
         local_timeline.tick()
     } else {
         // If there is rollback, we fetch it from the InputBuffer for the rollback tick.
-        local_timeline.get_rollback_tick().unwrap()
+        input_timeline.get_rollback_tick().unwrap()
     };
 
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
@@ -208,11 +208,11 @@ fn get_delayed_action_state<A: UserActionState, F: Component>(
         With<F>,
     >,
 ) {
-    let Ok((timeline, local_timeline)) = sender.single() else {
+    let Ok((input_timeline, local_timeline)) = sender.single() else {
         return;
     };
-    let input_delay_ticks = timeline.input_delay() as i16;
-    if local_timeline.is_rollback() || input_delay_ticks == 0 {
+    let input_delay_ticks = input_timeline.input_delay() as i16;
+    if input_timeline.is_rollback() || input_delay_ticks == 0 {
         return;
     }
     let delayed_tick = local_timeline.tick() + input_delay_ticks;
@@ -238,10 +238,10 @@ fn clean_buffers<A: UserAction>(
     sender: Query<&LocalTimeline, With<InputTimeline>>,
     mut input_buffer_query: Query<&mut InputBuffer<A>>,
 ) {
-    let Ok(timeline) = sender.single() else {
+    let Ok(local_timeline) = sender.single() else {
         return;
     };
-    let old_tick = timeline.tick() - 20;
+    let old_tick = local_timeline.tick() - 20;
 
     // trace!(
     //     "popping all input buffers since old tick: {old_tick:?}",

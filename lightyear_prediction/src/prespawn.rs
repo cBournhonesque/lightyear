@@ -16,6 +16,7 @@ use lightyear_replication::control::Controlled;
 use lightyear_replication::prelude::{Confirmed, ReplicateLike, ReplicationReceiver, ShouldBePredicted};
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_replication::registry::ComponentKind;
+use lightyear_sync::prelude::InputTimeline;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, trace, warn};
 
@@ -54,15 +55,13 @@ impl PreSpawnedPlugin {
             // run this only when the component was added on a client-spawned entity (not server-replicated)
             Without<Replicated>,
         >,
-        manager_query: Single<(&LocalTimeline, &mut PredictionManager)>,
+        manager_query: Single<(&LocalTimeline, &InputTimeline, &mut PredictionManager)>,
     ) {
         let entity = trigger.target();
         if let Ok(prespawn) = query.get(entity) {
-            let (timeline, mut prediction_manager) = manager_query.into_inner();
-
+            let (timeline, input_timeline, mut prediction_manager) = manager_query.into_inner();
             // get the rollback tick if the pre-spawned entity is being recreated during rollback!
-            let tick = timeline.tick_or_rollback_tick();
-
+            let tick = input_timeline.tick_or_rollback_tick(timeline.tick());
 
             // the hash can be None when PreSpawned is inserted, but the component
             // hook will calculate it, so it can't be None here.
@@ -316,8 +315,9 @@ impl Component for PreSpawned {
             // ignore replicated entities, we only want to iterate through entities spawned on the client directly
             let components = deferred_world.components();
             let link_entity = deferred_world.resource::<PredictionResource>().link_entity;
-            let local_timeline  = deferred_world.get::<LocalTimeline>(link_entity).unwrap();
-            let tick = local_timeline.tick_or_rollback_tick();
+            let tick  = deferred_world.get::<LocalTimeline>(link_entity).unwrap().tick();
+            let input_timeline  = deferred_world.get::<InputTimeline>(link_entity).unwrap();
+            let tick = input_timeline.tick_or_rollback_tick(tick);
             let component_registry = deferred_world.resource::<ComponentRegistry>();
             let entity_ref = deferred_world.entity(entity);
             let hash = compute_default_hash(

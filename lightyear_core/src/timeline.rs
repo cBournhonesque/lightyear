@@ -10,7 +10,7 @@ use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 use parking_lot::RwLock;
 
-#[derive(Default, Debug, Reflect)]
+#[derive(Default, Debug, Clone, Reflect)]
 pub struct Timeline<T: TimelineContext> {
     pub context: T,
     pub tick_duration: Duration,
@@ -146,74 +146,14 @@ pub enum RollbackState {
     },
 }
 
-impl LocalTimeline {
-    pub fn tick_or_rollback_tick(&self) -> Tick {
-        if self.is_rollback() {
-            self.get_rollback_tick().unwrap_or_default()
-        } else {
-            self.tick()
-        }
-    }
-}
-
-impl Local {
-    pub(crate) fn new(rollback: RollbackState) -> Self {
-        Self {
-            rollback: RwLock::new(rollback),
-        }
-    }
-
-    /// Returns true if we are currently in a rollback state
-    pub fn is_rollback(&self) -> bool {
-        match *self.rollback.read().deref() {
-            RollbackState::ShouldRollback { .. } => true,
-            RollbackState::Default => false,
-        }
-    }
-
-
-
-    /// Get the current rollback tick
-    pub fn get_rollback_tick(&self) -> Option<Tick> {
-        match *self.rollback.read().deref() {
-            RollbackState::ShouldRollback { current_tick } => Some(current_tick),
-            RollbackState::Default => None,
-        }
-    }
-
-    /// Increment the rollback tick
-    pub fn increment_rollback_tick(&self) {
-        if let RollbackState::ShouldRollback {
-            ref mut current_tick,
-        } = *self.rollback.write().deref_mut()
-        {
-            *current_tick += 1;
-        }
-    }
-
-    /// Set the rollback state back to non-rollback
-    pub fn set_non_rollback(&self) {
-        *self.rollback.write().deref_mut() = RollbackState::Default;
-    }
-
-    /// Set the rollback state to `ShouldRollback` with the given tick
-    pub fn set_rollback_tick(&self, tick: Tick) {
-        *self.rollback.write().deref_mut() = RollbackState::ShouldRollback { current_tick: tick };
-    }
-}
+impl Local {}
 
 
 /// The local timeline that matches Time<Virtual>
 /// - the Tick is incremented every FixedUpdate
 /// - the overstep is set by the overstep of Time<Fixed>
 #[derive(Default, Clone, Reflect)]
-pub struct Local {
-    // TODO: move this to InputTimeline
-    /// We use a RwLock because we want to be able to update this value from multiple systems
-    /// in parallel.
-    #[reflect(ignore)]
-    pub rollback: RwLock<RollbackState>,
-}
+pub struct Local;
 
 #[derive(Component, Deref, DerefMut, Default, Clone, Reflect)]
 #[component(on_add = LocalTimeline::on_add)]

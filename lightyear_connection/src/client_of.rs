@@ -145,9 +145,11 @@ impl ClientOf {
             );
             world.commands().entity(entity).remove::<Self>();
         }
-        let server_timeline = world.get::<LocalTimeline>(target_entity).unwrap();
+
+        // make client_of's timeline match the server's timeline
+        let server_timeline = world.get::<LocalTimeline>(target_entity).unwrap().clone();
         let mut timeline = world.get_mut::<LocalTimeline>(entity).unwrap();
-        timeline = server_timeline.clone();
+        *timeline = server_timeline;
     }
 
     fn on_replace(

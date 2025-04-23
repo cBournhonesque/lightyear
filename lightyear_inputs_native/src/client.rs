@@ -158,7 +158,7 @@ fn prepare_input_message<A: UserAction>(
 ) {
     let ((local_timeline, input_timeline, message_manager)) = sender.into_inner();
     // no need to prepare messages to send if in rollback
-    if local_timeline.is_rollback() {
+    if input_timeline.is_rollback() {
         return
     };
 

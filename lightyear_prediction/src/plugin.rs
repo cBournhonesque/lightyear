@@ -29,6 +29,7 @@ use bevy::reflect::Reflect;
 use core::time::Duration;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_replication::prelude::ReplicationSet;
+use lightyear_sync::prelude::InputTimeline;
 
 /// Plugin that enables client-side prediction
 #[derive(Default)]
@@ -85,7 +86,7 @@ pub enum PredictionSet {
 }
 
 /// Returns true if we are doing rollback
-pub fn is_in_rollback(query: Single<&LocalTimeline, With<PredictionManager>>) -> bool {
+pub fn is_in_rollback(query: Single<&InputTimeline, With<PredictionManager>>) -> bool {
     query.is_rollback()
 }
 

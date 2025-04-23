@@ -12,6 +12,9 @@
     - client: just spawn a client
     - server: can start a separate app, etc.
 
+TODO:
+- why are we sending so many packets from the server? is the ping manager not working?
+
 # Inputs
 - client connects to to server
 - server spawns a player entity for them, with ControlledBy

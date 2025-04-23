@@ -7,7 +7,7 @@ use crate::timeline::input::Input;
 #[cfg(feature = "interpolation")]
 use crate::timeline::interpolation::InterpolationTimeline;
 use crate::timeline::sync::{SyncEvent, SyncedTimeline};
-use crate::timeline::{remote, DrivingTimeline};
+use crate::timeline::remote;
 use bevy::prelude::*;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin};
 use lightyear_core::time::TickDelta;
@@ -64,22 +64,18 @@ impl Plugin for ClientPlugin {
 
         app.add_observer(Input::recompute_input_delay);
 
-        app.add_plugins(SyncedTimelinePlugin::<InputTimeline, RemoteTimeline>::default());
+        // TODO: should the DrivingTimeline be configurable?
+        // the client will use the Input timeline as the driving timeline
+        app.add_plugins(SyncedTimelinePlugin::<InputTimeline, RemoteTimeline, true>::default());
 
         #[cfg(feature = "interpolation")]
         app.add_plugins(SyncedTimelinePlugin::<InterpolationTimeline, RemoteTimeline>::default());
 
+        // remote timeline
         app.add_plugins(NetworkTimelinePlugin::<RemoteTimeline>::default());
-
         app.add_observer(remote::update_remote_timeline);
         // app.add_systems(First, remote::advance_remote_timeline.after(time_system));
         app.add_systems(FixedFirst, remote::advance_remote_timeline);
-
-        // TODO: should the DrivingTimeline be configurable?
-        // the client will use the Input timeline as the driving timeline
-        app.register_required_components::<InputTimeline, DrivingTimeline<InputTimeline>>();
-
-        app.add_systems(Last, SyncPlugin::update_virtual_time::<InputTimeline>);
     }
 }
 
