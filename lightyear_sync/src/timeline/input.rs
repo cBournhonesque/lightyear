@@ -21,6 +21,7 @@ pub struct Input {
     relative_speed: f32,
 
     pub(crate) input_delay_config: InputDelayConfig,
+    is_synced: bool,
 
 }
 
@@ -53,6 +54,7 @@ impl Default for Input {
             input_delay_ticks: 0,
             relative_speed: 1.0,
             input_delay_config: InputDelayConfig::no_input_delay(),
+            is_synced: false,
         }
     }
 }
@@ -193,6 +195,7 @@ impl SyncedTimeline for InputTimeline {
         if ping_manager.pongs_recv < self.context.config.handshake_pings as u32 {
             return None
         }
+        self.is_synced = true;
         // TODO: should we call current_estimate()? now() should basically return the same thing
         let now = self.now();
         let objective = self.sync_objective(main, ping_manager);
@@ -213,17 +216,12 @@ impl SyncedTimeline for InputTimeline {
             };
             self.set_relative_speed(ratio);
         }
-        // if it's the first time, we still send a SyncEvent (so that IsSynced is inserted)
-        if ping_manager.pongs_recv == self.context.config.handshake_pings as u32 {
-            return Some(SyncEvent::new(0));
-        }
         None
     }
 
 
-    // TODO: do we want this or do we want a marker component to check if the timline is synced?
     fn is_synced(&self) -> bool {
-        todo!()
+        self.is_synced
     }
 
     fn relative_speed(&self) -> f32 {

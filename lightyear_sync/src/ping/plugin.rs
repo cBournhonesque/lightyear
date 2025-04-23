@@ -123,7 +123,4 @@ impl Plugin for PingPlugin {
         app.add_observer(Self::update_tick_duration);
     }
 
-    fn finish(&self, app: &mut App) {
-        // todo!("Add ping and pong here?")
-    }
 }

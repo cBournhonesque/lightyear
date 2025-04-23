@@ -14,7 +14,6 @@ use lightyear_messages::Message;
 use lightyear_transport::channel::registry::ChannelRegistration;
 use lightyear_transport::channel::Channel;
 use lightyear_transport::prelude::{ChannelRegistry, Transport};
-use serde::{Deserialize, Serialize};
 
 impl ClientOf {
     pub(crate) fn add_sender_channel<C: Channel>(trigger: Trigger<OnAdd, ClientOf>, mut query: Query<&mut Transport>, registry: Res<ChannelRegistry>) {
@@ -33,36 +32,6 @@ impl ClientOf {
 
 #[derive(Component)]
 struct ConnectedOn;
-
-/// Reasons for denying a connection request
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub enum DeniedReason {
-    ServerFull,
-    Banned,
-    InternalError,
-    AlreadyConnected,
-    TokenAlreadyUsed,
-    InvalidToken,
-    Custom(String),
-}
-
-/// Trait for handling connection requests from clients.
-pub trait ConnectionRequestHandler: Debug + Send + Sync {
-    /// Handle a connection request from a client.
-    /// Returns None if the connection is accepted,
-    /// Returns Some(reason) if the connection is denied.
-    fn handle_request(&self, client_id: PeerId) -> Option<DeniedReason>;
-}
-
-/// By default, all connection requests are accepted by the server.
-#[derive(Debug, Clone)]
-pub struct DefaultConnectionRequestHandler;
-
-impl ConnectionRequestHandler for DefaultConnectionRequestHandler {
-    fn handle_request(&self, client_id: PeerId) -> Option<DeniedReason> {
-        None
-    }
-}
 
 
 /// A dummy connection plugin that takes payloads directly from the Link

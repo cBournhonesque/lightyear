@@ -137,6 +137,7 @@ pub(crate) fn update_remote_timeline(
     mut query: Query<(&mut RemoteTimeline, &PingManager)>,
 ) {
     if let Ok((mut t, ping_manager)) = query.get_mut(trigger.target()) {
+        trace!("Received packet received with remote tick {:?}", trigger.remote_tick);
         t.update(trigger.remote_tick, ping_manager);
     }
 }

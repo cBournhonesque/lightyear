@@ -79,13 +79,15 @@ impl SyncPlugin {
     /// - emitting a SyncEvent<T>
     pub(crate) fn sync_timelines<Synced: SyncedTimeline, Remote: NetworkTimeline> (
         mut commands: Commands,
-        mut query: Query<(Entity, &mut Synced, &Remote, &PingManager)>,
+        mut query: Query<(Entity, &mut Synced, &Remote, &PingManager, Has<IsSynced<Synced>>)>,
     ) {
-        query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, ping_manager)| {
+        query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, ping_manager, has_is_synced)| {
+            if !has_is_synced && sync_timeline.is_synced()  {
+                trace!("Timeline {:?} is synced to {:?}", core::any::type_name::<Synced>(), core::any::type_name::<Remote>());
+                commands.entity(entity).insert(IsSynced::<Synced>::default());
+            }
             if let Some(sync_event) = sync_timeline.sync(main_timeline, ping_manager) {
                 commands.trigger_targets(sync_event, entity);
-                commands.entity(entity).insert(IsSynced::<Synced>::default());
-                // trace!("Timeline {:?} is synced to {:?}", core::any::type_name::<Synced>(), core::any::type_name::<Remote>());
             }
         })
     }

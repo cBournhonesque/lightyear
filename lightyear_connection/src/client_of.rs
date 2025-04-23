@@ -15,6 +15,7 @@ use tracing::warn;
 use crate::prelude::NetworkTarget;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec, vec::Vec};
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 
 /// Marker component to identify this entity as a Client
 #[derive(Component, Default, Debug, PartialEq, Eq)]
@@ -144,6 +145,9 @@ impl ClientOf {
             );
             world.commands().entity(entity).remove::<Self>();
         }
+        let server_timeline = world.get::<LocalTimeline>(target_entity).unwrap();
+        let mut timeline = world.get_mut::<LocalTimeline>(entity).unwrap();
+        timeline = server_timeline.clone();
     }
 
     fn on_replace(

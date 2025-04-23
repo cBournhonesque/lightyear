@@ -12,7 +12,9 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashSet;
 use bevy::prelude::{Component, Entity, Reflect, With, World};
 use bevy::time::{Timer, TimerMode};
+#[cfg(feature = "client")]
 use lightyear_connection::client::Client;
+#[cfg(feature = "server")]
 use lightyear_connection::client_of::{ClientOf, Server};
 use lightyear_connection::id::PeerId;
 use lightyear_connection::network_target::NetworkTarget;

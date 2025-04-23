@@ -206,15 +206,16 @@ impl Local {
 /// The local timeline that matches Time<Virtual>
 /// - the Tick is incremented every FixedUpdate
 /// - the overstep is set by the overstep of Time<Fixed>
-#[derive(Default, Reflect)]
+#[derive(Default, Clone, Reflect)]
 pub struct Local {
+    // TODO: move this to InputTimeline
     /// We use a RwLock because we want to be able to update this value from multiple systems
     /// in parallel.
     #[reflect(ignore)]
     pub rollback: RwLock<RollbackState>,
 }
 
-#[derive(Component, Deref, DerefMut, Default, Reflect)]
+#[derive(Component, Deref, DerefMut, Default, Clone, Reflect)]
 #[component(on_add = LocalTimeline::on_add)]
 pub struct LocalTimeline(Timeline<Local>);
 

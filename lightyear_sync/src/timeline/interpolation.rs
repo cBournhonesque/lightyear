@@ -52,15 +52,14 @@ impl InterpolationConfig {
     }
 }
 
-#[derive(Component, Default, Reflect)]
+#[derive(Default, Reflect)]
 pub struct Interpolation {
     tick_duration: Duration,
 
     pub(crate) remote_send_interval: Duration,
     pub(crate) interpolation_config: InterpolationConfig,
     pub(crate) sync_config: SyncConfig,
-    pub(crate) relative_speed: f32,
-    pub(crate) now: TickInstant,
+    is_synced: bool,
 }
 
 
@@ -116,6 +115,7 @@ impl SyncedTimeline for InterpolationTimeline {
         if ping_manager.pongs_recv < self.context.sync_config.handshake_pings as u32 {
             return None
         }
+        self.is_synced = true;
         // TODO: should we call current_estimate()? now() should basically return the same thing
         let target = main.now();
         let objective = self.sync_objective(main, ping_manager);
@@ -141,9 +141,8 @@ impl SyncedTimeline for InterpolationTimeline {
         None
     }
 
-    // TODO: do we want this or do we want a marker component to check if the timline is synced?
     fn is_synced(&self) -> bool {
-        todo!()
+        self.is_synced
     }
 
     fn relative_speed(&self) -> f32 {

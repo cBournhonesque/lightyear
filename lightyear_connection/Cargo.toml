@@ -21,6 +21,7 @@ server = []
 
 [dependencies]
 # local crates
+lightyear_core.workspace = true
 lightyear_link.workspace = true
 lightyear_messages.workspace = true
 lightyear_transport.workspace = true

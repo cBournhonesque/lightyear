@@ -134,10 +134,13 @@ pub use client_plugin::NetcodeClient;
 pub use crypto::{generate_key, try_generate_key, Key};
 pub use error::{Error, Result};
 #[cfg(feature = "server")]
-pub use server::{Callback, ClientId, Server, ServerConfig};
+pub use server::{Callback, Server, ServerConfig};
 #[cfg(feature = "server")]
 pub use server_plugin::NetcodeServer;
 pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
+
+/// The client id from a connect token, must be unique for each client.
+pub(crate) type ClientId = u64;
 
 mod bytes;
 #[cfg(feature = "client")]

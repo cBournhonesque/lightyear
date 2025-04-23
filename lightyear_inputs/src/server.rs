@@ -64,19 +64,19 @@ impl<A: UserActionState> Plugin for BaseInputPlugin<A> {
 /// Read the InputState for the current tick from the buffer, and use them to update the ActionState
 fn update_action_state<A: UserActionState>(
     // TODO: what if there are multiple servers? maybe we can use Replicate to figure out which inputs should be replicating on which servers?
-    //  and use the timeline from that connection?
+    //  and use the timeline from that connection? i.e. find from which entity we got the first InputMessage?
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
-    server: Query<&LocalTimeline, With<Started>>,
+    server: Query<(Entity, &LocalTimeline), With<Started>>,
     mut action_state_query: Query<(Entity, &mut A, &mut InputBuffer<A>)>,
 ) {
-    let Ok(timeline) = server.single() else {
+    let Ok((server, timeline)) = server.single() else {
         // We don't have a server timeline, so we can't update the action state
         return;
     };
 
     let tick = timeline.tick();
     for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
-        trace!("entitk");
+        trace!(?tick, ?server, ?input_buffer, "input buffer on server");
         // We only apply the ActionState from the buffer if we have one.
         // If we don't (because the input packet is late or lost), we won't do anything.
         // This is equivalent to considering that the player will keep playing the last action they played.

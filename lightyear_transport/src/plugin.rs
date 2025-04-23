@@ -86,6 +86,7 @@ impl TransportPlugin {
                 // Parse the packet
                 let header = PacketHeader::from_bytes(&mut cursor)?;
                 let tick = header.tick;
+                info!(remote_tick = ?tick, "Receive packet");
 
                 // TODO: maybe switch to event buffer instead of triggers?
                 par_commands.command_scope(|mut commands| {
@@ -164,11 +165,12 @@ impl TransportPlugin {
     /// Upload the packets to the [`Link`]
     fn buffer_send(
         real_time: Res<Time<Real>>,
-        mut query: Query<(&mut Link, &mut Transport, &LocalTimeline)>,
+        mut query: Query<(Entity, &mut Link, &mut Transport, &LocalTimeline)>,
         channel_registry: Res<ChannelRegistry>,
     ) {
-        query.par_iter_mut().for_each(|(mut link, mut transport, timeline)| {
+        query.par_iter_mut().for_each(|(entity, mut link, mut transport, timeline)| {
             let tick = timeline.tick();
+            info!(?tick, ?entity, "Send packet");
             // allow split borrows
             let mut transport = &mut *transport;
 

@@ -10,21 +10,14 @@ use no_std_io2::io;
 use no_std_io2::io::Seek;
 use tracing::{debug, error, trace, warn};
 
-use super::{
-    bytes::Bytes,
-    crypto::{self, Key},
-    error::{Error, Result},
-    packet::{
-        ChallengePacket, DeniedPacket, DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket,
-        RequestPacket, ResponsePacket,
-    },
-    replay::ReplayProtection,
-    token::{ChallengeToken, ConnectToken, ConnectTokenBuilder, ConnectTokenPrivate},
-    MAC_BYTES, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
-};
+use super::{bytes::Bytes, crypto::{self, Key}, error::{Error, Result}, packet::{
+    ChallengePacket, DeniedPacket, DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket,
+    RequestPacket, ResponsePacket,
+}, replay::ReplayProtection, token::{ChallengeToken, ConnectToken, ConnectTokenBuilder, ConnectTokenPrivate}, ClientId, MAC_BYTES, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC};
 use crate::token::TOKEN_EXPIRE_SEC;
 use lightyear_connection::id;
-use lightyear_connection::server::{ConnectionError, ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason};
+use lightyear_connection::server::ConnectionError;
+use lightyear_connection::shared::{ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason};
 use lightyear_link::{Link, LinkReceiver, LinkSender, RecvPayload, SendPayload};
 use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::writer::Writer;
@@ -111,8 +104,7 @@ impl Connection {
     }
 }
 
-/// The client id from a connect token, must be unique for each client.
-pub type ClientId = u64;
+
 
 struct ConnectionCache {
     // this somewhat mimics the original C implementation,

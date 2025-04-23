@@ -20,6 +20,7 @@ This crates provide concepts that are only useful for a client-server architectu
 
 
 extern crate alloc;
+extern crate core;
 
 use bevy::prelude::SystemSet;
 
@@ -37,6 +38,7 @@ pub mod direction;
 #[cfg(feature = "server")]
 pub mod client_of;
 pub mod identity;
+pub mod shared;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ConnectionSet {

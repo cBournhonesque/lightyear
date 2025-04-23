@@ -19,10 +19,7 @@ use crate::server::ExampleServerPlugin;
 use bevy::prelude::*;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 use core::time::Duration;
-use lightyear::connection::client::Connect;
-use lightyear::connection::server::Start;
 use lightyear_examples_common_new::cli::{Cli, Mode};
-use lightyear_examples_common_new::server::{ExampleServer, ServerTransports};
 use lightyear_examples_common_new::shared::SharedSettings;
 
 #[cfg(feature = "client")]
@@ -64,6 +61,8 @@ fn main() {
 
     #[cfg(feature = "client")]
     {
+        use lightyear::connection::client::Connect;
+
         app.add_plugins(ExampleClientPlugin);
         if matches!(cli.mode, Some(Mode::Client { .. })) {
             use lightyear::prelude::client::Connect;
@@ -82,9 +81,11 @@ fn main() {
 
     #[cfg(feature = "server")]
     {
+        use lightyear_examples_common_new::server::{ExampleServer, ServerTransports};
+        use lightyear::connection::server::Start;
+
         app.add_plugins(ExampleServerPlugin);
         if matches!(cli.mode, Some(Mode::Server)) {
-            use lightyear_examples_common_new::server::ExampleServer;
             let server = app.world_mut().spawn(ExampleServer {
                 conditioner: None,
                 transport: ServerTransports::Udp {

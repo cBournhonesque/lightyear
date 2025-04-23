@@ -18,7 +18,7 @@ use lightyear_serde::writer::{WriteInteger, Writer};
 use lightyear_serde::{SerializationError, ToBytes};
 use tracing::{debug, trace};
 
-use lightyear_connection::server::DeniedReason;
+use lightyear_connection::shared::DeniedReason;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
