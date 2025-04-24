@@ -1,29 +1,8 @@
-/*!
-Handles inputs (keyboard presses, mouse clicks) sent from a player (client) to server.
-
-NOTE: You should use the `LeafwingInputPlugin` instead (requires the `leafwing` features), which
-has mode features and is easier to use.
-
-Lightyear does the following things for you:
-- buffers the inputs of a player for each tick
-- makes sures that input are replayed correctly during rollback
-- sends the inputs to the server in a compressed and reliable form
-
-
-### Sending inputs
-
-There are several steps to use the `InputPlugin`:
-- you need to buffer inputs for each tick. This is done by calling [`add_input`](crate::prelude::client::InputManager::add_input) in a system.
-  That system must run in the [`BufferI
-
-
-*/
 use bevy::ecs::component::Mutable;
 use bevy::prelude::{Component, Reflect};
 use core::fmt::Debug;
 use core::marker::PhantomData;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
-use lightyear_inputs::{UserAction, UserActionState};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -35,7 +14,7 @@ pub struct ActionState<A: Send + Sync> {
     pub value: Option<A>,
 }
 
-impl<A: UserAction> From<&ActionState<A>> for InputData<A> {
+impl<A> From<&ActionState<A>> for InputData<A> {
     fn from(value: &ActionState<A>) -> Self {
         value
             .value
@@ -44,7 +23,7 @@ impl<A: UserAction> From<&ActionState<A>> for InputData<A> {
     }
 }
 
-impl<A: UserAction> Default for ActionState<A> {
+impl<A> Default for ActionState<A> {
     fn default() -> Self {
         Self { value: None }
     }
@@ -54,19 +33,14 @@ impl<A: UserAction> Default for ActionState<A> {
 /// (as opposed to the ActionState of other players, for instance)
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
 #[require(ActionState<A>)]
-pub struct InputMarker<A: UserAction> {
+pub struct InputMarker<A> {
     marker: PhantomData<A>,
 }
 
-impl<A: UserAction> Default for InputMarker<A> {
+impl<A> Default for InputMarker<A> {
     fn default() -> Self {
         Self {
             marker: PhantomData,
         }
     }
-}
-
-
-impl<A: UserAction> UserActionState for ActionState<A> {
-    type UserAction = A;
 }

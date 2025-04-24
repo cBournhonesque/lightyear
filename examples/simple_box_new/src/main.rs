@@ -45,6 +45,8 @@ pub const SHARED_SETTINGS: SharedSettings = SharedSettings {
     ],
 };
 
+pub const SEND_INTERVAL: Duration = Duration::from_millis(100);
+
 /// When running the example as a binary, we only support Client or Server mode.
 fn main() {
     let cli = Cli::default();

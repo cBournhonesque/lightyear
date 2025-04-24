@@ -1,4 +1,13 @@
-use super::UserAction;
+//! The InputBuffer contains a history of the ActionState for each tick.
+//!
+//! It is used for several purposes:
+//! - the client's inputs for tick T must arrive before the server processes tick T, so they are stored
+//!   in the buffer until the server processes them. The InputBuffer can be updated efficiently by receiving
+//!   a list of [`ActionDiff`]s compared from an initial [`ActionState`]
+//! - to implement input-delay, we want a button press at tick t to be processed at tick t + delay on the client.
+//!   Therefore, we will store the computed ActionState at tick t + delay, but then we load the ActionState at tick t
+//!   from the buffer
+use crate::input_message::ActionStateSequence;
 use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::{String, ToString}, vec::Vec};
@@ -40,6 +49,7 @@ impl<T: Debug> core::fmt::Display for InputBuffer<T> {
     }
 }
 
+
 /// We use this structure to efficiently compress the inputs that we send to the server
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub enum InputData<T> {
@@ -66,7 +76,6 @@ impl<T> Default for InputBuffer<T> {
         }
     }
 }
-
 
 
 impl<T: Clone + PartialEq> InputBuffer<T> {
@@ -272,3 +281,5 @@ mod tests {
         assert_eq!(input_buffer.buffer.len(), 1);
     }
 }
+
+

@@ -7,13 +7,14 @@
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
 use crate::protocol::*;
-use crate::shared;
+use crate::{shared, SEND_INTERVAL};
 use bevy::app::PluginGroupBuilder;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+
 
 pub struct ExampleServerPlugin;
 
@@ -39,7 +40,11 @@ pub(crate) fn handle_connections(
     let connected = query.get(trigger.target()).unwrap();
     let client_id = connected.0;
     commands.entity(trigger.target()).insert(
-        ReplicationSender::default(),
+        ReplicationSender::new(
+            SEND_INTERVAL,
+            SendUpdatesMode::SinceLastAck,
+            false,
+        ),
     );
     let entity = commands
         .spawn((
@@ -56,7 +61,8 @@ pub(crate) fn handle_connections(
         .id();
     info!("Create entity {:?} for client {:?}", entity, client_id);
 }
-//
+
+
 // /// Handle client disconnections: we want to despawn every entity that was controlled by that client.
 // ///
 // /// Lightyear creates one entity per client, which contains metadata associated with that client.

@@ -33,6 +33,8 @@ lightyear_connection.workspace = true
 lightyear_core.workspace = true
 lightyear_sync.workspace = true
 lightyear_messages.workspace = true
+lightyear_prediction.workspace = true
+lightyear_transport.workspace = true
 
 # utils
 tracing.workspace = true

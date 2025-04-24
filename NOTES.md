@@ -14,6 +14,7 @@
 
 TODO:
 - why are we sending so many packets from the server? is the ping manager not working?
+  CHECK THE TRANSPORT LOGS, NOT MESSAGE MANAGER. WE SEND WAY MORE ON TRANSPORT!
 
 # Inputs
 - client connects to to server

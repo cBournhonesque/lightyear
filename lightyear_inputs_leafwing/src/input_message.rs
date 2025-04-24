@@ -1,116 +1,75 @@
-use crate::client::interpolation::plugin::InterpolationDelay;
-use crate::inputs::leafwing::action_diff::ActionDiff;
-use crate::inputs::leafwing::input_buffer::InputBuffer;
-use crate::prelude::{Deserialize, LeafwingUserAction, Serialize, Tick};
+use crate::action_diff::ActionDiff;
+use crate::action_state::LeafwingUserAction;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Reflect};
-use core::fmt::{Formatter, Write};
+use core::fmt::Write;
 use leafwing_input_manager::action_state::ActionState;
+use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::Actionlike;
+use lightyear_core::prelude::Tick;
+use lightyear_inputs::input_buffer::{InputBuffer, InputData};
+use lightyear_inputs::input_message::ActionStateSequence;
+use std::time::Instant;
+use tracing::trace;
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
-pub(crate) struct PerTargetData<A: Actionlike> {
-    pub(crate) target: InputTarget,
-    // The ActionState is the state at tick end_tick-N
+pub struct LeafwingSequence<A: LeafwingUserAction> {
     pub(crate) start_state: ActionState<A>,
-    // ActionDiffs to apply to the ActionState for ticks `end_tick-N+1` to `end_tick` (included)
     pub(crate) diffs: Vec<Vec<ActionDiff<A>>>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
-/// We serialize the inputs by sending, for each entity:
-/// - the ActionState at a given start tick
-/// - then the ActionDiffs for all the ticks after that, up to end_tick
-///
-/// (We do this to make sure that we can reconstruct the ActionState at any tick,
-/// even if we miss some inputs. This wouldn't be the case if we only send ActionDiffs)
-pub struct InputMessage<A: Actionlike> {
-    // TODO: avoid sending one extra byte for the option if no lag compensation! Maybe have a separate message type?
-    //  or the message being lag-compensation-compatible is handled on the registry?
-    /// Interpolation delay of the client at the time the message is sent
-    ///
-    /// We don't need any extra redundancy for the InterpolationDelay so we'll just send the value at `end_tick`.
-    pub(crate) interpolation_delay: Option<InterpolationDelay>,
-    pub(crate) end_tick: Tick,
-    pub(crate) diffs: Vec<PerTargetData<A>>,
+impl<A: LeafwingUserAction> MapEntities for LeafwingSequence<A> {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
 }
 
-impl<A: LeafwingUserAction> core::fmt::Display for InputMessage<A> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        let ty = A::short_type_path();
+impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
+    type Action = A;
+    type State = ActionState<A>;
+    type Marker = InputMap<A>;
 
-        if self.diffs.is_empty() {
-            return write!(f, "EmptyInputMessage");
-        }
-        let start_tick = self.end_tick - Tick(self.diffs[0].diffs.len() as u16);
-        let buffer_str = self
-            .diffs
-            .iter()
-            .map(|data| {
-                let mut str = format!("Entity: {:?}\n", data.target);
-                let _ = writeln!(
-                    &mut str,
-                    "Tick: {start_tick:?}. StartState: {:?}",
-                    data.start_state.get_pressed()
-                );
-                for (i, diffs) in data.diffs.iter().enumerate() {
-                    let tick = start_tick + (i + 1) as i16;
-                    let _ = writeln!(&mut str, "Tick: {}, Diffs: {:?}", tick, diffs);
-                }
-                str
-            })
-            .collect::<Vec<String>>()
-            .join("\n");
-        write!(f, "InputMessage<{:?}>:\n {}", ty, buffer_str)
+    fn is_empty(&self) -> bool {
+        self.diffs.iter().all(|diffs_per_tick| {
+            diffs_per_tick.is_empty()
+        })
     }
-}
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
-pub enum InputTarget {
-    /// the input is for a predicted or confirmed entity: on the client, the server's local entity is mapped to the client's confirmed entity
-    Entity(Entity),
-    /// the input is for a pre-predicted entity: on the server, the server's local entity is mapped to the client's pre-predicted entity
-    PrePredictedEntity(Entity),
-}
+    fn len(&self) -> usize {
+        self.diffs.len()
+    }
 
-impl<A: LeafwingUserAction> MapEntities for InputMessage<A> {
-    // NOTE: we do NOT map the entities for input-message because when already convert
-    //  the entities on the message to the corresponding client entities when we write them
-    //  in the input message
+    fn update_buffer(&self, input_buffer: &mut InputBuffer<Self::State>, end_tick: Tick) {
+        let start_tick = end_tick - self.len() as u16;
+        self.set(start_tick, self.start_state.clone());
 
-    // NOTE: we only map the inputs for the pre-predicted entities
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.diffs.iter_mut().for_each(|data| {
-            if let InputTarget::PrePredictedEntity(ref mut e) = data.target {
-                *e = entity_mapper.get_mapped(*e);
+        let mut value = self.start_state.clone();
+        for (delta, diffs_for_tick) in self.diffs.iter().enumerate() {
+            // TODO: there's an issue; we use the diffs to set future ticks after the start value, but those values
+            //  have not been ticked correctly! As a workaround, we tick them manually so that JustPressed becomes Pressed,
+            //  but it will NOT work for timing-related features
+            value.tick(Instant::now(), Instant::now());
+            let tick = start_tick + Tick(1 + delta as u16);
+            for diff in diffs_for_tick {
+                // TODO: also handle timings!
+                diff.apply(&mut value);
             }
-        });
-    }
-}
-
-impl<A: LeafwingUserAction> InputMessage<A> {
-    pub fn new(end_tick: Tick) -> Self {
-        Self {
-            interpolation_delay: None,
-            end_tick,
-            diffs: vec![],
+            input_buffer.set(tick, value.clone());
+            trace!(
+                "updated from input-message tick: {:?}, value: {:?}",
+                tick,
+                value
+            );
         }
     }
+
 
     /// Add the inputs for the `num_ticks` ticks starting from `self.end_tick - num_ticks + 1` up to `self.end_tick`
     ///
     /// If we don't have a starting `ActionState` from the `input_buffer`, we start from the first tick for which
     /// we have an `ActionState`.
-    pub fn add_inputs(
-        &mut self,
-        num_ticks: u16,
-        target: InputTarget,
-        input_buffer: &InputBuffer<A>,
-    ) {
+    fn build_from_input_buffer(input_buffer: &InputBuffer<Self::State>, num_ticks: u16, end_tick: Tick) -> Option<Self> {
         let mut diffs = Vec::new();
         // find the first tick for which we have an `ActionState` buffered
-        let mut start_tick = self.end_tick - num_ticks + 1;
-        while start_tick <= self.end_tick {
+        let mut start_tick = end_tick - num_ticks + 1;
+        while start_tick <= end_tick {
             if input_buffer.get(start_tick).is_some() {
                 break;
             }
@@ -118,13 +77,13 @@ impl<A: LeafwingUserAction> InputMessage<A> {
         }
 
         // there are no ticks for which we have an `ActionState` buffered, so we send nothing
-        if start_tick > self.end_tick {
-            return;
+        if start_tick > end_tick {
+            return None;
         }
 
         let start_state = input_buffer.get(start_tick).unwrap().clone();
         let mut tick = start_tick + 1;
-        while tick <= self.end_tick {
+        while tick <= end_tick {
             let diffs_for_tick = ActionDiff::<A>::create(
                 // TODO: if the input_delay changes, this could leave gaps in the InputBuffer, which we will fill with Default
                 input_buffer
@@ -137,27 +96,21 @@ impl<A: LeafwingUserAction> InputMessage<A> {
             diffs.push(diffs_for_tick);
             tick += 1;
         }
-        self.diffs.push(PerTargetData {
-            target,
+        Some(Self {
             start_state,
             diffs,
-        });
-    }
-
-    // TODO: do we want to send the inputs if there are no diffs?
-    pub fn is_empty(&self) -> bool {
-        self.diffs.iter().all(|data| {
-            data.diffs
-                .iter()
-                .all(|diffs_per_tick| diffs_per_tick.is_empty())
         })
     }
 }
+
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use leafwing_input_manager::Actionlike;
+    use lightyear_inputs::input_message::{InputMessage, InputTarget};
+    use serde::{Deserialize, Serialize};
 
     #[derive(
         Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash, Reflect, Actionlike,
@@ -234,4 +187,56 @@ mod tests {
     //         }
     //     );
     // }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::inputs::native::input_buffer::InputData;
+    use bevy::prelude::Reflect;
+    use leafwing_input_manager::Actionlike;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(
+        Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash, Reflect, Actionlike,
+    )]
+    enum Action {
+        Jump,
+    }
+
+    #[test]
+    fn test_get_set_pop() {
+        let mut input_buffer = InputBuffer::default();
+
+        let mut a1 = ActionState::default();
+        a1.press(&Action::Jump);
+        let mut a2 = ActionState::default();
+        a2.press(&Action::Jump);
+        input_buffer.set(Tick(3), a1.clone());
+        input_buffer.set(Tick(6), a2.clone());
+        input_buffer.set(Tick(7), a2.clone());
+
+        assert_eq!(input_buffer.start_tick, Some(Tick(3)));
+        assert_eq!(input_buffer.buffer.len(), 5);
+
+        assert_eq!(input_buffer.get(Tick(3)), Some(&a1));
+        assert_eq!(input_buffer.get(Tick(4)), Some(&a1));
+        assert_eq!(input_buffer.get(Tick(5)), Some(&a1));
+        assert_eq!(input_buffer.get(Tick(6)), Some(&a2));
+        assert_eq!(input_buffer.get(Tick(8)), None);
+
+        assert_eq!(input_buffer.pop(Tick(4)), Some(a1.clone()));
+        assert_eq!(input_buffer.start_tick, Some(Tick(5)));
+        assert_eq!(input_buffer.buffer.len(), 3);
+
+        // the oldest element has been updated from `SameAsPrecedent` to `Data`
+        assert_eq!(
+            input_buffer.buffer.front().unwrap(),
+            &InputData::Input(a1.clone())
+        );
+        assert_eq!(input_buffer.pop(Tick(7)), Some(a2.clone()));
+        assert_eq!(input_buffer.start_tick, Some(Tick(8)));
+        assert_eq!(input_buffer.buffer.len(), 0);
+    }
 }

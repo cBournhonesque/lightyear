@@ -1,5 +1,6 @@
 //! Plugin to register and handle user inputs.
 
+use crate::action_state::LeafwingUserAction;
 use crate::client::config::ClientConfig;
 use crate::inputs::leafwing::input_buffer::InputBuffer;
 use crate::prelude::{ChannelDirection, InputMessage, LeafwingUserAction};
@@ -7,7 +8,10 @@ use crate::protocol::message::registry::AppMessageInternalExt;
 use crate::server::config::ServerConfig;
 use crate::shared::input::InputConfig;
 use bevy::app::{App, Plugin};
+use leafwing_input_manager::plugin::InputManagerPlugin;
 use leafwing_input_manager::prelude::{ActionState, InputMap};
+use lightyear_inputs::client::ClientInputPlugin;
+use lightyear_inputs::input_buffer::InputBuffer;
 
 pub struct LeafwingInputPlugin<A> {
     pub config: InputConfig<A>,
@@ -23,28 +27,22 @@ impl<A> Default for LeafwingInputPlugin<A> {
 
 impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     fn build(&self, app: &mut App) {
-        let is_client = app.world().get_resource::<ClientConfig>().is_some();
-        let is_server = app.world().get_resource::<ServerConfig>().is_some();
-
-        assert!(
-            is_client || is_server,
-            "LeafwingInputPlugin must be added after the Client/Server plugins have been added"
-        );
-
-        app.register_required_components::<ActionState<A>, InputBuffer<A>>();
-        app.register_required_components::<InputBuffer<A>, ActionState<A>>();
+        app.register_required_components::<ActionState<A>, InputBuffer<ActionState<A>>>();
+        app.register_required_components::<InputBuffer<ActionState<A>>, ActionState<A>>();
         app.register_required_components::<InputMap<A>, ActionState<A>>();
-        if is_client {
+
+        #[cfg(feature = "client")]
+        {
+            app.add_plugins(InputManagerPlugin::<A>::default());
             app.add_plugins(
-                crate::client::input::leafwing::LeafwingInputPlugin::<A>::new(self.config),
+                ClientInputPlugin::<A>::new(self.config),
             );
         }
-        if is_server {
-            app.add_plugins(crate::server::input::leafwing::LeafwingInputPlugin::<A> {
-                rebroadcast_inputs: self.config.rebroadcast_inputs,
-                marker: core::marker::PhantomData,
-            });
-        }
+        #[cfg(feature = "server")]
+        app.add_plugins(ServerInputPlugin::<>{
+            rebroadcast_inputs: self.config.rebroadcast_inputs,
+            marker: core::marker::PhantomData,
+        });
     }
 
     // we build this in `finish` to be sure that the MessageRegistry, ClientConfig, ServerConfig exists
@@ -59,6 +57,11 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
             // - server receiving pre-predicted entities
             // - client receiving other players' inputs
             .add_map_entities();
+
+        #[cfg(feature = "server")]
+        if !app.is_plugin_added::<InputManagerPlugin<A>>() {
+            app.add_plugins(InputManagerPlugin::<A>::server());
+        }
 
         // NOTE: no need to replicate ActionState because we will insert the ActionState + InputBuffer on server
         //   as soon as we receive an InputMessage!

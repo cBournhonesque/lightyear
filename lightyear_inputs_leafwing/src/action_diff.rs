@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// An `ActionState` can be fully reconstructed from a stream of `ActionDiff`
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Reflect)]
-pub enum ActionDiff<A> {
+pub(crate) enum ActionDiff<A> {
     /// The action was pressed
     Pressed {
         /// The value of the action

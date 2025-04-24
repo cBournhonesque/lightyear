@@ -66,7 +66,6 @@ impl<M: Message> MessageSender<M> {
     pub fn send<C: Channel>(
         &mut self, message: M
     ) {
-        trace!(message = ?core::any::type_name::<M>(), channel = ?core::any::type_name::<C>(), "Sending message");
         self.send.push((message, ChannelKind::of::<C>(), 1.0));
     }
 
@@ -90,7 +89,7 @@ impl<M: Message> MessageSender<M> {
             net_id.to_bytes(&mut sender.writer)?;
             serialize_metadata.serialize::<M>(&message, &mut sender.writer, entity_map)?;
             let bytes = sender.writer.split();
-            trace!("Sending message of type {:?} with net_id {net_id:?} on channel {channel_kind:?}. Bytes: {bytes:?}", core::any::type_name::<M>());
+            trace!("Sending message of type {:?} with net_id {net_id:?} on channel {channel_kind:?}", core::any::type_name::<M>());
             transport.send_erased(channel_kind, bytes, priority)?;
             Ok(())
         })

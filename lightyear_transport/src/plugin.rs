@@ -86,7 +86,6 @@ impl TransportPlugin {
                 // Parse the packet
                 let header = PacketHeader::from_bytes(&mut cursor)?;
                 let tick = header.tick;
-                info!(remote_tick = ?tick, "Receive packet");
 
                 // TODO: maybe switch to event buffer instead of triggers?
                 par_commands.command_scope(|mut commands| {
@@ -170,7 +169,6 @@ impl TransportPlugin {
     ) {
         query.par_iter_mut().for_each(|(entity, mut link, mut transport, timeline)| {
             let tick = timeline.tick();
-            info!(?tick, ?entity, "Send packet");
             // allow split borrows
             let mut transport = &mut *transport;
 
