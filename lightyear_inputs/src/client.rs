@@ -55,7 +55,9 @@
 use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
+use crate::plugin::InputPlugin;
 use crate::InputChannel;
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use core::marker::PhantomData;
 use core::time::Duration;
@@ -120,8 +122,9 @@ impl<S: ActionStateSequence> ClientInputPlugin<S> {
 }
 
 
-impl<S: ActionStateSequence> Plugin for ClientInputPlugin<S> {
+impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
     fn build(&self, app: &mut App) {
+        app.add_plugins(InputPlugin::<S>::default());
         app.insert_resource(self.config.clone());
         app.init_resource::<MessageBuffer<S>>();
         // SETS
@@ -189,7 +192,10 @@ impl<S: ActionStateSequence> Plugin for ClientInputPlugin<S> {
                 prepare_input_message::<S>.in_set(InputSet::PrepareInputMessage)
             )
         );
-        app.add_systems(PostUpdate, clean_buffers::<S>.in_set(InputSet::CleanUp));
+        app.add_systems(PostUpdate, (
+            clean_buffers::<S>.in_set(InputSet::CleanUp),
+            send_input_messages::<S>.in_set(InputSet::SendInputMessage),
+        ));
         // if the client tick is updated because of a desync, update the ticks in the input buffers
         app.add_observer(receive_tick_events::<S>);
     }
@@ -356,7 +362,7 @@ impl<A> Default for MessageBuffer<A> {
 
 /// Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<S: ActionStateSequence>(
-    mut message_buffer: ResMut<MessageBuffer<S::Action>>,
+    mut message_buffer: ResMut<MessageBuffer<S>>,
     input_config: Res<InputConfig<S::Action>>,
     sender: Single<(&LocalTimeline, &InputTimeline, &MessageManager), With<IsSynced<InputTimeline>>>,
     input_buffer_query: Query<
@@ -570,14 +576,14 @@ fn prepare_input_message<S: ActionStateSequence>(
 /// Drain the messages from the buffer and send them to the server
 fn send_input_messages<S: ActionStateSequence>(
     input_config: Res<InputConfig<S::Action>>,
-    mut message_buffer: ResMut<MessageBuffer<S::Action>>,
+    mut message_buffer: ResMut<MessageBuffer<S>>,
     mut sender: Single<&mut MessageSender<InputMessage<S>>, With<IsSynced<InputTimeline>>>,
 ) {
     trace!(
         "Number of input messages to send: {:?}",
         message_buffer.0.len()
     );
-    for mut message in message_buffer.0.drain(..) {
+    for message in message_buffer.0.drain(..) {
 
         // // if lag compensation is enabled, we send the current delay to the server
         // // (this runs here because the delay is only correct after the SyncSet has run)

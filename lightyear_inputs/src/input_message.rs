@@ -1,7 +1,6 @@
 // lightyear_inputs/src/input_message.rs
 #![allow(clippy::module_inception)]
 use crate::input_buffer::{InputBuffer, InputData};
-use crate::{UserAction, UserActionState};
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec, vec::Vec};
 use bevy::ecs::component::Mutable;
@@ -12,8 +11,6 @@ use core::fmt::{Debug, Formatter, Write};
 use lightyear_core::prelude::Tick;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
-use std::{matches, vec};
 use tracing::trace;
 
 /// Enum indicating the target entity for the input.
@@ -29,7 +26,7 @@ pub enum InputTarget {
 
 /// Contains the input data for a specific target entity over a range of ticks.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
-pub struct PerTargetData<S: ActionStateSequence> {
+pub struct PerTargetData<S> {
     pub(crate) target: InputTarget,
     /// Input data from ticks `end_tick - N + 1` to `end_tick` (inclusive).
     /// The format depends on the specific input system (e.g., full states or diffs).
@@ -38,9 +35,9 @@ pub struct PerTargetData<S: ActionStateSequence> {
     pub(crate) states: S,
 }
 
-pub trait ActionStateSequence {
+pub trait ActionStateSequence: Serialize + DeserializeOwned + Clone + Debug + Send + Sync + 'static {
     type Action: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static;
-    type State: Component<Mutability = Mutable> + Default + Debug;
+    type State: Component<Mutability = Mutable> + Default + Debug + Clone + PartialEq;
 
     /// Marker component to identify the ActionState that the player is actively updating
     /// (as opposed to the ActionState of other players, for instance)
@@ -55,14 +52,14 @@ pub trait ActionStateSequence {
         input_buffer: &InputBuffer<Self::State>,
         num_ticks: u16,
         end_tick: Tick,
-    ) -> Option<Self>;
+    ) -> Option<Self> where Self: Sized;
 }
 
 
 /// Message used to send client inputs to the server.
 /// Stores the last N inputs starting from `end_tick - N + 1`.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
-pub struct InputMessage<S: ActionStateSequence> {
+pub struct InputMessage<S> {
     // TODO: add interpolation delay
     pub(crate) end_tick: Tick,
     // Map from target entity to the input data for that entity
@@ -76,10 +73,7 @@ impl<S: ActionStateSequence + MapEntities> MapEntities for InputMessage<S> {
             if let InputTarget::PrePredictedEntity(e) = &mut data.target {
                 *e = entity_mapper.get_mapped(*e);
             }
-            // Map entities within the input data itself if necessary
-            data.states.iter_mut().for_each(|state| {
-                state.map_entities(entity_mapper);
-            });
+            data.states.map_entities(entity_mapper);
         });
     }
 }
@@ -91,24 +85,17 @@ impl<S: ActionStateSequence + core::fmt::Display> core::fmt::Display for InputMe
         if self.inputs.is_empty() {
             return write!(f, "EmptyInputMessage<{:?}>", ty);
         }
-        // Assuming all PerTargetData have the same length for display simplicity
-        let num_states = self.inputs[0].states.len();
-        let start_tick = self.end_tick + 1 - num_states as u16;
         let buffer_str = self
             .inputs
             .iter()
             .map(|data| {
                 let mut str = format!("Target: {:?}\n", data.target);
-                for i in 0..=(num_states-1) {
-                    let tick = start_tick + Tick(i as u16);
-                    let state = data.states.get_action_state(i);
-                    let _ = writeln!(&mut str, "  Tick: {}, State: {:?}", tick, state);
-                }
+                let _ = writeln!(&mut str, "States: {}", data.states);
                 str
             })
             .collect::<Vec<String>>()
             .join("\n");
-        write!(f, "InputMessage<{:?}> (End Tick: {}):\n{}", ty, self.end_tick, buffer_str)
+        write!(f, "InputMessage<{:?}> (End Tick: {:?}):\n{}", ty, self.end_tick, buffer_str)
     }
 }
 
@@ -141,7 +128,6 @@ mod tests {
 
     #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
     struct MyTestAction(u32);
-    impl UserAction for MyTestAction {}
     impl MapEntities for MyTestAction {
         fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
     }

@@ -13,8 +13,9 @@
     - server: can start a separate app, etc.
 
 TODO:
-- why are we sending so many packets from the server? is the ping manager not working?
-  CHECK THE TRANSPORT LOGS, NOT MESSAGE MANAGER. WE SEND WAY MORE ON TRANSPORT!
+- on the server, we get cases where the input buffer just contains [SameAsPrecedent]. Normally
+  the first value should never be just SameAsPrecedent! That's due to `update_buffer` using `set_raw`. But maybe that's ok? if there's only SameAsPrecedent, we don't do anything (i.e. we re-use the existing inputs)
+- when running simple_box, the Confirmed entity should eventually catchup to the predicted entity!
 
 # Inputs
 - client connects to to server

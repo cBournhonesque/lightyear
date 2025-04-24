@@ -12,6 +12,7 @@ use lightyear_inputs::input_message::ActionStateSequence;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub struct NativeStateSequence<A> {
     states: Vec<InputData<A>>
 }
@@ -43,19 +44,22 @@ impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug +
             let tick = start_tick + Tick(delta as u16);
             match input {
                 InputData::Absent => {
-                    self.set_raw(tick, InputData::Input(Self::State::default()));
+                    input_buffer.set_raw(tick, InputData::Input(Self::State::default()));
                 }
                 InputData::SameAsPrecedent => {
-                    self.set_raw(tick, InputData::SameAsPrecedent);
+                    input_buffer.set_raw(tick, InputData::SameAsPrecedent);
                 }
                 InputData::Input(input) => {
                     // do not set the value if it's equal to what's already in the buffer
                     if input_buffer.get(tick).is_some_and(|existing_value| {
-                        existing_value == input
+                        existing_value.value.as_ref().is_some_and(|v| v == input)
                     }) {
                         continue;
                     }
-                    input_buffer.set(tick, input.clone());
+
+                    input_buffer.set(tick, ActionState::<A> {
+                        value: Some(input.clone()),
+                    });
                 }
             }
         }

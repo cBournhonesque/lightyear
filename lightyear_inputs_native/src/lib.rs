@@ -4,7 +4,6 @@
 
 extern crate alloc;
 extern crate core;
-extern crate core;
 
 pub(crate) mod action_state;
 

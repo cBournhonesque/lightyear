@@ -67,10 +67,6 @@ pub mod prelude {
 
         pub mod input {
             pub use lightyear_inputs::prelude::client::*;
-            #[cfg(feature = "input_native")]
-            pub mod native {
-                pub use lightyear_inputs_native::prelude::client::*;
-            }
         }
 
     }
@@ -90,10 +86,6 @@ pub mod prelude {
 
         pub mod input {
             pub use lightyear_inputs::prelude::server::*;
-            #[cfg(feature = "input_native")]
-            pub mod native {
-                pub use lightyear_inputs_native::prelude::server::*;
-            }
         }
     }
 }

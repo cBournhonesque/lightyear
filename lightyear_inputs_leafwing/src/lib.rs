@@ -7,8 +7,6 @@ pub(crate) mod action_diff;
 
 mod action_state;
 
-mod input_buffer;
-
 mod input_message;
 
 mod plugin;

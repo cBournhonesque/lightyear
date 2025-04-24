@@ -1,6 +1,9 @@
 //! Handle input messages received from the clients
+
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
+use crate::plugin::InputPlugin;
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::server::Started;
@@ -33,8 +36,10 @@ pub enum InputSet {
     RebroadcastInputs,
 }
 
-impl<S: ActionStateSequence> Plugin for ServerInputPlugin<S> {
+impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
     fn build(&self, app: &mut App) {
+        app.add_plugins(InputPlugin::<S>::default());
+
         // SETS
         // TODO:
         //  - could there be an issue because, client updates `state` and `fixed_update_state` and sends it to server

@@ -1,8 +1,8 @@
 //! Plugin to register and handle user inputs.
 
-use crate::config::InputConfig;
-use crate::input_message::InputMessage;
-use crate::{InputChannel, UserAction};
+use crate::input_buffer::InputBuffer;
+use crate::input_message::{ActionStateSequence, InputMessage};
+use crate::InputChannel;
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use core::time::Duration;
@@ -10,19 +10,19 @@ use lightyear_connection::direction::{AppChannelDirectionExt, AppMessageDirectio
 use lightyear_messages::prelude::AppMessageExt;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 
-pub struct InputPlugin<A: UserAction> {
-    pub config: InputConfig<A>,
+pub struct InputPlugin<S> {
+    _marker: core::marker::PhantomData<S>,
 }
 
-impl<A: UserAction> Default for InputPlugin<A> {
+impl<S> Default for InputPlugin<S> {
     fn default() -> Self {
         Self {
-            config: Default::default(),
+            _marker: core::marker::PhantomData,
         }
     }
 }
 
-impl<A: UserAction + MapEntities> Plugin for InputPlugin<A> {
+impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
     fn build(&self, app: &mut App) {
 
         app.add_channel::<InputChannel>(ChannelSettings {
@@ -35,7 +35,7 @@ impl<A: UserAction + MapEntities> Plugin for InputPlugin<A> {
             // bidirectional in case of rebroadcasting inputs
             .add_direction(NetworkDirection::Bidirectional);
 
-        app.add_message::<InputMessage<A>>()
+        app.add_message::<InputMessage<S>>()
             // add entity mapping for:
             // - server receiving pre-predicted entities
             // - client receiving other players' inputs
@@ -43,17 +43,9 @@ impl<A: UserAction + MapEntities> Plugin for InputPlugin<A> {
             .add_map_entities()
             .add_direction(NetworkDirection::Bidirectional);
             // .add_map_entities();
-        app.register_required_components::<InputBuffer<ActionState<A>>, ActionState<A>>();
 
-        // TODO: for simplicity, we currently register both client and server input plugins
-        #[cfg(feature="client")]
-        app.add_plugins(super::client::ClientInputPlugin::<A>::new(
-            self.config.clone(),
-        ));
-        #[cfg(feature="server")]
-        app.add_plugins(super::server::ServerInputPlugin::<A> {
-            rebroadcast_inputs: self.config.rebroadcast_inputs,
-            marker: core::marker::PhantomData,
-        });
+        app.register_required_components::<S::State, InputBuffer<S::State>>();
+        app.register_required_components::<InputBuffer<S::State>, S::State>();
+        app.register_required_components::<S::Marker, S::State>();
     }
 }

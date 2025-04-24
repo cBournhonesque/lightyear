@@ -7,7 +7,6 @@ This crate provides abstractions for sending and receiving raw bytes over the ne
 
 extern crate alloc;
 extern crate core;
-extern crate core;
 
 #[cfg(feature = "client")]
 pub mod client;
@@ -35,10 +34,10 @@ pub mod prelude {
 
     #[cfg(feature = "client")]
     pub mod client {
-        pub use crate::client::InputSet;
+        pub use crate::client::{ClientInputPlugin, InputSet};
     }
     #[cfg(feature = "server")]
     pub mod server {
-        pub use crate::server::InputSet;
+        pub use crate::server::{InputSet, ServerInputPlugin};
     }
 }
