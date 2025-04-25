@@ -1,13 +1,6 @@
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{App, Component};
-use lightyear_messages::prelude::AppMessageExt;
-use lightyear_messages::receive::MessageReceiver;
-use lightyear_messages::registry::MessageRegistration;
-use lightyear_messages::send::MessageSender;
-use lightyear_messages::Message;
+use bevy::prelude::{App, Component, Event};
 use lightyear_serde::ToBytes;
-use lightyear_transport::channel::registry::ChannelRegistration;
-use lightyear_transport::channel::Channel;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 /// [`NetworkDirection`] specifies in which direction the packets can be sent
@@ -16,57 +9,6 @@ pub enum NetworkDirection {
     ServerToClient,
     Bidirectional,
 }
-
-
-pub trait AppMessageDirectionExt {
-    /// Add a new [`NetworkDirection`] to the registry
-    fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self;
-}
-
-impl<M: Message> AppMessageDirectionExt for MessageRegistration<'_, M> {
-    // TODO: as much as possible, don't include server code for dedicated clients and vice-versa
-    //   see how we can achieve this. Maybe half of the funciton is in lightyear_client and the other half in lightyear_server ?
-    fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self {
-        #[cfg(feature = "client")]
-        <Self as crate::client::AppMessageDirectionExt>::add_direction(self, direction);
-        #[cfg(feature = "server")]
-        <Self as crate::server::AppMessageDirectionExt>::add_direction(self, direction);
-        self
-    }
-}
-
-pub trait AppChannelDirectionExt {
-    fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self;
-}
-
-impl<C: Channel> AppChannelDirectionExt for ChannelRegistration<'_, C> {
-    /// Add a new [`NetworkDirection`] to the registry
-    fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self {
-        #[cfg(feature = "client")]
-        <Self as crate::client::AppChannelDirectionExt>::add_direction(self, direction);
-        #[cfg(feature = "server")]
-        <Self as crate::server::AppChannelDirectionExt>::add_direction(self, direction);
-        self
-    }
-}
-
-
-// pub trait AppComponentDirectionExt {
-//     fn add_direction(&mut self, direction: NetworkDirection);
-// }
-//
-// impl<C: Component> AppComponentDirectionExt for ComponentRegistration<'_, C> {
-//     /// Add a new [`NetworkDirection`] to the registry
-//     fn add_direction(&mut self, direction: NetworkDirection) {
-//         #[cfg(feature = "client")]
-//         <Self as crate::client::AppChannelDirectionExt>::add_direction(self, direction);
-//         #[cfg(feature = "server")]
-//         <Self as crate::server::AppChannelDirectionExt>::add_direction(self, direction);
-//     }
-// }
-
-
-
 
 
 #[cfg(test)]

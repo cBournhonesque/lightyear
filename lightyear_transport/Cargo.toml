@@ -14,6 +14,12 @@ std = [
     "lightyear_link/std",
     "indexmap/std"
 ]
+client = [
+    "lightyear_connection/client"
+]
+server = [
+    "lightyear_connection/server"
+]
 
 test_utils = []
 
@@ -24,6 +30,7 @@ lightyear_link.workspace = true
 lightyear_macros.workspace = true
 lightyear_serde.workspace = true
 lightyear_utils.workspace = true
+lightyear_connection = {workspace = true, optional = true}
 
 
 # bevy

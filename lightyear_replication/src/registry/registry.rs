@@ -15,7 +15,7 @@ use lightyear_core::network::NetId;
 use lightyear_messages::registry::MessageRegistry;
 use lightyear_serde::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
-use lightyear_serde::registry::{ContextDeserializeFns, ContextSerializeFns, ErasedSerializeFns, SerializeFns};
+use lightyear_serde::registry::{ContextDeserializeFn, ContextDeserializeFns, ContextSerializeFn, ContextSerializeFns, DeserializeFn, ErasedSerializeFns, SerializeFn, SerializeFns};
 use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::registry::TypeMapper;
@@ -197,6 +197,29 @@ impl ComponentRegistry {
     }
 }
 
+fn mapped_context_serialize<M: MapEntities + Clone>(
+    mapper: &mut SendEntityMap,
+    message: &M,
+    writer: &mut Writer,
+    serialize_fn: SerializeFn<M>,
+) -> core::result::Result<(), SerializationError> {
+    // TODO: this is actually UB, we can never have 2 aliasing &mut
+    // SAFETY: we know that the entity mapper is not actually being mutated
+    let mut message = message.clone();
+    message.map_entities(mapper);
+    serialize_fn(&message, writer)
+}
+
+fn mapped_context_deserialize<M: MapEntities>(
+    mapper: &mut ReceiveEntityMap,
+    reader: &mut Reader,
+    deserialize_fn: DeserializeFn<M>,
+) -> core::result::Result<M, SerializationError> {
+    let mut message = deserialize_fn(reader)?;
+    message.map_entities(mapper);
+    Ok(message)
+}
+
 impl ComponentRegistry {
     pub(crate) fn try_add_map_entities<C: Clone + MapEntities + 'static>(&mut self) {
         let kind = ComponentKind::of::<C>();
@@ -214,25 +237,10 @@ impl ComponentRegistry {
             )
         });
         erased_fns.add_map_entities::<C>();
-    }
-
-    /// Returns true if we have a registered `map_entities` function for this component type
-    pub(crate) fn is_map_entities<C: 'static>(&self) -> bool {
-        let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .serialize_fns_map
-            .get(&kind)
-            .expect("the component is not part of the protocol");
-        erased_fns.map_entities.is_some()
-    }
-
-    /// Returns true if we have a registered `map_entities` function for this component type
-    pub(crate) fn erased_is_map_entities(&self, kind: ComponentKind) -> bool {
-        let erased_fns = self
-            .serialize_fns_map
-            .get(&kind)
-            .expect("the component is not part of the protocol");
-        erased_fns.map_entities.is_some()
+        let context_serialize: ContextSerializeFn<SendEntityMap, C, C> = mapped_context_serialize::<C>;
+        let context_deserialize: ContextDeserializeFn<ReceiveEntityMap, C, C> = mapped_context_deserialize::<C>;
+        erased_fns.context_serialize = unsafe { core::mem::transmute(context_serialize) };
+        erased_fns.context_deserialize = unsafe { core::mem::transmute(context_deserialize) };
     }
 
     pub(crate) fn serialize<C: 'static>(

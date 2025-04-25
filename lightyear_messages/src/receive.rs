@@ -145,41 +145,44 @@ impl MessagePlugin {
                     // we receive the message NetId, and then deserialize the message
                     let message_net_id = MessageNetId::from_bytes(&mut reader)?;
                     let message_kind = registry.kind_map.kind(message_net_id).ok_or(MessageError::UnrecognizedMessageId(message_net_id))?;
-                    let recv_metadata = registry.receive_metadata.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
                     let serialize_fns = registry.serialize_fns_map.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
 
-                    // Check if there's a specific trigger handler for this message kind
-                    if let Some(trigger_fn) = recv_metadata.trigger_fn {
-                        // SAFETY: We assume the trigger handler function is correctly implemented
-                        // for the RemoteTrigger<M> type associated with this message_kind.
-                        unsafe { trigger_fn(
-                            &commands, // Pass commands for triggering
-                            &mut reader,
-                            channel_kind,
-                            tick,
-                            message_id,
-                            serialize_fns,
-                            &mut message_manager.entity_mapper.remote_to_local,
-                            placeholder_peer_id,
-                        )?; }
-                    } else {
+                    if let Some(recv_metadata) = registry.receive_metadata.get(message_kind) {
                         let component_id = recv_metadata.component_id;
                         let mut entity_mut = receiver_query.get_mut(entity).unwrap();
                         let receiver = entity_mut
                             .get_mut_by_id(component_id)
                             .ok_or(MessageError::MissingComponent(component_id))?;
-                        // Otherwise, use the standard receive function to buffer in MessageReceiver<M>
                         // SAFETY: we know the receiver corresponds to the correct `MessageReceiver<M>` type
-                        unsafe { (recv_metadata.receive_message_fn)(
-                            receiver,
-                            &mut reader,
-                            channel_kind,
-                            tick,
-                            message_id,
-                            serialize_fns,
-                            &mut message_manager.entity_mapper.remote_to_local
-                        )?; }
-                    }
+                        unsafe {
+                            (recv_metadata.receive_message_fn)(
+                                receiver,
+                                &mut reader,
+                                channel_kind,
+                                tick,
+                                message_id,
+                                serialize_fns,
+                                &mut message_manager.entity_mapper.remote_to_local
+                            )?;
+                        }
+                    } else if let Some(trigger_fn) = registry.receive_trigger.get(message_kind) {
+                        // SAFETY: We assume the trigger handler function is correctly implemented
+                        // for the RemoteTrigger<M> type associated with this message_kind.
+                        unsafe {
+                            trigger_fn(
+                                &commands,
+                                &mut reader,
+                                channel_kind,
+                                tick,
+                                message_id,
+                                serialize_fns,
+                                &mut message_manager.entity_mapper.remote_to_local,
+                                placeholder_peer_id,
+                            )?;
+                        }
+                    } else {
+                        return Err(MessageError::UnrecognizedMessageId(message_net_id));
+                    };
                 }
                 Ok::<_, MessageError>(())
             }).inspect_err(|e| error!("Error receiving messages: {e:?}")).ok();

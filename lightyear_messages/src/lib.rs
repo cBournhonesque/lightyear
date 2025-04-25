@@ -1,8 +1,3 @@
-/*! # Lightyear IO
-
-Low-level IO primitives for the lightyear networking library.
-This crate provides abstractions for sending and receiving raw bytes over the network.
-*/
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -21,11 +16,18 @@ mod trigger;
 pub mod registry;
 mod send_trigger;
 mod receive_trigger;
+#[cfg(feature = "client")]
+mod client;
+#[cfg(feature = "server")]
+mod server;
 
 pub mod prelude {
     pub use crate::receive::MessageReceiver;
+    pub use crate::receive_trigger::RemoteTrigger;
     pub use crate::registry::AppMessageExt;
     pub use crate::send::MessageSender;
+    pub use crate::send_trigger::TriggerSender;
+    pub use crate::trigger::AppTriggerExt;
     pub use crate::{Message, MessageManager};
 }
 

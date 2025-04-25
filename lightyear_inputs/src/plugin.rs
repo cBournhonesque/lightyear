@@ -6,7 +6,7 @@ use crate::InputChannel;
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use core::time::Duration;
-use lightyear_connection::direction::{AppChannelDirectionExt, AppMessageDirectionExt, NetworkDirection};
+use lightyear_connection::direction::NetworkDirection;
 use lightyear_messages::prelude::AppMessageExt;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 

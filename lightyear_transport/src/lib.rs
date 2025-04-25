@@ -14,9 +14,13 @@ pub mod error;
 
 pub mod packet;
 pub mod plugin;
+#[cfg(feature = "client")]
+mod client;
+#[cfg(feature = "server")]
+mod server;
 
 pub mod prelude {
-    pub use crate::channel::builder::{ChannelMode, ChannelSettings, Transport, ReliableSettings};
+    pub use crate::channel::builder::{ChannelMode, ChannelSettings, ReliableSettings, Transport};
     pub use crate::channel::registry::ChannelRegistry;
     pub use crate::channel::Channel;
 

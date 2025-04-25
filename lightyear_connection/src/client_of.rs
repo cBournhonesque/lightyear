@@ -8,7 +8,6 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::{format, Query};
 use bevy::prelude::{Component, Entity, EntityWorldMut, RelationshipTarget};
-use lightyear_messages::MessageManager;
 use tracing::warn;
 
 use crate::prelude::NetworkTarget;
@@ -59,7 +58,6 @@ impl Server {
 }
 
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
-#[require(MessageManager)]
 // every ClientOf starts as Connecting until the server confirms the connection
 #[require(Connecting)]
 #[component(on_insert = ClientOf::on_insert)]

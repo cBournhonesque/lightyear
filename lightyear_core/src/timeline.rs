@@ -1,10 +1,10 @@
 use crate::prelude::Tick;
 use crate::tick::TickDuration;
-use crate::time::{Overstep, SetTickDuration, TickDelta, TickInstant};
+use crate::time::{Overstep, TickDelta, TickInstant};
 use bevy::app::{App, FixedFirst, Plugin, RunFixedMainLoop, RunFixedMainLoopSystem};
 use bevy::ecs::component::{HookContext, Mutable};
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Deref, DerefMut, Fixed, IntoScheduleConfigs, Query, Reflect, Res, Resource, Time, Trigger};
+use bevy::prelude::{Component, Deref, DerefMut, Event, Fixed, IntoScheduleConfigs, Query, Reflect, Res, ResMut, Resource, Time, Trigger};
 use bevy::reflect::GetTypeRegistration;
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
@@ -179,9 +179,7 @@ pub(crate) fn increment_local_tick(
 
 
 
-pub struct TimelinePlugin {
-    pub(crate) tick_duration: Duration
-}
+
 
 
 pub struct NetworkTimelinePlugin<T> {
@@ -215,11 +213,35 @@ impl<T: NetworkTimeline> Plugin for NetworkTimelinePlugin<T> {
     }
 }
 
+
+/// Event that can be triggered to update the tick duration.
+///
+/// If the trigger is global, it will update:
+/// - Time<Fixed>
+/// - the various Timelines
+///
+/// The event can also be triggered for a specific target to update only the components of that target.
+#[derive(Event)]
+pub struct SetTickDuration(pub Duration);
+
+pub struct TimelinePlugin {
+    pub(crate) tick_duration: Duration
+}
+
+impl TimelinePlugin {
+    fn update_tick_duration(trigger: Trigger<SetTickDuration>, mut time: ResMut<Time<Fixed>>) {
+        time.set_timestep(trigger.0);
+    }
+}
+
 impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {
+        // TODO: this should be in InputPlugin
         app.register_type::<RollbackState>();
+
         app.insert_resource(TickDuration(self.tick_duration));
         app.world_mut().resource_mut::<Time<Fixed>>().set_timestep(self.tick_duration);
+        app.add_observer(Self::update_tick_duration);
 
         app.add_plugins(NetworkTimelinePlugin::<LocalTimeline>::default());
         app.add_systems(FixedFirst, increment_local_tick);

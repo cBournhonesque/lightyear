@@ -20,11 +20,15 @@ std = [
 ]
 client = [
     "lightyear_connection/client",
-    "lightyear_sync/client"
+    "lightyear_messages/client",
+    "lightyear_sync/client",
+    "lightyear_transport/client",
 ]
 server = [
     "lightyear_connection/server",
-    "lightyear_sync/server"
+    "lightyear_messages/server",
+    "lightyear_sync/server",
+    "lightyear_transport/server",
 ]
 
 

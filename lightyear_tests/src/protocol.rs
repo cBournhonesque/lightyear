@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use cfg_if::cfg_if;
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::input::*;
-use lightyear_connection::direction::{AppChannelDirectionExt, AppMessageDirectionExt, NetworkDirection};
+use lightyear_connection::direction::NetworkDirection;
 use lightyear_macros::ChannelInternal;
 use lightyear_messages::prelude::*;
 use lightyear_replication::components::ComponentReplicationConfig;
@@ -26,6 +26,13 @@ pub struct StringMessage(pub String);
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, MapEntities, Reflect)]
 pub struct EntityMessage(#[entities] pub Entity);
+
+// Triggers
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect, Event)]
+pub struct StringTrigger(pub String);
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect, Event, MapEntities)]
+pub struct EntityTrigger(#[entities] pub Entity);
 
 // Protocol
 cfg_if! {
@@ -76,6 +83,12 @@ impl Plugin for ProtocolPlugin {
         app.add_message::<StringMessage>()
             .add_direction(NetworkDirection::Bidirectional);
         app.add_message::<EntityMessage>()
+            .add_map_entities()
+            .add_direction(NetworkDirection::Bidirectional);
+        // triggers
+        app.add_trigger::<StringTrigger>()
+            .add_direction(NetworkDirection::Bidirectional);
+        app.add_trigger::<EntityTrigger>()
             .add_map_entities()
             .add_direction(NetworkDirection::Bidirectional);
         // channels

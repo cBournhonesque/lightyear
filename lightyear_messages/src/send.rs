@@ -167,6 +167,26 @@ impl MessagePlugin {
                 )?; }
                 Ok::<_, MessageError>(())
             }).inspect_err(|e| error!("error sending message: {e:?}")).ok();
+
+            // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
+            // enable split borrows
+            let message_manager = &mut *message_manager;
+            message_manager.send_triggers.iter().try_for_each(|(message_kind, sender_id)| {
+                let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
+                let message_sender = entity_mut.get_mut_by_id(*sender_id).ok_or(MessageError::MissingComponent(*sender_id))?;
+                let send_metadata = registry.send_trigger_metadata.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                let serialize_fns = registry.serialize_fns_map.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                let message_id = registry.kind_map.net_id(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
+                unsafe { (send_metadata.send_trigger_fn)(
+                    message_sender,
+                    *message_id,
+                    transport,
+                    serialize_fns,
+                    &mut message_manager.entity_mapper.local_to_remote,
+                )?; }
+                Ok::<_, MessageError>(())
+            }).inspect_err(|e| error!("error sending trigger: {e:?}")).ok();
         })
     }
 }

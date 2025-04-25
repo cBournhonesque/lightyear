@@ -283,8 +283,6 @@ pub mod tests {
     use super::*;
     use crate::channel::registry::{AppChannelExt, ChannelKind};
     use crate::prelude::{ChannelMode, ChannelSettings};
-    use core::time::Duration;
-    use lightyear_core::tick::TickConfig;
 
     pub struct C;
 
@@ -300,7 +298,6 @@ pub mod tests {
             });
             // add required resources
             app.init_resource::<Time<Real>>();
-            app.insert_resource(TickManager::from_config(TickConfig::new(Duration::default())));
             // add the TransportPlugin
             app.add_plugins(TransportPlugin);
         }

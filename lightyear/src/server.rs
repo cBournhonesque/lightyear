@@ -15,6 +15,7 @@ use bevy::prelude::Component;
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_connection::client_of::{ClientOf, Server};
+use lightyear_messages::MessageManager;
 use lightyear_sync::prelude::PingManager;
 
 
@@ -78,6 +79,7 @@ impl Plugin for SetupPlugin {
             });
         }
 
+        app.register_required_components::<ClientOf, MessageManager>();
         app.register_required_components::<ClientOf, PingManager>();
     }
 }

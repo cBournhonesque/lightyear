@@ -203,14 +203,14 @@ impl Plugin for MessagePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde::{Deserialize, Serialize};
-
     use crate::receive::MessageReceiver;
     use crate::registry::AppMessageExt;
     use crate::send::MessageSender;
+    use lightyear_core::plugin::CorePlugins;
     use lightyear_link::Link;
     use lightyear_transport::plugin::tests::TestTransportPlugin;
     use lightyear_transport::plugin::tests::C;
+    use serde::{Deserialize, Serialize};
 
     /// Message
     #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -222,6 +222,9 @@ mod tests {
     #[test_log::test]
     fn test_plugin() {
         let mut app = App::new();
+        app.add_plugins(CorePlugins {
+            tick_duration: core::time::Duration::from_millis(10)
+        });
         app.add_plugins(TestTransportPlugin);
 
         // Register the message before adding the MessagePlugin

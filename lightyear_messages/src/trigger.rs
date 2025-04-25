@@ -5,6 +5,8 @@ use crate::Message;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Event};
+#[cfg(any(feature = "client", feature = "server"))]
+use lightyear_connection::direction::NetworkDirection;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::{ReadVarInt, Reader};
 use lightyear_serde::registry::{ContextDeserializeFns, ContextSerializeFns, DeserializeFn, SerializeFn, SerializeFns};
@@ -56,6 +58,15 @@ impl<M: Event> TriggerRegistration<'_, M> {
         registry.add_map_entities::<TriggerMessage<M>, M>(trigger_serialize_mapped, trigger_deserialize_mapped);
         self
     }
+
+    #[cfg(any(feature = "client", feature = "server"))]
+    pub fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self {
+        #[cfg(feature = "client")]
+        self.add_client_direction(direction);
+        #[cfg(feature = "server")]
+        self.add_server_direction(direction);
+        self
+    }
 }
 
 pub trait AppTriggerExt {
@@ -88,7 +99,6 @@ impl AppTriggerExt for App {
             send_trigger_fn: TriggerSender::<M>::send_trigger_typed
         });
         registry.receive_trigger.insert(MessageKind::of::<M>(), receive_trigger_typed::<M>);
-
         TriggerRegistration {
             app: self,
             _marker: Default::default(),

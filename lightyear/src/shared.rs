@@ -2,7 +2,7 @@
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_core::plugin::CorePlugins;
-use lightyear_core::time::SetTickDuration;
+use lightyear_core::timeline::SetTickDuration;
 // NOTE: we cannot use nested PluginGroups so let's just put everything in a plugin
 // #[derive(Default, Debug)]
 // pub struct SharedPlugins {
@@ -36,7 +36,6 @@ impl Plugin for SharedPlugin {
             })
             .add_plugins(lightyear_transport::plugin::TransportPlugin)
             .add_plugins(lightyear_messages::plugin::MessagePlugin)
-            .add_plugins(lightyear_core::time::TimePlugin)
             // TODO: make this a plugin group so it's possible to disable plugins
             .add_plugins(lightyear_replication::prelude::ReplicationSendPlugin)
             .add_plugins(lightyear_replication::prelude::RelationshipSendPlugin::<ChildOf>::default())

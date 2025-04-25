@@ -18,7 +18,7 @@ use lightyear_transport::packet::message::MessageId;
 
 /// Bevy Event emitted when a `TriggerMessage<M>` is received and processed.
 /// Contains the original trigger `M` and the `PeerId` of the sender.
-#[derive(Event)]
+#[derive(Event, Debug)]
 pub struct RemoteTrigger<M: Message> {
     pub trigger: M,
     pub from: PeerId,

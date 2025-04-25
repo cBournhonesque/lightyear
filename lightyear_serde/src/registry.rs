@@ -22,8 +22,6 @@ pub struct ErasedSerializeFns {
     pub context_deserialize: unsafe fn(),
     pub erased_clone: Option<unsafe fn()>,
     pub map_entities: Option<ErasedMapEntitiesFn>,
-    pub send_map_entities: Option<ErasedSendMapEntitiesFn>,
-    pub receive_map_entities: Option<ErasedReceiveMapEntitiesFn>,
 }
 
 pub struct ContextSerializeFns<C, M, I = M> {
@@ -150,12 +148,6 @@ type CloneFn<M> = fn(&M) -> M;
 /// Type of the entity mapping function
 pub(crate) type ErasedMapEntitiesFn =
     for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut EntityMap);
-/// Type of the entity mapping function used for serialiaztion
-pub(crate) type ErasedSendMapEntitiesFn =
-    for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut SendEntityMap);
-/// Type of the entity mapping function used for deserialiaztion
-pub(crate) type ErasedReceiveMapEntitiesFn =
-    for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut ReceiveEntityMap);
 
 fn default_context_serialize<C, M>(
     _: &mut C,
@@ -275,42 +267,8 @@ impl ErasedSerializeFns {
             context_deserialize: unsafe { core::mem::transmute(deserialize.context_deserialize) },
             erased_clone: None,
             map_entities: None,
-            send_map_entities: None,
-            receive_map_entities: None,
         }
     }
-
-    pub unsafe fn typed<M: 'static>(&self) -> SerializeFns<M> {
-        debug_assert_eq!(
-            self.type_id,
-            TypeId::of::<M>(),
-            "The erased message fns were created for type {}, but we are trying to convert to type {}",
-            self.type_name,
-            core::any::type_name::<M>(),
-        );
-        SerializeFns {
-            serialize: unsafe { core::mem::transmute(self.serialize) },
-            deserialize: unsafe { core::mem::transmute(self.deserialize) },
-        }
-    }
-
-    // pub unsafe fn context_typed<C, M: 'static>(&self) -> ContextSerializeFns<C, M> {
-    //     debug_assert_eq!(
-    //         self.type_id,
-    //         TypeId::of::<M>(),
-    //         "The erased message fns were created for type {}, but we are trying to convert to type {}",
-    //         self.type_name,
-    //         core::any::type_name::<M>(),
-    //     );
-    //     ContextSerializeFns {
-    //         inner: SerializeFns {
-    //             serialize: unsafe { core::mem::transmute(self.serialize) },
-    //             deserialize: unsafe { core::mem::transmute(self.deserialize) },
-    //         },
-    //         context_serialize: unsafe { core::mem::transmute(self.context_serialize) },
-    //         context_deserialize: unsafe { core::mem::transmute(self.context_deserialize) },
-    //     }
-    // }
 
     // We need to be able to clone the data, because when serialize we:
     // - clone the data
@@ -321,8 +279,6 @@ impl ErasedSerializeFns {
     // However, components that contain other entities should be small in general.
     pub fn add_map_entities<M: Clone + MapEntities + 'static>(&mut self) {
         self.map_entities = Some(erased_map_entities::<M>);
-        self.send_map_entities = Some(erased_send_map_entities::<M>);
-        self.receive_map_entities = Some(erased_receive_map_entities::<M>);
         let clone_fn: fn(&M) -> M = erased_clone::<M>;
         self.erased_clone = Some(unsafe { core::mem::transmute(clone_fn) });
     }
@@ -335,8 +291,6 @@ impl ErasedSerializeFns {
             }
         }
     }
-
-
 
     /// Serialize the message into the writer.
     /// If available, we try to map the entities in the message from local to remote.

@@ -5,7 +5,7 @@ use bevy::app::{App, Plugin, PluginGroup, PluginGroupBuilder};
 use bevy::prelude::Component;
 use core::time::Duration;
 use lightyear_connection::client::Client;
-
+use lightyear_messages::MessageManager;
 
 /// A plugin group containing all the client plugins.
 ///
@@ -66,6 +66,7 @@ impl Plugin for SetupPlugin {
 
         app.register_required_components::<Client, RemoteTimeline>();
         app.register_required_components::<Client, InputTimeline>();
+        app.register_required_components::<Client, MessageManager>();
         #[cfg(feature = "interpolation")]
         app.register_required_components::<Client, lightyear_sync::prelude::client::InterpolationTimeline>();
 

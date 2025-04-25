@@ -52,7 +52,7 @@ pub enum ConnectionSet {
 }
 
 pub mod prelude {
-    pub use crate::direction::{AppChannelDirectionExt, AppMessageDirectionExt, NetworkDirection};
+    pub use crate::direction::NetworkDirection;
     pub use crate::network_target::NetworkTarget;
     pub use crate::ConnectionSet;
     #[cfg(feature = "client")]

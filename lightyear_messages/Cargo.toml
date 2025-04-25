@@ -20,6 +20,8 @@ std = [
     "bytes/std",
     "serde/std",
 ]
+client = ["lightyear_connection/client"]
+server = ["lightyear_connection/server"]
 test_utils = []
 
 [dependencies]
@@ -27,6 +29,7 @@ lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_core.workspace = true
 lightyear_transport.workspace = true
+lightyear_connection = {workspace = true, optional = true}
 
 # utils
 tracing.workspace = true

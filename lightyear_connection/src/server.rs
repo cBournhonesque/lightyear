@@ -1,34 +1,11 @@
-use crate::client_of::ClientOf;
 use crate::direction::NetworkDirection;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::prelude::{Component, Event, OnAdd, Query, Res, Trigger};
+use bevy::prelude::{Component, Event};
 use core::fmt::Debug;
 use lightyear_core::id::PeerId;
-use lightyear_messages::receive::MessageReceiver;
-use lightyear_messages::registry::MessageRegistration;
-use lightyear_messages::send::MessageSender;
-use lightyear_messages::Message;
-use lightyear_transport::channel::registry::ChannelRegistration;
-use lightyear_transport::channel::Channel;
-use lightyear_transport::prelude::{ChannelRegistry, Transport};
-
-impl ClientOf {
-    pub(crate) fn add_sender_channel<C: Channel>(trigger: Trigger<OnAdd, ClientOf>, mut query: Query<&mut Transport>, registry: Res<ChannelRegistry>) {
-        if let Ok(mut transport) = query.get_mut(trigger.target()) {
-            transport.add_sender_from_registry::<C>(&registry)
-        }
-    }
-
-    pub(crate) fn add_receiver_channel<C: Channel>(trigger: Trigger<OnAdd, ClientOf>, mut query: Query<&mut Transport>, registry: Res<ChannelRegistry>) {
-        if let Ok(mut transport) = query.get_mut(trigger.target()) {
-            transport.add_receiver_from_registry::<C>(&registry)
-        }
-    }
-}
-
 
 #[derive(Component)]
 struct ConnectedOn;
@@ -73,51 +50,10 @@ pub struct ClientConnected(pub PeerId);
 #[derive(Component, Event)]
 pub struct ClientDisconnected;
 
-pub(crate) trait AppMessageDirectionExt {
-    /// Add a new [`NetworkDirection`] to the registry
-    fn add_direction(&mut self, direction: NetworkDirection);
-}
-
-impl<M: Message> AppMessageDirectionExt for MessageRegistration<'_, M> {
-    // TODO: as much as possible, don't include server code for dedicated clients and vice-versa
-    //   see how we can achieve this. Maybe half of the funciton is in lightyear_client and the other half in lightyear_server ?
-    fn add_direction(&mut self, direction: NetworkDirection) {
-        match direction {
-            NetworkDirection::ClientToServer => {
-                self.app.register_required_components::<ClientOf, MessageSender<M>>();
-            }
-            NetworkDirection::ServerToClient => {
-                self.app.register_required_components::<ClientOf, MessageReceiver<M>>();
-            }
-            NetworkDirection::Bidirectional => {
-                self.add_direction(NetworkDirection::ClientToServer);
-                self.add_direction(NetworkDirection::ServerToClient);
-            }
-        }
-    }
-}
-
 pub(crate) trait AppChannelDirectionExt {
     fn add_direction(&mut self, direction: NetworkDirection);
 }
 
-impl<C: Channel> AppChannelDirectionExt for ChannelRegistration<'_, C> {
-    /// Add a new [`NetworkDirection`] to the registry
-    fn add_direction(&mut self, direction: NetworkDirection) {
-         match direction {
-            NetworkDirection::ClientToServer => {
-                self.app.add_observer(ClientOf::add_sender_channel::<C>);
-            }
-            NetworkDirection::ServerToClient => {
-                self.app.add_observer(ClientOf::add_receiver_channel::<C>);
-            }
-            NetworkDirection::Bidirectional => {
-                self.add_direction(NetworkDirection::ClientToServer);
-                self.add_direction(NetworkDirection::ServerToClient);
-            }
-        }
-    }
-}
 
 // #[cfg(test)]
 // mod tests {
