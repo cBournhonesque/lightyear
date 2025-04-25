@@ -121,6 +121,7 @@
 // }
 
 use crate::registry::MessageRegistry;
+use crate::MessageManager;
 use bevy::app::{App, PostUpdate, PreUpdate};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
 use bevy::prelude::{IntoScheduleConfigs, Plugin, SystemParamBuilder, SystemSet};
@@ -151,6 +152,12 @@ impl Plugin for MessagePlugin {
         if !app.is_plugin_added::<TransportPlugin>() {
             app.add_plugins(TransportPlugin);
         }
+
+        #[cfg(feature = "client")]
+        app.register_required_components::<lightyear_connection::prelude::client::Client, MessageManager>();
+
+        #[cfg(feature = "server")]
+        app.register_required_components::<lightyear_connection::prelude::server::ClientOf, MessageManager>();
     }
 
     // NOTE: this should only be called once all messages are registered, because we use the list of registered

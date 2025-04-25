@@ -6,9 +6,10 @@ use crate::prelude::InputTimeline;
 use crate::timeline::input::Input;
 #[cfg(feature = "interpolation")]
 use crate::timeline::interpolation::InterpolationTimeline;
-use crate::timeline::sync::{SyncEvent, SyncedTimeline};
 use crate::timeline::remote;
+use crate::timeline::sync::{SyncEvent, SyncedTimeline};
 use bevy::prelude::*;
+use lightyear_connection::client::Client;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin};
 use lightyear_core::time::TickDelta;
 
@@ -60,7 +61,13 @@ impl ClientPlugin {
 impl Plugin for ClientPlugin {
 
     fn build(&self, app: &mut App) {
-        app.add_plugins(SyncPlugin);
+        if !app.is_plugin_added::<SyncPlugin>() {
+            app.add_plugins(SyncPlugin);
+        }
+
+        app.register_required_components::<Client, InputTimeline>();
+        app.register_required_components::<Client, RemoteTimeline>();
+
 
         app.add_observer(Input::recompute_input_delay);
 
@@ -69,7 +76,10 @@ impl Plugin for ClientPlugin {
         app.add_plugins(SyncedTimelinePlugin::<InputTimeline, RemoteTimeline, true>::default());
 
         #[cfg(feature = "interpolation")]
-        app.add_plugins(SyncedTimelinePlugin::<InterpolationTimeline, RemoteTimeline>::default());
+        {
+            app.register_required_components::<Client, InterpolationTimeline>();
+            app.add_plugins(SyncedTimelinePlugin::<InterpolationTimeline, RemoteTimeline>::default());
+        }
 
         // remote timeline
         app.add_plugins(NetworkTimelinePlugin::<RemoteTimeline>::default());

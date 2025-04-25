@@ -7,6 +7,8 @@ use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
+use lightyear_sync::prelude::client::IsSynced;
+use lightyear_sync::prelude::InputTimeline;
 use test_log::test;
 use tracing::info;
 
@@ -14,6 +16,8 @@ use tracing::info;
 #[test]
 fn test_remote_client_replicated_input() {
     let mut stepper = ClientServerStepper::single();
+
+    stepper.client_app.world_mut().query::<&IsSynced<InputTimeline>>().single(stepper.client_app.world()).unwrap();
 
     // SETUP
     // entity controlled by the remote client

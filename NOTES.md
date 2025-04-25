@@ -62,6 +62,9 @@ TODOs:
 - When we get a Disconnection, use the Sender's replicated-entities to update the Replicate components
 - When we get a Connection, how do specify which Replicate will handle that new client?
   Maybe we can have some Access or bitmask of all connections, and the access could have `accept_all`, etc.?
+ 
+- Most systems (for example ReplicationPlugin), need to only run if the timeline is synced, or if the senders are connected.
+  How to handle this gracefully?
   
 
 TEST TODO:

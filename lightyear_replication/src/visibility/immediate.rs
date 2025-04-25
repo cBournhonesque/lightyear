@@ -69,6 +69,7 @@ impl NetworkVisibility {
     ) -> bool {
         self.visible.contains(&sender) || self.gained.contains(&sender)
     }
+
     pub fn gain_visibility(
         &mut self,
         sender: Entity,

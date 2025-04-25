@@ -229,6 +229,7 @@ impl Replicate {
                             error!("No ReplicationSender found in the world");
                             return;
                         };
+                        info!("Adding replicated entity {} to sender {}", context.entity, sender_entity);
                         sender.add_replicated_entity(context.entity);
                         replicate.senders.insert(*sender_entity);
                     }

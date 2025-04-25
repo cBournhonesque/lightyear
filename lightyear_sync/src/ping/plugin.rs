@@ -98,8 +98,10 @@ impl PingPlugin {
 
 impl Plugin for PingPlugin {
     fn build(&self, app: &mut App) {
+
         app.add_channel::<PingChannel>(ChannelSettings {
-                           mode: ChannelMode::SequencedUnreliable,
+                           // NOTE: using Sequenced is invalid if we are sharing a channel between Ping and Pong!
+                           mode: ChannelMode::UnorderedUnreliable,
                            send_frequency: Duration::default(),
                            // we always want to include the ping in the packet
                            priority: f32::INFINITY,
@@ -115,6 +117,9 @@ impl Plugin for PingPlugin {
         //   so we make the Transport require a PingManager.
         //   Maybe we should error if TransportPlugin is added without PingPlugin?
         app.register_required_components::<Transport, PingManager>();
+
+        #[cfg(feature = "server")]
+        app.register_required_components::<lightyear_connection::prelude::server::ClientOf, PingManager>();
 
         app.configure_sets(PreUpdate, (MessageSet::Receive, PingSet::Receive).chain());
         app.configure_sets(PostUpdate,  (PingSet::Send, MessageSet::Send).chain());

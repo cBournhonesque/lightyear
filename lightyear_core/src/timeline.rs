@@ -246,4 +246,9 @@ impl Plugin for TimelinePlugin {
         app.add_plugins(NetworkTimelinePlugin::<LocalTimeline>::default());
         app.add_systems(FixedFirst, increment_local_tick);
     }
+
+    fn finish(&self, app: &mut App) {
+        // After timelines and PingManager are created, trigger a TickDuration event
+        app.world_mut().trigger(SetTickDuration(self.tick_duration));
+    }
 }

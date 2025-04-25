@@ -1,11 +1,6 @@
-use crate::prelude::client::RemoteTimeline;
-use crate::prelude::InputTimeline;
-use crate::shared::SharedPlugin;
-use bevy::app::{App, Plugin, PluginGroup, PluginGroupBuilder};
-use bevy::prelude::Component;
+use crate::shared::SharedPlugins;
+use bevy::app::{PluginGroup, PluginGroupBuilder};
 use core::time::Duration;
-use lightyear_connection::client::Client;
-use lightyear_messages::MessageManager;
 
 /// A plugin group containing all the client plugins.
 ///
@@ -31,11 +26,10 @@ impl PluginGroup for ClientPlugins {
     #[allow(clippy::let_and_return)]
     fn build(self) -> PluginGroupBuilder {
         let builder = PluginGroupBuilder::start::<Self>();
-        let builder = builder
-            .add(SetupPlugin {
-                tick_duration: self.tick_duration
-            })
-            .add(lightyear_sync::client::ClientPlugin);
+        let builder = builder.add(lightyear_sync::client::ClientPlugin);
+        let builder = builder.add_group(SharedPlugins {
+            tick_duration: self.tick_duration
+        });
 
         // CONNECTION
         #[cfg(feature = "netcode")]
@@ -50,32 +44,5 @@ impl PluginGroup for ClientPlugins {
         let builder = builder.add(crate::client::web::WebPlugin);
 
         builder
-    }
-}
-
-struct SetupPlugin {
-    /// The tick interval for the client. This is used to determine how often the client should tick.
-    /// The default value is 1/60 seconds.
-    pub tick_duration: Duration,
-}
-
-// TODO: override `ready` and `finish` to make sure that the transport/backend is connected
-//  before the plugin is ready
-impl Plugin for SetupPlugin {
-    fn build(&self, app: &mut App) {
-
-        app.register_required_components::<Client, RemoteTimeline>();
-        app.register_required_components::<Client, InputTimeline>();
-        app.register_required_components::<Client, MessageManager>();
-        #[cfg(feature = "interpolation")]
-        app.register_required_components::<Client, lightyear_sync::prelude::client::InterpolationTimeline>();
-
-        if !app.is_plugin_added::<SharedPlugin>() {
-            app
-                // PLUGINS
-                .add_plugins(SharedPlugin {
-                    tick_duration: self.tick_duration
-                });
-        }
     }
 }

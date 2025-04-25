@@ -162,7 +162,6 @@ impl ReplicationSendPlugin {
         });
     }
 
-
     // /// Tick the internal timers of all replication groups.
     // fn tick_replication_group_timers(
     //     time_manager: Res<TimeManager>,

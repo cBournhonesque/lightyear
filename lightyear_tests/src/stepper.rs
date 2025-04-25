@@ -57,7 +57,6 @@ impl<const N: usize> ClientServerStepper<N> {
         let mut server_app = App::new();
         server_app.add_plugins((MinimalPlugins, StatesPlugin));
         server_app.add_plugins(ProtocolPlugin);
-        server_app.add_plugins(NetworkVisibilityPlugin);
         server_app.add_plugins(server::ServerPlugins {
             tick_duration
         });
@@ -73,7 +72,6 @@ impl<const N: usize> ClientServerStepper<N> {
         let mut client_app = App::new();
         client_app.add_plugins((MinimalPlugins, StatesPlugin));
         client_app.add_plugins(ProtocolPlugin);
-        client_app.add_plugins(NetworkVisibilityPlugin);
         client_app.add_plugins(client::ClientPlugins {
             tick_duration,
         });
@@ -219,7 +217,7 @@ impl<const N: usize> ClientServerStepper<N> {
 
     // Advance the world until the client is synced
     pub(crate) fn wait_for_sync(&mut self) {
-        for _ in 0..10 {
+        for _ in 0..20 {
             if (0..N).all(|client_id| self.client(client_id).contains::<IsSynced<InputTimeline>>() && self.client(client_id).contains::<IsSynced<InterpolationTimeline>>()) {
                 info!("Clients are all synced");
                 break

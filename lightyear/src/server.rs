@@ -8,15 +8,10 @@
 //! while keeping the rest of the features intact.
 //!
 //! Most plugins are truly necessary for the server functionality to work properly, but some could be disabled.
-use crate::prelude::LocalTimeline;
-use crate::shared::SharedPlugin;
+use crate::shared::SharedPlugins;
 use bevy::app::PluginGroupBuilder;
-use bevy::prelude::Component;
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear_connection::client_of::{ClientOf, Server};
-use lightyear_messages::MessageManager;
-use lightyear_sync::prelude::PingManager;
 
 
 /// A plugin group containing all the server plugins.
@@ -43,9 +38,11 @@ impl PluginGroup for ServerPlugins {
     fn build(self) -> PluginGroupBuilder {
         let builder = PluginGroupBuilder::start::<Self>();
         let builder = builder
-            .add(SetupPlugin { tick_duration: self.tick_duration })
-            .add(lightyear_sync::prelude::SyncPlugin);
-            // .add(lightyear_sync::server::ServerPlugin);
+            .add(lightyear_sync::server::ServerPlugin);
+
+        let builder = builder.add_group(SharedPlugins {
+            tick_duration: self.tick_duration
+        });
 
         // IO
         #[cfg(feature = "udp")]
@@ -56,30 +53,5 @@ impl PluginGroup for ServerPlugins {
         #[cfg(feature = "netcode")]
         let builder = builder.add(lightyear_netcode::server_plugin::NetcodeServerPlugin);
         builder
-    }
-}
-
-/// A plugin that sets up the server by adding the [`ServerConfig`] resource and the [`SharedPlugin`] plugin.
-struct SetupPlugin {
-    /// The tick interval for the server. This is used to determine how often the server should tick.
-    /// The default value is 1/60 seconds.
-    pub tick_duration: Duration,
-}
-
-impl Plugin for SetupPlugin {
-    fn build(&self, app: &mut App) {
-
-        app.register_required_components::<Server, LocalTimeline>();
-
-        // PLUGINS
-        // make sure that SharedPlugin is not added twice if adding Server and Client Plugins in the same App
-        if !app.is_plugin_added::<SharedPlugin>() {
-            app.add_plugins(SharedPlugin {
-                tick_duration: self.tick_duration,
-            });
-        }
-
-        app.register_required_components::<ClientOf, MessageManager>();
-        app.register_required_components::<ClientOf, PingManager>();
     }
 }

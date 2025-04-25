@@ -2,7 +2,6 @@
 //! then the ownership gets transferred to the server.
 
 use crate::manager::{PredictionManager, PredictionResource};
-use crate::run_conditions::is_synced;
 use crate::Predicted;
 use bevy::prelude::*;
 use lightyear_connection::identity::{is_host_server, NetworkIdentityState};
@@ -39,7 +38,6 @@ impl Plugin for PrePredictionPlugin {
                 PrePredictionSet::Clean
             )
                 .chain()
-                .run_if(is_synced),
         );
         app.add_systems(
             PostUpdate,

@@ -107,7 +107,7 @@ impl<M: Message> MessageReceiver<M> {
             channel_kind,
             message_id,
         };
-        trace!("Pushing message {:?} on channel {channel_kind:?}", core::any::type_name::<M>());
+        trace!("Received message {:?} on channel {channel_kind:?}", core::any::type_name::<M>());
         receiver.recv.push(received_message);
         Ok(())
     }

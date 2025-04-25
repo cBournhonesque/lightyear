@@ -45,12 +45,16 @@ impl Plugin for SharedPlugin {
             .register_type::<AuthorityPeer>();
 
         #[cfg(feature = "interpolation")]
-        app.register_type::<ShouldBeInterpolated>();
+        {
+            app.register_type::<ShouldBeInterpolated>();
+            app.register_component::<ShouldBeInterpolated>();
+        }
         #[cfg(feature = "prediction")]
-        app.register_type::<(ShouldBePredicted, PrePredicted)>();
-
-        app.register_component::<ShouldBePredicted>();
-        app.register_component::<ShouldBeInterpolated>();
+        {
+            app.register_type::<(ShouldBePredicted, PrePredicted)>();
+            app.register_component::<ShouldBePredicted>();
+            app.register_component::<PrePredicted>();
+        }
 
         app.add_channel::<UpdatesChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliableWithAcks,

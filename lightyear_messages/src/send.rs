@@ -93,7 +93,7 @@ impl<M: Message> MessageSender<M> {
             net_id.to_bytes(&mut sender.writer)?;
             serialize_metadata.serialize::<SendEntityMap, M, M>(&message, &mut sender.writer, entity_map)?;
             let bytes = sender.writer.split();
-            trace!("Sending message of type {:?} with net_id {net_id:?} on channel {channel_kind:?}", core::any::type_name::<M>());
+            trace!("Sending message of type {:?} with net_id {net_id:?}/kind {:?} on channel {channel_kind:?}", core::any::type_name::<M>(), MessageKind::of::<M>());
             transport.send_erased(channel_kind, bytes, priority)?;
             Ok(())
         })
@@ -143,7 +143,6 @@ impl MessagePlugin {
         // We use Arc to make the query Clone, since we know that we will only access MessageSender<M> components
         // on different entities
         let mut message_sender_query = Arc::new(message_sender_query);
-
         transport_query.par_iter_mut().for_each(|(entity, transport, mut message_manager)| {
             // SAFETY: we know that this won't lead to violating the aliasing rule
             let mut message_sender_query = unsafe { message_sender_query.reborrow_unsafe() };
