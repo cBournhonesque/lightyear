@@ -23,7 +23,7 @@ cfg_if! {
     if #[cfg(test)] {
         use mock_instant::global::Instant;
     } else {
-        use bevy::platform_support::time::Instant;
+        use bevy::platform::time::Instant;
     }
 }
 

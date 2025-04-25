@@ -11,13 +11,13 @@ use crate::protocol::serialize::ErasedSerializeFns;
 use crate::serialize::reader::Reader;
 use crate::serialize::ToBytes;
 use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 use bevy::app::App;
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::ComponentId;
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::{Commands, Entity, Event, Events, FilteredResourcesMut, TypePath, World};
-#[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
 
 /// Metadata needed to receive/send messages
 ///

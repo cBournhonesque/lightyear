@@ -1,4 +1,4 @@
-use crate::utils::collections::HashMap;
+use bevy::platform::collections::HashMap;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
 use alloc::sync::Arc;

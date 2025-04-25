@@ -13,7 +13,7 @@ use core::fmt::Formatter;
 use core::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 
 use bevy::app::{App, RunFixedMainLoop, RunFixedMainLoopSystem};
-use bevy::platform_support::time::Instant;
+use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bevy::time::Fixed;
 use chrono::Duration as ChronoDuration;

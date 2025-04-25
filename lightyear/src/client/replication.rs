@@ -809,8 +809,6 @@ pub(crate) mod send {
 
     #[cfg(test)]
     mod tests {
-        #[cfg(not(feature = "std"))]
-        use alloc::vec;
         use crate::client::replication::send::ReplicateToServer;
         use crate::prelude::{
             server, ChannelDirection, ClientId, ComponentRegistry, DisabledComponents,
@@ -819,6 +817,8 @@ pub(crate) mod send {
         use crate::protocol::component::ComponentKind;
         use crate::tests::protocol::{ComponentSyncModeFull, ComponentSyncModeOnce};
         use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
+        #[cfg(not(feature = "std"))]
+        use alloc::vec;
         use bevy::prelude::ChildOf;
 
         #[test]
@@ -830,9 +830,7 @@ pub(crate) mod send {
             let client_child = stepper
                 .client_app
                 .world_mut()
-                .spawn(ChildOf {
-                    parent: client_entity,
-                })
+                .spawn(ChildOf(client_entity))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -912,9 +910,7 @@ pub(crate) mod send {
             let client_child = stepper
                 .client_app
                 .world_mut()
-                .spawn(ChildOf {
-                    parent: client_entity,
-                })
+                .spawn(ChildOf(client_entity))
                 .id();
             for _ in 0..10 {
                 stepper.frame_step();
@@ -1047,9 +1043,7 @@ pub(crate) mod send {
             let client_child = stepper
                 .client_app
                 .world_mut()
-                .spawn(ChildOf {
-                    parent: client_entity,
-                })
+                .spawn(ChildOf(client_entity))
                 .id();
             for _ in 0..10 {
                 stepper.frame_step();
@@ -1104,9 +1098,7 @@ pub(crate) mod send {
             let client_child = stepper
                 .client_app
                 .world_mut()
-                .spawn(ChildOf {
-                    parent: client_entity,
-                })
+                .spawn(ChildOf(client_entity))
                 .id();
             for _ in 0..10 {
                 stepper.frame_step();
@@ -1458,9 +1450,7 @@ pub(crate) mod send {
                 .client_app
                 .world_mut()
                 .spawn((
-                    ChildOf {
-                        parent: client_entity,
-                    },
+                    ChildOf(client_entity),
                     ComponentSyncModeFull(1.0),
                 ))
                 .id();

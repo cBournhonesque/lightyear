@@ -3,7 +3,7 @@
 use alloc::{boxed::Box, vec, vec::Vec};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
-use bevy::platform_support::collections::hash_map::{Entry, HashMap};
+use bevy::platform::collections::hash_map::{Entry, HashMap};
 use bevy::prelude::{Component, Entity, Resource, World};
 use bevy::ptr::Ptr;
 use bytes::Bytes;

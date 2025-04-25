@@ -2,7 +2,7 @@ use alloc::sync::Arc;
 use core::net::SocketAddr;
 use std::sync::Mutex;
 
-use crate::utils::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use async_compat::Compat;
 use bevy::tasks::{futures_lite, IoTaskPool};
 use futures_util::{

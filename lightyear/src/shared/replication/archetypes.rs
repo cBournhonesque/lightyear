@@ -6,9 +6,9 @@ use crate::prelude::{ChannelDirection, ComponentRegistry, ReplicateLike, Replica
 use crate::protocol::component::ComponentKind;
 use crate::server::replication::send::ReplicateToClient;
 use crate::shared::replication::authority::HasAuthority;
-use crate::utils::collections::HashMap;
 use bevy::ecs::archetype::Archetypes;
 use bevy::ecs::component::Components;
+use bevy::platform::collections::HashMap;
 use bevy::{
     ecs::{
         archetype::{ArchetypeGeneration, ArchetypeId},

@@ -40,7 +40,7 @@ it just caches the room metadata to keep track of the relevance of entities.
 
 use bevy::app::App;
 use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet};
-use bevy::platform_support::collections::{hash_map::Entry, HashMap, HashSet};
+use bevy::platform::collections::{hash_map::Entry, HashMap, HashSet};
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 
@@ -358,7 +358,6 @@ pub(super) mod systems {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::collections::HashMap;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::Events;
 

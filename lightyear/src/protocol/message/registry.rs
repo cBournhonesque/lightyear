@@ -11,7 +11,7 @@ use crate::serialize::ToBytes;
 use crate::server::config::ServerConfig;
 use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
 use bevy::ecs::entity::MapEntities;
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use serde::de::DeserializeOwned;
 use serde::Serialize;

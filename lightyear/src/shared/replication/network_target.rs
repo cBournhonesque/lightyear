@@ -1,15 +1,15 @@
 use crate::prelude::ClientId;
 use crate::serialize::reader::{ReadInteger, Reader};
+use crate::serialize::writer::WriteInteger;
 use crate::serialize::{SerializationError, ToBytes};
-use crate::utils::collections::HashSet;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::platform_support::hash::FixedHasher;
+use bevy::platform::hash::FixedHasher;
 use bevy::prelude::Reflect;
 use serde::{Deserialize, Serialize};
-use crate::serialize::writer::WriteInteger;
 
 type HS<K> = hashbrown::HashSet<K, FixedHasher>;
+type HashSet<K> = bevy::platform::collections::HashSet<K, FixedHasher>;
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect)]
 /// NetworkTarget indicated which clients should receive some message

@@ -1,10 +1,10 @@
 use core::ops::{Add, Mul};
 
-use crate::utils::collections::HashSet;
 #[cfg(not(feature = "std"))]
 use alloc::{string::{String, ToString}, vec, vec::Vec};
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
+use bevy::platform::collections::HashSet;
 use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
 use cfg_if::cfg_if;
 use lightyear_macros::ChannelInternal;

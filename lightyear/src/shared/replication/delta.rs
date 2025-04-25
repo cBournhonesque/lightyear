@@ -3,7 +3,7 @@
 use crate::prelude::{ComponentRegistry, Message, Tick};
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::components::ReplicationGroupId;
-use crate::utils::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity};
 use bevy::ptr::Ptr;
@@ -137,7 +137,7 @@ impl DeltaManager {
     }
 }
 
-type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
 /// We have a shared store of the component values for diffable components.
 /// We keep some of the values in memory so that we can compute the delta between the previously

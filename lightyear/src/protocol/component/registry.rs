@@ -24,7 +24,7 @@ use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::replication::delta::Diffable;
 use crate::shared::replication::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
-use crate::utils::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::app::App;
 use bevy::ecs::change_detection::Mut;
 use bevy::ecs::component::{Component, ComponentId, Mutable};

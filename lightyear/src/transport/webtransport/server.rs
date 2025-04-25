@@ -5,8 +5,8 @@ use alloc::{boxed::Box, format, vec, vec::Vec};
 use core::net::SocketAddr;
 use std::sync::Mutex;
 
-use crate::utils::collections::HashMap;
 use async_compat::Compat;
+use bevy::platform::collections::HashMap;
 use bevy::tasks::IoTaskPool;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;

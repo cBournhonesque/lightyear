@@ -1,4 +1,4 @@
-use crate::utils::collections::HashMap;
+use bevy::platform::collections::HashMap;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};

@@ -10,7 +10,7 @@ use {
 use core::net::SocketAddr;
 
 
-use crate::utils::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use crossbeam_channel::{Receiver, Select, Sender};
 use self_cell::self_cell;
 use tracing::debug;

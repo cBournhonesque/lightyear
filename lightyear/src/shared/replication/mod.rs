@@ -5,7 +5,7 @@ use bevy::ecs::entity::EntityHash;
 use core::fmt::Debug;
 use core::hash::Hash;
 
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::{Entity, Resource};
 use bytes::Bytes;
 

@@ -13,7 +13,7 @@ use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
 use crate::shared::replication::components::{InitialReplicated, Replicated, ReplicationGroupId};
 #[cfg(test)]
 use crate::utils::captures::Captures;
-use crate::utils::collections::HashSet;
+use bevy::platform::collections::HashSet;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::ecs::entity::EntityHash;
@@ -22,7 +22,7 @@ use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
 #[derive(Debug)]
 pub struct ReplicationReceiver {

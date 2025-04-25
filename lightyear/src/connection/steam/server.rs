@@ -6,7 +6,7 @@ use crate::connection::server::{
 use crate::packet::packet_builder::RecvPayload;
 use crate::prelude::LinkConditionerConfig;
 use crate::server::io::Io;
-use crate::utils::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 #[cfg(not(feature = "std"))]

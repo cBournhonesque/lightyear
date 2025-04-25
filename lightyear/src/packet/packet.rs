@@ -66,7 +66,7 @@ mod tests {
     use crate::packet::header::PacketHeader;
     use crate::packet::packet_type::PacketType;
     use crate::packet::message::{SingleData, FragmentData};
-    use crate::utils::collections::HashMap;
+    use bevy::platform::collections::HashMap;
     use bevy::prelude::{default, Reflect};
 
     use lightyear_macros::ChannelInternal;

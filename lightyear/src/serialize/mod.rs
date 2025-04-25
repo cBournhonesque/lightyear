@@ -1,7 +1,7 @@
 //! Serialization and deserialization of types
 use crate::serialize::reader::{ReadInteger, ReadVarInt, Reader};
 use crate::serialize::varint::{varint_len};
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 use bytes::Bytes;
 use core::hash::{BuildHasher, Hash};
 use no_std_io2::io;

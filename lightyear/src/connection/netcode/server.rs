@@ -2,7 +2,7 @@ use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::ToString, vec, vec::Vec};
-use bevy::platform_support::collections::HashMap;
+use bevy::platform::collections::HashMap;
 #[cfg(feature = "std")]
 use std::{io};
 #[cfg(not(feature = "std"))]
@@ -871,7 +871,7 @@ impl<Ctx> NetcodeServer<Ctx> {
     /// ```
     /// # use crate::lightyear::connection::netcode::{NetcodeServer, ServerConfig, MAX_PACKET_SIZE};
     /// # use std::net::{SocketAddr, Ipv4Addr};
-    /// # use bevy::platform_support::time::Instant;
+    /// # use bevy::platform::time::Instant;
     /// # use lightyear::prelude::server::*;
     /// # let protocol_id = 0x123456789ABCDEF0;
     /// # let private_key = [42u8; 32];

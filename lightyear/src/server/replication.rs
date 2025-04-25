@@ -13,7 +13,6 @@ use crate::server::connection::ConnectionManager;
 use crate::shared::replication::plugin::receive::ReplicationReceivePlugin;
 use crate::shared::replication::plugin::send::ReplicationSendPlugin;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, ServerMarker};
-use crate::utils::collections::HashMap;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ServerReplicationSet {
@@ -76,6 +75,7 @@ pub(crate) mod send {
 
     use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
     use bevy::ecs::world::FilteredEntityRef;
+    use bevy::platform::collections::HashMap;
     use bevy::ptr::Ptr;
 
     use tracing::{debug, error, trace};
@@ -1244,8 +1244,8 @@ pub(crate) mod send {
         use crate::tests::multi_stepper::{MultiBevyStepper, TEST_CLIENT_ID_1, TEST_CLIENT_ID_2};
         use crate::tests::protocol::*;
         use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
-        use crate::utils::collections::HashSet;
         use bevy::ecs::system::RunSystemOnce;
+        use bevy::platform::collections::HashSet;
         use bevy::prelude::{default, EventReader, Resource, Update};
 
         // TODO: test entity spawn newly connected client
@@ -1259,9 +1259,7 @@ pub(crate) mod send {
             let server_child = stepper
                 .server_app
                 .world_mut()
-                .spawn(ChildOf {
-                    parent: server_entity,
-                })
+                .spawn(ChildOf(server_entity))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -1375,9 +1373,7 @@ pub(crate) mod send {
             let server_child = stepper
                 .server_app
                 .world_mut()
-                .spawn(ChildOf {
-                    parent: server_entity,
-                })
+                .spawn(ChildOf(server_entity))
                 .id();
 
             stepper.frame_step();
@@ -1434,9 +1430,7 @@ pub(crate) mod send {
             let server_child = stepper
                 .server_app
                 .world_mut()
-                .spawn(ChildOf {
-                    parent: server_entity,
-                })
+                .spawn(ChildOf(server_entity))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -1605,9 +1599,7 @@ pub(crate) mod send {
             let server_child = stepper
                 .server_app
                 .world_mut()
-                .spawn(ChildOf {
-                    parent: server_entity,
-                })
+                .spawn(ChildOf(server_entity))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -1660,9 +1652,7 @@ pub(crate) mod send {
             let server_child = stepper
                 .server_app
                 .world_mut()
-                .spawn(ChildOf {
-                    parent: server_entity,
-                })
+                .spawn(ChildOf(server_entity))
                 .id();
             stepper.frame_step();
             stepper.frame_step();
@@ -3293,9 +3283,7 @@ pub(crate) mod send {
                 .server_app
                 .world_mut()
                 .spawn((
-                    ChildOf {
-                        parent: server_entity,
-                    },
+                    ChildOf(server_entity),
                     ComponentSyncModeOnce(1.0),
                 ))
                 .id();

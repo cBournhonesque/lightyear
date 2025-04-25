@@ -25,8 +25,8 @@ fn my_system(
 */
 use crate::prelude::{server::is_started, ClientId};
 use crate::shared::sets::{InternalReplicationSet, ServerMarker};
-use crate::utils::collections::HashMap;
 use bevy::ecs::entity::hash_set::EntityHashSet;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use tracing::trace;
 

@@ -2,7 +2,7 @@
  */
 use core::iter;
 
-use crate::utils::collections::HashMap;
+use bevy::platform::collections::HashMap;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec::Vec};
 use bevy::prelude::{Component, Entity, Resource};

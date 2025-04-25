@@ -50,7 +50,7 @@ clap = { version = "4.5.4", features = ["derive"] }
 chrono = "0.4.38"
 cfg-if = "1.0"
 enum_dispatch = "0.3"
-governor = "0.8.1"
+governor = "0.10"
 hashbrown = "0.15"
 nonzero_ext = "0.3.0"
 parking_lot = "0.12.3"
@@ -98,7 +98,7 @@ crossbeam-channel = { version = "0.5.13", features = [] }
 metrics = "0.24"
 metrics-util = "0.19"
 metrics-tracing-context = "0.18"
-metrics-exporter-prometheus = { version = "0.16", default-features = false, features = [
+metrics-exporter-prometheus = { version = "0.17", default-features = false, features = [
   "http-listener",
 ] }
 
@@ -131,7 +131,7 @@ wtransport = { version = "=0.5.0", features = [
   "self-signed",
   "dangerous-configuration",
 ] }
-tokio-tungstenite = { version = "0.23.0", features = ["connect", "handshake"] }
+tokio-tungstenite = { version = "0.26", features = ["connect", "handshake"] }
 
 
 # WASM things
@@ -176,7 +176,7 @@ approx = "0.5.1"
 
 # Bevy
 # (we add back features needed for gui clients if desired)
-bevy = { git = "https://github.com/bevyengine/bevy.git", branch = "main", default-features = false, features = [
+bevy = { version = "0.16", default-features = false, features = [
   "bevy_state",
   "serialize",
   "bevy_asset",
@@ -198,19 +198,19 @@ avian3d = { version = "=0.2.0", default-features = false }
 
 
 # gui debug ui
-bevy-inspector-egui = { version = "0.29", default-features = false, features = [
+bevy-inspector-egui = { version = "0.30", default-features = false, features = [
   "bevy_pbr",
   "bevy_image",
   "bevy_render",
   "egui_open_url",
 ] }
-bevy_egui = { version = "0.32", default-features = false, features = [
+bevy_egui = { version = "0.34", default-features = false, features = [
   "open_url",
   "default_fonts",
   "render",
 ] }
-bevy_metrics_dashboard = "0.4"
-egui_extras = "0.30"
+bevy_metrics_dashboard = "0.6"
+egui_extras = "0.31"
 
 # bevygap for deploying on Edgegap
 bevygap_server_plugin = { version = "0.3.1" }

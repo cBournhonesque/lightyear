@@ -2,11 +2,11 @@
 use core::iter::Extend;
 
 use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
-use crate::utils::collections::HashMap;
 #[cfg(not(feature = "std"))]
 use alloc::{string::ToString, vec::Vec};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::Entity;
 use bevy::ptr::Ptr;
 use bytes::Bytes;
@@ -34,8 +34,8 @@ use {
     crate::utils::captures::Captures,
 };
 
-type EntityHashMap<K, V> = bevy::platform_support::collections::HashMap<K, V, EntityHash>;
-type EntityHashSet<K> = bevy::platform_support::collections::HashSet<K, EntityHash>;
+type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
+type EntityHashSet<K> = bevy::platform::collections::HashSet<K, EntityHash>;
 
 /// When a [`EntityUpdatesMessage`](super::EntityUpdatesMessage) message gets buffered (and we have access to its [`MessageId`]),
 /// we keep track of some information related to this message.
