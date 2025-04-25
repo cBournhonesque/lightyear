@@ -1,18 +1,17 @@
 use alloc::sync::Arc;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, vec, vec::Vec};
+use async_compat::Compat;
+use bevy::platform::collections::HashMap;
+use bevy::tasks::{futures_lite, IoTaskPool};
 use core::future::Future;
 use core::ops::Deref;
+use futures_util::stream::FusedStream;
+use futures_util::{future, pin_mut, stream::TryStreamExt, SinkExt, StreamExt, TryFutureExt};
 use std::{
     io::BufReader,
     net::{SocketAddr, SocketAddrV4},
 };
-
-use bevy::platform::collections::HashMap;
-use async_compat::Compat;
-use bevy::tasks::{futures_lite, IoTaskPool};
-use futures_util::stream::FusedStream;
-use futures_util::{future, pin_mut, stream::TryStreamExt, SinkExt, StreamExt, TryFutureExt};
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{
@@ -26,7 +25,7 @@ use tokio::{
 use tokio_tungstenite::{
     connect_async, connect_async_with_config, tungstenite::Message, MaybeTlsStream,
 };
-use tracing::{debug, info, trace, error};
+use tracing::{debug, error, info, trace};
 
 use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
 use crate::client::io::{ClientIoEvent, ClientIoEventReceiver, ClientNetworkEventSender};
@@ -181,7 +180,7 @@ struct WebSocketClientSocketSender {
 impl PacketSender for WebSocketClientSocketSender {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         self.serverbound_tx
-            .send(Message::Binary(payload.to_vec()))
+            .send(Message::Binary(payload.to_vec().into()))
             .map_err(|e| {
                 Error::WebSocket(
                     std::io::Error::other(format!("unable to send message to server: {:?}", e))

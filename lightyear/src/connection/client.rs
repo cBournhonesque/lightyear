@@ -1,8 +1,8 @@
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use alloc::sync::Arc;
+use core::net::SocketAddr;
 use core::str::FromStr;
 use no_std_io2::io as io;
-use core::net::SocketAddr;
 
 use bevy::prelude::{Reflect, Resource};
 use enum_dispatch::enum_dispatch;
@@ -153,12 +153,17 @@ impl NetConfig {
                 config,
                 conditioner,
             } => {
+                let steam_client = match steamworks_client {
+                    Some(client) => {
+                        client
+                    }
+                    None => {
+                        let new_client = SteamworksClient::new_with_app_id(config.app_id)?;
+                        Arc::new(RwLock::new(new_client))
+                    }
+                };
                 let client = super::steam::client::Client::new(
-                    steamworks_client.unwrap_or_else(|| {
-                        Ok(Arc::new(RwLock::new(
-                            SteamworksClient::new_with_app_id(config.app_id)?,
-                        )))
-                    })?,
+                    steam_client,
                     config,
                     conditioner,
                 );
@@ -347,6 +352,7 @@ pub enum ConnectionError {
     #[error(transparent)]
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     SteamError(#[from] steamworks::SteamError),
+    #[error(transparent)]
     #[cfg(all(feature = "steam", not(target_family = "wasm")))]
     SteamInitError(#[from] steamworks::SteamAPIInitError),
     #[error("client was disconnected")]

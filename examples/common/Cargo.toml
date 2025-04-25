@@ -49,7 +49,7 @@ gui = [
 ]
 
 [dependencies]
-lightyear = { workspace = true, features = ["webtransport"] }
+lightyear = { workspace = true, features = ["udp", "webtransport"] }
 anyhow.workspace = true
 async-compat.workspace = true
 cfg-if.workspace = true

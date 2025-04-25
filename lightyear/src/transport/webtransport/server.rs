@@ -6,7 +6,7 @@ use core::net::SocketAddr;
 use std::sync::Mutex;
 
 use async_compat::Compat;
-use bevy::platform::collections::HashMap;
+use bevy::platform::hash::FixedHasher;
 use bevy::tasks::IoTaskPool;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -24,6 +24,8 @@ use crate::transport::io::IoState;
 use crate::transport::{
     BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MIN_MTU, MTU,
 };
+
+type HashMap<K, V> = bevy::platform::collections::HashMap<K, V, FixedHasher>;
 
 pub(crate) struct WebTransportServerSocketBuilder {
     pub(crate) server_addr: SocketAddr,

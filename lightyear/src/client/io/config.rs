@@ -19,14 +19,15 @@ use crate::transport::websocket::client::WebSocketClientSocketBuilder;
 #[cfg(feature = "webtransport")]
 use crate::transport::webtransport::client::WebTransportClientSocketBuilder;
 use crate::transport::{BoxedReceiver, Transport};
-use bevy::prelude::TypePath;
-use crossbeam_channel::{Receiver, Sender};
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, vec::{Vec}};
+use alloc::{boxed::Box, vec::Vec};
+use bevy::prelude::TypePath;
+use core::net::SocketAddr;
+use crossbeam_channel::{Receiver, Sender};
 // only with WebTransport, UDP or WebSocket
 #[allow(unused_imports)]
 #[cfg(feature = "std")]
-use std::{io};
+use std::io;
 
 /// Use this to configure the [`Transport`] that will be used to establish a connection with the
 /// server.

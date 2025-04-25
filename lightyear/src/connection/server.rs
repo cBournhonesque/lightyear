@@ -1,18 +1,16 @@
-use bevy::platform::collections::HashMap;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
 use alloc::sync::Arc;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::Resource;
 use core::fmt::Debug;
+use core::net::SocketAddr;
 use enum_dispatch::enum_dispatch;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "std"))]
-use {
-    alloc::{vec, vec::Vec},
-};
-use core::net::SocketAddr;
+use alloc::{vec, vec::Vec};
 
 use crate::connection::id::ClientId;
 #[cfg(all(feature = "steam", not(target_family = "wasm")))]
@@ -162,12 +160,16 @@ impl NetConfig {
                 conditioner,
             } => {
                 // TODO: handle errors
-                let server = super::steam::server::Server::new(
-                    steamworks_client.unwrap_or_else(|| {
-                        Ok(Arc::new(RwLock::new(
+                let steam_client = match steamworks_client {
+                    None => {
+                        Arc::new(RwLock::new(
                             SteamworksClient::new_with_app_id(config.app_id)?,
-                        )))
-                    })?,
+                        ))
+                    }
+                    Some(client) => {client}
+                };
+                let server = super::steam::server::Server::new(
+                    steam_client,
                     config,
                     conditioner,
                 )?;
@@ -266,12 +268,12 @@ pub enum ConnectionError {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "std"))]
-    use alloc::vec;
     use crate::connection::server::{NetServer, ServerConnections};
     use crate::prelude::ClientId;
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use crate::transport::LOCAL_SOCKET;
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
 
     // Check that the server can successfully disconnect a client
     // and that there aren't any excessive logs afterwards
