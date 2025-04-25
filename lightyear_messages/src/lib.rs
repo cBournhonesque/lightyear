@@ -2,6 +2,9 @@
 
 extern crate alloc;
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 use crate::registry::MessageKind;
 use bevy::ecs::component::ComponentId;
 use bevy::prelude::Component;

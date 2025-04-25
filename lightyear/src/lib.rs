@@ -10,6 +10,11 @@ pub mod netcode {
     pub use lightyear_netcode::*;
 }
 
+#[cfg(feature = "interpolation")]
+pub mod interpolation {
+    pub use lightyear_interpolation::*;
+}
+
 #[cfg(feature = "prediction")]
 pub mod prediction {
     pub use lightyear_prediction::*;
@@ -46,6 +51,9 @@ pub mod prelude {
     // TODO: maybe put this in prelude::client?
     #[cfg(feature = "prediction")]
     pub use lightyear_prediction::prelude::*;
+
+    #[cfg(feature = "interpolation")]
+    pub use lightyear_interpolation::prelude::*;
 
     pub mod input {
         pub use lightyear_inputs::prelude::*;

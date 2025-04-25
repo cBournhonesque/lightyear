@@ -47,6 +47,7 @@ gui = [
 
 [dependencies]
 lightyear = {"workspace" = true, features = [
+  "interpolation",
   "prediction",
   "replication",
 ]}

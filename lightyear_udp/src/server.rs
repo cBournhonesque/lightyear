@@ -18,7 +18,7 @@ use bytes::{BufMut, BytesMut};
 use core::net::SocketAddr;
 use lightyear_connection::client::Disconnected;
 use lightyear_connection::client_of::{ClientOf, Server};
-use lightyear_connection::id::PeerId;
+use lightyear_core::id::PeerId;
 use lightyear_link::{Link, LinkSet, Linked, Unlinked};
 use smallvec::SmallVec;
 

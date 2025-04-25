@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 use crate::receive_trigger::receive_trigger_typed;
 use crate::registry::{MessageKind, MessageRegistry, SendTriggerMetadata};
 use crate::send_trigger::TriggerSender;
@@ -78,6 +81,12 @@ pub trait AppTriggerExt {
 
     /// Register a trigger type `M`.
     fn add_trigger_custom_serde<M: Event>(&mut self, serialize_fns: SerializeFns<M>) -> TriggerRegistration<'_, M>;
+
+    #[doc(hidden)]
+    /// Register a trigger type `M`.
+    fn add_trigger_to_bytes<M: Event + ToBytes>(&mut self) -> TriggerRegistration<'_, M> {
+        self.add_trigger_custom_serde(SerializeFns::<M>::with_to_bytes())
+    }
 }
 
 impl AppTriggerExt for App {

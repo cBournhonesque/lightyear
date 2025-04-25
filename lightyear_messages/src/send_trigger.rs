@@ -5,7 +5,7 @@ use crate::send::Priority;
 pub(crate) use crate::trigger::TriggerMessage;
 use crate::{MessageManager, MessageNetId};
 #[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
@@ -16,7 +16,6 @@ use lightyear_serde::writer::Writer;
 use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
-use std::sync::Arc;
 use tracing::{error, info, trace};
 
 /// Component used to send triggers of type `M` remotely.

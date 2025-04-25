@@ -7,6 +7,7 @@ use crate::interpolate::{
 };
 use crate::manager::InterpolationManager;
 use crate::spawn::spawn_interpolated_entity;
+use crate::timeline::MetadataPlugin;
 use crate::{Interpolated, InterpolationMode, SyncComponent};
 use bevy::prelude::*;
 use core::time::Duration;
@@ -164,6 +165,8 @@ pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
 
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(MetadataPlugin);
+
         // REFLECT
         app.register_type::<InterpolationConfig>()
             .register_type::<Interpolated>();

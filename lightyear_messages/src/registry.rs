@@ -307,6 +307,7 @@ pub trait AppMessageExt {
     /// Register a regular message type `M` with custom serialization functions.
     fn add_message_custom_serde<M: Message>(&mut self, serialize_fns: SerializeFns<M>) -> MessageRegistration<'_, M>;
 
+    #[doc(hidden)]
     /// Register a regular message type `M` that uses `ToBytes` for serialization.
     fn add_message_to_bytes<M: Message + ToBytes>(&mut self) -> MessageRegistration<'_, M>;
 }

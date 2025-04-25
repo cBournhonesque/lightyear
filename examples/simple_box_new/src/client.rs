@@ -39,7 +39,7 @@ impl Plugin for ExampleClientPlugin {
             (
                 receive_message1,
                 handle_predicted_spawn,
-                // handle_interpolated_spawn,
+                handle_interpolated_spawn,
             ),
         );
     }
@@ -130,18 +130,18 @@ pub(crate) fn handle_predicted_spawn(
             ));
     }
 }
-//
-// /// When the predicted copy of the client-owned entity is spawned, do stuff
-// /// - assign it a different saturation
-// /// - keep track of it in the Global resource
-// pub(crate) fn handle_interpolated_spawn(
-//     mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
-// ) {
-//     for mut color in interpolated.iter_mut() {
-//         let hsva = Hsva {
-//             saturation: 0.1,
-//             ..Hsva::from(color.0)
-//         };
-//         color.0 = Color::from(hsva);
-//     }
-// }
+
+/// When the predicted copy of the client-owned entity is spawned, do stuff
+/// - assign it a different saturation
+/// - keep track of it in the Global resource
+pub(crate) fn handle_interpolated_spawn(
+    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
+) {
+    for mut color in interpolated.iter_mut() {
+        let hsva = Hsva {
+            saturation: 0.1,
+            ..Hsva::from(color.0)
+        };
+        color.0 = Color::from(hsva);
+    }
+}

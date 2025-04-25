@@ -16,6 +16,7 @@ server = []
 
 [dependencies]
 lightyear_link.workspace = true
+lightyear_core.workspace = true
 lightyear_connection.workspace = true
 
 # bevy
