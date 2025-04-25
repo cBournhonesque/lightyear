@@ -74,14 +74,14 @@ struct StatusMessageMarker;
 /// Create a button that allow you to connect/disconnect to a server
 pub(crate) fn spawn_connect_button(app: &mut App) {
     app.world_mut()
-        .spawn((Node {
+        .spawn(Node {
             width: Val::Percent(100.0),
             height: Val::Percent(100.0),
             align_items: AlignItems::FlexEnd,
             justify_content: JustifyContent::FlexEnd,
             flex_direction: FlexDirection::Row,
             ..default()
-        }, Pickable::default()))
+        })
         .with_children(|parent| {
             parent.spawn((
                 Text("Lightyear Example".to_string()),
@@ -112,11 +112,13 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                         ..default()
                     },
                     Button,
+
                 ))
                 .observe(
                     |_: Trigger<Pointer<Click>>,
                      mut commands: Commands,
                      state: Res<State<NetworkingState>>| {
+                        info!("CLICK");
                         match state.get() {
                             NetworkingState::Disconnected => {
                                 #[cfg(feature = "bevygap_client")]
