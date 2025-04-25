@@ -16,12 +16,82 @@ pub struct ErasedSerializeFns {
     pub type_name: &'static str,
     // TODO: maybe use `Vec<MaybeUninit<u8>>` instead of unsafe fn(), like bevy?
     pub serialize: unsafe fn(),
-    pub erased_serialize: ErasedSerializeFn,
+    pub context_serialize: unsafe fn(),
     pub deserialize: unsafe fn(),
+    pub context_deserialize: unsafe fn(),
     pub erased_clone: Option<unsafe fn()>,
     pub map_entities: Option<ErasedMapEntitiesFn>,
     pub send_map_entities: Option<ErasedSendMapEntitiesFn>,
     pub receive_map_entities: Option<ErasedReceiveMapEntitiesFn>,
+}
+
+pub struct ContextSerializeFns<C, M> {
+    /// Called to serialize the type into the writer
+    pub serialize: SerializeFn<M>,
+    pub context_serialize: ContextSerializeFn<C, M>,
+}
+
+impl <C, M> ContextSerializeFns<C, M> {
+    pub fn new(serialize: SerializeFn<M>) -> Self {
+        Self {
+            serialize,
+            context_serialize: default_context_serialize::<C, M>,
+        }
+    }
+
+    pub fn with_context(
+        mut self,
+        context_serialize: ContextSerializeFn<C, M>,
+    ) -> Self {
+        self.context_serialize = self.context_serialize;
+        self
+    }
+}
+
+pub struct ContextDeserializeFns<C, M> {
+    /// Called to deserialize the type from the reader
+    pub deserialize: DeserializeFn<M>,
+    pub context_deserialize: ContextDeserializeFn<C, M>,
+}
+
+impl <C, M> ContextDeserializeFns<C, M> {
+    pub fn new(deserialize: DeserializeFn<M>) -> Self {
+        Self {
+            deserialize,
+            context_deserialize: default_context_deserialize::<C, M>,
+        }
+    }
+
+    pub fn with_context(
+        mut self,
+        context_deserialize: ContextDeserializeFn<C, M>,
+    ) -> Self {
+        self.context_deserialize = self.context_deserialize;
+        self
+    }
+}
+
+
+impl <C, M> ContextSerializeFns<C, M> {
+    pub fn serialize(
+        self,
+        context: &C,
+        message: &M,
+        writer: &mut Writer,
+    ) -> Result<(), SerializationError> {
+        (self.context_serialize)(context, message, writer, self.serialize)
+    }
+}
+
+
+impl <C, M> ContextDeserializeFns<C, M> {
+    pub fn deserialize(
+        self,
+        context: &C,
+        reader: &mut Reader,
+    ) -> Result<M, SerializationError> {
+        (self.context_deserialize)(context, reader, self.deserialize)
+    }
 }
 
 /// Controls how a type (resources/components/messages) is serialized and deserialized
@@ -63,6 +133,14 @@ pub type SerializeFn<M> = fn(message: &M, writer: &mut Writer) -> Result<(), Ser
 /// Type of the deserialize function without entity mapping
 pub type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<M, SerializationError>;
 
+#[doc(hidden)]
+/// Type of the serialize function without entity mapping
+pub type ContextSerializeFn<C, M> = fn(C, message: &M, writer: &mut Writer, SerializeFn<M>) -> Result<(), SerializationError>;
+
+#[doc(hidden)]
+/// Type of the deserialize function without entity mapping
+pub type ContextDeserializeFn<C, M> = fn(C, reader: &mut Reader, DeserializeFn<M>) -> Result<M, SerializationError>;
+
 type CloneFn<M> = fn(&M) -> M;
 
 /// Type of the entity mapping function
@@ -75,29 +153,23 @@ pub(crate) type ErasedSendMapEntitiesFn =
 pub(crate) type ErasedReceiveMapEntitiesFn =
     for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut ReceiveEntityMap);
 
-unsafe fn erased_serialize_fn<M: 'static>(
-    erased_serialize_fn: &ErasedSerializeFns,
-    message: Ptr,
+fn default_context_serialize<C, M>(
+    _: C,
+    message: &M,
     writer: &mut Writer,
-    entity_map: &mut SendEntityMap,
+    serialize_fn: SerializeFn<M>,
 ) -> Result<(), SerializationError> {
-    // SAFETY: the typed serialize functions are created for the message of type M
-    let typed_serialize_fns = unsafe { erased_serialize_fn.typed::<M>() };
-    if let Some(map_entities) = erased_serialize_fn.send_map_entities {
-        // SAFETY: the Ptr was created for the message of type M
-        let message = unsafe { message.deref::<M>() };
-        let clone_fn: CloneFn<M> = unsafe{ core::mem::transmute(erased_serialize_fn.erased_clone.unwrap()) } ;
-        let mut new_message = clone_fn(message);
-        unsafe {
-            map_entities(PtrMut::from(&mut new_message), entity_map);
-        }
-        (typed_serialize_fns.serialize)(&new_message, writer)
-    } else {
-        // SAFETY: the Ptr was created for the message of type M
-        let message = unsafe { message.deref::<M>() };
-        (typed_serialize_fns.serialize)(message, writer)
-    }
+    serialize_fn(message, writer)
 }
+
+fn default_context_deserialize<C, M>(
+    _: C,
+    reader: &mut Reader,
+    deserialize_fn: DeserializeFn<M>,
+) -> Result<M, SerializationError> {
+    deserialize_fn(reader)
+}
+
 
 #[cfg(feature = "std")]
 /// Default serialize function using bincode
@@ -173,17 +245,18 @@ unsafe fn erased_receive_map_entities<M: MapEntities + 'static>(
 }
 
 impl ErasedSerializeFns {
-    pub fn new<M: Serialize + DeserializeOwned + 'static>() -> Self {
-        Self::new_custom_serde(SerializeFns::<M>::default())
-    }
 
-    pub fn new_custom_serde<M: 'static>(serialize_fns: SerializeFns<M>) -> Self {
+    pub fn new<SerContext, DeContext, M: 'static>(
+        serialize: ContextSerializeFns<SerContext, M>,
+        deserialize: ContextDeserializeFns<DeContext, M>,
+    ) -> Self {
         Self {
             type_id: TypeId::of::<M>(),
             type_name: core::any::type_name::<M>(),
-            erased_serialize: erased_serialize_fn::<M>,
-            serialize: unsafe { core::mem::transmute(serialize_fns.serialize) },
-            deserialize: unsafe { core::mem::transmute(serialize_fns.deserialize) },
+            serialize: unsafe { core::mem::transmute(serialize.serialize) },
+            context_serialize: unsafe { core::mem::transmute(serialize.context_serialize) },
+            deserialize: unsafe { core::mem::transmute(deserialize.deserialize) },
+            context_deserialize: unsafe { core::mem::transmute(deserialize.context_deserialize) },
             erased_clone: None,
             map_entities: None,
             send_map_entities: None,
@@ -204,6 +277,24 @@ impl ErasedSerializeFns {
             deserialize: unsafe { core::mem::transmute(self.deserialize) },
         }
     }
+
+    // pub unsafe fn context_typed<C, M: 'static>(&self) -> ContextSerializeFns<C, M> {
+    //     debug_assert_eq!(
+    //         self.type_id,
+    //         TypeId::of::<M>(),
+    //         "The erased message fns were created for type {}, but we are trying to convert to type {}",
+    //         self.type_name,
+    //         core::any::type_name::<M>(),
+    //     );
+    //     ContextSerializeFns {
+    //         inner: SerializeFns {
+    //             serialize: unsafe { core::mem::transmute(self.serialize) },
+    //             deserialize: unsafe { core::mem::transmute(self.deserialize) },
+    //         },
+    //         context_serialize: unsafe { core::mem::transmute(self.context_serialize) },
+    //         context_deserialize: unsafe { core::mem::transmute(self.context_deserialize) },
+    //     }
+    // }
 
     // We need to be able to clone the data, because when serialize we:
     // - clone the data
@@ -233,31 +324,28 @@ impl ErasedSerializeFns {
     /// If available, we try to map the entities in the message from local to remote.
     ///
     /// SAFETY: the ErasedSerializeFns must be created for the type M
-    pub unsafe fn serialize<M: 'static>(
+    pub unsafe fn serialize<C, M: 'static>(
         &self,
+        context: C,
         message: &M,
         writer: &mut Writer,
-        entity_map: &mut SendEntityMap,
     ) -> Result<(), SerializationError> {
-        // SAFETY: the Ptr must be a valid pointer to a value of type M
-        unsafe { erased_serialize_fn::<M>(self, Ptr::from(message), writer, entity_map) }
+        let serialize: SerializeFn<M> = unsafe { core::mem::transmute(self.serialize) };
+        let context_serialize: ContextSerializeFn<C, M> = unsafe { core::mem::transmute(self.context_serialize) };
+        context_serialize(context, message, writer, serialize)
     }
 
     /// Deserialize the message value from the reader
     ///
     /// SAFETY: the ErasedSerializeFns must be created for the type M
-    pub unsafe fn deserialize<M: 'static>(
+    pub unsafe fn deserialize<C, M: 'static>(
         &self,
+        context: C,
         reader: &mut Reader,
-        entity_map: &mut ReceiveEntityMap,
     ) -> Result<M, SerializationError> {
-        let fns = unsafe { self.typed::<M>() };
-        let mut message = (fns.deserialize)(reader)?;
-        if let Some(map_entities) = self.receive_map_entities {
-            // SAFETY: the PtrMut must be a valid pointer to a value of type M
-            unsafe { map_entities(PtrMut::from(&mut message), entity_map); }
-        }
-        Ok(message)
+        let deserialize: DeserializeFn<M> = unsafe { core::mem::transmute(self.deserialize) };
+        let context_deserialize: ContextDeserializeFn<C, M> = unsafe { core::mem::transmute(self.context_deserialize) };
+        context_deserialize(context, reader, deserialize)
     }
 }
 
@@ -279,7 +367,7 @@ mod tests {
     /// Test serializing/deserializing using the ErasedSerializeFns
     #[test]
     fn test_erased_serde() {
-        let mut registry = ErasedSerializeFns::new::<EntityMessage>();
+        let mut registry = ErasedSerializeFns::new::<(), EntityMessage>();
         registry.add_map_entities::<EntityMessage>();
 
         let message = EntityMessage(Entity::from_raw(1));
@@ -310,7 +398,7 @@ mod tests {
     /// We do the mapping on the send size
     #[test]
     fn test_erased_serde_map_entities() {
-        let mut registry = ErasedSerializeFns::new::<EntityMessage>();
+        let mut registry = ErasedSerializeFns::new::<(), EntityMessage>();
         registry.add_map_entities::<EntityMessage>();
 
         let message = EntityMessage(Entity::from_raw(1));

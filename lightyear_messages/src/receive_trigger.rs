@@ -20,8 +20,10 @@ use alloc::vec::Vec;
 
 use alloc::sync::Arc;
 use bevy::prelude::Event;
+use lightyear_core::id::PeerId;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_transport::packet::message::MessageId;
+use crate::trigger::TriggerMessage;
 
 /// Bevy Event emitted when a `TriggerMessage<M>` is received and processed.
 /// Contains the original trigger `M` and the `PeerId` of the sender.
@@ -31,12 +33,6 @@ pub struct RemoteTrigger<M: Message> {
     pub from: PeerId,
 }
 
-#[derive(Component)]
-#[require(MessageManager)]
-pub struct MessageReceiver<M> {
-    // TODO: wrap this in bevy events buffer?
-    recv: Vec<ReceivedMessage<M>>
-}
 
 #[derive(Debug)]
 pub struct ReceivedMessage<M> {
@@ -50,66 +46,41 @@ pub struct ReceivedMessage<M> {
 }
 
 
-impl<M> Default for MessageReceiver<M> {
-    fn default() -> Self {
-        Self {
-            recv: Vec::new(),
-        }
-    }
-}
-
-// TODO: do we care about the channel that the message was sent from? user-specified message usually don't
-// TODO: we have access to the Tick, so we could decide at which timeline we want to receive the message!
-impl<M: Message> MessageReceiver<M> {
-    /// Take all messages from the MessageReceiver<M>, deserialize them, and return them
-    pub fn receive(&mut self) -> impl Iterator<Item=M>{
-        self.recv.drain(..).map(|m| m.data)
-    }
-
-    /// Take all messages from the MessageReceiver<M>, deserialize them, and return them
-    pub fn receive_with_tick(&mut self) -> impl Iterator<Item=ReceivedMessage<M>> {
-        self.recv.drain(..)
-    }
-}
-
-pub(crate) type ReceiveMessageFn = unsafe fn(
-    receiver: MutUntyped,
+pub(crate) type ReceiveTriggerFn = unsafe fn(
+    commands: &mut Commands,
     reader: &mut Reader,
     channel_kind: ChannelKind,
     remote_tick: Tick,
     message_id: Option<MessageId>,
     serialize_metadata: &ErasedSerializeFns,
     entity_map: &mut ReceiveEntityMap,
+    from: PeerId, // Add sender PeerId
 ) -> Result<(), MessageError>;
 
-impl<M: Message> MessageReceiver<M> {
 
-    /// Receive a single message of type `M` from the channel
-    ///
-    /// SAFETY: the `receiver` must be of type `MessageReceiver<M>`, and the `message_bytes` must be a valid serialized message of type `M`
-    pub(crate) unsafe fn receive_message_typed(
-        receiver: MutUntyped,
-        reader: &mut Reader,
-        channel_kind: ChannelKind,
-        remote_tick: Tick,
-        message_id: Option<MessageId>,
-        serialize_metadata: &ErasedSerializeFns,
-        entity_map: &mut ReceiveEntityMap,
-    ) -> Result<(), MessageError> {
-        // SAFETY: we know the type of the receiver is MessageReceiver<M>
-        let mut receiver = unsafe { receiver.with_type::<Self>()};
-        // we deserialize the message and send a MessageEvent
-        let message = unsafe { serialize_metadata.deserialize(entity_map, reader)? };
-        let received_message = ReceivedMessage {
-            data: message,
-            remote_tick,
-            channel_kind,
-            message_id,
-        };
-        trace!("Pushing message {:?} on channel {channel_kind:?}", core::any::type_name::<M>());
-        receiver.recv.push(received_message);
-        Ok(())
-    }
+
+/// Receive a `TriggerMessage<M>`, deserialize it, and emit a `RemoteTrigger<M>` event.
+///
+/// SAFETY: The `reader` must contain a valid serialized `TriggerMessage<M>`.
+/// The `serialize_metadata` must correspond to the `TriggerMessage<M>` type.
+pub(crate) unsafe fn receive_trigger_typed<M: Message + Event>(
+    commands: &mut Commands,
+    reader: &mut Reader,
+    channel_kind: ChannelKind, // Keep args consistent, though not all might be used
+    remote_tick: Tick,
+    message_id: Option<MessageId>,
+    serialize_metadata: &ErasedSerializeFns,
+    entity_map: &mut ReceiveEntityMap,
+    from: PeerId, // Add sender PeerId
+) -> Result<(), MessageError> {
+    // we deserialize the message and send a MessageEvent
+    let message = unsafe { serialize_metadata.deserialize::<_, TriggerMessage<M>>(entity_map, reader)? };
+    let trigger = RemoteTrigger {
+        trigger: message.trigger,
+        from,
+    };
+    commands.trigger_targets(trigger, message.target_entities);
+    Ok(())
 }
 
 impl MessagePlugin {
@@ -120,24 +91,17 @@ impl MessagePlugin {
     pub fn recv(
         // NOTE: we only need the mut bound on MessageManager because EntityMapper requires mut
         mut transport_query: Query<(Entity, &mut MessageManager, &mut Transport)>,
-        // List of ChannelReceivers<M> present on that entity
-        receiver_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
         mut commands: Commands,
     ) {
-        // We use Arc to make the query Clone, since we know that we will only access MessageReceiver<M> components
-        // on potentially different entities in parallel (though the current loop isn't parallel)
-        let receiver_query = Arc::new(receiver_query);
         transport_query.par_iter_mut().for_each(|(entity, mut message_manager, mut transport)| {
-            // SAFETY: we know that this won't lead to violating the aliasing rule
-            let mut receiver_query = unsafe { receiver_query.reborrow_unsafe() };
             // enable split borrows
             let transport = &mut *transport;
             // TODO: we can run this in parallel using rayon!
             transport.receivers.values_mut().try_for_each(|receiver_metadata| {
                 let channel_kind = receiver_metadata.channel_kind;
                 // TODO: ChannelReceive::read_message needs to return PeerId! Using placeholder for now.
-                let placeholder_peer_id = PeerId::ClientId(0);
+                let placeholder_peer_id = PeerId::Entity;
                 while let Some((tick, bytes, message_id)) = receiver_metadata.receiver.read_message() {
                     trace!("Received message {message_id:?} from placeholder {:?} on channel {channel_kind:?}", placeholder_peer_id);
                     let mut reader = Reader::from(bytes);

@@ -22,7 +22,6 @@ pub enum NetworkDirection {
 pub trait AppMessageDirectionExt {
     /// Add a new [`NetworkDirection`] to the registry
     fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self;
-
 }
 
 impl<M: Message> AppMessageDirectionExt for MessageRegistration<'_, M> {

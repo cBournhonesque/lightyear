@@ -22,6 +22,7 @@ pub mod plugin;
 mod manager;
 mod spawn;
 mod registry;
+mod timeline;
 
 /// Marker component for an entity that is being interpolated by the client
 #[derive(Debug, Reflect)]

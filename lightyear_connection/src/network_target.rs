@@ -1,14 +1,13 @@
-use crate::id::PeerId;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use bevy::platform::collections::HashSet;
 use bevy::platform::hash::FixedHasher;
 use bevy::prelude::Reflect;
+use lightyear_core::id::PeerId;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
-
 
 type HS<K> = HashSet<K, FixedHasher>;
 

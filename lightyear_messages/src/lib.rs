@@ -9,16 +9,18 @@ extern crate alloc;
 
 use crate::registry::MessageKind;
 use bevy::ecs::component::ComponentId;
-use bevy::platform::collections::HashMap;
 use bevy::prelude::Component;
 use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::prelude::Transport;
 
-pub mod registry;
 pub mod plugin;
 pub mod receive;
 pub mod send;
+mod trigger;
+pub mod registry;
+mod send_trigger;
+mod receive_trigger;
 
 pub mod prelude {
     pub use crate::receive::MessageReceiver;
@@ -26,6 +28,9 @@ pub mod prelude {
     pub use crate::send::MessageSender;
     pub use crate::{Message, MessageManager};
 }
+
+// send-trigger: prepare message TriggerMessage<M> to be sent.
+// if TriggerMessage<M> is added, we update `sender_id` with MessageSender<RemoteMessage<M>>.
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
 /// A [`Message`] is basically any type that can be (de)serialized over the network.
@@ -46,6 +51,8 @@ pub type MessageNetId = NetId;
 #[require(Transport)]
 pub struct MessageManager{
     /// List of component ids of the MessageSender<M> present on this entity
-    pub(crate) sender_ids: HashMap<MessageKind, ComponentId>,
+    pub(crate) send_messages: Vec<(MessageKind, ComponentId)>,
+    /// List of component ids of the TriggerSender<M> present on this entity
+    pub(crate) send_triggers: Vec<(MessageKind, ComponentId)>,
     pub entity_mapper: RemoteEntityMap,
 }

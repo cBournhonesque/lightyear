@@ -14,8 +14,10 @@ pub mod plugin;
 pub mod time;
 pub mod history_buffer;
 pub mod timeline;
+pub mod id;
 
 pub mod prelude {
+    pub use crate::id::PeerId;
     pub use crate::tick::Tick;
     pub use crate::timeline::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin, RollbackState, Timeline};
 }
