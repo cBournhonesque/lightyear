@@ -1,8 +1,8 @@
 use crate::direction::NetworkDirection;
-use crate::id::PeerId;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Event, OnAdd, Query, Res, Trigger};
+use lightyear_core::id::PeerId;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::registry::MessageRegistration;
 use lightyear_messages::send::MessageSender;

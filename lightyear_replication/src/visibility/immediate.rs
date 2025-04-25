@@ -29,7 +29,6 @@ use bevy::ecs::entity::hash_set::EntityHashSet;
 use bevy::ecs::entity::EntityIndexSet;
 use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
-use lightyear_connection::prelude::PeerId;
 use tracing::*;
 
 /// Event related to [`Entities`](Entity) which are relevant to a client

@@ -1,5 +1,4 @@
 use crate::client::Connecting;
-use crate::id::PeerId;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::error::HandleError;
 use bevy::ecs::error::{ignore, panic, CommandWithEntity};
@@ -15,6 +14,7 @@ use tracing::warn;
 use crate::prelude::NetworkTarget;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec, vec::Vec};
+use lightyear_core::id::PeerId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 
 /// Marker component to identify this entity as a Client

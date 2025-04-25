@@ -168,6 +168,7 @@ impl Plugin for MessagePlugin {
                     });
                 });
             }),
+            ParamBuilder,
             ParamBuilder
         )
             .build_state(app.world_mut())
@@ -178,6 +179,9 @@ impl Plugin for MessagePlugin {
             QueryParamBuilder::new(|builder| {
                 builder.optional(|b| {
                     registry.send_metadata.values().for_each(|metadata| {
+                        b.mut_id(metadata.component_id);
+                    });
+                    registry.send_trigger_metadata.values().for_each(|metadata| {
                         b.mut_id(metadata.component_id);
                     });
                 });

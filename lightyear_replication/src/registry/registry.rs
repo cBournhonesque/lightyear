@@ -15,7 +15,7 @@ use lightyear_core::network::NetId;
 use lightyear_messages::registry::MessageRegistry;
 use lightyear_serde::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
-use lightyear_serde::registry::{ErasedSerializeFns, SerializeFns};
+use lightyear_serde::registry::{ContextDeserializeFns, ContextSerializeFns, ErasedSerializeFns, SerializeFns};
 use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::registry::TypeMapper;
@@ -189,7 +189,10 @@ impl ComponentRegistry {
             .insert(component_kind, component_id);
         self.serialize_fns_map.insert(
             component_kind,
-            ErasedSerializeFns::new_custom_serde::<C>(serialize_fns),
+            ErasedSerializeFns::new::<SendEntityMap, ReceiveEntityMap, C, C>(
+                ContextSerializeFns::new(serialize_fns.serialize),
+                ContextDeserializeFns::new(serialize_fns.deserialize)
+            ),
         );
     }
 }
@@ -238,19 +241,12 @@ impl ComponentRegistry {
         writer: &mut Writer,
         entity_map: &mut SendEntityMap,
     ) -> Result<(), ComponentError> {
-        let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .serialize_fns_map
-            .get(&kind)
-            .ok_or(ComponentError::MissingSerializationFns)?;
-        let net_id = self.kind_map.net_id(&kind).unwrap();
-
-        net_id.to_bytes(writer)?;
-        // SAFETY: the ErasedFns corresponds to type C
-        unsafe {
-            erased_fns.serialize(component, writer, entity_map)?;
-        }
-        Ok(())
+        self.erased_serialize(
+            Ptr::from(component),
+            writer,
+            ComponentKind::of::<C>(),
+            entity_map,
+        )
     }
 
     /// SAFETY: the Ptr must correspond to the correct ComponentKind
@@ -286,7 +282,7 @@ impl ComponentRegistry {
             .get(&kind)
             .ok_or(ComponentError::MissingSerializationFns)?;
         // SAFETY: the ErasedFns corresponds to type C
-        unsafe { erased_fns.deserialize(reader, entity_map) }.map_err(Into::into)
+        unsafe { erased_fns.deserialize::<_, C, C>(reader, entity_map) }.map_err(Into::into)
     }
 
     pub(crate) fn deserialize<C: Component>(

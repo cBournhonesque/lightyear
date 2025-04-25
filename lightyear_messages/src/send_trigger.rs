@@ -56,7 +56,7 @@ impl <M: Event> TriggerSender<M> {
         sender.send.drain(..).try_for_each(|(message, channel_kind, priority)| {
             // we write the message NetId, and then serialize the message
             net_id.to_bytes(&mut sender.writer)?;
-            serialize_metadata.serialize(entity_map, &message, &mut sender.writer)?;
+            serialize_metadata.serialize::<SendEntityMap, TriggerMessage<M>, M>(&message, &mut sender.writer,entity_map)?;
             let bytes = sender.writer.split();
             trace!("Sending message of type {:?} with net_id {net_id:?} on channel {channel_kind:?}", core::any::type_name::<M>());
             transport.send_erased(channel_kind, bytes, priority)?;
@@ -66,8 +66,9 @@ impl <M: Event> TriggerSender<M> {
 
     pub fn on_add_hook(mut world: DeferredWorld, context: HookContext) {
         world.commands().queue(move |world: &mut World| {
-            let mut message_manager = world
-                .entity_mut(context.entity)
+            let mut entity_mut = world
+                .entity_mut(context.entity);
+            let mut message_manager = entity_mut
                 .get_mut::<MessageManager>()
                 .unwrap();
             let message_kind_present = message_manager

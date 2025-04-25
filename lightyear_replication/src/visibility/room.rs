@@ -47,7 +47,6 @@ use bevy::reflect::Reflect;
 use crate::send::ReplicationBufferSet;
 use crate::visibility::error::NetworkVisibilityError;
 use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilitySet};
-use lightyear_connection::prelude::PeerId;
 use serde::{Deserialize, Serialize};
 use tracing::*;
 

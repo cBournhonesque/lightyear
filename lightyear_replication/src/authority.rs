@@ -8,7 +8,7 @@
 
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
-use lightyear_connection::id::PeerId;
+use lightyear_core::id::PeerId;
 use serde::{Deserialize, Serialize};
 
 /// Authority is used to define who is in charge of simulating an entity.

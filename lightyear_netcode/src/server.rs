@@ -15,9 +15,9 @@ use super::{bytes::Bytes, crypto::{self, Key}, error::{Error, Result}, packet::{
     RequestPacket, ResponsePacket,
 }, replay::ReplayProtection, token::{ChallengeToken, ConnectToken, ConnectTokenBuilder, ConnectTokenPrivate}, ClientId, MAC_BYTES, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC};
 use crate::token::TOKEN_EXPIRE_SEC;
-use lightyear_connection::id;
 use lightyear_connection::server::ConnectionError;
 use lightyear_connection::shared::{ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason};
+use lightyear_core::id;
 use lightyear_link::{Link, LinkReceiver, LinkSender, RecvPayload, SendPayload};
 use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::writer::Writer;

@@ -1,5 +1,7 @@
-use crate::id::PeerId;
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 use core::fmt::Debug;
+use lightyear_core::id::PeerId;
 use serde::{Deserialize, Serialize};
 
 /// Reasons for denying a connection request

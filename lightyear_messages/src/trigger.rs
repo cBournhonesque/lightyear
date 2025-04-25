@@ -1,6 +1,6 @@
-use crate::prelude::MessageReceiver;
-use crate::registry::{MessageKind, MessageRegistry};
-use crate::send::TriggerSender;
+use crate::receive_trigger::receive_trigger_typed;
+use crate::registry::{MessageKind, MessageRegistry, SendTriggerMetadata};
+use crate::send_trigger::TriggerSender;
 use crate::Message;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
@@ -12,8 +12,6 @@ use lightyear_serde::writer::{WriteInteger, Writer};
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tracing::error;
-use crate::send_trigger::TriggerSender;
 
 /// The message sent over the network to trigger an event `M` on remote targets.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -22,7 +20,6 @@ pub struct TriggerMessage<M: Message> {
     pub target_entities: Vec<Entity>,
 }
 
-impl<M: Message> Message for TriggerMessage<M> {}
 
 // TODO: handle the case where the trigger message is not MapEntities
 impl<M: Message + MapEntities> MapEntities for TriggerMessage<M> {
@@ -30,11 +27,7 @@ impl<M: Message + MapEntities> MapEntities for TriggerMessage<M> {
         // Map the inner trigger first if it contains entities
         self.trigger.map_entities(entity_mapper);
         // Map the target entities
-        self.target_entities = self
-            .target_entities
-            .iter()
-            .map(|e| entity_mapper.map_entity(*e))
-            .collect();
+        self.target_entities.iter_mut().for_each(|e| e.map_entities(entity_mapper));
     }
 }
 
@@ -60,7 +53,7 @@ impl<M: Event> TriggerRegistration<'_, M> {
         M: Clone + MapEntities + 'static,
     {
         let mut registry = self.app.world_mut().resource_mut::<MessageRegistry>();
-        registry.add_map_entities::<M>(trigger_serialize_mapped, trigger_deserialize_mapped);
+        registry.add_map_entities::<TriggerMessage<M>, M>(trigger_serialize_mapped, trigger_deserialize_mapped);
         self
     }
 }
@@ -69,7 +62,7 @@ pub trait AppTriggerExt {
 
     /// Register a trigger type `M`.
     fn add_trigger<M: Event + Serialize + DeserializeOwned>(&mut self) -> TriggerRegistration<'_, M> {
-        self.register_trigger_custom_serde(SerializeFns::<TriggerMessage<M>>::default());
+        self.add_trigger_custom_serde(SerializeFns::<M>::default())
     }
 
     /// Register a trigger type `M`.
@@ -85,67 +78,23 @@ impl AppTriggerExt for App {
 
         let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
         // Register TriggerMessage<M> for serialization/deserialization
-        registry.register_message::<TriggerMessage<M>>(
+        registry.register_message::<TriggerMessage<M>, M>(
             ContextSerializeFns::new(serialize_fns.serialize).with_context(trigger_serialize),
-            ContextDeserializeFns::new(serialize_fns.deserialize).with_context(trigger_deserialize),
+            ContextDeserializeFns::new(serialize_fns.deserialize).with_context(trigger_deserialize)
         );
-    }
-}
 
-    fn add_trigger<M>(&mut self) -> TriggerRegistration<'_, M>
-    where
-        M: Message + Serialize + DeserializeOwned + Clone + 'static,
-        TriggerMessage<M>: Message + Serialize + DeserializeOwned + MapEntities + Clone + 'static,
-    {
-        if self.world_mut().get_resource_mut::<MessageRegistry>().is_none() {
-            self.world_mut().init_resource::<MessageRegistry>();
-        }
-
-        // 1. Register the RemoteTrigger<M> event
-        self.add_event::<RemoteTrigger<M>>();
-
-        // 2. Register the TriggerSender<M> component
-        self.world_mut().register_component::<TriggerSender<M>>();
-
-        // 3. Register the TriggerMessage<M> network message
-        //    - This registers serde for TriggerMessage<M>
-        //    - This registers MessageSender<TriggerMessage<M>> (used internally by TriggerSender<M>)
-        //    - This registers MessageReceiver<TriggerMessage<M>> (needed to get metadata, but component won't be used)
-        //    - Crucially, this does NOT set the trigger_fn yet.
-        let mut trigger_message_registration = self.add_message_custom_serde::<TriggerMessage<M>>(
-            // Assume default serde for TriggerMessage<M> for now.
-            // Needs refinement if M uses custom serde that affects TriggerMessage<M>.
-            SerializeFns::<TriggerMessage<M>>::default()
-        );
-        // Explicitly add MapEntities for TriggerMessage<M>
-        trigger_message_registration.add_map_entities();
-
-        // 4. Register the inner type M for serde if it wasn't already registered
-        //    (add_message_custom_serde above doesn't handle the inner M type)
-        //    We only need its serde functions, not sender/receiver components.
-        let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
-        if !registry.is_registered::<M>() {
-            // Use default serde for M here. If M needs custom serde, it should be registered
-            // via add_message_custom_serde separately first.
-            registry.register_message::<M>();
-            // If M needs MapEntities, it should be registered via add_message().add_map_entities() first.
-        }
-
-        // 5. Set the trigger_fn for TriggerMessage<M>
-        let message_kind = MessageKind::of::<TriggerMessage<M>>();
-        if let Some(metadata) = registry.receive_metadata.get_mut(&message_kind) {
-            // Set the trigger function pointer to the generic version
-            metadata.trigger_fn = Some(MessageReceiver::<M>::receive_trigger_typed::<M>);
-        } else {
-            // This should not happen if add_message_custom_serde worked correctly
-            error!("Failed to find receive metadata for TriggerMessage<{}> after registration.", std::any::type_name::<M>());
-        }
+        registry.send_trigger_metadata.insert(MessageKind::of::<M>(), SendTriggerMetadata {
+            component_id: sender_id,
+            send_trigger_fn: TriggerSender::<M>::send_trigger_typed
+        });
+        registry.receive_trigger.insert(MessageKind::of::<M>(), receive_trigger_typed::<M>);
 
         TriggerRegistration {
             app: self,
             _marker: Default::default(),
         }
     }
+}
 
 
 fn trigger_serialize<M: Event>(

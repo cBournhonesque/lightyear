@@ -15,6 +15,7 @@ pub struct ErasedSerializeFns {
     pub(crate) type_id: TypeId,
     pub type_name: &'static str,
     // TODO: maybe use `Vec<MaybeUninit<u8>>` instead of unsafe fn(), like bevy?
+    pub erased_serialize: ErasedSerializeFn,
     pub serialize: unsafe fn(),
     pub context_serialize: unsafe fn(),
     pub deserialize: unsafe fn(),
@@ -25,57 +26,35 @@ pub struct ErasedSerializeFns {
     pub receive_map_entities: Option<ErasedReceiveMapEntitiesFn>,
 }
 
-pub struct ContextSerializeFns<C, M> {
+pub struct ContextSerializeFns<C, M, I = M> {
     /// Called to serialize the type into the writer
-    pub serialize: SerializeFn<M>,
-    pub context_serialize: ContextSerializeFn<C, M>,
+    pub serialize: SerializeFn<I>,
+    pub context_serialize: ContextSerializeFn<C, M, I>,
 }
 
-impl <C, M> ContextSerializeFns<C, M> {
+impl <C, M> ContextSerializeFns<C, M, M> {
     pub fn new(serialize: SerializeFn<M>) -> Self {
         Self {
             serialize,
             context_serialize: default_context_serialize::<C, M>,
         }
     }
+}
 
-    pub fn with_context(
+impl <C, M, I> ContextSerializeFns<C, M, I> {
+
+    pub fn with_context<M2>(
         mut self,
-        context_serialize: ContextSerializeFn<C, M>,
-    ) -> Self {
-        self.context_serialize = self.context_serialize;
-        self
-    }
-}
-
-pub struct ContextDeserializeFns<C, M> {
-    /// Called to deserialize the type from the reader
-    pub deserialize: DeserializeFn<M>,
-    pub context_deserialize: ContextDeserializeFn<C, M>,
-}
-
-impl <C, M> ContextDeserializeFns<C, M> {
-    pub fn new(deserialize: DeserializeFn<M>) -> Self {
-        Self {
-            deserialize,
-            context_deserialize: default_context_deserialize::<C, M>,
+        context_serialize: ContextSerializeFn<C, M2, I>,
+    ) -> ContextSerializeFns<C, M2, I> {
+        ContextSerializeFns {
+            context_serialize,
+            serialize: self.serialize,
         }
     }
-
-    pub fn with_context(
-        mut self,
-        context_deserialize: ContextDeserializeFn<C, M>,
-    ) -> Self {
-        self.context_deserialize = self.context_deserialize;
-        self
-    }
-}
-
-
-impl <C, M> ContextSerializeFns<C, M> {
     pub fn serialize(
         self,
-        context: &C,
+        context: &mut C,
         message: &M,
         writer: &mut Writer,
     ) -> Result<(), SerializationError> {
@@ -83,16 +62,41 @@ impl <C, M> ContextSerializeFns<C, M> {
     }
 }
 
+pub struct ContextDeserializeFns<C, M, I = M> {
+    /// Called to deserialize the type from the reader
+    pub deserialize: DeserializeFn<I>,
+    pub context_deserialize: ContextDeserializeFn<C, M, I>,
+}
 
-impl <C, M> ContextDeserializeFns<C, M> {
+impl <C, M> ContextDeserializeFns<C, M, M> {
+    pub fn new(deserialize: DeserializeFn<M>) -> Self {
+        Self {
+            deserialize,
+            context_deserialize: default_context_deserialize::<C, M>,
+        }
+    }
+}
+
+
+impl <C, M, I> ContextDeserializeFns<C, M, I> {
+    pub fn with_context<M2>(
+        mut self,
+        context_deserialize: ContextDeserializeFn<C, M2, I>,
+    ) -> ContextDeserializeFns<C, M2, I> {
+        ContextDeserializeFns {
+            context_deserialize,
+            deserialize: self.deserialize,
+        }
+    }
     pub fn deserialize(
         self,
-        context: &C,
+        context: &mut C,
         reader: &mut Reader,
     ) -> Result<M, SerializationError> {
         (self.context_deserialize)(context, reader, self.deserialize)
     }
 }
+
 
 /// Controls how a type (resources/components/messages) is serialized and deserialized
 pub struct SerializeFns<M> {
@@ -135,11 +139,11 @@ pub type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<M, SerializationEr
 
 #[doc(hidden)]
 /// Type of the serialize function without entity mapping
-pub type ContextSerializeFn<C, M> = fn(C, message: &M, writer: &mut Writer, SerializeFn<M>) -> Result<(), SerializationError>;
+pub type ContextSerializeFn<C, M, I> = fn(&mut C, message: &M, writer: &mut Writer, SerializeFn<I>) -> Result<(), SerializationError>;
 
 #[doc(hidden)]
 /// Type of the deserialize function without entity mapping
-pub type ContextDeserializeFn<C, M> = fn(C, reader: &mut Reader, DeserializeFn<M>) -> Result<M, SerializationError>;
+pub type ContextDeserializeFn<C, M, I> = fn(&mut C, reader: &mut Reader, DeserializeFn<I>) -> Result<M, SerializationError>;
 
 type CloneFn<M> = fn(&M) -> M;
 
@@ -154,7 +158,7 @@ pub(crate) type ErasedReceiveMapEntitiesFn =
     for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut ReceiveEntityMap);
 
 fn default_context_serialize<C, M>(
-    _: C,
+    _: &mut C,
     message: &M,
     writer: &mut Writer,
     serialize_fn: SerializeFn<M>,
@@ -163,7 +167,7 @@ fn default_context_serialize<C, M>(
 }
 
 fn default_context_deserialize<C, M>(
-    _: C,
+    _: &mut C,
     reader: &mut Reader,
     deserialize_fn: DeserializeFn<M>,
 ) -> Result<M, SerializationError> {
@@ -244,15 +248,27 @@ unsafe fn erased_receive_map_entities<M: MapEntities + 'static>(
     M::map_entities(message, entity_map);
 }
 
+unsafe fn erased_serialize_fn<M: 'static>(
+    erased_serialize_fn: &ErasedSerializeFns,
+    message: Ptr,
+    writer: &mut Writer,
+    entity_map: &mut SendEntityMap,
+) -> Result<(), SerializationError> {
+    // SAFETY: the Ptr was created for the message of type M
+    let message = unsafe { message.deref::<M>() };
+    erased_serialize_fn.serialize::<_, M, M>(message, writer, entity_map)
+}
+
 impl ErasedSerializeFns {
 
-    pub fn new<SerContext, DeContext, M: 'static>(
-        serialize: ContextSerializeFns<SerContext, M>,
-        deserialize: ContextDeserializeFns<DeContext, M>,
+    pub fn new<SerContext, DeContext, M: 'static, I: 'static>(
+        serialize: ContextSerializeFns<SerContext, M, I>,
+        deserialize: ContextDeserializeFns<DeContext, M, I>,
     ) -> Self {
         Self {
             type_id: TypeId::of::<M>(),
             type_name: core::any::type_name::<M>(),
+            erased_serialize: erased_serialize_fn::<M>,
             serialize: unsafe { core::mem::transmute(serialize.serialize) },
             context_serialize: unsafe { core::mem::transmute(serialize.context_serialize) },
             deserialize: unsafe { core::mem::transmute(deserialize.deserialize) },
@@ -320,31 +336,33 @@ impl ErasedSerializeFns {
         }
     }
 
+
+
     /// Serialize the message into the writer.
     /// If available, we try to map the entities in the message from local to remote.
     ///
     /// SAFETY: the ErasedSerializeFns must be created for the type M
-    pub unsafe fn serialize<C, M: 'static>(
+    pub unsafe fn serialize<C, M: 'static, I>(
         &self,
-        context: C,
         message: &M,
         writer: &mut Writer,
+        context: &mut C,
     ) -> Result<(), SerializationError> {
-        let serialize: SerializeFn<M> = unsafe { core::mem::transmute(self.serialize) };
-        let context_serialize: ContextSerializeFn<C, M> = unsafe { core::mem::transmute(self.context_serialize) };
+        let serialize: SerializeFn<I> = unsafe { core::mem::transmute(self.serialize) };
+        let context_serialize: ContextSerializeFn<C, M, I> = unsafe { core::mem::transmute(self.context_serialize) };
         context_serialize(context, message, writer, serialize)
     }
 
     /// Deserialize the message value from the reader
     ///
     /// SAFETY: the ErasedSerializeFns must be created for the type M
-    pub unsafe fn deserialize<C, M: 'static>(
+    pub unsafe fn deserialize<C, M: 'static, I>(
         &self,
-        context: C,
         reader: &mut Reader,
+        context: &mut C,
     ) -> Result<M, SerializationError> {
-        let deserialize: DeserializeFn<M> = unsafe { core::mem::transmute(self.deserialize) };
-        let context_deserialize: ContextDeserializeFn<C, M> = unsafe { core::mem::transmute(self.context_deserialize) };
+        let deserialize: DeserializeFn<I> = unsafe { core::mem::transmute(self.deserialize) };
+        let context_deserialize: ContextDeserializeFn<C, M, I> = unsafe { core::mem::transmute(self.context_deserialize) };
         context_deserialize(context, reader, deserialize)
     }
 }

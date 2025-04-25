@@ -124,7 +124,9 @@ impl<S: ActionStateSequence> ClientInputPlugin<S> {
 
 impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
     fn build(&self, app: &mut App) {
-        app.add_plugins(InputPlugin::<S>::default());
+        if !app.is_plugin_added::<InputPlugin<S>>() {
+            app.add_plugins(InputPlugin::<S>::default());
+        }
         app.insert_resource(self.config.clone());
         app.init_resource::<MessageBuffer<S>>();
         // SETS

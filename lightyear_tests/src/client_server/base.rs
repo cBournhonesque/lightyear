@@ -2,7 +2,7 @@ use crate::protocol::StringMessage;
 use crate::stepper::ClientServerStepper;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use lightyear_connection::server::Started;
+use lightyear_connection::server::{ClientConnected, Started};
 use lightyear_crossbeam::CrossbeamIo;
 
 /// Check that the client/server setup is correct:
@@ -31,5 +31,5 @@ fn test_setup_client_server() {
     assert!(stepper.client_of(0).contains::<MessageSender<StringMessage>>());
     assert!(stepper.client_of(0).contains::<MessageReceiver<StringMessage>>());
     assert!(stepper.client_of(0).contains::<CrossbeamIo>());
-    assert!(stepper.client_of(0).contains::<Connected>());
+    assert!(stepper.client_of(0).contains::<ClientConnected>());
 }

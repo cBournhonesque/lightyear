@@ -1,12 +1,12 @@
 use crate::client_of::ClientOf;
 use crate::direction::NetworkDirection;
-use crate::id::PeerId;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use bevy::prelude::{Component, Event, OnAdd, Query, Res, Trigger};
 use core::fmt::Debug;
+use lightyear_core::id::PeerId;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::registry::MessageRegistration;
 use lightyear_messages::send::MessageSender;

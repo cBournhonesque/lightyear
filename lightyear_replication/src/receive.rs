@@ -17,7 +17,6 @@ use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use bevy::ptr::OwningPtr;
 use core::ptr::NonNull;
-use lightyear_connection::id::PeerId;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_serde::reader::Reader;
@@ -26,6 +25,7 @@ use tracing::{debug, error, info, trace};
 
 use crate::plugin;
 use crate::plugin::ReplicationSet;
+use lightyear_core::id::PeerId;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::plugin::MessageSet;

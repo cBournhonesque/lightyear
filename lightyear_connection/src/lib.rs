@@ -31,7 +31,6 @@ pub mod client;
 #[cfg(feature = "server")]
 pub mod server;
 
-pub mod id;
 pub mod network_target;
 pub mod direction;
 
@@ -54,7 +53,6 @@ pub enum ConnectionSet {
 
 pub mod prelude {
     pub use crate::direction::{AppChannelDirectionExt, AppMessageDirectionExt, NetworkDirection};
-    pub use crate::id::PeerId;
     pub use crate::network_target::NetworkTarget;
     pub use crate::ConnectionSet;
     #[cfg(feature = "client")]

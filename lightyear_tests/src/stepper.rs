@@ -12,7 +12,6 @@ use lightyear::prelude::Link;
 use lightyear::prelude::{client, server, *};
 use lightyear_connection::client::{Connect, Connected};
 use lightyear_connection::client_of::ClientOf;
-use lightyear_connection::id::PeerId;
 use lightyear_connection::server::Start;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;

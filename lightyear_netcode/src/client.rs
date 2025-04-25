@@ -17,7 +17,7 @@ use super::{
 };
 use bevy::prelude::Resource;
 use lightyear_connection::client::ConnectionError;
-use lightyear_connection::id;
+use lightyear_core::id;
 use lightyear_link::{Link, LinkReceiver, LinkSender, RecvPayload, SendPayload};
 use lightyear_serde::writer::Writer;
 use tracing::{debug, error, info, trace};

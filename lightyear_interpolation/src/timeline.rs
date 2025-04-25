@@ -3,13 +3,11 @@
 //! by the receiver to determine how the InterpolationTime should be configured
 
 use bevy::app::{App, Plugin};
-use lightyear_core::tick::TickDuration;
-use serde::{Deserialize, Serialize};
+use lightyear_core::time::PositiveTickDelta;
 
 // TODO: the message should be a trigger
-#[derive(Serialize, Deserialize)]
 pub struct SenderMetadata {
-    send_interval: TickDuration,
+    send_interval: PositiveTickDelta,
 }
 
 pub struct MetadataPlugin;

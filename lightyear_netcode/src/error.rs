@@ -1,7 +1,7 @@
 use core::array::TryFromSliceError;
 use core::net::SocketAddr;
 
-use lightyear_connection::id::PeerId;
+use lightyear_core::id::PeerId;
 use thiserror::Error;
 
 /// The result type for all the public methods that can return an error in this crate.

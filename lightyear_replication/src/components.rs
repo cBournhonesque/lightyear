@@ -16,8 +16,8 @@ use bevy::time::{Timer, TimerMode};
 use lightyear_connection::client::Client;
 #[cfg(feature = "server")]
 use lightyear_connection::client_of::{ClientOf, Server};
-use lightyear_connection::id::PeerId;
 use lightyear_connection::network_target::NetworkTarget;
+use lightyear_core::id::PeerId;
 use lightyear_core::tick::Tick;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;

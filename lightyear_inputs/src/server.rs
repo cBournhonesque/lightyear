@@ -38,7 +38,9 @@ pub enum InputSet {
 
 impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
     fn build(&self, app: &mut App) {
-        app.add_plugins(InputPlugin::<S>::default());
+        if !app.is_plugin_added::<InputPlugin<S>>() {
+            app.add_plugins(InputPlugin::<S>::default());
+        }
 
         // SETS
         // TODO:

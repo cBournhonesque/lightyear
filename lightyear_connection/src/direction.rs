@@ -1,4 +1,3 @@
-use crate::prelude::PeerId;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{App, Component};
 use lightyear_messages::prelude::AppMessageExt;
@@ -73,8 +72,10 @@ impl<C: Channel> AppChannelDirectionExt for ChannelRegistration<'_, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::id::PeerId;
+    use crate::client::Client;
+    use crate::client_of::ClientOf;
     use bevy::prelude::{default, Entity};
+    use lightyear_core::prelude::PeerId;
     use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelRegistry, ChannelSettings, Transport};
 
     struct ChannelClientToServer;

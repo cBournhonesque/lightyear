@@ -6,6 +6,7 @@ use bevy::prelude::default;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::{ComponentReplicationOverride, ComponentReplicationOverrides, Replicate};
+use lightyear_sync::prelude::InputTimeline;
 use test_log::test;
 
 #[test]
@@ -145,6 +146,8 @@ fn test_component_update() {
 #[test]
 fn test_component_update_after_tick_wrap() {
     let mut stepper = ClientServerStepper::single();
+    // remove InputTimeline otherwise it will try to resync
+    stepper.client_mut(0).remove::<InputTimeline>();
 
     let client_entity = stepper.client_app.world_mut().spawn((
         Replicate::to_server(),
@@ -160,6 +163,7 @@ fn test_component_update_after_tick_wrap() {
     stepper.client_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32));
     stepper.client_of_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32));
     stepper.frame_step(1);
+
     stepper.client_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32));
     stepper.client_of_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32));
     stepper.frame_step(1);

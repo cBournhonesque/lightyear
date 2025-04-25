@@ -66,11 +66,9 @@ impl From<TypeId> for MessageKind {
     }
 }
 
-
-use crate::receive::ReceiveTriggerFn;
 use crate::receive_trigger::ReceiveTriggerFn;
 use crate::send_trigger::{SendTriggerFn, TriggerSender};
-// Import the new type
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceiveMessageMetadata {
@@ -80,7 +78,6 @@ pub struct ReceiveMessageMetadata {
     /// Optional function to handle this message as a trigger event
     pub(crate) trigger_fn: Option<ReceiveTriggerFn>,
 }
-
 
 
 #[derive(Debug, Clone, PartialEq, TypePath)]
@@ -154,6 +151,7 @@ pub struct MessageRegistry {
     pub(crate) send_metadata: HashMap<MessageKind, SendMessageMetadata>,
     pub(crate) send_trigger_metadata: HashMap<MessageKind, SendTriggerMetadata>,
     pub(crate) receive_metadata: HashMap<MessageKind, ReceiveMessageMetadata>,
+    pub(crate) receive_trigger: HashMap<MessageKind, ReceiveTriggerFn>,
     pub serialize_fns_map: HashMap<MessageKind, ErasedSerializeFns>,
     pub kind_map: TypeMapper<MessageKind>,
 }
@@ -173,7 +171,7 @@ fn mapped_context_serialize<M: MapEntities + Clone>(
     // SAFETY: we know that the entity mapper is not actually being mutated
     let mut message = message.clone();
     message.map_entities(mapper);
-    serialize_fn(message, writer)
+    serialize_fn(&message, writer)
 }
 
 fn mapped_context_deserialize<M: MapEntities>(
@@ -183,7 +181,7 @@ fn mapped_context_deserialize<M: MapEntities>(
 ) -> core::result::Result<M, SerializationError> {
     let mut message = deserialize_fn(reader)?;
     message.map_entities(mapper);
-    message
+    Ok(message)
 }
 
 impl MessageRegistry {
@@ -191,15 +189,15 @@ impl MessageRegistry {
         self.kind_map.net_id(&MessageKind::of::<M>()).is_some()
     }
 
-    pub(crate) fn register_message<M: Message>(
+    pub(crate) fn register_message<M: Message, I: 'static>(
         &mut self,
-        serialize: ContextSerializeFns<&mut SendEntityMap, M>,
-        deserialize: ContextDeserializeFns<&mut ReceiveEntityMap, M>,
+        serialize: ContextSerializeFns<SendEntityMap, M, I>,
+        deserialize: ContextDeserializeFns<ReceiveEntityMap, M, I>,
     ) {
         let message_kind = self.kind_map.add::<M>();
         self.serialize_fns_map.insert(
             message_kind,
-            ErasedSerializeFns::new::<&mut SendEntityMap, &mut ReceiveEntityMap, M>(
+            ErasedSerializeFns::new::<SendEntityMap, ReceiveEntityMap, M, I>(
                 serialize,
                 deserialize,
             )
@@ -237,10 +235,10 @@ impl MessageRegistry {
         }
     }
 
-    pub(crate) fn add_map_entities<M: Clone + MapEntities + 'static>(
+    pub(crate) fn add_map_entities<M: Clone + MapEntities + 'static, I>(
         &mut self,
-        context_serialize: ContextSerializeFn<&mut SendEntityMap, M>,
-        context_deserialize: ContextDeserializeFn<&mut ReceiveEntityMap, M>,
+        context_serialize: ContextSerializeFn<SendEntityMap, M, I>,
+        context_deserialize: ContextDeserializeFn<ReceiveEntityMap, M, I>,
     ) {
         let kind = MessageKind::of::<M>();
         let erased_fns = self
@@ -265,7 +263,7 @@ impl MessageRegistry {
             .ok_or(MessageError::MissingSerializationFns)?;
         let net_id = self.kind_map.net_id(&kind).unwrap();
         net_id.to_bytes(writer)?;
-        unsafe { erased_fns.serialize(entity_map, message, writer)?; }
+        unsafe { erased_fns.serialize::<SendEntityMap, M, M>(message, writer, entity_map)?; }
         Ok(())
     }
 
@@ -284,7 +282,7 @@ impl MessageRegistry {
             .get(kind)
             .ok_or(MessageError::MissingSerializationFns)?;
         // SAFETY: the ErasedSerializeFns was created for the type M
-        unsafe { erased_fns.deserialize(entity_map, reader).map_err(Into::into) }
+        unsafe { erased_fns.deserialize::<ReceiveEntityMap, M, M>(reader, entity_map).map_err(Into::into) }
     }
 }
 
@@ -310,7 +308,7 @@ impl<M: Message> MessageRegistration<'_, M> {
         M: Clone + MapEntities + 'static,
     {
         let mut registry = self.app.world_mut().resource_mut::<MessageRegistry>();
-        registry.add_map_entities::<M>(mapped_context_serialize, mapped_context_deserialize);
+        registry.add_map_entities::<M, M>(mapped_context_serialize, mapped_context_deserialize);
         self
     }
 }
@@ -346,7 +344,7 @@ impl AppMessageExt for App {
 
         let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
         // Register M for serialization/deserialization
-        registry.register_message::<M>(
+        registry.register_message::<M, M>(
             ContextSerializeFns::new(serialize_fns.serialize),
             ContextDeserializeFns::new(serialize_fns.deserialize)
         );
