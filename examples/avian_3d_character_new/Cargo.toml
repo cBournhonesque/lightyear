@@ -1,0 +1,68 @@
+[package]
+name = "avian_3d_character_new"
+version = "0.0.0"
+authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
+edition = "2021"
+publish = false
+
+[features]
+default = ["client", "gui", "server", "netcode", "udp"]
+client = [
+  "gui",
+  "lightyear/client",
+  "lightyear_examples_common_new/client"
+]
+gui = [
+  "lightyear_examples_common_new/gui"
+]
+server = [
+  "lightyear/server",
+  "lightyear_examples_common_new/server"
+]
+netcode = [
+  "lightyear_examples_common_new/netcode"
+]
+udp = [
+  "lightyear_examples_common_new/udp",
+  # udp requires std
+  "lightyear/std",
+  "lightyear/udp",
+]
+
+[dependencies]
+lightyear = { workspace = true, features = [
+  "interpolation",
+  "prediction",
+  "replication",
+  "leafwing",
+  "avian3d",
+] }
+lightyear_examples_common_new.workspace = true
+leafwing-input-manager = { workspace = true, default-features = false, features = [
+  "keyboard",
+  "gamepad",
+] }
+
+avian3d = { workspace = true, features = [
+  "3d",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
+] }
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+bevy.workspace = true
+rand.workspace = true
+metrics-exporter-prometheus = { workspace = true, optional = true }
+bevygap_client_plugin = { workspace = true, optional = true, features = [
+  "matchmaker-tls",
+] }
+
+[target."cfg(target_family = \"wasm\")".dependencies]
+console_error_panic_hook.workspace = true
+
+[lints]
+workspace = true

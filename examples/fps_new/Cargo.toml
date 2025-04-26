@@ -1,0 +1,60 @@
+[package]
+name = "fps_new"
+version = "0.0.0"
+authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
+edition = "2021"
+publish = false
+
+[features]
+default = ["client", "gui", "server", "netcode", "udp"]
+client = [
+  "gui",
+  "lightyear/client",
+  "lightyear_examples_common_new/client"
+]
+gui = [
+  "lightyear_examples_common_new/gui"
+]
+server = [
+  "lightyear/server",
+  "lightyear_examples_common_new/server"
+]
+netcode = [
+  "lightyear_examples_common_new/netcode"
+]
+udp = [
+  "lightyear_examples_common_new/udp",
+  # udp requires std
+  "lightyear/std",
+  "lightyear/udp",
+]
+
+[dependencies]
+avian2d = { workspace = true, features = [
+  "2d",
+  "debug-plugin",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
+] }
+lightyear = { workspace = true, features = [
+  "interpolation",
+  "prediction",
+  "replication",
+  "avian2d",
+  "leafwing",
+  "input_native", # Added based on simple_box_new
+] }
+lightyear_examples_common_new.workspace = true
+lightyear_avian = { workspace = true, features = ["2d", "lag_compensation"] }
+
+leafwing-input-manager.workspace = true
+serde.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+bevy.workspace = true
+metrics-exporter-prometheus = { workspace = true, optional = true }
+
+[lints]
+workspace = true
