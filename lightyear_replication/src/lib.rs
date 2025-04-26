@@ -24,7 +24,7 @@ pub mod receive;
 
 pub(crate) mod send;
 
-pub(crate) mod message;
+pub mod message;
 pub(crate) mod buffer;
 pub(crate) mod delta;
 

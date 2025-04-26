@@ -115,17 +115,17 @@ impl Plugin for ProtocolPlugin {
         app.add_plugins(input::native::InputPlugin::<Inputs>::default());
         // components
         app.register_component::<PlayerId>()
-            .add_prediction(PredictionMode::Once);
-            // .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<PlayerPosition>()
-            .add_prediction(PredictionMode::Full);
-            // .add_interpolation(ComponentSyncMode::Full)
-            // .add_linear_interpolation_fn();
+            .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full)
+            .add_linear_interpolation_fn();
 
         app.register_component::<PlayerColor>()
-            .add_prediction(PredictionMode::Once);
-            // .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
         // channels
         app.add_channel::<Channel1>(ChannelSettings {

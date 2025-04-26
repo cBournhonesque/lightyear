@@ -2,7 +2,7 @@ use crate::components::ReplicationGroupId;
 use crate::registry::ComponentNetId;
 use bevy::ecs::entity::EntityHash;
 use bevy::platform::collections::HashMap;
-use bevy::prelude::Entity;
+use bevy::prelude::{Entity, Event};
 use bytes::Bytes;
 use lightyear_core::tick::Tick;
 use lightyear_serde::reader::{ReadInteger, Reader};
@@ -12,6 +12,7 @@ use lightyear_transport::packet::message::MessageId;
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+use lightyear_core::time::PositiveTickDelta;
 
 /// Default channel to replicate entity actions.
 /// This is an Unordered Reliable channel.
@@ -22,9 +23,11 @@ pub struct ActionsChannel;
 /// This is a Sequenced Unreliable channel
 pub struct UpdatesChannel;
 
+pub(crate) struct MetadataChannel;
+
 /// All the entity actions (Spawn/despawn/inserts/removals) for a single entity
 #[derive(Clone, PartialEq, Debug)]
-pub struct EntityActions {
+pub(crate) struct EntityActions {
     pub(crate) spawn: SpawnAction,
     // TODO: maybe do HashMap<NetId, RawData>? for example for ShouldReuseTarget
     pub(crate) insert: Vec<Bytes>,
@@ -108,7 +111,7 @@ impl Default for EntityActions {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct SendEntityActionsMessage {
+pub(crate) struct SendEntityActionsMessage {
     pub(crate) sequence_id: MessageId,
     pub(crate) group_id: ReplicationGroupId,
     pub(crate) actions: HashMap<Entity, EntityActions, EntityHash>,
@@ -140,7 +143,7 @@ impl ToBytes for SendEntityActionsMessage {
 //  have an optimization for that
 /// All the entity actions (Spawn/despawn/inserts/removals) for the entities of a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
 #[derive(Clone, PartialEq, Debug)]
-pub struct ActionsMessage {
+pub(crate) struct ActionsMessage {
     pub(crate) sequence_id: MessageId,
     pub(crate) group_id: ReplicationGroupId,
     // TODO: for better compression, we should use columnar storage
@@ -171,7 +174,7 @@ impl ToBytes for ActionsMessage {
 
 /// Same as EntityUpdatesMessage, but avoids having to convert a hashmap into a vec
 #[derive(Clone, PartialEq, Debug)]
-pub struct UpdatesSendMessage {
+pub(crate) struct UpdatesSendMessage {
     pub(crate) group_id: ReplicationGroupId,
     /// The last tick for which we sent an EntityActionsMessage for this group
     /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
@@ -210,7 +213,7 @@ impl ToBytes for UpdatesSendMessage {
 
 /// All the component updates for the entities of a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
 #[derive(Clone, PartialEq, Debug)]
-pub struct UpdatesMessage {
+pub(crate) struct UpdatesMessage {
     pub(crate) group_id: ReplicationGroupId,
     /// The last tick for which we sent an EntityActionsMessage for this group
     /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
@@ -243,6 +246,31 @@ impl ToBytes for UpdatesMessage {
             group_id: ReplicationGroupId::from_bytes(buffer)?,
             last_action_tick: Option::<Tick>::from_bytes(buffer)?,
             updates: Vec::<(Entity, Vec<Bytes>)>::from_bytes(buffer)?,
+        })
+    }
+}
+
+#[derive(Event, Debug)]
+pub struct SenderMetadata {
+    pub send_interval: PositiveTickDelta,
+}
+
+impl ToBytes for SenderMetadata {
+    fn bytes_len(&self) -> usize {
+        self.send_interval.bytes_len()
+    }
+
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> bevy::prelude::Result<(), SerializationError> {
+        self.send_interval.to_bytes(buffer)
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> bevy::prelude::Result<Self, SerializationError>
+    where
+        Self: Sized
+    {
+        let send_interval = PositiveTickDelta::from_bytes(buffer)?;
+        Ok(Self {
+            send_interval,
         })
     }
 }

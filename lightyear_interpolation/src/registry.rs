@@ -1,8 +1,8 @@
-use crate::InterpolationMode;
+use crate::{add_interpolation_systems, add_prepare_interpolation_systems, InterpolationMode, SyncComponent};
 use bevy::math::Curve;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::{Component, Ease, EaseFunction, EasingCurve, Resource};
-use core::ops::{Add, Mul};
+use lightyear_replication::prelude::ComponentRegistration;
 use lightyear_replication::registry::registry::LerpFn;
 use lightyear_replication::registry::ComponentKind;
 
@@ -18,19 +18,6 @@ pub struct InterpolationMetadata {
     pub custom_interpolation: bool,
 }
 
-pub trait Linear {
-    fn lerp(start: &Self, other: &Self, t: f32) -> Self;
-}
-
-impl<C> Linear for C
-where
-    for<'a> &'a C: Mul<f32, Output = C>,
-    C: Add<C, Output = C>,
-{
-    fn lerp(start: &Self, other: &Self, t: f32) -> Self {
-        start * (1.0 - t) + other * t
-    }
-}
 
 #[derive(Resource, Debug, Default)]
 pub struct InterpolationRegistry {
@@ -82,5 +69,87 @@ impl InterpolationRegistry {
             .expect("the component is not part of the protocol");
         let interpolation_fn: LerpFn<C> = unsafe { core::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
         interpolation_fn(start, end, t)
+    }
+}
+
+pub trait InterpolationRegistrationExt<C> {
+    /// Enable interpolation systems for this component.
+   /// You can specify the interpolation [`ComponentSyncMode`]
+    fn add_interpolation(self, interpolation_mode: InterpolationMode) -> Self
+   where
+       C: SyncComponent,
+    ;
+    /// Register helper systems to perform interpolation for the component; but the user has to define the interpolation logic
+    /// themselves (the interpolation_fn will not be used)
+    fn add_custom_interpolation(self, interpolation_mode: InterpolationMode) -> Self
+    where
+        C: SyncComponent,
+    ;
+    /// Add a `Interpolation` behaviour to this component by using a linear interpolation function.
+    fn add_linear_interpolation_fn(self) -> Self
+    where
+        C: SyncComponent + Ease,
+    ;
+
+    /// Add a `Interpolation` behaviour to this component.
+    fn add_interpolation_fn(self, interpolation_fn: LerpFn<C>) -> Self
+    where
+        C: SyncComponent;
+}
+
+impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
+     /// Enable interpolation systems for this component.
+    /// You can specify the interpolation [`ComponentSyncMode`]
+    fn add_interpolation(self, interpolation_mode: InterpolationMode) -> Self
+    where
+        C: SyncComponent,
+    {
+        let Some(mut registry) = self.app.world_mut().get_resource_mut::<InterpolationRegistry>() else {
+            return self
+        };
+        registry.set_interpolation_mode::<C>(interpolation_mode);
+        add_prepare_interpolation_systems::<C>(self.app, interpolation_mode);
+        if interpolation_mode == InterpolationMode::Full {
+            add_interpolation_systems::<C>(self.app);
+        }
+        self
+    }
+
+    /// Register helper systems to perform interpolation for the component; but the user has to define the interpolation logic
+    /// themselves (the interpolation_fn will not be used)
+    fn add_custom_interpolation(self, interpolation_mode: InterpolationMode) -> Self
+    where
+        C: SyncComponent,
+    {
+        let Some(mut registry) = self.app.world_mut().get_resource_mut::<InterpolationRegistry>() else {
+            return self
+        };
+        registry.set_interpolation_mode::<C>(interpolation_mode);
+        add_prepare_interpolation_systems::<C>(self.app, interpolation_mode);
+        self
+    }
+
+    /// Add a `Interpolation` behaviour to this component by using a linear interpolation function.
+    fn add_linear_interpolation_fn(self) -> Self
+    where
+        C: SyncComponent + Ease,
+    {
+        let Some(mut registry) = self.app.world_mut().get_resource_mut::<InterpolationRegistry>() else {
+            return self
+        };
+        registry.set_linear_interpolation::<C>();
+        self
+    }
+
+    /// Add a `Interpolation` behaviour to this component.
+    fn add_interpolation_fn(self, interpolation_fn: LerpFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
+        let Some(mut registry) = self.app.world_mut().get_resource_mut::<InterpolationRegistry>() else {
+            return self
+        };
+        registry.set_interpolation::<C>(interpolation_fn);
+        self
     }
 }

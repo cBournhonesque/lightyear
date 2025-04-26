@@ -5,7 +5,6 @@ use alloc::string::String;
 use alloc::{vec, vec::Vec};
 use bevy::prelude::{Component, Event};
 use core::fmt::Debug;
-use lightyear_core::id::PeerId;
 
 #[derive(Component)]
 struct ConnectedOn;
@@ -43,12 +42,6 @@ pub struct Started;
 
 #[derive(Component, Event)]
 pub struct Stopped;
-
-#[derive(Component, Event)]
-pub struct ClientConnected(pub PeerId);
-
-#[derive(Component, Event)]
-pub struct ClientDisconnected;
 
 pub(crate) trait AppChannelDirectionExt {
     fn add_direction(&mut self, direction: NetworkDirection);

@@ -1,7 +1,7 @@
 //! General struct handling replication
 use core::iter::Extend;
 
-use super::message::{ActionsChannel, EntityActions, SendEntityActionsMessage, SpawnAction, UpdatesChannel, UpdatesSendMessage};
+use super::message::{ActionsChannel, EntityActions, MetadataChannel, SendEntityActionsMessage, SenderMetadata, SpawnAction, UpdatesChannel, UpdatesSendMessage};
 use super::message::{ActionsMessage, UpdatesMessage};
 use crate::authority::HasAuthority;
 use crate::buffer;
@@ -31,16 +31,19 @@ use bevy::time::common_conditions::on_timer;
 use bytes::Bytes;
 use core::time::Duration;
 use crossbeam_channel::Receiver;
+use lightyear_connection::client::Connected;
 use lightyear_connection::prelude::NetworkDirection;
 use lightyear_core::prelude::{LocalTimeline, Timeline};
-use lightyear_core::tick::Tick;
+use lightyear_core::tick::{Tick, TickDuration};
+use lightyear_core::time::{PositiveTickDelta, TickDelta};
 use lightyear_core::timeline::{NetworkTimeline, SetTickDuration};
 use lightyear_messages::plugin::MessageSet;
-use lightyear_messages::prelude::{MessageManager, MessageReceiver, MessageSender};
+use lightyear_messages::prelude::{MessageManager, MessageReceiver, MessageSender, TriggerSender};
 use lightyear_messages::registry::{MessageError, MessageKind, MessageRegistry};
 use lightyear_messages::MessageNetId;
 use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
-use lightyear_serde::writer::Writer;
+use lightyear_serde::reader::Reader;
+use lightyear_serde::writer::{WriteInteger, Writer};
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::packet::error::PacketError;
@@ -162,6 +165,20 @@ impl ReplicationSendPlugin {
         });
     }
 
+    /// Send a message containing metadata about the sender
+    fn send_sender_metadata(
+        trigger: Trigger<OnAdd, Connected>,
+        tick_duration: Res<TickDuration>,
+        mut query: Query<(&ReplicationSender, &mut TriggerSender<SenderMetadata>)>,
+    ) {
+        if let Ok((sender, mut trigger_sender)) = query.get_mut(trigger.target()) {
+            let send_interval = sender.send_interval();
+            let send_interval_delta = TickDelta::from_duration(send_interval, tick_duration.0);
+            let metadata = SenderMetadata { send_interval: send_interval_delta.into() };
+            trigger_sender.trigger::<MetadataChannel>(metadata);
+        }
+    }
+
     // /// Tick the internal timers of all replication groups.
     // fn tick_replication_group_timers(
     //     time_manager: Res<TimeManager>,
@@ -216,6 +233,7 @@ impl Plugin for ReplicationSendPlugin {
 
         // SYSTEMS
         app.add_observer(buffer::buffer_entity_despawn_replicate_remove);
+        app.add_observer(Self::send_sender_metadata);
 
         app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
         app.add_systems(PostUpdate, buffer::buffer_entity_despawn_replicate_updated.in_set(ReplicationBufferSet::Buffer));
@@ -345,6 +363,8 @@ impl Plugin for ReplicationSendPlugin {
 }
 
 
+
+
 #[derive(Component, Debug)]
 #[require(Transport)]
 #[require(LocalTimeline)]
@@ -361,8 +381,8 @@ pub struct ReplicationSender {
     pub group_with_updates: EntityHashSet<ReplicationGroupId>,
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
-    /// Tick when we last did a cleanup
     send_timer: Timer,
+    /// Tick when we last did a cleanup
     pub(crate) last_cleanup_tick: Option<Tick>,
     send_updates_mode: SendUpdatesMode,
     // TODO: detect automatically if priority manager is enabled!
@@ -400,6 +420,10 @@ impl ReplicationSender {
             last_cleanup_tick: None,
             bandwidth_cap_enabled,
         }
+    }
+
+    pub fn send_interval(&self) -> Duration {
+        self.send_timer.duration()
     }
 
     pub(crate) fn add_replicated_entity(&mut self, entity: Entity) {

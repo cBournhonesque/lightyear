@@ -2,7 +2,7 @@
 use alloc::collections::BTreeMap;
 
 use crate::authority::{AuthorityPeer, HasAuthority};
-use crate::components::{InitialReplicated, Replicated, ReplicationGroupId};
+use crate::components::{Confirmed, InitialReplicated, Replicated, ReplicationGroupId};
 use crate::message::{ActionsMessage, SpawnAction, UpdatesMessage};
 use crate::registry::registry::ComponentRegistry;
 use alloc::alloc::Layout;
@@ -455,7 +455,7 @@ impl ReplicationReceiver {
                     // but we also need to make sure that we don't apply updates that are too old!
                     // (older than the latest_tick applied from any Actions message above!)
                     //
-                    // Note that the channel.latest tick could still be done in case of authority-transfer!
+                    // Note that the channel.latest tick could still be None in case of authority-transfer!
                     if channel.latest_tick.is_some_and(|latest_tick| remote_tick <= latest_tick) {
                         // TODO: those ticks could be history and could be interesting. They are older than the latest_tick though
                         continue;
@@ -816,10 +816,6 @@ impl GroupChannel {
                 continue;
             }
 
-            // NOTE: 2 options
-            //  - send the raw data to a separate typed system
-            //  -  or just insert it here via function pointers
-
             // inserts
             // TODO: remove updates that are duplicate for the same component
             let _ = component_registry
@@ -880,7 +876,7 @@ impl GroupChannel {
         world.flush();
 
         // TODO: apply authority check for the update confirmed tick?
-        // self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
+        self.update_confirmed_tick(world, group_id, remote_tick);
     }
 
     // TODO: should we accept updates from the client that lost authority if they are from a
@@ -956,46 +952,38 @@ impl GroupChannel {
 
         // TODO: should the update_confirmed_tick only be for entities in the group for which
         //  we have authority?
-        // self.update_confirmed_tick(world, group_id, remote_tick, remote_entity_map);
+        self.update_confirmed_tick(world, group_id, remote_tick);
     }
 
-    // /// Update the Confirmed tick for all entities in the replication group
-    // /// so that Predicted/Interpolated entities can be notified
-    // ///
-    // /// We update it for all entities in the group (even if we received only an update that contains
-    // /// updates for E1, it also means that E2 is updated to the same tick, since they are part of the
-    // /// same group)
-    // pub(crate) fn update_confirmed_tick(
-    //     &mut self,
-    //     world: &mut World,
-    //     group_id: ReplicationGroupId,
-    //     remote_tick: Tick,
-    //     remote_entity_map: &mut RemoteEntityMap,
-    // ) {
-    //     // TODO: maybe get the confirmed tick from the apply_world message directly?
-    //     // // let confirmed_tick = self.group_channels.get(&group_id).unwrap().latest_tick;
-    //     // if let Some(group_channel) = self.group_channels
-    //     //     .get(&group_id) {
-    //     //     grou.remote_entities
-    //     //
-    //     // }
-    //     trace!(
-    //         ?remote_tick,
-    //         "Updating confirmed tick for entities {:?} in group: {:?}",
-    //         self.local_entities,
-    //         group_id
-    //     );
-    //     self.local_entities.iter().for_each(|local_entity| {
-    //         if let Ok(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
-    //             if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
-    //                 trace!(
-    //                     ?remote_tick,
-    //                     ?local_entity,
-    //                     "updating confirmed tick for entity"
-    //                 );
-    //                 confirmed.tick = remote_tick;
-    //             }
-    //         }
-    //     });
-    // }
+    /// Update the Confirmed tick for all entities in the replication group
+    /// so that Predicted/Interpolated entities can be notified
+    ///
+    /// We update it for all entities in the group (even if we received only an update that contains
+    /// updates for E1, it also means that E2 is updated to the same tick, since they are part of the
+    /// same group)
+    pub(crate) fn update_confirmed_tick(
+        &mut self,
+        world: &mut World,
+        group_id: ReplicationGroupId,
+        remote_tick: Tick,
+    ) {
+        trace!(
+            ?remote_tick,
+            "Updating confirmed tick for entities {:?} in group: {:?}",
+            self.local_entities,
+            group_id
+        );
+        self.local_entities.iter().for_each(|local_entity| {
+            if let Ok(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
+                if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
+                    trace!(
+                        ?remote_tick,
+                        ?local_entity,
+                        "updating confirmed tick for entity"
+                    );
+                    confirmed.tick = remote_tick;
+                }
+            }
+        });
+    }
 }

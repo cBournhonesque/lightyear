@@ -103,11 +103,11 @@ impl InterpolationPlugin {
 pub enum InterpolationSet {
     // Update Sets,
     /// Spawn interpolation entities,
-    SpawnInterpolation,
+    Spawn,
     /// Add component history for all interpolated entities' interpolated components
     SpawnHistory,
     /// Update component history, interpolation status
-    PrepareInterpolation,
+    Prepare,
     /// Interpolate between last 2 server states. Has to be overriden if
     /// `InterpolationConfig.custom_interpolation_logic` is set to true
     Interpolate,
@@ -140,14 +140,14 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent>(
                     insert_interpolated_component::<C>,
                 )
                     .chain()
-                    .in_set(InterpolationSet::PrepareInterpolation),
+                    .in_set(InterpolationSet::Prepare),
             );
         }
         InterpolationMode::Simple => {
             app.add_systems(
                 Update,
                 apply_confirmed_update_mode_simple::<C>
-                    .in_set(InterpolationSet::PrepareInterpolation),
+                    .in_set(InterpolationSet::Prepare),
             );
         }
         _ => {}
@@ -175,10 +175,10 @@ impl Plugin for InterpolationPlugin {
         app.configure_sets(
             Update,
             (
-                InterpolationSet::SpawnInterpolation,
+                InterpolationSet::Spawn,
                 InterpolationSet::SpawnHistory,
                 // PrepareInterpolation uses the sync values (which are used to compute interpolation)
-                InterpolationSet::PrepareInterpolation.after(SyncSet::Sync),
+                InterpolationSet::Prepare.after(SyncSet::Sync),
                 InterpolationSet::Interpolate,
             )
                 .in_set(InterpolationSet::All)
@@ -191,7 +191,7 @@ impl Plugin for InterpolationPlugin {
         // SYSTEMS
         app.add_systems(
             Update,
-            spawn_interpolated_entity.in_set(InterpolationSet::SpawnInterpolation),
+            spawn_interpolated_entity.in_set(InterpolationSet::Spawn),
         );
         app.add_observer(despawn_interpolated);
     }

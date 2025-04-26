@@ -11,6 +11,7 @@ use crate::{shared, SEND_INTERVAL};
 use bevy::app::PluginGroupBuilder;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use lightyear::connection::client::Connected;
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -33,12 +34,12 @@ impl Plugin for ExampleServerPlugin {
 
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
-    trigger: Trigger<OnAdd, ClientConnected>,
-    mut query: Query<&ClientConnected>,
+    trigger: Trigger<OnAdd, Connected>,
+    mut query: Query<&Connected, With<ClientOf>>,
     mut commands: Commands,
 ) {
     let connected = query.get(trigger.target()).unwrap();
-    let client_id = connected.0;
+    let client_id = connected.peer_id;
     commands.entity(trigger.target()).insert(
         ReplicationSender::new(
             SEND_INTERVAL,

@@ -1,4 +1,5 @@
 use crate::components::ComponentReplicationConfig;
+use crate::delta::Diffable;
 use crate::prelude::ComponentReplicationOverrides;
 use crate::registry::delta::ErasedDeltaFns;
 use crate::registry::replication::ReplicationMetadata;
@@ -46,7 +47,7 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// struct MyComponent;
 ///
 /// fn add_components(app: &mut App) {
-///   app.register_component::<MyComponent>(NetworkDirection::Bidirectional);
+///   app.register_component::<MyComponent>();
 /// }
 /// ```
 ///
@@ -96,21 +97,22 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 ///
 /// ```rust
 /// use bevy::prelude::*;
+/// use serde::{Deserialize, Serialize};
 /// use lightyear::prelude::*;
 /// use lightyear::prelude::client::*;
 ///
-/// #[derive(Component, Clone, PartialEq, Serialize, Deserialize)]
+/// #[derive(Component, Clone, Copy, PartialEq, Serialize, Deserialize)]
 /// struct MyComponent(f32);
 ///
-/// fn my_lerp_fn(start: &MyComponent, other: &MyComponent, t: f32) -> MyComponent {
+/// fn my_lerp_fn(start: MyComponent, other: MyComponent, t: f32) -> MyComponent {
 ///    MyComponent(start.0 * (1.0 - t) + other.0 * t)
 /// }
 ///
 ///
 /// fn add_messages(app: &mut App) {
-///   app.register_component::<MyComponent>(NetworkDirection::ServerToClient)
-///       .add_prediction(ComponentSyncMode::Full)
-///       .add_interpolation(ComponentSyncMode::Full)
+///   app.register_component::<MyComponent>()
+///       .add_prediction(PredictionMode::Full)
+///       .add_interpolation(InterpolationMode::Full)
 ///       .add_interpolation_fn(my_lerp_fn);
 /// }
 /// ```
@@ -387,6 +389,19 @@ impl<C> ComponentRegistration<'_, C> {
         let overrides_component_id = self.app.world_mut().register_component::<ComponentReplicationOverrides<C>>();
         let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_replication_fns::<C>(config, overrides_component_id);
+        self
+    }
+
+    /// Enable delta compression when serializing this component
+    pub fn add_delta_compression(self) -> Self
+    where
+        C: Component<Mutability = Mutable> + PartialEq + Diffable,
+        C::Delta: Serialize + DeserializeOwned,
+    {
+        self.app.world_mut()
+            .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
+                registry.set_delta_compression::<C>(world);
+            });
         self
     }
 }

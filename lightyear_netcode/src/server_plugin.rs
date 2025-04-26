@@ -7,7 +7,6 @@ use bevy::tasks::futures_lite::StreamExt;
 use core::net::SocketAddr;
 use lightyear_connection::client::{Connected, Connecting};
 use lightyear_connection::prelude::{server::*, *};
-use lightyear_connection::server::ClientConnected;
 use lightyear_core::id::PeerId;
 use lightyear_link::{Link, LinkSet, LinkStart, Unlink, Unlinked};
 use lightyear_transport::plugin::TransportSet;
@@ -203,9 +202,8 @@ impl NetcodeServerPlugin {
                     parallel_commands.command_scope(|mut c| {
                         trace!("Adding ClientOf with id {:?}", id);
                         let peer_id = PeerId::Netcode(id);
-                        // TODO: also trigger ClientConnected? or OnAdd is enough?
                         c.entity(entity)
-                            .insert((ClientConnected(peer_id), ClientOf {
+                            .insert((Connected {peer_id }, ClientOf {
                                 server: client_of.server,
                                 id: peer_id,
                             }))

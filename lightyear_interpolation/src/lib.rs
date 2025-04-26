@@ -26,7 +26,8 @@ mod timeline;
 
 pub mod prelude {
     pub use crate::manager::InterpolationManager;
-    pub use crate::Interpolated;
+    pub use crate::registry::InterpolationRegistrationExt;
+    pub use crate::{Interpolated, InterpolationMode};
 }
 
 /// Marker component for an entity that is being interpolated by the client

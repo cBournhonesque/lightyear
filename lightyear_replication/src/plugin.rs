@@ -6,12 +6,12 @@ use crate::authority::{AuthorityPeer, HasAuthority};
 use crate::components::*;
 use crate::control::Controlled;
 use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
-use crate::message::{ActionsChannel, UpdatesChannel};
+use crate::message::{ActionsChannel, MetadataChannel, SenderMetadata, UpdatesChannel};
 use crate::prelude::{ActionsMessage, AppComponentExt, UpdatesMessage};
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_connection::prelude::NetworkDirection;
-use lightyear_messages::prelude::AppMessageExt;
+use lightyear_messages::prelude::{AppMessageExt, AppTriggerExt};
 use lightyear_transport::channel::builder::ReliableSettings;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 
@@ -56,6 +56,12 @@ impl Plugin for SharedPlugin {
             app.register_component::<PrePredicted>();
         }
 
+        app.add_channel::<MetadataChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
+            send_frequency: Duration::default(),
+            priority: 10.0,
+        })
+            .add_direction(NetworkDirection::Bidirectional);
         app.add_channel::<UpdatesChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliableWithAcks,
             // we do not send the send_frequency to `replication_interval` here
@@ -80,6 +86,8 @@ impl Plugin for SharedPlugin {
         app.add_message_to_bytes::<ActionsMessage>()
             .add_direction(NetworkDirection::Bidirectional);
         app.add_message_to_bytes::<UpdatesMessage>()
+            .add_direction(NetworkDirection::Bidirectional);
+        app.add_trigger_to_bytes::<SenderMetadata>()
             .add_direction(NetworkDirection::Bidirectional);
     }
 
