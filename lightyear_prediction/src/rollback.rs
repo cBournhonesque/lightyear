@@ -604,8 +604,8 @@ fn rollback_fixed_time(current_fixed_time: &Time<Fixed>, num_rollback_ticks: i16
     // the rollback.
     let rollback_time_offset = (num_rollback_ticks - 1) as u32 * rollback_fixed_time.timestep();
 
-    let rollback_elapsed_time = current_fixed_time.elapsed() - rollback_time_offset;
-    rollback_fixed_time.advance_to(rollback_elapsed_time - rollback_fixed_time.timestep());
+    let rollback_elapsed_time = current_fixed_time.elapsed().saturating_sub(rollback_time_offset);
+    rollback_fixed_time.advance_to(rollback_elapsed_time.saturating_sub(rollback_fixed_time.timestep()));
     // Time<Fixed>::delta is set to the value provided in `advance_by` (or
     // `advance_to`), so we want to call
     // `advance_by(rollback_fixed_time.timestep())` at the end to set the delta

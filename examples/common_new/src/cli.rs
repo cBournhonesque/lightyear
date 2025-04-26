@@ -193,7 +193,8 @@ pub fn new_gui_app(add_inspector: bool) -> App {
             .set(window_plugin()),
     );
     if add_inspector {
-        // app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
+        app.add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin { enable_multipass_for_primary_context: true });
+        app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
     }
     app
 }

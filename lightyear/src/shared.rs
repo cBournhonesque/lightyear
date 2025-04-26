@@ -3,6 +3,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_core::plugin::CorePlugins;
+use lightyear_interpolation::plugin::InterpolationConfig;
 
 pub struct SharedPlugins{
     pub tick_duration: Duration
@@ -32,6 +33,12 @@ impl PluginGroup for SharedPlugins {
         let builder = builder.add(lightyear_crossbeam::CrossbeamPlugin);
         #[cfg(feature = "udp")]
         let builder = builder.add(lightyear_udp::UdpPlugin);
+
+        // Note: the server can also do interpolation
+        // TODO: move the config to the InterpolationManager
+        #[cfg(feature = "interpolation")]
+        let builder = builder.add(lightyear_interpolation::plugin::InterpolationPlugin::new(InterpolationConfig::default()));
+
         builder
     }
 }

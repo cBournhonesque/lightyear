@@ -35,10 +35,8 @@ impl PluginGroup for ClientPlugins {
         #[cfg(feature = "netcode")]
         let builder = builder.add(lightyear_netcode::client_plugin::NetcodeClientPlugin);
 
-        // PREDICTION
         #[cfg(feature = "prediction")]
         let builder = builder.add(lightyear_prediction::plugin::PredictionPlugin);
-
 
         #[cfg(target_family = "wasm")]
         let builder = builder.add(crate::client::web::WebPlugin);

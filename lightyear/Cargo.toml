@@ -15,7 +15,6 @@ publish = true
 
 [features]
 default = [
-  "interpolation",
   "std"
 ]
 std = [

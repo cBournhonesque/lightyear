@@ -94,7 +94,7 @@ pub struct InterpolationPlugin {
 }
 
 impl InterpolationPlugin {
-    pub(crate) fn new(config: InterpolationConfig) -> Self {
+    pub fn new(config: InterpolationConfig) -> Self {
         Self { config }
     }
 }

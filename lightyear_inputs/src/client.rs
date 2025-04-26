@@ -154,12 +154,12 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         app.configure_sets(
             PostUpdate,
             (
-                InputSet::CleanUp,
                 (
                     SyncSet::Sync,
                     // run after SyncSet to make sure that the TickEvents are handled
                     // and that the interpolation_delay injected in the message are correct
                     InputSet::SendInputMessage,
+                    InputSet::CleanUp,
                     MessageSet::Send,
                 )
                     .chain(),

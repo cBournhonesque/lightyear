@@ -87,10 +87,13 @@ pub(crate) fn buffer_input(
 /// This works because we only predict the user's controlled entity.
 /// If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
+    timeline: Single<&LocalTimeline>,
     mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
 ) {
+    let tick = timeline.tick();
     for (position, input) in position_query.iter_mut() {
         if let Some(input) = &input.value {
+            info!(?tick, ?position, ?input, "client");
             // NOTE: be careful to directly pass Mut<PlayerPosition>
             // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
             shared::shared_movement_behaviour(position, input);

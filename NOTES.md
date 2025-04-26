@@ -15,7 +15,10 @@
 TODO:
 - on the server, we get cases where the input buffer just contains [SameAsPrecedent]. Normally
   the first value should never be just SameAsPrecedent! That's due to `update_buffer` using `set_raw`. But maybe that's ok? if there's only SameAsPrecedent, we don't do anything (i.e. we re-use the existing inputs)
-- when running simple_box, the Confirmed entity should eventually catchup to the predicted entity! Sometimes it doesn't -> some system ordering issue
+- when running simple_box, the Confirmed entity should eventually catchup to the predicted entity! Sometimes it doesn't -> some system ordering issue? or sync issue?
+
+- when a new client joins, existing entities should be replicated to them.
+- the interpolated entity is not displayed
 
 # Inputs
 - client connects to to server

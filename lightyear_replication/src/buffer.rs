@@ -13,6 +13,8 @@ use bevy::ptr::Ptr;
 
 use crate::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
 use crate::authority::HasAuthority;
+#[cfg(feature = "interpolation")]
+use crate::components::{InterpolationTarget, ShouldBeInterpolated};
 #[cfg(feature = "prediction")]
 use crate::components::{PredictionTarget, ShouldBePredicted};
 use crate::components::{Replicating, ReplicationGroup, ReplicationGroupId};
@@ -446,6 +448,13 @@ pub(crate) fn replicate_entity(
             .get::<PredictionTarget>()
             .or_else(|| entity_ref.get::<PredictionTarget>()),
     );
+    #[cfg(feature = "interpolation")]
+    let interpolation_target= child_entity_ref.map_or_else(
+        || entity_ref.get::<InterpolationTarget>(),
+        |(c, _)| c
+            .get::<InterpolationTarget>()
+            .or_else(|| entity_ref.get::<InterpolationTarget>()),
+    );
 
     let replicated_components = replicated_archetypes
         .archetypes
@@ -476,6 +485,8 @@ pub(crate) fn replicate_entity(
         &replicate,
         #[cfg(feature = "prediction")]
         prediction_target,
+        #[cfg(feature = "interpolation")]
+        interpolation_target,
         cached_replicate,
         network_visibility,
         component_registry,
@@ -600,6 +611,8 @@ pub(crate) fn replicate_entity_spawn(
     replicate: &Ref<Replicate>,
     #[cfg(feature = "prediction")]
     prediction_target: Option<&PredictionTarget>,
+    #[cfg(feature = "interpolation")]
+    interpolation_target: Option<&InterpolationTarget>,
     cached_replicate: Option<&CachedReplicate>,
     network_visibility: Option<&NetworkVisibility>,
     component_registry: &ComponentRegistry,
@@ -622,6 +635,15 @@ pub(crate) fn replicate_entity_spawn(
                 group_id,
                 component_registry,
                 &mut ShouldBePredicted,
+            ).unwrap();
+        }
+        #[cfg(feature = "interpolation")]
+        if interpolation_target.is_some_and(|p| p.senders.contains(&sender_entity)) {
+            sender.prepare_typed_component_insert(
+                entity,
+                group_id,
+                component_registry,
+                &mut ShouldBeInterpolated,
             ).unwrap();
         }
     }

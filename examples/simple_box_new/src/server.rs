@@ -93,6 +93,7 @@ pub(crate) fn handle_connections(
 
 /// Read client inputs and move players in server therefore giving a basis for other clients
 fn movement(
+    timeline: Single<&LocalTimeline, With<Server>>,
     mut position_query: Query<
         (&mut PlayerPosition, &ActionState<Inputs>),
         // if we run in host-server mode, we don't want to apply this system to the local client's entities
@@ -100,8 +101,10 @@ fn movement(
         (Without<Confirmed>, Without<Predicted>),
     >,
 ) {
+    let tick = timeline.tick();
     for (position, inputs) in position_query.iter_mut() {
         if let Some(inputs) = &inputs.value {
+            info!(?tick, ?position, ?inputs, "server");
             shared::shared_movement_behaviour(position, inputs);
         }
     }

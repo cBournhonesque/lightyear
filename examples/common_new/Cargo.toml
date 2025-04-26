@@ -51,7 +51,6 @@ lightyear = {"workspace" = true, features = [
   "prediction",
   "replication",
 ]}
-#lightyear = { workspace = true, features = ["webtransport"] }
 anyhow.workspace = true
 async-compat.workspace = true
 cfg-if.workspace = true
