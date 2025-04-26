@@ -4,8 +4,8 @@ use bevy::{input::common_conditions::input_toggle_active, prelude::*};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 #[cfg(feature = "bevygap_client")]
 use bevygap_client_plugin::prelude::*;
-use lightyear::prelude::MainSet;
 use lightyear::prelude::client::*;
+use lightyear::prelude::MainSet;
 
 pub struct ExampleClientRendererPlugin {
     /// The name of the example, which must also match the edgegap application name.
@@ -109,7 +109,6 @@ fn name_and_button_bar() -> impl Bundle {
             ));
             parent
                 .spawn(button("Connect"))
-                .observe(|_: Trigger<Pointer<Click>>| info!("CLICCCCCK"))
                 .observe(
                     |_: Trigger<Pointer<Click>>,
                      mut commands: Commands,
@@ -149,12 +148,9 @@ fn button<T: Into<String>>(text: T) -> impl Bundle {
             align_items: AlignItems::Center,
             ..default()
         },
-        children![(
-            Name::new("Button Text"),
-            Text(text.into()),
-            TextColor(Color::srgb(0.9, 0.9, 0.9)),
-            TextFont::from_font_size(20.0),
-        )],
+        Text(text.into()),
+        TextColor(Color::srgb(0.9, 0.9, 0.9)),
+        TextFont::from_font_size(20.0),
     )
 }
 
