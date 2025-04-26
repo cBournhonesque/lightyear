@@ -65,6 +65,7 @@ bevy_metrics_dashboard = { workspace = true, optional = true }
 bevy_egui = { workspace = true, optional = true }
 tracing.workspace = true
 
+
 [target."cfg(target_family = \"wasm\")".dependencies]
 web-sys = { workspace = true, features = ["Window", "Location"] }
 
