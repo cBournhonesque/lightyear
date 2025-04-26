@@ -118,7 +118,6 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                     |_: Trigger<Pointer<Click>>,
                      mut commands: Commands,
                      state: Res<State<NetworkingState>>| {
-                        info!("CLICK");
                         match state.get() {
                             NetworkingState::Disconnected => {
                                 #[cfg(feature = "bevygap_client")]
