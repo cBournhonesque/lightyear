@@ -62,6 +62,7 @@ use bevy::prelude::*;
 use core::marker::PhantomData;
 use core::time::Duration;
 use lightyear_core::prelude::NetworkTimeline;
+use lightyear_core::tick::TickDuration;
 use lightyear_core::timeline::LocalTimeline;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageSender;
@@ -364,6 +365,7 @@ impl<A> Default for MessageBuffer<A> {
 /// Take the input buffer, and prepare the input message to send to the server
 fn prepare_input_message<S: ActionStateSequence>(
     mut message_buffer: ResMut<MessageBuffer<S>>,
+    tick_duration: Res<TickDuration>,
     input_config: Res<InputConfig<S::Action>>,
     sender: Single<(&LocalTimeline, &InputTimeline, &MessageManager), With<IsSynced<InputTimeline>>>,
     input_buffer_query: Query<
@@ -399,7 +401,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     // we send redundant inputs, so that if a packet is lost, we can still recover
     // A redundancy of 2 means that we can recover from 1 lost packet
     let mut num_tick: u16 =
-        ((input_send_interval.as_nanos() / local_timeline.tick_duration.as_nanos()) + 1)
+        ((input_send_interval.as_nanos() / tick_duration.as_nanos()) + 1)
             .try_into()
             .unwrap();
     num_tick *= input_config.packet_redundancy;

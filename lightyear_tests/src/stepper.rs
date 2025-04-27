@@ -10,7 +10,7 @@ use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
 use lightyear::prelude::Link;
 use lightyear::prelude::{client, server, *};
-use lightyear_connection::client::{Connect, Connected};
+use lightyear_connection::client::{Connect, Connected, Disconnect};
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::server::Start;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
@@ -30,26 +30,35 @@ const SERVER_ADDR: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCAL
 /// - 1 server in another App, with n ClientOf connected to each client
 /// Connected via crossbeam channels, and using Netcode for connection
 /// We create two separate apps to make it easy to order the client and server updates.
-pub struct ClientServerStepper<const N: usize = 1> {
+pub struct ClientServerStepper {
     pub client_app: App,
     pub server_app: App,
-    pub client_entities: [Entity; N],
+    pub client_entities: Vec<Entity>,
     pub server_entity: Entity,
-    pub client_of_entities: [Entity; N],
+    pub client_of_entities: Vec<Entity>,
     pub frame_duration: Duration,
     pub tick_duration: Duration,
     pub current_time: bevy::platform::time::Instant,
 }
 
-impl ClientServerStepper<1> {
+impl ClientServerStepper {
     pub fn single() -> Self {
-        Self::default()
+        Self::with_clients(1)
+    }
+
+    pub fn with_clients(n: usize) -> Self {
+        let mut stepper = Self::default_no_init();
+        for _ in 0..n {
+            stepper.new_client();
+        }
+        stepper.init();
+        stepper
     }
 }
 
 
 // Do not forget to use --features mock_time when using the LinkConditioner
-impl<const N: usize> ClientServerStepper<N> {
+impl ClientServerStepper {
     pub fn new(
         tick_duration: Duration,
         frame_duration: Duration,
@@ -89,49 +98,8 @@ impl<const N: usize> ClientServerStepper<N> {
             .unwrap()
             .update_with_instant(now);
 
-        let mut client_entities = [Entity::PLACEHOLDER; N];
-        let mut client_of_entities = [Entity::PLACEHOLDER; N];
-        for client_id in 0..N {
-            let (crossbeam_client, crossbeam_server) = lightyear_crossbeam::CrossbeamIo::new_pair();
-
-            let auth = Authentication::Manual {
-                server_addr: SERVER_ADDR,
-                protocol_id: PROTOCOL_ID,
-                private_key: KEY,
-                client_id: client_id as u64,
-            };
-            client_entities[client_id] = client_app.world_mut().spawn((
-                client::Client::default(),
-                // Send pings every frame, so that the Acks are sent every frame
-                PingManager::new(PingConfig {
-                    ping_interval: Duration::default(),
-                    ..default()
-                }, tick_duration),
-                ReplicationSender::default(),
-                ReplicationReceiver::default(),
-                NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
-                crossbeam_client,
-                PredictionManager::default(),
-            )).id();
-            client_of_entities[client_id] = server_app.world_mut().spawn((
-                ClientOf {
-                    server: server_entity,
-                    id: PeerId::Entity,
-                },
-                // Send pings every frame, so that the Acks are sent every frame
-                PingManager::new(PingConfig {
-                    ping_interval: Duration::default(),
-                    ..default()
-                }, tick_duration),
-                // TODO: we want the ReplicationSender/Receiver to be added automatically when ClientOf is created, but with configs pre-specified by the server
-                ReplicationSender::default(),
-                ReplicationReceiver::default(),
-                // we will act like each client has a different port
-                Link::new(SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LOCALHOST), client_id as u16), None),
-                crossbeam_server
-            )).id();
-        }
-
+        let mut client_entities = vec![];
+        let mut client_of_entities = vec![];
         Self {
             client_app,
             server_app,
@@ -144,17 +112,64 @@ impl<const N: usize> ClientServerStepper<N> {
         }
     }
 
+    pub(crate) fn new_client(&mut self) -> usize {
+        let client_id = self.client_entities.len();
+        let (crossbeam_client, crossbeam_server) = lightyear_crossbeam::CrossbeamIo::new_pair();
+
+        let auth = Authentication::Manual {
+            server_addr: SERVER_ADDR,
+            protocol_id: PROTOCOL_ID,
+            private_key: KEY,
+            client_id: client_id as u64,
+        };
+        self.client_entities.push(self.client_app.world_mut().spawn((
+            client::Client::default(),
+            // Send pings every frame, so that the Acks are sent every frame
+            PingManager::new(PingConfig {
+                ping_interval: Duration::default(),
+                ..default()
+            }),
+            ReplicationSender::default(),
+            ReplicationReceiver::default(),
+            NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
+            crossbeam_client,
+            PredictionManager::default(),
+        )).id());
+        self.client_of_entities.push(self.server_app.world_mut().spawn((
+            ClientOf {
+                server: self.server_entity,
+                id: PeerId::Entity,
+            },
+            // Send pings every frame, so that the Acks are sent every frame
+            PingManager::new(PingConfig {
+                ping_interval: Duration::default(),
+                ..default()
+            }),
+            // TODO: we want the ReplicationSender/Receiver to be added automatically when ClientOf is created, but with configs pre-specified by the server
+            ReplicationSender::default(),
+            ReplicationReceiver::default(),
+            // we will act like each client has a different port
+            Link::new(SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LOCALHOST), client_id as u16), None),
+            crossbeam_server
+        )).id());
+        client_id
+    }
+
+    /// Disconnect the last client
+    pub(crate) fn disconnect_client(&mut self) {
+        let client_id = self.client_entities.len() - 1;
+        let client_entity = self.client_entities[client_id];
+        self.client_app.world_mut().trigger_targets(Disconnect, client_entity);
+        self.client_entities.remove(client_id);
+        self.client_of_entities.remove(client_id);
+        self.frame_step(1);
+    }
+
     pub(crate) fn default_no_init() -> Self {
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let mut stepper = Self::new(tick_duration, frame_duration);
         stepper.build();
-        stepper
-    }
-
-    pub(crate) fn default() -> Self {
-        let mut stepper = Self::default_no_init();
-        stepper.init();
         stepper
     }
 
@@ -165,27 +180,27 @@ impl<const N: usize> ClientServerStepper<N> {
         self.server_app.world().entity(self.server_entity).get::<LocalTimeline>().unwrap().tick()
     }
 
-    pub(crate) fn client(&self, id: usize) -> EntityRef {
+    pub fn client(&self, id: usize) -> EntityRef {
         self.client_app.world().entity(self.client_entities[id])
     }
 
-    pub(crate) fn client_mut(&mut self, id: usize) -> EntityWorldMut {
+    pub fn client_mut(&mut self, id: usize) -> EntityWorldMut {
         self.client_app.world_mut().entity_mut(self.client_entities[id])
     }
 
-    pub(crate) fn server(&self) -> EntityRef {
+    pub fn server(&self) -> EntityRef {
         self.server_app.world().entity(self.server_entity)
     }
 
-    pub(crate) fn server_mut(&mut self) -> EntityWorldMut {
+    pub fn server_mut(&mut self) -> EntityWorldMut {
         self.server_app.world_mut().entity_mut(self.server_entity)
     }
 
-    pub(crate) fn client_of(&self, id: usize) -> EntityRef {
+    pub fn client_of(&self, id: usize) -> EntityRef {
         self.server_app.world().entity(self.client_of_entities[id])
     }
 
-    pub(crate) fn client_of_mut(&mut self, id: usize) -> EntityWorldMut {
+    pub fn client_of_mut(&mut self, id: usize) -> EntityWorldMut {
         self.server_app.world_mut().entity_mut(self.client_of_entities[id])
     }
 
@@ -196,8 +211,8 @@ impl<const N: usize> ClientServerStepper<N> {
         self.server_app.cleanup();
     }
     pub(crate) fn init(&mut self) {
-        for client_id in 0..N {
-            self.client_app.world_mut().trigger_targets(Connect, self.client_entities[client_id]);
+        for client_id in self.client_entities.iter() {
+            self.client_app.world_mut().trigger_targets(Connect, *client_id);
         }
         self.server_app.world_mut().trigger_targets(Start, self.server_entity);
         self.wait_for_connection();
@@ -206,8 +221,8 @@ impl<const N: usize> ClientServerStepper<N> {
 
     /// Frame step until all clients are connected
     pub(crate) fn wait_for_connection(&mut self) {
-        for _ in 0..20 {
-            if (0..N).all(|client_id| self.client(client_id).contains::<Connected>()) {
+        for _ in 0..50 {
+            if (0..self.client_entities.len()).all(|client_id| self.client(client_id).contains::<Connected>()) {
                 info!("Clients are all connected");
                 break
             }
@@ -217,8 +232,8 @@ impl<const N: usize> ClientServerStepper<N> {
 
     // Advance the world until the client is synced
     pub(crate) fn wait_for_sync(&mut self) {
-        for _ in 0..20 {
-            if (0..N).all(|client_id| self.client(client_id).contains::<IsSynced<InputTimeline>>() && self.client(client_id).contains::<IsSynced<InterpolationTimeline>>()) {
+        for _ in 0..50 {
+            if (0..self.client_entities.len()).all(|client_id| self.client(client_id).contains::<IsSynced<InputTimeline>>() && self.client(client_id).contains::<IsSynced<InterpolationTimeline>>()) {
                 info!("Clients are all synced");
                 break
             }
@@ -226,7 +241,7 @@ impl<const N: usize> ClientServerStepper<N> {
         }
     }
 
-    pub(crate) fn advance_time(&mut self, duration: Duration) {
+    pub fn advance_time(&mut self, duration: Duration) {
         self.current_time += duration;
         self.client_app
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
@@ -241,11 +256,15 @@ impl<const N: usize> ClientServerStepper<N> {
     }
 
     /// Advance the world by one frame duration
-    pub(crate) fn frame_step(&mut self, n: usize) {
+    pub fn frame_step(&mut self, n: usize) {
         for _ in 0..n {
             self.advance_time(self.frame_duration);
             // we want to log the next frame's tick before the frame starts
-            let client_tick = self.client_tick(0) + 1;
+            let client_tick = if self.client_entities.is_empty() {
+                None
+            } else {
+                Some(self.client_tick(0) + 1)
+            };
             let server_tick = self.server_tick() + 1;
             info!(?client_tick, ?server_tick, "Frame step");
             self.client_app.update();

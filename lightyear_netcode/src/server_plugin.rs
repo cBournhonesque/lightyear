@@ -212,7 +212,7 @@ impl NetcodeServerPlugin {
                 });
 
                 // Disconnections: we know the disconnection comes from the current entity!
-                netcode_server.inner.cfg.context.connections.drain(..).for_each(|(id, addr)| {
+                netcode_server.inner.cfg.context.disconnections.drain(..).for_each(|(id, addr)| {
                     // TODO: mention server id in case we have multiple servers
                     info!("Disconnection from netcode client {:?}", id);
                     parallel_commands.command_scope(|mut c| {
@@ -229,14 +229,16 @@ impl NetcodeServerPlugin {
         trigger: Trigger<Start>,
         mut commands: Commands,
     ) {
+        // TODO: should this be here?
         commands.trigger_targets(LinkStart, trigger.target());
+        // NOTE: for now there is no Starting
         commands.entity(trigger.target()).remove::<Stopped>().insert(Started);
     }
 
     fn stop(
         trigger: Trigger<Stop>,
         mut commands: Commands,
-        mut query: Query<(Entity, &mut NetcodeServer, &Server)>,
+        mut query: Query<(Entity, &mut NetcodeServer, &Server), Without<Stopped>>,
         mut link_query: Query<(&mut Link, &ClientOf)>,
     ) -> Result {
         if let Ok((entity, mut netcode_server, server)) = query.get_mut(trigger.target()) {

@@ -45,4 +45,9 @@ impl PingStore {
     pub fn remove(&mut self, ping_id: PingId) -> Option<Instant> {
         self.buffer.remove(&ping_id)
     }
+
+    pub fn reset(&mut self) {
+        self.latest_ping_id = PingId(0);
+        self.buffer.clear();
+    }
 }

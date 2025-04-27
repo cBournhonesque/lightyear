@@ -1,12 +1,9 @@
 use bevy::app::{App, Plugin};
-use bevy::prelude::Component;
+use bevy::math::{Curve, FloatExt};
+use bevy::prelude::{Component, Ease, FunctionCurve, Interval};
 use bevy::utils::default;
-use lightyear::client::components::ComponentSyncMode;
-use lightyear::client::prediction::plugin::add_prediction_systems;
-use serde::{Deserialize, Serialize};
-use core::ops::{Add, Mul};
-
 use lightyear::prelude::*;
+use serde::{Deserialize, Serialize};
 
 // Messages
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -19,19 +16,9 @@ pub struct Message2(pub u32);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Component1(pub f32);
 
-impl Mul<f32> for &Component1 {
-    type Output = Component1;
-
-    fn mul(self, rhs: f32) -> Self::Output {
-        Component1(self.0 * rhs)
-    }
-}
-
-impl Add<Component1> for Component1 {
-    type Output = Self;
-
-    fn add(self, rhs: Component1) -> Self::Output {
-        Component1(self.0 + rhs.0)
+impl Ease for Component1 {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::EVERYWHERE, move |t| Self(f32::lerp(start.0, end.0, t)))
     }
 }
 
@@ -47,10 +34,8 @@ pub struct Component3(pub f32);
 pub struct MyInput(pub i16);
 
 // Channels
-#[derive(Channel)]
 pub struct Channel1;
 
-#[derive(Channel)]
 pub struct Channel2;
 
 // Protocol
@@ -58,18 +43,20 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.register_message::<Message1>(ChannelDirection::Bidirectional);
-        app.register_message::<Message2>(ChannelDirection::Bidirectional);
+        app.add_message::<Message1>()
+            .add_direction(NetworkDirection::Bidirectional);
+        app.add_message::<Message2>()
+            .add_direction(NetworkDirection::Bidirectional);
         // inputs
-        app.add_plugins(InputPlugin::<MyInput>::default());
+        // app.add_plugins(InputPlugin::<MyInput>::default());
         // components
-        app.register_component::<Component1>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full)
+        app.register_component::<Component1>()
+            .add_prediction(PredictionMode::Full)
             .add_linear_interpolation_fn();
-        app.register_component::<Component2>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Simple);
-        app.register_component::<Component3>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once);
+        app.register_component::<Component2>()
+            .add_prediction(PredictionMode::Simple);
+        app.register_component::<Component3>()
+            .add_prediction(PredictionMode::Once);
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),

@@ -25,6 +25,7 @@ use tracing::{debug, error, info, trace};
 
 use crate::plugin;
 use crate::plugin::ReplicationSet;
+use lightyear_connection::client::Disconnected;
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
@@ -43,6 +44,24 @@ pub struct ReplicationReceivePlugin;
 
 
 impl ReplicationReceivePlugin {
+
+    /// Despawn any entities that were spawned from replication when the client despawns.
+    fn handle_disconnect(
+        trigger: Trigger<OnAdd, Disconnected>,
+        replicated_query: Query<(Entity, &Replicated)>,
+        mut commands: Commands,
+    ) {
+        // TODO: this should also happen if the ReplicationReceiver is despawned?
+        // despawn any entities that were spawned from replication
+        replicated_query.iter().for_each(|(entity, replicated)| {
+            // TODO: how to avoid this O(n) check? should the replication-receiver maintain a list of received entities?
+            if replicated.receiver == trigger.target() {
+                if let Ok(mut commands) = commands.get_entity(entity) {
+                    commands.despawn();
+                }
+            }
+        });
+    }
 
     pub(crate) fn receive_messages(
         mut query: Query<(&mut MessageReceiver<ActionsMessage>, &mut MessageReceiver<UpdatesMessage>, &mut ReplicationReceiver)>,
@@ -120,6 +139,7 @@ impl Plugin for ReplicationReceivePlugin {
             ).chain()
                 .in_set(ReplicationSet::Receive)
         );
+        app.add_observer(Self::handle_disconnect);
     }
 }
 

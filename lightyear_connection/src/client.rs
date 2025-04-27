@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Event};
@@ -32,6 +34,16 @@ pub struct Client {
     pub state: ClientState
 }
 
+impl Client {
+    pub fn peer_id(&self) -> Option<PeerId> {
+        match self.state {
+            ClientState::Connected(peer_id) => Some(peer_id),
+            ClientState::Connecting => None,
+            ClientState::Disconnected => None,
+        }
+    }
+}
+
 
 /// Trigger to connect the client
 #[derive(Event)]
@@ -40,6 +52,7 @@ pub struct Connect;
 /// Trigger to disconnect the client
 #[derive(Event)]
 pub struct Disconnect;
+
 
 // TODO: on_add: remove Connecting/Disconnected
 #[derive(Component, Event, Default, Debug)]
@@ -72,7 +85,9 @@ impl Connecting {
 
 #[derive(Component, Event, Default, Debug)]
 #[component(on_add = Disconnected::on_add)]
-pub struct Disconnected;
+pub struct Disconnected {
+    pub reason: Option<String>,
+}
 
 impl Disconnected {
     fn on_add(mut world: DeferredWorld, context: HookContext) {

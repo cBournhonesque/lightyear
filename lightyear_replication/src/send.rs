@@ -234,6 +234,7 @@ impl Plugin for ReplicationSendPlugin {
         // SYSTEMS
         app.add_observer(buffer::buffer_entity_despawn_replicate_remove);
         app.add_observer(Self::send_sender_metadata);
+        app.add_observer(Replicate::handle_connection);
 
         app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
         app.add_systems(PostUpdate, buffer::buffer_entity_despawn_replicate_updated.in_set(ReplicationBufferSet::Buffer));

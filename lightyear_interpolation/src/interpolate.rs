@@ -5,6 +5,7 @@ use bevy::ecs::component::Mutable;
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
+use lightyear_core::tick::TickDuration;
 use lightyear_sync::prelude::client::{Input, InterpolationTimeline, IsSynced};
 use lightyear_sync::timeline::interpolation::Interpolation;
 use tracing::*;
@@ -55,6 +56,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
     // TODO: handle multiple interpolation timelines
     // TODO: exclude host-server
     interpolation: Single<(&InterpolationTimeline), With<IsSynced<InterpolationTimeline>>>,
+    tick_duration: Res<TickDuration>,
     mut query: Query<(
         Entity,
         Option<&mut C>,
@@ -67,7 +69,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
 
     // TODO: compute this from an average of the last N updates for an entity?
     // // how many ticks between each interpolation (add 1 to roughly take the ceil)
-    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR * timeline.remote_send_interval.as_secs_f32() / timeline.tick_duration.as_secs_f32()) as i16 + 1;
+    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR * timeline.remote_send_interval.as_secs_f32() / tick_duration.as_secs_f32()) as i16 + 1;
 
     let current_interpolate_tick = timeline.now().tick;
     let current_interpolate_overstep = timeline.now().overstep;
@@ -209,6 +211,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
 ///   the interpolated entity would simply not appear)
 pub(crate) fn insert_interpolated_component<C: SyncComponent>(
     component_registry: Res<InterpolationRegistry>,
+    tick_duration: Res<TickDuration>,
     tick_manager: Single<(&LocalTimeline, &InterpolationTimeline)>,
     mut commands: Commands,
     mut query: Query<(Entity, &InterpolateStatus<C>), Without<C>>,
@@ -217,7 +220,7 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent>(
     let tick = local_timeline.tick();
     // how many ticks between each interpolation update (add 1 to roughly take the ceil)
     // TODO: use something more precise, with the interpolation overstep?
-    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR * interpolation_timeline.remote_send_interval.as_secs_f32() / interpolation_timeline.tick_duration.as_secs_f32()) as i16 + 1;
+    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR * interpolation_timeline.remote_send_interval.as_secs_f32() / tick_duration.as_secs_f32()) as i16 + 1;
     for (entity, status) in query.iter_mut() {
         trace!("checking if we need to insert the component on the Interpolated entity");
         let mut entity_commands = commands.entity(entity);

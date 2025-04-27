@@ -1,4 +1,6 @@
 mod base;
+
+mod connection;
 mod messages;
 mod replication;
 mod visibility;

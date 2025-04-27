@@ -30,6 +30,7 @@ use crate::visibility::immediate::NetworkVisibility;
 
 #[cfg(feature = "client")]
 use lightyear_connection::client::Client;
+use lightyear_connection::client::Connected;
 #[cfg(feature = "server")]
 use lightyear_connection::client_of::{ClientOf, Server};
 use lightyear_connection::prelude::NetworkTarget;
@@ -113,7 +114,7 @@ impl Replicate {
         self.senders.iter().copied()
     }
 
-    pub fn on_insert(mut world: DeferredWorld, context: HookContext) {
+    fn on_insert(mut world: DeferredWorld, context: HookContext) {
         world.commands().queue(move |world: &mut World| {
             let unsafe_world = world.as_unsafe_world_cell();
             // SAFETY: we will use this world to access the ReplicationSender
@@ -123,8 +124,6 @@ impl Replicate {
                 unsafe { unsafe_world.world_mut().entity_mut(context.entity) };
 
             let mut replicate = replicate_entity_mut.get_mut::<Replicate>().unwrap();
-
-
 
             // enable split borrows
             let replicate = &mut *replicate;
@@ -241,7 +240,7 @@ impl Replicate {
         });
     }
 
-    pub fn on_replace(mut world: DeferredWorld, context: HookContext) {
+    fn on_replace(mut world: DeferredWorld, context: HookContext) {
         // TODO: maybe we can just use the CachedReplicate?
         // i.e. if you remove 2 clients from Replicate, than in PreBuffer, we will do the diff
         // and remove those clients from sender.replicated_entities and send the despawn
@@ -255,6 +254,46 @@ impl Replicate {
                 }
             });
     }
+
+    /// When a new client connects, check if we need to replicate existing entities to it
+    pub(crate) fn handle_connection(
+        trigger: Trigger<OnAdd, Connected>,
+        mut sender_query: Query<(Entity, &mut ReplicationSender, Option<&Client>, Option<&ClientOf>)>,
+        mut replicate_query: Query<(Entity, &mut Replicate)>,
+    ) {
+        if let Ok((sender_entity, mut sender, client, client_of)) = sender_query.get_mut(trigger.target()) {
+            // TODO: maybe do this in parallel?
+            replicate_query.iter_mut().for_each(|(entity, mut replicate)| {
+                match &replicate.mode {
+                    ReplicationMode::SingleSender => {}
+                    #[cfg(feature = "client")]
+                    ReplicationMode::SingleClient => {}
+                    #[cfg(feature = "server")]
+                    ReplicationMode::SingleServer(target) => {
+                        if client_of.is_some_and(|p| target.targets(&p.id)) {
+                            sender.add_replicated_entity(entity);
+                            replicate.senders.insert(sender_entity);
+                        }
+                    }
+                    ReplicationMode::Sender(_) => {}
+                    #[cfg(feature = "server")]
+                    ReplicationMode::Server(e, target) => {
+                        if *e == sender_entity && client_of.is_some_and(|p| target.targets(&p.id)) {
+                            sender.add_replicated_entity(entity);
+                            replicate.senders.insert(sender_entity);
+                        }
+                    }
+                    ReplicationMode::Target(target) => {
+                        if client_of.is_some_and(|p| target.targets(&p.id)) || client.is_some_and(|p| target.targets(&p.peer_id().unwrap())) {
+                            sender.add_replicated_entity(entity);
+                            replicate.senders.insert(sender_entity);
+                        }
+                    }
+                    ReplicationMode::Manual(_) => {}
+                }
+            })
+        }
+    }
 }
 
 // TODO: component hook: immediately find the sender that we will replicate this on. Panic if no sender found
@@ -263,7 +302,6 @@ impl Replicate {
 pub struct CachedReplicate {
     senders: EntityIndexSet,
 }
-
 
 
 /// Keep a cached version of the [`Replicate`] component so that when it gets updated

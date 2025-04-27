@@ -68,7 +68,6 @@ impl Plugin for ClientPlugin {
         app.register_required_components::<Client, InputTimeline>();
         app.register_required_components::<Client, RemoteTimeline>();
 
-
         app.add_observer(Input::recompute_input_delay);
 
         // TODO: should the DrivingTimeline be configurable?

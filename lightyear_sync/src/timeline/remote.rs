@@ -52,15 +52,8 @@ impl Default for RemoteEstimate {
 
 // We need to wrap the inner Timeline to avoid the orphan rule
 #[derive(Component, Default, Debug, Deref, DerefMut, Reflect)]
-#[component(on_add = RemoteTimeline::on_add)]
 pub struct RemoteTimeline(Timeline<RemoteEstimate>);
 
-impl RemoteTimeline {
-    fn on_add(mut world: DeferredWorld, context: HookContext) {
-        let tick_duration = world.get_resource::<TickDuration>().expect("The CorePlugins have to be added before other plugins in order to set the TickDuration").0;
-        world.get_mut::<RemoteTimeline>(context.entity).unwrap().set_tick_duration(tick_duration);
-    }
-}
 
 impl RemoteTimeline  {
     /// Returns the most recent tick received from the remote peer.
@@ -72,10 +65,10 @@ impl RemoteTimeline  {
     /// # Examples
     ///
     /// ```
-    /// # use lightyear_sync::timeline::remote::RemoteEstimateTimeline;
+    /// # use lightyear_sync::timeline::remote::RemoteTimeline;
     /// # use std::time::Duration;
     /// #
-    /// let remote_estimate = RemoteEstimateTimeline::new(Duration::from_millis(16), 0.2);
+    /// let remote_estimate = RemoteTimeline::default();
     /// assert_eq!(remote_estimate.last_received_tick(), None);
     /// ```
     pub fn last_received_tick(&self) -> Option<Tick> {
@@ -97,7 +90,7 @@ impl RemoteTimeline  {
     ///
     /// This method will only update the estimate if the received tick is newer than
     /// the previously received tick.
-    pub(crate) fn update(&mut self, remote_tick: Tick, ping_manager: &PingManager) {
+    pub(crate) fn update(&mut self, remote_tick: Tick, ping_manager: &PingManager, tick_duration: Duration) {
         if self.context.last_received_tick
            .map_or(true, |previous_tick| remote_tick >= previous_tick) {
             self.context.last_received_tick = Some(remote_tick);
@@ -105,7 +98,7 @@ impl RemoteTimeline  {
             // TODO: should we make any adjustments?
 
             // we have received the packet now, so the remote must already be at RTT/2 ahead
-            let network_delay = TickDelta::from_duration(ping_manager.rtt() / 2, self.tick_duration());
+            let network_delay = TickDelta::from_duration(ping_manager.rtt() / 2, tick_duration);
             let new_estimate = TickInstant::from(remote_tick) + network_delay;
 
             // for the first time, don't apply smoothing
@@ -134,11 +127,12 @@ impl RemoteTimeline  {
 /// Should we use this only in FixedUpdate::First? because we need the tick in FixedUpdate to be correct for the timeline
 pub(crate) fn update_remote_timeline(
     trigger: Trigger<PacketReceived>,
+    tick_duration: Res<TickDuration>,
     mut query: Query<(&mut RemoteTimeline, &PingManager)>,
 ) {
     if let Ok((mut t, ping_manager)) = query.get_mut(trigger.target()) {
         trace!("Received packet received with remote tick {:?}", trigger.remote_tick);
-        t.update(trigger.remote_tick, ping_manager);
+        t.update(trigger.remote_tick, ping_manager, tick_duration.0);
     }
 }
 
@@ -146,11 +140,12 @@ pub(crate) fn update_remote_timeline(
 /// Advance our estimate of the remote timeline based on the real time
 pub(crate) fn advance_remote_timeline(
     fixed_time: Res<Time<Fixed>>,
+    tick_duration: Res<TickDuration>,
     mut query: Query<&mut RemoteTimeline>,
 ) {
     let delta = fixed_time.delta();
     query.iter_mut().for_each(|mut t| {
-        t.apply_duration(delta);
+        t.apply_duration(delta, tick_duration.0);
     })
 }
 

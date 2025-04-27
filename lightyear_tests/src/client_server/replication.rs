@@ -3,6 +3,7 @@
 use crate::protocol::{CompA, CompDisabled, CompReplicateOnce};
 use crate::stepper::ClientServerStepper;
 use bevy::prelude::default;
+use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::{ComponentReplicationOverride, ComponentReplicationOverrides, Replicate};
@@ -19,6 +20,43 @@ fn test_spawn() {
     // TODO: might need to step more when syncing to avoid receiving updates from the past?
     stepper.frame_step(1);
     stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+        .expect("entity is not present in entity map");
+}
+
+#[test]
+fn test_spawn_from_replicate_change() {
+    let mut stepper = ClientServerStepper::single();
+
+    let client_entity = stepper.client_app.world_mut().spawn((
+        Replicate::manual(vec![]),
+    )).id();
+    stepper.frame_step(1);
+    assert!(stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).is_none());
+
+    // update replicate to include a new sender
+    stepper.client_app.world_mut().entity_mut(client_entity).insert(Replicate::to_server());
+    stepper.frame_step(1);
+
+    stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+        .expect("entity is not present in entity map");
+}
+
+#[test]
+fn test_spawn_new_connection() {
+    let mut stepper = ClientServerStepper::single();
+
+    let server_entity = stepper.server_app.world_mut().spawn((
+        Replicate::to_clients(NetworkTarget::All),
+    )).id();
+    stepper.frame_step(2);
+    stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(server_entity).unwrap();
+
+    // second client connects
+    stepper.new_client();
+    stepper.init();
+
+    // make sure the entity is also replicated to the newly connected client
+    stepper.client(1).get::<MessageManager>().unwrap().entity_mapper.get_local(server_entity)
         .expect("entity is not present in entity map");
 }
 
@@ -68,23 +106,7 @@ fn test_despawn_from_replicate_change() {
         .is_err());
 }
 
-#[test]
-fn test_spawn_from_replicate_change() {
-    let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app.world_mut().spawn((
-        Replicate::manual(vec![]),
-    )).id();
-    stepper.frame_step(1);
-     assert!(stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).is_none());
-
-    // update replicate to include a new sender
-    stepper.client_app.world_mut().entity_mut(client_entity).insert(Replicate::to_server());
-    stepper.frame_step(1);
-
-    stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
-        .expect("entity is not present in entity map");
-}
 
 #[test]
 fn test_component_insert() {
@@ -160,12 +182,12 @@ fn test_component_update_after_tick_wrap() {
     let tick_duration = stepper.tick_duration;
     // we increase the ticks in 2 steps (otherwise we would directly go over tick wrapping and the tick cleanup
     // systems would not run)
-    stepper.client_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32));
-    stepper.client_of_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32));
+    stepper.client_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32), tick_duration);
+    stepper.client_of_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32), tick_duration);
     stepper.frame_step(1);
 
-    stepper.client_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32));
-    stepper.client_of_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32));
+    stepper.client_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32), tick_duration);
+    stepper.client_of_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32), tick_duration);
     stepper.frame_step(1);
 
     stepper.client_app.world_mut().entity_mut(client_entity).get_mut::<CompA>().unwrap().0 = 2.0;

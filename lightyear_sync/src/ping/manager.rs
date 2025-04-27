@@ -39,11 +39,9 @@ impl Default for PingConfig {
 
 /// The [`PingManager`] is responsible for sending regular pings to the remote machine,
 /// and monitor pongs in order to estimate statistics (rtt, jitter) about the connection.
-#[derive(Debug, Default, Component)]
+#[derive(Debug, Component)]
 #[require(MessageSender<Ping>, MessageReceiver<Ping>, MessageSender<Pong>, MessageReceiver<Pong>)]
-#[component(on_add = Self::on_add)]
 pub struct PingManager {
-    pub(crate) tick_duration: Duration,
     config: PingConfig,
     /// Timer to send regular pings to the remote
     ping_timer: Stopwatch,
@@ -67,10 +65,33 @@ pub struct PingManager {
     pub(crate) pongs_recv: u32,
 }
 
+impl Default for PingManager {
+    fn default() -> Self {
+        Self {
+            config: PingConfig::default(),
+            ping_timer: Stopwatch::new(),
+            ping_store: PingStore::new(),
+            most_recent_received_ping: PingId(u16::MAX - 1),
+            pongs_to_send: vec![],
+            sync_stats: SyncStatsBuffer::new(),
+            final_stats: FinalStats::default(),
+            pings_sent: 0,
+            pongs_recv: 0,
+        }
+    }
+}
+
 impl PingManager {
-    fn on_add(mut world: DeferredWorld, context: HookContext) {
-        let tick_duration = world.get_resource::<TickDuration>().expect("TickDuration not found. Did you add CorePlugins?").0;
-        world.get_mut::<PingManager>(context.entity).unwrap().tick_duration = tick_duration;
+
+    pub(crate) fn reset(&mut self) {
+        self.ping_timer.reset();
+        self.ping_store.reset();
+        self.most_recent_received_ping = PingId(u16::MAX - 1);
+        self.pongs_to_send.clear();
+        self.sync_stats.clear();
+        self.final_stats = FinalStats::default();
+        self.pings_sent = 0;
+        self.pongs_recv = 0;
     }
 }
 
@@ -100,9 +121,8 @@ pub struct SyncStats {
 pub type SyncStatsBuffer = ReadyBuffer<Instant, SyncStats>;
 
 impl PingManager {
-    pub fn new(config: PingConfig, tick_duration: Duration) -> Self {
+    pub fn new(config: PingConfig) -> Self {
         Self {
-            tick_duration,
             config,
             // pings
             ping_timer: Stopwatch::new(),
@@ -240,7 +260,7 @@ impl PingManager {
 
     /// Received a pong: update
     /// Returns true if we have enough pongs to finalize the handshake
-    pub(crate) fn process_pong(&mut self, pong: &Pong, now: Instant) {
+    pub(crate) fn process_pong(&mut self, pong: &Pong, now: Instant, tick_duration: Duration) {
         self.pongs_recv += 1;
         let received_time = now;
 
@@ -256,7 +276,7 @@ impl PingManager {
 
             // round-trip-delay
             let rtt = received_time.saturating_duration_since(ping_sent_time);
-            let server_process_time = TickDelta::from(pong.frame_time).to_duration(self.tick_duration);
+            let server_process_time = TickDelta::from(pong.frame_time).to_duration(tick_duration);
             trace!(?rtt, ?received_time, ?ping_sent_time, ?pong.frame_time,  "process received pong");
             let round_trip_delay = rtt.saturating_sub(server_process_time);
             // update stats buffer

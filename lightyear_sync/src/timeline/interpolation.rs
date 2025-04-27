@@ -64,7 +64,6 @@ pub struct Interpolation {
 
 
 #[derive(Component, Deref, DerefMut, Default, Reflect)]
-#[component(on_add = InterpolationTimeline::on_add)]
 pub struct InterpolationTimeline(Timeline<Interpolation>);
 
 impl InterpolationTimeline {
@@ -78,20 +77,14 @@ impl InterpolationTimeline {
         };
         InterpolationTimeline(interpolation.into())
     }
-
-
-    fn on_add(mut world: DeferredWorld, context: HookContext) {
-        let tick_duration = world.get_resource::<TickDuration>().expect("The CorePlugins have to be added before other plugins in order to set the TickDuration").0;
-        world.get_mut::<InterpolationTimeline>(context.entity).unwrap().set_tick_duration(tick_duration);
-    }
 }
 
 impl SyncedTimeline for InterpolationTimeline {
-    fn sync_objective<T: NetworkTimeline>(&self, main: &T, ping_manager: &PingManager) -> TickInstant {
-        let delay = TickDelta::from_duration(self.context.interpolation_config.to_duration(self.context.remote_send_interval), self.tick_duration());
+    fn sync_objective<T: NetworkTimeline>(&self, main: &T, ping_manager: &PingManager, tick_duration: Duration) -> TickInstant {
+        let delay = TickDelta::from_duration(self.interpolation_config.to_duration(self.remote_send_interval), tick_duration);
         let target = main.now();
         let obj = target - delay;
-        trace!(?target, ?delay, config = ?self.context.interpolation_config, send_interval = ?self.context.remote_send_interval, "InterpolationTimeline obj: {:?}", obj);
+        trace!(?target, ?delay, config = ?self.interpolation_config, send_interval = ?self.remote_send_interval, "InterpolationTimeline obj: {:?}", obj);
         obj
     }
 
@@ -110,32 +103,32 @@ impl SyncedTimeline for InterpolationTimeline {
     ///
     /// Most of the times this will just be slight nudges to modify the speed of the [`SyncedTimeline`].
     /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`MainTimeline`] by sending a SyncEvent
-    fn sync<T: NetworkTimeline>(&mut self, main: &T, ping_manager: &PingManager) -> Option<SyncEvent<Self>> {
+    fn sync<T: NetworkTimeline>(&mut self, main: &T, ping_manager: &PingManager, tick_duration: Duration) -> Option<SyncEvent<Self>> {
         // skip syncing if we haven't received enough information
-        if ping_manager.pongs_recv < self.context.sync_config.handshake_pings as u32 {
+        if ping_manager.pongs_recv < self.sync_config.handshake_pings as u32 {
             return None
         }
         self.is_synced = true;
         // TODO: should we call current_estimate()? now() should basically return the same thing
         let target = main.now();
-        let objective = self.sync_objective(main, ping_manager);
+        let objective = self.sync_objective(main, ping_manager, tick_duration);
         let error = objective - target;
         let is_ahead = error.is_positive();
-        let error_duration = error.to_duration(self.tick_duration());
-        let error_margin = self.tick_duration().mul_f32(self.context.sync_config.error_margin);
-        let max_error_margin = self.tick_duration().mul_f32(self.context.sync_config.max_error_margin);
+        let error_duration = error.to_duration(tick_duration);
+        let error_margin = tick_duration.mul_f32(self.sync_config.error_margin);
+        let max_error_margin = tick_duration.mul_f32(self.sync_config.max_error_margin);
         if error_duration > max_error_margin {
             return Some(self.resync(objective));
         } else if error_duration > error_margin {
             let ratio = if is_ahead {
-                1.0 / self.context.sync_config.speedup_factor
+                1.0 / self.sync_config.speedup_factor
             } else {
-                1.0 * self.context.sync_config.speedup_factor
+                1.0 * self.sync_config.speedup_factor
             };
             self.set_relative_speed(ratio);
         }
         // if it's the first time, we still send a SyncEvent (so that IsSynced is inserted)
-        if ping_manager.pongs_recv == self.context.sync_config.handshake_pings as u32 {
+        if ping_manager.pongs_recv == self.sync_config.handshake_pings as u32 {
             return Some(SyncEvent::new(0));
         }
         None
@@ -146,10 +139,17 @@ impl SyncedTimeline for InterpolationTimeline {
     }
 
     fn relative_speed(&self) -> f32 {
-        self.context.relative_speed
+        self.relative_speed
     }
 
     fn set_relative_speed(&mut self, ratio: f32) {
-        self.context.relative_speed = ratio;
+        self.relative_speed = ratio;
+    }
+
+    fn reset(&mut self) {
+        self.is_synced = false;
+        self.relative_speed = 1.0;
+        self.now = Default::default();
+        // TODO: also reset tick duration?
     }
 }

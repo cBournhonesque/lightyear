@@ -1,5 +1,5 @@
 [package]
-name = "lightyear-benches"
+name = "lightyear_benches"
 version.workspace = true
 publish = false
 authors.workspace = true
@@ -13,7 +13,8 @@ categories = ["game-development", "network-programming"]
 license.workspace = true
 
 [dependencies]
-lightyear.workspace = true
+lightyear = {workspace = true, features = ["interpolation"] }
+lightyear_tests = { workspace = true }
 crossbeam-channel.workspace = true
 serde.workspace = true
 rand.workspace = true

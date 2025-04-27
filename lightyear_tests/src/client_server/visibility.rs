@@ -51,7 +51,7 @@ fn test_despawn_lose_visibility() {
 /// is only sent to entities that have visibility on it.
 #[test]
 fn test_despawn_with_visibility() {
-    let mut stepper: ClientServerStepper<2> = ClientServerStepper::default();
+    let mut stepper: ClientServerStepper = ClientServerStepper::with_clients(2);
 
     let mut visibility_0 = NetworkVisibility::default();
     visibility_0.gain_visibility(stepper.client_entities[0]);

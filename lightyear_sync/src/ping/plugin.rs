@@ -1,10 +1,13 @@
 use crate::ping::manager::PingManager;
 use crate::ping::message::{Ping, Pong};
 use crate::ping::PingChannel;
+use crate::timeline::sync::SyncedTimeline;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use core::time::Duration;
+use lightyear_connection::client::Connected;
 use lightyear_connection::direction::NetworkDirection;
+use lightyear_core::tick::TickDuration;
 use lightyear_core::time::TickDelta;
 use lightyear_core::timeline::SetTickDuration;
 use lightyear_link::Link;
@@ -27,7 +30,8 @@ pub struct PingPlugin;
 impl PingPlugin {
     fn receive(
         real_time: Res<Time<Real>>,
-        mut query: Query<(&mut Link, &mut PingManager, &mut MessageReceiver<Ping>, &mut MessageReceiver<Pong>)>,
+        tick_duration: Res<TickDuration>,
+        mut query: Query<(&mut Link, &mut PingManager, &mut MessageReceiver<Ping>, &mut MessageReceiver<Pong>), With<Connected>>,
     ) {
         query.par_iter_mut().for_each(|(mut link, mut m, mut ping_receiver, mut pong_receiver)| {
             // update
@@ -40,7 +44,7 @@ impl PingPlugin {
             // receive pongs
             pong_receiver.receive().for_each(|pong| {
                 // process the pong
-                m.process_pong(&pong, Instant::now());
+                m.process_pong(&pong, Instant::now(), tick_duration.0);
             });
 
             link.stats.rtt = m.rtt();
@@ -54,7 +58,8 @@ impl PingPlugin {
     /// time spent between PostUpdate and PreUpdate
     fn send(
         fixed_time: Res<Time<Fixed>>,
-        mut query: Query<(&mut PingManager, &mut MessageSender<Ping>, &mut MessageSender<Pong>)>,
+        tick_duration: Res<TickDuration>,
+        mut query: Query<(&mut PingManager, &mut MessageSender<Ping>, &mut MessageSender<Pong>), With<Connected>>,
     ) {
         let now = Instant::now();
         // NOTE: the real_time.last_update() is the time from the Render World! It seems like it cannot be compared directly
@@ -74,7 +79,7 @@ impl PingPlugin {
             .take_pending_pongs()
             .into_iter()
             .for_each(|(mut pong, ping_receive_time)| {
-                pong.frame_time = TickDelta::from_duration(now - ping_receive_time, m.tick_duration).into();
+                pong.frame_time = TickDelta::from_duration(now - ping_receive_time, tick_duration.0).into();
                 trace!(?now, ?ping_receive_time, ?pong, "Sending pong");
 
                 // TODO: maybe include the tick + overstep in every packet?
@@ -85,12 +90,13 @@ impl PingPlugin {
         })
     }
 
-    pub(crate) fn update_tick_duration(
-        trigger: Trigger<SetTickDuration>,
+    /// On connection, reset the PingManager.
+    pub(crate) fn handle_connect(
+        trigger: Trigger<OnAdd, Connected>,
         mut query: Query<&mut PingManager>,
     ) {
-        if let Ok(mut ping_manager) = query.get_mut(trigger.target()) {
-            ping_manager.tick_duration = trigger.0;
+        if let Ok(mut manager) = query.get_mut(trigger.target()) {
+            manager.reset();
         }
     }
 }
@@ -126,7 +132,7 @@ impl Plugin for PingPlugin {
         app.add_systems(PreUpdate, Self::receive.in_set(PingSet::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(PingSet::Send));
 
-        app.add_observer(Self::update_tick_duration);
+        app.add_observer(Self::handle_connect);
     }
 
 }

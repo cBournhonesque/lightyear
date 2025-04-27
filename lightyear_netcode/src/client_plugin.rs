@@ -20,6 +20,7 @@ pub struct NetcodeClientPlugin;
 /// The [`Link`] component will be added.
 #[derive(Component)]
 #[require(Link, lightyear_connection::client::Client)]
+#[require(Disconnected)]
 #[component(on_add = on_client_add)]
 pub struct NetcodeClient {
     pub inner: crate::client::Client<()>,
@@ -105,7 +106,7 @@ impl NetcodeClientPlugin {
             }
 
             // send netcode internal packets
-            client.inner.send_netcode_packets(&mut link.send);
+            client.inner.drain_send_netcode_packets(&mut link.send);
 
             // #[cfg(feature = "test_utils")]
             // trace!("CLIENT: length of each packet in send: {:?}", link.send.iter().map(|p| p.len()).collect::<Vec<_>>());
@@ -137,7 +138,15 @@ impl NetcodeClientPlugin {
                     parallel_commands.command_scope(|mut commands| {
                         commands.entity(entity).insert(Connected {
                             peer_id: client.id()
-                        }).remove::<Connecting>();
+                        }).remove::<(Connecting, Disconnected)>();
+                    });
+                }
+                if !matches!(state, ClientState::Connected | ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse) {
+                    info!("Client {} disconnected", client.id());
+                    parallel_commands.command_scope(|mut commands| {
+                        commands.entity(entity).insert(Disconnected {
+                            reason: Some(format!("Client disconnected: {:?}", state))
+                        }).remove::<(Connecting, Connected)>();
                     });
                 }
             }
@@ -147,23 +156,28 @@ impl NetcodeClientPlugin {
     fn connect(
         trigger: Trigger<Connect>,
         mut commands: Commands,
-        mut query: Query<&mut NetcodeClient>,
+        mut query: Query<&mut NetcodeClient, Without<Connected>>,
     ) {
         if let Ok(mut client) = query.get_mut(trigger.target()) {
             debug!("Starting netcode connection process");
             client.inner.connect();
-            commands.entity(trigger.target()).insert(Connecting);
+            commands.entity(trigger.target())
+                .insert(Connecting)
+                .remove::<(Disconnected, Connected)>();
         }
     }
     fn disconnect(
         trigger: Trigger<Disconnect>,
         mut commands: Commands,
-        mut query: Query<(&mut NetcodeClient, &mut Link)>,
+        mut query: Query<&mut NetcodeClient, Without<Disconnected>>,
     ) -> Result {
-
-        if let Ok((mut client, mut link)) = query.get_mut(trigger.target()) {
-            client.inner.disconnect(&mut link.send)?;
-            commands.entity(trigger.target()).insert(Disconnected);
+        if let Ok(mut client) = query.get_mut(trigger.target()) {
+            client.inner.disconnect()?;
+            commands.entity(trigger.target())
+                .insert(Disconnected {
+                reason: Some("Client trigger".to_string()),
+            })
+                .remove::<(Connected, Connecting)>();
         }
         Ok(())
     }

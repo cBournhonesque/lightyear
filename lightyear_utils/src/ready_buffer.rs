@@ -161,6 +161,10 @@ impl<K: Ord + Clone, T> ReadyBuffer<K, T> {
     pub fn is_empty(&self) -> bool {
         self.heap.is_empty()
     }
+
+    pub fn clear(&mut self) {
+        self.heap.clear();
+    }
 }
 
 #[derive(Clone, Debug)]

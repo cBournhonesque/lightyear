@@ -2,7 +2,7 @@ use crate::ping::manager::PingManager;
 use crate::timeline::sync::{SyncConfig, SyncEvent, SyncedTimeline};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{default, Component, Deref, DerefMut, Query, Reflect, Trigger};
+use bevy::prelude::{default, Component, Deref, DerefMut, Query, Reflect, Res, Trigger};
 use core::ops::Deref;
 use core::ops::DerefMut;
 use core::time::Duration;
@@ -51,12 +51,12 @@ impl Input {
     /// when there is a SyncEvent
     pub(crate) fn recompute_input_delay(
         trigger: Trigger<SyncEvent<InputTimeline>>,
+        tick_duration: Res<TickDuration>,
         mut query: Query<(&Link, &mut InputTimeline)>
     ) {
         if let Ok((link, mut timeline)) = query.get_mut(trigger.target()) {
             let rtt = link.stats.rtt;
-            let tick_duration = timeline.tick_duration;
-            timeline.input_delay_ticks =  timeline.input_delay_config.input_delay_ticks(rtt, tick_duration);
+            timeline.input_delay_ticks =  timeline.input_delay_config.input_delay_ticks(rtt, tick_duration.0);
         }
     }
 
@@ -200,15 +200,8 @@ impl InputDelayConfig {
 }
 
 #[derive(Component, Deref, DerefMut, Default, Debug, Reflect)]
-#[component(on_add = InputTimeline::on_add)]
 pub struct InputTimeline(Timeline<Input>);
 
-impl InputTimeline {
-    fn on_add(mut world: DeferredWorld, context: HookContext) {
-        let tick_duration = world.get_resource::<TickDuration>().expect("The CorePlugins have to be added before other plugins in order to set the TickDuration").0;
-        world.get_mut::<InputTimeline>(context.entity).unwrap().set_tick_duration(tick_duration);
-    }
-}
 
 impl SyncedTimeline for InputTimeline {
     // TODO: how can we make this configurable? or maybe just store the TICK_DURATION in the timeline itself?
@@ -218,10 +211,10 @@ impl SyncedTimeline for InputTimeline {
     /// - On top of that, we will take a bit of margin based on the jitter
     /// - we can reduce the ahead-delay by the input_delay
     /// Because of the input-delay, the time we return might be in the past compared with the main timeline
-    fn sync_objective<T: NetworkTimeline>(&self, remote: &T, ping_manager: &PingManager) -> TickInstant {
+    fn sync_objective<T: NetworkTimeline>(&self, remote: &T, ping_manager: &PingManager, tick_duration: Duration) -> TickInstant {
         let remote = remote.now();
-        let network_delay = TickDelta::from_duration(ping_manager.rtt() / 2, self.tick_duration());
-        let jitter_margin = TickDelta::from_duration(ping_manager.jitter() * self.context.config.jitter_multiple as u32 + self.context.config.jitter_margin, self.tick_duration());
+        let network_delay = TickDelta::from_duration(ping_manager.rtt() / 2, tick_duration);
+        let jitter_margin = TickDelta::from_duration(ping_manager.jitter() * self.context.config.jitter_multiple as u32 + self.context.config.jitter_margin, tick_duration);
         let input_delay: TickDelta = Tick(self.context.input_delay_ticks).into();
         let obj = remote + network_delay + jitter_margin - input_delay;
         trace!(?remote, ?network_delay, ?jitter_margin, ?input_delay, "InputTimeline objective: {:?}", obj);
@@ -241,29 +234,29 @@ impl SyncedTimeline for InputTimeline {
     ///
     /// Most of the times this will just be slight nudges to modify the speed of the [`SyncedTimeline`].
     /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`MainTimeline`] by sending a SyncEvent
-    fn sync<T: NetworkTimeline>(&mut self, main: &T, ping_manager: &PingManager) -> Option<SyncEvent<Self>> {
+    fn sync<T: NetworkTimeline>(&mut self, main: &T, ping_manager: &PingManager, tick_duration: Duration) -> Option<SyncEvent<Self>> {
         // skip syncing if we haven't received enough information
-        if ping_manager.pongs_recv < self.context.config.handshake_pings as u32 {
+        if ping_manager.pongs_recv < self.config.handshake_pings as u32 {
             return None
         }
         self.is_synced = true;
         // TODO: should we call current_estimate()? now() should basically return the same thing
         let now = self.now();
-        let objective = self.sync_objective(main, ping_manager);
+        let objective = self.sync_objective(main, ping_manager, tick_duration);
 
         let error = now - objective;
         let is_ahead = error.is_positive();
-        let error_duration = error.to_duration(self.tick_duration());
-        let error_margin = self.tick_duration().mul_f32(self.context.config.error_margin);
-        let max_error_margin = self.tick_duration().mul_f32(self.context.config.max_error_margin);
+        let error_duration = error.to_duration(tick_duration);
+        let error_margin = tick_duration.mul_f32(self.config.error_margin);
+        let max_error_margin = tick_duration.mul_f32(self.config.max_error_margin);
         trace!(?now, ?objective, ?error_duration, ?is_ahead, ?error_margin, ?max_error_margin, "InputTimeline sync");
         if error_duration > max_error_margin {
             return Some(self.resync(objective));
         } else if error_duration > error_margin {
             let ratio = if is_ahead {
-                1.0 / self.context.config.speedup_factor
+                1.0 / self.config.speedup_factor
             } else {
-                1.0 * self.context.config.speedup_factor
+                1.0 * self.config.speedup_factor
             };
             self.set_relative_speed(ratio);
         }
@@ -276,10 +269,17 @@ impl SyncedTimeline for InputTimeline {
     }
 
     fn relative_speed(&self) -> f32 {
-        self.context.relative_speed
+        self.relative_speed
     }
 
     fn set_relative_speed(&mut self, ratio: f32) {
-        self.context.relative_speed = ratio;
+        self.relative_speed = ratio;
+    }
+
+    fn reset(&mut self) {
+        self.is_synced = false;
+        self.relative_speed = 1.0;
+        self.now = Default::default();
+        // TODO: also reset tick duration?
     }
 }

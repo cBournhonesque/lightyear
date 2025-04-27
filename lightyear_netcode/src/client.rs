@@ -576,7 +576,7 @@ impl<Ctx> Client<Ctx> {
         Ok(self.state())
     }
 
-    pub(crate) fn send_netcode_packets(&mut self, sender: &mut LinkSender) {
+    pub(crate) fn drain_send_netcode_packets(&mut self, sender: &mut LinkSender) {
         for packet in self.send_queue.drain(..) {
             sender.push(packet);
         }
@@ -599,14 +599,14 @@ impl<Ctx> Client<Ctx> {
     /// Disconnects the client from the server.
     ///
     /// The client will send a number of redundant disconnect packets to the server before transitioning to `Disconnected`.
-    pub fn disconnect(&mut self, sender: &mut LinkSender) -> Result<()> {
+    pub fn disconnect(&mut self) -> Result<()> {
         debug!(
             "client sending {} disconnect packets to server",
             self.cfg.num_disconnect_packets
         );
         // TODO: do this only if IoState is connected?
         for _ in 0..self.cfg.num_disconnect_packets {
-            self.send_packet(DisconnectPacket::create(), sender)?;
+            self.send_netcode_packet(DisconnectPacket::create())?;
         }
         self.reset(ClientState::Disconnected);
         Ok(())

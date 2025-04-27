@@ -1,16 +1,15 @@
 //! Benchmark to measure the performance of replicating Entity spawns
 #![allow(unused_imports)]
 
-use bevy::prelude::{default, With};
+use bevy::prelude::With;
 use core::time::Duration;
-use lightyear::prelude::server::Replicate;
-use lightyear::prelude::{Replicating, ReplicationGroup};
-use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
+use lightyear::prelude::{NetworkTarget, Replicate, Replicating};
 use lightyear_benches::profiler::FlamegraphProfiler;
 use lightyear_benches::protocol::*;
 use std::time::Instant;
 
 use criterion::{criterion_group, criterion_main, Criterion};
+use lightyear_tests::stepper::ClientServerStepper;
 
 criterion_group!(
     name = replication_benches;
@@ -39,14 +38,11 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
                 bencher.iter_custom(|iter| {
                     let mut elapsed = Duration::ZERO;
                     for _ in 0..iter {
-                        let mut stepper = LocalBevyStepper::default();
+                        let mut stepper = ClientServerStepper::single();
                         let entities = vec![
                             (
                                 Component1(0.0),
-                                Replicate {
-                                    group: ReplicationGroup::new_id(1),
-                                    ..default()
-                                }
+                                Replicate::to_clients(NetworkTarget::All),
                             );
                             *n
                         ];
@@ -57,17 +53,10 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
 
                         let instant = Instant::now();
                         // buffer and send replication messages
-                        stepper.server_update();
+                        stepper.server_app.update();
                         elapsed += instant.elapsed();
-                        // dbg!(stepper
-                        //     .server_app
-                        //     .world()                        //     .resource::<ConnectionManager>()
-                        //     .connection(ClientId::Netcode(0))
-                        //     .unwrap()
-                        //     .message_manager
-                        //     .channel_send_stats::<EntityActionsChannel>());
 
-                        stepper.client_update();
+                        stepper.client_app.update();
                     }
                     elapsed
                 });
@@ -80,8 +69,8 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
 /// Replicating N entity spawn from server to channel, with a local io
 fn send_float_update_one_client(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/send_float_update/1_client");
-    group.warm_up_time(core::time::Duration::from_millis(500));
-    group.measurement_time(core::time::Duration::from_millis(4000));
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_millis(4000));
     for n in NUM_ENTITIES.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),
@@ -90,10 +79,10 @@ fn send_float_update_one_client(criterion: &mut Criterion) {
                 bencher.iter_custom(|iter| {
                     let mut elapsed = Duration::ZERO;
                     for _ in 0..iter {
-                        let mut stepper = LocalBevyStepper::default();
-                        let entities = vec![(Component1(1.0), Replicate::default()); *n];
+                        let mut stepper = ClientServerStepper::single();
+                        let entities = vec![(Component1(1.0), Replicate::to_clients(NetworkTarget::All)); *n];
                         stepper.server_app.world_mut().spawn_batch(entities);
-                        stepper.update();
+                        stepper.frame_step(2);
 
                         // update the entities
                         for mut component in stepper
@@ -110,10 +99,10 @@ fn send_float_update_one_client(criterion: &mut Criterion) {
 
                         let instant = Instant::now();
                         // buffer and send replication messages
-                        stepper.server_update();
+                        stepper.server_app.update();
                         elapsed += instant.elapsed();
 
-                        stepper.client_update();
+                        stepper.client_app.update();
                     }
                     elapsed
                 });
@@ -126,8 +115,8 @@ fn send_float_update_one_client(criterion: &mut Criterion) {
 /// Receiving N float component inserts, with a local io
 fn receive_float_insert(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/receive_float_insert/1_client");
-    group.warm_up_time(core::time::Duration::from_millis(500));
-    group.measurement_time(core::time::Duration::from_millis(4000));
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_millis(4000));
     for n in NUM_ENTITIES.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),
@@ -136,28 +125,22 @@ fn receive_float_insert(criterion: &mut Criterion) {
                 bencher.iter_custom(|iter| {
                     let mut elapsed = Duration::ZERO;
                     for _ in 0..iter {
-                        let mut stepper = LocalBevyStepper::default();
+                        let mut stepper = ClientServerStepper::single();
                         let entities = vec![
                             (
                                 Component1(1.0),
-                                Replicate {
-                                    group: ReplicationGroup::new_id(1),
-                                    ..default()
-                                }
+                                Replicate::to_clients(NetworkTarget::All)
                             );
                             *n
                         ];
                         stepper.server_app.world_mut().spawn_batch(entities);
 
-                        // advance time by one frame
                         stepper.advance_time(stepper.frame_duration);
-
-                        // buffer and send replication messages
-                        stepper.server_update();
+                        stepper.server_app.update();
 
                         // receive messages
                         let instant = Instant::now();
-                        stepper.client_update();
+                        stepper.client_app.update();
                         elapsed += instant.elapsed();
                     }
                     elapsed
@@ -181,10 +164,10 @@ fn receive_float_update(criterion: &mut Criterion) {
                 bencher.iter_custom(|iter| {
                     let mut elapsed = Duration::ZERO;
                     for _ in 0..iter {
-                        let mut stepper = LocalBevyStepper::default();
-                        let entities = vec![(Component1(1.0), Replicate::default()); *n];
+                        let mut stepper = ClientServerStepper::single();
+                        let entities = vec![(Component1(1.0),Replicate::to_clients(NetworkTarget::All)); *n];
                         stepper.server_app.world_mut().spawn_batch(entities);
-                        stepper.update();
+                        stepper.frame_step(2);
 
                         // update the entities
                         for mut component in stepper
@@ -196,13 +179,10 @@ fn receive_float_update(criterion: &mut Criterion) {
                             component.0 = 0.0;
                         }
 
-                        // advance time by one frame
                         stepper.advance_time(stepper.frame_duration);
-
-                        // buffer and send replication messages
-                        stepper.server_update();
+                        stepper.server_app.update();
                         let instant = Instant::now();
-                        stepper.client_update();
+                        stepper.client_app.update();
                         elapsed += instant.elapsed();
                     }
                     elapsed
@@ -219,8 +199,8 @@ const NUM_CLIENTS: &[usize] = &[0, 1, 2, 4, 8, 16];
 /// Replicating entity spawns from server to N clients, with a socket io
 fn send_float_insert_n_clients(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/send_float_inserts/n_clients");
-    group.warm_up_time(core::time::Duration::from_millis(500));
-    group.measurement_time(core::time::Duration::from_millis(4000));
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_millis(4000));
     for n in NUM_CLIENTS.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),
@@ -229,7 +209,7 @@ fn send_float_insert_n_clients(criterion: &mut Criterion) {
                 bencher.iter_custom(|iter| {
                     let mut elapsed = Duration::ZERO;
                     for _ in 0..iter {
-                        let mut stepper = LocalBevyStepper::default_n_clients(*n);
+                        let mut stepper = ClientServerStepper::with_clients(*n);
                         let entities =
                             vec![(Component1(0.0), Replicate::default()); FIXED_NUM_ENTITIES];
                         stepper.server_app.world_mut().spawn_batch(entities);
@@ -239,10 +219,10 @@ fn send_float_insert_n_clients(criterion: &mut Criterion) {
 
                         let instant = Instant::now();
                         // buffer and send replication messages
-                        stepper.server_update();
+                        stepper.server_app.update();
                         elapsed += instant.elapsed();
 
-                        stepper.client_update();
+                        stepper.client_app.update();
                     }
                     elapsed
                 });

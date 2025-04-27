@@ -84,6 +84,7 @@ lightyear_steam = { path = "./lightyear_steam", version = "0.19.0", default-feat
 lightyear_sync = { path = "./lightyear_sync", version = "0.19.0", default-features = false }
 lightyear_udp = { path = "./lightyear_udp", version = "0.19.0", default-features = false }
 lightyear_utils = { path = "./lightyear_utils", version = "0.19.0", default-features = false }
+lightyear_tests = { path = "./lightyear_tests", version = "0.19.0", default-features = false }
 lightyear_webtransport = { path = "./lightyear_webtransport", version = "0.19.0", default-features = false }
 
 # examples

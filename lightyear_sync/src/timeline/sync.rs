@@ -52,7 +52,7 @@ impl<T> Copy for SyncEvent<T> {}
 /// Timeline that is synced to another timeline
 pub trait SyncedTimeline: NetworkTimeline {
     /// Get the ideal [`TickInstant`] that this timeline should be at
-    fn sync_objective<T: NetworkTimeline>(&self, other: &T, ping_manager: &PingManager) -> TickInstant;
+    fn sync_objective<T: NetworkTimeline>(&self, other: &T, ping_manager: &PingManager, tick_duration: Duration) -> TickInstant;
 
     fn resync(&mut self, sync_objective: TickInstant) -> SyncEvent<Self> where Self: Sized;
 
@@ -60,7 +60,7 @@ pub trait SyncedTimeline: NetworkTimeline {
     /// Usually this is achieved by slightly speeding up or slowing down the current timeline.
     /// If there is a big discrepancy we can do a `resync` instead.
     // TODO: should we use LinkStats instead of PingManager?
-    fn sync<T: NetworkTimeline>(&mut self, main: &T, ping_manager: &PingManager) -> Option<SyncEvent<Self>> where Self: Sized;
+    fn sync<T: NetworkTimeline>(&mut self, main: &T, ping_manager: &PingManager, tick_duration: Duration) -> Option<SyncEvent<Self>> where Self: Sized;
 
     fn is_synced(&self) -> bool;
 
@@ -71,6 +71,8 @@ pub trait SyncedTimeline: NetworkTimeline {
 
     fn set_relative_speed(&mut self, ratio: f32);
 
+    /// Reset the timeline to its initial state (used when a client reconnects)
+    fn reset(&mut self);
 }
 
 
