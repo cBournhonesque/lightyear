@@ -88,8 +88,7 @@ app.add_channel::<Channel1>(ChannelSettings {
       the [`leafwing-input-manager`](https://github.com/Leafwing-Studios/leafwing-input-manager) crate, where
       your `leafwing` inputs are networked for you!
 - World Replication
-    - Entities that have the `Replicate` bundle will be automatically replicated to clients. Only the components that
-      change will be sent over the network. This functionality is similar to what [bevy_replicon](https://github.com/lifescapegame/bevy_replicon) provides.
+    - Entities that have the `Replicate` bundle will be automatically replicated to clients.
 - Advanced replication
     - **Client-side prediction**: with just a one-line change, you can enable client-prediction with rollback on the
       client, so that your inputs can feel responsive
