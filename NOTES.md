@@ -12,6 +12,13 @@
     - client: just spawn a client
     - server: can start a separate app, etc.
 
+- You have a UI where you can click on an example game you want to create (fps, simple_box, etc.)
+- You can select the mode: Client / Server / Host-Server / Client-And-Server
+- You can select the transport + protocol, etc.
+- We spawn one or more new apps to achieve this. We can also close the app
+- Client: start as a client
+- 
+
 TODO:
 - on the server, we get cases where the input buffer just contains [SameAsPrecedent]. Normally
   the first value should never be just SameAsPrecedent! That's due to `update_buffer` using `set_raw`. But maybe that's ok? if there's only SameAsPrecedent, we don't do anything (i.e. we re-use the existing inputs)
@@ -32,6 +39,7 @@ TODO:
 
 - We need a ServerMessageSender on the server, where you can serialize a message once and it will be sent to a subset
   of network targets (ClientOf) of that server.
+
 
 # Server creating ClientOfs
 

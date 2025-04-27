@@ -102,7 +102,7 @@ impl MapEntities for Inputs {
 
 // Protocol
 #[derive(Clone)]
-pub(crate) struct ProtocolPlugin;
+pub struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {

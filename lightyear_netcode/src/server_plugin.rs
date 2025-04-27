@@ -5,7 +5,7 @@ use bevy::ecs::entity::unique_slice::UniqueEntitySlice;
 use bevy::prelude::*;
 use bevy::tasks::futures_lite::StreamExt;
 use core::net::SocketAddr;
-use lightyear_connection::client::{Connected, Connecting};
+use lightyear_connection::client::{Connected, Connecting, Disconnected};
 use lightyear_connection::prelude::{server::*, *};
 use lightyear_core::id::PeerId;
 use lightyear_link::{Link, LinkSet, LinkStart, Unlink, Unlinked};
@@ -261,6 +261,19 @@ impl NetcodeServerPlugin {
         }
         Ok(())
     }
+
+    /// If the underlying Link fails, also disconnect the client
+    fn disconnect_if_link_fails(
+        trigger: Trigger<OnAdd, Unlinked>,
+        mut commands: Commands,
+        mut query: Query<(), With<ClientOf>>,
+    ) {
+        if let Ok(()) = query.get(trigger.target()) {
+            commands
+                .entity(trigger.target())
+                .despawn();
+        }
+    }
 }
 
 
@@ -276,5 +289,6 @@ impl Plugin for NetcodeServerPlugin {
 
         app.add_observer(Self::start);
         app.add_observer(Self::stop);
+        app.add_observer(Self::disconnect_if_link_fails);
     }
 }

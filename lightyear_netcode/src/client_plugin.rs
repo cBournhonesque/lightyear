@@ -5,10 +5,10 @@ use bevy::ecs::component::{ComponentHook, ComponentId, ComponentsRegistrator, Ho
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use core::net::SocketAddr;
-use lightyear_connection::client::{Connect, Connected, Connecting, Disconnect, Disconnected};
+use lightyear_connection::client::{Client, Connect, Connected, Connecting, Disconnect, Disconnected};
 use lightyear_connection::ConnectionSet;
 use lightyear_core::id::PeerId;
-use lightyear_link::{Link, LinkSet, SendPayload};
+use lightyear_link::{Link, LinkSet, LinkStart, SendPayload, Unlinked};
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
 use tracing::{debug, error, trace};
@@ -93,7 +93,7 @@ impl NetcodeClientPlugin {
     /// Takes packets from the Link, process them through netcode
     /// and buffer them back into the link to be sent by the IO
     fn send(
-        mut query: Query<(&mut Link, &mut NetcodeClient)>,
+        mut query: Query<(&mut Link, &mut NetcodeClient), Without<Unlinked>>,
     ) {
         query.par_iter_mut().for_each(|(mut link, mut client)| {
             // send user packets
@@ -117,7 +117,7 @@ impl NetcodeClientPlugin {
     /// then buffer them back into the Link
     fn receive(
         real_time: Res<Time<Real>>,
-        mut query: Query<(Entity, &mut Link, &mut NetcodeClient, Has<Connecting>)>,
+        mut query: Query<(Entity, &mut Link, &mut NetcodeClient, Has<Connecting>), Without<Unlinked>>,
         parallel_commands: ParallelCommands
     ) {
         let delta = real_time.delta();
@@ -138,7 +138,7 @@ impl NetcodeClientPlugin {
                     parallel_commands.command_scope(|mut commands| {
                         commands.entity(entity).insert(Connected {
                             peer_id: client.id()
-                        }).remove::<(Connecting, Disconnected)>();
+                        });
                     });
                 }
                 if !matches!(state, ClientState::Connected | ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse) {
@@ -146,7 +146,7 @@ impl NetcodeClientPlugin {
                     parallel_commands.command_scope(|mut commands| {
                         commands.entity(entity).insert(Disconnected {
                             reason: Some(format!("Client disconnected: {:?}", state))
-                        }).remove::<(Connecting, Connected)>();
+                        });
                     });
                 }
             }
@@ -161,9 +161,9 @@ impl NetcodeClientPlugin {
         if let Ok(mut client) = query.get_mut(trigger.target()) {
             debug!("Starting netcode connection process");
             client.inner.connect();
+            commands.trigger_targets(LinkStart, trigger.target());
             commands.entity(trigger.target())
-                .insert(Connecting)
-                .remove::<(Disconnected, Connected)>();
+                .insert(Connecting);
         }
     }
     fn disconnect(
@@ -176,10 +176,25 @@ impl NetcodeClientPlugin {
             commands.entity(trigger.target())
                 .insert(Disconnected {
                 reason: Some("Client trigger".to_string()),
-            })
-                .remove::<(Connected, Connecting)>();
+            });
         }
         Ok(())
+    }
+
+    /// If the underlying Link fails, also disconnect the client
+    fn disconnect_if_link_fails(
+        trigger: Trigger<OnAdd, Unlinked>,
+        mut commands: Commands,
+        mut query: Query<&Unlinked, With<Client>>,
+    ) {
+        if let Ok(unlinked) = query.get(trigger.target()) {
+             commands
+                .entity(trigger.target())
+                .insert(Disconnected {
+                    reason: unlinked.reason.clone(),
+                })
+                .remove::<(Connecting, Connected)>();
+        }
     }
 }
 
@@ -193,5 +208,6 @@ impl Plugin for NetcodeClientPlugin {
         app.add_systems(PostUpdate, Self::send.in_set(ConnectionSet::Send));
         app.add_observer(Self::connect);
         app.add_observer(Self::disconnect);
+        app.add_observer(Self::disconnect_if_link_fails);
     }
 }

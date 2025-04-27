@@ -6,10 +6,6 @@ use alloc::{vec, vec::Vec};
 use bevy::prelude::{Component, Event};
 use core::fmt::Debug;
 
-#[derive(Component)]
-struct ConnectedOn;
-
-
 /// A dummy connection plugin that takes payloads directly from the Link
 /// to the Transport without any processing
 pub struct PassthroughClientPlugin;

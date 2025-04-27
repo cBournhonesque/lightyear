@@ -19,6 +19,7 @@ use core::net::SocketAddr;
 use lightyear_connection::client::Disconnected;
 use lightyear_connection::client_of::{ClientOf, Server};
 use lightyear_core::id::PeerId;
+use lightyear_link::prelude::{LinkOf, ServerLink};
 use lightyear_link::{Link, LinkSet, Linked, Unlinked};
 use smallvec::SmallVec;
 
@@ -27,6 +28,7 @@ use smallvec::SmallVec;
 pub(crate) const MTU: usize = 1472;
 
 #[derive(Component)]
+#[require(ServerLink)]
 pub struct ServerUdpIo {
     local_addr: SocketAddr,
     // TODO: add possibility to set the remote addr
@@ -84,10 +86,10 @@ impl ServerUdpPlugin {
     fn receive(
         time: Res<Time<Real>>,
         commands: ParallelCommands,
-        mut server_query: Query<(Entity, &mut ServerUdpIo, &Server)>,
+        mut server_query: Query<(Entity, &mut ServerUdpIo)>,
         mut link_query: Query<(&mut Link)>,
     ) {
-        server_query.par_iter_mut().for_each(|(server_entity, mut server_udp_io, server)| {
+        server_query.par_iter_mut().for_each(|(server_entity, mut server_udp_io)| {
             // SAFETY: we know that each ServerUdpIo will target different Link entities, so there won't be any aliasing
             let mut link_query = unsafe { link_query.reborrow_unsafe() };
 
@@ -119,8 +121,6 @@ impl ServerUdpPlugin {
                             server_udp_io.buffer.advance_mut(recv_len);
                         }
                         let payload = server_udp_io.buffer.split_to(recv_len).freeze();
-                        let peer_id = PeerId::Entity;
-
                         match server_udp_io.connected_addresses.entry(address) {
                             Entry::Occupied(entry) => {
                                 let entity = *entry.get();
@@ -139,51 +139,15 @@ impl ServerUdpPlugin {
                                 info!("Received UDP packet from new address: {}", address);
                                 link.recv.push(payload, time.elapsed());
                                 commands.command_scope(|mut c| {
-                                    // TODO: should be LinkOf? we just know that there is a Link on this IO, not that
-                                    //   there is an actual connection. If the user is not using netcode, they should use
-                                    //   a mock connection (not netcode), that does nothing but emit Connection events
-                                    let entity = c.spawn((ClientOf {
+                                    let entity = c.spawn((LinkOf {
                                         server: server_entity,
-                                        id: peer_id,
                                     }, link, Linked)).id();
-                                    info!(?entity, ?server_entity, ?peer_id, "Spawn new ClientOf");
+                                    info!(?entity, ?server_entity, "Spawn new ClientOf");
                                     vacant.insert(entity);
                                 });
                                 continue
                             }
                         };
-                        //
-                        // let Some(entity) = server.get_client(peer_id) else {
-                        //     // Buffer for new clients that are connected in the current frame
-                        //     // (necessary to avoid spawning duplicate clients for the same address)
-                        //     if new_clients.contains(&address) {
-                        //         continue;
-                        //     }
-                        //     new_clients.push(address);
-                        //     info!("Received UDP packet from new address: {}", address);
-                        //     let mut link = Link::new(address, None);
-                        //     link.recv.push(payload, time.elapsed());
-                        //     commands.command_scope(|mut c| {
-                        //         info!("Spawn new ClientOf");
-                        //         // TODO: should be LinkOf? we just know that there is a Link on this IO, not that
-                        //         //   there is an actual connection. If the user is not using netcode, they should use
-                        //         //   a mock connection (not netcode), that does nothing but emit Connection events
-                        //         c.spawn((ClientOf {
-                        //             server: server_entity,
-                        //             id: peer_id,
-                        //         }, link, Linked));
-                        //     });
-                        //     continue
-                        // };
-                        // match link_query.get_mut(entity) {
-                        //     Ok(mut link) => {
-                        //         link.recv.push(payload, time.elapsed());
-                        //     }
-                        //     Err(_) => {
-                        //         error!("Received UDP packet for unknown entity: {}", entity);
-                        //         continue
-                        //     }
-                        // }
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         return
@@ -198,9 +162,6 @@ impl ServerUdpPlugin {
     }
 }
 
-
-/// Buffer for new clients that are connected in the current frame
-/// (necessary to avoid spawning duplicate clients for the same address)
 
 
 

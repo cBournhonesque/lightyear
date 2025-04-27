@@ -7,6 +7,7 @@ This crate provides abstractions for sending and receiving raw bytes over the ne
 
 extern crate alloc;
 mod conditioner;
+mod server;
 
 use alloc::collections::vec_deque::Drain;
 #[cfg(not(feature = "std"))]
@@ -14,17 +15,31 @@ use alloc::vec::Vec;
 
 use crate::conditioner::LinkConditioner;
 use alloc::collections::VecDeque;
+use bevy::ecs::component::HookContext;
+use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bytes::Bytes;
 use core::net::SocketAddr;
 use core::time::Duration;
 
 pub mod prelude {
+    pub use crate::server::{LinkOf, ServerLink};
     pub use crate::{Link, LinkSet, LinkStats, RecvLinkConditioner};
 }
 
 pub type RecvPayload = Bytes;
 pub type SendPayload = Bytes;
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkState {
+    /// The link is not established
+    Linked,
+    /// The link is in process
+    Linking,
+    #[default]
+    /// The entity is not linked to the remote entity
+    Unlinked,
+}
 
 
 /// Represents a link between two peers, allowing for sending and receiving data.
@@ -38,6 +53,7 @@ pub struct Link {
     /// Payloads to be sent
     pub send: LinkSender,
 
+    pub state: LinkState,
     pub stats: LinkStats,
     // TODO: maybe put this somewhere else? So that link is completely independent of how io
     //   is handled? (i.e. it might not even required a SocketAddr)
@@ -56,6 +72,7 @@ impl Link {
                 conditioner: recv_conditioner,
             },
             send: LinkSender::default(),
+            state: Default::default(),
             stats: LinkStats::default(),
             remote_addr: Some(remote_addr),
         }
@@ -174,13 +191,42 @@ pub struct LinkStart;
 pub struct Unlink;
 
 #[derive(Component, Default, Debug)]
+#[component(on_insert = Linking::on_insert)]
 pub struct Linking;
 
-#[derive(Component, Default, Debug)]
-pub struct Linked;
+impl Linking {
+    fn on_insert(mut world: DeferredWorld, context: HookContext) {
+        if let Some(mut link) = world.get_mut::<Link>(context.entity) {
+            link.state = LinkState::Linking;
+        }
+    }
+}
 
 #[derive(Component, Default, Debug)]
-pub struct Unlinked;
+#[component(on_insert = Linked::on_insert)]
+pub struct Linked;
+
+impl Linked {
+    fn on_insert(mut world: DeferredWorld, context: HookContext) {
+        if let Some(mut link) = world.get_mut::<Link>(context.entity) {
+            link.state = LinkState::Linked;
+        }
+    }
+}
+
+#[derive(Component, Default, Debug)]
+#[component(on_insert = Unlinked::on_insert)]
+pub struct Unlinked {
+    pub reason: Option<String>,
+}
+
+impl Unlinked {
+    fn on_insert(mut world: DeferredWorld, context: HookContext) {
+        if let Some(mut link) = world.get_mut::<Link>(context.entity) {
+            link.state = LinkState::Unlinked;
+        }
+    }
+}
 
 
 pub struct LinkPlugin;

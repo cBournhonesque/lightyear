@@ -54,7 +54,6 @@ pub struct Connect;
 pub struct Disconnect;
 
 
-// TODO: on_add: remove Connecting/Disconnected
 #[derive(Component, Event, Default, Debug)]
 #[component(on_add = Connected::on_add)]
 pub struct Connected {
@@ -67,6 +66,8 @@ impl Connected {
         if let Some(mut client) = world.get_mut::<Client>(context.entity) {
             client.state = ClientState::Connected(peer_id);
         };
+        world.commands().entity(context.entity)
+            .remove::<(Connecting, Disconnected)>();
     }
 }
 
@@ -80,6 +81,8 @@ impl Connecting {
         if let Some(mut client) = world.get_mut::<Client>(context.entity) {
             client.state = ClientState::Connecting;
         }
+        world.commands().entity(context.entity)
+            .remove::<(Connected, Disconnected)>();
     }
 }
 
@@ -94,6 +97,8 @@ impl Disconnected {
         if let Some(mut client) = world.get_mut::<Client>(context.entity) {
             client.state = ClientState::Disconnected;
         }
+        world.commands().entity(context.entity)
+            .remove::<(Connecting, Connected)>();
     }
 }
 

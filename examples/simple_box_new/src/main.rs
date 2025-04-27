@@ -17,10 +17,9 @@ use crate::protocol::ProtocolPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use bevy::prelude::*;
-use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 use core::time::Duration;
 use lightyear_examples_common_new::cli::{Cli, Mode};
-use lightyear_examples_common_new::shared::SharedSettings;
+use simple_box_new::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
 
 #[cfg(feature = "client")]
 mod client;
@@ -32,20 +31,6 @@ mod server;
 
 mod shared;
 
-pub const FIXED_TIMESTEP_HZ: f64 = 64.0;
-pub const SERVER_PORT: u16 = 5000;
-/// 0 means that the OS will assign any available port
-pub const CLIENT_PORT: u16 = 0;
-pub const SERVER_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), SERVER_PORT);
-pub const SHARED_SETTINGS: SharedSettings = SharedSettings {
-    protocol_id: 0,
-    private_key: [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0,
-    ],
-};
-
-pub const SEND_INTERVAL: Duration = Duration::from_millis(100);
 
 /// When running the example as a binary, we only support Client or Server mode.
 fn main() {

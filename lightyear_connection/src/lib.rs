@@ -24,8 +24,6 @@ extern crate core;
 
 use bevy::prelude::SystemSet;
 
-// the server also needs connection-related events
-#[cfg(any(feature = "client", feature = "server"))]
 pub mod client;
 
 #[cfg(feature = "server")]
@@ -34,7 +32,6 @@ pub mod server;
 pub mod network_target;
 pub mod direction;
 
-#[cfg(feature = "server")]
 pub mod client_of;
 pub mod identity;
 pub mod shared;
@@ -55,6 +52,7 @@ pub mod prelude {
     pub use crate::direction::NetworkDirection;
     pub use crate::network_target::NetworkTarget;
     pub use crate::ConnectionSet;
+
     #[cfg(feature = "client")]
     pub mod client {
         pub use crate::client::{Client, Connect, Connected, Connecting, ConnectionError, Disconnect, Disconnected};
