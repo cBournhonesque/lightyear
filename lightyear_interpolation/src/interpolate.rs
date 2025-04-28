@@ -125,43 +125,6 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
             }
         }
 
-        // // NOTE: if we took enough margin, we should always have server snapshots (end tick) to interpolate towards,
-        // //  lets consider that this is the case.
-
-        // NOTE: this is another solution for the problem of doing interpolation for an entity that hasn't received updates in a while
-
-        // // If start_tick < interpolation_tick < end_tick and end_tick - start_tick > UPDATE_FACTOR * send_interval
-        // // that means that start_tick stopped chang
-        // // ing because the component is fixed (we are not receiving updates)
-        // // in that case we need to add a history at the correct time
-        // let mut temp_end = core::mem::take(&mut end);
-        // if let (Some((start_tick, _)), Some((end_tick, end_component))) =
-        //     (&mut start, &mut temp_end)
-        // {
-        //     if end_tick - *start_tick > send_interval_delta_tick {
-        //         info!(
-        //                 ?current_interpolate_tick,
-        //                 ?send_interval_delta_tick,
-        //         last_received_server_tick = ?client.latest_received_server_tick(),
-        //         start_tick = ?(*start_tick),
-        //         end_tick = ?*end_tick,
-        //         "situation"
-        //             );
-        //         let new_tick = end_tick - send_interval_delta_tick as u16;
-        //         if new_tick > current_interpolate_tick {
-        //             // put back the existing end in the history
-        //             history.buffer.add_item(*end_tick, end_component);
-        //             // update end to be the current start component
-        //             *end_tick = new_tick;
-        //             *end_component = component.clone();
-        //         } else {
-        //             // advance the start
-        //             *start_tick = new_tick;
-        //         }
-        //     }
-        // }
-        // end = temp_end;
-
         // If it's been too long since we received an update, reset the start tick to None
         // (so that we wait again until interpolation_tick is between two server updates)
         // otherwise the interpolation will seem weird because the start tick is very old
@@ -173,6 +136,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
                 if current_interpolate_tick - start_tick < send_interval_delta_tick {
                     start = temp_start;
                 }
+                trace!("Reset the start_tick because it's been too long since we received an update");
                 // else (if it's been too long), reset the server tick to None
             }
         }
@@ -180,6 +144,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
         trace!(
             ?entity,
             component = ?kind,
+            ?send_interval_delta_tick,
             ?current_interpolate_tick,
             ?current_interpolate_overstep,
             // last_received_server_tick = ?connection.latest_received_server_tick(),
@@ -252,11 +217,10 @@ pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
     mut query: Query<(&mut C, &InterpolateStatus<C>)>,
 ) {
     for (mut component, status) in query.iter_mut() {
-        debug!("checking if we do interpolation");
         // NOTE: it is possible that we reach start_tick when end_tick is not set
         if let Some((start_tick, start_value)) = &status.start {
             if let Some((end_tick, end_value)) = &status.end {
-                debug!(?start_tick, interpolate_tick=?status.current_tick, ?end_tick, "doing interpolation!");
+                trace!(?start_tick, interpolate_tick=?status.current_tick, ?end_tick, "doing interpolation!");
                 assert!(status.current_tick < *end_tick);
                 if start_tick != end_tick {
                     let t = status.interpolation_fraction().unwrap();

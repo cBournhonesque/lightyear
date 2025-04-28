@@ -105,7 +105,7 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                 let _ = manager.map_entities(&mut new_component, component_registry.as_ref());
                 match interpolation_registry.interpolation_mode::<C>() {
                     InterpolationMode::Full => {
-                        trace!(?interpolated_entity, tick=?local_timeline.tick(), "spawn interpolation history");
+                        trace!(?interpolated_entity, tick=?local_timeline.tick(), "Spawn interpolation history for {:?}", core::any::type_name::<C>());
                         interpolated_entity_mut.insert((
                             // NOTE: we probably do NOT want to insert the component right away, instead we want to wait until we have two updates
                             //  we can interpolate between. Otherwise it will look jarring if send_interval is low. (because the entity will
@@ -121,7 +121,7 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                         ));
                     }
                     InterpolationMode::Once | InterpolationMode::Simple => {
-                        debug!("copy interpolation component");
+                        trace!("Copy interpolation component for {:?}", core::any::type_name::<C>());
                         interpolated_entity_mut.insert(new_component);
                     }
                     InterpolationMode::None => {}

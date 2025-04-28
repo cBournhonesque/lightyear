@@ -80,9 +80,9 @@ impl InterpolationTimeline {
 }
 
 impl SyncedTimeline for InterpolationTimeline {
-    fn sync_objective<T: NetworkTimeline>(&self, main: &T, ping_manager: &PingManager, tick_duration: Duration) -> TickInstant {
+    fn sync_objective<T: NetworkTimeline>(&self, remote: &T, ping_manager: &PingManager, tick_duration: Duration) -> TickInstant {
         let delay = TickDelta::from_duration(self.interpolation_config.to_duration(self.remote_send_interval), tick_duration);
-        let target = main.now();
+        let target = remote.now();
         let obj = target - delay;
         trace!(?target, ?delay, config = ?self.interpolation_config, send_interval = ?self.remote_send_interval, "InterpolationTimeline obj: {:?}", obj);
         obj
@@ -103,16 +103,16 @@ impl SyncedTimeline for InterpolationTimeline {
     ///
     /// Most of the times this will just be slight nudges to modify the speed of the [`SyncedTimeline`].
     /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`MainTimeline`] by sending a SyncEvent
-    fn sync<T: NetworkTimeline>(&mut self, main: &T, ping_manager: &PingManager, tick_duration: Duration) -> Option<SyncEvent<Self>> {
+    fn sync<T: NetworkTimeline>(&mut self, remote: &T, ping_manager: &PingManager, tick_duration: Duration) -> Option<SyncEvent<Self>> {
         // skip syncing if we haven't received enough information
         if ping_manager.pongs_recv < self.sync_config.handshake_pings as u32 {
             return None
         }
         self.is_synced = true;
         // TODO: should we call current_estimate()? now() should basically return the same thing
-        let target = main.now();
-        let objective = self.sync_objective(main, ping_manager, tick_duration);
-        let error = objective - target;
+        let now = self.now();
+        let objective = self.sync_objective(remote, ping_manager, tick_duration);
+        let error = now - objective;
         let is_ahead = error.is_positive();
         let error_duration = error.to_duration(tick_duration);
         let error_margin = tick_duration.mul_f32(self.sync_config.error_margin);

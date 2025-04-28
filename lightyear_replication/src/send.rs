@@ -167,7 +167,7 @@ impl ReplicationSendPlugin {
 
     /// Send a message containing metadata about the sender
     fn send_sender_metadata(
-        trigger: Trigger<OnAdd, Connected>,
+        trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
         tick_duration: Res<TickDuration>,
         mut query: Query<(&ReplicationSender, &mut TriggerSender<SenderMetadata>)>,
     ) {

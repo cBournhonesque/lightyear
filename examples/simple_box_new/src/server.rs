@@ -22,23 +22,24 @@ impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         // the physics/FixedUpdates systems that consume inputs should be run in this set.
         app.add_systems(FixedUpdate, movement);
-        app.add_observer(handle_connections);
-        // app.add_systems(Update, (send_message, handle_connections));
+        app.add_observer(handle_new_client);
+        app.add_observer(handle_connected);
+        // app.add_systems(Update, (send_message));
         // #[cfg(not(feature = "client"))]
         // app.add_systems(Update, server_start_stop);
     }
 }
 
-// TODO: On connection request, the user can modify the ClientOf entity that is spawned by the Serer?
 
-/// Server connection system, create a player upon connection
-pub(crate) fn handle_connections(
-    trigger: Trigger<OnAdd, Connected>,
-    mut query: Query<&Connected, With<ClientOf>>,
+/// When a new client tries to connect to a server, an entity is created for it with the `ClientOf` component.
+/// This entity represents the connection between the server and that client.
+///
+/// You can add additional components to update the connection. In this case we will add a `ReplicationSender` that
+/// will enable us to replicate local entities to that client.
+pub(crate) fn handle_new_client(
+    trigger: Trigger<OnAdd, ClientOf>,
     mut commands: Commands,
 ) {
-    let connected = query.get(trigger.target()).unwrap();
-    let client_id = connected.peer_id;
     commands.entity(trigger.target()).insert(
         ReplicationSender::new(
             SEND_INTERVAL,
@@ -46,6 +47,21 @@ pub(crate) fn handle_connections(
             false,
         ),
     );
+}
+
+
+/// If the new client connnects to the server, we want to spawn a new player entity for it.
+///
+/// We have to react specifically on `Connected` because there is no guarantee that the connection request we
+/// received was valid. The server could reject the connection attempt for many reasons (server is full, packet is invalid,
+/// DDoS attempt, etc.). We want to start the replication only when the client is confirmed as connected.
+pub(crate) fn handle_connected(
+    trigger: Trigger<OnAdd, Connected>,
+    mut query: Query<&Connected, With<ClientOf>>,
+    mut commands: Commands,
+) {
+    let connected = query.get(trigger.target()).unwrap();
+    let client_id = connected.peer_id;
     let entity = commands
         .spawn((
             PlayerBundle::new(client_id, Vec2::ZERO),
