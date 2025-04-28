@@ -19,6 +19,8 @@ pub struct SharedConfig {
     pub client_replication_send_interval: Duration,
     /// configuration for the [`FixedUpdate`](bevy::prelude::FixedUpdate) schedule
     pub tick: TickConfig,
+    /// Flag to disable visualizers for seperate mode servers
+    pub visualizer: bool,
 }
 
 impl Default for SharedConfig {
@@ -27,6 +29,10 @@ impl Default for SharedConfig {
             server_replication_send_interval: Duration::from_millis(0),
             client_replication_send_interval: Duration::from_millis(0),
             tick: TickConfig::new(Duration::from_millis(16)),
+            #[cfg(feature = "visualizer")]
+            visualizer: true,
+            #[cfg(not(feature = "visualizer"))]
+            visualizer: false,
         }
     }
 }
