@@ -10,12 +10,13 @@ use bevy::ecs::entity::EntityIndexSet;
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashSet;
-use bevy::prelude::{Component, Entity, Reflect, With, World};
+use bevy::prelude::{Component, Entity, OnAdd, Query, Reflect, Trigger, With, World};
 use bevy::time::{Timer, TimerMode};
-#[cfg(feature = "client")]
 use lightyear_connection::client::Client;
+use lightyear_connection::client::Connected;
+use lightyear_connection::client_of::ClientOf;
 #[cfg(feature = "server")]
-use lightyear_connection::client_of::{ClientOf, Server};
+use lightyear_connection::client_of::Server;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::id::PeerId;
 use lightyear_core::tick::Tick;
@@ -24,13 +25,13 @@ use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::collections::EntityHashMap;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 // TODO: how to define which subset of components a sender iterates through?
 //  if a sender is only interested in a few components it might be expensive
 //  maybe we can have a 'direction' in ComponentReplicationConfig and Client/ClientOf peers can precompute
 //  a list of components based on this.
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone, Reflect)]
 pub struct ComponentReplicationConfig {
     /// by default we will replicate every update for the component. If this is True, we will only
     /// replicate the inserts/removes of the component.
@@ -43,7 +44,7 @@ pub struct ComponentReplicationConfig {
     pub delta_compression: bool,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Reflect)]
 pub struct ComponentReplicationOverride {
     pub disable: bool,
     pub enable: bool,
@@ -51,7 +52,7 @@ pub struct ComponentReplicationOverride {
     pub replicate_always: bool,
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
 pub struct ComponentReplicationOverrides<C> {
     /// Overrides that will be applied to all senders
     pub(crate) all_senders: Option<ComponentReplicationOverride>,
@@ -350,13 +351,15 @@ pub type InterpolationTarget = ReplicationTarget<ShouldBeInterpolated>;
 
 /// Insert this component to specify which remote peers will start predicting the entity
 /// upon receiving the entity.
-#[derive(Component, Clone, Default, Debug, PartialEq)]
+#[derive(Component, Clone, Default, Debug, PartialEq, Reflect)]
 #[require(Replicate)]
 #[component(on_insert = ReplicationTarget::<T>::on_insert)]
 #[component(on_replace = ReplicationTarget::<T>::on_replace)]
 pub struct ReplicationTarget<T: Sync + Send + 'static> {
     mode: ReplicationMode,
+    #[reflect(ignore)]
     pub(crate) senders: EntityIndexSet,
+    #[reflect(ignore)]
     marker: core::marker::PhantomData<T>,
 }
 
@@ -513,5 +516,47 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
 
         let mut replicate = world.get_mut::<ReplicationTarget<T>>(context.entity).unwrap();
         replicate.senders = EntityIndexSet::default();
+    }
+
+    #[cfg(any(feature = "client", feature = "server"))]
+    /// When a new client connects, check if we need to replicate existing entities to it
+    pub(crate) fn handle_connection(
+        trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
+        mut sender_query: Query<(Entity, &mut ReplicationSender, Option<&Client>, Option<&ClientOf>), With<Connected>>,
+        mut replicate_query: Query<(Entity, &mut ReplicationTarget<T>)>,
+    ) {
+        if let Ok((sender_entity, mut sender, client, client_of)) = sender_query.get_mut(trigger.target()) {
+            // TODO: maybe do this in parallel?
+            replicate_query.iter_mut().for_each(|(entity, mut replicate)| {
+                match &replicate.mode {
+                    ReplicationMode::SingleSender => {}
+                    #[cfg(feature = "client")]
+                    ReplicationMode::SingleClient => {}
+                    #[cfg(feature = "server")]
+                    ReplicationMode::SingleServer(target) => {
+                        if client_of.is_some_and(|p| target.targets(&p.id)) {
+                            info!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
+                            sender.add_replicated_entity(entity);
+                            replicate.senders.insert(sender_entity);
+                        }
+                    }
+                    ReplicationMode::Sender(_) => {}
+                    #[cfg(feature = "server")]
+                    ReplicationMode::Server(e, target) => {
+                        if *e == sender_entity && client_of.is_some_and(|p| target.targets(&p.id)) {
+                            sender.add_replicated_entity(entity);
+                            replicate.senders.insert(sender_entity);
+                        }
+                    }
+                    ReplicationMode::Target(target) => {
+                        if client_of.is_some_and(|p| target.targets(&p.id)) || client.is_some_and(|p| target.targets(&p.peer_id().unwrap())) {
+                            sender.add_replicated_entity(entity);
+                            replicate.senders.insert(sender_entity);
+                        }
+                    }
+                    ReplicationMode::Manual(_) => {}
+                }
+            })
+        }
     }
 }

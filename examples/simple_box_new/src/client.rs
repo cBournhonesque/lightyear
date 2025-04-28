@@ -93,7 +93,7 @@ fn player_movement(
     let tick = timeline.tick();
     for (position, input) in position_query.iter_mut() {
         if let Some(input) = &input.value {
-            info!(?tick, ?position, ?input, "client");
+            // info!(?tick, ?position, ?input, "client");
             // NOTE: be careful to directly pass Mut<PlayerPosition>
             // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
             shared::shared_movement_behaviour(position, input);

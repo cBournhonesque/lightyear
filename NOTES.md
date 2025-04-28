@@ -1,30 +1,17 @@
 # Examples
 
-- all examples just showcase the actual logic being tested
-  - if you start with 'main' (as a binary), it will start it in a simple mode
-  - maybe just client or server?
-- we can have a 'template' wrapper with a UI that can activate all examples + all modes
-  - the examples are just plugins we can import, so that's fine, we can import all of them
-    - if we trigger SpawnExampleClient, which example will it be? maybe a marker component per example?
-      Maybe each client should have their own MyClient? that also triggers a SpawnExampleClient?
-    - Or just a 'example_launcher' that supports all modes but will only run one of the examples (via cli)
-  - the modes:
-    - client: just spawn a client
-    - server: can start a separate app, etc.
+- Have a pane where you can see the running clients, servers, processes.
 
-- You have a UI where you can click on an example game you want to create (fps, simple_box, etc.)
-- You can select the mode: Client / Server / Host-Server / Client-And-Server
-- You can select the transport + protocol, etc.
-- We spawn one or more new apps to achieve this. We can also close the app
-- Client: start as a client
-- 
 
 TODO:
 - on the server, we get cases where the input buffer just contains [SameAsPrecedent]. Normally
   the first value should never be just SameAsPrecedent! That's due to `update_buffer` using `set_raw`. But maybe that's ok? if there's only SameAsPrecedent, we don't do anything (i.e. we re-use the existing inputs)
 - when running simple_box, the Confirmed entity should eventually catchup to the predicted entity! Sometimes it doesn't -> some system ordering issue? or sync issue?
+- EXAMPLE DOESNT WORK BECAUSE UDP SERVER ONLY ADDS LINK-OF, AND NETCODE EXPECTES CLIENT-OF
 
-- when a new client joins, existing entities should be replicated to them.
+
+- Maybe we just keep LinkOf
+
 - the interpolated entity is not displayed
 
 # Inputs

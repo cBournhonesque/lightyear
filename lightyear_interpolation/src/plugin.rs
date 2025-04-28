@@ -6,6 +6,7 @@ use crate::interpolate::{
     insert_interpolated_component, interpolate, update_interpolate_status,
 };
 use crate::manager::InterpolationManager;
+use crate::registry::InterpolationRegistry;
 use crate::spawn::spawn_interpolated_entity;
 use crate::timeline::MetadataPlugin;
 use crate::{Interpolated, InterpolationMode, SyncComponent};
@@ -170,6 +171,9 @@ impl Plugin for InterpolationPlugin {
         // REFLECT
         app.register_type::<InterpolationConfig>()
             .register_type::<Interpolated>();
+
+        // RESOURCES
+        app.init_resource::<InterpolationRegistry>();
 
         // SETS
         app.configure_sets(

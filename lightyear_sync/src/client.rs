@@ -61,6 +61,13 @@ impl ClientPlugin {
 impl Plugin for ClientPlugin {
 
     fn build(&self, app: &mut App) {
+
+        app.register_type::<(
+            InputTimeline,
+            RemoteTimeline,
+            InterpolationTimeline,
+        )>();
+
         if !app.is_plugin_added::<SyncPlugin>() {
             app.add_plugins(SyncPlugin);
         }

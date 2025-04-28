@@ -7,17 +7,17 @@ use bevy::asset::ron;
 use bevy::prelude::*;
 use core::time::Duration;
 
+use crate::shared::SharedSettings;
 #[cfg(not(target_family = "wasm"))]
 use async_compat::Compat;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 #[cfg(not(target_family = "wasm"))]
 use bevy::tasks::IoTaskPool;
-
-use crate::shared::SharedSettings;
 use lightyear::netcode::{NetcodeServer, PRIVATE_KEY_BYTES};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 /// Read certificate digest from alternate sources, for WASM builds.
@@ -62,7 +62,7 @@ pub fn get_digest_on_wasm() -> Option<String> {
     None
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ServerTransports {
     Udp {
         local_port: u16,
@@ -138,7 +138,7 @@ impl ExampleServer {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum WebTransportCertificateSettings {
     /// Generate a self-signed certificate, with given SANs list to add to the certifictate
     /// eg: ["example.com", "*.gameserver.example.org", "10.1.2.3", "::1"]

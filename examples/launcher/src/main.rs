@@ -1,257 +1,155 @@
+// Use the config module
+mod config;
+
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
-use lightyear::prelude::*;
+use lightyear::prelude::client;
+use lightyear::prelude::server;
 
 use clap::Parser;
-use strum::{Display, EnumIter, EnumString, IntoEnumIterator};
+use strum::{EnumIter, IntoEnumIterator};
 
-use core::net::{IpAddr, Ipv4Addr, SocketAddr};
-use core::time::Duration;
-use std::{process::{exit, Command}, str::FromStr};
-// Added Command and exit
-
-use lightyear_examples_common_new::client::ClientTransports;
+use crate::config::*;
+use core::net::SocketAddr;
+use core::str::FromStr;
+use lightyear::connection::client::Connect;
+use lightyear::connection::server::Start;
+use lightyear_examples_common_new::client::{ClientTransports, ExampleClient};
 use lightyear_examples_common_new::client_renderer::ExampleClientRendererPlugin;
-use lightyear_examples_common_new::server::ServerTransports;
-use lightyear_examples_common_new::shared::SharedSettings;
+use lightyear_examples_common_new::server::{ExampleServer, ServerTransports};
+use lightyear_examples_common_new::server_renderer::ExampleServerRendererPlugin;
 use simple_box_new::client::ExampleClientPlugin as SimpleBoxClientPlugin;
 use simple_box_new::protocol::ProtocolPlugin as SimpleBoxProtocolPlugin;
 use simple_box_new::renderer::ExampleRendererPlugin as SimpleBoxRendererPlugin;
-use simple_box_new::server::ExampleServerPlugin as SimpleBoxServerPlugin;
-
-
-pub const FIXED_TIMESTEP_HZ: f64 = 64.0;
-pub const SERVER_PORT: u16 = 5000;
-/// 0 means that the OS will assign any available port
-pub const CLIENT_PORT: u16 = 0;
-pub const SERVER_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), SERVER_PORT);
-pub const SHARED_SETTINGS: SharedSettings = SharedSettings {
-    protocol_id: 0,
-    private_key: [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0,
-    ],
+use simple_box_new::server::{ExampleServerPlugin as SimpleBoxServerPlugin, ExampleServerPlugin};
+use std::{
+    env, fs,
+    io::Write,
+    path::PathBuf,
+    process::{exit, Command},
+    thread,
 };
-
-pub const SEND_INTERVAL: Duration = Duration::from_millis(100);
-
-// TODO: Discover examples dynamically? For now, hardcode them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter, Display)]
-enum Example {
-    SimpleBox,
-    Fps,
-    // Add other examples here
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter, Display, EnumString)]
-enum NetworkingMode {
-    ClientOnly,
-    ServerOnly,
-    HostServer, // Server + Client in the same app
-    // SeparateClientAndServer, // Srever + Client in separate apps but in the same process
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter, Display, EnumString)]
-enum TransportChoice {
-    Udp,
-    WebTransport,
-    // Steam, // TODO: add steam
-}
-
-#[derive(Resource, Debug, Clone)]
-struct LauncherConfig {
-    example: Example,
-    mode: NetworkingMode,
-    // Use Options for conditional settings
-    client_transport: Option<ClientTransports>,
-    server_transport: Option<ServerTransports>,
-    client_id: Option<u64>,
-    server_addr: Option<SocketAddr>,
-    tick_duration: Duration,
-    // TODO: Add LinkConditioner settings
-    // TODO: Add other settings like auth, encryption?
-}
-
-impl Default for LauncherConfig {
-    fn default() -> Self {
-        let default_mode = NetworkingMode::HostServer;
-        Self {
-            example: Example::SimpleBox,
-            mode: default_mode,
-            // Set initial defaults based on HostServer mode
-            client_transport: Some(ClientTransports::Udp),
-            client_id: Some(0),
-            server_addr: Some(SERVER_ADDR),
-            server_transport: Some(ServerTransports::Udp { local_port: SERVER_PORT }),
-            tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
-        }
-    }
-}
 
 #[derive(Event, Debug)]
 struct LaunchEvent;
 
 /// Command-line arguments for launching directly without the UI.
+/// Now only needs the path to the configuration file.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct CliArgs {
-    /// The networking mode to run in.
+    /// Path to the RON configuration file.
     #[arg(long)]
-    run_mode: Option<NetworkingMode>,
-
-    /// The example to run.
-    #[arg(long)]
-    example: Option<Example>, // Assuming Example derives FromStr or similar
-
-    /// Client ID (required for ClientOnly, HostServer).
-    #[arg(long)]
-    client_id: Option<u64>,
-
-    /// Server address (IP:port).
-    #[arg(long)]
-    server_addr: Option<SocketAddr>,
-
-    /// Client transport type.
-    #[arg(long)]
-    client_transport: Option<TransportChoice>, // Use TransportChoice for simplicity
-
-    /// Server transport type.
-    #[arg(long)]
-    server_transport: Option<TransportChoice>, // Use TransportChoice for simplicity
-
-    /// Server port (used if server_addr is not provided for server).
-    #[arg(long)]
-    port: Option<u16>,
+    config_path: Option<PathBuf>,
 }
-
-// Need FromStr for Example to be used in clap
-impl FromStr for Example {
-    type Err = String; // Or a more specific error type
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "simplebox" => Ok(Example::SimpleBox),
-            "fps" => Ok(Example::Fps),
-            _ => Err(format!("Unknown example: {}", s)),
-        }
-    }
-}
-
 
 fn main() {
     let cli_args = CliArgs::parse();
 
-    // --- Direct Run Mode ---
-    if let (Some(run_mode), Some(example)) = (cli_args.run_mode, cli_args.example) {
-        info!("Detected direct run mode: {:?}, Example: {:?}", run_mode, example);
+    // --- Direct Run Mode (using config file) ---
+    if let Some(config_path) = cli_args.config_path {
+        println!(
+            "Detected direct run mode with config file: {:?}",
+            config_path
+        );
 
-        // Construct LauncherConfig from CliArgs
-        let server_addr = cli_args.server_addr.unwrap_or_else(|| {
-            let port = cli_args.port.unwrap_or(SERVER_PORT);
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)
-        });
-
-        let chosen_transport_cli = cli_args.client_transport.unwrap_or(TransportChoice::Udp);
-        let client_transport = if cfg!(target_family = "wasm") {
-            // WASM: Must use WebTransport, needs certificate_digest field.
-            let digest = "".to_string(); // Placeholder for digest logic
-            if chosen_transport_cli == TransportChoice::Udp {
-                 warn!("UDP client transport selected via CLI, but target is wasm. Defaulting to WebTransport.");
-            }
-            warn!("WebTransport client direct launch on wasm requires certificate digest. Using empty digest as placeholder.");
-            todo!();
-        } else {
-            // NATIVE: Can use UDP or WebTransport (without certificate_digest field).
-            match chosen_transport_cli {
-                TransportChoice::Udp => Some(ClientTransports::Udp),
-                // Construct the variant that exists on native
-                TransportChoice::WebTransport => Some(ClientTransports::WebTransport {}),
+        // Load config from file
+        let config = match fs::read_to_string(&config_path) {
+            Ok(ron_data) => match ron::from_str::<LauncherConfig>(&ron_data) {
+                Ok(cfg) => cfg,
+                Err(e) => {
+                    eprintln!("Failed to deserialize config from {:?}: {}", config_path, e);
+                    exit(1);
+                }
+            },
+            Err(e) => {
+                eprintln!("Failed to read config file {:?}: {}", config_path, e);
+                exit(1);
             }
         };
+        fs::remove_file(&config_path).expect("Could not delete config file");
 
-        let server_transport = match cli_args.server_transport.unwrap_or(TransportChoice::Udp) {
-            TransportChoice::Udp => Some(ServerTransports::Udp { local_port: server_addr.port() }),
-            TransportChoice::WebTransport => {
-                warn!("WebTransport server direct launch not fully supported via CLI yet (certificate needed)");
-                // TODO: How to handle certificates via CLI?
-                None // Or default to UDP?
-            }
-        };
-
-        let config = LauncherConfig {
-            example,
-            mode: run_mode,
-            client_transport: if run_mode == NetworkingMode::ServerOnly { None } else { client_transport },
-            server_transport: if run_mode == NetworkingMode::ClientOnly { None } else { server_transport },
-            client_id: if run_mode == NetworkingMode::ServerOnly { None } else { cli_args.client_id }, // Use provided or None
-            server_addr: Some(server_addr),
-            tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
-        };
+        println!("Loaded config for direct run: {:?}", config);
 
         // TODO: Determine asset path correctly if needed for direct run
         let asset_path = "../../assets".to_string(); // Placeholder
 
-        // Build and run the appropriate app based on mode
+        // Build and run the appropriate app based on mode from config
         match config.mode {
             NetworkingMode::ClientOnly => {
-                if config.client_id.is_some() && config.server_addr.is_some() && config.client_transport.is_some() {
-                    info!("Direct launching {} ClientOnly...", config.example);
+                if config.client_id.is_some()
+                    && config.server_addr.is_some()
+                    && config.client_transport.is_some()
+                {
+                    println!("Direct launching {} ClientOnly...", config.example);
                     let mut client_app = build_client_app(config, asset_path);
                     client_app.run();
                 } else {
-                    error!("Cannot direct launch ClientOnly: Missing required arguments (client_id, server_addr, client_transport).");
+                    eprintln!("Invalid config for ClientOnly mode (missing required fields).");
                     exit(1);
                 }
             }
             NetworkingMode::ServerOnly => {
-                 if config.server_addr.is_some() && config.server_transport.is_some() {
-                    info!("Direct launching {} ServerOnly...", config.example);
+                if config.server_addr.is_some() && config.server_transport.is_some() {
+                    println!("Direct launching {} ServerOnly...", config.example);
                     let mut server_app = build_server_app(config, asset_path);
                     server_app.run();
                 } else {
-                    error!("Cannot direct launch ServerOnly: Missing required arguments (server_addr, server_transport).");
+                    eprintln!("Invalid config for ServerOnly mode (missing required fields).");
                     exit(1);
                 }
             }
             NetworkingMode::HostServer => {
-                 if config.client_id.is_some() && config.server_addr.is_some() && config.client_transport.is_some() && config.server_transport.is_some() {
-                    info!("Direct launching {} HostServer...", config.example);
+                if config.client_id.is_some()
+                    && config.server_addr.is_some()
+                    && config.client_transport.is_some()
+                    && config.server_transport.is_some()
+                {
+                    println!("Direct launching {} HostServer...", config.example);
                     let mut host_server_app = build_host_server_app(config, asset_path);
                     host_server_app.run();
                 } else {
-                    error!("Cannot direct launch HostServer: Missing required arguments.");
+                    eprintln!("Invalid config for HostServer mode (missing required fields).");
                     exit(1);
                 }
             }
         }
-        exit(0); // Exit after direct run completes
+        // Exit after direct run attempt
+        exit(0);
     }
 
     // --- UI Mode (Default) ---
     info!("Starting launcher in UI mode...");
     App::new()
-        .add_plugins(DefaultPlugins
-            .set(WindowPlugin {
-            primary_window: Some(Window {
-                    title: "Lightyear Example Launcher".into(),
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Lightyear Example Launcher".into(),
+                        ..default()
+                    }),
                     ..default()
-                }),
-                ..default()
-            })
-            .disable::<LogPlugin>())
-        .add_plugins(EguiPlugin { enable_multipass_for_primary_context: false})
+                })
+                .disable::<LogPlugin>(),
+        ) // Use Log settings from helper below
+        .add_plugins(EguiPlugin {
+            enable_multipass_for_primary_context: false,
+        })
         .init_resource::<LauncherConfig>() // Initialize with defaults for UI
-        .add_event::<LaunchEvent>()
+        .add_plugins(LogPlugin {
+            // Add common log settings here for UI app
+            level: bevy::log::Level::INFO,
+            filter: "wgpu=error,bevy_render=info,bevy_ecs=warn,lightyear=info".to_string(),
+            ..default()
+        })
         .add_systems(Update, ui_system)
-        .add_systems(Update, launch_button_system.run_if(on_event::<LaunchEvent>))
         .run();
 }
 
 fn ui_system(
     mut contexts: EguiContexts,
     mut config: ResMut<LauncherConfig>,
-    mut launch_event_writer: EventWriter<LaunchEvent>,
 ) {
     egui::CentralPanel::default().show(contexts.ctx_mut(), |ui| {
         ui.heading("Lightyear Example Launcher");
@@ -259,15 +157,16 @@ fn ui_system(
 
         // === Mode Selection ===
         let mut mode_changed = false;
+        let current_mode = config.mode;
         ui.horizontal(|ui| {
             ui.label("Networking Mode:");
-            let current_mode = config.mode;
-            egui::ComboBox::from_id_salt("##NetworkingMode") // Use unique label for ID
+            egui::ComboBox::from_id_salt("##NetworkingMode")
                 .selected_text(current_mode.to_string())
                 .show_ui(ui, |ui| {
                     for mode in NetworkingMode::iter() {
+                         // Use selectable_value to directly modify config.mode
                         if ui.selectable_value(&mut config.mode, mode, mode.to_string()).changed() {
-                            mode_changed = true;
+                             mode_changed = true;
                         }
                     }
                 });
@@ -275,28 +174,9 @@ fn ui_system(
 
         // Update optional configs if mode changed
         if mode_changed {
-            let new_mode = config.mode;
-            match new_mode {
-                NetworkingMode::ClientOnly => {
-                    if config.client_id.is_none() { config.client_id = Some(rand::random()); }
-                    if config.server_addr.is_none() { config.server_addr = Some(SERVER_ADDR); }
-                    if config.client_transport.is_none() { config.client_transport = Some(ClientTransports::Udp); }
-                    config.server_transport = None;
-                }
-                NetworkingMode::ServerOnly => {
-                    if config.server_addr.is_none() { config.server_addr = Some(SERVER_ADDR); } // Server needs bind address
-                    if config.server_transport.is_none() { config.server_transport = Some(ServerTransports::Udp { local_port: SERVER_PORT }); }
-                    config.client_id = None;
-                    config.client_transport = None;
-                    // Keep server_addr Some for binding
-                }
-                NetworkingMode::HostServer => {
-                    if config.client_id.is_none() { config.client_id = Some(rand::random()); }
-                    if config.server_addr.is_none() { config.server_addr = Some(SERVER_ADDR); }
-                    if config.client_transport.is_none() { config.client_transport = Some(ClientTransports::Udp); }
-                    if config.server_transport.is_none() { config.server_transport = Some(ServerTransports::Udp { local_port: SERVER_PORT }); }
-                }
-            }
+            let mode = config.mode;
+             // Call helper function from config module
+            config.update_defaults_for_mode(mode);
         }
 
         ui.separator();
@@ -304,7 +184,7 @@ fn ui_system(
         // === Example Selection ===
         ui.horizontal(|ui| {
             ui.label("Example:");
-            egui::ComboBox::from_id_salt("##Example") // Use unique label for ID
+            egui::ComboBox::from_id_salt("##Example")
                 .selected_text(config.example.to_string())
                 .show_ui(ui, |ui| {
                     for example in Example::iter() {
@@ -323,21 +203,31 @@ fn ui_system(
                 // Client ID
                 ui.horizontal(|ui| {
                     ui.label("Client ID:");
+                    // Provide a default empty string if None
                     let mut client_id_str = config.client_id.map_or(String::new(), |id| id.to_string());
-                    if ui.text_edit_singleline(&mut client_id_str).changed() {
+                    // Use a unique ID for the TextEdit widget
+                    if ui.add(egui::TextEdit::singleline(&mut client_id_str).id(egui::Id::new("client_id_input"))).changed() {
+                        // Attempt to parse, update config only on success
                         if let Ok(id) = client_id_str.parse::<u64>() {
                             config.client_id = Some(id);
-                        }
+                        } else if client_id_str.is_empty() {
+                            // Allow clearing the field
+                            config.client_id = None;
+                        } // else: keep the old value if parsing fails but not empty
                     }
                 });
 
-                // Server Address
+
+                // Server Address (for client connection)
                 ui.horizontal(|ui| {
                     ui.label("Server Address:");
                     let mut server_addr_str = config.server_addr.map_or(String::new(), |addr| addr.to_string());
+                     // Use a unique ID for the TextEdit widget
                     if ui.add(egui::TextEdit::singleline(&mut server_addr_str).id(egui::Id::new("client_server_addr"))).changed() {
                         if let Ok(addr) = SocketAddr::from_str(&server_addr_str) {
                             config.server_addr = Some(addr);
+                        } else if server_addr_str.is_empty() {
+                             config.server_addr = None;
                         }
                     }
                 });
@@ -345,27 +235,30 @@ fn ui_system(
                 // Client Transport
                 ui.horizontal(|ui| {
                     ui.label("Client Transport:");
-                    // Manually handle ClientTransports variants as it doesn't derive EnumIter
                     let current_transport_text = match config.client_transport {
                         Some(ClientTransports::Udp) => "UDP",
                         Some(ClientTransports::WebTransport { .. }) => "WebTransport",
-                        // Add other variants if needed
                         None => "None",
                     };
                     egui::ComboBox::from_id_salt("##ClientTransport")
                         .selected_text(current_transport_text)
                         .show_ui(ui, |ui| {
-                            // UDP Option
                             if ui.selectable_label(matches!(config.client_transport, Some(ClientTransports::Udp)), "UDP").clicked() {
                                 config.client_transport = Some(ClientTransports::Udp);
                             }
-                            // WebTransport Option
+                            // Basic WebTransport selection - assumes native variant
                             if ui.selectable_label(matches!(config.client_transport, Some(ClientTransports::WebTransport { .. })), "WebTransport").clicked() {
-                                todo!();
+                                config.client_transport = Some(ClientTransports::WebTransport{
+                                    #[cfg(target_family = "wasm")]
+                                    certificate_digest: "".to_string()
+                                });
                             }
-                            // Add other variants here
+                             if ui.selectable_label(config.client_transport.is_none(), "None").clicked() {
+                                config.client_transport = None;
+                            }
                         });
                 });
+                // TODO: Add UI for WebTransport certificate digest if target_family="wasm"
             });
         }
 
@@ -374,23 +267,31 @@ fn ui_system(
              ui.group(|ui| {
                 ui.heading("Server Settings");
 
-                 // Server Address (for binding) - Reuse the same field as client's target address for simplicity now
+                 // Server Bind Address
                  ui.horizontal(|ui| {
                     ui.label("Bind Address:");
+                    // Default to empty string if None
                     let mut server_addr_str = config.server_addr.map_or(String::new(), |addr| addr.to_string());
-                    let mut new_addr = None; // Store potential new address
+                    let mut new_addr = None;
+                     // Use a unique ID for the TextEdit widget
                     if ui.add(egui::TextEdit::singleline(&mut server_addr_str).id(egui::Id::new("server_bind_addr"))).changed() {
                         if let Ok(addr) = SocketAddr::from_str(&server_addr_str) {
-                           new_addr = Some(addr); // Store if valid
+                           new_addr = Some(addr);
+                        } else if server_addr_str.is_empty() {
+                            new_addr = None;
                         }
                     }
-                    // Apply changes after the UI interaction for this element
-                    if let Some(addr) = new_addr {
-                        config.server_addr = Some(addr); // Update address first
-                        // Then update the port in the Udp transport if it exists
+                    // Apply changes after the UI interaction
+                    if let Some(addr) = new_addr { // Check if the address *input* changed to something valid or None
                         if let Some(ServerTransports::Udp { local_port }) = &mut config.server_transport {
-                            *local_port = addr.port(); // Update transport port
+                            *local_port = addr.port();
                         }
+                        if let Some(ServerTransports::WebTransport { local_port, .. }) = &mut config.server_transport {
+                            *local_port = addr.port();
+                        }
+                    } else if server_addr_str.is_empty() && ui.add(egui::TextEdit::singleline(&mut server_addr_str).id(egui::Id::new("server_bind_addr"))).changed() {
+                         // Handle case where field was cleared
+                         config.server_addr = None;
                     }
                 });
 
@@ -398,61 +299,50 @@ fn ui_system(
                 // Server Transport
                 ui.horizontal(|ui| {
                     ui.label("Server Transport:");
-                    // Manually handle ServerTransports variants
                     let current_transport_text = match config.server_transport {
                         Some(ServerTransports::Udp { .. }) => "UDP",
-                        Some(ServerTransports::WebTransport { .. }) => "WebTransport", // Added arm
-                        // Add other variants if needed
+                        Some(ServerTransports::WebTransport { .. }) => "WebTransport",
                         None => "None",
                     };
                      egui::ComboBox::from_id_salt("##ServerTransport")
                         .selected_text(current_transport_text)
                         .show_ui(ui, |ui| {
+                            let port = config.server_addr.map_or(SERVER_PORT, |addr| addr.port());
                             // UDP Option
                             if ui.selectable_label(matches!(config.server_transport, Some(ServerTransports::Udp { .. })), "UDP").clicked() {
-                                let port = config.server_addr.map_or(SERVER_PORT, |addr| addr.port());
                                 config.server_transport = Some(ServerTransports::Udp { local_port: port });
                             }
                             // WebTransport Option (Server)
                             if ui.selectable_label(matches!(config.server_transport, Some(ServerTransports::WebTransport { .. })), "WebTransport").clicked() {
-                                todo!();
-                                // // TODO: Certificate handling needed for WebTransport Server!
-                                // // For now, just set the variant. The build function will need adjustment.
-                                // let port = config.server_addr.map_or(SERVER_PORT, |addr| addr.port()); // Get port
-                                // config.server_transport = Some(ServerTransports::WebTransport {
-                                //     local_port: port, // Added local_port
-                                //     certificate: None // Placeholder cert
-                                // });
-                                // warn!("WebTransport Server selected - Certificate handling is not implemented!");
+                                warn!("WebTransport Server selected - Certificate handling is not implemented in UI!");
+                                let port = config.server_addr.map_or(SERVER_PORT, |addr| addr.port());
+                                config.server_transport = Some(ServerTransports::WebTransport {
+                                    local_port: port,
+                                    certificate: Default::default(),
+                                });
                             }
-                            // Add other variants here
+                             if ui.selectable_label(config.server_transport.is_none(), "None").clicked() {
+                                config.server_transport = None;
+                            }
                         });
                 });
 
-                 // Show UDP Port if UDP is selected
-                 let mut new_port = None; // Store the potential new port outside the closure
-                 if let Some(ServerTransports::Udp { local_port }) = &config.server_transport { // Immutable borrow first
-                     let current_port = *local_port; // Copy the port
-                     ui.horizontal(|ui| {
-                         ui.label("UDP Port:");
-                         let mut port_str = current_port.to_string();
-                         if ui.text_edit_singleline(&mut port_str).changed() {
-                             if let Ok(port) = port_str.parse::<u16>() {
-                                 new_port = Some(port); // Store the new port if valid
-                             }
-                         }
-                     });
-                 }
-
-                 // Apply the change after the UI interaction
-                 if let Some(port) = new_port {
-                     if let Some(ServerTransports::Udp { local_port }) = &mut config.server_transport {
-                         *local_port = port;
-                     }
-                     if let Some(addr) = &mut config.server_addr {
-                         addr.set_port(port);
-                     }
-                 }
+                 // // Show/Edit UDP Port if UDP is selected
+                 // if let Some(ServerTransports::Udp { local_port }) = &mut config.server_transport {
+                 //     ui.horizontal(|ui| {
+                 //         ui.label("UDP Port:");
+                 //         let mut port_str = local_port.to_string();
+                 //         let mut new_port_val: Option<u16> = None;
+                 //         // TODO: make this non-editable! the port will h
+                 //         // Use a unique ID for the TextEdit widget
+                 //         if ui.add(egui::TextEdit::singleline(&mut port_str).id(egui::Id::new("server_udp_port"))).changed() {
+                 //             if let Ok(port) = port_str.parse::<u16>() {
+                 //                new_port_val = Some(port);
+                 //             }
+                 //         }
+                 //     });
+                 // }
+                 // TODO: Add UI for WebTransport server certificate paths if needed
 
             }); // End Server Group
         }
@@ -471,7 +361,7 @@ fn ui_system(
         };
         if ui.add_enabled(launch_enabled, egui::Button::new("Launch Example")).clicked() {
             info!("Launch button clicked! Config: {:?}", *config);
-            launch_event_writer.send(LaunchEvent);
+            launch_app(&config);
         }
         if !launch_enabled {
             ui.label("(Please complete configuration for the selected mode)");
@@ -479,142 +369,156 @@ fn ui_system(
     });
 }
 
-// We need this because App implements Send but not Sync
-struct SendApp(App);
-unsafe impl Send for SendApp {}
 
-impl SendApp {
-    fn run(&mut self) {
-        self.0.run();
-    }
-}
-
-// --- App Creation Helpers (inspired by common_new/cli.rs) ---
-
-// Creates a Bevy app with GUI support
-fn new_launcher_gui_app() -> App {
+fn new_launcher_gui_app(title: String) -> App {
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
             .build()
             .set(AssetPlugin {
-                // Workaround for wasm hot-reload issue
-                meta_check: bevy::asset::AssetMetaCheck::Never,
+                meta_check: bevy::asset::AssetMetaCheck::Never, // Workaround for wasm hot-reload
                 ..default()
             })
-            .set(LogPlugin { // Use common log settings
+            .set(LogPlugin {
+                // Use common log settings
                 level: bevy::log::Level::INFO,
-                filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
+                filter: "wgpu=error,bevy_render=info,bevy_ecs=warn,lightyear=info".to_string(),
                 ..default()
             })
-            // We don't set the WindowPlugin here, let the specific build function do it
-            // if needed, so we can customize the title.
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title,
+                    ..default()
+                }),
+                ..default()
+            }),
     );
     app
 }
 
-// Creates a Bevy app without GUI support (minimal plugins)
+// Creates a Bevy app without GUI support (for ServerOnly)
 fn new_launcher_headless_app() -> App {
     let mut app = App::new();
     app.add_plugins((
         MinimalPlugins,
         AssetPlugin::default(), // Needed for server plugins sometimes
-        LogPlugin { // Use common log settings
+        LogPlugin {
+            // Use common log settings
             level: bevy::log::Level::INFO,
-            filter: "wgpu=error,bevy_render=info,bevy_ecs=warn".to_string(),
+            filter: "wgpu=error,bevy_render=info,bevy_ecs=warn,lightyear=info".to_string(),
             ..default()
         },
     ));
     app
 }
 
-
 fn build_server_app(config: LauncherConfig, _asset_path: String) -> App {
-    info!("Building Server App by adding plugins... Config: {:?}", config);
+    info!(
+        "Building Server App by adding plugins... Config: {:?}",
+        config
+    );
     let mut app = new_launcher_headless_app();
-    app.add_plugins(server::ServerPlugins {
-         tick_duration: config.tick_duration,
-    });
 
-    // Add example-specific plugins via helper (this helper might need adjustment later)
+    // Extract required fields from config
+    let server_transport = config
+        .server_transport
+        .expect("Server transport must be set for server mode");
+
+    app.add_plugins((
+        server::ServerPlugins{ tick_duration: config.tick_duration},
+    ));
+
+    // Add example-specific server plugins (protocol might be added here or in ServerPlugins)
     add_example_server_plugins(&mut app, config.example);
+
+    let server = app.world_mut().spawn(ExampleServer {
+        conditioner: None,
+        transport: server_transport,
+        shared: simple_box_new::SHARED_SETTINGS
+    }).id();
+    app.world_mut().trigger_targets(Start, server);
+
     app
 }
-
-// Helper to add only the server-specific logic plugins (not the protocol)
-fn add_example_server_only_plugins(app: &mut App, example: Example) {
-    match example {
-        Example::SimpleBox => {
-            app.add_plugins(SimpleBoxServerPlugin);
-        }
-        Example::Fps => {
-            todo!();
-        }
-    }
-}
-
 
 // Generic build function for the client app
 fn build_client_app(config: LauncherConfig, _asset_path: String) -> App {
-    info!("Building Client App by adding plugins... Config: {:?}", config);
-    let mut app = new_launcher_gui_app(); // Use GUI helper
+    info!(
+        "Building Client App by adding plugins... Config: {:?}",
+        config
+    );
 
-    // Use expect() as the UI should ensure these are Some when launching client
-    let client_id = config.client_id.expect("Client ID must be set for client mode");
 
-    // Add Window plugin with custom title
-    app.add_plugins(WindowPlugin {
-        primary_window: Some(Window {
-            title: format!("{} Client {}", config.example, client_id),
-            ..default()
-        }),
-        ..default()
-    });
+    // Extract required fields from config
+    let client_id = config
+        .client_id
+        .expect("Client ID must be set for client mode");
+    let server_addr = config
+        .server_addr
+        .expect("Server address must be set for client mode");
+    let client_transport = config
+        .client_transport
+        .expect("Client transport must be set for client mode");
+
+    let mut app = new_launcher_gui_app(format!("{} Client {}", config.example, client_id));
 
     app.add_plugins((
-        client::ClientPlugins {
-            tick_duration: config.tick_duration,
-        },
-        ExampleClientRendererPlugin::new(String::new()),
+        client::ClientPlugins{ tick_duration: config.tick_duration},
+        ExampleClientRendererPlugin::new(String::new()), // Assuming this is still needed
     ));
 
-    // Add example-specific plugins via helper
+    // Add example-specific client plugins (protocol might be added here or in ClientPlugins)
     add_example_client_plugins(&mut app, config.example);
+
+    let client = app.world_mut().spawn(ExampleClient {
+        client_id,
+        client_port: 0,
+        server_addr,
+        conditioner: None,
+        transport: client_transport,
+        shared: simple_box_new::SHARED_SETTINGS,
+    }).id();
+    app.world_mut().trigger_targets(Connect, client);
+
     app
 }
 
 // Build function for HostServer mode (Client + Server in one App)
 fn build_host_server_app(config: LauncherConfig, _asset_path: String) -> App {
-    info!("Building HostServer App by adding plugins... Config: {:?}", config);
-    let mut app = new_launcher_gui_app(); // Use GUI helper
+    info!(
+        "Building HostServer App by adding plugins... Config: {:?}",
+        config
+    );
 
-    app.add_plugins((
-        client::ClientPlugins {
-            tick_duration: config.tick_duration,
-        },
-        server::ServerPlugins {
-            tick_duration: config.tick_duration,
-        },
-        ExampleClientRendererPlugin::new(String::new()),
+    // Extract required fields (ensure they exist, checked by UI launch enable)
+    let client_id = config.client_id.expect("Client ID missing for HostServer");
+    let server_addr = config
+        .server_addr
+        .expect("Server address missing for HostServer");
+    let client_transport_opt = config.client_transport; // Keep option for now
+    let server_transport_opt = config.server_transport; // Keep option for now
+
+    let mut app = new_launcher_gui_app(format!(
+        "{} HostServer (Client {}, Server {})",
+        config.example, client_id, server_addr
     ));
 
-    // --- Window Title ---
-     app.add_plugins(WindowPlugin {
-        primary_window: Some(Window {
-            title: format!("{} HostServer", config.example),
-            ..default()
-        }),
-        ..default()
-    });
+    app.add_plugins((
+        client::ClientPlugins{ tick_duration: config.tick_duration},
+        ExampleClientRendererPlugin::new(String::new()),
+        server::ServerPlugins{ tick_duration: config.tick_duration},
+    ));
 
-    // --- Add Example Plugins (Client + Server) ---
-    add_example_server_plugins(&mut app, config.example);
-    add_example_client_plugins(&mut app, config.example);
+    // --- Add Example Plugins (Common Protocol, Specific Client/Server Logic) ---
+    add_example_server_plugins(&mut app, config.example); // Adds Protocol + Server Logic
+    add_example_client_plugins(&mut app, config.example); // Adds Client Logic + Renderer
+
+    // TODO: add client and server entities
 
     app
 }
 
-
+// Adds Protocol and Server-specific systems/components for an example
 fn add_example_server_plugins(app: &mut App, example: Example) {
     match example {
         Example::SimpleBox => {
@@ -622,82 +526,108 @@ fn add_example_server_plugins(app: &mut App, example: Example) {
             app.add_plugins(SimpleBoxServerPlugin);
         }
         Example::Fps => {
-            todo!()
+            error!("FPS Example Server plugins not implemented!");
+            // app.add_plugins(FpsProtocolPlugin);
+            // app.add_plugins(FpsServerPlugin);
         }
     }
 }
 
+// Adds Client-specific systems/components and Renderer for an example
+// Note: Protocol should ideally be added only once (e.g., in server or client setup)
+// Or ensured that adding it twice is safe. Let's assume it's safe for now.
 fn add_example_client_plugins(app: &mut App, example: Example) {
-     match example {
+    match example {
         Example::SimpleBox => {
+            // If ProtocolPlugin is already added by server plugins in HostServer,
+            // adding it again might be redundant or cause issues depending on its implementation.
+            // Consider adding ProtocolPlugin conditionally or refactoring it.
+            // Let's assume adding it again is okay for now.
             app.add_plugins(SimpleBoxProtocolPlugin);
             app.add_plugins(SimpleBoxClientPlugin);
             app.add_plugins(SimpleBoxRendererPlugin);
         }
         Example::Fps => {
-            todo!();
+            error!("FPS Example Client plugins not implemented!");
+            // app.add_plugins(FpsProtocolPlugin); // Maybe added already
+            // app.add_plugins(FpsClientPlugin);
+            // app.add_plugins(FpsRendererPlugin);
         }
     }
 }
 
-
-// --- Launch Logic ---
-
-fn launch_button_system(
-    config: Res<LauncherConfig>,
-    // We might need AssetServer later if examples load assets
-    // asset_server: Res<AssetServer>,
+fn launch_app(
+    config: &LauncherConfig
 ) {
-    let launch_config = config.clone();
+    let launch_config = config.clone(); // Clone the config to pass to the new process
     info!("Handling LaunchEvent for config: {:?}", launch_config);
 
-    // TODO: Determine asset path correctly
-    let asset_path = "../../assets".to_string(); // Placeholder
-
-    match launch_config.example {
-        Example::SimpleBox | Example::Fps => { // Apply launch logic to all examples for now
-            match launch_config.mode {
-                NetworkingMode::ClientOnly => {
-                    // Ensure required config options are present for ClientOnly mode
-                    if launch_config.client_id.is_some() && launch_config.server_addr.is_some() && launch_config.client_transport.is_some() {
-                        info!("Launching {} ClientOnly...", launch_config.example);
-                        let client_app = build_client_app(launch_config, asset_path); // Use generic build_client_app
-                        let mut send_client_app = SendApp(client_app);
-                        std::thread::spawn(move || send_client_app.run());
-                    } else {
-                        warn!("Cannot launch ClientOnly: Missing Client ID, Server Address, or Client Transport configuration.");
-                    }
-                }
-                NetworkingMode::ServerOnly => {
-                    // Ensure required config options are present for ServerOnly mode
-                    if launch_config.server_addr.is_some() && launch_config.server_transport.is_some() {
-                        info!("Launching {} ServerOnly...", launch_config.example);
-                        let server_app = build_server_app(launch_config, asset_path); // Use generic build_server_app
-                        let mut send_server_app = SendApp(server_app);
-                        std::thread::spawn(move || send_server_app.run());
-                    } else {
-                        warn!("Cannot launch ServerOnly: Missing Server Address or Server Transport configuration.");
-                    }
-                }
-                 NetworkingMode::HostServer => {
-                    // Ensure required config options are present for HostServer mode
-                    if launch_config.client_id.is_some() && launch_config.server_addr.is_some() && launch_config.client_transport.is_some() && launch_config.server_transport.is_some() {
-                        info!("Launching {} HostServer (Client + Server in one app)...", launch_config.example);
-                        // Build the combined HostServer app
-                        let host_server_app = build_host_server_app(launch_config, asset_path);
-                        let mut send_host_server_app = SendApp(host_server_app);
-                        // Run the single app in a new thread
-                        std::thread::spawn(move || send_host_server_app.run());
-                    } else {
-                         warn!("Cannot launch HostServer: Missing Client ID, Server Address, Client Transport, or Server Transport configuration.");
-                    }
-                }
-            }
+    // 1. Serialize the configuration
+    let config_data = match ron::ser::to_string_pretty(&launch_config, ron::ser::PrettyConfig::default())
+    {
+        Ok(data) => data,
+        Err(e) => {
+            error!("Failed to serialize LauncherConfig to RON: {}", e);
+            // Optionally show an error message in the UI here
+            return;
         }
-        // Remove the separate Fps match arm as it's handled above now
-        // Example::Fps => {
-        //     warn!("FPS example launching not implemented yet!");
-        //     // TODO: Implement FPS example launch logic
-        // }
+    };
+
+    // 2. Create a temporary file
+    let mut temp_file = match tempfile::Builder::new()
+        .prefix("lightyear_launcher_cfg_")
+        .suffix(".ron")
+        .tempfile() // Creates file in OS temp dir
+    {
+        Ok(file) => file,
+        Err(e) => {
+            error!("Failed to create temporary config file: {}", e);
+            return;
+        }
+    };
+
+    // 3. Write the serialized config to the temporary file
+    if let Err(e) = temp_file.write_all(config_data.as_bytes()) {
+        error!("Failed to write config to temporary file: {}", e);
+        return; // temp_file will be cleaned up on drop
+    }
+
+    // 4. Get the path of the temporary file.
+    // We need to keep the NamedTempFile handle alive until the command is spawned,
+    // or convert it to a TempPath which persists until it goes out of scope.
+    let temp_path = temp_file.into_temp_path(); // Persists the file until temp_path drops
+
+    // 5. Get the path to the currently running executable
+    let current_exe = match env::current_exe() {
+        Ok(path) => path,
+        Err(e) => {
+            error!("Failed to get current executable path: {}", e);
+            // temp_path will be cleaned up when this function returns
+            return;
+        }
+    };
+
+    // 6. Create the command to spawn the new process
+    let mut command = Command::new(current_exe);
+    command.arg("--config-path").arg(&*temp_path); // Pass the path to the config file
+
+    info!(
+        "Spawning process: {:?} --config-path {:?}",
+        command.get_program(),
+        &*temp_path
+    );
+
+    temp_path.keep().expect("Error in persisting temp file");
+
+    // 7. Spawn the new process
+    match command.spawn() {
+        Ok(child) => {
+            info!("Process spawned successfully with PID: {:?}", child.id());
+            // Child process now runs independently with the config file
+        }
+        Err(e) => {
+            error!("Failed to spawn process: {}", e);
+            // Optionally show an error message in the UI
+        }
     }
 }

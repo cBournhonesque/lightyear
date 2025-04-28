@@ -49,7 +49,7 @@ pub enum MessageError {
 }
 
 /// [`MessageKind`] is an internal wrapper around the type of the message
-#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
+#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq, Reflect)]
 pub struct MessageKind(TypeId);
 
 impl MessageKind {

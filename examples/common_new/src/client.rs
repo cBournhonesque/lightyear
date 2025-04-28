@@ -7,22 +7,22 @@ use bevy::asset::ron;
 use bevy::prelude::*;
 use core::time::Duration;
 
+use crate::shared::SharedSettings;
 #[cfg(not(target_family = "wasm"))]
 use async_compat::Compat;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 #[cfg(not(target_family = "wasm"))]
 use bevy::tasks::IoTaskPool;
-
-use crate::shared::SharedSettings;
 use lightyear::input::prelude::InputBuffer;
 use lightyear::netcode::client_plugin::NetcodeConfig;
 use lightyear::netcode::{NetcodeClient, PRIVATE_KEY_BYTES};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ClientTransports {
     #[cfg(not(target_family = "wasm"))]
     Udp,

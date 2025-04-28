@@ -201,6 +201,8 @@ impl Plugin for TimelinePlugin {
         // TODO: this should be in InputPlugin
         app.register_type::<RollbackState>();
 
+        app.register_type::<(LocalTimeline, Timeline<Local>)>();
+
         app.insert_resource(TickDuration(self.tick_duration));
         app.world_mut().resource_mut::<Time<Fixed>>().set_timestep(self.tick_duration);
         app.add_observer(Self::update_tick_duration);

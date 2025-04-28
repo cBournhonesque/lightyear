@@ -117,11 +117,11 @@ impl NetcodeClientPlugin {
     /// then buffer them back into the Link
     fn receive(
         real_time: Res<Time<Real>>,
-        mut query: Query<(Entity, &mut Link, &mut NetcodeClient, Has<Connecting>), Without<Unlinked>>,
+        mut query: Query<(Entity, &mut Link, &mut NetcodeClient, Has<Connecting>, Has<Disconnected>), Without<Unlinked>>,
         parallel_commands: ParallelCommands
     ) {
         let delta = real_time.delta();
-        query.par_iter_mut().for_each(|(entity, mut link, mut client, connecting )| {
+        query.par_iter_mut().for_each(|(entity, mut link, mut client, connecting, disconnected )| {
             // #[cfg(feature = "test_utils")]
             // trace!("CLIENT: length of each packet in receive: {:?}", link.recv.iter().map(|p| p.len()).collect::<Vec<_>>());
 
@@ -141,8 +141,8 @@ impl NetcodeClientPlugin {
                         });
                     });
                 }
-                if !matches!(state, ClientState::Connected | ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse) {
-                    info!("Client {} disconnected", client.id());
+                if !disconnected && !matches!(state, ClientState::Connected | ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse) {
+                    info!("Client {} disconnected. State: {state:?}", client.id());
                     parallel_commands.command_scope(|mut commands| {
                         commands.entity(entity).insert(Disconnected {
                             reason: Some(format!("Client disconnected: {:?}", state))
@@ -188,6 +188,7 @@ impl NetcodeClientPlugin {
         mut query: Query<&Unlinked, With<Client>>,
     ) {
         if let Ok(unlinked) = query.get(trigger.target()) {
+            info!("Disconnect because link failed: {:?}", unlinked.reason);
              commands
                 .entity(trigger.target())
                 .insert(Disconnected {

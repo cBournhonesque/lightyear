@@ -199,6 +199,8 @@ impl Linking {
         if let Some(mut link) = world.get_mut::<Link>(context.entity) {
             link.state = LinkState::Linking;
         }
+        world.commands().entity(context.entity)
+            .remove::<(Linked, Unlinked)>();
     }
 }
 
@@ -211,6 +213,8 @@ impl Linked {
         if let Some(mut link) = world.get_mut::<Link>(context.entity) {
             link.state = LinkState::Linked;
         }
+        world.commands().entity(context.entity)
+            .remove::<(Linking, Unlinked)>();
     }
 }
 
@@ -225,6 +229,8 @@ impl Unlinked {
         if let Some(mut link) = world.get_mut::<Link>(context.entity) {
             link.state = LinkState::Unlinked;
         }
+        world.commands().entity(context.entity)
+            .remove::<(Linked, Linking)>();
     }
 }
 

@@ -6,8 +6,7 @@ use bevy::ecs::relationship::{Relationship, RelationshipHookMode};
 use bevy::ecs::system::entity_command;
 use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashMap;
-use bevy::prelude::{format, Query};
-use bevy::prelude::{Component, Entity, EntityWorldMut, RelationshipTarget};
+use bevy::prelude::*;
 use tracing::warn;
 
 use crate::prelude::NetworkTarget;
@@ -17,11 +16,10 @@ use lightyear_core::id::PeerId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 
 /// Marker component to identify this entity as a Client
-#[derive(Component, Default, Debug, PartialEq, Eq)]
+#[derive(Component, Default, Debug, PartialEq, Eq, Reflect)]
+#[reflect(Component, PartialEq, Debug)]
 #[component(on_despawn = Server::on_despawn)]
 #[component(on_replace = Server::on_replace)]
-#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-#[cfg_attr(feature = "bevy_reflect", reflect(Component, FromWorld, Default))]
 pub struct Server {
     /// The server entity that this client is connected to
     ///
@@ -57,16 +55,12 @@ impl Server {
     }
 }
 
-#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug, Reflect)]
+#[reflect(Component, PartialEq, Debug, Clone)]
 // every ClientOf starts as Connecting until the server confirms the connection
 #[require(Connecting)]
 #[component(on_insert = ClientOf::on_insert)]
 #[component(on_replace = ClientOf::on_replace)]
-#[cfg_attr(feature = "bevy_reflect", derive(bevy_reflect::Reflect))]
-#[cfg_attr(
-    feature = "bevy_reflect",
-    reflect(Component, PartialEq, Debug, FromWorld, Clone)
-)]
 pub struct ClientOf {
     /// The server entity that this client is connected to
     pub server: Entity,
@@ -171,21 +165,6 @@ impl ClientOf {
                 target_entity_mut.get_mut::<Server>()
             {
                 unsafe { relationship_target.remove_client(entity) };
-                if relationship_target.len() == 0 {
-                    if let Ok(mut entity) = world.commands().get_entity(target_entity) {
-                        // this "remove" operation must check emptiness because in the event that an identical
-                        // relationship is inserted on top, this despawn would result in the removal of that identical
-                        // relationship ... not what we want!
-                        entity.queue(|mut entity: EntityWorldMut| {
-                            if entity
-                                .get::<Server>()
-                                .is_some_and(RelationshipTarget::is_empty)
-                            {
-                                entity.remove::<Server>();
-                            }
-                        });
-                    }
-                }
             }
         }
     }

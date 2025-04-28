@@ -67,7 +67,7 @@ pub enum ReplicationMode {
 ///
 /// - If sender is an Entity that has a ReplicationSender, we will replicate on that entity
 /// - If the entity is None, we will try to find a unique ReplicationSender in the app
-#[derive(Component, Clone, Default, Debug, PartialEq)]
+#[derive(Component, Clone, Default, Debug, PartialEq, Reflect)]
 #[require(HasAuthority)]
 #[require(Replicating)]
 #[require(ReplicationGroup)]
@@ -75,6 +75,7 @@ pub enum ReplicationMode {
 #[component(on_replace = Replicate::on_replace)]
 pub struct Replicate {
     mode: ReplicationMode,
+    #[reflect(ignore)]
     pub(crate) senders: EntityIndexSet,
 }
 
@@ -255,11 +256,18 @@ impl Replicate {
             });
     }
 
+    // server has client 1
+    // entity A is replicated to all clients
+    // client 2 spawns.
+    // server spawns entity B
+    // 1. entity A should be replicated to client 2
+    // 2. entity B should be replicated to client 1 (OK)
+
     #[cfg(any(feature = "client", feature = "server"))]
     /// When a new client connects, check if we need to replicate existing entities to it
     pub(crate) fn handle_connection(
-        trigger: Trigger<OnAdd, Connected>,
-        mut sender_query: Query<(Entity, &mut ReplicationSender, Option<&Client>, Option<&ClientOf>)>,
+        trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
+        mut sender_query: Query<(Entity, &mut ReplicationSender, Option<&Client>, Option<&ClientOf>), With<Connected>>,
         mut replicate_query: Query<(Entity, &mut Replicate)>,
     ) {
         if let Ok((sender_entity, mut sender, client, client_of)) = sender_query.get_mut(trigger.target()) {
@@ -272,6 +280,7 @@ impl Replicate {
                     #[cfg(feature = "server")]
                     ReplicationMode::SingleServer(target) => {
                         if client_of.is_some_and(|p| target.targets(&p.id)) {
+                            info!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
                             sender.add_replicated_entity(entity);
                             replicate.senders.insert(sender_entity);
                         }

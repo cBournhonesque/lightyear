@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use crate::registry::MessageKind;
 use bevy::ecs::component::ComponentId;
-use bevy::prelude::Component;
+use bevy::prelude::{Component, Reflect};
 use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::prelude::Transport;
@@ -52,7 +52,7 @@ pub type MessageNetId = NetId;
 
 
 /// Component that will track the component_ids of the MessageReceiver<M> and MessageSender<M> that are present on the entity
-#[derive(Component, Default)]
+#[derive(Component, Default, Reflect)]
 #[require(Transport)]
 pub struct MessageManager{
     /// List of component ids of the MessageSender<M> present on this entity

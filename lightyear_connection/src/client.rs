@@ -2,7 +2,7 @@
 use alloc::string::String;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Event};
+use bevy::prelude::{Component, Event, Reflect};
 use lightyear_core::id::PeerId;
 
 
@@ -17,7 +17,7 @@ pub enum ConnectionError {
     NotConnected,
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum ClientState {
     /// Client is connected to the server
     Connected(PeerId),
@@ -29,7 +29,7 @@ pub enum ClientState {
 }
 
 /// Marker component to identify this entity as a Client
-#[derive(Component, Default)]
+#[derive(Component, Default, Reflect)]
 pub struct Client {
     pub state: ClientState
 }
@@ -54,7 +54,7 @@ pub struct Connect;
 pub struct Disconnect;
 
 
-#[derive(Component, Event, Default, Debug)]
+#[derive(Component, Event, Default, Debug, Reflect)]
 #[component(on_add = Connected::on_add)]
 pub struct Connected {
     pub peer_id: PeerId,
@@ -72,7 +72,7 @@ impl Connected {
 }
 
 // TODO: add automatic disconnection for entities that are Connecting for too long
-#[derive(Component, Event, Default, Debug)]
+#[derive(Component, Event, Default, Debug, Reflect)]
 #[component(on_add = Connecting::on_add)]
 pub struct Connecting;
 
@@ -86,7 +86,7 @@ impl Connecting {
     }
 }
 
-#[derive(Component, Event, Default, Debug)]
+#[derive(Component, Event, Default, Debug, Reflect)]
 #[component(on_add = Disconnected::on_add)]
 pub struct Disconnected {
     pub reason: Option<String>,

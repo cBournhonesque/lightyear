@@ -173,7 +173,6 @@ impl NetcodeServerPlugin {
             netcode_server.inner.update_state(delta.as_secs_f64());
 
             // TODO: try to make this parallel!
-
             // enable split borrows
             let server = &mut *server;
             // SAFETY: we know that the list of client entities are unique because it is a Relationship

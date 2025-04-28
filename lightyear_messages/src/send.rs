@@ -9,7 +9,7 @@ use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::entity::{EntityMapper, MapEntities};
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
-use bevy::prelude::{Component, Entity, Event, Query, Res, Without, World};
+use bevy::prelude::{Component, Entity, Event, Query, Reflect, Res, Without, World};
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
@@ -23,11 +23,12 @@ use tracing::{debug, error, info, trace};
 pub type Priority = f32;
 
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
 #[component(on_add = MessageSender::<M>::on_add_hook)]
 #[require(MessageManager)]
 pub struct MessageSender<M: Message> {
     send: Vec<(M, ChannelKind, Priority)>,
+    #[reflect(ignore)]
     writer: Writer,
 }
 

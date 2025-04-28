@@ -149,6 +149,11 @@ pub struct MessagePlugin;
 impl Plugin for MessagePlugin {
 
     fn build(&self, app: &mut App) {
+        app.register_type::<(
+            MessageManager
+        )>();
+
+
         if !app.is_plugin_added::<TransportPlugin>() {
             app.add_plugins(TransportPlugin);
         }

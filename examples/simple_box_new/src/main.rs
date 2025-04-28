@@ -19,7 +19,7 @@ use crate::server::ExampleServerPlugin;
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_examples_common_new::cli::{Cli, Mode};
-use simple_box_new::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
+use simple_box_new::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SEND_INTERVAL, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
 
 #[cfg(feature = "client")]
 mod client;

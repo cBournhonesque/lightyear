@@ -3,6 +3,7 @@
 //!
 
 use crate::authority::{AuthorityPeer, HasAuthority};
+use crate::buffer::{Replicate, ReplicationMode};
 use crate::components::*;
 use crate::control::Controlled;
 use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
@@ -35,9 +36,12 @@ impl Plugin for SharedPlugin {
             .register_type::<Confirmed>()
             .register_type::<Controlled>()
             .register_type::<Replicating>()
-            // .register_type::<Replicate>()
+            .register_type::<ReplicationMode>()
+            .register_type::<Replicate>()
             .register_type::<DisableReplicateHierarchy>()
             .register_type::<ReplicateLike>()
+            .register_type::<ComponentReplicationConfig>()
+            .register_type::<ComponentReplicationOverride>()
             .register_type::<ReplicationGroupIdBuilder>()
             .register_type::<ReplicationGroup>()
             .register_type::<ReplicationGroupId>()
@@ -46,12 +50,19 @@ impl Plugin for SharedPlugin {
 
         #[cfg(feature = "interpolation")]
         {
-            app.register_type::<ShouldBeInterpolated>();
+            app.register_type::<(
+                ShouldBeInterpolated,
+                InterpolationTarget
+            )>();
             app.register_component::<ShouldBeInterpolated>();
         }
         #[cfg(feature = "prediction")]
         {
-            app.register_type::<(ShouldBePredicted, PrePredicted)>();
+            app.register_type::<(
+                ShouldBePredicted,
+                PrePredicted,
+                PredictionTarget
+            )>();
             app.register_component::<ShouldBePredicted>();
             app.register_component::<PrePredicted>();
         }

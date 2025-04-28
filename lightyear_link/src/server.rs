@@ -16,3 +16,4 @@ pub struct ServerLink {
 pub struct LinkOf {
     pub server: Entity
 }
+

@@ -20,6 +20,7 @@ impl PluginGroup for SharedPlugins {
         )
             .add(lightyear_transport::plugin::TransportPlugin)
             .add(lightyear_messages::plugin::MessagePlugin)
+            .add(lightyear_connection::ConnectionPlugin)
             .add(lightyear_replication::prelude::ReplicationSendPlugin)
             .add(lightyear_replication::prelude::NetworkVisibilityPlugin)
             .add(lightyear_replication::prelude::RelationshipSendPlugin::<ChildOf>::default())

@@ -3,7 +3,7 @@ use crate::direction::NetworkDirection;
 use alloc::string::String;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::prelude::{Component, Event};
+use bevy::prelude::{Component, Event, Reflect};
 use core::fmt::Debug;
 
 /// A dummy connection plugin that takes payloads directly from the Link
@@ -33,10 +33,10 @@ pub struct Stop;
 #[derive(Component)]
 pub struct Starting;
 
-#[derive(Component, Event)]
+#[derive(Component, Event, Reflect)]
 pub struct Started;
 
-#[derive(Component, Event)]
+#[derive(Component, Event, Reflect)]
 pub struct Stopped;
 
 pub(crate) trait AppChannelDirectionExt {

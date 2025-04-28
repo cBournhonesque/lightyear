@@ -236,6 +236,10 @@ impl Plugin for ReplicationSendPlugin {
         app.add_observer(Self::send_sender_metadata);
         #[cfg(any(feature = "client", feature = "server"))]
         app.add_observer(Replicate::handle_connection);
+        #[cfg(all(any(feature = "client", feature = "server"), feature="prediction"))]
+        app.add_observer(PredictionTarget::handle_connection);
+        #[cfg(all(any(feature = "client", feature = "server"), feature="interpolation"))]
+        app.add_observer(InterpolationTarget::handle_connection);
 
         app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
         app.add_systems(PostUpdate, buffer::buffer_entity_despawn_replicate_updated.in_set(ReplicationBufferSet::Buffer));

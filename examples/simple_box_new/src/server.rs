@@ -16,7 +16,6 @@ use lightyear::prelude::input::native::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
-
 pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
@@ -105,7 +104,7 @@ fn movement(
     let tick = timeline.tick();
     for (position, inputs) in position_query.iter_mut() {
         if let Some(inputs) = &inputs.value {
-            info!(?tick, ?position, ?inputs, "server");
+            // info!(?tick, ?position, ?inputs, "server");
             shared::shared_movement_behaviour(position, inputs);
         }
     }
