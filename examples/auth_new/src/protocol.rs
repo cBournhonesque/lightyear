@@ -13,7 +13,6 @@ use bevy::prelude::{
 use bevy::prelude::{App, Plugin};
 use serde::{Deserialize, Serialize};
 
-use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::*;
 
 // Protocol

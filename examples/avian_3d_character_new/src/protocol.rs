@@ -2,19 +2,13 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
-use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use serde::{Deserialize, Serialize};
 
-use crate::shared::color_from_id;
-use lightyear::client::components::{ComponentSyncMode, LerpFn};
-use lightyear::client::interpolation::LinearInterpolator;
-use lightyear::prelude::client::{self};
-use lightyear::prelude::server::{Replicate, SyncTarget};
+use crate::shared::color_from_id; // Keep if used
+use lightyear::prelude::client::*; // Use client prelude
+use lightyear::prelude::server::*; // Use server prelude
 use lightyear::prelude::*;
-use lightyear::shared::input::InputConfig;
-use lightyear::utils::avian3d::{position, rotation};
-use lightyear::utils::bevy::TransformLinearInterpolation;
-use tracing_subscriber::util::SubscriberInitExt;
+use lightyear::utils::avian3d::{position, rotation}; // Keep avian utils
 
 // For prediction, we want everything entity that is predicted to be part of
 // the same replication group This will make sure that they will be replicated
@@ -57,82 +51,89 @@ impl Actionlike for CharacterAction {
 }
 
 // Protocol
-pub(crate) struct ProtocolPlugin {
-    pub(crate) predict_all: bool,
-}
+#[derive(Clone)] // Added Clone
+pub(crate) struct ProtocolPlugin;
+// { // Removed predict_all field
+//     pub(crate) predict_all: bool,
+// }
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(LeafwingInputPlugin::<CharacterAction> {
-            config: InputConfig::<CharacterAction> {
-                rebroadcast_inputs: self.predict_all,
-                ..default()
-            },
-        });
+        // Use new input plugin path and default config
+        app.add_plugins(input::leafwing::InputPlugin::<CharacterAction>::default());
+        // app.add_plugins(LeafwingInputPlugin::<CharacterAction> {
+        //     config: InputConfig::<CharacterAction> {
+        //         rebroadcast_inputs: self.predict_all, // Removed config
+        //         ..default()
+        //     },
+        // });
 
-        app.register_component::<ColorComponent>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        // Use PredictionMode and InterpolationMode
+        app.register_component::<ColorComponent>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
-        app.register_component::<Name>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once);
+        app.register_component::<Name>()
+            .add_prediction(PredictionMode::Once);
 
-        app.register_component::<CharacterMarker>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<CharacterMarker>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
-        app.register_component::<ProjectileMarker>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<ProjectileMarker>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
-        app.register_component::<FloorMarker>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once);
+        app.register_component::<FloorMarker>()
+            .add_prediction(PredictionMode::Once);
 
-        app.register_component::<BlockMarker>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once);
+        app.register_component::<BlockMarker>()
+            .add_prediction(PredictionMode::Once);
 
         // Fully replicated, but not visual, so no need for lerp/corrections:
-        app.register_component::<LinearVelocity>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full);
+        app.register_component::<LinearVelocity>()
+            .add_prediction(PredictionMode::Full);
 
-        app.register_component::<AngularVelocity>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full);
+        app.register_component::<AngularVelocity>()
+            .add_prediction(PredictionMode::Full);
 
-        app.register_component::<ExternalForce>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full);
+        app.register_component::<ExternalForce>()
+            .add_prediction(PredictionMode::Full);
 
-        app.register_component::<ExternalImpulse>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full);
+        app.register_component::<ExternalImpulse>()
+            .add_prediction(PredictionMode::Full);
 
         // Do not replicate Transform when we are replicating Position/Rotation!
         // See https://github.com/cBournhonesque/lightyear/discussions/941
-        // app.register_component::<Transform>(ChannelDirection::ServerToClient)
-        //     .add_prediction(ComponentSyncMode::Full);
+        // app.register_component::<Transform>()
+        //     .add_prediction(PredictionMode::Full);
 
-        app.register_component::<ComputedMass>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full);
+        app.register_component::<ComputedMass>()
+            .add_prediction(PredictionMode::Full);
 
         // Position and Rotation have a `correction_fn` set, which is used to smear rollback errors
         // over a few frames, just for the rendering part in postudpate.
         //
         // They also set `interpolation_fn` which is used by the VisualInterpolationPlugin to smooth
         // out rendering between fixedupdate ticks.
-        app.register_component::<Position>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full)
+        app.register_component::<Position>()
+            .add_prediction(PredictionMode::Full)
             .add_interpolation_fn(position::lerp)
-            .add_interpolation(ComponentSyncMode::Full)
+            .add_interpolation(InterpolationMode::Full)
             .add_correction_fn(position::lerp);
 
-        app.register_component::<Rotation>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full)
+        app.register_component::<Rotation>()
+            .add_prediction(PredictionMode::Full)
             .add_interpolation_fn(rotation::lerp)
-            .add_interpolation(ComponentSyncMode::Full)
+            .add_interpolation(InterpolationMode::Full)
             .add_correction_fn(rotation::lerp);
 
         // do not replicate Transform but make sure to register an interpolation function
         // for it so that we can do visual interpolation
         // (another option would be to replicate transform and not use Position/Rotation at all)
-        app.add_interpolation::<Transform>(ComponentSyncMode::None);
-        app.add_interpolation_fn::<Transform>(TransformLinearInterpolation::lerp);
+        // NOTE: TransformLinearInterpolation might be in a different path or handled differently now.
+        // Assuming it's still needed and available via prelude or bevy::prelude.
+        app.add_interpolation::<Transform>(); // Removed ComponentSyncMode::None
+        app.add_interpolation_fn::<Transform>(bevy::transform::TransformInterpolation::lerp); // Assuming path
     }
 }

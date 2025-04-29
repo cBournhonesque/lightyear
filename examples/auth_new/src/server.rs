@@ -11,77 +11,90 @@ use async_compat::Compat;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 
-use crate::utils::collections::HashSet;
 use bevy::prelude::*;
 use bevy::tasks::IoTaskPool;
+use bevy::utils::HashSet; // Use bevy's HashSet
 use core::time::Duration;
 use tokio::io::AsyncWriteExt;
 
 use lightyear::prelude::server::*;
-use lightyear::prelude::ClientId::Netcode;
 use lightyear::prelude::*;
+use lightyear_examples_common_new::shared::{SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS}; // Import common settings
 
+use crate::client::AuthSettings; // Assuming AuthSettings is defined in client.rs
 use crate::protocol::*;
 use crate::shared;
 
-pub struct ExampleServerPlugin {
-    pub protocol_id: u64,
-    pub private_key: Key,
-    pub game_server_addr: SocketAddr,
-    pub auth_backend_addr: SocketAddr,
-}
+pub struct ExampleServerPlugin;
+// { // Removed fields, use resources/constants
+//     pub protocol_id: u64,
+//     pub private_key: Key,
+//     pub game_server_addr: SocketAddr,
+//     pub auth_backend_addr: SocketAddr,
+// }
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        let client_ids = Arc::new(RwLock::new(HashSet::default()));
-        app.add_systems(Startup, start_server);
-
+        // Initialize ClientIds resource and start the auth task at Startup
+        app.add_systems(Startup, setup_auth_task);
         app.add_observer(handle_disconnect_event);
         app.add_observer(handle_connect_event);
-
-        start_netcode_authentication_task(
-            self.game_server_addr,
-            self.auth_backend_addr,
-            self.protocol_id,
-            self.private_key,
-            client_ids.clone(),
-        );
-
-        app.insert_resource(ClientIds(client_ids));
     }
 }
 
-/// Start the server
-fn start_server(mut commands: Commands) {
-    commands.start_server();
-}
+// // Removed: Server start is handled in main.rs
+// fn start_server(mut commands: Commands) {
+//     commands.start_server();
+// }
 
 /// This resource will track the list of Netcode client-ids currently in use, so that
 /// we don't have multiple clients with the same id
-#[derive(Resource)]
+#[derive(Resource, Default)]
 struct ClientIds(Arc<RwLock<HashSet<u64>>>);
 
 /// Update the list of connected client ids when a client disconnects
-///
-/// We use an Observer to handle disconnect events to avoid the perf cost of running
-/// the system every frame. We want to run the system only when we have a disconnection.
 fn handle_disconnect_event(trigger: Trigger<DisconnectEvent>, client_ids: Res<ClientIds>) {
-    if let Netcode(client_id) = trigger.event().client_id {
+    // Use PeerId and check for Netcode variant
+    if let PeerId::Netcode(client_id) = trigger.event().peer_id {
+        info!("Client disconnected: {}. Removing from ClientIds.", client_id);
         client_ids.0.write().unwrap().remove(&client_id);
     }
 }
 
 /// Update the list of connected client ids when a client connects
-///
-/// We use an Observer to handle disconnect events to avoid the perf cost of running
-/// the system every frame. We want to run the system only when we have a connection.
 fn handle_connect_event(trigger: Trigger<ConnectEvent>, client_ids: Res<ClientIds>) {
-    if let Netcode(client_id) = trigger.event().client_id {
+    // Use PeerId and check for Netcode variant
+    if let PeerId::Netcode(client_id) = trigger.event().peer_id {
+        info!("Client connected: {}. Adding to ClientIds.", client_id);
         client_ids.0.write().unwrap().insert(client_id);
     }
 }
 
+/// Startup system to initialize ClientIds resource and start the auth task
+fn setup_auth_task(
+    mut commands: Commands,
+    auth_settings: Res<AuthSettings>, // Get auth settings
+) {
+    let client_ids_arc = Arc::new(RwLock::new(HashSet::default()));
+    commands.insert_resource(ClientIds(client_ids_arc.clone()));
+
+    // Use constants for game server address, protocol id, and private key
+    let game_server_addr = SocketAddr::new(SERVER_ADDR, SERVER_PORT);
+    let protocol_id = SHARED_SETTINGS.protocol_id;
+    let private_key = SHARED_SETTINGS.private_key;
+
+    start_netcode_authentication_task(
+        game_server_addr,
+        auth_settings.backend_addr, // Use address from resource
+        protocol_id,
+        private_key,
+        client_ids_arc,
+    );
+}
+
+
 /// Start a detached task that listens for incoming TCP connections and sends `ConnectToken`s to clients
+// (Function signature remains the same, implementation uses the passed args)
 fn start_netcode_authentication_task(
     game_server_addr: SocketAddr,
     auth_backend_addr: SocketAddr,

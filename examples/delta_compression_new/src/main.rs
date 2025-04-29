@@ -10,6 +10,7 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
+use crate::settings::get_settings;
 use bevy::prelude::*;
 use lightyear_examples_common::app::{Apps, Cli};
 use lightyear_examples_common::settings::Settings;
@@ -29,12 +30,12 @@ mod shared;
 fn main() {
     let cli = Cli::default();
     #[allow(unused_mut)]
-    let mut settings = settings::get_settings();
+    let mut settings = get_settings();
     #[cfg(target_family = "wasm")]
     lightyear_examples_common::settings::modify_digest_on_wasm(&mut settings.client);
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
     // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
-    let mut apps = Apps::new(settings, cli, env!("CARGO_PKG_NAME").to_string());
+    let mut apps = Apps::new(settings.clone(), cli, env!("CARGO_PKG_NAME").to_string());
     // add the `ClientPlugins` and `ServerPlugins` plugin groups
     apps.add_lightyear_plugins();
     apps.add_user_shared_plugin(ProtocolPlugin);

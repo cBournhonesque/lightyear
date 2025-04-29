@@ -5,31 +5,29 @@ pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
+use crate::shared; // Assuming shared movement logic exists
 
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ActionState<Inputs>>();
-        app.add_systems(Startup, init);
+        // All player entities are controlled by inputs, so we need to add the InputMap component
+        // to predicted players
+        app.add_systems(Update, add_input_map);
+        app.add_systems(FixedUpdate, player_movement);
         app.add_systems(
             Update,
-            (
-                add_input_map,
-                handle_predicted_spawn,
-                handle_interpolated_spawn,
-            ),
+            (handle_predicted_spawn, handle_interpolated_spawn),
         );
     }
 }
 
-// Startup system for the client
-pub(crate) fn init(mut commands: Commands) {
-    commands.connect_client();
-}
+// // Startup system for the client - connection is handled in main
+// pub(crate) fn init(mut commands: Commands) {
+//     commands.connect_client();
+// }
 
-/// When the player entity is replicated on the client, add a leafwing `InputMap` component on it
-/// so that we can control it
+/// Add the Leafwing InputMap component to the predicted player entity
 pub(crate) fn add_input_map(
     mut commands: Commands,
     predicted_players: Query<Entity, (Added<PlayerId>, With<Predicted>)>,
@@ -42,12 +40,24 @@ pub(crate) fn add_input_map(
     }
 }
 
+/// The client input only gets applied to predicted entities that we own
+fn player_movement(
+    mut query: Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>,
+) {
+    for (position, action_state) in query.iter_mut() {
+        // NOTE: be careful to directly pass Mut<PlayerPosition>
+        // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+        shared::shared_movement_behaviour(position, action_state);
+    }
+}
+
+
 /// When the predicted copy of the client-owned entity is spawned
 /// - assign it a different saturation
 pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
     for mut color in predicted.iter_mut() {
         let hsva = Hsva {
-            saturation: 0.4,
+            saturation: 0.4, // TODO: use component?
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);

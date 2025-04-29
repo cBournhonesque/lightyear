@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
+use crate::settings::get_settings;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use lightyear_examples_common::app::{Apps, Cli};
@@ -20,10 +21,10 @@ mod shared;
 
 fn main() {
     let cli = Cli::default();
-    let settings = settings::get_settings();
+    let settings = get_settings();
     // build the bevy app (this adds common plugin such as the DefaultPlugins)
     // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
-    let mut apps = Apps::new(settings, cli, env!("CARGO_PKG_NAME").to_string());
+    let mut apps = Apps::new(settings.clone(), cli, env!("CARGO_PKG_NAME").to_string());
     apps.add_lightyear_plugins();
     apps.add_user_shared_plugin(SharedPlugin);
     #[cfg(feature = "client")]

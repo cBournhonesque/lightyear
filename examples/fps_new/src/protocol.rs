@@ -90,36 +90,36 @@ impl Plugin for ProtocolPlugin {
             },
         });
         // components
-        app.register_component::<Name>(ChannelDirection::ServerToClient)
+        app.register_component::<Name>()
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
-        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
+        app.register_component::<PlayerId>()
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<Transform>(ChannelDirection::ServerToClient)
+        app.register_component::<Transform>()
             .add_prediction(ComponentSyncMode::Full)
             .add_interpolation(ComponentSyncMode::Full)
             .add_interpolation_fn(TransformLinearInterpolation::lerp);
 
-        app.register_component::<ColorComponent>(ChannelDirection::ServerToClient)
+        app.register_component::<ColorComponent>()
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<Score>(ChannelDirection::ServerToClient);
+        app.register_component::<Score>();
 
-        app.register_component::<RigidBody>(ChannelDirection::ServerToClient)
+        app.register_component::<RigidBody>()
             .add_prediction(ComponentSyncMode::Once);
 
-        app.register_component::<BulletMarker>(ChannelDirection::Bidirectional)
+        app.register_component::<BulletMarker>()
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<PredictedBot>(ChannelDirection::ServerToClient)
+        app.register_component::<PredictedBot>()
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<InterpolatedBot>(ChannelDirection::ServerToClient)
+        app.register_component::<InterpolatedBot>()
             .add_interpolation(ComponentSyncMode::Once);
 
         // channels

@@ -23,19 +23,30 @@ use lightyear::prelude::*;
 use crate::protocol::*;
 use crate::shared;
 
-pub struct ExampleClientPlugin {
-    pub auth_backend_address: SocketAddr,
+// Placeholder: Assume this is initialized in main.rs
+#[derive(Resource, Clone, Debug)]
+pub struct AuthSettings {
+    pub backend_addr: SocketAddr,
 }
+
+
+pub struct ExampleClientPlugin;
+// {
+//     // pub auth_backend_address: SocketAddr, // Removed, use AuthSettings resource
+// }
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(ConnectTokenRequestTask {
-            auth_backend_addr: self.auth_backend_address,
-            task: None,
-        });
+        // Initialize the task resource without the address
+        app.init_resource::<ConnectTokenRequestTask>();
+        // app.insert_resource(ConnectTokenRequestTask {
+        //     // auth_backend_addr: self.auth_backend_address, // Removed
+        //     task: None,
+        // });
 
-        // despawn the existing connect button from the Renderer
+        // despawn the existing connect button from the Renderer if it exists
         // (because we want to replace it with one with specific behaviour)
+        // This might need adjustment if the common renderer changes significantly
         let button_entity = app
             .world_mut()
             .query_filtered::<Entity, With<Button>>()
@@ -50,27 +61,28 @@ impl Plugin for ExampleClientPlugin {
 
 /// Holds a handle to an io task that is requesting a `ConnectToken` from the backend
 #[derive(Resource)]
+#[derive(Resource, Default)]
 struct ConnectTokenRequestTask {
-    auth_backend_addr: SocketAddr,
+    // auth_backend_addr: SocketAddr, // Removed
     task: Option<Task<ConnectToken>>,
 }
 
-/// If we have a io task that is waiting for a `ConnectToken`, we poll the task until completion,
-/// then we retrieve the token and connect to the game server
+/// If we have an io task that is waiting for a `ConnectToken`, we poll the task until completion,
+/// then we retrieve the token and update the ClientConfig.
+/// The actual connection attempt is triggered by the button observer later.
 fn fetch_connect_token(
     mut connect_token_request: ResMut<ConnectTokenRequestTask>,
     mut client_config: ResMut<ClientConfig>,
-    mut commands: Commands,
+    // mut commands: Commands, // Removed commands
 ) {
     if let Some(task) = &mut connect_token_request.task {
         if let Some(connect_token) = block_on(future::poll_once(task)) {
-            // if we have received the connect token, update the `ClientConfig` to use it to connect
-            // to the game server
+            // if we have received the connect token, update the `ClientConfig`
             if let NetConfig::Netcode { auth, .. } = &mut client_config.net {
-                info!("Using ConnectToken to connect to server.");
+                info!("ConnectToken received and stored in ClientConfig.");
                 *auth = Authentication::Token(connect_token);
             }
-            commands.connect_client();
+            // commands.connect_client(); // Removed: Connection triggered by button observer
             connect_token_request.task = None;
         }
     }
@@ -152,18 +164,28 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                 .observe(
                     |trigger: Trigger<Pointer<Click>>,
                      mut commands: Commands,
-                     mut config: ResMut<ClientConfig>,
+                     mut client_config: ResMut<ClientConfig>,
                      mut task_state: ResMut<ConnectTokenRequestTask>,
-                     state: Res<State<NetworkingState>>| {
+                     auth_settings: Res<AuthSettings>, // Get auth settings resource
+                     state: Res<State<NetworkingState>>,
+                     // Query for the ExampleClient entity spawned in main.rs
+                     client_entity_q: Query<Entity, With<lightyear_examples_common_new::client::ExampleClient>>| {
                         match state.get() {
                             NetworkingState::Disconnected => {
-                                if let NetConfig::Netcode { auth, .. } = &config.net {
+                                if let NetConfig::Netcode { auth, .. } = &mut client_config.net {
                                     if auth.has_token() {
-                                        commands.connect_client();
+                                        // Token exists, trigger connection on the ExampleClient entity
+                                        if let Ok(client_entity) = client_entity_q.get_single() {
+                                            info!("ClientConfig has token, triggering Connect.");
+                                            commands.trigger_targets(Connect, client_entity);
+                                        } else {
+                                            error!("ExampleClient entity not found to trigger Connect!");
+                                        }
                                         return;
                                     } else {
+                                        // No token, start the task
                                         info!("Starting task to get ConnectToken");
-                                        let auth_backend_addr = task_state.auth_backend_addr;
+                                        let auth_backend_addr = auth_settings.backend_addr; // Use resource
                                         let task = IoTaskPool::get().spawn_local(Compat::new(
                                             async move {
                                                 get_connect_token_from_auth_backend(

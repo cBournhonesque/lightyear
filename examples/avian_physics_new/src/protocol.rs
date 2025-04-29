@@ -172,25 +172,25 @@ impl Plugin for ProtocolPlugin {
         });
         app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::Bidirectional)
+        app.register_component::<PlayerId>()
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<ColorComponent>(ChannelDirection::Bidirectional)
+        app.register_component::<ColorComponent>()
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<BallMarker>(ChannelDirection::Bidirectional)
+        app.register_component::<BallMarker>()
             .add_prediction(ComponentSyncMode::Once)
             .add_interpolation(ComponentSyncMode::Once);
 
-        app.register_component::<Position>(ChannelDirection::Bidirectional)
+        app.register_component::<Position>()
             .add_prediction(ComponentSyncMode::Full)
             .add_interpolation(ComponentSyncMode::Full)
             .add_interpolation_fn(position::lerp)
             .add_correction_fn(position::lerp);
 
-        app.register_component::<Rotation>(ChannelDirection::Bidirectional)
+        app.register_component::<Rotation>()
             .add_prediction(ComponentSyncMode::Full)
             .add_interpolation(ComponentSyncMode::Full)
             .add_interpolation_fn(rotation::lerp)
@@ -198,10 +198,10 @@ impl Plugin for ProtocolPlugin {
 
         // NOTE: interpolation/correction is only needed for components that are visually displayed!
         // we still need prediction to be able to correctly predict the physics on the client
-        app.register_component::<LinearVelocity>(ChannelDirection::Bidirectional)
+        app.register_component::<LinearVelocity>()
             .add_prediction(ComponentSyncMode::Full);
 
-        app.register_component::<AngularVelocity>(ChannelDirection::Bidirectional)
+        app.register_component::<AngularVelocity>()
             .add_prediction(ComponentSyncMode::Full);
 
         // channels
