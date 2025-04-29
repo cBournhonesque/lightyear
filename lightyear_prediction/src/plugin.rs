@@ -13,6 +13,7 @@ use crate::correction::{
     get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback,
 };
 use crate::despawn::{despawn_confirmed, PredictionDisable};
+use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
     add_prediction_history, add_sync_systems, apply_component_removal_confirmed,
@@ -27,7 +28,6 @@ use bevy::ecs::entity_disabling::DefaultQueryFilters;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use core::time::Duration;
-use lightyear_core::prelude::LocalTimeline;
 use lightyear_replication::prelude::ReplicationSet;
 use lightyear_sync::prelude::InputTimeline;
 
@@ -232,6 +232,9 @@ impl Plugin for PredictionPlugin {
         // //  our HistoryBuffer to contain values for components/resources that were updated before syncing
         // //  is done.
         // let should_prediction_run = not(is_host_server).and(is_connected);
+
+        // PLUGINS
+        app.add_plugins(PredictionDiagnosticsPlugin::default());
 
         // REFLECTION
         app.register_type::<Predicted>()

@@ -2,12 +2,15 @@
 
 use crate::protocol::{CompA, CompDisabled, CompReplicateOnce};
 use crate::stepper::ClientServerStepper;
-use bevy::prelude::default;
+use bevy::prelude::{default, ResMut, Resource, Single};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
-use lightyear_replication::prelude::{ComponentReplicationOverride, ComponentReplicationOverrides, Replicate};
+use lightyear_replication::message::ActionsChannel;
+use lightyear_replication::prelude::{ComponentReplicationOverride, ComponentReplicationOverrides, Replicate, ReplicationGroupId, ReplicationSender};
 use lightyear_sync::prelude::InputTimeline;
+use lightyear_transport::channel::ChannelKind;
+use lightyear_transport::prelude::Transport;
 use test_log::test;
 
 #[test]
@@ -437,4 +440,62 @@ fn test_component_disabled_overrides() {
             .expect("component missing"),
         &CompDisabled(2.0)
     );
+}
+
+
+
+#[derive(Resource)]
+struct ActionsCount(usize);
+
+fn intercept_message(
+    transport: Single<&mut Transport>,
+    mut actions_count: ResMut<ActionsCount>,
+) {
+    actions_count.0 += transport.senders.get(&ChannelKind::of::<ActionsChannel>()).unwrap().messages_sent.len();
+}
+
+
+/// Test that ReplicationMode::SinceLastAck is respected
+/// - we keep sending replication packets until we receive an Ack
+#[test]
+fn test_since_last_ack() {
+    let mut stepper = ClientServerStepper::single();
+
+    // TODO: how to confirm that a message has been sent?
+    let actions_sent = |stepper: &ClientServerStepper| {
+        stepper.client(0).get::<Transport>().unwrap().senders.get(&ChannelKind::of::<ActionsChannel>()).unwrap().messages_sent.len()
+    };
+
+    let client_entity = stepper.client_app.world_mut().spawn((
+        Replicate::to_server(),
+        CompA(1.0)
+    )).id();
+
+    let tick_duration = stepper.tick_duration;
+    stepper.advance_time(tick_duration);
+
+    // send once to the server
+    stepper.client_app.update();
+
+    // check that we sent an EntityActions message
+    assert_eq!(actions_sent(&stepper), 1);
+
+    stepper.advance_time(tick_duration);
+
+    // check that we send again to the server since we haven't received an ack
+    stepper.client_app.update();
+    // check that we re-sent an EntityActions message since we didn't receive any acks
+    assert_eq!(actions_sent(&stepper), 1);
+
+    // server receives the message and sends back an ack
+    stepper.server_app.update();
+
+    stepper.frame_step(1);
+
+    // check that this time we don't send an EntityActions message since our last message has been acked.
+    assert_eq!(actions_sent(&stepper), 0);
+    let group_id = ReplicationGroupId(client_entity.to_bits());
+    let group_channel = stepper.client(0).get::<ReplicationSender>().unwrap().group_channels.get(&group_id).unwrap();
+    assert_ne!(group_channel.ack_bevy_tick, None);
+    //
 }

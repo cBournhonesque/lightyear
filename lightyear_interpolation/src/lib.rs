@@ -26,6 +26,7 @@ mod timeline;
 
 pub mod prelude {
     pub use crate::manager::InterpolationManager;
+    pub use crate::plugin::InterpolationSet;
     pub use crate::registry::InterpolationRegistrationExt;
     pub use crate::{Interpolated, InterpolationMode};
 }

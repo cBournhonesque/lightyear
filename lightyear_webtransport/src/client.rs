@@ -9,7 +9,7 @@ use bytes::{Bytes, BytesMut};
 use core::net::SocketAddr;
 use lightyear_connection::client::Disconnected;
 use lightyear_connection::id::PeerId;
-use lightyear_link::{Link, LinkSet};
+use lightyear_link::{Link, LinkSet, SendPayload};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -112,6 +112,7 @@ impl ClientWebTransportIo {
                     tokio::select! {
                         reason = connection.closed() => {
                             info!("WebTransport connection closed. Reason: {reason:?}");
+                            // TODO: bubble this and trigger an Unlinked ?
                         },
                         _ = close_rx.recv() => {
                             info!("WebTransport connection closed. Reason: client requested disconnection");
@@ -145,6 +146,7 @@ impl ClientWebTransportPlugin {
     ) {
         client_query.par_iter_mut().for_each(|(client_io, mut link)| {
             link.send.drain(..).for_each(|send_payload| {
+                // TODO: re-use allocations
                 let data = send_payload.to_vec().into_boxed_slice();
                 client_io.to_server_sender.send(data).unwrap_or_else(|e| {
                     error!("Error sending WebTransport packet: {}", e);
@@ -162,6 +164,7 @@ impl ClientWebTransportPlugin {
             loop {
                 match client_io.from_server_receiver.try_recv() {
                     Ok(datagram) => {
+                        // TODO: avoid have a buffers pre-allocated.
                         // Convert the datagram to bytes and add it to the link's receive queue
                         let payload = Bytes::copy_from_slice(datagram.payload().as_ref());
                         link.recv.push(payload, time.elapsed());

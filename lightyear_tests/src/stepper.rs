@@ -123,7 +123,7 @@ impl ClientServerStepper {
             client_id: client_id as u64,
         };
         self.client_entities.push(self.client_app.world_mut().spawn((
-            client::Client::default(),
+            Client::default(),
             // Send pings every frame, so that the Acks are sent every frame
             PingManager::new(PingConfig {
                 ping_interval: Duration::default(),

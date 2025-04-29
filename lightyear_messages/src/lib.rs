@@ -59,5 +59,7 @@ pub struct MessageManager{
     pub(crate) send_messages: Vec<(MessageKind, ComponentId)>,
     /// List of component ids of the TriggerSender<M> present on this entity
     pub(crate) send_triggers: Vec<(MessageKind, ComponentId)>,
+    /// List of component ids of the MessageReceiver<M> present on this entity
+    pub(crate) receive_messages: Vec<(MessageKind, ComponentId)>,
     pub entity_mapper: RemoteEntityMap,
 }

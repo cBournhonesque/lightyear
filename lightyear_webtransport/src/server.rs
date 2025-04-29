@@ -2,7 +2,6 @@ use bevy::prelude::*;
 use bytes::BytesMut;
 use lightyear_connection::client::Disconnected;
 use lightyear_connection::client_of::{ClientOf, Server};
-use lightyear_connection::id::PeerId;
 use lightyear_link::{Link, LinkSet};
 
 use std::collections::HashMap;
@@ -11,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tracing::{debug, error, info};
 use wtransport::datagram::Datagram;
+use wtransport::endpoint::endpoint_side;
 use wtransport::{self, Endpoint, Identity, ServerConfig};
 
 /// Maximum transmission units; maximum size in bytes of a WebTransport datagram
@@ -20,7 +20,7 @@ const MTU: usize = 1200; // WebTransport usually has slightly smaller MTU than U
 pub struct ServerWebTransportIo {
     local_addr: SocketAddr,
     certificate: Identity,
-    endpoint: Option<Arc<Endpoint>>,
+    endpoint: Option<Arc<Endpoint<endpoint_side::Server>>>,
     // Map of client addresses to their message senders
     client_senders: Arc<Mutex<HashMap<SocketAddr, UnboundedSender<BytesMut>>>>,
     // Receiver for incoming messages from all clients
@@ -185,7 +185,7 @@ impl ServerWebTransportPlugin {
                     };
                     
                     // Accept the session request
-                    let connection = match incoming_session.accept().await {
+                    let connection = match incoming_session.await.accept().await {
                         Ok(conn) => conn,
                         Err(e) => {
                             error!("Error establishing WebTransport connection: {}", e);

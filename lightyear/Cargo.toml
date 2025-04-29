@@ -49,6 +49,7 @@ server = [
   "lightyear_inputs_leafwing?/server",
   "lightyear_inputs_native?/server",
   "lightyear_udp?/server",
+  "lightyear_webtransport?/server",
 ]
 replication = [
   "dep:lightyear_replication"
@@ -78,11 +79,7 @@ visualizer = ["dep:bevy_metrics_dashboard", "metrics"]
 mock_time = ["dep:mock_instant"]
 webtransport = [
   "std",
-  "dep:wtransport",
-  "dep:xwt-core",
-  "dep:xwt-web",
-  "dep:web-sys",
-  "dep:wasm-bindgen-futures",
+  "dep:lightyear_webtransport"
 ]
 input_native = [
   "dep:lightyear_inputs",
@@ -111,11 +108,6 @@ udp = [
 ]
 websocket = [
   "std",
-  "dep:tokio-tungstenite",
-  "dep:futures-util",
-  "dep:web-sys",
-  "dep:wasm-bindgen",
-  "dep:wasm-bindgen-futures",
 ]
 steam = [
   "dep:steamworks",
@@ -138,6 +130,7 @@ zstd = ["dep:zstd"]
 lightyear_macros.workspace = true
 lightyear_connection.workspace = true
 lightyear_core.workspace = true
+lightyear_frame_interpolation = { workspace = true, optional = true }
 lightyear_link.workspace = true
 lightyear_netcode = {workspace = true, optional = true}
 lightyear_interpolation = {workspace = true, optional = true}
@@ -153,23 +146,11 @@ lightyear_inputs = {workspace = true, optional = true}
 lightyear_inputs_leafwing = {workspace = true, optional = true}
 lightyear_inputs_native = {workspace = true, optional = true}
 lightyear_crossbeam = {workspace = true, optional = true}
+lightyear_webtransport = {workspace = true, optional = true}
 
 # utils
-chrono.workspace = true
-cfg-if.workspace = true
-enum_dispatch.workspace = true
-governor.workspace = true
-hashbrown.workspace = true
 mock_instant = { workspace = true, optional = true }
-nonzero_ext.workspace = true
-parking_lot.workspace = true
-paste.workspace = true
-rand.workspace = true
-ringbuffer.workspace = true
-thiserror.workspace = true
-seahash.workspace = true
-smallvec.workspace = true
-variadics_please.workspace = true
+
 
 # no_std
 # TODO: only enable in no_std
@@ -185,7 +166,6 @@ avian3d = { workspace = true, optional = true }
 # serialization
 bincode.workspace = true
 bytes.workspace = true
-self_cell.workspace = true
 serde.workspace = true
 
 # netcode
@@ -194,10 +174,6 @@ chacha20poly1305.workspace = true
 # tracing
 tracing.workspace = true
 
-
-# server
-crossbeam-channel.workspace = true
-
 # metrics
 metrics = { workspace = true, optional = true }
 metrics-util = { workspace = true, optional = true }
@@ -205,7 +181,6 @@ metrics-tracing-context = { workspace = true, optional = true }
 metrics-exporter-prometheus = { workspace = true, optional = true }
 
 # debug ui
-bevy_egui = { workspace = true, optional = true }
 bevy_metrics_dashboard = { workspace = true, optional = true }
 
 # bevy
@@ -214,16 +189,7 @@ bevy.workspace = true
 # compression
 lz4_flex = { workspace = true, optional = true }
 
-# WebSocket
-futures-util = { workspace = true, optional = true }
 
-# transport
-# we don't need any tokio features, we use only use the tokio channels
-# except for tests, which need tokio::time (see [dev-dependencies])
-tokio.workspace = true
-futures.workspace = true
-async-compat.workspace = true
-async-channel.workspace = true
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
 lightyear_udp = { workspace = true, optional = true }
@@ -248,14 +214,8 @@ zstd = { workspace = true, optional = true, features = ["wasm"] }
 
 
 [dev-dependencies]
-wasm-bindgen-test.workspace = true
 mock_instant.workspace = true
-tracing-subscriber.workspace = true
-bitvec.workspace = true
-approx.workspace = true
 leafwing-input-manager.workspace = true
-# tokio::time needed for tests (tests build with dev-dependencies)
-tokio = { workspace = true, features = ["time"] }
 
 # docs.rs-specific configuration
 [package.metadata.docs.rs]

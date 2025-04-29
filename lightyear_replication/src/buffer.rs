@@ -28,6 +28,7 @@ use crate::registry::ComponentKind;
 use crate::send::ReplicationSender;
 use crate::visibility::immediate::NetworkVisibility;
 
+use crate::control::{Controlled, OwnedBy};
 use lightyear_connection::client::Client;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
@@ -359,7 +360,11 @@ pub(crate) fn replicate(
 
             // enable split borrows
             let mut sender = &mut *sender;
+            if !sender.send_timer.finished() {
+                return;
+            }
 
+            trace!("Starting buffer replication for sender {sender_entity:?}. Replicated entities: {:?}", sender.replicated_entities);
             // we iterate by index to avoid split borrow issues
             for i in 0..sender.replicated_entities.len() {
                 let entity = sender.replicated_entities[i];
@@ -429,6 +434,7 @@ pub(crate) fn replicate_entity(
         replicate,
         cached_replicate,
         network_visibility,
+        owned_by,
         entity_ref,
         is_replicate_like_added,
     ) = match child_entity_ref {
@@ -462,6 +468,9 @@ pub(crate) fn replicate_entity(
                 child_entity_ref
                     .get::<NetworkVisibility>()
                     .or_else(|| entity_ref.get::<NetworkVisibility>()),
+                child_entity_ref
+                    .get::<OwnedBy>()
+                    .or_else(|| entity_ref.get::<OwnedBy>()),
                 child_entity_ref,
                 unsafe {
                     child_entity_ref
@@ -483,6 +492,7 @@ pub(crate) fn replicate_entity(
                 entity_ref.get_ref::<Replicate>().unwrap(),
                 entity_ref.get::<CachedReplicate>(),
                 entity_ref.get::<NetworkVisibility>(),
+                entity_ref.get::<OwnedBy>(),
                 entity_ref,
                 false,
             )
@@ -535,6 +545,7 @@ pub(crate) fn replicate_entity(
         prediction_target,
         #[cfg(feature = "interpolation")]
         interpolation_target,
+        owned_by,
         cached_replicate,
         network_visibility,
         component_registry,
@@ -553,9 +564,6 @@ pub(crate) fn replicate_entity(
     // NOTE: we pre-cache the list of components for each archetype to not iterate through
     //  all replicated components every time
     for ReplicatedComponent { id, kind, has_overrides } in replicated_components {
-        let comp = component_registry.serialize_fns_map.get(kind).unwrap().type_name;
-
-
         let mut replication_metadata = component_registry.replication_map.get(kind).unwrap();
         let mut disable = replication_metadata.config.disable;
         let mut replicate_once = replication_metadata.config.replicate_once;
@@ -661,6 +669,7 @@ pub(crate) fn replicate_entity_spawn(
     prediction_target: Option<&PredictionTarget>,
     #[cfg(feature = "interpolation")]
     interpolation_target: Option<&InterpolationTarget>,
+    controlled_by: Option<&OwnedBy>,
     cached_replicate: Option<&CachedReplicate>,
     network_visibility: Option<&NetworkVisibility>,
     component_registry: &ComponentRegistry,
@@ -673,8 +682,17 @@ pub(crate) fn replicate_entity_spawn(
     // 2. replicate was not updated but NetworkVisibility is gained for this sender
     let network_visibility_updated = network_visibility.is_some_and(|vis| vis.gained.contains(&sender_entity));
     if replicate_updated || network_visibility_updated || is_replicate_like_added {
-        trace!(?entity, ?sender_entity, ?replicate, ?cached_replicate, ?replicate_updated, ?network_visibility_updated, "Sending Spawn");
+        trace!(?entity, ?group_id, ?sender_entity, ?replicate, ?cached_replicate, ?replicate_updated, ?network_visibility_updated, "Sending Spawn");
         sender.prepare_entity_spawn(entity, group_id, priority);
+
+        if controlled_by.is_some_and(|c| c.sender == sender_entity) {
+            sender.prepare_typed_component_insert(
+                entity,
+                group_id,
+                component_registry,
+                &Controlled,
+            ).unwrap();
+        }
 
         #[cfg(feature = "prediction")]
         if prediction_target.is_some_and(|p| p.senders.contains(&sender_entity)) {
@@ -682,7 +700,7 @@ pub(crate) fn replicate_entity_spawn(
                 entity,
                 group_id,
                 component_registry,
-                &mut ShouldBePredicted,
+                &ShouldBePredicted,
             ).unwrap();
         }
         #[cfg(feature = "interpolation")]
@@ -691,7 +709,7 @@ pub(crate) fn replicate_entity_spawn(
                 entity,
                 group_id,
                 component_registry,
-                &mut ShouldBeInterpolated,
+                &ShouldBeInterpolated,
             ).unwrap();
         }
     }
@@ -800,9 +818,9 @@ fn replicate_component_update(
         //  wouldn't give us back a MessageId.
         entity = entity_map.to_remote(entity);
 
-        let writer = &mut sender.writer;
         if insert {
-            trace!(?entity, "send insert");
+            let writer = &mut sender.writer;
+            trace!(?component_kind, ?entity, "Try to buffer component insert");
             if delta_compression {
                 // SAFETY: the component_data corresponds to the kind
                 unsafe {
@@ -824,8 +842,9 @@ fn replicate_component_update(
             let raw_data = writer.split();
             sender.prepare_component_insert(entity, group_id, raw_data);
         } else {
-            trace!(?entity, "send update");
-            let send_tick = sender.group_channels.entry(group_id).or_default().send_tick;
+            trace!(?component_kind, ?entity, "Try to buffer component update");
+            // check the send_tick, i.e. we will send all updates more recent than this tick
+            let send_tick = sender.get_send_tick(group_id);
 
             // send the update for all changes newer than the last send bevy tick for the group
             if send_tick.map_or(true, |c| {
@@ -855,6 +874,7 @@ fn replicate_component_update(
                         entity_map,
                     )?;
                 } else {
+                    let writer = &mut sender.writer;
                     component_registry.erased_serialize(
                         component_data,
                         writer,

@@ -1,10 +1,10 @@
 use crate::plugin::MessagePlugin;
-use crate::registry::{MessageError, MessageRegistry};
+use crate::registry::{MessageError, MessageKind, MessageRegistry};
 use crate::MessageManager;
 use crate::{Message, MessageNetId};
 use bevy::ecs::change_detection::MutUntyped;
-use bevy::ecs::world::FilteredEntityMut;
-use bevy::prelude::{Commands, Component, Entity, ParallelCommands, Query, Res};
+use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
+use bevy::prelude::{Commands, Component, Entity, ParallelCommands, Query, Res, World};
 use bytes::Bytes;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::ReceiveEntityMap;
@@ -19,6 +19,7 @@ use tracing::{error, info, trace};
 use alloc::vec::Vec;
 
 use alloc::sync::Arc;
+use bevy::ecs::component::HookContext;
 use bevy::prelude::Event;
 use lightyear_core::id::PeerId;
 use lightyear_serde::registry::ErasedSerializeFns;
@@ -34,13 +35,14 @@ pub struct RemoteTrigger<M: Message> {
 
 #[derive(Component)]
 #[require(MessageManager)]
-pub struct MessageReceiver<M> {
+#[component(on_add = MessageReceiver::<M>::on_add_hook)]
+pub struct MessageReceiver<M: Message> {
     // TODO: wrap this in bevy events buffer?
-    recv: Vec<ReceivedMessage<M>>
+    pub(crate) recv: Vec<ReceivedMessage<M>>
 }
 
 #[derive(Debug)]
-pub struct ReceivedMessage<M> {
+pub struct ReceivedMessage<M: Message> {
     pub data: M,
     /// Tick on the remote peer when the message was sent,
     pub remote_tick: Tick,
@@ -51,7 +53,7 @@ pub struct ReceivedMessage<M> {
 }
 
 
-impl<M> Default for MessageReceiver<M> {
+impl<M: Message> Default for MessageReceiver<M> {
     fn default() -> Self {
         Self {
             recv: Vec::new(),
@@ -71,6 +73,25 @@ impl<M: Message> MessageReceiver<M> {
     pub fn receive_with_tick(&mut self) -> impl Iterator<Item=ReceivedMessage<M>> {
         self.recv.drain(..)
     }
+
+    fn on_add_hook(mut world: DeferredWorld, context: HookContext) {
+        world.commands().queue(move |world: &mut World| {
+            let mut entity_mut = world
+                .entity_mut(context.entity);
+            let mut message_manager = entity_mut
+                .get_mut::<MessageManager>()
+                .unwrap();
+            let message_kind_present = message_manager
+                .receive_messages
+                .iter()
+                .any(|(message_kind, _)| {
+                    *message_kind == MessageKind::of::<M>()
+                });
+            if !message_kind_present {
+                message_manager.receive_messages.push((MessageKind::of::<M>(), context.component_id));
+            }
+        })
+    }
 }
 
 pub(crate) type ReceiveMessageFn = unsafe fn(
@@ -82,6 +103,11 @@ pub(crate) type ReceiveMessageFn = unsafe fn(
     serialize_metadata: &ErasedSerializeFns,
     entity_map: &mut ReceiveEntityMap,
 ) -> Result<(), MessageError>;
+
+/// Clear all messages in the MessageReceiver<M> buffer
+pub(crate) type ClearMessageFn = unsafe fn(
+    receiver: MutUntyped,
+);
 
 impl<M: Message> MessageReceiver<M> {
 
@@ -110,6 +136,14 @@ impl<M: Message> MessageReceiver<M> {
         trace!("Received message {:?} on channel {channel_kind:?}", core::any::type_name::<M>());
         receiver.recv.push(received_message);
         Ok(())
+    }
+
+    pub(crate) unsafe fn clear_typed(
+        receiver: MutUntyped
+    ) {
+        // SAFETY: we know the type of the receiver is MessageReceiver<M>
+        let mut receiver = unsafe { receiver.with_type::<Self>()};
+        receiver.recv.clear();
     }
 }
 
@@ -189,4 +223,21 @@ impl MessagePlugin {
         })
     }
 
+
+    /// Clear all the message receivers to prevent messages from accumulating
+    pub fn clear(
+        manager_query: Query<(Entity, &MessageManager)>,
+        mut receiver_query: Query<FilteredEntityMut>,
+        registry: Res<MessageRegistry>,
+    ) {
+        manager_query.iter().for_each(|(entity, manager)| {
+            manager.receive_messages.iter().for_each(|(kind, component_id)| {
+                let mut entity_mut = receiver_query.get_mut(entity).unwrap();
+                let receiver = entity_mut.get_mut_by_id(*component_id).unwrap();
+                let clear_fn = registry.receive_metadata.get(kind).unwrap().message_clear_fn;
+                // SAFETY: we know that we are calling the function for the correct component_id
+                unsafe { clear_fn(receiver) };
+            })
+        });
+    }
 }

@@ -43,15 +43,12 @@ lightyear = { "workspace" = true, features = [
   "replication",
   "input_native", # Added based on simple_box_new
 ] }
+lightyear_frame_interpolation.workspace = true
 lightyear_examples_common_new.workspace = true
 
 serde.workspace = true
-anyhow.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 bevy.workspace = true
-rand.workspace = true
-metrics-exporter-prometheus = { workspace = true, optional = true }
 
 [lints]
 workspace = true

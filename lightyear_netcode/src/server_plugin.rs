@@ -215,9 +215,13 @@ impl NetcodeServerPlugin {
                     // TODO: mention server id in case we have multiple servers
                     info!("Disconnection from netcode client {:?}", id);
                     parallel_commands.command_scope(|mut c| {
-                        c.entity(entity).despawn();
-                        // disconnect or just despawn?
-                        // c.entity(entity).remove::<Connected>().insert::<Disconnecting>();
+                        // first disconnect to trigger observers
+                        c.entity(entity)
+                            .insert(Disconnected {
+                                reason: None,
+                            })
+                            .despawn();
+
                     })
                 })
             });
@@ -268,8 +272,12 @@ impl NetcodeServerPlugin {
         mut query: Query<(), With<ClientOf>>,
     ) {
         if let Ok(()) = query.get(trigger.target()) {
+            // first disconnect to trigger observers
             commands
                 .entity(trigger.target())
+                .insert(Disconnected {
+                    reason: Some("Link failed".to_string())
+                })
                 .despawn();
         }
     }

@@ -4,7 +4,7 @@ members = [
   "lightyear",
   "lightyear_core",
   "lightyear_crossbeam",
-  "lightyear_fixed_update_interpolation",
+  "lightyear_frame_interpolation",
   "lightyear_inputs",
   "lightyear_inputs_leafwing",
   "lightyear_inputs_native",
@@ -68,7 +68,7 @@ lightyear_netcode = { path = "./lightyear_netcode", version = "0.19.0", default-
 lightyear_connection = { path = "./lightyear_connection", version = "0.19.0", default-features = false }
 lightyear_core = { path = "./lightyear_core", version = "0.19.0", default-features = false }
 lightyear_crossbeam = { path = "./lightyear_crossbeam", version = "0.19.0", default-features = false }
-lightyear_fixed_update_interpolation = { path = "./lightyear_fixed_update_interpolation", version = "0.19.0", default-features = false }
+lightyear_frame_interpolation = { path = "./lightyear_frame_interpolation", version = "0.19.0", default-features = false }
 lightyear_inputs = { path = "./lightyear_inputs", version = "0.19.0", default-features = false }
 lightyear_inputs_leafwing = { path = "./lightyear_inputs_leafwing", version = "0.19.0", default-features = false }
 lightyear_inputs_native = { path = "./lightyear_inputs_native", version = "0.19.0", default-features = false }
@@ -159,8 +159,7 @@ futures-util = "0.3.30"
 
 # transport
 # we don't need any tokio features, we use only use the tokio channels
-
-tokio = { version = "1.36", features = [
+tokio = { version = "1.44", features = [
   "sync",
   "macros",
 ], default-features = false }

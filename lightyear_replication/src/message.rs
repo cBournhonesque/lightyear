@@ -26,8 +26,9 @@ pub struct UpdatesChannel;
 pub(crate) struct MetadataChannel;
 
 /// All the entity actions (Spawn/despawn/inserts/removals) for a single entity
+#[doc(hidden)]
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) struct EntityActions {
+pub struct EntityActions {
     pub(crate) spawn: SpawnAction,
     // TODO: maybe do HashMap<NetId, RawData>? for example for ShouldReuseTarget
     pub(crate) insert: Vec<Bytes>,

@@ -1,4 +1,4 @@
-use crate::receive::{MessageReceiver, ReceiveMessageFn};
+use crate::receive::{ClearMessageFn, MessageReceiver, ReceiveMessageFn};
 use crate::send::{MessageSender, SendMessageFn, TriggerMessage};
 use crate::{Message, MessageNetId};
 use bevy::ecs::component::ComponentId;
@@ -76,6 +76,7 @@ pub struct ReceiveMessageMetadata {
     /// ComponentId of the MessageReceiver<M> component (used if not a trigger)
     pub(crate) component_id: ComponentId,
     pub(crate) receive_message_fn: ReceiveMessageFn,
+    pub(crate) message_clear_fn: ClearMessageFn,
 }
 
 
@@ -208,6 +209,7 @@ impl MessageRegistry {
         self.receive_metadata.insert(MessageKind::of::<M>(), ReceiveMessageMetadata {
             component_id,
             receive_message_fn: MessageReceiver::<M>::receive_message_typed,
+            message_clear_fn: MessageReceiver::<M>::clear_typed,
         });
     }
 

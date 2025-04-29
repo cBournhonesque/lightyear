@@ -1,5 +1,11 @@
 # Examples
 
+STATUS:
+- SimpleBox:
+  - runs ok in client/server. Confirmed updates are far behind
+  - host-server not tested
+
+
 - Have a pane where you can see the running clients, servers, processes.
 
 
@@ -8,6 +14,9 @@ TODO:
   the first value should never be just SameAsPrecedent! That's due to `update_buffer` using `set_raw`. But maybe that's ok? if there's only SameAsPrecedent, we don't do anything (i.e. we re-use the existing inputs)
 - when running simple_box, the Confirmed entity should eventually catchup to the predicted entity! Sometimes it doesn't -> some system ordering issue? or sync issue?
 - EXAMPLE DOESNT WORK BECAUSE UDP SERVER ONLY ADDS LINK-OF, AND NETCODE EXPECTES CLIENT-OF
+- REPLICATION ERROR:
+  - TODO!!!!: server includes many duplicated components in the update packet!! That's because the change detection (bevy-tick) needs
+    to be compared against the last BevyTick of this specific server-send! We need to keep track of the server-send tick!
 
 
 - Maybe we just keep LinkOf

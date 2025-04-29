@@ -1,8 +1,3 @@
-//! Handles interpolation of entities between server updates
-#![cfg_attr(not(feature = "std"), no_std)]
-
-extern crate alloc;
-
 //! This module is not related to the interpolating between server updates.
 //! Instead, it is responsible for interpolating between FixedUpdate ticks during the Update state.
 //!
@@ -31,7 +26,10 @@ extern crate alloc;
 //!     commands.spawn().insert(VisualInterpolateStatus::<Component1>::default());
 //! }
 //! ```
+#![cfg_attr(not(feature = "std"), no_std)]
 
+extern crate alloc;
+use bevy::ecs::component::Mutable;
 // TODO: in post-update, interpolate the visual state of the game between with 1 tick of delay.
 // - we need to store the component values of the previous tick
 // - then in PostUpdate (visual interpolation) we interpolate between the previous tick and the current tick using the overstep
@@ -67,7 +65,8 @@ impl<C> Default for FixedUpdateInterpolationPlugin<C> {
     }
 }
 
-impl<C: Component + Clone + Ease> Plugin for FixedUpdateInterpolationPlugin<C> {
+
+impl<C: Component<Mutability=Mutable> + Clone + Ease> Plugin for FixedUpdateInterpolationPlugin<C> {
     fn build(&self, app: &mut App) {
         // SETS
         app.configure_sets(
@@ -125,7 +124,7 @@ impl<C: Component + Clone + Ease> Plugin for FixedUpdateInterpolationPlugin<C> {
 /// - end_value = current_value
 /// - overstep = `Time<Fixed>`.overstep_percentage() = TimeManager.overstep()
 #[derive(Component, PartialEq, Debug)]
-pub struct VisualInterpolateStatus<C: Component> {
+pub struct FrameInterpolate<C: Component> {
     /// If true, every change of the component due to visual interpolation will trigger change detection
     /// (this can be useful for `Transform` to trigger a `TransformPropagate` system)
     pub trigger_change_detection: bool,
@@ -136,7 +135,7 @@ pub struct VisualInterpolateStatus<C: Component> {
 }
 
 // Manual implementation because we don't want to force `Component` to have a `Default` bound
-impl<C: Component> Default for VisualInterpolateStatus<C> {
+impl<C: Component> Default for FrameInterpolate<C> {
     fn default() -> Self {
         Self {
             trigger_change_detection: false,
@@ -149,10 +148,10 @@ impl<C: Component> Default for VisualInterpolateStatus<C> {
 // TODO: explore how we could allow this for non-marker components, user would need to specify the interpolation function?
 //  (to avoid orphan rule)
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
-pub(crate) fn visual_interpolation<C: Component + Clone + Ease>(
+pub(crate) fn visual_interpolation<C: Component<Mutability=Mutable> + Clone + Ease>(
     // TODO: handle multiple timelines
     timeline: Single<&LocalTimeline, With<PredictionManager>>,
-    mut query: Query<(&mut C, &VisualInterpolateStatus<C>)>,
+    mut query: Query<(&mut C, &FrameInterpolate<C>)>,
 ) {
     let kind = core::any::type_name::<C>();
     let tick = timeline.now.tick;
@@ -170,10 +169,10 @@ pub(crate) fn visual_interpolation<C: Component + Clone + Ease>(
             ?kind,
             ?tick,
             ?overstep,
-            "Visual interpolation of fixed-update component!"
+            "Frame interpolation of fixed-update component!"
         );
-        let curve = EasingCurve::new(previous_value, current_value, EaseFunction::Linear);
-        let interpolated = curve.sample_unchecked(overstep).clone();
+        let curve = EasingCurve::new(previous_value.clone(), current_value.clone(), EaseFunction::Linear);
+        let interpolated = curve.sample_unchecked(overstep.value());
         if !interpolate_status.trigger_change_detection {
             *component.bypass_change_detection() = interpolated;
         } else {
@@ -184,8 +183,8 @@ pub(crate) fn visual_interpolation<C: Component + Clone + Ease>(
 
 /// Update the previous and current tick values.
 /// Runs in FixedUpdate after FixedUpdate::Main (where the component values are updated)
-pub(crate) fn update_visual_interpolation_status<C: Component>(
-    mut query: Query<(Ref<C>, &mut VisualInterpolateStatus<C>)>,
+pub(crate) fn update_visual_interpolation_status<C: Component<Mutability=Mutable> + Clone>(
+    mut query: Query<(Ref<C>, &mut FrameInterpolate<C>)>,
 ) {
     for (component, mut interpolate_status) in query.iter_mut() {
         if let Some(current_value) = interpolate_status.current_value.take() {
@@ -203,9 +202,9 @@ pub(crate) fn update_visual_interpolation_status<C: Component>(
 }
 
 /// Restore the component value to the non-interpolated value
-pub(crate) fn restore_from_visual_interpolation<C: Component>(
+pub(crate) fn restore_from_visual_interpolation<C: Component<Mutability=Mutable> + Clone>(
     // if correction is enabled, we will restore the value from the Correction component
-    mut query: Query<(&mut C, &mut VisualInterpolateStatus<C>), Without<Correction<C>>>,
+    mut query: Query<(&mut C, &mut FrameInterpolate<C>), Without<Correction<C>>>,
 ) {
     let kind = core::any::type_name::<C>();
     for (mut component, interpolate_status) in query.iter_mut() {
@@ -254,7 +253,7 @@ mod tests {
             .world_mut()
             .spawn((
                 InterpolationModeFull(0.0),
-                VisualInterpolateStatus::<InterpolationModeFull>::default(),
+                FrameInterpolate::<InterpolationModeFull>::default(),
             ))
             .id();
         stepper.build();
@@ -297,9 +296,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: None,
                 current_value: Some(InterpolationModeFull(1.0)),
@@ -332,9 +331,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(1.0)),
                 current_value: Some(InterpolationModeFull(2.0)),
@@ -367,9 +366,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(3.0)),
                 current_value: Some(InterpolationModeFull(4.0)),
@@ -402,9 +401,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(4.0)),
                 current_value: Some(InterpolationModeFull(5.0)),
@@ -442,9 +441,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: None,
                 current_value: Some(InterpolationModeFull(1.0)),
@@ -477,9 +476,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(1.0)),
                 current_value: Some(InterpolationModeFull(2.0)),
@@ -513,9 +512,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(2.0)),
                 current_value: None,
@@ -548,9 +547,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(2.0)),
                 current_value: None,
@@ -583,9 +582,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(2.0)),
                 current_value: Some(InterpolationModeFull(3.0)),
@@ -622,9 +621,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: None,
                 current_value: None,
@@ -657,9 +656,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: None,
                 current_value: Some(InterpolationModeFull(1.0)),
@@ -692,9 +691,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(1.0)),
                 current_value: Some(InterpolationModeFull(2.0)),
@@ -727,9 +726,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(2.0)),
                 current_value: Some(InterpolationModeFull(3.0)),
@@ -762,9 +761,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(2.0)),
                 current_value: Some(InterpolationModeFull(3.0)),
@@ -801,9 +800,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: None,
                 current_value: None,
@@ -836,9 +835,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: None,
                 current_value: Some(InterpolationModeFull(1.0)),
@@ -871,9 +870,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(1.0)),
                 current_value: Some(InterpolationModeFull(2.0)),
@@ -907,9 +906,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(2.0)),
                 current_value: None,
@@ -942,9 +941,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(2.0)),
                 current_value: None,
@@ -978,9 +977,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(entity)
-                .get::<VisualInterpolateStatus<InterpolationModeFull>>()
+                .get::<FrameInterpolate<InterpolationModeFull>>()
                 .unwrap(),
-            &VisualInterpolateStatus {
+            &FrameInterpolate {
                 trigger_change_detection: false,
                 previous_value: Some(InterpolationModeFull(2.0)),
                 current_value: Some(InterpolationModeFull(3.0)),
@@ -1040,7 +1039,7 @@ mod tests {
                 Predicted {
                     confirmed_entity: Some(confirmed),
                 },
-                VisualInterpolateStatus::<ComponentCorrection>::default(),
+                FrameInterpolate::<ComponentCorrection>::default(),
             ))
             .id();
         stepper
@@ -1106,9 +1105,9 @@ mod tests {
                 .client_app
                 .world()
                 .entity(predicted)
-                .get::<VisualInterpolateStatus<ComponentCorrection>>()
+                .get::<FrameInterpolate<ComponentCorrection>>()
                 .unwrap(),
-            &VisualInterpolateStatus::<ComponentCorrection> {
+            &FrameInterpolate::<ComponentCorrection> {
                 trigger_change_detection: false,
                 // TODO: maybe we'd like to interpolate from 1.0 here? we could have custom logic where
                 //  post-rollback if previous_value is None and Correction is enabled, we set previous_value to original_prediction?

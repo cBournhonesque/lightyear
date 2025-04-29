@@ -19,7 +19,7 @@ use crate::server::ExampleServerPlugin;
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_examples_common_new::cli::{Cli, Mode};
-use simple_box_new::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SEND_INTERVAL, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
+use lightyear_examples_common_new::shared::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
 
 #[cfg(feature = "client")]
 mod client;
@@ -48,11 +48,9 @@ fn main() {
 
     #[cfg(feature = "client")]
     {
-        use lightyear::connection::client::Connect;
-
         app.add_plugins(ExampleClientPlugin);
         if matches!(cli.mode, Some(Mode::Client { .. })) {
-            use lightyear::prelude::client::Connect;
+            use lightyear::prelude::Connect;
             use lightyear_examples_common_new::client::{ClientTransports, ExampleClient};
             let client = app.world_mut().spawn(ExampleClient {
                 client_id: cli.client_id().expect("You need to specify a client_id via `-c ID`"),

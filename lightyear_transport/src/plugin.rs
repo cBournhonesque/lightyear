@@ -208,8 +208,9 @@ impl TransportPlugin {
             let mut total_bytes_sent = 0;
             for mut packet in packets {
                 trace!(packet_id = ?packet.packet_id, num_messages = ?packet.num_messages(), "sending packet");
+
                 // TODO: should we update this to include fragment info as well?
-                // Step 2. Update the packet_to_message_id_map (only for channels that care about acks)
+                // Update the packet_to_message_id_map (only for channels that care about acks)
                 core::mem::take(&mut packet.message_acks)
                     .into_iter()
                     .try_for_each(|(channel_id, message_ack)| {
@@ -218,8 +219,9 @@ impl TransportPlugin {
                             .get_kind_from_net_id(channel_id)
                             .ok_or(PacketError::ChannelNotFound)?;
                         let sender_metadata = transport.senders
-                            .get(channel_kind)
+                            .get_mut(channel_kind)
                             .ok_or(PacketError::ChannelNotFound)?;
+
                         if sender_metadata.mode.is_watching_acks() {
                             trace!(
                                 "Registering message ack (ChannelId:{:?} {:?}) for packet {:?}",
@@ -332,7 +334,7 @@ pub mod tests {
 
         app.update();
         // check that the bytes are received in the channel
-        let (_, recv_bytes) = app
+        let (_, recv_bytes, _) = app
             .world_mut()
             .entity_mut(entity)
             .get_mut::<Transport>()

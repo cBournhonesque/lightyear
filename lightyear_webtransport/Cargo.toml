@@ -18,14 +18,42 @@ server = []
 lightyear_link.workspace = true
 lightyear_connection.workspace = true
 
+# wtransport
+wtransport.workspace = true
+
+
 # bevy
 bevy.workspace = true
 
 # utils
+async-compat.workspace = true
+futures.workspace = true
+tokio.workspace = true
 tracing.workspace = true
+
 
 # serde
 bytes.workspace = true
+
+# wasm
+[target."cfg(target_family = \"wasm\")".dependencies]
+console_error_panic_hook.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+xwt-core.workspace = true
+xwt-web.workspace = true
+web-sys = { version = "0.3", features = [
+  "Document",
+  "WebTransport",
+  "WebTransportHash",
+  "WebTransportOptions",
+  "WebTransportBidirectionalStream",
+  "WebTransportSendStream",
+  "WebTransportReceiveStream",
+  "ReadableStreamDefaultReader",
+  "WritableStreamDefaultWriter",
+  "WebTransportDatagramDuplexStream",
+] }
 
 [lints]
 workspace = true

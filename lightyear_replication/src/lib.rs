@@ -36,6 +36,7 @@ pub mod prelude {
     pub use crate::authority::HasAuthority;
     pub use crate::buffer::Replicate;
     pub use crate::components::*;
+    pub use crate::control::{Controlled, Owned, OwnedBy, Lifetime};
     pub use crate::hierarchy::{ChildOfSync, DisableReplicateHierarchy, HierarchySendPlugin, RelationshipReceivePlugin, RelationshipSendPlugin, RelationshipSync, ReplicateLike, ReplicateLikeChildren};
     pub use crate::message::*;
     pub use crate::plugin::ReplicationSet;

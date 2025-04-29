@@ -64,6 +64,11 @@ impl<M: Message> MessageSender<M> {
     pub fn send_with_priority<C: Channel>(
         &mut self, message: M, priority: Priority
     ) {
+        // // TODO: how to include the sender in the metric?
+        // metrics::counter!("message::send", 1,
+        //     channel => core::any::type_name::<C>(),
+        //     message => core::any::type_name::<M>()
+        // );
         self.send.push((message, ChannelKind::of::<C>(), priority));
     }
 
@@ -71,7 +76,7 @@ impl<M: Message> MessageSender<M> {
     pub fn send<C: Channel>(
         &mut self, message: M
     ) {
-        self.send.push((message, ChannelKind::of::<C>(), 1.0));
+        self.send_with_priority::<C>(message, 1.0);
     }
 
     /// Take all messages from the MessageSender<M>, serialize them, and buffer them

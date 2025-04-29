@@ -1,5 +1,5 @@
 [package]
-name = "lightyear_fixed_update_interpolation"
+name = "lightyear_frame_interpolation"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

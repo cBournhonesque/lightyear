@@ -3,16 +3,17 @@ use crate::protocol::*;
 use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::client::input::InputSystemSet;
-use lightyear::inputs::native::{ActionState, InputMarker};
+use lightyear::interpolation::{ConfirmedHistory, InterpolateStatus};
 use lightyear::prelude::client::*;
+use lightyear::prelude::input::client::*;
+use lightyear::prelude::input::native::*;
 use lightyear::prelude::*;
+use lightyear_frame_interpolation::{FixedUpdateInterpolationPlugin, FrameInterpolate};
 
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, init);
         // app.add_systems(
         //     PostUpdate,
         //     debug_interpolate
@@ -25,7 +26,7 @@ impl Plugin for ExampleClientPlugin {
         );
         app.add_systems(
             FixedPreUpdate,
-            buffer_input.in_set(InputSystemSet::WriteClientInputs),
+            buffer_input.in_set(InputSet::WriteClientInputs),
         );
         app.add_systems(FixedUpdate, (movement, shared_tail_behaviour).chain());
         app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
@@ -33,16 +34,12 @@ impl Plugin for ExampleClientPlugin {
         // add visual interpolation for the predicted snake (which gets updated in the FixedUpdate schedule)
         // (updating it only during FixedUpdate might cause visual artifacts, see:
         //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
-        app.add_plugins(VisualInterpolationPlugin::<PlayerPosition>::default());
+        app.add_plugins(FixedUpdateInterpolationPlugin::<PlayerPosition>::default());
         app.add_systems(Update, debug_pre_visual_interpolation);
         app.add_systems(Last, debug_post_visual_interpolation);
     }
 }
 
-// Startup system for the client
-pub(crate) fn init(mut commands: Commands) {
-    commands.connect_client();
-}
 
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(
@@ -98,7 +95,7 @@ pub(crate) fn handle_predicted_spawn(
         // (updating it only during FixedUpdate might cause visual artifacts, see:
         //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
         commands.entity(entity).insert((
-            VisualInterpolateStatus::<PlayerPosition>::default(),
+            FrameInterpolate::<PlayerPosition>::default(),
             InputMarker::<Inputs>::default(),
         ));
     }
@@ -120,10 +117,10 @@ pub(crate) fn handle_interpolated_spawn(
 }
 
 pub(crate) fn debug_pre_visual_interpolation(
-    tick_manager: Res<TickManager>,
-    query: Query<(&PlayerPosition, &VisualInterpolateStatus<PlayerPosition>)>,
+    timeline: Single<&LocalTimeline>,
+    query: Query<(&PlayerPosition, &FrameInterpolate<PlayerPosition>)>,
 ) {
-    let tick = tick_manager.tick();
+    let tick = timeline.tick();
     for (position, interpolate_status) in query.iter() {
         trace!(
             ?tick,
@@ -135,10 +132,10 @@ pub(crate) fn debug_pre_visual_interpolation(
 }
 
 pub(crate) fn debug_post_visual_interpolation(
-    tick_manager: Res<TickManager>,
-    query: Query<(&PlayerPosition, &VisualInterpolateStatus<PlayerPosition>)>,
+    timeline: Single<&LocalTimeline>,
+    query: Query<(&PlayerPosition, &FrameInterpolate<PlayerPosition>)>,
 ) {
-    let tick = tick_manager.tick();
+    let tick = timeline.tick();
     for (position, interpolate_status) in query.iter() {
         trace!(
             ?tick,
@@ -150,7 +147,7 @@ pub(crate) fn debug_post_visual_interpolation(
 }
 
 pub(crate) fn debug_interpolate(
-    tick_manager: Res<TickManager>,
+    timeline: Single<&LocalTimeline>,
     parent_query: Query<(
         &InterpolateStatus<PlayerPosition>,
         &ConfirmedHistory<PlayerPosition>,
@@ -161,7 +158,7 @@ pub(crate) fn debug_interpolate(
         &ConfirmedHistory<TailPoints>,
     )>,
 ) {
-    debug!(tick = ?tick_manager.tick(), "interpolation debug");
+    debug!(tick = ?timeline.tick(), "interpolation debug");
     for (parent, tail_status, tail_history) in tail_query.iter() {
         let (parent_status, parent_history) = parent_query
             .get(parent.0)
@@ -230,7 +227,7 @@ pub(crate) fn interpolate(
                             debug!("ADD POINT");
                         }
                         // the path is straight! just move the head and adjust the tail
-                        *parent_position = Linear::lerp(pos_start, pos_end, t);
+                        *parent_position = Ease::interpolating_curve_unbounded(*pos_start, *pos_end).sample_unchecked(t).clone();
                         tail.shorten_back(parent_position.0, tail_length.0);
                         debug!(
                             ?tail,

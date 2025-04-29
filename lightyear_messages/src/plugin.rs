@@ -122,7 +122,7 @@
 
 use crate::registry::MessageRegistry;
 use crate::MessageManager;
-use bevy::app::{App, PostUpdate, PreUpdate};
+use bevy::app::{App, Last, PostUpdate, PreUpdate};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
 use bevy::prelude::{IntoScheduleConfigs, Plugin, SystemParamBuilder, SystemSet};
 use lightyear_transport::plugin::{TransportPlugin, TransportSet};
@@ -149,17 +149,14 @@ pub struct MessagePlugin;
 impl Plugin for MessagePlugin {
 
     fn build(&self, app: &mut App) {
-        app.register_type::<(
-            MessageManager
-        )>();
-
+        app.register_type::<MessageManager>();
 
         if !app.is_plugin_added::<TransportPlugin>() {
             app.add_plugins(TransportPlugin);
         }
 
         #[cfg(feature = "client")]
-        app.register_required_components::<lightyear_connection::prelude::client::Client, MessageManager>();
+        app.register_required_components::<lightyear_connection::prelude::Client, MessageManager>();
 
         #[cfg(feature = "server")]
         app.register_required_components::<lightyear_connection::prelude::server::ClientOf, MessageManager>();
@@ -186,6 +183,20 @@ impl Plugin for MessagePlugin {
             .build_state(app.world_mut())
             .build_system(Self::recv);
 
+        let clear = (
+            ParamBuilder,
+            QueryParamBuilder::new(|builder| {
+                builder.optional(|b| {
+                    registry.receive_metadata.values().for_each(|metadata| {
+                        b.mut_id(metadata.component_id);
+                    });
+                });
+            }),
+            ParamBuilder,
+        )
+            .build_state(app.world_mut())
+            .build_system(Self::clear);
+
         let send = (
             ParamBuilder,
             QueryParamBuilder::new(|builder| {
@@ -207,6 +218,7 @@ impl Plugin for MessagePlugin {
         app.configure_sets(PostUpdate, MessageSet::Send.before(TransportSet::Send));
         app.add_systems(PreUpdate, recv.in_set(MessageSet::Receive));
         app.add_systems(PostUpdate, send.in_set(MessageSet::Send));
+        app.add_systems(Last, clear);
 
         app.world_mut().insert_resource(registry);
     }
@@ -215,14 +227,17 @@ impl Plugin for MessagePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::receive::MessageReceiver;
+    use crate::receive::{MessageReceiver, ReceivedMessage};
     use crate::registry::AppMessageExt;
     use crate::send::MessageSender;
     use lightyear_core::plugin::CorePlugins;
+    use lightyear_core::prelude::Tick;
     use lightyear_link::Link;
+    use lightyear_transport::channel::ChannelKind;
     use lightyear_transport::plugin::tests::TestTransportPlugin;
     use lightyear_transport::plugin::tests::C;
     use serde::{Deserialize, Serialize};
+    use test_log::test;
 
     /// Message
     #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -231,8 +246,8 @@ mod tests {
     // TODO: should we do a test without the Link?
 
     /// Check that if we have a Transport, we can send and receive messages to specific channels
-    #[test_log::test]
-    fn test_plugin() {
+    #[test]
+    fn test_send_receive() {
         let mut app = App::new();
         app.add_plugins(CorePlugins {
             tick_duration: core::time::Duration::from_millis(10)
@@ -242,13 +257,19 @@ mod tests {
         // Register the message before adding the MessagePlugin
         app.add_message::<M>();
         app.add_plugins(MessagePlugin);
+        app.finish();
 
         // Add the Transport component with a receiver/sender for channel C, and a receiver/sender for message M
         let registry = app.world().resource::<ChannelRegistry>();
         let mut transport = Transport::default();
         transport.add_sender_from_registry::<C>(registry);
         transport.add_receiver_from_registry::<C>(registry);
-        let mut entity_mut = app.world_mut().spawn((Link::default(), transport, MessageReceiver::<M>::default(), MessageSender::<M>::default()));
+        let mut entity_mut = app.world_mut().spawn((
+            Link::default(),
+            transport,
+            MessageReceiver::<M>::default(),
+            MessageSender::<M>::default()
+        ));
 
         let entity = entity_mut.id();
 
@@ -256,7 +277,7 @@ mod tests {
         let message = M(2);
         entity_mut.get_mut::<MessageSender<M>>().unwrap().send::<C>(message.clone());
         app.update();
-        // TODO: maybe check that the bytes are sent to the Link?
+
         // check that the send-payload was added to the Transport
         let mut entity_mut = app.world_mut().entity_mut(entity);
         let mut link =  entity_mut.get_mut::<Link>().unwrap();
@@ -266,10 +287,44 @@ mod tests {
         let payload = link.send.pop().unwrap();
         link.recv.push_raw(payload);
 
-        app.update();
+        app.world_mut().run_schedule(PreUpdate);
+
         // check that the message has been received
         let received_message = app.world_mut().entity_mut(entity).get_mut::<MessageReceiver<M>>().unwrap().receive().next().expect("expected to receive message");
-
         assert_eq!(message, received_message);
+
+        app.update();
+
+        // check that the message has been dropped
+        assert!(app.world_mut().entity_mut(entity).get_mut::<MessageReceiver<M>>().unwrap().recv.is_empty());
+    }
+
+    /// Check that messages are cleared even if not read
+    #[test]
+    fn test_clear() {
+        let mut app = App::new();
+        app.add_plugins(CorePlugins {
+            tick_duration: core::time::Duration::from_millis(10)
+        });
+        app.add_message::<M>();
+        app.add_plugins(MessagePlugin);
+        app.finish();
+
+        let mut entity_mut = app.world_mut().spawn((
+            MessageReceiver::<M>::default(),
+        ));
+
+        let entity = entity_mut.id();
+
+        app.world_mut().entity_mut(entity).get_mut::<MessageReceiver<M>>().unwrap().recv.push(ReceivedMessage {
+            data: M(2),
+            remote_tick: Tick::default(),
+            channel_kind: ChannelKind::of::<C>(),
+            message_id: None,
+        });
+        app.update();
+
+        // check that the message has been dropped
+        assert!(app.world_mut().entity_mut(entity).get_mut::<MessageReceiver<M>>().unwrap().recv.is_empty());
     }
 }

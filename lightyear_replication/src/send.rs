@@ -11,6 +11,7 @@ use crate::components::InterpolationTarget;
 #[cfg(feature = "prediction")]
 use crate::components::PredictionTarget;
 use crate::components::{Replicating, ReplicationGroup, ReplicationGroupId};
+use crate::control::OwnedBy;
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
@@ -120,6 +121,24 @@ pub(crate) struct SendIntervalTimer {
 }
 
 impl ReplicationSendPlugin {
+
+    /// Before buffering messages, tick the timers and handle the acks
+    fn handle_acks(
+        time: Res<Time<Real>>,
+        component_registry: Res<ComponentRegistry>,
+        change_tick: SystemChangeTick,
+        mut query: Query<(&mut ReplicationSender, &mut DeltaManager, &mut Transport, &LocalTimeline)>,
+    ) {
+        query.par_iter_mut().for_each(|(mut sender, mut delta, mut transport, timeline)| {
+            let bevy_tick = change_tick.this_run();
+            sender.send_timer.tick(time.delta());
+            let update_nacks = &mut transport.senders.get_mut(&ChannelKind::of::<UpdatesChannel>()).unwrap().message_nacks;
+            sender.handle_nacks(bevy_tick, update_nacks);
+            let update_acks = &mut transport.senders.get_mut(&ChannelKind::of::<UpdatesChannel>()).unwrap().message_acks;
+            sender.handle_acks(&component_registry, &mut delta, update_acks);
+        });
+    }
+
     fn send_replication_messages(
         time: Res<Time<Real>>,
         message_registry: Res<MessageRegistry>,
@@ -129,28 +148,25 @@ impl ReplicationSendPlugin {
         let actions_net_id = *message_registry.kind_map.net_id(&MessageKind::of::<ActionsMessage>()).unwrap();
         let updates_net_id = *message_registry.kind_map.net_id(&MessageKind::of::<UpdatesMessage>()).unwrap();
         query.par_iter_mut().for_each(|(mut sender, mut transport, timeline)| {
-            let bevy_tick = change_tick.this_run();
-            let update_nacks = &mut transport.senders.get_mut(&ChannelKind::of::<UpdatesChannel>()).unwrap().message_nacks;
-            sender.update(bevy_tick, update_nacks);
-
-            // TODO: also tick ReplicationGroups?
-            sender.send_timer.tick(time.delta());
-            if sender.send_timer.finished() {
-                sender.send_timer.reset();
-                sender.accumulate_priority(&time);
-                sender.send_actions_messages(
-                    timeline.tick(),
-                    bevy_tick,
-                    &mut transport,
-                    actions_net_id,
-                ).inspect_err(|e| error!("Error buffering ActionsMessage: {e:?}")).ok();
-                sender.send_updates_messages(
-                    timeline.tick(),
-                    bevy_tick,
-                    &mut transport,
-                    updates_net_id,
-                ).inspect_err(|e| error!("Error buffering UpdatesMessage: {e:?}")).ok();
+            if !sender.send_timer.finished() {
+                return;
             }
+            sender.send_timer.reset();
+            let bevy_tick = change_tick.this_run();
+            // TODO: also tick ReplicationGroups?
+            sender.accumulate_priority(&time);
+            sender.send_actions_messages(
+                timeline.tick(),
+                bevy_tick,
+                &mut transport,
+                actions_net_id,
+            ).inspect_err(|e| error!("Error buffering ActionsMessage: {e:?}")).ok();
+            sender.send_updates_messages(
+                timeline.tick(),
+                bevy_tick,
+                &mut transport,
+                updates_net_id,
+            ).inspect_err(|e| error!("Error buffering UpdatesMessage: {e:?}")).ok();
         });
     }
 
@@ -160,6 +176,9 @@ impl ReplicationSendPlugin {
         mut query: Query<(&mut ReplicationSender, &mut Transport)>,
     ) {
         query.par_iter_mut().for_each(|(mut sender, mut transport)| {
+            if !sender.send_timer.finished() {
+                return;
+            }
             let messages_sent = &mut transport.senders.get_mut(&ChannelKind::of::<UpdatesChannel>()).unwrap().messages_sent;
             sender.recv_send_notification(messages_sent);
         });
@@ -167,6 +186,8 @@ impl ReplicationSendPlugin {
 
     /// Send a message containing metadata about the sender
     fn send_sender_metadata(
+        // NOTE: it's important to trigger on both OnAdd<Connected> and OnAdd<ReplicationSender> because the ClientOf could be
+        //  added BEFORE the ReplicationSender is added. (ClientOf is spawned by netcode, ReplicationSender is added by the user)
         trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
         tick_duration: Res<TickDuration>,
         mut query: Query<(&ReplicationSender, &mut TriggerSender<SenderMetadata>)>,
@@ -240,10 +261,12 @@ impl Plugin for ReplicationSendPlugin {
         app.add_observer(PredictionTarget::handle_connection);
         #[cfg(all(any(feature = "client", feature = "server"), feature="interpolation"))]
         app.add_observer(InterpolationTarget::handle_connection);
+        app.add_observer(OwnedBy::handle_disconnection);
 
-        app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
+        app.add_systems(PostUpdate, Self::handle_acks.in_set(ReplicationBufferSet::BeforeBuffer));
         app.add_systems(PostUpdate, buffer::buffer_entity_despawn_replicate_updated.in_set(ReplicationBufferSet::Buffer));
         app.add_systems(PostUpdate, buffer::update_cached_replicate_post_buffer.in_set(ReplicationBufferSet::AfterBuffer));
+        app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
         app.add_systems(PostUpdate, Self::send_replication_messages.in_set(ReplicationBufferSet::Flush));
 
 
@@ -289,6 +312,7 @@ impl Plugin for ReplicationSendPlugin {
                         &NetworkVisibility,
                         &ReplicateLikeChildren,
                         &ReplicateLike,
+                        &OwnedBy,
                     )>();
                     #[cfg(feature = "prediction")]
                     b.data::<&PredictionTarget>();
@@ -387,7 +411,7 @@ pub struct ReplicationSender {
     pub group_with_updates: EntityHashSet<ReplicationGroupId>,
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
-    send_timer: Timer,
+    pub(crate) send_timer: Timer,
     /// Tick when we last did a cleanup
     pub(crate) last_cleanup_tick: Option<Tick>,
     send_updates_mode: SendUpdatesMode,
@@ -452,7 +476,7 @@ impl ReplicationSender {
 
     /// Internal bookkeeping:
     /// 1. handle all nack update messages (by resetting the send_tick to the previous ack_tick)
-    pub(crate) fn update(&mut self, world_tick: BevyTick, update_nacks: &mut Vec<MessageId>) {
+    pub(crate) fn handle_nacks(&mut self, world_tick: BevyTick, update_nacks: &mut Vec<MessageId>) {
         // 1. handle all nack update messages
         update_nacks.drain(..).for_each(|message_id| {
             // remember to remove the entry from the map to avoid memory leakage
@@ -467,8 +491,8 @@ impl ReplicationSender {
                         // when we know an update message has been lost, we need to reset our send_tick
                         // to our previous ack_tick
                         trace!(
-                        "Update channel send_tick back to ack_tick because a message has been lost"
-                    );
+                            "Update channel send_tick back to ack_tick because a message has been lost"
+                        );
                         // only reset the send tick if the bevy_tick of the message that was lost is
                         // newer than the current ack_tick
                         // (otherwise it just means we lost some old message, and we don't need to do anything)
@@ -531,13 +555,12 @@ impl ReplicationSender {
         })
     }
 
-    // TODO: call this in a system after receive?
     /// Handle a notification that a message got acked:
     /// - update the channel's ack_tick and ack_bevy_tick
     ///
     /// We call this after the Receive SystemSet; to update the bevy_tick at which we received entity updates for each group
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn recv_update_acks(
+    pub(crate) fn handle_acks(
         &mut self,
         component_registry: &ComponentRegistry,
         delta_manager: &mut DeltaManager,

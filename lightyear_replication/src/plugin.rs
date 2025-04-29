@@ -48,6 +48,8 @@ impl Plugin for SharedPlugin {
             .register_type::<HasAuthority>()
             .register_type::<AuthorityPeer>();
 
+        app.register_component::<Controlled>();
+
         #[cfg(feature = "interpolation")]
         {
             app.register_type::<(
