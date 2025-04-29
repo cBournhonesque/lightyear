@@ -10,49 +10,82 @@ use leafwing_input_manager::prelude::*;
 use lightyear::prelude::client::{Confirmed, Predicted};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::server::input::InputSystemSet;
-use lightyear::shared::replication::components::InitialReplicated;
+// Removed InitialReplicated, InputSystemSet
+// use lightyear::server::input::InputSystemSet;
+// use lightyear::shared::replication::components::InitialReplicated;
+use lightyear_examples_common_new::shared::SEND_INTERVAL; // Import SEND_INTERVAL
 
 // Plugin for server-specific logic
-pub struct ExampleServerPlugin {
-    pub(crate) predict_all: bool,
-}
+#[derive(Clone)] // Added Clone
+pub struct ExampleServerPlugin;
+// { // Removed predict_all field
+//     pub(crate) predict_all: bool,
+// }
 
-#[derive(Resource)]
-pub struct Global {
-    predict_all: bool,
-}
+// Removed Global resource
+// #[derive(Resource)]
+// pub struct Global {
+//     predict_all: bool,
+// }
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Global {
-            predict_all: self.predict_all,
-        });
+        // Removed Global resource insertion
+        // app.insert_resource(Global {
+        //     predict_all: self.predict_all,
+        // });
 
-        app.add_systems(Startup, (start_server, init));
+        // Removed start_server system, renamed init to setup
+        app.add_systems(Startup, setup);
+        // app.add_systems(Startup, (start_server, init));
 
-        // Re-adding Replicate components to client-replicated entities must be done in this set for proper handling.
-        app.add_systems(
-            PreUpdate,
-            replicate_players.in_set(ServerReplicationSet::ClientReplication),
-        );
+        // Use observer for adding replication components
+        app.add_observer(replicate_players);
+        // app.add_systems(
+        //     PreUpdate,
+        //     replicate_players.in_set(ServerReplicationSet::ClientReplication),
+        // );
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
     }
 }
 
-/// System to start the server at Startup
-fn start_server(mut commands: Commands) {
-    commands.start_server();
-}
+// Removed start_server system
+// fn start_server(mut commands: Commands) {
+//     commands.start_server();
+// }
 
-fn init(mut commands: Commands, global: Res<Global>) {
-    // the ball is server-authoritative
+// Renamed from init, removed Global resource, assume ball is always predicted
+fn setup(mut commands: Commands) {
+    // Spawn server-authoritative entities (ball and walls)
     commands.spawn(BallBundle::new(
         Vec2::new(0.0, 0.0),
         css::AZURE.into(),
-        // if true, we predict the ball on clients
-        global.predict_all,
+        // Assume ball is always predicted for simplicity in refactor
+        true,
+        // global.predict_all,
+    ));
+    // Spawn walls (moved from shared init)
+    const WALL_SIZE: f32 = 350.0; // Define WALL_SIZE locally
+    commands.spawn(WallBundle::new(
+        Vec2::new(-WALL_SIZE, -WALL_SIZE),
+        Vec2::new(-WALL_SIZE, WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(-WALL_SIZE, WALL_SIZE),
+        Vec2::new(WALL_SIZE, WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(WALL_SIZE, WALL_SIZE),
+        Vec2::new(WALL_SIZE, -WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(WALL_SIZE, -WALL_SIZE),
+        Vec2::new(-WALL_SIZE, -WALL_SIZE),
+        Color::WHITE,
     ));
 }
 
@@ -82,47 +115,44 @@ pub(crate) fn movement(
     }
 }
 
-// Replicate the pre-predicted entities back to the client
-// We have to use `InitialReplicated` instead of `Replicated`, because
-// the server has already assumed authority over the entity so the `Replicated` component
-// has been removed
+// Replicate the client-replicated entities back to clients
+// This system is triggered when the server receives an entity from a client (ClientOf component is added)
 pub(crate) fn replicate_players(
-    global: Res<Global>,
+    trigger: Trigger<OnAdd, ClientOf>, // Trigger on ClientOf addition
     mut commands: Commands,
-    query: Query<(Entity, &InitialReplicated), (Added<InitialReplicated>, With<PlayerId>)>,
+    client_query: Query<&ClientOf>, // Query the ClientOf component
 ) {
-    for (entity, replicated) in query.iter() {
-        let client_id = replicated.client_id();
-        info!(
-            "Received player spawn event from client {client_id:?}. Replicating back to all clients"
-        );
+    let entity = trigger.target();
+    let Ok(client_of) = client_query.get(entity) else {
+        error!("ClientOf component not found on entity {entity:?} triggered by OnAdd<ClientOf>");
+        return;
+    };
+    let client_id = client_of.peer_id; // Get PeerId from ClientOf
 
-        // for all player entities we have received, add a Replicate component so that we can start replicating it
-        // to other clients
-        if let Some(mut e) = commands.get_entity(entity) {
-            // we want to replicate back to the original client, since they are using a pre-predicted entity
-            let mut sync_target = SyncTarget::default();
-            if global.predict_all {
-                sync_target.prediction = NetworkTarget::All;
-            } else {
-                // we want the other clients to apply interpolation for the player
-                sync_target.interpolation = NetworkTarget::AllExceptSingle(client_id);
-            }
-            e.insert((
-                ReplicateToClient::default(),
-                sync_target,
-                // make sure that all entities that are predicted are part of the same replication group
-                REPLICATION_GROUP,
-                ControlledBy {
-                    target: NetworkTarget::Single(client_id),
-                    ..default()
-                },
-                // if we receive a pre-predicted entity, only send the prepredicted component back
-                // to the original client
-                OverrideTarget::default().insert::<PrePredicted>(NetworkTarget::Single(client_id)),
-                // not all physics components are replicated over the network, so add them on the server as well
-                PhysicsBundle::player(),
-            ));
-        }
+    info!(
+        "Received player entity {entity:?} from client {client_id:?}. Adding replication components."
+    );
+
+    // Add the necessary replication components to the entity received from the client
+    if let Some(mut e) = commands.get_entity(entity) {
+        // Standard prediction: predict owner, interpolate others
+        let prediction_target = PredictionTarget::to_clients(NetworkTarget::Single(client_id));
+        let interpolation_target = InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id));
+
+        e.insert((
+            // Replicate to all clients, including the owner
+            Replicate::to_clients(NetworkTarget::All)
+                .set_group(REPLICATION_GROUP), // Use prediction group
+            prediction_target,
+            interpolation_target,
+            // Add physics bundle on the server side
+            PhysicsBundle::player(),
+            // Add ReplicationSender to send updates back to clients
+            ReplicationSender::new(
+                SEND_INTERVAL,
+                SendUpdatesMode::SinceLastAck,
+                false,
+            ),
+        ));
     }
 }

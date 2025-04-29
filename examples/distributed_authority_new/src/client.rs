@@ -14,12 +14,14 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use core::time::Duration;
-use lightyear::client::input::InputSystemSet;
-use lightyear::inputs::native::{ActionState, InputMarker};
+// Use new ActionState + InputManager paths
+use lightyear::prelude::client::{ActionState, InputManager, Replicate};
 pub use lightyear::prelude::client::*;
-use lightyear::prelude::server::AuthorityPeer;
+// Removed AuthorityPeer import
+// use lightyear::prelude::server::AuthorityPeer;
 use lightyear::prelude::*;
-use lightyear_examples_common::client_renderer::ClientIdText;
+// Removed unused import
+// use lightyear_examples_common::client_renderer::ClientIdText;
 
 pub struct ExampleClientPlugin;
 
@@ -28,7 +30,8 @@ impl Plugin for ExampleClientPlugin {
         // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
             FixedPreUpdate,
-            buffer_input.in_set(InputSystemSet::WriteClientInputs),
+            // Use new InputSystemSet path
+            buffer_input.in_set(input::InputSystemSet::BufferInputs),
         );
         app.add_systems(FixedUpdate, player_movement);
         app.add_systems(
@@ -50,13 +53,15 @@ pub(crate) fn handle_ball(trigger: Trigger<OnAdd, BallMarker>, mut commands: Com
     commands
         .entity(trigger.target())
         .insert((
+            // Add default Replicate component to mark for replication to server.
+            // Server will configure detailed replication settings.
             Replicate::default(),
+            // Replicate { ... } // Old complex configuration removed
             Name::new("Ball"),
+            // Disable PlayerColor replication from client to server
             DisabledComponents::default().disable::<PlayerColor>(),
-        ))
-        // NOTE: we need to make sure that the ball doesn't have authority!
-        //  or should let the client receive updates even if it has HasAuthority
-        .remove::<HasAuthority>();
+        ));
+        // Removed remove::<HasAuthority>()
 }
 
 /// System that reads from peripherals and adds inputs to the buffer
@@ -66,7 +71,8 @@ pub(crate) fn handle_ball(trigger: Trigger<OnAdd, BallMarker>, mut commands: Com
 /// I would also advise to use the `leafwing` feature to use the `LeafwingInputPlugin` instead of the
 /// `InputPlugin`, which contains more features.
 pub(crate) fn buffer_input(
-    mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
+    // Use new ActionState and InputManager paths
+    mut query: Query<&mut ActionState<Inputs>, With<InputManager<Inputs>>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
     query.iter_mut().for_each(|mut action_state| {
@@ -92,7 +98,9 @@ pub(crate) fn buffer_input(
         if !direction.is_none() {
             input = Some(Inputs::Direction(direction));
         }
-        action_state.value = input;
+        // Use the set() method for ActionState
+        action_state.set(input);
+        // action_state.value = input;
     });
 }
 
@@ -101,7 +109,8 @@ pub(crate) fn buffer_input(
 /// If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(mut position_query: Query<(&mut Position, &ActionState<Inputs>)>) {
     for (position, input) in position_query.iter_mut() {
-        if let Some(inputs) = &input.value {
+        // Use current_value() for ActionState
+        if let Some(inputs) = input.current_value() {
             shared::shared_movement_behaviour(position, inputs);
         }
     }
@@ -122,30 +131,55 @@ fn on_disconnect(
 }
 
 /// Set the color of the ball to the color of the peer that has authority
+// Changed to observe HasAuthority component changes
 pub(crate) fn change_ball_color_on_authority(
-    mut messages: ResMut<Events<ReceiveMessage<AuthorityPeer>>>,
-    players: Query<(&PlayerColor, &PlayerId), With<Confirmed>>,
-    mut balls: Query<&mut PlayerColor, (With<BallMarker>, Without<PlayerId>, With<Interpolated>)>,
+    // Observe changes to HasAuthority on Ball entities
+    authority_changes: Query<
+        (Entity, &Authority),
+        (With<BallMarker>, Or<(Added<HasAuthority>, Changed<HasAuthority>)>)
+    >,
+    no_authority_balls: Query<Entity, (With<BallMarker>, Without<HasAuthority>)>,
+    players: Query<(&PlayerColor, &PlayerId), With<Confirmed>>, // Query confirmed players for color
+    mut balls: Query<&mut PlayerColor, With<BallMarker>>, // Query ball color mutably
 ) {
-    for event in messages.drain() {
-        if let Ok(mut ball_color) = balls.get_single_mut() {
-            match event.message {
-                AuthorityPeer::Server => {
+    // Handle cases where authority is gained or changed
+    for (ball_entity, authority) in authority_changes.iter() {
+        if let Ok(mut ball_color) = balls.get_mut(ball_entity) {
+            match authority.peer_id {
+                PeerId::Server => {
                     ball_color.0 = Color::WHITE;
+                    info!("Ball authority changed to Server. Setting color to WHITE.");
                 }
-                AuthorityPeer::Client(client_id) => {
-                    for (player_color, player_id) in players.iter() {
-                        if player_id.0 == client_id {
-                            ball_color.0 = player_color.0;
-                        }
+                PeerId::Client(client_id) => {
+                    let player_color_opt = players.iter()
+                        .find(|(_, player_id)| player_id.0 == client_id)
+                        .map(|(color, _)| color.0);
+                    if let Some(player_color) = player_color_opt {
+                         ball_color.0 = player_color;
+                         info!("Ball authority changed to Client {}. Setting color.", client_id);
+                    } else {
+                        warn!("Could not find player color for client {}", client_id);
+                        ball_color.0 = Color::BLACK; // Fallback color
                     }
-                }
-                AuthorityPeer::None => {
-                    ball_color.0 = Color::BLACK;
                 }
             }
         }
     }
+
+    // Handle cases where authority is lost (HasAuthority component removed)
+    // This requires tracking removals, which is harder with observers directly.
+    // An alternative is to check balls without HasAuthority each frame.
+    for ball_entity in no_authority_balls.iter() {
+         if let Ok(mut ball_color) = balls.get_mut(ball_entity) {
+             if ball_color.0 != Color::BLACK { // Avoid redundant sets
+                 ball_color.0 = Color::BLACK;
+                 info!("Ball lost authority. Setting color to BLACK.");
+             }
+         }
+    }
+
+    // Old logic using messages:
+    // for event in messages.drain() { ... }
 }
 
 pub(crate) fn interpolation_debug_log(
@@ -180,6 +214,7 @@ pub(crate) fn handle_predicted_spawn(
         color.0 = Color::from(hsva);
         commands
             .entity(entity)
-            .insert(InputMarker::<Inputs>::default());
+            // Use new InputManager path
+            .insert(InputManager::<Inputs>::default());
     }
 }

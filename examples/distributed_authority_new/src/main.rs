@@ -10,11 +10,16 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-use crate::settings::get_settings;
-use crate::shared::SharedPlugin;
 use bevy::prelude::*;
-use lightyear_examples_common::app::{Apps, Cli};
-use lightyear_examples_common::settings::Settings;
+use core::time::Duration;
+use lightyear_examples_common_new::cli::{Cli, Mode};
+use lightyear_examples_common_new::shared::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
+use protocol::ProtocolPlugin; // Import ProtocolPlugin
+
+#[cfg(feature = "client")]
+use crate::client::ExampleClientPlugin;
+#[cfg(feature = "server")]
+use crate::server::ExampleServerPlugin;
 
 #[cfg(feature = "client")]
 mod client;
@@ -25,24 +30,61 @@ mod renderer;
 #[cfg(feature = "server")]
 mod server;
 
-mod settings;
+// mod settings; // Settings are now handled by common_new
 mod shared;
 
 fn main() {
     let cli = Cli::default();
-    let settings = get_settings();
-    // build the bevy app (this adds common plugin such as the DefaultPlugins)
-    // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
-    let mut apps = Apps::new(settings.clone(), cli, env!("CARGO_PKG_NAME").to_string());
-    // add the `ClientPlugins` and `ServerPlugins` plugin groups
-    apps.add_lightyear_plugins();
-    apps.add_user_shared_plugin(shared::SharedPlugin);
+
+    let mut app = cli.build_app(
+        Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
+        false // No physics loop needed
+    );
+
+    // add the protocol plugin
+    app.add_plugins(ProtocolPlugin);
+    // Removed SharedPlugin addition
+    // apps.add_user_shared_plugin(shared::SharedPlugin);
+
     #[cfg(feature = "client")]
-    apps.add_user_client_plugin(crate::client::ExampleClientPlugin);
+    {
+        app.add_plugins(ExampleClientPlugin);
+        if matches!(cli.mode, Some(Mode::Client { .. })) {
+            use lightyear::prelude::Connect;
+            use lightyear_examples_common_new::client::{ClientTransports, ExampleClient};
+            let client = app.world_mut().spawn(ExampleClient {
+                client_id: cli.client_id().expect("You need to specify a client_id via `-c ID`"),
+                client_port: CLIENT_PORT,
+                server_addr: SERVER_ADDR,
+                conditioner: None,
+                transport: ClientTransports::Udp, // Assuming UDP
+                shared: SHARED_SETTINGS,
+            }).id();
+            app.world_mut().trigger_targets(Connect, client)
+        }
+    }
+
     #[cfg(feature = "server")]
-    apps.add_user_server_plugin(crate::server::ExampleServerPlugin);
+    {
+        use lightyear_examples_common_new::server::{ExampleServer, ServerTransports};
+        use lightyear::connection::server::Start;
+
+        app.add_plugins(ExampleServerPlugin);
+        if matches!(cli.mode, Some(Mode::Server)) {
+            let server = app.world_mut().spawn(ExampleServer {
+                conditioner: None,
+                transport: ServerTransports::Udp { // Assuming UDP
+                    local_port: SERVER_PORT
+                },
+                shared: SHARED_SETTINGS
+            }).id();
+            app.world_mut().trigger_targets(Start, server);
+        }
+    }
+
     #[cfg(feature = "gui")]
-    apps.add_user_renderer_plugin(crate::renderer::ExampleRendererPlugin);
+    app.add_plugins(crate::renderer::ExampleRendererPlugin);
+
     // run the app
-    apps.run();
+    app.run();
 }

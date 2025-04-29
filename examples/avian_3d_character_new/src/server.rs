@@ -86,11 +86,10 @@ fn despawn_system(
 }
 
 fn player_shoot(
-    // Removed duplicate mut commands
+    mut commands: Commands, // Added back mut commands
     query: Query<(&ActionState<CharacterAction>, &Position, Has<Controlled>), Without<Predicted>>, // Query server-auth entities
     tick_manager: Res<TickManager>,
     time: Res<Time<Fixed>>,
-    // mut commands: Commands, // Removed duplicate
 ) {
     for (action_state, position, is_controlled) in &query {
         // Find the controlling player_id if this entity is controlled
@@ -137,46 +136,34 @@ fn player_shoot(
     }
 }
 
-fn init(mut commands: Commands) {
-    commands.start_server();
+// Renamed from init, removed start_server
+fn setup(mut commands: Commands) {
+    // commands.start_server(); // Removed: Handled in main.rs
 
     commands.spawn((
         Name::new("Floor"),
         FloorPhysicsBundle::default(),
         FloorMarker,
         Position::new(Vec3::ZERO),
-        // Floors don't need to be predicted since they will never move.
-        // We put it in the same replication group to avoid having the players be replicated before the floor
-        // and falling infinitely
-        ReplicateToClient::default(),
-        REPLICATION_GROUP,
+        // Use new replication components
+        Replicate::to_clients(NetworkTarget::All) // Replicate floor to all clients
+            .set_group(REPLICATION_GROUP), // Put in replication group
+        // Floor doesn't need prediction/interpolation targets
     ));
 
-    // Blocks need to be predicted because their position, rotation, velocity
-    // may change.
-    let block_replicate_component = (
-        ReplicateToClient::default(),
-        SyncTarget {
-            prediction: NetworkTarget::All,
-            ..default()
-        },
-        // Make sure that all entities that are predicted are part of the
-        // same replication group
-        REPLICATION_GROUP,
-    );
+    // Blocks spawning logic can be added here if needed, using the new replication components
+    // let block_replicate = Replicate::to_clients(NetworkTarget::All)
+    //     .set_group(REPLICATION_GROUP);
+    // let block_prediction = PredictionTarget::to_clients(NetworkTarget::All);
+    // let block_interpolation = InterpolationTarget::to_clients(NetworkTarget::All); // Or None if not needed
     // commands.spawn((
     //     Name::new("Block"),
     //     BlockPhysicsBundle::default(),
     //     BlockMarker,
     //     Position::new(Vec3::new(1.0, 1.0, 0.0)),
-    //     block_replicate_component.clone(),
-    // ));
-    // commands.spawn((
-    //     Name::new("Block"),
-    //     BlockPhysicsBundle::default(),
-    //     BlockMarker,
-    //     Position::new(Vec3::new(-1.0, 1.0, 0.0)),
-    //     block_replicate_component.clone(),
+    //     block_replicate.clone(),
+    //     block_prediction.clone(),
+    //     block_interpolation.clone(),
     // ));
 }
 

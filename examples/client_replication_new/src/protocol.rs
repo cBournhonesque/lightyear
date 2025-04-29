@@ -5,8 +5,9 @@ use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, EntityMapper, Vec2};
 use serde::{Deserialize, Serialize};
 
-use lightyear::client::components::ComponentSyncMode;
-use lightyear::prelude::client::Replicate;
+// Use preludes
+use lightyear::prelude::client::*;
+use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 use crate::shared::color_from_id;
@@ -17,17 +18,19 @@ pub(crate) struct PlayerBundle {
     id: PlayerId,
     position: PlayerPosition,
     color: PlayerColor,
-    replicate: Replicate,
+    // Removed replicate field, add Replicate component manually when spawning
+    // replicate: Replicate,
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
+    // Updated to use PeerId
+    pub(crate) fn new(id: PeerId, position: Vec2) -> Self {
         let color = color_from_id(id);
         Self {
-            id: PlayerId(id),
+            id: PlayerId(id), // Store PeerId
             position: PlayerPosition(position),
             color: PlayerColor(color),
-            replicate: Replicate::default(),
+            // replicate: Replicate::default(), // Removed
         }
     }
 }
@@ -38,16 +41,18 @@ pub(crate) struct CursorBundle {
     id: PlayerId,
     position: CursorPosition,
     color: PlayerColor,
-    replicate: Replicate,
+    // Removed replicate field, add Replicate component manually when spawning
+    // replicate: Replicate,
 }
 
 impl CursorBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2, color: Color) -> Self {
+    // Updated to use PeerId
+    pub(crate) fn new(id: PeerId, position: Vec2, color: Color) -> Self {
         Self {
-            id: PlayerId(id),
+            id: PlayerId(id), // Store PeerId
             position: CursorPosition(position),
             color: PlayerColor(color),
-            replicate: Replicate::default(),
+            // replicate: Replicate::default(), // Removed
         }
     }
 }
@@ -55,7 +60,7 @@ impl CursorBundle {
 // Components
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct PlayerId(pub ClientId);
+pub struct PlayerId(pub PeerId); // Use PeerId
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
 pub struct PlayerPosition(Vec2);
@@ -103,6 +108,12 @@ impl Mul<f32> for &CursorPosition {
 #[derive(Channel)]
 pub struct Channel1;
 
+impl Channel for Channel1 {
+    fn name(&self) -> &'static str {
+        "Channel1"
+    }
+}
+
 // Messages
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -143,24 +154,26 @@ impl Plugin for ProtocolPlugin {
         // messages
         app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
-        app.add_plugins(InputPlugin::<Inputs>::default());
+        // Use new input plugin path
+        app.add_plugins(input::InputPlugin::<Inputs>::default());
         // components
+        // Use PredictionMode and InterpolationMode
         app.register_component::<PlayerId>()
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<PlayerPosition>()
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
+            .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
 
         app.register_component::<PlayerColor>()
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<CursorPosition>()
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
+            .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
         // channels
         app.add_channel::<Channel1>(ChannelSettings {

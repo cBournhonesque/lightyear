@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::client::input::InputSystemSet;
-use lightyear::inputs::native::{ActionState, InputMarker};
-use lightyear::prelude::client::*;
+// Use new ActionState + InputManager paths
+use lightyear::prelude::client::{ActionState, ClientConnection, InputManager, Replicate};
 use lightyear::prelude::*;
 
 use crate::protocol::Direction;
@@ -13,12 +12,19 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, init);
-        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
+        // Removed init system
+        // app.add_systems(Startup, init);
+        // Run spawn_local_cursor once when ClientConnection resource is added
+        app.add_systems(
+            Update,
+            spawn_local_cursor.run_if(resource_added::<ClientConnection>),
+        );
+        // app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive)); // Removed old handler
         // Inputs need to be buffered in the `FixedPreUpdate` schedule
         app.add_systems(
             FixedPreUpdate,
-            buffer_input.in_set(InputSystemSet::WriteClientInputs),
+            // Use new InputSystemSet path
+            buffer_input.in_set(input::InputSystemSet::BufferInputs),
         );
         // all actions related-system that can be rolled back should be in the `FixedUpdate` schedule
         app.add_systems(FixedUpdate, (player_movement, delete_player));
@@ -36,33 +42,45 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-/// Startup system for the client
-pub(crate) fn init(mut commands: Commands) {
-    commands.connect_client();
-}
+// Removed init system
+// pub(crate) fn init(mut commands: Commands) {
+//     commands.connect_client();
+// }
 
-/// Listen for events to know when the client is connected;
-/// - spawn a text entity to display the client id
-/// - spawn a client-owned cursor entity that will be replicated to the server
-pub(crate) fn handle_connection(
+/// Spawn the local cursor when the client connects
+// Renamed from handle_connection, uses ClientConnection resource
+pub(crate) fn spawn_local_cursor(
     mut commands: Commands,
-    mut connection_event: EventReader<ConnectEvent>,
+    connection: Res<ClientConnection>, // Get ClientConnection resource
 ) {
-    for event in connection_event.read() {
-        let client_id = event.client_id();
-        info!("Spawning local cursor");
-        // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
-        commands.spawn(CursorBundle::new(
+    let client_id = connection.id(); // Get PeerId
+    info!("Spawning local cursor for client: {}", client_id);
+    // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
+    commands.spawn((
+        CursorBundle::new(
             client_id,
             Vec2::ZERO,
-            color_from_id(client_id),
-        ));
-    }
+            color_from_id(client_id), // color_from_id now takes PeerId
+        ),
+        // Add Replicate component for client-driven replication.
+        // Use default() as the configuration seems simplified.
+        Replicate::default(),
+        // Replicate {
+        //     replication_target: NetworkTarget::All, // Replicate to server and other clients
+        //     sync: SyncTarget {
+        //         prediction: NetworkTarget::None, // No prediction for cursor
+        //         interpolation: NetworkTarget::All, // Interpolate cursor on other clients
+        //     },
+        //     controlled_by: ControlledBy::Client, // Client controls this entity
+        //     ..default()
+        // },
+    ));
 }
 
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(
-    mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
+    // Use new ActionState and InputManager paths
+    mut query: Query<&mut ActionState<Inputs>, With<InputManager<Inputs>>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
     if let Ok(mut action_state) = query.get_single_mut() {
@@ -91,7 +109,9 @@ pub(crate) fn buffer_input(
         if keypress.pressed(KeyCode::KeyK) {
             input = Some(Inputs::Delete);
         }
-        action_state.value = input;
+        // Use the set() method for ActionState
+        action_state.set(input);
+        // action_state.value = input;
     }
 }
 
@@ -110,14 +130,19 @@ fn player_movement(
     }
 }
 
-/// Spawn a server-owned pre-predicted player entity when the space command is pressed
+/// Spawn a client-owned player entity when the space command is pressed
 fn spawn_player(
     mut commands: Commands,
     keypress: Res<ButtonInput<KeyCode>>,
-    connection: Res<ClientConnection>,
+    // Use LocalPlayerId resource
+    local_player_id: Option<Res<LocalPlayerId>>,
     players: Query<&PlayerId, With<PlayerPosition>>,
 ) {
-    let client_id = connection.id();
+    let Some(local_player_id) = local_player_id else {
+        warn!("LocalPlayerId resource not found, cannot spawn player yet.");
+        return;
+    };
+    let client_id = local_player_id.0; // Get PeerId
 
     // do not spawn a new player if we already have one
     for player_id in players.iter() {
@@ -126,14 +151,25 @@ fn spawn_player(
         }
     }
     if keypress.just_pressed(KeyCode::Space) {
+        info!("Spawning client-owned player entity for client: {}", client_id);
         commands.spawn((
             PlayerBundle::new(client_id, Vec2::ZERO),
-            // add a marker to specify that we will be writing Inputs on this entity
-            InputMarker::<Inputs>::default(),
-            // IMPORTANT: this lets the server know that the entity is pre-predicted
-            // when the server replicates this entity; we will get a Confirmed entity which will use this entity
-            // as the Predicted version
-            PrePredicted::default(),
+            // add InputManager so we can attach inputs to this entity
+            InputManager::<Inputs>::default(),
+            // Add Replicate component for client-driven replication.
+            // Use default() as the configuration seems simplified.
+            Replicate::default(),
+            // Replicate {
+            //     replication_target: NetworkTarget::All, // Replicate to server and other clients
+            //     sync: SyncTarget {
+            //         prediction: NetworkTarget::All, // Predict player on all clients
+            //         interpolation: NetworkTarget::None, // No interpolation for predicted entities
+            //     },
+            //     controlled_by: ControlledBy::Client, // Client controls this entity
+            //     ..default()
+            // },
+            // PrePredicted is automatically added by client::Replicate
+            // PrePredicted::default(),
         ));
     }
 }
@@ -165,17 +201,25 @@ fn delete_player(
 
 // Adjust the movement of the cursor entity based on the mouse position
 fn cursor_movement(
-    connection: Res<ClientConnection>,
+    // Use LocalPlayerId resource
+    local_player_id: Option<Res<LocalPlayerId>>,
     window_query: Query<&Window>,
     mut cursor_query: Query<
         (&mut CursorPosition, &PlayerId),
-        Or<((Without<Confirmed>, Without<Interpolated>),)>,
+        // Query the client-authoritative cursor
+        (With<Replicate>, Without<Confirmed>, Without<Interpolated>),
     >,
 ) {
-    let client_id = connection.id();
+    let Some(local_player_id) = local_player_id else {
+        warn!("LocalPlayerId resource not found, cannot move cursor yet.");
+        return;
+    };
+    let client_id = local_player_id.0; // Get PeerId
+
     for (mut cursor_position, player_id) in cursor_query.iter_mut() {
         if player_id.0 != client_id {
-            return;
+            // This entity is replicated from another client, skip
+            continue;
         }
         if let Ok(window) = window_query.get_single() {
             if let Some(mouse_position) = window_relative_mouse_position(window) {
@@ -205,17 +249,17 @@ pub(crate) fn receive_message(mut reader: EventReader<ReceiveMessage<Message1>>)
     }
 }
 
-/// Send messages from server to clients
+/// Send messages from client to server
 pub(crate) fn send_message(
-    mut client: ResMut<ConnectionManager>,
+    // Use ClientConnection resource
+    client: Res<ClientConnection>,
     input: Res<ButtonInput<KeyCode>>,
 ) {
     if input.pressed(KeyCode::KeyM) {
         let message = Message1(5);
         info!("Send message: {:?}", message);
-        // the message will be re-broadcasted by the server to all clients
-        client
-            .send_message_to_target::<Channel1, Message1>(&mut Message1(5), NetworkTarget::All)
+        // Send to server
+        client.send_message::<Channel1, Message1>(message)
             .unwrap_or_else(|e| {
                 error!("Failed to send message: {:?}", e);
             });

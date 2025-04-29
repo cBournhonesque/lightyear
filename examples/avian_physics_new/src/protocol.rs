@@ -4,14 +4,11 @@ use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::shared::color_from_id;
-use lightyear::client::components::{ComponentSyncMode, LerpFn};
-use lightyear::client::interpolation::LinearInterpolator;
-use lightyear::prelude::client;
-use lightyear::prelude::client::ReplicateToServer;
-use lightyear::prelude::server::{Replicate, ReplicateToClient, SyncTarget};
+// Use preludes
+use lightyear::prelude::client::*;
+use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::utils::avian2d::*;
-use lightyear::utils::bevy::TransformLinearInterpolation;
+use lightyear::utils::avian2d::*; // Keep avian utils
 
 pub const BALL_SIZE: f32 = 15.0;
 pub const PLAYER_SIZE: f32 = 40.0;
@@ -38,13 +35,15 @@ pub(crate) struct PlayerBundle {
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2, input_map: InputMap<PlayerActions>) -> Self {
+    // Updated to use PeerId
+    pub(crate) fn new(id: PeerId, position: Vec2, input_map: InputMap<PlayerActions>) -> Self {
         let color = color_from_id(id);
         Self {
-            id: PlayerId(id),
+            id: PlayerId(id), // Store PeerId
             position: Position(position),
             color: ColorComponent(color),
-            replicate: ReplicateToServer::default(),
+            // ReplicateToServer is handled implicitly by client predicting the entity
+            // replicate: ReplicateToServer::default(),
             physics: PhysicsBundle::player(),
             inputs: InputManagerBundle::<PlayerActions> {
                 action_state: ActionState::default(),
@@ -61,7 +60,10 @@ impl PlayerBundle {
 pub(crate) struct BallBundle {
     position: Position,
     color: ColorComponent,
+    // Use new replication components directly
     replicate: Replicate,
+    prediction_target: Option<PredictionTarget>,
+    interpolation_target: Option<InterpolationTarget>,
     marker: BallMarker,
     physics: PhysicsBundle,
     name: Name,
@@ -69,23 +71,27 @@ pub(crate) struct BallBundle {
 
 impl BallBundle {
     pub(crate) fn new(position: Vec2, color: Color, predicted: bool) -> Self {
-        let mut sync_target = SyncTarget::default();
-        let mut group = ReplicationGroup::default();
-        if predicted {
-            sync_target.prediction = NetworkTarget::All;
-            group = REPLICATION_GROUP;
+        let replicate = Replicate::to_clients(NetworkTarget::All); // Default replicate to all
+        let (prediction_target, interpolation_target, group) = if predicted {
+            (
+                Some(PredictionTarget::to_clients(NetworkTarget::All)),
+                None, // No interpolation if predicted
+                REPLICATION_GROUP, // Use prediction group
+            )
         } else {
-            sync_target.interpolation = NetworkTarget::All;
-        }
-        let replicate = Replicate {
-            sync: sync_target,
-            group,
-            ..default()
+            (
+                None, // No prediction if not predicted
+                Some(InterpolationTarget::to_clients(NetworkTarget::All)),
+                ReplicationGroup::default(), // Default group if not predicted
+            )
         };
+
         Self {
             position: Position(position),
             color: ColorComponent(color),
-            replicate,
+            replicate: replicate.set_group(group), // Set group on replicate
+            prediction_target,
+            interpolation_target,
             physics: PhysicsBundle::ball(),
             marker: BallMarker,
             name: Name::from("Ball"),
@@ -120,7 +126,12 @@ impl PhysicsBundle {
 
 // Components
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-pub struct PlayerId(pub ClientId);
+pub struct PlayerId(pub PeerId); // Use PeerId
+
+// Resource to store the client's PeerId
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct LocalPlayerId(pub PeerId);
+
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct ColorComponent(pub(crate) Color);
@@ -155,54 +166,59 @@ pub enum AdminActions {
 }
 
 // Protocol
-pub(crate) struct ProtocolPlugin {
-    pub(crate) predict_all: bool,
-}
+#[derive(Clone)] // Added Clone
+pub(crate) struct ProtocolPlugin;
+// { // Removed predict_all field
+//     pub(crate) predict_all: bool,
+// }
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
         app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
-        app.add_plugins(LeafwingInputPlugin::<PlayerActions> {
-            config: InputConfig::<PlayerActions> {
-                rebroadcast_inputs: self.predict_all,
-                ..default()
-            },
-        });
-        app.add_plugins(LeafwingInputPlugin::<AdminActions>::default());
+        // Use new input plugin path and default config
+        app.add_plugins(input::leafwing::InputPlugin::<PlayerActions>::default());
+        // app.add_plugins(LeafwingInputPlugin::<PlayerActions> {
+        //     config: InputConfig::<PlayerActions> {
+        //         rebroadcast_inputs: self.predict_all, // Removed config
+        //         ..default()
+        //     },
+        // });
+        app.add_plugins(input::leafwing::InputPlugin::<AdminActions>::default());
         // components
+        // Use PredictionMode and InterpolationMode
         app.register_component::<PlayerId>()
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<ColorComponent>()
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<BallMarker>()
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<Position>()
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
+            .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full)
             .add_interpolation_fn(position::lerp)
             .add_correction_fn(position::lerp);
 
         app.register_component::<Rotation>()
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
+            .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full)
             .add_interpolation_fn(rotation::lerp)
             .add_correction_fn(rotation::lerp);
 
         // NOTE: interpolation/correction is only needed for components that are visually displayed!
         // we still need prediction to be able to correctly predict the physics on the client
         app.register_component::<LinearVelocity>()
-            .add_prediction(ComponentSyncMode::Full);
+            .add_prediction(PredictionMode::Full);
 
         app.register_component::<AngularVelocity>()
-            .add_prediction(ComponentSyncMode::Full);
+            .add_prediction(PredictionMode::Full);
 
         // channels
         app.add_channel::<Channel1>(ChannelSettings {

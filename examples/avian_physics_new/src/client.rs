@@ -14,20 +14,19 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // To send global inputs, insert the ActionState and the InputMap as Resources
+        // Removed AdminActions setup
         // app.init_resource::<ActionState<AdminActions>>();
-        // app.insert_resource(InputMap::<AdminActions>::new([
-        //     (AdminActions::SendMessage, KeyCode::KeyM),
-        //     (AdminActions::Reset, KeyCode::KeyR),
-        // ]));
+        // app.insert_resource(InputMap::<AdminActions>::new([ ... ]));
 
-        app.add_systems(Startup, init);
-        app.add_systems(
-            PreUpdate,
-            handle_connection
-                .after(MainSet::Receive)
-                .before(PredictionSet::SpawnPrediction),
-        );
+        // Removed init system
+        // app.add_systems(Startup, init);
+        // Removed handle_connection system
+        // app.add_systems(
+        //     PreUpdate,
+        //     handle_connection
+        //         .after(MainSet::Receive)
+        //         .before(PredictionSet::SpawnPrediction),
+        // );
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
         app.add_systems(FixedUpdate, player_movement);
         app.add_systems(
@@ -43,42 +42,14 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-// Startup system for the client
-pub(crate) fn init(mut commands: Commands) {
-    commands.connect_client();
-}
+// Removed init system
+// pub(crate) fn init(mut commands: Commands) {
+//     commands.connect_client();
+// }
 
-/// Listen for events to know when the client is connected, and spawn player entities
-pub(crate) fn handle_connection(
-    mut commands: Commands,
-    mut connection_event: EventReader<ConnectEvent>,
-) {
-    for event in connection_event.read() {
-        let client_id = event.client_id();
-        let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
-        // we will spawn two cubes per player, once is controlled with WASD, the other with arrows
-        commands.spawn(PlayerBundle::new(
-            client_id,
-            Vec2::new(-50.0, y),
-            InputMap::new([
-                (PlayerActions::Up, KeyCode::KeyW),
-                (PlayerActions::Down, KeyCode::KeyS),
-                (PlayerActions::Left, KeyCode::KeyA),
-                (PlayerActions::Right, KeyCode::KeyD),
-            ]),
-        ));
-        // commands.spawn((PlayerBundle::new(
-        //     client_id,
-        //     Vec2::new(50.0, y),
-        //     InputMap::new([
-        //         (PlayerActions::Up, KeyCode::ArrowUp),
-        //         (PlayerActions::Down, KeyCode::ArrowDown),
-        //         (PlayerActions::Left, KeyCode::ArrowLeft),
-        //         (PlayerActions::Right, KeyCode::ArrowRight),
-        //     ]),
-        // ),));
-    }
-}
+// Removed handle_connection system (player spawning is server-authoritative)
+// pub(crate) fn handle_connection( ... ) { ... }
+
 
 /// Blueprint pattern: when the ball gets replicated from the server, add all the components
 /// that we need that are not replicated.
@@ -107,7 +78,8 @@ fn add_ball_physics(
 /// When we receive other players (whether they are predicted or interpolated), we want to add the physics components
 /// so that our predicted entities can predict collisions with them correctly
 fn add_player_physics(
-    connection: Res<ClientConnection>,
+    // Use LocalPlayerId resource instead of ClientConnection
+    local_player_id: Option<Res<LocalPlayerId>>, // Use Option<> in case the resource isn't added yet
     mut commands: Commands,
     mut player_query: Query<
         (Entity, &PlayerId),
@@ -118,18 +90,24 @@ fn add_player_physics(
         ),
     >,
 ) {
-    let client_id = connection.id();
+    // Get the local client id if it exists
+    let Some(local_player_id) = local_player_id else {
+        warn!("LocalPlayerId resource not found, cannot add physics to remote players yet.");
+        return;
+    };
+    let client_id = local_player_id.0;
+
     for (entity, player_id) in player_query.iter_mut() {
         if player_id.0 == client_id {
             // only need to do this for other players' entities
-            debug!(
-                ?entity,
-                ?player_id,
-                "we only want to add physics to other player! Skip."
-            );
+            // debug!(
+            //     ?entity,
+            //     ?player_id,
+            //     "we only want to add physics to other player! Skip."
+            // );
             continue;
         }
-        info!(?entity, ?player_id, "adding physics to predicted player");
+        info!(?entity, ?player_id, "adding physics to remote player");
         commands.entity(entity).insert(PhysicsBundle::player());
     }
 }

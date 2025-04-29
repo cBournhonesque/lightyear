@@ -13,9 +13,12 @@ use bevy::prelude::{App, Plugin};
 use serde::{Deserialize, Serialize};
 use core::ops::{Add, Mul};
 
-use lightyear::client::components::ComponentSyncMode;
-use lightyear::prelude::server::AuthorityPeer;
+// Use preludes
+use lightyear::prelude::client::*;
+use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+// Removed AuthorityPeer import, it's part of prelude::server now
+// use lightyear::prelude::server::AuthorityPeer;
 
 // Player
 #[derive(Bundle)]
@@ -26,31 +29,25 @@ pub(crate) struct PlayerBundle {
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
+    // Updated to use PeerId
+    pub(crate) fn new(id: PeerId, position: Vec2) -> Self {
+        // Color generation moved to shared.rs
         Self {
-            id: PlayerId(id),
+            id: PlayerId(id), // Store PeerId
             position: Position(position),
-            color: PlayerColor(Self::color_from_id(id)),
+            // Color will be set separately or via a system using shared::color_from_id
+            color: PlayerColor(Color::WHITE), // Default color, will be updated
         }
     }
 
-    pub(crate) fn color_from_id(id: ClientId) -> Color {
-        let colors = [
-            palettes::css::RED,
-            palettes::css::GREEN,
-            palettes::css::BLUE,
-            palettes::css::YELLOW,
-            palettes::css::CADET_BLUE,
-            palettes::css::MAGENTA,
-        ];
-        colors[id.to_bits() as usize % colors.len()].into()
-    }
+    // Removed color_from_id from here, moved to shared.rs
+    // pub(crate) fn color_from_id(id: ClientId) -> Color { ... }
 }
 
 // Components
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
-pub struct PlayerId(pub ClientId);
+pub struct PlayerId(pub PeerId); // Use PeerId
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Reflect)]
 pub struct Position(pub Vec2);
@@ -101,6 +98,12 @@ pub struct BallMarker;
 #[derive(Channel)]
 pub struct Channel1;
 
+impl Channel for Channel1 {
+    fn name(&self) -> &'static str {
+        "Channel1"
+    }
+}
+
 // Messages
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -138,34 +141,35 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
         app.register_message::<Message1>(ChannelDirection::Bidirectional);
-        // we replicate the AuthorityPeer so that the client can know who has authority over the player
-        // (so that we can change the color)
-        app.register_message::<AuthorityPeer>(ChannelDirection::ServerToClient);
+        // Removed AuthorityPeer message registration
+        // app.register_message::<AuthorityPeer>(ChannelDirection::ServerToClient);
 
         // inputs
-        app.add_plugins(InputPlugin::<Inputs>::default());
+        // Use new input plugin path
+        app.add_plugins(input::InputPlugin::<Inputs>::default());
         // components
+        // Use PredictionMode and InterpolationMode
         app.register_component::<PlayerId>()
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<BallMarker>()
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<Position>()
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
+            .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
 
         app.register_component::<Speed>()
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
+            .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
 
         app.register_component::<PlayerColor>()
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
         // channels
         app.add_channel::<Channel1>(ChannelSettings {

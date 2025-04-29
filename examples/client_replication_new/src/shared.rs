@@ -1,26 +1,32 @@
 use bevy::prelude::*;
 use core::time::Duration;
+use std::hash::{Hash, Hasher}; // Added for PeerId hashing
 
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
 
-#[derive(Clone)]
-pub struct SharedPlugin;
-
-impl Plugin for SharedPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_plugins(ProtocolPlugin);
-    }
-}
+// Removed SharedPlugin
+// #[derive(Clone)]
+// pub struct SharedPlugin;
+//
+// impl Plugin for SharedPlugin {
+//     fn build(&self, app: &mut App) {
+//         app.add_plugins(ProtocolPlugin);
+//     }
+// }
 
 // Generate pseudo-random color from id
-pub(crate) fn color_from_id(client_id: ClientId) -> Color {
-    let h = (((client_id.to_bits().wrapping_mul(90)) % 360) as f32) / 360.0;
+// Updated to use PeerId
+pub(crate) fn color_from_id(client_id: PeerId) -> Color {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    client_id.hash(&mut hasher);
+    let h = hasher.finish() % 360;
+    // let h = (((client_id.to_bits().wrapping_mul(90)) % 360) as f32) / 360.0; // Old way
     let s = 1.0;
     let l = 0.5;
-    Color::hsl(h, s, l)
+    Color::hsl(h as f32, s, l) // Use h as f32
 }
 
 // This system defines how we update the player's positions when we receive an input

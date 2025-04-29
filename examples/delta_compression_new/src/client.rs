@@ -28,7 +28,8 @@ impl Plugin for ExampleClientPlugin {
         // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
             FixedPreUpdate,
-            buffer_input.in_set(InputSystemSet::WriteClientInputs),
+            // Use new InputSystemSet path
+            buffer_input.in_set(input::InputSystemSet::BufferInputs),
         );
         app.add_systems(FixedUpdate, player_movement);
         app.add_systems(
@@ -52,7 +53,8 @@ impl Plugin for ExampleClientPlugin {
 /// I would also advise to use the `leafwing` feature to use the `LeafwingInputPlugin` instead of the
 /// `InputPlugin`, which contains more features.
 pub(crate) fn buffer_input(
-    mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
+    // Use new ActionState and InputManager paths
+    mut query: Query<&mut ActionState<Inputs>, With<InputManager<Inputs>>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
     query.iter_mut().for_each(|mut action_state| {
@@ -78,7 +80,9 @@ pub(crate) fn buffer_input(
         if !direction.is_none() {
             input = Some(Inputs::Direction(direction));
         }
-        action_state.value = input;
+        // Use the set() method for ActionState
+        action_state.set(input);
+        // action_state.value = input;
     });
 }
 
@@ -87,9 +91,26 @@ pub(crate) fn buffer_input(
 /// If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>) {
     for (position, input) in position_query.iter_mut() {
-        if let Some(inputs) = &input.value {
-            shared::shared_movement_behaviour(position, inputs);
+        // Use the pressed() method to check if an input is active
+        if input.pressed(&Inputs::Direction(Direction { // Check for any direction input
+            up: true, down: false, left: false, right: false
+        })) || input.pressed(&Inputs::Direction(Direction {
+            up: false, down: true, left: false, right: false
+        })) || input.pressed(&Inputs::Direction(Direction {
+            up: false, down: false, left: true, right: false
+        })) || input.pressed(&Inputs::Direction(Direction {
+            up: false, down: false, left: false, right: true
+        }))
+        {
+             // Retrieve the actual input value if needed for the behavior function
+             // Assuming shared_movement_behaviour needs the specific direction
+             if let Some(inputs) = input.current_value() { // Use current_value() to get the Option<Inputs>
+                shared::shared_movement_behaviour(position, inputs);
+             }
         }
+        // if let Some(inputs) = &input.value { // Old check using private field
+        //     shared::shared_movement_behaviour(position, inputs);
+        // }
     }
 }
 
@@ -139,7 +160,8 @@ pub(crate) fn handle_predicted_spawn(
         color.0 = Color::from(hsva);
         commands
             .entity(entity)
-            .insert(InputMarker::<Inputs>::default());
+            // Use new InputManager path
+            .insert(InputManager::<Inputs>::default());
     }
 }
 
