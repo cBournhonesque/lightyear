@@ -194,9 +194,6 @@ lz4_flex = { workspace = true, optional = true }
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
 lightyear_udp = { workspace = true, optional = true }
 steamworks = { workspace = true, optional = true }
-quinn = { workspace = true, optional = true }
-quinn-proto = { workspace = true, optional = true }
-wtransport = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true }
 zstd = { workspace = true, optional = true }
 

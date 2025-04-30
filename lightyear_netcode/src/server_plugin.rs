@@ -245,6 +245,7 @@ impl NetcodeServerPlugin {
         mut link_query: Query<(&mut Link, &ClientOf)>,
     ) -> Result {
         if let Ok((entity, mut netcode_server, server)) = query.get_mut(trigger.target()) {
+            info!("Stopping netcode server. Unlinking the ServerIo");
             // stop the ServerIo that is on this entity (for example webtransport server)
             commands.trigger_targets(Unlink, entity);
 
@@ -264,29 +265,18 @@ impl NetcodeServerPlugin {
         }
         Ok(())
     }
-
-    /// If the underlying Link fails, also disconnect the client
-    fn disconnect_if_link_fails(
-        trigger: Trigger<OnAdd, Unlinked>,
-        mut commands: Commands,
-        mut query: Query<(), With<ClientOf>>,
-    ) {
-        if let Ok(()) = query.get(trigger.target()) {
-            // first disconnect to trigger observers
-            commands
-                .entity(trigger.target())
-                .insert(Disconnected {
-                    reason: Some("Link failed".to_string())
-                })
-                .despawn();
-        }
-    }
 }
 
 
 
 impl Plugin for NetcodeServerPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<lightyear_connection::client::ConnectionPlugin>() {
+            app.add_plugins(lightyear_connection::client::ConnectionPlugin);
+        }
+        if !app.is_plugin_added::<lightyear_connection::server::ConnectionPlugin>() {
+            app.add_plugins(lightyear_connection::server::ConnectionPlugin);
+        }
         // TODO: should these be shared? or do we use Markers like in lightyear to distinguish between client and server?
         app.configure_sets(PreUpdate, (LinkSet::ApplyConditioner, ConnectionSet::Receive, TransportSet::Receive).chain());
         app.configure_sets(PostUpdate, (TransportSet::Send, ConnectionSet::Send, LinkSet::Send).chain());
@@ -296,6 +286,5 @@ impl Plugin for NetcodeServerPlugin {
 
         app.add_observer(Self::start);
         app.add_observer(Self::stop);
-        app.add_observer(Self::disconnect_if_link_fails);
     }
 }

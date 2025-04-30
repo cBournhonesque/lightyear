@@ -5,10 +5,10 @@ use bevy::ecs::component::{ComponentHook, ComponentId, ComponentsRegistrator, Ho
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use core::net::SocketAddr;
-use lightyear_connection::client::{Client, Connect, Connected, Connecting, Disconnect, Disconnected};
+use lightyear_connection::client::{Client, Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected};
 use lightyear_connection::ConnectionSet;
 use lightyear_core::id::PeerId;
-use lightyear_link::{Link, LinkSet, LinkStart, SendPayload, Unlinked};
+use lightyear_link::{Link, LinkSet, LinkStart, Linked, SendPayload, Unlinked};
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
 use tracing::{debug, error, trace};
@@ -93,7 +93,7 @@ impl NetcodeClientPlugin {
     /// Takes packets from the Link, process them through netcode
     /// and buffer them back into the link to be sent by the IO
     fn send(
-        mut query: Query<(&mut Link, &mut NetcodeClient), Without<Unlinked>>,
+        mut query: Query<(&mut Link, &mut NetcodeClient), With<Linked>>,
     ) {
         query.par_iter_mut().for_each(|(mut link, mut client)| {
             // send user packets
@@ -117,7 +117,7 @@ impl NetcodeClientPlugin {
     /// then buffer them back into the Link
     fn receive(
         real_time: Res<Time<Real>>,
-        mut query: Query<(Entity, &mut Link, &mut NetcodeClient, Has<Connecting>, Has<Disconnected>), Without<Unlinked>>,
+        mut query: Query<(Entity, &mut Link, &mut NetcodeClient, Has<Connecting>, Has<Disconnected>), With<Linked>>,
         parallel_commands: ParallelCommands
     ) {
         let delta = real_time.delta();
@@ -161,7 +161,6 @@ impl NetcodeClientPlugin {
         if let Ok(mut client) = query.get_mut(trigger.target()) {
             debug!("Starting netcode connection process");
             client.inner.connect();
-            commands.trigger_targets(LinkStart, trigger.target());
             commands.entity(trigger.target())
                 .insert(Connecting);
         }
@@ -180,28 +179,14 @@ impl NetcodeClientPlugin {
         }
         Ok(())
     }
-
-    /// If the underlying Link fails, also disconnect the client
-    fn disconnect_if_link_fails(
-        trigger: Trigger<OnAdd, Unlinked>,
-        mut commands: Commands,
-        mut query: Query<&Unlinked, With<Client>>,
-    ) {
-        if let Ok(unlinked) = query.get(trigger.target()) {
-            info!("Disconnect because link failed. Reason: {:?}", unlinked.reason);
-             commands
-                .entity(trigger.target())
-                .insert(Disconnected {
-                    reason: unlinked.reason.clone(),
-                })
-                .remove::<(Connecting, Connected)>();
-        }
-    }
 }
 
 
 impl Plugin for NetcodeClientPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<ConnectionPlugin>() {
+            app.add_plugins(ConnectionPlugin);
+        }
         app.configure_sets(PreUpdate, (LinkSet::ApplyConditioner, ConnectionSet::Receive,  TransportSet::Receive).chain());
         app.configure_sets(PostUpdate, (TransportSet::Send, ConnectionSet::Send, LinkSet::Send).chain());
 
@@ -209,6 +194,5 @@ impl Plugin for NetcodeClientPlugin {
         app.add_systems(PostUpdate, Self::send.in_set(ConnectionSet::Send));
         app.add_observer(Self::connect);
         app.add_observer(Self::disconnect);
-        app.add_observer(Self::disconnect_if_link_fails);
     }
 }

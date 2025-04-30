@@ -128,7 +128,7 @@ impl ExampleServer {
                         Ipv4Addr::UNSPECIFIED.into(),
                         local_port,
                     );
-                    entity_mut.insert(ServerUdpIo::new(server_addr)?);
+                    entity_mut.insert(ServerUdpIo::new(server_addr));
                 }
                 _ => {}
             };

@@ -21,7 +21,6 @@ pub struct LinkConditionerConfig {
 }
 
 
-
 #[derive(Debug, Clone)]
 pub struct LinkConditioner<P: Eq> {
     config: LinkConditionerConfig,

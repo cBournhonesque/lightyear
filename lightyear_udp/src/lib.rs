@@ -14,7 +14,7 @@ use alloc::sync::Arc;
 use bevy::prelude::*;
 use bytes::{BufMut, BytesMut};
 use core::net::SocketAddr;
-use lightyear_link::{Link, LinkSet, Linked, Unlinked};
+use lightyear_link::{Link, LinkSet, LinkStart, Linked, Unlink, Unlinked};
 use std::sync::Mutex;
 
 #[cfg(feature = "server")]
@@ -35,23 +35,21 @@ pub(crate) const MTU: usize = 1472;
 
 #[derive(Component)]
 #[require(Link)]
-// There is no linking phase
-#[require(Linked)]
 pub struct UdpIo {
+    // TODO: require remote addr here!
     local_addr: SocketAddr,
-    // TODO: add possibility to set the remote addr
-    socket: std::net::UdpSocket,
+    socket: Option<std::net::UdpSocket>,
     buffer: BytesMut,
 }
 
+// TODO: maybe We could have UdpIo<Unlinked> and UdpIo<Linked> and only UdpIo<Linked> has a std::net::UdpSocket?
+//  but then it becomes annoying for the user to query. But realistically the user wouldn't query it?
+
 impl UdpIo {
     pub fn new(local_addr: SocketAddr) -> std::io::Result<UdpIo> {
-        let mut socket = std::net::UdpSocket::bind(local_addr)?;
-        info!("UDP socket bound to {}", local_addr);
-        socket.set_nonblocking(true)?;
         Ok(UdpIo {
             local_addr,
-            socket,
+            socket: None,
             buffer: BytesMut::with_capacity(MTU),
         })
     }
@@ -60,16 +58,47 @@ impl UdpIo {
 pub struct UdpPlugin;
 
 impl UdpPlugin {
+    fn link(
+        trigger: Trigger<LinkStart>,
+        mut query: Query<&mut UdpIo, With<Unlinked>>,
+        mut commands: Commands,
+    ) -> Result {
+        if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
+            let mut socket = std::net::UdpSocket::bind(udp_io.local_addr)?;
+            info!("UDP socket bound to {}", udp_io.local_addr);
+            socket.set_nonblocking(true)?;
+            udp_io.socket = Some(socket);
+            commands.entity(trigger.target()).insert(Linked);
+        }
+        Ok(())
+    }
+
+    fn unlink(
+        trigger: Trigger<Unlink>,
+        mut query: Query<&mut UdpIo, With<Linked>>,
+        mut commands: Commands,
+    ) {
+        if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
+            info!("UDP socket closed");
+            udp_io.socket = None;
+            commands.entity(trigger.target()).insert(Unlinked {
+                reason: Some("Client request".to_string()),
+            });
+        }
+    }
+
     fn send(
-        mut query: Query<(&mut Link, &mut UdpIo)>
+        mut query: Query<(&mut Link, &mut UdpIo), With<Linked>>
     ) {
         query.par_iter_mut().for_each(|(mut link, mut udp_io)| {
             if let Some(remote_addr) = link.remote_addr {
                 link.send.drain().for_each(|payload| {
-                    // TODO: how do we get the link address?
-                    //   Maybe Link has multiple states?
-                    // TODO: we don't want to short-circuit on error
-                    udp_io.socket.send_to(payload.as_ref(), remote_addr).inspect_err(|e| error!("Error sending UDP packet: {}", e)).ok();
+                    udp_io.socket
+                        .as_mut()
+                        .unwrap()
+                        .send_to(payload.as_ref(), remote_addr)
+                        .inspect_err(|e| error!("Error sending UDP packet: {}", e))
+                        .ok();
                 });
             }
         })
@@ -77,7 +106,7 @@ impl UdpPlugin {
 
     fn receive(
         time: Res<Time<Real>>,
-        mut query: Query<(&mut Link, &mut UdpIo)>
+        mut query: Query<(&mut Link, &mut UdpIo), With<Linked>>
     ) {
         query.par_iter_mut().for_each(|(mut link, mut udp_io)| {
             // enable split borrows
@@ -107,7 +136,7 @@ impl UdpPlugin {
                     let ptr = udp_io.buffer.as_mut_ptr().add(current_len);
                     core::slice::from_raw_parts_mut(ptr, max_recv_len)
                 };
-                match udp_io.socket.recv_from(buf_slice) {
+                match udp_io.socket.as_mut().unwrap().recv_from(buf_slice) {
                     Ok((recv_len, _)) => {
                         // Mark the received bytes as initialized
                         // SAFETY: we know that the buffer is large enough to hold the received data.
@@ -132,6 +161,8 @@ impl UdpPlugin {
 
 impl Plugin for UdpPlugin {
     fn build(&self, app: &mut App) {
+        app.add_observer(Self::link);
+        app.add_observer(Self::unlink);
         app.add_systems(PreUpdate, Self::receive.in_set(LinkSet::Receive));
         app.add_systems(PreUpdate, Self::send.in_set(LinkSet::Send));
     }

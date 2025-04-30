@@ -8,7 +8,6 @@ use lightyear_examples_common_new::shared::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SERV
 
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
-use crate::protocol::ProtocolPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;

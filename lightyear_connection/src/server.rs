@@ -1,10 +1,17 @@
+use crate::client::{Client, ClientState, Connect, Connected, Connecting, Disconnected};
 use crate::direction::NetworkDirection;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::prelude::{Component, Event, Reflect};
+use bevy::app::{App, Plugin};
+use bevy::ecs::component::HookContext;
+use bevy::ecs::world::DeferredWorld;
+use bevy::prelude::{Commands, Component, Event, OnAdd, Query, Reflect, Trigger};
 use core::fmt::Debug;
+use lightyear_link::prelude::ServerLink;
+use lightyear_link::{LinkStart, Unlinked};
+use tracing::info;
 
 /// A dummy connection plugin that takes payloads directly from the Link
 /// to the Transport without any processing
@@ -31,16 +38,62 @@ pub struct Start;
 pub struct Stop;
 
 #[derive(Component)]
+#[component(on_add = Starting::on_add)]
 pub struct Starting;
 
+impl Starting {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        world.commands().entity(context.entity)
+            .remove::<(Started, Stopped)>();
+    }
+}
+
 #[derive(Component, Event, Reflect)]
+#[component(on_add = Started::on_add)]
 pub struct Started;
 
+impl Started {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        world.commands().entity(context.entity)
+            .remove::<(Starting, Stopped)>();
+    }
+}
+
 #[derive(Component, Event, Reflect)]
+#[component(on_add = Stopped::on_add)]
 pub struct Stopped;
 
-pub(crate) trait AppChannelDirectionExt {
-    fn add_direction(&mut self, direction: NetworkDirection);
+impl Stopped {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        world.commands().entity(context.entity)
+            .remove::<(Started, Starting)>();
+    }
+}
+
+
+pub struct ConnectionPlugin;
+
+impl ConnectionPlugin {
+    /// When the start request to start, we also start the ServerLink
+    fn start(trigger: Trigger<Start>, mut commands: Commands) {
+        info!("Triggering LinkStart");
+        commands.trigger_targets(LinkStart, trigger.target());
+    }
+
+    /// If the underlying link fails, we also stop the server
+    fn stop_if_link_fails(
+        trigger: Trigger<OnAdd, Unlinked>,
+        mut commands: Commands
+    ) {
+        commands.entity(trigger.target()).insert(Stopped);
+    }
+}
+
+impl Plugin for ConnectionPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_observer(Self::start);
+        app.add_observer(Self::stop_if_link_fails);
+    }
 }
 
 

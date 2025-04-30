@@ -16,6 +16,8 @@ use clap::{Parser, Subcommand};
 
 #[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
+#[cfg(all(feature = "gui", feature = "server"))]
+use crate::server_renderer::ExampleServerRendererPlugin;
 #[cfg(feature = "gui")]
 use bevy::window::PresentMode;
 
@@ -50,7 +52,7 @@ impl Cli {
                     lightyear::prelude::client::ClientPlugins {
                         tick_duration,
                     },
-                    ExampleClientRendererPlugin::new(String::new()),
+                    ExampleClientRendererPlugin::new(format!("Client {client_id:?}"))
                 ));
                 app
             }
@@ -63,9 +65,12 @@ impl Cli {
                         let mut app = new_headless_app();
                     }
                 }
-                app.add_plugins(lightyear::prelude::server::ServerPlugins {
-                    tick_duration,
-                });
+                app.add_plugins((
+                    lightyear::prelude::server::ServerPlugins {
+                        tick_duration,
+                    },
+                    ExampleServerRendererPlugin::new("Server".to_string()),
+                ));
                 app
             }
             None => {

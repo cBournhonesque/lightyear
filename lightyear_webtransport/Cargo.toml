@@ -26,6 +26,7 @@ wtransport.workspace = true
 bevy.workspace = true
 
 # utils
+async-channel.workspace = true
 async-compat.workspace = true
 futures.workspace = true
 tokio.workspace = true

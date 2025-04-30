@@ -14,7 +14,7 @@ use bevy::prelude::*;
 use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
-use lightyear_link::{Link, LinkSet, Linked};
+use lightyear_link::{Link, LinkSet, LinkStart, Linked, Unlink, Unlinked};
 use tracing::error;
 
 /// Maximum transmission units; maximum size in bytes of a packet
@@ -24,7 +24,6 @@ const LOCALHOST: SocketAddr = SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LO
 
 #[derive(Component)]
 #[require(Link::new(LOCALHOST, None))]
-#[require(Linked)]
 pub struct CrossbeamIo {
     sender: Sender<Bytes>,
     receiver: Receiver<Bytes>,
@@ -53,6 +52,22 @@ impl CrossbeamIo {
 pub struct CrossbeamPlugin;
 
 impl CrossbeamPlugin {
+    fn link(
+        trigger: Trigger<LinkStart>,
+        mut commands: Commands,
+    ) {
+        commands.entity(trigger.target()).insert(Linked);
+    }
+
+    fn unlink(
+        trigger: Trigger<Unlink>,
+        mut commands: Commands,
+    ) {
+        commands.entity(trigger.target()).insert(Unlinked {
+            reason: Some("Client request".to_string()),
+        });
+    }
+
     fn send(
         mut query: Query<(&mut Link, &mut CrossbeamIo)>
     ) -> Result {
@@ -91,6 +106,8 @@ impl CrossbeamPlugin {
 
 impl Plugin for CrossbeamPlugin {
     fn build(&self, app: &mut App) {
+        app.add_observer(Self::link);
+        app.add_observer(Self::unlink);
         app.add_systems(PreUpdate, Self::receive.in_set(LinkSet::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(LinkSet::Send));
     }

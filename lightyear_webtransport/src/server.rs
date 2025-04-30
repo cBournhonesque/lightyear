@@ -76,6 +76,7 @@ impl Plugin for ServerWebTransportPlugin {
 }
 
 impl ServerWebTransportPlugin {
+
     fn send(
         mut server_query: Query<(&mut ServerWebTransportIo, &Server)>,
         mut link_query: Query<&mut Link, Without<Disconnected>>

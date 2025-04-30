@@ -10,6 +10,7 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
+use crate::UdpIo;
 use bevy::ecs::query::QueryEntityError;
 use bevy::platform::collections::hash_map::Entry;
 use bevy::platform::collections::{HashMap, HashSet};
@@ -20,7 +21,7 @@ use lightyear_connection::client::Disconnected;
 use lightyear_connection::client_of::{ClientOf, Server};
 use lightyear_core::id::PeerId;
 use lightyear_link::prelude::{LinkOf, ServerLink};
-use lightyear_link::{Link, LinkSet, Linked, Unlinked};
+use lightyear_link::{Link, LinkSet, LinkStart, Linked, Unlink, Unlinked};
 use smallvec::SmallVec;
 
 /// Maximum transmission units; maximum size in bytes of a UDP packet
@@ -32,31 +33,59 @@ pub(crate) const MTU: usize = 1472;
 pub struct ServerUdpIo {
     local_addr: SocketAddr,
     // TODO: add possibility to set the remote addr
-    socket: std::net::UdpSocket,
+    socket: Option<std::net::UdpSocket>,
     buffer: BytesMut,
     connected_addresses: HashMap<SocketAddr, Entity>,
 }
 
 impl ServerUdpIo {
-    pub fn new(local_addr: SocketAddr) -> std::io::Result<ServerUdpIo> {
-        let mut socket = std::net::UdpSocket::bind(local_addr)?;
-        info!("Server UDP socket bound to {}", local_addr);
-        socket.set_nonblocking(true)?;
-        Ok(ServerUdpIo {
+    pub fn new(local_addr: SocketAddr) -> ServerUdpIo {
+        ServerUdpIo {
             local_addr,
-            socket,
+            socket: None,
             buffer: BytesMut::with_capacity(MTU),
             connected_addresses: HashMap::with_capacity(1),
-        })
+        }
     }
 }
 
 pub struct ServerUdpPlugin;
 
 impl ServerUdpPlugin {
+    // TODO: we don't want this system to panic on error
+    fn link(
+        trigger: Trigger<LinkStart>,
+        mut query: Query<&mut ServerUdpIo, With<Unlinked>>,
+        mut commands: Commands,
+    ) -> Result {
+        if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
+            info!("Server UDP socket bound to {}", udp_io.local_addr);
+            let mut socket = std::net::UdpSocket::bind(udp_io.local_addr)?;
+            socket.set_nonblocking(true)?;
+            udp_io.socket = Some(socket);
+            commands.entity(trigger.target()).insert(Linked);
+        }
+        Ok(())
+    }
+
+    fn unlink(
+        trigger: Trigger<Unlink>,
+        mut query: Query<(Entity, &mut ServerUdpIo), With<Linked>>,
+        mut commands: Commands,
+    ) {
+        if let Ok((server, mut udp_io)) = query.get_mut(trigger.target()) {
+            info!("Server UDP socket closed");
+            commands.entity(server).despawn_related::<ServerLink>();
+            udp_io.socket = None;
+            commands.entity(trigger.target()).insert(Unlinked {
+                reason: Some("User request".to_string()),
+            });
+        }
+    }
+
     fn send(
-        mut server_query: Query<(&mut ServerUdpIo, &Server)>,
-        mut link_query: Query<&mut Link>,
+        mut server_query: Query<(&mut ServerUdpIo, &Server), With<Linked>>,
+        mut link_query: Query<&mut Link, With<Linked>>,
     ) {
         // TODO: parallelize
         server_query
@@ -74,6 +103,8 @@ impl ServerUdpPlugin {
                     link.send.drain().for_each(|send_payload| {
                         server_udp_io
                             .socket
+                            .as_mut()
+                            .unwrap()
                             .send_to(send_payload.as_ref(), remote_addr)
                             .inspect_err(|e| {
                                 error!("Error sending UDP packet to {}: {}", remote_addr, e);
@@ -91,8 +122,8 @@ impl ServerUdpPlugin {
     fn receive(
         time: Res<Time<Real>>,
         commands: ParallelCommands,
-        mut server_query: Query<(Entity, &mut ServerUdpIo)>,
-        mut link_query: Query<(&mut Link)>,
+        mut server_query: Query<(Entity, &mut ServerUdpIo), With<Linked>>,
+        mut link_query: Query<(&mut Link), With<Linked>>,
     ) {
         server_query
             .par_iter_mut()
@@ -120,7 +151,7 @@ impl ServerUdpPlugin {
                         let ptr = server_udp_io.buffer.as_mut_ptr().add(current_len);
                         core::slice::from_raw_parts_mut(ptr, max_recv_len)
                     };
-                    match server_udp_io.socket.recv_from(buf_slice) {
+                    match server_udp_io.socket.as_mut().unwrap().recv_from(buf_slice) {
                         Ok((recv_len, address)) => {
                             // Mark the received bytes as initialized
                             // SAFETY: we know that the buffer is large enough to hold the received data.
@@ -185,6 +216,8 @@ impl ServerUdpPlugin {
 
 impl Plugin for ServerUdpPlugin {
     fn build(&self, app: &mut App) {
+        app.add_observer(Self::link);
+        app.add_observer(Self::unlink);
         app.add_systems(PreUpdate, Self::receive.in_set(LinkSet::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(LinkSet::Send));
     }

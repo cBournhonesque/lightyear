@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared; // Assuming shared movement logic exists
+use crate::shared;
+// Assuming shared movement logic exists
 
 pub struct ExampleClientPlugin;
 

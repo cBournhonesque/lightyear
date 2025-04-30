@@ -1,14 +1,17 @@
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use core::ops::Deref;
-use bevy::platform::collections::HashMap;
 use leafwing_input_manager::action_state::ActionState;
+use lightyear::connection::client::Connected;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::connection::client::Connected; // Import Connected
-use lightyear_examples_common_new::shared::SEND_INTERVAL; // Import SEND_INTERVAL
+// Import Connected
+use lightyear_examples_common_new::shared::SEND_INTERVAL;
+// Import SEND_INTERVAL
 
 use crate::protocol::*;
-use crate::shared; // Assuming shared movement logic exists
+use crate::shared;
+// Assuming shared movement logic exists
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;

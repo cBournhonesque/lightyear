@@ -1,7 +1,6 @@
 use crate::protocol::*;
 use bevy::color::palettes::basic::{BLUE, GREEN, RED};
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
 use lightyear::prelude::Confirmed;
 
 #[derive(Clone)]

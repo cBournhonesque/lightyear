@@ -25,7 +25,8 @@ use tracing::{debug, error, info, trace};
 
 use crate::plugin;
 use crate::plugin::ReplicationSet;
-use lightyear_connection::client::Disconnected;
+use lightyear_connection::client::{Connected, Disconnected};
+use lightyear_connection::client_of::ClientOf;
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
@@ -64,7 +65,7 @@ impl ReplicationReceivePlugin {
     }
 
     pub(crate) fn receive_messages(
-        mut query: Query<(&mut MessageReceiver<ActionsMessage>, &mut MessageReceiver<UpdatesMessage>, &mut ReplicationReceiver)>,
+        mut query: Query<(&mut MessageReceiver<ActionsMessage>, &mut MessageReceiver<UpdatesMessage>, &mut ReplicationReceiver), With<Connected>>,
     ) {
         query.par_iter_mut().for_each(|(mut actions, mut updates, mut receiver)| {
             receiver.received_this_frame = false;
@@ -79,21 +80,28 @@ impl ReplicationReceivePlugin {
 
     pub(crate) fn apply_world(
         world: &mut World,
-        query: &mut QueryState<Entity, (With<ReplicationReceiver>, With<MessageManager>, With<LocalTimeline>)>,
+        // TODO: have some logic to get the remote peer independently from ClientOf or client-server
+            //  Maybe the link contains the remoteLinkId?
+        query: &mut QueryState<
+            (Entity, Option<&ClientOf>),
+            (With<ReplicationReceiver>, With<MessageManager>, With<LocalTimeline>, With<Connected>)
+        >,
         // buffer to avoid allocations
-        mut receiver_entities: Local<Vec<Entity>>
+        mut receiver_entities: Local<Vec<(Entity, Option<PeerId>)>>
     ) {
         // we first collect the entities we need into a buffer
         // We cannot use query.iter() and &mut World at the same time as this would be UB because they both access Archetypes
         // See https://discord.com/channels/691052431525675048/1358658786851684393/1358793406679355593
-        receiver_entities.extend(query.iter(world));
+        receiver_entities.extend(query.iter(world).map(|(e, client_of)| {
+            (e, client_of.map(|c| c.id))
+        }));
 
         // SAFETY: the other uses of `world` won't access the ComponentRegistry
         let unsafe_world = world.as_unsafe_world_cell();
-        let mut component_registry = unsafe { unsafe_world.get_resource::<ComponentRegistry>() }.unwrap();
+        let component_registry = unsafe { unsafe_world.get_resource::<ComponentRegistry>() }.unwrap();
         let world = unsafe { unsafe_world.world_mut() };
 
-        receiver_entities.drain(..).for_each(|entity| {
+        receiver_entities.drain(..).for_each(|(entity, remote_peer)| {
             let span = trace_span!("ReplicationReceiver", entity = ?entity);
             let _guard = span.enter();
             let unsafe_world = world.as_unsafe_world_cell();
@@ -105,17 +113,8 @@ impl ReplicationReceivePlugin {
             // SAFETY: the world will only be used to apply replication updates, which doesn't conflict with other accesses
             let world = unsafe { unsafe_world.world_mut() };
 
-            // TODO: have some logic to get the remote peer independently from ClientOf or client-server
-            //  Maybe the link contains the remoteLinkId?
 
             let tick = local_timeline.tick();
-            // let remote_peer = client_of.map(|c| c.id);
-
-            // TODO: find a better way to get the PeerId. Maybe it should be on the link?
-            let remote_peer = None;
-
-            // TODO: put the temp buffer inside the receiver, we shouldn't need write access
-            //   to the registry
             receiver.apply_world(world, entity, remote_peer, &mut manager.entity_mapper, component_registry, tick);
             receiver.tick_cleanup(tick);
         });

@@ -1,10 +1,12 @@
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
+use bevy::app::{App, Plugin};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Event, Reflect};
+use bevy::prelude::{Commands, Component, Event, OnAdd, Query, Reflect, Trigger};
 use lightyear_core::id::PeerId;
 use lightyear_link::prelude::Unlinked;
+use lightyear_link::LinkStart;
 
 
 /// Errors related to the client connection
@@ -100,6 +102,37 @@ impl Disconnected {
         }
         world.commands().entity(context.entity)
             .remove::<(Connecting, Connected)>();
+    }
+}
+
+
+pub struct ConnectionPlugin;
+
+impl ConnectionPlugin {
+    /// When the client request to connect, we also try to establis the link
+    fn connect(trigger: Trigger<Connect>, mut commands: Commands) {
+        commands.trigger_targets(LinkStart, trigger.target());
+    }
+    
+    /// If the underlying link fails, we also disconnect the client
+    fn disconnect_if_link_fails(
+        trigger: Trigger<OnAdd, Unlinked>,
+        query: Query<&Unlinked>,
+        mut commands: Commands
+    ) {
+        if let Ok(unlinked) = query.get(trigger.target()) {
+            commands.entity(trigger.target())
+                .insert(Disconnected {
+                    reason: Some(format!("Link failed: {:?}", unlinked.reason))
+                });
+        }
+    }
+}
+
+impl Plugin for ConnectionPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_observer(Self::connect);
+        app.add_observer(Self::disconnect_if_link_fails);
     }
 }
 

@@ -8,6 +8,7 @@ This crate provides abstractions for sending and receiving raw bytes over the ne
 extern crate alloc;
 mod conditioner;
 mod server;
+mod id;
 
 use alloc::collections::vec_deque::Drain;
 #[cfg(not(feature = "std"))]
@@ -45,6 +46,7 @@ pub enum LinkState {
 /// Represents a link between two peers, allowing for sending and receiving data.
 /// This only stores the payloads to be sent and received, the actual bytes will be sent by an Io component
 #[derive(Component, Default)]
+#[require(Unlinked)]
 pub struct Link {
     // TODO: instead of Vec should we use Channels to allow parallel processing?
     //  or maybe ArrayQueue?
@@ -57,6 +59,7 @@ pub struct Link {
     pub stats: LinkStats,
     // TODO: maybe put this somewhere else? So that link is completely independent of how io
     //   is handled? (i.e. it might not even required a SocketAddr)
+    //   maybe we have a LinkId, and for example netcode would only be compatible if the LinkId has a SocketAddr?
     /// Address of the remote peer
     pub remote_addr: Option<SocketAddr>,
 }
