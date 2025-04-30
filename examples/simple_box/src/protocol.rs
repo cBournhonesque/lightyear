@@ -4,17 +4,13 @@
 //! You can use the `#[protocol]` attribute to specify additional behaviour:
 //! - how entities contained in the message should be mapped from the remote world to the local world
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
-use core::ops::{Add, Mul};
 
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{
-    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
-};
+use bevy::math::Curve;
+use bevy::prelude::*;
 use bevy::prelude::{App, Plugin};
-use serde::{Deserialize, Serialize};
-
-use lightyear::client::components::ComponentSyncMode;
 use lightyear::prelude::*;
+use serde::{Deserialize, Serialize};
 
 // Player
 #[derive(Bundle)]
@@ -25,7 +21,7 @@ pub(crate) struct PlayerBundle {
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
+    pub(crate) fn new(id: PeerId, position: Vec2) -> Self {
         // Generate pseudo random color from client id.
         let h = (((id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
@@ -42,26 +38,17 @@ impl PlayerBundle {
 // Components
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct PlayerId(ClientId);
+pub struct PlayerId(PeerId);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
 pub struct PlayerPosition(pub Vec2);
 
-impl Add for PlayerPosition {
-    type Output = PlayerPosition;
-    #[inline]
-    fn add(self, rhs: PlayerPosition) -> PlayerPosition {
-        PlayerPosition(self.0.add(rhs.0))
+impl Ease for PlayerPosition {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| PlayerPosition(Vec2::lerp(start.0, end.0, t)))
     }
 }
 
-impl Mul<f32> for &PlayerPosition {
-    type Output = PlayerPosition;
-
-    fn mul(self, rhs: f32) -> Self::Output {
-        PlayerPosition(self.0 * rhs)
-    }
-}
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
@@ -81,8 +68,6 @@ impl MapEntities for PlayerParent {
 }
 
 // Channels
-
-#[derive(Channel)]
 pub struct Channel1;
 
 // Messages
@@ -117,27 +102,31 @@ impl MapEntities for Inputs {
 
 // Protocol
 #[derive(Clone)]
-pub(crate) struct ProtocolPlugin;
+pub struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.register_message::<Message1>(ChannelDirection::Bidirectional);
-        // inputs
-        app.add_plugins(InputPlugin::<Inputs>::default());
-        // components
-        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.add_message::<Message1>()
+            // add a direction so that a MessageSender<Message1> is automatically added to your clients or servers
+            .add_direction(NetworkDirection::Bidirectional);
 
-        app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
+        // inputs
+        app.add_plugins(input::native::InputPlugin::<Inputs>::default());
+        // components
+        app.register_component::<PlayerId>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
+
+        app.register_component::<PlayerPosition>()
+            .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
 
-        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<PlayerColor>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
+
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),

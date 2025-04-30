@@ -27,7 +27,7 @@ tracing.workspace = true
 serde.workspace = true
 
 # Add dependencies for specific examples, enabling necessary features
-simple_box_new = { path = "../simple_box_new", features = ["client", "server", "gui"] }
+simple_box = { path = "../simple_box", features = ["client", "server", "gui"] }
 # fps_new = { path = "../fps_new", features = ["client", "server", "gui"] } # Add other examples as needed
 
 clap = { version = "4.5.3", features = ["derive"] }

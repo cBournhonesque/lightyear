@@ -14,10 +14,10 @@ TODO:
   the first value should never be just SameAsPrecedent! That's due to `update_buffer` using `set_raw`. But maybe that's ok? if there's only SameAsPrecedent, we don't do anything (i.e. we re-use the existing inputs)
 - when running simple_box, the Confirmed entity should eventually catchup to the predicted entity! Sometimes it doesn't -> some system ordering issue? or sync issue?
 - EXAMPLE DOESNT WORK BECAUSE UDP SERVER ONLY ADDS LINK-OF, AND NETCODE EXPECTES CLIENT-OF
-- REPLICATION ERROR:
-  - TODO!!!!: server includes many duplicated components in the update packet!! That's because the change detection (bevy-tick) needs
-    to be compared against the last BevyTick of this specific server-send! We need to keep track of the server-send tick!
 
+NEEDS UNIT TEST:
+- check that 'send_tick' and replication change_ticks work correctly
+- check the PredictionTarget for ReplicateLike is not using the root's PredictionTarget
 
 - Maybe we just keep LinkOf
 

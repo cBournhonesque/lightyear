@@ -13,23 +13,42 @@ publish = false
 
 
 [features]
-default = ["client", "server", "gui", "lightyear_examples_common/default"]
-websocket = ["lightyear_examples_common/websocket"]
-client = ["lightyear_examples_common/client", "gui"]
-server = ["lightyear_examples_common/server"]
-gui = ["lightyear_examples_common/gui"]
-metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
-steam = ["lightyear_examples_common/steam"]
-visualizer = ["lightyear_examples_common/visualizer", "gui"]
+default = ["client", "gui", "server", "netcode", "udp"]
+client = [
+  "gui",
+  "lightyear/client",
+  "lightyear_examples_common_new/client"
+]
+gui = [
+  "lightyear_examples_common_new/gui"
+]
+server = [
+  "lightyear/server",
+  "lightyear_examples_common_new/server"
+]
+netcode = [
+  "lightyear_examples_common_new/netcode"
+]
+udp = [
+  "lightyear_examples_common_new/udp",
+  # udp requires std
+  "lightyear/std",
+  "lightyear/udp",
+]
 
 [dependencies]
-lightyear_examples_common.workspace = true
-lightyear = { workspace = true, features = ["steam", "websocket"] }
+lightyear = { "workspace" = true, features = [
+  "interpolation",
+  "prediction",
+  "replication",
+  "input_native", # Added based on simple_box_new
+] }
+lightyear_frame_interpolation.workspace = true
+lightyear_examples_common_new.workspace = true
 
 serde.workspace = true
-anyhow.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 bevy.workspace = true
-rand.workspace = true
-metrics-exporter-prometheus = { workspace = true, optional = true }
+
+[lints]
+workspace = true

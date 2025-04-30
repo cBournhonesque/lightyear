@@ -410,8 +410,6 @@ pub(crate) fn replicate(
                 }
             }
 
-
-
             // TODO: maybe this should be in a separate system in AfterBuffer?
             // cleanup after buffer
             sender.tick_cleanup(tick);
@@ -423,7 +421,7 @@ pub(crate) fn replicate(
 pub(crate) fn replicate_entity(
     entity: Entity,
     tick: Tick,
-    entity_ref: &FilteredEntityRef,
+    root_entity_ref: &FilteredEntityRef,
     child_entity_ref: Option<&(FilteredEntityRef, Entity)>,
     entity_mapper: &mut RemoteEntityMap,
     sender: &mut ReplicationSender,
@@ -447,9 +445,9 @@ pub(crate) fn replicate_entity(
         Some((child_entity_ref, root)) => {
             let (group_id, priority, group_ready) =
                 child_entity_ref.get::<ReplicationGroup>().map_or_else(
-                    // if ReplicationGroup is not present, we use the parent entity
+                    // if ReplicationGroup is not present, we use the root entity
                     || {
-                        entity_ref
+                        root_entity_ref
                             .get::<ReplicationGroup>()
                             .map(|g| {
                                 (
@@ -469,14 +467,14 @@ pub(crate) fn replicate_entity(
                 group_ready,
                 // We use the root entity's Replicate/CachedReplicate component
                 // SAFETY: we know that the root entity has the Replicate component
-                entity_ref.get_ref::<Replicate>().unwrap(),
-                entity_ref.get::<CachedReplicate>(),
+                root_entity_ref.get_ref::<Replicate>().unwrap(),
+                root_entity_ref.get::<CachedReplicate>(),
                 child_entity_ref
                     .get::<NetworkVisibility>()
-                    .or_else(|| entity_ref.get::<NetworkVisibility>()),
+                    .or_else(|| root_entity_ref.get::<NetworkVisibility>()),
                 child_entity_ref
                     .get::<OwnedBy>()
-                    .or_else(|| entity_ref.get::<OwnedBy>()),
+                    .or_else(|| root_entity_ref.get::<OwnedBy>()),
                 child_entity_ref,
                 unsafe {
                     sender.is_updated(child_entity_ref
@@ -487,7 +485,7 @@ pub(crate) fn replicate_entity(
             )
         }
         _ => {
-            let (group_id, priority, group_ready) = entity_ref
+            let (group_id, priority, group_ready) = root_entity_ref
                 .get::<ReplicationGroup>()
                 .map(|g| (g.group_id(Some(entity)), g.priority(), g.should_send))
                 .unwrap();
@@ -495,30 +493,22 @@ pub(crate) fn replicate_entity(
                 group_id,
                 priority,
                 group_ready,
-                entity_ref.get_ref::<Replicate>().unwrap(),
-                entity_ref.get::<CachedReplicate>(),
-                entity_ref.get::<NetworkVisibility>(),
-                entity_ref.get::<OwnedBy>(),
-                entity_ref,
+                root_entity_ref.get_ref::<Replicate>().unwrap(),
+                root_entity_ref.get::<CachedReplicate>(),
+                root_entity_ref.get::<NetworkVisibility>(),
+                root_entity_ref.get::<OwnedBy>(),
+                root_entity_ref,
                 false,
             )
         }
     };
 
     #[cfg(feature = "prediction")]
-    let prediction_target= child_entity_ref.map_or_else(
-        || entity_ref.get::<PredictionTarget>(),
-        |(c, _)| c
-            .get::<PredictionTarget>()
-            .or_else(|| entity_ref.get::<PredictionTarget>()),
-    );
+    let prediction_target= entity_ref.get::<PredictionTarget>()
+        .or_else(|| root_entity_ref.get::<PredictionTarget>());
     #[cfg(feature = "interpolation")]
-    let interpolation_target= child_entity_ref.map_or_else(
-        || entity_ref.get::<InterpolationTarget>(),
-        |(c, _)| c
-            .get::<InterpolationTarget>()
-            .or_else(|| entity_ref.get::<InterpolationTarget>()),
-    );
+    let interpolation_target= entity_ref.get::<InterpolationTarget>()
+        .or_else(|| root_entity_ref.get::<InterpolationTarget>());
 
     let replicated_components = replicated_archetypes
         .archetypes
@@ -683,7 +673,7 @@ pub(crate) fn replicate_entity_spawn(
     is_replicate_like_added: bool,
 ) {
     // 1. replicate was added/updated and the sender was not in the previous Replicate's target
-    info!("Replicate change tick: {:?}", replicate.last_changed());
+    trace!("Replicate change tick: {:?}", replicate.last_changed());
     let replicate_updated = sender.is_updated(replicate.last_changed()) && cached_replicate.is_none_or(|cached| !cached.senders.contains(&sender_entity)) && network_visibility.is_none_or(|vis| vis
         .is_visible
     (sender_entity));
@@ -802,16 +792,10 @@ fn replicate_component_update(
     //  ReplicateToServer components to `changed` when the client first connects so that we replicate existing entities to the server
     //  That is why `force_insert = True` if ReplicateToServer is changed.
     if sender.is_updated(component_ticks.added) || sender.is_updated(replicate.last_changed()) {
-        trace!("component is added or replication_target is added");
         insert = true;
     } else {
         // do not send updates for these components, only inserts/removes
         if replicate_once {
-            trace!(
-                ?entity,
-                "not replicating updates for {:?} because it is marked as replicate_once",
-                component_kind
-            );
             return Ok(());
         }
         // otherwise send an update for all components that changed since the

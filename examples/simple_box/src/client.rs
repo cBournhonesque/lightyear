@@ -7,43 +7,44 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
-use bevy::app::PluginGroupBuilder;
-use bevy::prelude::*;
-use bevy::time::common_conditions::on_timer;
-use core::time::Duration;
-
-use lightyear::client::input::InputSystemSet;
-use lightyear::inputs::native::{ActionState, InputMarker};
-pub use lightyear::prelude::client::*;
-use lightyear::prelude::*;
-
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared;
+use bevy::app::PluginGroupBuilder;
+use bevy::ecs::component::HookContext;
+use bevy::ecs::world::DeferredWorld;
+use bevy::prelude::*;
+use bevy::time::common_conditions::on_timer;
+use core::time::Duration;
+use lightyear::prelude::client::input::*;
+use lightyear::prelude::client::*;
+use lightyear::prelude::input::native::*;
+use lightyear::prelude::input::*;
+use lightyear::prelude::*;
+use lightyear_examples_common_new::client::ExampleClient;
 
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
             FixedPreUpdate,
-            buffer_input.in_set(InputSystemSet::WriteClientInputs),
+            // Inputs have to be buffered in the WriteClientInputs set
+            buffer_input.in_set(InputSet::WriteClientInputs),
         );
         app.add_systems(FixedUpdate, player_movement);
+
         app.add_systems(
             Update,
             (
                 receive_message1,
-                receive_entity_spawn,
-                receive_entity_despawn,
-                receive_player_id_insert,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
             ),
         );
     }
 }
+
 
 /// System that reads from peripherals and adds inputs to the buffer
 /// This system must be run in the `InputSystemSet::BufferInputs` set in the `FixedPreUpdate` schedule
@@ -86,10 +87,13 @@ pub(crate) fn buffer_input(
 /// This works because we only predict the user's controlled entity.
 /// If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
+    timeline: Single<&LocalTimeline>,
     mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
 ) {
+    let tick = timeline.tick();
     for (position, input) in position_query.iter_mut() {
         if let Some(input) = &input.value {
+            // info!(?tick, ?position, ?input, "client");
             // NOTE: be careful to directly pass Mut<PlayerPosition>
             // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
             shared::shared_movement_behaviour(position, input);
@@ -97,36 +101,16 @@ fn player_movement(
     }
 }
 
+
 /// System to receive messages on the client
-pub(crate) fn receive_message1(mut reader: EventReader<ReceiveMessage<Message1>>) {
-    for event in reader.read() {
-        info!("Received message: {:?}", event.message());
+pub(crate) fn receive_message1(
+    mut receiver: Single<&mut MessageReceiver<Message1>>
+) {
+    for message in receiver.receive() {
+        info!("Received message: {:?}", message);
     }
 }
 
-/// Example system to handle EntitySpawn events
-pub(crate) fn receive_entity_spawn(mut reader: EventReader<EntitySpawnEvent>) {
-    for event in reader.read() {
-        info!("Received entity spawn: {:?}", event.entity());
-    }
-}
-
-/// Example system to handle EntitySpawn events
-pub(crate) fn receive_entity_despawn(mut reader: EventReader<EntityDespawnEvent>) {
-    for event in reader.read() {
-        info!("Received entity despawn: {:?}", event.entity());
-    }
-}
-
-/// Example system to handle ComponentInsertEvent events
-pub(crate) fn receive_player_id_insert(mut reader: EventReader<ComponentInsertEvent<PlayerId>>) {
-    for event in reader.read() {
-        info!(
-            "Received component PlayerId insert for entity: {:?}",
-            event.entity()
-        );
-    }
-}
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation
@@ -141,9 +125,12 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
+        warn!("Add InputMarker to entity: {:?}", entity);
         commands
             .entity(entity)
-            .insert(InputMarker::<Inputs>::default());
+            .insert((
+                InputMarker::<Inputs>::default(),
+            ));
     }
 }
 
