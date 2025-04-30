@@ -103,6 +103,7 @@ impl ExampleServer {
             let settings = entity_mut.take::<ExampleServer>().unwrap();
             entity_mut.insert((
                 Server::default(),
+                Name::from("Server"),
             ));
 
             if cfg!(feature = "netcode") {

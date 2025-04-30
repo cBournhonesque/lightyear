@@ -64,7 +64,8 @@ impl ExampleClient {
                 ReplicationSender::default(),
                 ReplicationReceiver::default(),
                 PredictionManager::default(),
-                InterpolationManager::default()
+                InterpolationManager::default(),
+                Name::from("Client"),
             ));
 
             if cfg!(feature = "netcode") {

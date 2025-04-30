@@ -27,6 +27,7 @@ members = [
   "lightyear_webtransport",
   # internal
   "benches/*",
+  "demos/*",
   "examples/*",
 ]
 default-members = ["lightyear"]

@@ -22,10 +22,7 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-// // Startup system for the client - connection is handled in main
-// pub(crate) fn init(mut commands: Commands) {
-//     commands.connect_client();
-// }
+
 
 /// Add the Leafwing InputMap component to the predicted player entity
 pub(crate) fn add_input_map(

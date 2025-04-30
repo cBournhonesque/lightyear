@@ -2,7 +2,7 @@ use crate::protocol::*;
 use bevy::color::palettes::basic::{BLUE, GREEN, RED};
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
-use lightyear::client::components::Confirmed;
+use lightyear::prelude::Confirmed;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;

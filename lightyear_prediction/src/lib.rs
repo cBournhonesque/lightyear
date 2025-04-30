@@ -25,6 +25,7 @@ mod registry;
 
 
 pub mod prelude {
+    pub use crate::despawn::PredictionDespawnCommandsExt;
     pub use crate::manager::PredictionManager;
     pub use crate::plugin::PredictionPlugin;
     pub use crate::registry::PredictionRegistrationExt;

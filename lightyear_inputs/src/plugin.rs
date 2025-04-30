@@ -10,6 +10,7 @@ use lightyear_connection::direction::NetworkDirection;
 use lightyear_messages::prelude::AppMessageExt;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 
+#[doc(hidden)]
 pub struct InputPlugin<S> {
     _marker: core::marker::PhantomData<S>,
 }

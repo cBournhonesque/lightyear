@@ -92,7 +92,6 @@ pub enum Shape {
 
 // Channels
 
-// Channels
 pub struct Channel1;
 
 // Messages
@@ -116,9 +115,6 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        // messages
-        app.add_message::<Message1>()
-            .add_direction(NetworkDirection::Bidirectional);
         // inputs
         app.add_plugins(input::leafwing::InputPlugin::<Inputs>::default());
         // components
@@ -138,10 +134,5 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Shape>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
-        // channels
-        app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        });
     }
 }

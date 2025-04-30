@@ -11,6 +11,7 @@ use crate::client::ExampleClientPlugin;
 use crate::protocol::ProtocolPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
+use crate::shared::SharedPlugin;
 
 #[cfg(feature = "client")]
 mod client;
@@ -32,7 +33,7 @@ fn main() {
         true
     );
 
-    app.add_plugins(ProtocolPlugin);
+    app.add_plugins(SharedPlugin);
 
     #[cfg(feature = "client")]
     {
