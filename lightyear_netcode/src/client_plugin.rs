@@ -188,7 +188,7 @@ impl NetcodeClientPlugin {
         mut query: Query<&Unlinked, With<Client>>,
     ) {
         if let Ok(unlinked) = query.get(trigger.target()) {
-            info!("Disconnect because link failed: {:?}", unlinked.reason);
+            info!("Disconnect because link failed. Reason: {:?}", unlinked.reason);
              commands
                 .entity(trigger.target())
                 .insert(Disconnected {

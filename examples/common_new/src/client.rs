@@ -14,7 +14,6 @@ use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 #[cfg(not(target_family = "wasm"))]
 use bevy::tasks::IoTaskPool;
-use lightyear::input::prelude::InputBuffer;
 use lightyear::netcode::client_plugin::NetcodeConfig;
 use lightyear::netcode::{NetcodeClient, PRIVATE_KEY_BYTES};
 use lightyear::prelude::client::*;

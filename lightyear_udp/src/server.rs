@@ -140,6 +140,9 @@ impl ServerUdpPlugin {
                                                 "Received UDP packet for unknown entity: {}",
                                                 entity
                                             );
+                                            // this might because the remote entity has disconnected and is trying to reconnect.
+                                            // Remove the entry so that the next packet can be processed
+                                            entry.remove();
                                             continue;
                                         }
                                     }

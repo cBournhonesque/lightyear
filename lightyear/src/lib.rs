@@ -20,6 +20,8 @@ pub mod prediction {
     pub use lightyear_prediction::*;
 }
 
+
+#[cfg(any(feature = "input_native", feature = "leafwing"))]
 pub mod input {
     pub use lightyear_inputs::*;
     #[cfg(feature = "input_native")]
@@ -38,6 +40,7 @@ pub mod prelude {
     pub use lightyear_core::prelude::*;
     pub use lightyear_link::prelude::*;
     pub use lightyear_messages::prelude::*;
+    #[cfg(feature = "replication")]
     pub use lightyear_replication::prelude::*;
     pub use lightyear_sync::prelude::*;
     pub use lightyear_transport::prelude::*;
@@ -55,6 +58,7 @@ pub mod prelude {
     #[cfg(feature = "interpolation")]
     pub use lightyear_interpolation::prelude::*;
 
+    #[cfg(any(feature = "input_native", feature = "leafwing"))]
     pub mod input {
         pub use lightyear_inputs::prelude::*;
         #[cfg(feature = "input_native")]
@@ -73,6 +77,7 @@ pub mod prelude {
         #[cfg(feature = "netcode")]
         pub use lightyear_netcode::prelude::client::*;
 
+        #[cfg(any(feature = "input_native", feature = "leafwing"))]
         pub mod input {
             pub use lightyear_inputs::prelude::client::*;
         }
@@ -92,6 +97,7 @@ pub mod prelude {
         #[cfg(feature = "netcode")]
         pub use lightyear_netcode::prelude::server::*;
 
+        #[cfg(any(feature = "input_native", feature = "leafwing"))]
         pub mod input {
             pub use lightyear_inputs::prelude::server::*;
         }

@@ -11,26 +11,33 @@ categories = ["game-development", "network-programming"]
 license = "MIT OR Apache-2.0"
 publish = false
 
-[features]
-steam = ["lightyear_examples_common/steam"]
-default = ["tokio/net", "lightyear_examples_common/websocket"]
-client = ["lightyear_examples_common/client", "gui"]
-server = ["lightyear_examples_common/server"]
-gui = ["lightyear_examples_common/gui"]
-metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
-visualizer = ["lightyear_examples_common/visualizer", "gui"]
-
 [dependencies]
-lightyear_examples_common.workspace = true
-lightyear = { workspace = true, features = ["steam", "websocket"] }
+lightyear = { "workspace" = true, features = [
+  "netcode",
+  "interpolation",
+  "prediction",
+  "replication",
+  "client",
+  "server",
+  "udp",
+  "std",
+] }
+lightyear_examples_common_new = {"workspace" = true, features = [
+  "client",
+  "server",
+  "gui",
+  "netcode",
+  "udp"
+]}
 
 async-compat.workspace = true
 anyhow.workspace = true
-tracing.workspace = true
-tracing-subscriber.workspace = true
-serde.workspace = true
 bevy.workspace = true
 rand.workspace = true
-metrics-exporter-prometheus = { workspace = true, optional = true }
-bevy-inspector-egui.workspace = true
-tokio.workspace = true
+tokio = {"workspace" = true, features = [
+  "net",
+  "io-util",
+]}
+
+[lints]
+workspace = true

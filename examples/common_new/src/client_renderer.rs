@@ -112,8 +112,8 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                 .observe(
                     |_: Trigger<Pointer<Click>>,
                      mut commands: Commands,
-                     query: Query<(Entity, &lightyear::connection::client::Client)>| {
-                        let Ok((entity, client)) = query.get_single() else {
+                     query: Query<(Entity, &Client)>| {
+                        let Ok((entity, client)) = query.single() else {
                             return;
                         };
                         match client.state {

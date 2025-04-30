@@ -18,6 +18,12 @@ TODO:
 NEEDS UNIT TEST:
 - check that 'send_tick' and replication change_ticks work correctly
 - check the PredictionTarget for ReplicateLike is not using the root's PredictionTarget
+- check that the relationship between Link and Connect works correctly.
+  - Adding Unlinked should trigger Disconnect (or add Disconnected)
+  - Trigger Connect
+    - we add Connecting
+    - we trigger LinkStart
+    -> ALTERNATIVE: the udp can keep working even if disconnected?
 
 - Maybe we just keep LinkOf
 

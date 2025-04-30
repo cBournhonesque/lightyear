@@ -11,82 +11,79 @@ use async_compat::Compat;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 
-use crate::utils::collections::HashSet;
+use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use bevy::tasks::IoTaskPool;
 use core::time::Duration;
+use lightyear::netcode::ConnectToken;
+use lightyear::prelude::server::*;
+use lightyear::prelude::*;
+use lightyear_examples_common_new::shared::{SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
 use tokio::io::AsyncWriteExt;
 
-use lightyear::prelude::server::*;
-use lightyear::prelude::ClientId::Netcode;
-use lightyear::prelude::*;
-
-use crate::protocol::*;
 use crate::shared;
 
 pub struct ExampleServerPlugin {
-    pub protocol_id: u64,
-    pub private_key: Key,
     pub game_server_addr: SocketAddr,
     pub auth_backend_addr: SocketAddr,
 }
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        let client_ids = Arc::new(RwLock::new(HashSet::default()));
-        app.add_systems(Startup, start_server);
-
         app.add_observer(handle_disconnect_event);
         app.add_observer(handle_connect_event);
 
+        let client_ids = Arc::new(RwLock::new(HashSet::default()));
         start_netcode_authentication_task(
             self.game_server_addr,
             self.auth_backend_addr,
-            self.protocol_id,
-            self.private_key,
             client_ids.clone(),
         );
-
         app.insert_resource(ClientIds(client_ids));
     }
 }
 
-/// Start the server
-fn start_server(mut commands: Commands) {
-    commands.start_server();
-}
 
 /// This resource will track the list of Netcode client-ids currently in use, so that
 /// we don't have multiple clients with the same id
-#[derive(Resource)]
+#[derive(Resource, Default)]
 struct ClientIds(Arc<RwLock<HashSet<u64>>>);
 
 /// Update the list of connected client ids when a client disconnects
-///
-/// We use an Observer to handle disconnect events to avoid the perf cost of running
-/// the system every frame. We want to run the system only when we have a disconnection.
-fn handle_disconnect_event(trigger: Trigger<DisconnectEvent>, client_ids: Res<ClientIds>) {
-    if let Netcode(client_id) = trigger.event().client_id {
+fn handle_disconnect_event(
+    trigger: Trigger<OnAdd, Disconnected>,
+    query: Query<&ClientOf>,
+    client_ids: Res<ClientIds>) {
+    let Ok(client_of) = query.get(trigger.target()) else {
+        return
+    };
+    if let PeerId::Netcode(client_id) = client_of.id {
+        info!("Client disconnected: {}. Removing from ClientIds.", client_id);
         client_ids.0.write().unwrap().remove(&client_id);
     }
 }
 
 /// Update the list of connected client ids when a client connects
-///
-/// We use an Observer to handle disconnect events to avoid the perf cost of running
-/// the system every frame. We want to run the system only when we have a connection.
-fn handle_connect_event(trigger: Trigger<ConnectEvent>, client_ids: Res<ClientIds>) {
-    if let Netcode(client_id) = trigger.event().client_id {
+fn handle_connect_event(
+    trigger: Trigger<OnAdd, Connected>,
+    query: Query<&ClientOf>,
+    client_ids: Res<ClientIds>
+) {
+
+    let Ok(client_of) = query.get(trigger.target()) else {
+        return
+    };
+    if let PeerId::Netcode(client_id) = client_of.id {
+        info!("Client connected: {}. Adding to ClientIds.", client_id);
         client_ids.0.write().unwrap().insert(client_id);
     }
 }
+
 
 /// Start a detached task that listens for incoming TCP connections and sends `ConnectToken`s to clients
 fn start_netcode_authentication_task(
     game_server_addr: SocketAddr,
     auth_backend_addr: SocketAddr,
-    protocol_id: u64,
-    private_key: Key,
     client_ids: Arc<RwLock<HashSet<u64>>>,
 ) {
     IoTaskPool::get()
@@ -111,7 +108,7 @@ fn start_netcode_authentication_task(
                 };
 
                 let token =
-                    ConnectToken::build(game_server_addr, protocol_id, client_id, private_key)
+                    ConnectToken::build(game_server_addr, SHARED_SETTINGS.protocol_id, client_id, SHARED_SETTINGS.private_key)
                         .generate()
                         .expect("Failed to generate token");
 

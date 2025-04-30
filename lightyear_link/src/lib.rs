@@ -24,7 +24,7 @@ use core::time::Duration;
 
 pub mod prelude {
     pub use crate::server::{LinkOf, ServerLink};
-    pub use crate::{Link, LinkSet, LinkStats, RecvLinkConditioner};
+    pub use crate::{Link, LinkSet, LinkStart, LinkStats, Linking, RecvLinkConditioner, Unlinked};
 }
 
 pub type RecvPayload = Bytes;

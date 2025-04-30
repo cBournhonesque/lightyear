@@ -318,7 +318,7 @@ pub struct Confirmed {
     pub tick: Tick,
 }
 
-#[cfg(feature = "prediction")]
+// TODO: enable this only if predicted feature
 /// Indicates that an entity was pre-predicted
 // NOTE: we do not map entities for this component, we want to receive the entities as is
 //  because we already do the mapping at other steps

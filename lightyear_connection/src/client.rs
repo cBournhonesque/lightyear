@@ -4,6 +4,7 @@ use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Event, Reflect};
 use lightyear_core::id::PeerId;
+use lightyear_link::prelude::Unlinked;
 
 
 /// Errors related to the client connection

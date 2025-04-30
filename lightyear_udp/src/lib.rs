@@ -14,7 +14,7 @@ use alloc::sync::Arc;
 use bevy::prelude::*;
 use bytes::{BufMut, BytesMut};
 use core::net::SocketAddr;
-use lightyear_link::{Link, LinkSet, Linked};
+use lightyear_link::{Link, LinkSet, Linked, Unlinked};
 use std::sync::Mutex;
 
 #[cfg(feature = "server")]

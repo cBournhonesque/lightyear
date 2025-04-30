@@ -190,7 +190,7 @@ impl ReplicationSendPlugin {
         //  added BEFORE the ReplicationSender is added. (ClientOf is spawned by netcode, ReplicationSender is added by the user)
         trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
         tick_duration: Res<TickDuration>,
-        mut query: Query<(&ReplicationSender, &mut TriggerSender<SenderMetadata>)>,
+        mut query: Query<(&ReplicationSender, &mut TriggerSender<SenderMetadata>), With<Connected>>,
     ) {
         if let Ok((sender, mut trigger_sender)) = query.get_mut(trigger.target()) {
             let send_interval = sender.send_interval();
