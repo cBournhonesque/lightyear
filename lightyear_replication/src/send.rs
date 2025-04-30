@@ -22,7 +22,7 @@ use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 #[cfg(not(feature = "std"))]
 use alloc::{string::ToString, vec::Vec};
 use bevy::app::{App, Last, Plugin, PostUpdate, PreUpdate};
-use bevy::ecs::component::{ComponentId, Tick as BevyTick};
+use bevy::ecs::component::{ComponentId, ComponentTicks, Tick as BevyTick};
 use bevy::ecs::entity::{EntityHash, EntityIndexSet, UniqueEntityVec};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy::platform::collections::HashMap;
@@ -151,8 +151,8 @@ impl ReplicationSendPlugin {
             if !sender.send_timer.finished() {
                 return;
             }
-            sender.send_timer.reset();
             let bevy_tick = change_tick.this_run();
+            sender.send_timer.reset();
             // TODO: also tick ReplicationGroups?
             sender.accumulate_priority(&time);
             sender.send_actions_messages(
@@ -412,6 +412,11 @@ pub struct ReplicationSender {
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
     pub(crate) send_timer: Timer,
+    /// ChangeTicks when we last sent replication messages for this Sender.
+    /// We will compare this to component change ticks to determine if the change should be included.
+    /// We cannot simply use the SystemTicks because the system runs every frame.
+    pub(crate) this_run: BevyTick,
+    pub(crate) last_run: BevyTick,
     /// Tick when we last did a cleanup
     pub(crate) last_cleanup_tick: Option<Tick>,
     send_updates_mode: SendUpdatesMode,
@@ -435,6 +440,9 @@ impl ReplicationSender {
         send_updates_mode: SendUpdatesMode,
         bandwidth_cap_enabled: bool,
     ) -> Self {
+        // make sure that the timer is finished when we start, to immediately start replicating
+        let mut send_timer = Timer::new(send_interval, TimerMode::Repeating);
+        send_timer.tick(Duration::MAX);
         Self {
             // SEND
             replicated_entities: EntityIndexSet::default(),
@@ -446,10 +454,18 @@ impl ReplicationSender {
             group_channels: Default::default(),
             send_updates_mode,
             // PRIORITY
-            send_timer: Timer::new(send_interval, TimerMode::Repeating),
+            send_timer,
+            this_run: BevyTick::MAX,
+            last_run: BevyTick::MAX,
             last_cleanup_tick: None,
             bandwidth_cap_enabled,
         }
+    }
+
+    /// Returns true if the `Tick` was updated since the last time the Sender was buffering replication updates
+    #[inline(always)]
+    pub(crate) fn is_updated(&self, tick: BevyTick) -> bool {
+        self.this_run == self.last_run || tick.is_newer_than(self.last_run, self.this_run)
     }
 
     pub fn send_interval(&self) -> Duration {

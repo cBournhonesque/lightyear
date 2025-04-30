@@ -174,7 +174,7 @@ impl MessagePlugin {
                 // TODO: ChannelReceive::read_message needs to return PeerId! Using placeholder for now.
                 let placeholder_peer_id = PeerId::Entity;
                 while let Some((tick, bytes, message_id)) = receiver_metadata.receiver.read_message() {
-                    trace!("Received message {message_id:?} from placeholder {:?} on channel {channel_kind:?}", placeholder_peer_id);
+                    trace!("Received message {message_id:?} from peer {:?} on channel {channel_kind:?}", placeholder_peer_id);
                     let mut reader = Reader::from(bytes);
                     // we receive the message NetId, and then deserialize the message
                     let message_net_id = MessageNetId::from_bytes(&mut reader)?;

@@ -363,8 +363,15 @@ pub(crate) fn replicate(
             if !sender.send_timer.finished() {
                 return;
             }
+            // update the change ticks
+            sender.last_run = sender.this_run;
+            sender.this_run = system_ticks.this_run();
 
-            trace!("Starting buffer replication for sender {sender_entity:?}. Replicated entities: {:?}", sender.replicated_entities);
+            trace!(
+                this_run = ?sender.this_run,
+                last_run = ?sender.last_run,
+                "Starting buffer replication for sender {sender_entity:?}. Replicated entities: {:?}",
+            sender.replicated_entities);
             // we iterate by index to avoid split borrow issues
             for i in 0..sender.replicated_entities.len() {
                 let entity = sender.replicated_entities[i];
@@ -377,7 +384,6 @@ pub(crate) fn replicate(
                     tick,
                     &root_entity_ref,
                     None,
-                    &system_ticks,
                     &mut message_manager.entity_mapper,
                     sender,
                     sender_entity,
@@ -393,7 +399,6 @@ pub(crate) fn replicate(
                             tick,
                             &root_entity_ref,
                             Some(&(child_entity_ref, entity)),
-                            &system_ticks,
                             &mut message_manager.entity_mapper,
                             sender,
                             sender_entity,
@@ -404,6 +409,8 @@ pub(crate) fn replicate(
                     }
                 }
             }
+
+
 
             // TODO: maybe this should be in a separate system in AfterBuffer?
             // cleanup after buffer
@@ -418,7 +425,6 @@ pub(crate) fn replicate_entity(
     tick: Tick,
     entity_ref: &FilteredEntityRef,
     child_entity_ref: Option<&(FilteredEntityRef, Entity)>,
-    system_ticks: &SystemChangeTick,
     entity_mapper: &mut RemoteEntityMap,
     sender: &mut ReplicationSender,
     sender_entity: Entity,
@@ -473,10 +479,10 @@ pub(crate) fn replicate_entity(
                     .or_else(|| entity_ref.get::<OwnedBy>()),
                 child_entity_ref,
                 unsafe {
-                    child_entity_ref
+                    sender.is_updated(child_entity_ref
                         .get_change_ticks::<ReplicateLike>()
                         .unwrap_unchecked()
-                        .is_changed(system_ticks.last_run(), system_ticks.this_run())
+                        .changed)
                 },
             )
         }
@@ -605,7 +611,6 @@ pub(crate) fn replicate_entity(
             group_id,
             delta_compression,
             replicate_once,
-            system_ticks,
             entity_mapper,
             sender,
             delta_manager,
@@ -678,7 +683,10 @@ pub(crate) fn replicate_entity_spawn(
     is_replicate_like_added: bool,
 ) {
     // 1. replicate was added/updated and the sender was not in the previous Replicate's target
-    let replicate_updated = replicate.is_changed() && cached_replicate.is_none_or(|cached| !cached.senders.contains(&sender_entity)) && network_visibility.is_none_or(|vis| vis.is_visible(sender_entity));
+    info!("Replicate change tick: {:?}", replicate.last_changed());
+    let replicate_updated = sender.is_updated(replicate.last_changed()) && cached_replicate.is_none_or(|cached| !cached.senders.contains(&sender_entity)) && network_visibility.is_none_or(|vis| vis
+        .is_visible
+    (sender_entity));
     // 2. replicate was not updated but NetworkVisibility is gained for this sender
     let network_visibility_updated = network_visibility.is_some_and(|vis| vis.gained.contains(&sender_entity));
     if replicate_updated || network_visibility_updated || is_replicate_like_added {
@@ -782,7 +790,6 @@ fn replicate_component_update(
     group_id: ReplicationGroupId,
     delta_compression: bool,
     replicate_once: bool,
-    system_ticks: &SystemChangeTick,
     entity_map: &mut RemoteEntityMap,
     sender: &mut ReplicationSender,
     delta: &mut DeltaManager,
@@ -794,7 +801,7 @@ fn replicate_component_update(
     // TODO: ideally we would use target.is_added(), but we do the trick of setting all the
     //  ReplicateToServer components to `changed` when the client first connects so that we replicate existing entities to the server
     //  That is why `force_insert = True` if ReplicateToServer is changed.
-    if component_ticks.is_added(system_ticks.last_run(), system_ticks.this_run()) || replicate.is_changed() {
+    if sender.is_updated(component_ticks.added) || sender.is_updated(replicate.last_changed()) {
         trace!("component is added or replication_target is added");
         insert = true;
     } else {
@@ -847,13 +854,11 @@ fn replicate_component_update(
             let send_tick = sender.get_send_tick(group_id);
 
             // send the update for all changes newer than the last send bevy tick for the group
-            if send_tick.map_or(true, |c| {
-                component_ticks.is_changed(c, system_ticks.this_run())
-            }) {
+            if send_tick.map_or(true, |send_tick| component_ticks.is_changed(send_tick, sender.this_run)) {
                 trace!(
                     change_tick = ?component_ticks.changed,
                     ?send_tick,
-                    current_tick = ?system_ticks.this_run(),
+                    current_tick = ?sender.this_run,
                     "prepare entity update changed check"
                 );
                 // trace!(

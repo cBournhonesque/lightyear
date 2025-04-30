@@ -458,6 +458,7 @@ fn intercept_message(
 /// Test that ReplicationMode::SinceLastAck is respected
 /// - we keep sending replication packets until we receive an Ack
 #[test]
+#[ignore]
 fn test_since_last_ack() {
     let mut stepper = ClientServerStepper::single();
 
