@@ -46,7 +46,7 @@ pub enum LinkState {
 /// Represents a link between two peers, allowing for sending and receiving data.
 /// This only stores the payloads to be sent and received, the actual bytes will be sent by an Io component
 #[derive(Component, Default)]
-#[require(Unlinked)]
+#[component(on_add = Link::on_add)]
 pub struct Link {
     // TODO: instead of Vec should we use Channels to allow parallel processing?
     //  or maybe ArrayQueue?
@@ -54,7 +54,6 @@ pub struct Link {
     pub recv: LinkReceiver,
     /// Payloads to be sent
     pub send: LinkSender,
-
     pub state: LinkState,
     pub stats: LinkStats,
     // TODO: maybe put this somewhere else? So that link is completely independent of how io
@@ -79,6 +78,16 @@ impl Link {
             stats: LinkStats::default(),
             remote_addr: Some(remote_addr),
         }
+    }
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        let entity_ref = world.entity(context.entity);
+        if !entity_ref.contains::<Unlinked>()
+            && !entity_ref.contains::<Linked>()
+             && !entity_ref.contains::<Linking>() {
+            trace!("Inserting Unlinked because Link was added");
+            world.commands().entity(context.entity)
+                .insert(Unlinked { reason: None});
+        };
     }
 }
 

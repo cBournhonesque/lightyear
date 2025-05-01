@@ -5,6 +5,7 @@ use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
+use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::server::Started;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
@@ -89,15 +90,15 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
 
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<S: ActionStateSequence>(
-    mut receivers: Query<(&ClientOf, &mut MessageReceiver<InputMessage<S>>)>,
+    mut receivers: Query<(&ClientOf, &mut MessageReceiver<InputMessage<S>>, &Connected)>,
     mut query: Query<Option<&mut InputBuffer<S::State>>>,
     mut commands: Commands,
 ) {
     // TODO: use par_iter_mut
-    receivers.iter_mut().for_each(|(client_of, mut receiver)| {
+    receivers.iter_mut().for_each(|(client_of, mut receiver, connected)| {
         // TODO: this drains the messages... but the user might want to re-broadcast them?
         //  should we just read insteaD?
-        let client_id = client_of.id;
+        let client_id = connected.remote_peer_id;
         receiver.receive().for_each(|message| {
             // ignore input messages from the local client (if running in host-server mode)
             if client_id.is_local() {

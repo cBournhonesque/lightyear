@@ -121,8 +121,7 @@ impl ServerWebTransportPlugin {
             
             // Process all pending messages
             while let Ok((payload, address)) = from_clients_rx.try_recv() {
-                let peer_id = PeerId::IP(address);
-                
+
                 // Check if we already have this client
                 let entity = match server.get_client(peer_id) {
                     Some(entity) => {
@@ -144,7 +143,6 @@ impl ServerWebTransportPlugin {
                         commands.spawn((
                             ClientOf {
                                 server: server_entity,
-                                id: peer_id,
                             },
                             link,
                         )).id()

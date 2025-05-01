@@ -3,6 +3,7 @@ use core::net::SocketAddr;
 
 use lightyear_core::id::PeerId;
 use thiserror::Error;
+use tracing::{debug, warn};
 
 /// The result type for all the public methods that can return an error in this crate.
 pub type Result<T> = core::result::Result<T, Error>;
@@ -63,3 +64,21 @@ pub enum Error {
     // #[error("address {0} address specific transport error  {1}")]
     // AddressTransport(SocketAddr, crate::transport::error::Error),
 }
+
+
+impl Error {
+    pub(crate) fn log(self) {
+        let suppress_error = match &self {
+            Error::Ignored(_) => {
+                true
+            }
+            _ => false,
+        };
+        if suppress_error {
+            debug!("Netcode error: {:?}", self);
+        } else {
+            warn!("Netcode error: {:?}", self);
+        }
+    }
+}
+

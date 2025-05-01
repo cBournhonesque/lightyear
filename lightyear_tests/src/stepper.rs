@@ -138,7 +138,6 @@ impl ClientServerStepper {
         self.client_of_entities.push(self.server_app.world_mut().spawn((
             ClientOf {
                 server: self.server_entity,
-                id: PeerId::Entity,
             },
             // Send pings every frame, so that the Acks are sent every frame
             PingManager::new(PingConfig {
@@ -159,7 +158,11 @@ impl ClientServerStepper {
     pub(crate) fn disconnect_client(&mut self) {
         let client_id = self.client_entities.len() - 1;
         let client_entity = self.client_entities[client_id];
+        let server_entity = self.client_of_entities[client_id];
         self.client_app.world_mut().trigger_targets(Disconnect, client_entity);
+        self.server_app.world_mut().trigger_targets(Disconnect, server_entity);
+        self.client_app.world_mut().despawn(client_entity);
+        self.server_app.world_mut().despawn(server_entity);
         self.client_entities.remove(client_id);
         self.client_of_entities.remove(client_id);
         self.frame_step(1);

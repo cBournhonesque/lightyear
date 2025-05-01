@@ -96,8 +96,7 @@ impl NetcodeServerPlugin {
     /// and buffer them back into the link to be sent by the IO
     fn send(
         mut server_query: Query<(&mut NetcodeServer, &Server), Without<Stopped>>,
-        // TODO: I don't like how we expect even non connected clients to have ClientOf
-        client_query: Query<(&mut Link, &ClientOf)>,
+        client_query: Query<(&mut Link, Option<&Connected>), With<ClientOf>>,
     ) {
         // TODO: we should be able to do ParIterMut if we can make the code understand
         //  that the transports/links are all mutually exclusive...
@@ -114,13 +113,13 @@ impl NetcodeServerPlugin {
 
             // SAFETY: we know that the entities of a relationship are unique
             let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(server.collection()) };
-            client_query.iter_many_unique_mut(unique_slice).for_each(|(mut link, client_of)|  {
+            client_query.iter_many_unique_mut(unique_slice).for_each(|(mut link, connected)|  {
 
                 // TODO: we can be here while the link has been established, but the client is not yet connected
                 //  so the PeerId is not Netcode! I think we should just error?
 
                 // If the client was connected, it has a Netcode client_id
-                if let PeerId::Netcode(client_id) = client_of.id  {
+                if let Some(PeerId::Netcode(client_id)) = connected.map(|c| c.remote_peer_id) {
                     for _ in 0..link.send.len() {
                         if let Some(payload) = link.send.pop() {
                             netcode_server.inner.send(payload, client_id, &mut link.send).inspect_err(|e| {
@@ -185,7 +184,7 @@ impl NetcodeServerPlugin {
                  match netcode_server.inner.receive(link.as_mut()) {
                      Ok(errors) => {
                          for error in errors {
-                             error!("Error receiving packet: {:?}", error);
+                             error.log();
                          }
                      }
                     Err(e) => {
@@ -197,23 +196,25 @@ impl NetcodeServerPlugin {
                 netcode_server.inner.cfg.context.connections.drain(..).for_each(|(id, addr)| {
                     // TODO: mention server id in case we have multiple servers
                     info!("New connection on netcode from {:?} ({:?})", id, addr);
-                    server.client_map.insert(PeerId::Netcode(id), entity);
                     parallel_commands.command_scope(|mut c| {
-                        trace!("Adding ClientOf with id {:?}", id);
-                        let peer_id = PeerId::Netcode(id);
+                        trace!("Adding Connected/ClientOf with id {:?}", id);
                         c.entity(entity)
-                            .insert((Connected {peer_id }, ClientOf {
-                                server: client_of.server,
-                                id: peer_id,
-                            }))
-                            .remove::<Connecting>();
+                            .insert((
+                                Connected {
+                                    local_peer_id: PeerId::Server,
+                                    remote_peer_id: PeerId::Netcode(id)
+                                },
+                                ClientOf {
+                                    server: client_of.server,
+                                }
+                            ));
                     })
                 });
 
                 // Disconnections: we know the disconnection comes from the current entity!
                 netcode_server.inner.cfg.context.disconnections.drain(..).for_each(|(id, addr)| {
                     // TODO: mention server id in case we have multiple servers
-                    info!("Disconnection from netcode client {:?}", id);
+                    info!("Disconnection from netcode client {:?}. Despawning entity.", id);
                     parallel_commands.command_scope(|mut c| {
                         // first disconnect to trigger observers
                         c.entity(entity)
@@ -232,17 +233,15 @@ impl NetcodeServerPlugin {
         trigger: Trigger<Start>,
         mut commands: Commands,
     ) {
-        // TODO: should this be here?
-        commands.trigger_targets(LinkStart, trigger.target());
         // NOTE: for now there is no Starting
-        commands.entity(trigger.target()).remove::<Stopped>().insert(Started);
+        commands.entity(trigger.target()).insert(Started);
     }
 
     fn stop(
         trigger: Trigger<Stop>,
         mut commands: Commands,
         mut query: Query<(Entity, &mut NetcodeServer, &Server), Without<Stopped>>,
-        mut link_query: Query<(&mut Link, &ClientOf)>,
+        mut link_query: Query<(&mut Link, &Connected), With<ClientOf>>,
     ) -> Result {
         if let Ok((entity, mut netcode_server, server)) = query.get_mut(trigger.target()) {
             info!("Stopping netcode server. Unlinking the ServerIo");
@@ -251,10 +250,10 @@ impl NetcodeServerPlugin {
 
             // SAFETY: we know that the list of client entities are unique because it is a Relationship
             let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(&server.clients) };
-            link_query.iter_many_unique_mut(unique_slice).try_for_each(|(mut link, client_of)| {
-                let PeerId::Netcode(client_id) = client_of.id else {
-                    error!("Client {:?} is not a Netcode client", client_of.id);
-                    return Err(crate::error::Error::UnknownClient(client_of.id));
+            link_query.iter_many_unique_mut(unique_slice).try_for_each(|(mut link, connected)| {
+                let PeerId::Netcode(client_id) = connected.remote_peer_id else {
+                    error!("Client {:?} is not a Netcode client", connected.remote_peer_id);
+                    return Err(crate::error::Error::UnknownClient(connected.remote_peer_id));
                 };
                 netcode_server.inner.disconnect(client_id, &mut link.send)?;
                 Ok(())

@@ -15,7 +15,12 @@ publish = true
 
 [features]
 default = [
-  "std"
+  "std",
+  "client",
+  "server",
+  "replication",
+  "prediction",
+  "interpolation",
 ]
 std = [
   "bevy/std",
@@ -24,7 +29,6 @@ std = [
   "serde/std",
   "bincode/std",
   "bytes/std",
-  "chacha20poly1305/std",
   "no_std_io2/std",
   "lightyear_interpolation?/std",
   "lightyear_udp?/std",
@@ -103,19 +107,25 @@ avian3d = [
 #  "dep:lightyear_avian",
 #  "lightyear_avian/3d",
 ]
+
+# IO LAYERS
 udp = [
   "dep:lightyear_udp",
 ]
 websocket = [
   "std",
 ]
+crossbeam = [
+  "dep:lightyear_crossbeam",
+]
+
+# CONNECTION LAYERS
 steam = [
   "dep:steamworks",
   "std",
 ]
-crossbeam = [
-  "dep:lightyear_crossbeam",
-]
+# TODO: add netcode
+
 #lag_compensation = [
 #  "lightyear_avian?/lag_compensation",
 #]
@@ -151,7 +161,6 @@ lightyear_webtransport = {workspace = true, optional = true}
 # utils
 mock_instant = { workspace = true, optional = true }
 
-
 # no_std
 # TODO: only enable in no_std
 no_std_io2.workspace = true
@@ -167,9 +176,6 @@ avian3d = { workspace = true, optional = true }
 bincode.workspace = true
 bytes.workspace = true
 serde.workspace = true
-
-# netcode
-chacha20poly1305.workspace = true
 
 # tracing
 tracing.workspace = true
@@ -188,7 +194,6 @@ bevy.workspace = true
 
 # compression
 lz4_flex = { workspace = true, optional = true }
-
 
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]

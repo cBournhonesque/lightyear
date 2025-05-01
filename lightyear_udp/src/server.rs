@@ -85,7 +85,7 @@ impl ServerUdpPlugin {
 
     fn send(
         mut server_query: Query<(&mut ServerUdpIo, &Server), With<Linked>>,
-        mut link_query: Query<&mut Link, With<Linked>>,
+        mut link_query: Query<&mut Link>,
     ) {
         // TODO: parallelize
         server_query
@@ -123,7 +123,10 @@ impl ServerUdpPlugin {
         time: Res<Time<Real>>,
         commands: ParallelCommands,
         mut server_query: Query<(Entity, &mut ServerUdpIo), With<Linked>>,
-        mut link_query: Query<(&mut Link), With<Linked>>,
+        // TODO: we want to have With<Linked> here, but that would mean that if a client sends 2 packets in a row
+        //  for the first one we spawn them, and for the second one the query will return False.
+        //  maybe have a separate Vec for new addresses, and for these we don't require Linked?
+        mut link_query: Query<(&mut Link)>,
     ) {
         server_query
             .par_iter_mut()
@@ -190,12 +193,13 @@ impl ServerUdpPlugin {
                                                 },
                                                 ClientOf {
                                                     server: server_entity,
-                                                    id: PeerId::Entity,
                                                 },
                                                 link,
-                                                Linked,
                                             ))
+                                            // we insert Linked separately because adding Link adds Unlinked as a RequiredComponent
+                                            .insert(Linked)
                                             .id();
+
                                         info!(?entity, ?server_entity, "Spawn new ClientOf");
                                         vacant.insert(entity);
                                     });

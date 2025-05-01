@@ -62,18 +62,18 @@ pub(crate) fn handle_connected(
     mut commands: Commands,
 ) {
     let connected = query.get(trigger.target()).unwrap();
-    let client_id = connected.peer_id;
+    let client_id = connected.remote_peer_id;
     let entity = commands
         .spawn((
             PlayerBundle::new(client_id, Vec2::ZERO),
             // we replicate the Player entity to all clients that are connected to this server
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
-            InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id))
-            // ControlledBy {
-            //     target: NetworkTarget::Single(client_id),
-            //     ..default()
-            // },
+            InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+            OwnedBy {
+                owner: client_id,
+                lifetime: Default::default(),
+            }
         ))
         .id();
     info!("Create entity {:?} for client {:?}", entity, client_id);

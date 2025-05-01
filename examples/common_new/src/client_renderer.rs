@@ -159,11 +159,13 @@ pub struct ClientIdText;
 /// Listen for events to know when the client is connected, and spawn a text entity
 /// to display the client id
 pub(crate) fn handle_connection(
-    trigger: Trigger<Connected>,
+    trigger: Trigger<OnAdd, Connected>,
+    query: Query<&Connected>,
     mut commands: Commands,
 ) {
+    let client_id = query.get(trigger.target()).unwrap().local_peer_id;
     commands.spawn((
-        Text(format!("Client {}", trigger.peer_id)),
+        Text(format!("Client {}", client_id)),
         TextFont::from_font_size(30.0),
         ClientIdText,
     ));
@@ -172,12 +174,12 @@ pub(crate) fn handle_connection(
 /// Listen for events to know when the client is disconnected, and print out the reason
 /// of the disconnection
 pub(crate) fn handle_disconnection(
-    _trigger: Trigger<Disconnected>,
+    _trigger: Trigger<OnAdd, Disconnected>,
     mut commands: Commands,
     debug_text: Query<Entity, With<ClientIdText>>
 ) {
     // TODO: add reason
-    commands.trigger(UpdateStatusMessage(String::from("disconnected")));
+    commands.trigger(UpdateStatusMessage(String::from("Disconnected")));
     for entity in debug_text.iter() {
         commands.entity(entity).despawn();
     }

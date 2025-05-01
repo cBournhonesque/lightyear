@@ -29,14 +29,10 @@ lightyear_serde.workspace = true
 bevy.workspace = true
 
 # utils
-anyhow.workspace = true
-bytes.workspace = true
-cfg-if.workspace = true
-hashbrown.workspace = true
 serde.workspace = true
+smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-chacha20poly1305.workspace = true
 
 [dev-dependencies]
 lightyear_macros.workspace = true

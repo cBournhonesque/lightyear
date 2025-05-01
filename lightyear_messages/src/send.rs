@@ -9,7 +9,8 @@ use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::entity::{EntityMapper, MapEntities};
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
-use bevy::prelude::{Component, Entity, Event, Query, Reflect, Res, Without, World};
+use bevy::prelude::{Component, Entity, Event, Query, Reflect, Res, With, Without, World};
+use lightyear_connection::client::Connected;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
@@ -18,7 +19,6 @@ use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, trace};
-
 
 pub type Priority = f32;
 
@@ -138,10 +138,7 @@ impl MessagePlugin {
     /// Take messages to send from the MessageSender<M> components
     /// Serialize them into bytes that are buffered in a ChannelSender<C>
     pub fn send(
-        // TODO: maybe prevent users from sending messages if Connecting/Disconnected is present?
-        //   but then this crate would import lightyear_connection; and we might want to remain independent
-        //   or should we have a feature called 'connection'?
-        mut transport_query: Query<(Entity, &Transport, &mut MessageManager)>,
+        mut transport_query: Query<(Entity, &Transport, &mut MessageManager), With<Connected>>,
         // MessageSender<M> present on that entity
         message_sender_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,

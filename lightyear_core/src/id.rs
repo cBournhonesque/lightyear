@@ -1,4 +1,5 @@
 //! Module to handle the various possible ClientIds
+use bevy::prelude::Entity;
 use bevy::reflect::Reflect;
 use core::fmt::Formatter;
 use core::net::SocketAddr;
@@ -7,10 +8,9 @@ use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum PeerId {
-    #[default]
-    Entity,
+    Entity(u64),
     // #[reflect(ignore)]
     // // #[reflect(default = "LOCALHOST")]
     // IP(SocketAddr),
@@ -27,7 +27,7 @@ pub enum PeerId {
 impl ToBytes for PeerId {
     fn bytes_len(&self) -> usize {
         match self {
-            PeerId::Entity => 1,
+            PeerId::Entity(_) => 1 + 8,
             // PeerId::IP(socket_addr) => {
             //     // 1 byte for variant + address bytes + 2 bytes for port
             //     match socket_addr {
@@ -44,9 +44,9 @@ impl ToBytes for PeerId {
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         match self {
-            PeerId::Entity => {
-                // TODO: should we include the entity?
+            PeerId::Entity(id) => {
                 buffer.write_u8(0)?;
+                buffer.write_u64(*id)?;
             }
             // PeerId::IP(socket) => {
             //     match socket {
@@ -94,7 +94,7 @@ impl ToBytes for PeerId {
         Self: Sized,
     {
         match buffer.read_u8()? {
-            0 => Ok(PeerId::Entity),
+            0 => Ok(PeerId::Entity(buffer.read_u64()?)),
             // 1 => {
             //     // Read IPv4 address
             //     let a = buffer.read_u8()?;
@@ -135,7 +135,7 @@ impl PeerId {
     /// Convert a ClientId to a u64 representation
     pub fn to_bits(&self) -> u64 {
         match self {
-            PeerId::Entity => 0,
+            PeerId::Entity(x) => *x,
             // PeerId::IP(socket) => {
             //     // Create a simple hash for the IP address
             //     // Just for differentiation - not meant to be a secure hash

@@ -12,8 +12,9 @@ STATUS:
 TODO:
 - on the server, we get cases where the input buffer just contains [SameAsPrecedent]. Normally
   the first value should never be just SameAsPrecedent! That's due to `update_buffer` using `set_raw`. But maybe that's ok? if there's only SameAsPrecedent, we don't do anything (i.e. we re-use the existing inputs)
-- when running simple_box, the Confirmed entity should eventually catchup to the predicted entity! Sometimes it doesn't -> some system ordering issue? or sync issue?
-- EXAMPLE DOESNT WORK BECAUSE UDP SERVER ONLY ADDS LINK-OF, AND NETCODE EXPECTES CLIENT-OF
+
+- CURRENT: in simple box, if the client disconnects and reconnects, the new box is not replicated to them. Maybe because 
+  the PeerMetadata is not updated in time?
 
 NEEDS UNIT TEST:
 - check that 'send_tick' and replication change_ticks work correctly
@@ -25,9 +26,6 @@ NEEDS UNIT TEST:
     - we trigger LinkStart
     -> ALTERNATIVE: the udp can keep working even if disconnected?
 
-- Maybe we just keep LinkOf
-
-- the interpolated entity is not displayed
 
 # Inputs
 - client connects to to server

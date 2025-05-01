@@ -52,12 +52,12 @@ struct ClientIds(Arc<RwLock<HashSet<u64>>>);
 /// Update the list of connected client ids when a client disconnects
 fn handle_disconnect_event(
     trigger: Trigger<OnAdd, Disconnected>,
-    query: Query<&ClientOf>,
+    query: Query<&Connected, With<ClientOf>>,
     client_ids: Res<ClientIds>) {
-    let Ok(client_of) = query.get(trigger.target()) else {
+    let Ok(connected) = query.get(trigger.target()) else {
         return
     };
-    if let PeerId::Netcode(client_id) = client_of.id {
+    if let PeerId::Netcode(client_id) = connected.remote_peer_id {
         info!("Client disconnected: {}. Removing from ClientIds.", client_id);
         client_ids.0.write().unwrap().remove(&client_id);
     }
@@ -66,14 +66,14 @@ fn handle_disconnect_event(
 /// Update the list of connected client ids when a client connects
 fn handle_connect_event(
     trigger: Trigger<OnAdd, Connected>,
-    query: Query<&ClientOf>,
+    query: Query<&Connected, With<ClientOf>>,
     client_ids: Res<ClientIds>
 ) {
 
-    let Ok(client_of) = query.get(trigger.target()) else {
+    let Ok(connected) = query.get(trigger.target()) else {
         return
     };
-    if let PeerId::Netcode(client_id) = client_of.id {
+    if let PeerId::Netcode(client_id) = connected.remote_peer_id {
         info!("Client connected: {}. Adding to ClientIds.", client_id);
         client_ids.0.write().unwrap().insert(client_id);
     }

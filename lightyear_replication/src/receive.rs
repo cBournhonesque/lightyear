@@ -83,17 +83,17 @@ impl ReplicationReceivePlugin {
         // TODO: have some logic to get the remote peer independently from ClientOf or client-server
             //  Maybe the link contains the remoteLinkId?
         query: &mut QueryState<
-            (Entity, Option<&ClientOf>),
-            (With<ReplicationReceiver>, With<MessageManager>, With<LocalTimeline>, With<Connected>)
+            (Entity, &Connected),
+            (With<ReplicationReceiver>, With<MessageManager>, With<LocalTimeline>)
         >,
         // buffer to avoid allocations
-        mut receiver_entities: Local<Vec<(Entity, Option<PeerId>)>>
+        mut receiver_entities: Local<Vec<(Entity, PeerId)>>
     ) {
         // we first collect the entities we need into a buffer
         // We cannot use query.iter() and &mut World at the same time as this would be UB because they both access Archetypes
         // See https://discord.com/channels/691052431525675048/1358658786851684393/1358793406679355593
-        receiver_entities.extend(query.iter(world).map(|(e, client_of)| {
-            (e, client_of.map(|c| c.id))
+        receiver_entities.extend(query.iter(world).map(|(e, connected)| {
+            (e, connected.remote_peer_id)
         }));
 
         // SAFETY: the other uses of `world` won't access the ComponentRegistry
@@ -396,7 +396,7 @@ impl ReplicationReceiver {
         // TODO: should we use commands for command batching?
         world: &mut World,
         receiver_entity: Entity,
-        remote: Option<PeerId>,
+        remote: PeerId,
         remote_entity_map: &mut RemoteEntityMap,
         component_registry: &ComponentRegistry,
         current_tick: Tick,
@@ -732,7 +732,7 @@ impl GroupChannel {
         &mut self,
         world: &mut World,
         receiver_entity: Entity,
-        remote: Option<PeerId>,
+        remote: PeerId,
         component_registry: &ComponentRegistry,
         remote_tick: Tick,
         message: ActionsMessage,
@@ -797,8 +797,8 @@ impl GroupChannel {
                     self.local_entities.insert(local_entity.id());
                     local_entity_to_group.insert(local_entity.id(), group_id);
                     // if the entity was replicated from a client to the server, update the AuthorityPeer
-                    if let Some(client) = remote {
-                        local_entity.insert(AuthorityPeer::Client(client));
+                    if !matches!(remote, PeerId::Server) {
+                        local_entity.insert(AuthorityPeer::Client(remote));
                     }
 
                     remote_entity_map.insert(*remote_entity, local_entity.id());
@@ -905,20 +905,23 @@ impl GroupChannel {
     /// - on the client: only accept updates if we don't have authority
     ///
     /// Returns true if we can accept updates for this entity
-    fn authority_check(entity_mut: &mut EntityWorldMut, remote: Option<PeerId>) -> bool {
+    fn authority_check(entity_mut: &mut EntityWorldMut, remote: PeerId) -> bool {
         match remote {
-            // we are the server receiving an update from a client
-            Some(c) => entity_mut
+            PeerId::Server => {
+                 entity_mut.get::<HasAuthority>().is_none()
+            }
+            c => {
+                entity_mut
                 .get::<AuthorityPeer>()
-                .is_some_and(|authority| *authority == AuthorityPeer::Client(c)),
-            None => entity_mut.get::<HasAuthority>().is_none(),
+                .is_some_and(|authority| *authority == AuthorityPeer::Client(c))
+            }
         }
     }
 
     pub(crate) fn apply_updates_message(
         &mut self,
         world: &mut World,
-        remote: Option<PeerId>,
+        remote: PeerId,
         component_registry: &ComponentRegistry,
         remote_tick: Tick,
         is_history: bool,

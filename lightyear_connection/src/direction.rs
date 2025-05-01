@@ -17,7 +17,6 @@ mod tests {
     use crate::client::Client;
     use crate::client_of::ClientOf;
     use bevy::prelude::{default, Entity};
-    use lightyear_core::prelude::PeerId;
     use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelRegistry, ChannelSettings, Transport};
 
     struct ChannelClientToServer;
@@ -57,7 +56,6 @@ mod tests {
 
         let entity_mut = app.world_mut().spawn(ClientOf{
             server: Entity::PLACEHOLDER,
-            id: PeerId::Server,
         });
         let transport = entity_mut.get::<Transport>().unwrap();
 
@@ -89,7 +87,6 @@ mod tests {
 
         let entity_mut = app.world_mut().spawn(ClientOf{
             server: Entity::PLACEHOLDER,
-            id: PeerId::Server,
         });
         entity_mut.get::<MessageReceiver<MessageClientToServer>>().unwrap();
         entity_mut.get::<MessageSender<MessageServerToClient>>().unwrap();

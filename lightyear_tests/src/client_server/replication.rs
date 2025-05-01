@@ -4,14 +4,17 @@ use crate::protocol::{CompA, CompDisabled, CompReplicateOnce};
 use crate::stepper::ClientServerStepper;
 use bevy::prelude::{default, ResMut, Resource, Single};
 use lightyear_connection::network_target::NetworkTarget;
+use lightyear_core::id::PeerId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
+use lightyear_replication::control::OwnedBy;
 use lightyear_replication::message::ActionsChannel;
 use lightyear_replication::prelude::{ComponentReplicationOverride, ComponentReplicationOverrides, Replicate, ReplicationGroupId, ReplicationSender};
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::Transport;
 use test_log::test;
+use tracing::info;
 
 #[test]
 fn test_spawn() {
@@ -440,6 +443,37 @@ fn test_component_disabled_overrides() {
             .expect("component missing"),
         &CompDisabled(2.0)
     );
+}
+
+
+#[test]
+fn test_owned_by() {
+    let mut stepper = ClientServerStepper::with_clients(2);
+
+    let server_entity = stepper.server_app.world_mut().spawn((
+        Replicate::to_clients(NetworkTarget::All),
+        OwnedBy {
+            owner: PeerId::Netcode(1),
+            lifetime: Default::default(),
+        }
+    )).id();
+
+    // the server entity is replicated to both clients
+    stepper.frame_step(2);
+    let client_entity = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(server_entity)
+        .expect("entity is not present in entity map");
+
+    // client 1 disconnects
+    info!("Disconnecting client 1");
+    stepper.disconnect_client();
+    stepper.frame_step(2);
+
+    // the entity should get despawned on client 0, because it was owned by the client 1
+    assert!(stepper
+        .client_app
+        .world()
+        .get_entity(client_entity)
+        .is_err());
 }
 
 

@@ -44,11 +44,7 @@ bevy.workspace = true
 no_std_io2.workspace = true
 
 # utils
-anyhow.workspace = true
 bytes.workspace = true
-cfg-if.workspace = true
-hashbrown.workspace = true
-serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 rand.workspace = true

@@ -1,8 +1,8 @@
-use crate::client::Connecting;
+use crate::client::{Connecting, PeerMetadata};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::error::HandleError;
 use bevy::ecs::error::{ignore, panic, CommandWithEntity};
-use bevy::ecs::relationship::{Relationship, RelationshipHookMode};
+use bevy::ecs::relationship::{Relationship, RelationshipHookMode, RelationshipSourceCollection};
 use bevy::ecs::system::entity_command;
 use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashMap;
@@ -14,6 +14,7 @@ use crate::prelude::NetworkTarget;
 use alloc::{boxed::Box, vec, vec::Vec};
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use smallvec::SmallVec;
 
 /// Marker component to identify this entity as a Client
 #[derive(Component, Default, Debug, PartialEq, Eq, Reflect)]
@@ -21,36 +22,53 @@ use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 #[component(on_despawn = Server::on_despawn)]
 #[component(on_replace = Server::on_replace)]
 pub struct Server {
-    /// The server entity that this client is connected to
+    // TODO: replace this with EntityIndexSet in 0.17
+    /// The clients that are connecting/connected to this server.
+    /// (They all have a ClientOf component)
     ///
     /// Accessing this directly is unsafe, and is only necessary to solve some issues with split borrows
     pub clients: Vec<Entity>,
-    pub client_map: HashMap<PeerId, Entity>,
 }
 
 impl Server {
-    pub fn targets<'a: 'b, 'b>(&'a self, target: &'b NetworkTarget) -> Box<dyn Iterator<Item = Entity> + 'b> {
+    /// Calls func on each value that matches the provided `target`
+    pub fn apply_targets(
+        &self,
+        target: &NetworkTarget,
+        mapping: &HashMap<PeerId, Entity>,
+        func: &mut impl FnMut(Entity)
+    ) {
         match target {
-            NetworkTarget::All => Box::new(self.client_map.values().copied()),
-            NetworkTarget::AllExceptSingle(client_id) =>
-                Box::new(self.client_map
-                    .iter()
-                    .filter(move |(peer_id, _)| *peer_id != client_id)
-                    .map(|(_, e)| *e)),
-            NetworkTarget::AllExcept(client_ids) => Box::new(
-                self.client_map
-                    .iter()
-                    .filter(move |(peer_id, _)| !client_ids.contains(peer_id))
-                    .map(|(_, e)| *e)),
+            NetworkTarget::All => self.clients.iter().for_each(|e| func(e)),
+            NetworkTarget::AllExceptSingle(client_id) => {
+                let except_entity = mapping.get(client_id).unwrap_or(&Entity::PLACEHOLDER);
+                self.clients.iter()
+                    .filter(|e| e != except_entity)
+                    .for_each(|e| func(e))
+            }
+            NetworkTarget::AllExcept(client_ids) => {
+                let entity_ids = client_ids.iter()
+                    .map(|p| *mapping.get(p).unwrap_or(&Entity::PLACEHOLDER))
+                    .collect::<SmallVec<[Entity; 4]>>();
+                self.clients.iter()
+                    .filter(|e| !entity_ids.contains(e))
+                    .for_each(|e| func(e))
+            }
             NetworkTarget::Single(client_id) => {
-                Box::new(self.client_map.get(client_id).copied().into_iter())
+                let entity = mapping.get(client_id).unwrap_or(&Entity::PLACEHOLDER);
+                if let Some(e) = self.clients.iter().find(|e| e == entity) {
+                    func(e)
+                }
             },
-            NetworkTarget::Only(client_ids) => Box::new(
-                self.client_map
-                    .iter()
-                    .filter(move |(peer_id, _)| client_ids.contains(peer_id))
-                    .map(|(_, e)| *e)),
-            NetworkTarget::None => Box::new(core::iter::empty()),
+            NetworkTarget::Only(client_ids) => {
+                let entity_ids = client_ids.iter()
+                    .map(|p| *mapping.get(p).unwrap_or(&Entity::PLACEHOLDER))
+                    .collect::<SmallVec<[Entity; 4]>>();
+                self.clients.iter()
+                    .filter(|e| entity_ids.contains(e))
+                    .for_each(|e| func(e))
+            }
+            NetworkTarget::None => {}
         }
     }
 }
@@ -64,8 +82,6 @@ impl Server {
 pub struct ClientOf {
     /// The server entity that this client is connected to
     pub server: Entity,
-    /// The client id of the client
-    pub id: PeerId,
 }
 
 /// We implement Relationship manually because we also want to update information related to the ClientId in the `Server` component
@@ -77,14 +93,13 @@ impl Relationship for ClientOf {
     }
 
     fn from(entity: Entity) -> Self {
-        panic!("The `from` function should never be called.");
+        ClientOf {
+            server: entity
+        }
     }
 }
 
 impl ClientOf {
-    fn id(&self) -> PeerId {
-        self.id
-    }
 
     /// The `on_insert` component hook that maintains the [`Relationship`] / [`RelationshipTarget`] connection.
     fn on_insert(
@@ -105,7 +120,6 @@ impl ClientOf {
         }
         let client_of = world.entity(entity).get::<Self>().unwrap();
         let target_entity = client_of.server;
-        let client = client_of.id;
         if target_entity == entity {
             warn!(
                 "{}The {}({target_entity:?}) relationship on entity {entity:?} points to itself. The invalid {} relationship has been removed.",
@@ -120,12 +134,10 @@ impl ClientOf {
             if let Some(mut relationship_target) =
                 target_entity_mut.get_mut::<Server>()
             {
-                // SAFETY: we are calling this as part of the relationship hooks
-                unsafe { relationship_target.add_client(entity, client) };
+                relationship_target.collection_mut_risky().add(entity);
             } else {
                 let mut target = <Server as RelationshipTarget>::with_capacity(1);
-                // SAFETY: we are calling this as part of the relationship hooks
-                unsafe { target.add_client(entity, client) };
+                target.collection_mut_risky().add(entity);
                 world.commands().entity(target_entity).insert(target);
             }
         } else {
@@ -164,7 +176,7 @@ impl ClientOf {
             if let Some(mut relationship_target) =
                 target_entity_mut.get_mut::<Server>()
             {
-                unsafe { relationship_target.remove_client(entity) };
+                RelationshipSourceCollection::remove(relationship_target.collection_mut_risky(), entity);
             }
         }
     }
@@ -184,30 +196,14 @@ impl RelationshipTarget for Server {
         &mut self.clients
     }
 
-
     fn from_collection_risky(collection: Self::Collection) -> Self {
-        panic!("This function should never be called. Use `from_collection` instead.");
+        Self {
+            clients: collection,
+        }
     }
 }
 
 impl Server {
-
-    pub fn get_client(&self, id: PeerId) -> Option<Entity> {
-        self.client_map.get(&id).copied()
-    }
-
-    // SAFETY: this should only be called as part of the relationship hooks
-    unsafe fn add_client(&mut self, client: Entity, id: PeerId) {
-        self.clients.push(client);
-        self.client_map.insert(id, client);
-    }
-
-    // SAFETY: this should only be called as part of the relationship hooks
-    unsafe fn remove_client(&mut self, client: Entity) {
-        self.clients.retain(|e| *e != client);
-        self.client_map.extract_if(|_, v| *v == client).next();
-    }
-
     /// The `on_replace` component hook that maintains the [`Relationship`] / [`RelationshipTarget`] connection.
     // note: think of this as "on_drop"
     fn on_replace(mut world: DeferredWorld, HookContext { entity, caller, .. }: HookContext) {

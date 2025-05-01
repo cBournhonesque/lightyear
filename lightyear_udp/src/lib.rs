@@ -63,6 +63,7 @@ impl UdpPlugin {
         mut query: Query<&mut UdpIo, With<Unlinked>>,
         mut commands: Commands,
     ) -> Result {
+        trace!("In LinkStart::UDP trigger");
         if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
             let mut socket = std::net::UdpSocket::bind(udp_io.local_addr)?;
             info!("UDP socket bound to {}", udp_io.local_addr);

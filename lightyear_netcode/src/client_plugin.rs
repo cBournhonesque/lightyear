@@ -137,7 +137,8 @@ impl NetcodeClientPlugin {
                     info!("Client {} connected", client.id());
                     parallel_commands.command_scope(|mut commands| {
                         commands.entity(entity).insert(Connected {
-                            peer_id: client.id()
+                            local_peer_id: client.id(),
+                            remote_peer_id: PeerId::Server
                         });
                     });
                 }
