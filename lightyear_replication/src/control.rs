@@ -16,7 +16,7 @@ pub struct Controlled;
 
 /// Component on the sender side that lists the entities controlled by the local peer
 #[derive(Component, Clone, PartialEq, Debug, Reflect)]
-#[relationship_target(relationship = OwnedBy, linked_spawn)]
+#[relationship_target(relationship = OwnedBy)]
 #[reflect(Component)]
 pub struct Owned(Vec<Entity>);
 
@@ -146,36 +146,36 @@ impl OwnedBy {
                 }
             }
         }
-        let owner = world.entity(entity).get::<Self>().unwrap().owner;
-        let Some(&target_entity) = world.resource::<PeerMetadata>().mapping.get(&owner) else {
-            if let Ok(mut entity_mut) = world.commands().get_entity(entity) {
-                trace!("The owner {:?} does not exist. Removing `OwnedBy`", owner);
-                entity_mut.remove::<Self>();
-            }
-            return;
-        };
-        if let Ok(mut target_entity_mut) = world.get_entity_mut(target_entity) {
-            if let Some(mut relationship_target) =
-                target_entity_mut.get_mut::<Owned>()
-            {
-                RelationshipSourceCollection::remove(relationship_target.collection_mut_risky(), entity);
-                if relationship_target.len() == 0 {
-                    if let Ok(mut entity) = world.commands().get_entity(target_entity) {
-                        // this "remove" operation must check emptiness because in the event that an identical
-                        // relationship is inserted on top, this despawn would result in the removal of that identical
-                        // relationship ... not what we want!
-                        entity.queue(|mut entity: EntityWorldMut| {
-                            if entity
-                                .get::<Owned>()
-                                .is_some_and(RelationshipTarget::is_empty)
-                            {
-                                entity.remove::<Owned>();
-                            }
-                        });
-                    }
-                }
-            }
-        }
+        // let owner = world.entity(entity).get::<Self>().unwrap().owner;
+        // let Some(&target_entity) = world.resource::<PeerMetadata>().mapping.get(&owner) else {
+        //     if let Ok(mut entity_mut) = world.commands().get_entity(entity) {
+        //         trace!("The owner {:?} does not exist. Removing `OwnedBy`", owner);
+        //         entity_mut.remove::<Self>();
+        //     }
+        //     return;
+        // };
+        // if let Ok(mut target_entity_mut) = world.get_entity_mut(target_entity) {
+        //     if let Some(mut relationship_target) =
+        //         target_entity_mut.get_mut::<Owned>()
+        //     {
+        //         RelationshipSourceCollection::remove(relationship_target.collection_mut_risky(), entity);
+        //         if relationship_target.len() == 0 {
+        //             if let Ok(mut entity) = world.commands().get_entity(target_entity) {
+        //                 // this "remove" operation must check emptiness because in the event that an identical
+        //                 // relationship is inserted on top, this despawn would result in the removal of that identical
+        //                 // relationship ... not what we want!
+        //                 entity.queue(|mut entity: EntityWorldMut| {
+        //                     if entity
+        //                         .get::<Owned>()
+        //                         .is_some_and(RelationshipTarget::is_empty)
+        //                     {
+        //                         entity.remove::<Owned>();
+        //                     }
+        //                 });
+        //             }
+        //         }
+        //     }
+        // }
     }
 }
 

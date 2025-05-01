@@ -13,8 +13,13 @@ TODO:
 - on the server, we get cases where the input buffer just contains [SameAsPrecedent]. Normally
   the first value should never be just SameAsPrecedent! That's due to `update_buffer` using `set_raw`. But maybe that's ok? if there's only SameAsPrecedent, we don't do anything (i.e. we re-use the existing inputs)
 
-- CURRENT: in simple box, if the client disconnects and reconnects, the new box is not replicated to them. Maybe because 
-  the PeerMetadata is not updated in time?
+- ON DISCONNECTION, we reset ReplicateionReceiver, ReplicationSender, Transport to their default state.
+  - But maybe we should to the reset on Connection, so that if users changed something it gets taken into account?
+  - Also we might need to reset the MessageReceiver/MessageSender
+    
+- In SimpleBox, it looks like when you spawn a box. We first send a SendActionsMessages with the Spawn.
+  but on the next frame we also send an UpdatesMessage!
+   -> Maybe it's just because of SinceLastAck
 
 NEEDS UNIT TEST:
 - check that 'send_tick' and replication change_ticks work correctly
@@ -27,31 +32,10 @@ NEEDS UNIT TEST:
     -> ALTERNATIVE: the udp can keep working even if disconnected?
 
 
-# Inputs
-- client connects to to server
-- server spawns a player entity for them, with ControlledBy
-
-- client adds InputMarker to the entity that they are actively controlling.
-- there is only one sender with an InputTimeline
-
-
 # Server sending messages
 
 - We need a ServerMessageSender on the server, where you can serialize a message once and it will be sent to a subset
   of network targets (ClientOf) of that server.
-
-
-# Server creating ClientOfs
-
-- ServerUdpIo receives a packet from a new address: creates an entity with a Link + LinkOf?
-- ServerNetcode:
-  - iterates through all LinkOfs to see if they are going to be connected. If they are, add ClientOf
-  - uses Has<ClientOf> to check if they were already connected or not
-  - on new connection, spawns a new ClientOf.
-  - if the LinkOf becomes unlinked, remove the ClientOf as well.
-- We will have a 'RawConnection' that just uses ClientOf::Entity as the peer_id.
-
-- The user can react on Added<ClientConnected> or Added<ClientOf> to add the replication components 
 
 
 # Status:
@@ -61,7 +45,7 @@ NEEDS UNIT TEST:
 - Replication:
   - ReplicationGroup timer + priority
   - HostServer handling
-  - Authority/Controlled
+  - Authority
   - need to add tests for sender/receive/authority/hierarchy/delta
 - Receive:
   - re-add UpdateConfirmedTick in apply_world
@@ -70,8 +54,6 @@ NEEDS UNIT TEST:
 
 TODOs:
 - Maybe have a DummyConnection that is just pass-through on top of the io? and then everything else can react to Connected/Disconnected events?
-- When we get a Disconnection, use the Sender's replicated-entities to update the Replicate components
-- When we get a Connection, how do specify which Replicate will handle that new client?
   Maybe we can have some Access or bitmask of all connections, and the access could have `accept_all`, etc.?
  
 - Most systems (for example ReplicationPlugin), need to only run if the timeline is synced, or if the senders are connected.
@@ -79,10 +61,7 @@ TODOs:
   
 
 TEST TODO:
- - Add ReplicationSender/ReplicationReceiver automatically on Client/ClientOf? But how to avoid 
-   perf issues?
  - There seems to be a very weird ordering issue? Adding MessageDirection messed up some of the message receive/send
- - SYNCING IS NOT DONE! DO SYNC. ADD TESTS FOR SYNC!
  - ReplicationSender needs to send a message at the start with their replication interval so that the receiver can adjust the interpolation timeline.
 
 # Messages
@@ -100,21 +79,6 @@ TEST TODO:
   - the target is mapped to the correct client-of entities on the server
     
 - or the message itself should support it? i.e. we have InputMessage<> (for the server) and RebroadcastInput? Rebroadcast input gets added only if the user requests it in the registry.
-
-# Inputs
-
-- Add Started to each ClientOf when the server starts
-  
-
-# Prediction
-
-- Should we only apply prediction for a single timeline? Maybe not?
-  - we have a separate timeline per Receiver
-  - we could have a separate Rollback per receiver.
-  - we could do the rollback only for one of the receivers.
-  - for Resources, it would only work if we only have one receiver.
-- The problem is that the rollback re-runs the FixedUpdate schedule for the entire world.
-  - So realistically we can only have timeline with rollback per world.
 
 
 # Server
@@ -181,25 +145,6 @@ But if you add a direction we will handle it automatically for the client-server
     - Ideally we also want the relationship to hold data. For example `is_replicating`, etc.
   - Should we do it by triggers? i.e. you trigger ReplicateOn<Entity> for your target entity?
 
-  - ReplicateOn<Entity> hook:
-    - if None, try to find a single Transport
-    - if client(), try to find a single Client
-    - if server(), try to find a single Server
-    - if entity:
-      - if entity is a Client, use that
-      - if entity is a Server, replicate to all their ClientOfs?
-    - if server(NetworkTarget)
-      - find all the ClientsOf that match the target
-
-  - The component is immutable. Via hook, we add to the component:
-    - the list of ReplicationSenders it is replicated on
-  - The list of components replicated should depend on list of Senders.
-    - Each sender has a 'sender-type' (client/server/peer), depending on that, we
-
-- Does each ReplicationSender cache the list of components that they might want to replicate?
-  - Or do we have general ClientToServer archetypes, ServerToClient archetypes, Bidirectional archetypes?
-
-
 - ReplicationGroup:
   - the ReplicationSender has an internal timer, and the ReplicationGroup has one too?
   - We could have one entity per replication group? Maybe not, as the replication group is specific to this one sender
@@ -213,18 +158,10 @@ But if you add a direction we will handle it automatically for the client-server
 
 # IDEAS
 
-- avoid split borrow issue in netcode by providing each connection with a LinkScratch (temp buffer to use)
-- we have a Linking, Linked, Unlink, Unlinked, etc. to track the state of the Link (for filters) + a LinkState stored on the link itself
-- same think the Connected, Connecting, etc. should be a marker component for filters + be stored on the client/server itself
-
 - Authority: we want seamless authority transfers so states where the client is connected to 2 servers; maybe it starts accepting the
   packets from both server for a while, buffers them internally (instead of applying to world), and the AuthorityTransfer has a Tick after
   which the transfer is truly effective. We can have Transferring/Transferred.
 
-- UDP: there is no Linking process, so we go directly to Linked/Unlinked
-- netcode only receives from links if the link is Linked
-- maybe we should have a LinkId(u64) instead of Entity to have a more long-term id?
-  - we want to make sure that we should be able to do replication outside of client-server architecture.
 
 - we want integration tests
   - with client-server with netcode
@@ -266,39 +203,6 @@ SEND FLOW
   - the problem we have is that before, we had different buffers for send-payload and netcode payload.
     i.e. in receive, we would prepare ConnectionResponse packets immediately and send them via the io
   - now we buffer them in link.send, but we are not allowed to send them because the client is not connected yet!
-
-
-
-# Lightyear client
-
-- Provide a component FullClient that will add all the other components:
-  - the registered required components will depend on the features that are enabled!
-  - Timeline Prediction/Interpolation/etc.
-
-
-# plugin organization
-
-- LINK
-  - LinkStats
-  - maybe include type-erased events/components related to IO?
-    - IO-Start/IO-Stop triggers
-    - IO-Starting/Started/Stopping/Stopped marker components. Stopped would also contain the latest error
-      before stopping
-- TRANSPORT
-  - uses LINK::LinkStats
-- MESSAGE
-  - uses TRANSPORT
-- SYNC
-  - uses MESSAGE::MessageSender
-  - uses TRANSPORT::PingChannel
-  - updates LinkStats using transport data?
-- CONNECTION
-  - types/logic specific to client/server
-  - maybe rename to client_server? and also move the logic from lightyear_shared to lightyear_client_server?
-  - or have a lightyear_client_server crate for the client/server specific architecture
-    - with client and server as subfolders?
-
-
 
 
 # SyncPlugin
@@ -358,27 +262,6 @@ SEND FLOW
   - on server, we can define a LocalTimeline, where the Tick is incremented every FixedUpdate.
   - the transport should be using the LocalTimeline to get the tick information.
 
-# Lightyear client
-
-- You specify a protocol where you register messages/channels
-  - channels can have a direction, so do the messages
-- Creating a Client:
-  - you insert your ClientConnection marker with the correct type (Netcode, etc.) which also inserts the Client marker
-  - you insert a Client marker component on an entity, which adds:
-  - a Transport, with all channel senders marked ClientToServer, all channel receivers marked ServerToClient
-  - a Link,
-  - MessageSenders / MessageReceivers, etc.
-  - you will need to insert the io yourself
-
-- By default you register Channels/Messages with no direction (i.e. they won't be auto-added to Client/Server)
-    - You can specify a direction for a Message, and we will add the required components MessageSender<M>/Receiver<M> on Client/Server
-    - You can specify a direction for a Channel, and we will make sure that Transport.add_sender_from_registry<C> will be called on Client/Server depending on direction
-    - Right now we rebuild ConnectionManager on Connect attempt, so we we could do the same thing if Connect is triggered on the Client entity.
-    - (and OnDisconnect we remove all the MessageReceiver, etc. from the entity)
-
-# Messages
-
-- Should MessageRegistry be stored on the Transport?
 
 # Refactoring
 
@@ -388,68 +271,6 @@ SEND FLOW
 - Session: component that tracks the long-term state of the link.
 
 
-WITHOUT CONNECTION
-When we receive:
-- we poll from the io and store the result in the Session which stores the packets
-- we read from the Session to get packets, and process them in the Transport buffer (which adds reliability, fragmentation, etc.)
-- from the Transport we receive Messages (ChannelKind + Tick + Bytes)
-
-When we send:
-- We buffer a message in the Channel
-- the Transport will flush all ready packets into the Link
-- the raw Io takes from the Link and sends it through the network
-
-WITH CONNECTION
-When we receive on client:
-- we poll the IOs to add all received network packets in the Link
-- we poll the connection, which gives us packets.
-    - the connection could be using the Link to get packets (for example Netcode, i.e. which takes
-      the buffer from the link)
-      or it could just provide the packets from some internal mechanism (for example Steam)
-- we put the packets in the Transport
-
-When we receive on server:
-- we poll any IOs that are linked via ConnectedOn to a ServerConnection, those packets are stored on the Link
-- the connection will receive():
-  - either internal mechanism
-  - either it looks at all entities that are ConnectedOn and takes from their Link
-
-When we send:
-- we buffer a message in the Channel (an entity can have multiple channels so you can write to them in parallel). They are distinguished by `Channel<C>`. (Transport)
-- we Channel will flush all ready packets into the Link
-- for each of these packets, we call Connection::send
-  - steam will just buffer them with an internal mechanism
-  - Netcode will do extra processing
-
-- we buffer message into the Transport
-- regular system that polls the Transport, identifies messages that are ready to be sent, and puts them in a local buffer on the Transport
-- Connection system:
-  - will take these messages from the Transport, and put them in the Link
-- Io system will take messages from the link and send them through IO
-
-If you just want to send unreliable messages without a connection (i.e. just use Transport + Link without connection), you could also create a DummyConnection
-that just takes the message from the Transport and puts it in the Link.
-
-Systems:
-- the problem is that NetcodeConnection and SteamConnection would look very similar.
-Their systems would: poll the Transport on the entity for any packets ready to send
-
-
-COMPONENTS
-- we store Channel<C> as that's what users buffer messages into.
-  - do we store the Channel<C> components on the same entity as the Link? or do we make a relationship between them? A relationship means that we could iterate in parallel
-  - we store a separate ChannelSender<C> on each entity so that users can send messages in parallel, and a Channel<C>
-  - or do we create a Transport component that contains multiple Channels? (the problem is that if you want to write to one channel it blocks the others)
-- do we store both the Link and the Session?
-
-ENTITIES
-- Client:
-  - one entity per link that stores the Io, Link, Transport (Channel<C>), ClientConnection
-  - this means we could be connected to multiple remote peers at the same time
-- Server:
-  - we want to be able to support multiple connections at the same time, so one entity per ServerConnection. Each ServerConnection can have a relationship with multiple entities, which are each of
-    the entities connected on that connection. Each of the entities have a `ConnectedOn(ServerConnection entity)` component
-  - one entity per client, with the ConnectedOn component, an Io component, a Link component, a Channel component
 
 
 # BEVY
@@ -477,6 +298,7 @@ The solution:
   - client spawns E1 with confirmed, E2 with predicted, and add E1<>E2 predicted mapping
   - it replicates E1 to server which spawns E3 and has E1<>E3.
   - server transfers authority for E1 to itself.
+
 
 # Replication Server
 
@@ -550,7 +372,6 @@ TODO:
 - [ ]: think about what happens in PrePredicted
 
 
-
 - What would P2P look like?
   - the ReplicationServer is also the client! Either in different Worlds (to keep visibility, etc.),
     or in the same World
@@ -559,41 +380,6 @@ TODO:
 - ReplicationServer (server) contains the full entity mapping
   - client 1 spawns E1, sends it to the RS which spawns E1*. RS replicates it to other clients/simulators.
 
-# Authority Transfer
-
-```rust
-enum AuthorityOwner {
-    Server,
-    Client(ClientId),
-    // the entity becomes orphaned and are not simulated
-    None,
-}
-```
-- Having authority means that we have the burden of simulating the entity
-  - for example, server has authority and the other clients just receive replication updates
-  - if a client has authority, it simulates it and sends replication updates to the server. The server also sends replication updates.
-  - the component `Authority` symbolises that we have authority over the entity. There can be only 1 peer with authority
-
-- ConnectionManager.request_authority(entity);
-  - if the client requests, the server will route the request to the current owner of the entity (possibly itself)
-  - if the server is requesting, the server will send the request to the current owner of the entity
-- V1: all requests are successful.
-  - on receiving the request. We return a message that indicate that the transfer is successful.
-  - The entity_maps don't seem like they need to be updated
-  - the previous owner will remove Replicating, and add Replicated? it should also remove ReplicationTarget or ReplicateToServer, but without
-    despawning the entity.
-    - if the entity is transferred from C1 to C2, the server needs to its replication target. Maybe the server can just listen for `SuccessfulTransfer` and then update its replication target accordingly?
-    - if the entity is transferred from C1 to S, the server needs to update its replication target. (i.e. if it notices that it is the new Authority owner)
-      C1 loses ReplicationToServer and Replicating, and adds Replicated.
-
-
-  - the new owner receives TransferSuccessful message and adds ReplicationTarget component.
-
-- commands.transfer_authority(entity, AuthorityOwner):
-  - send transfer
-  - remove Replicate on the entity
-  - send a message to the new owner to add the Replicate component
-  -
 
 
 # Serialization
@@ -660,55 +446,3 @@ enum AuthorityOwner {
 
   - saves bandwidth because 99% of packets should arrive correctly.
 
-
-# Interesting links:
-
-* https://medium.com/@otukof/breaking-tradition-why-rust-might-be-your-best-first-language-d10afc482ac1
-    - use local executors for async, and use one process/thread per core instead of doing multi-threading (more
-      complicated and less performant
-    - one server: 1 game room per core?
-
-- TODO: create an example related to cheating, where the server can validate inputs
-
-
-- PRESPAWNING:
-    - STATUS:
-        - seems to kind of work but not really
-        - included the tick in the hash, but maybe we should be more lenient to handle entities created in Update.
-        - added rollback to despawn the pre-spawned entities if there is a rollback
-        - some prediction edge-cases are handled, but now it bugs when I spawn 2 bullets back-to-back (which means 2
-          rollbacks)
-    - EDGE CASES TO TEST:
-        - what happens if multiple entities have the same hash at the same tick?
-            - it should be ok to just match any of them? since we rollback?
-            - we could also just in general delete the client pre-spawned entity and then do normal rollback?
-        - what happens if we can't match the pre-spawned entity? should then spawn it as normal predicted?
-    - TODO
-        - simplify the distinction between the 3 predicted spawning types
-        - add unit tests
-        - handle edge cases of rollback that deletes the pre-spawned entity on the rollback tick.
-        - mispredictions at the beginning, why? because of tick snapping?
-        - why is there an initial rollback for the matching? it's probably because we only add PredictionHistory at
-          PreUpdate
-          so we don't have the history for the first tick when the entity was spawned. Might be worth having to avoid
-          rollback?
-        - the INITIAL ROLLBACK AFTER MATCH SETS THE PLAYER IN A WRONG POSITION, WHY? Because we receive the packet from
-          the server
-          for the bullet, but not for the player, even though they are in the same replication group!!
-        - sometimes the bullet doesn't spawn at all on server, why? input was lost? looks like it was because of a
-          tick-snap-event
-        - when spawning 2 bullets closely, the second bullet has a weird rollback behaviour
-            - that's because on the first rollback, we move all bullets, including the second one that hasn't been
-              matched.
-            - EITHER:
-                - the user makes all systems not run rollback for PreSpawnedPlayerObjects
-                - or we rollback PreSpawnedPlayerObjects as well, instead of only entities that have a Confirmed
-                  counterpart
-            - TODO: maybe add an option for each entity to decide it's rollback eligible?
-        - I havea bunch of "could not despawn enttiy because it does not exist", let's check for each entity if it
-          exists before despawn?
-        - I've seen cases where the bullet is not spawned on the same tick on client and server, why?
-        - we rollback the pre-spawned entities all the time because we didn't add a history for them right away..
-        - I still frequent rollbacks for the matched entities, weirdly.
-        - There are some cases where server/client don't run input on the same tick?
-        - Also sometimes we have annoying interpolation freezes..

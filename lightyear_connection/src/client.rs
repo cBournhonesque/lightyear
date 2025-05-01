@@ -4,7 +4,7 @@ use bevy::app::{App, Plugin};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashMap;
-use bevy::prelude::{Commands, Component, Entity, Event, OnAdd, Query, Reflect, Resource, Trigger, With};
+use bevy::prelude::*;
 use lightyear_core::id::PeerId;
 use lightyear_link::prelude::Unlinked;
 use lightyear_link::LinkStart;
@@ -125,7 +125,8 @@ impl Disconnected {
 
 /// Resource that maintains a mapping from a PeerId to the corresponding local Entity
 /// that is connected to that peer
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Debug, Default, Reflect)]
+#[reflect(Resource)]
 pub struct PeerMetadata {
     pub mapping: HashMap<PeerId, Entity>,
 }
@@ -158,6 +159,7 @@ impl ConnectionPlugin {
 impl Plugin for ConnectionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PeerMetadata>();
+        app.register_type::<PeerMetadata>();
         app.add_observer(Self::connect);
         app.add_observer(Self::disconnect_if_link_fails);
     }

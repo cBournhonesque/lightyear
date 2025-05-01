@@ -75,6 +75,10 @@ impl<M: Message> MessageReceiver<M> {
         self.recv.drain(..)
     }
 
+    pub fn num_messages(&self) -> usize {
+        self.recv.len()
+    }
+
     fn on_add_hook(mut world: DeferredWorld, context: HookContext) {
         world.commands().queue(move |world: &mut World| {
             let mut entity_mut = world
@@ -226,7 +230,7 @@ impl MessagePlugin {
 
     /// Clear all the message receivers to prevent messages from accumulating
     pub fn clear(
-        manager_query: Query<(Entity, &MessageManager)>,
+        manager_query: Query<(Entity, &MessageManager), With<Connected>>,
         mut receiver_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
     ) {

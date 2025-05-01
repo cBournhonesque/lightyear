@@ -58,10 +58,6 @@ impl Default for ChannelSettings {
 #[require(LocalTimeline)]
 #[require(Link)]
 pub struct Transport {
-    // TODO: do we want to associate a Direction with the Transport?
-    //  then we could only go through messages with the correct direction?
-    //  Also then we would only add the receiver/sender that we need!
-    //  This should be independent from server or client, so it should
     pub receivers: HashMap<ChannelId, ReceiverMetadata>,
     pub senders: HashMap<ChannelKind, SenderMetadata>,
     /// PriorityManager shared between all channels of this transport
@@ -133,7 +129,7 @@ impl Transport {
 
     // TODO: make this available via observer by triggering AddSender<C> on the Transport entity.
     pub fn add_sender_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
-        let Some(settings) = registry.settings::<C>() else {
+        let Some(settings) = registry.settings(ChannelKind::of::<C>()) else {
             panic!("ChannelSettings not found for channel {}", core::any::type_name::<C>());
         };
         let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
@@ -149,7 +145,7 @@ impl Transport {
     }
 
     pub fn add_receiver_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
-                let Some(settings) = registry.settings::<C>() else {
+        let Some(settings) = registry.settings(ChannelKind::of::<C>()) else {
             panic!("ChannelSettings not found for channel {}", core::any::type_name::<C>());
         };
         let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
@@ -183,6 +179,37 @@ impl Transport {
         let sender_metadata = self.senders.get_mut(&kind).ok_or(TransportError::ChannelNotFound(kind))?;
         let message_id = sender_metadata.sender.buffer_send(bytes, priority);
         Ok(message_id)
+    }
+
+    /// Reset the Transport to a default state upon disconnection
+    pub(crate) fn reset(&mut self, registry: &ChannelRegistry) {
+        self.receivers.iter_mut().for_each(|(channel_id, r)| {
+            let settings = registry.settings_from_net_id(*channel_id).unwrap();
+            *r = ReceiverMetadata {
+                receiver: settings.into(),
+                channel_kind: r.channel_kind
+            };
+        });
+        self.senders.iter_mut().for_each(|(channel_kind, s)| {
+            let settings = registry.settings(*channel_kind).unwrap();
+            *s = SenderMetadata {
+                sender: settings.into(),
+                message_acks: vec![],
+                message_nacks: vec![],
+                messages_sent: vec![],
+                channel_id: s.channel_id,
+                mode: s.mode,
+                name: s.name
+            };
+        });
+        self.priority_manager = Default::default();
+        self.packet_manager = Default::default();
+        self.packet_to_message_ack_map = Default::default();
+        let (send_channel, recv_channel) = crossbeam_channel::unbounded();
+        self.send_channel = send_channel;
+        self.recv_channel = recv_channel;
+        self.recv.clear();
+        self.send.clear();
     }
 }
 

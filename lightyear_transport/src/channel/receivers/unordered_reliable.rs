@@ -5,6 +5,7 @@ use core::time::Duration;
 use super::error::ChannelReceiveError;
 use bytes::Bytes;
 use lightyear_core::tick::Tick;
+use tracing::{info, trace};
 
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
@@ -46,10 +47,12 @@ impl ChannelReceive for UnorderedReliableReceiver {
             .data
             .message_id()
             .ok_or(ChannelReceiveError::MissingMessageId)?;
+        trace!("receiving unordered reliable message id: {message_id:?}");
 
         // we have already received the message if it's older than the oldest pending message
         // (since we are reliable, we should have received all messages prior to that one)
         if message_id < self.pending_recv_message_id {
+            trace!("ignore message {message_id:?} since its older than pending {:?}", self.pending_recv_message_id);
             return Ok(());
         }
 

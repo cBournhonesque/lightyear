@@ -32,7 +32,7 @@ use bevy::time::common_conditions::on_timer;
 use bytes::Bytes;
 use core::time::Duration;
 use crossbeam_channel::Receiver;
-use lightyear_connection::client::Connected;
+use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_connection::prelude::NetworkDirection;
 use lightyear_core::prelude::{LocalTimeline, Timeline};
 use lightyear_core::tick::{Tick, TickDuration};
@@ -143,6 +143,8 @@ impl ReplicationSendPlugin {
         time: Res<Time<Real>>,
         message_registry: Res<MessageRegistry>,
         change_tick: SystemChangeTick,
+        // We send messages directly through the transport instead of MessageSender<EntityActionsMessage>
+        // but I don't remember why
         mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline)>,
     ) {
         let actions_net_id = *message_registry.kind_map.net_id(&MessageKind::of::<ActionsMessage>()).unwrap();
@@ -197,6 +199,20 @@ impl ReplicationSendPlugin {
             let send_interval_delta = TickDelta::from_duration(send_interval, tick_duration.0);
             let metadata = SenderMetadata { send_interval: send_interval_delta.into() };
             trigger_sender.trigger::<MetadataChannel>(metadata);
+        }
+    }
+
+    /// On disconnect, reset the replication sender to its original state
+    fn handle_disconnection(
+        trigger: Trigger<OnAdd, Disconnected>,
+        mut query: Query<&mut ReplicationSender>,
+    ) {
+        if let Ok(mut sender) = query.get_mut(trigger.target()) {
+            *sender = ReplicationSender::new(
+                sender.send_interval(),
+                sender.send_updates_mode,
+                sender.bandwidth_cap_enabled
+            );
         }
     }
 
@@ -261,6 +277,8 @@ impl Plugin for ReplicationSendPlugin {
         app.add_observer(PredictionTarget::handle_connection);
         #[cfg(all(any(feature = "client", feature = "server"), feature="interpolation"))]
         app.add_observer(InterpolationTarget::handle_connection);
+        app.add_observer(Self::handle_disconnection);
+
         app.add_observer(OwnedBy::handle_disconnection);
 
         app.add_systems(PostUpdate, Self::handle_acks.in_set(ReplicationBufferSet::BeforeBuffer));
@@ -937,12 +955,6 @@ impl ReplicationSender {
                 actions,
             };
             trace!("final action messages to send: {:?}", message);
-
-            // TODO: we had to put this here because of the borrow checker, but it's not ideal,
-            //  the replication send should normally just an iterator of messages to send
-            //  Maybe the ReplicationSender should not be in ConnectionManager?
-
-            // buffer the message in the MessageManager
 
             // Since we are serializing directly though the Transport, we need to serialize the message_net_id ourselves
             actions_net_id.to_bytes(&mut self.writer).map_err(SerializationError::from)?;

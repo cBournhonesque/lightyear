@@ -46,9 +46,12 @@ pub struct ReplicationReceivePlugin;
 
 impl ReplicationReceivePlugin {
 
-    /// Despawn any entities that were spawned from replication when the client despawns.
-    fn handle_disconnect(
+    /// On disconnect:
+    /// - Despawn any entities that were spawned from replication when the client despawns.
+    /// - Reset the ReplicationReceiver to its original state
+    fn handle_disconnection(
         trigger: Trigger<OnAdd, Disconnected>,
+        mut receiver_query: Query<&mut ReplicationReceiver>,
         replicated_query: Query<(Entity, &Replicated)>,
         mut commands: Commands,
     ) {
@@ -62,6 +65,9 @@ impl ReplicationReceivePlugin {
                 }
             }
         });
+        if let Ok(mut receiver) = receiver_query.get_mut(trigger.target()) {
+            *receiver = ReplicationReceiver::default();
+        }
     }
 
     pub(crate) fn receive_messages(
@@ -138,7 +144,7 @@ impl Plugin for ReplicationReceivePlugin {
             ).chain()
                 .in_set(ReplicationSet::Receive)
         );
-        app.add_observer(Self::handle_disconnect);
+        app.add_observer(Self::handle_disconnection);
     }
 }
 

@@ -188,7 +188,7 @@ impl Plugin for NetcodeClientPlugin {
         if !app.is_plugin_added::<ConnectionPlugin>() {
             app.add_plugins(ConnectionPlugin);
         }
-        app.configure_sets(PreUpdate, (LinkSet::ApplyConditioner, ConnectionSet::Receive,  TransportSet::Receive).chain());
+        app.configure_sets(PreUpdate, (LinkSet::ApplyConditioner, ConnectionSet::Receive, TransportSet::Receive).chain());
         app.configure_sets(PostUpdate, (TransportSet::Send, ConnectionSet::Send, LinkSet::Send).chain());
 
         app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSet::Receive));

@@ -78,8 +78,7 @@ impl ChannelRegistry {
         registry
     }
 
-    pub(crate) fn settings<C: Channel>(&self) -> Option<&ChannelSettings> {
-        let kind = ChannelKind::of::<C>();
+    pub(crate) fn settings(&self, kind: ChannelKind) -> Option<&ChannelSettings> {
         self.settings_map.get(&kind)
     }
 

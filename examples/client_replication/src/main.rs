@@ -3,8 +3,9 @@
 #![allow(dead_code)]
 use bevy::prelude::*;
 use core::time::Duration;
+use lightyear::prelude::{ReplicationSender, SendUpdatesMode};
 use lightyear_examples_common_new::cli::{Cli, Mode};
-use lightyear_examples_common_new::shared::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
+use lightyear_examples_common_new::shared::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SEND_INTERVAL, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
 
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
@@ -39,14 +40,22 @@ fn main() {
         if matches!(cli.mode, Some(Mode::Client { .. })) {
             use lightyear::prelude::Connect;
             use lightyear_examples_common_new::client::{ClientTransports, ExampleClient};
-            let client = app.world_mut().spawn(ExampleClient {
-                client_id: cli.client_id().expect("You need to specify a client_id via `-c ID`"),
-                client_port: CLIENT_PORT,
-                server_addr: SERVER_ADDR,
-                conditioner: None,
-                transport: ClientTransports::Udp, // Assuming UDP
-                shared: SHARED_SETTINGS,
-            }).id();
+            let client = app.world_mut().spawn((
+               ExampleClient {
+                    client_id: cli.client_id().expect("You need to specify a client_id via `-c ID`"),
+                    client_port: CLIENT_PORT,
+                    server_addr: SERVER_ADDR,
+                    conditioner: None,
+                    transport: ClientTransports::Udp,
+                    shared: SHARED_SETTINGS,
+                },
+                // We are doing client->server replication so we need to include a ReplicationSender for the client
+                ReplicationSender::new(
+                    SEND_INTERVAL,
+                    SendUpdatesMode::SinceLastAck,
+                    false,
+                ),
+            )).id();
             app.world_mut().trigger_targets(Connect, client)
         }
     }

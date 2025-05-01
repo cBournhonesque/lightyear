@@ -12,10 +12,12 @@ use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
 use bevy::ecs::world::FilteredEntityMut;
 use bevy::prelude::*;
 use bytes::Bytes;
+use lightyear_connection::client::Connected;
+use lightyear_connection::prelude::Disconnected;
 use lightyear_core::network::NetId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_link::{Link, LinkPlugin, LinkSet};
+use lightyear_link::{Link, LinkPlugin, LinkSet, Linked, Unlinked};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
 use tracing::{error, trace, warn};
@@ -46,7 +48,7 @@ impl TransportPlugin {
     fn buffer_receive(
         time: Res<Time<Real>>,
         par_commands: ParallelCommands,
-        mut query: Query<(Entity, &mut Link, &mut Transport)>,
+        mut query: Query<(Entity, &mut Link, &mut Transport), With<Linked>>,
     ) {
         query.par_iter_mut().for_each(|(entity, mut link, mut transport)| {
             // enable split borrows
@@ -164,7 +166,7 @@ impl TransportPlugin {
     /// Upload the packets to the [`Link`]
     fn buffer_send(
         real_time: Res<Time<Real>>,
-        mut query: Query<(Entity, &mut Link, &mut Transport, &LocalTimeline)>,
+        mut query: Query<(Entity, &mut Link, &mut Transport, &LocalTimeline), With<Linked>>,
         channel_registry: Res<ChannelRegistry>,
     ) {
         query.par_iter_mut().for_each(|(entity, mut link, mut transport, timeline)| {
@@ -255,6 +257,17 @@ impl TransportPlugin {
             }
         })
     }
+
+    /// On disconnection, reset the Transport to its original state.
+    fn handle_disconnection(
+        trigger: Trigger<OnAdd, Disconnected>,
+        mut query: Query<&mut Transport>,
+        registry: Res<ChannelRegistry>,
+    ) {
+        if let Ok(mut transport) = query.get_mut(trigger.target()) {
+            transport.reset(&registry);
+        }
+    }
 }
 
 
@@ -263,6 +276,7 @@ impl Plugin for TransportPlugin {
         if !app.is_plugin_added::<LinkPlugin>() {
             app.add_plugins(LinkPlugin);
         }
+        app.add_observer(Self::handle_disconnection);
     }
 
     fn finish(&self, app: &mut App) {
