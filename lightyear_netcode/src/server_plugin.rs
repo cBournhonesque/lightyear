@@ -241,25 +241,27 @@ impl NetcodeServerPlugin {
         trigger: Trigger<Stop>,
         mut commands: Commands,
         mut query: Query<(Entity, &mut NetcodeServer, &Server), Without<Stopped>>,
-        mut link_query: Query<(&mut Link, &Connected), With<ClientOf>>,
+        mut link_query: Query<(Entity, &mut Link, &Connected), With<ClientOf>>,
     ) -> Result {
-        if let Ok((entity, mut netcode_server, server)) = query.get_mut(trigger.target()) {
-            info!("Stopping netcode server. Unlinking the ServerIo");
-            // stop the ServerIo that is on this entity (for example webtransport server)
-            commands.trigger_targets(Unlink, entity);
+        if let Ok((server_entity, mut netcode_server, server)) = query.get_mut(trigger.target()) {
+            info!("Stopping netcode server");
+
+            // TODO: should we stop the io?
+            // // stop the ServerIo that is on this entity (for example webtransport server)
+            // commands.trigger_targets(Unlink, server_entity);
 
             // SAFETY: we know that the list of client entities are unique because it is a Relationship
             let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(&server.clients) };
-            link_query.iter_many_unique_mut(unique_slice).try_for_each(|(mut link, connected)| {
+            link_query.iter_many_unique_mut(unique_slice).try_for_each(|(entity, mut link, connected)| {
                 let PeerId::Netcode(client_id) = connected.remote_peer_id else {
                     error!("Client {:?} is not a Netcode client", connected.remote_peer_id);
                     return Err(crate::error::Error::UnknownClient(connected.remote_peer_id));
                 };
                 netcode_server.inner.disconnect(client_id, &mut link.send)?;
+
+                // this will make sure that `netcode.on_disconnect` is called, so the entity will get disconnected
+                // in the next frame from the `receive` system.
                 Ok(())
-                // TODO: mark each client as Disconnecting. (we want to give them time) to send the disconnect packets
-                //  at the end of the frame
-                //  then despawn all the client entities!
             });
         }
         Ok(())

@@ -213,6 +213,15 @@ impl MessageRegistry {
         });
     }
 
+    pub(crate) fn is_map_entities<M: 'static>(&self) -> Result<bool> {
+        let kind = MessageKind::of::<M>();
+        let erased_fns = self
+            .serialize_fns_map
+            .get(&kind)
+            .ok_or(MessageError::MissingSerializationFns)?;
+        Ok(erased_fns.map_entities.is_some())
+    }
+
     pub(crate) fn add_map_entities<M: Clone + MapEntities + 'static, I: Clone + MapEntities + 'static>(
         &mut self,
         context_serialize: ContextSerializeFn<SendEntityMap, M, I>,

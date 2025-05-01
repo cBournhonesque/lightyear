@@ -78,6 +78,7 @@ impl ExampleClient {
                 let netcode_config = NetcodeConfig {
                     // Make sure that the server times out clients when their connection is closed
                     client_timeout_secs: 3,
+                    token_expire_secs: -1,
                     ..default()
                 };
                 entity_mut.insert(NetcodeClient::new(auth, netcode_config)?);

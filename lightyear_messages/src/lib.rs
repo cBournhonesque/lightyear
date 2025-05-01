@@ -23,6 +23,7 @@ mod receive_trigger;
 mod client;
 #[cfg(feature = "server")]
 mod server;
+mod multi;
 
 pub mod prelude {
     pub use crate::plugin::MessageSet;

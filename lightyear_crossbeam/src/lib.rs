@@ -71,11 +71,9 @@ impl CrossbeamPlugin {
     fn send(
         mut query: Query<(&mut Link, &mut CrossbeamIo)>
     ) -> Result {
-        // TODO: parallelize by using crossbeam channels inside Link!
         query.iter_mut().try_for_each(|(mut link, mut crossbeam_io)| {
             link.send.drain().try_for_each(|payload| {
-                crossbeam_io.sender
-                    .try_send(payload)
+                crossbeam_io.sender.try_send(payload)
             })
         })?;
         Ok(())
@@ -85,8 +83,7 @@ impl CrossbeamPlugin {
         time: Res<Time<Real>>,
         mut query: Query<(&mut Link, &mut CrossbeamIo)>
     ) {
-        // TODO: parallelize
-        query.iter_mut().for_each(|(mut link, mut crossbeam_io)| {
+        query.par_iter_mut().for_each(|(mut link, mut crossbeam_io)| {
             // Try to receive all available messages
             loop {
                 match crossbeam_io.receiver.try_recv() {

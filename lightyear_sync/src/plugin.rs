@@ -25,57 +25,32 @@ pub struct SyncedTimelinePlugin<Synced, Remote, const DRIVING: bool = false>{
     pub(crate) _marker: core::marker::PhantomData<(Synced, Remote)>,
 }
 
-impl<Synced, Remote, const DRIVING: bool> Default for SyncedTimelinePlugin<Synced, Remote, DRIVING> {
-    fn default() -> Self {
-        Self {
-            _marker: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<Synced: SyncedTimeline, Remote: NetworkTimeline + Default, const DRIVING: bool> Plugin
-for SyncedTimelinePlugin<Synced, Remote, DRIVING>
-{
-    fn build(&self, app: &mut App) {
-        app.add_plugins(NetworkTimelinePlugin::<Synced>::default());
-
-        app.register_required_components::<Synced, PingManager>();
-        app.register_required_components::<Synced, Remote>();
-        app.add_observer(SyncPlugin::handle_connect::<Synced>);
-        app.add_observer(SyncPlugin::handle_disconnect::<Synced>);
-        app.add_systems(FixedFirst, SyncPlugin::advance_synced_timelines::<Synced>);
-        // NOTE: we don't have to run this in PostUpdate, we could run this right after RunFixedMainLoop?
-        app.add_systems(PostUpdate,
-            SyncPlugin::sync_timelines::<Synced, Remote, DRIVING>.in_set(SyncSet::Sync));
-        if DRIVING {
-            app.add_systems(Last, SyncPlugin::update_virtual_time::<Synced>);
-        }
-    }
-}
-
-pub struct SyncPlugin;
-
-impl SyncPlugin {
-
+impl<Synced: SyncedTimeline, Remote: NetworkTimeline + Default, const DRIVING: bool> SyncedTimelinePlugin<Synced, Remote, DRIVING> {
     /// On connection, reset the Synced timeline.
-    pub(crate) fn handle_connect<Synced: SyncedTimeline>(
+    pub(crate) fn handle_connect(
         trigger: Trigger<OnAdd, Connected>,
-        mut query: Query<&mut Synced>,
+        mut query: Query<(&mut Synced, &LocalTimeline)>,
     ) {
-        if let Ok(mut timeline) = query.get_mut(trigger.target()) {
+        if let Ok((mut timeline, local_timeline)) = query.get_mut(trigger.target()) {
             timeline.reset();
+            if DRIVING {
+                let delta = local_timeline.tick() - timeline.tick();
+                timeline.apply_delta(delta.into());
+            }
         }
     }
+
 
     /// On disconnection, remove IsSynced.
-    pub(crate) fn handle_disconnect<Synced: SyncedTimeline>(
+    pub(crate) fn handle_disconnect(
         trigger: Trigger<OnAdd, Disconnected>,
         mut commands: Commands
     ) {
         commands.entity(trigger.target()).remove::<IsSynced<Synced>>();
     }
 
-    pub(crate) fn update_virtual_time<Synced: SyncedTimeline>(
+
+    pub(crate) fn update_virtual_time(
         mut virtual_time: ResMut<Time<Virtual>>,
         query: Query<&Synced, (With<IsSynced<Synced>>, With<DrivingTimeline<Synced>>, With<Connected>)>)
     {
@@ -88,7 +63,7 @@ impl SyncPlugin {
 
     /// Update the timeline in FixedUpdate based on the Time<Virtual>
     /// Should we use this only in FixedUpdate::First? because we need the tick in FixedUpdate to be correct for the timeline
-    pub(crate) fn advance_synced_timelines<Synced: SyncedTimeline>(
+    pub(crate) fn advance_synced_timelines(
         fixed_time: Res<Time<Fixed>>,
         tick_duration: Res<TickDuration>,
         mut query: Query<(&mut Synced, Has<DrivingTimeline<Synced>>), With<Connected>>,
@@ -108,20 +83,26 @@ impl SyncPlugin {
     /// Sync timeline T to timeline Remote by either
     /// - speeding up/slowing down the timeline T to match timeline Remote
     /// - emitting a SyncEvent<T>
-    pub(crate) fn sync_timelines<Synced: SyncedTimeline, Remote: NetworkTimeline, const DRIVING: bool> (
+    pub(crate) fn sync_timelines(
         tick_duration: Res<TickDuration>,
         mut commands: Commands,
         mut query: Query<(Entity, &mut Synced, &Remote, &mut LocalTimeline, &PingManager, Has<IsSynced<Synced>>), With<Connected>>,
     ) {
         query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, mut local_timeline, ping_manager, has_is_synced)| {
             if !has_is_synced && sync_timeline.is_synced()  {
-                trace!("Timeline {:?} is synced to {:?}", core::any::type_name::<Synced>(), core::any::type_name::<Remote>());
+                info!("Timeline {:?} is synced to {:?}", core::any::type_name::<Synced>(), core::any::type_name::<Remote>());
                 commands.entity(entity).insert(IsSynced::<Synced>::default());
             }
             if let Some(sync_event) = sync_timeline.sync(main_timeline, ping_manager, tick_duration.0) {
                 // if it's the driving pipeline, also update the LocalTimeline
                 if DRIVING {
+                    let local_tick = local_timeline.tick();
+                    let synced_tick = sync_timeline.tick();
+                    let delta = sync_event.tick_delta;
                     local_timeline.apply_delta(TickDelta::from_i16(sync_event.tick_delta));
+                    info!(
+                        ?local_tick, ?synced_tick, ?delta, new_local_tick = ?local_timeline.tick(),
+                        "Apply delta to LocalTimeline from driving pipeline {:?}'s SyncEvent", core::any::type_name::<Synced>());
                 }
                 commands.trigger_targets(sync_event, entity);
             }
@@ -129,6 +110,36 @@ impl SyncPlugin {
     }
 
 }
+
+impl<Synced, Remote, const DRIVING: bool> Default for SyncedTimelinePlugin<Synced, Remote, DRIVING> {
+    fn default() -> Self {
+        Self {
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<Synced: SyncedTimeline, Remote: NetworkTimeline + Default, const DRIVING: bool> Plugin
+for SyncedTimelinePlugin<Synced, Remote, DRIVING>
+{
+    fn build(&self, app: &mut App) {
+        app.add_plugins(NetworkTimelinePlugin::<Synced>::default());
+
+        app.register_required_components::<Synced, PingManager>();
+        app.register_required_components::<Synced, Remote>();
+        app.add_observer(Self::handle_connect);
+        app.add_observer(Self::handle_disconnect);
+        app.add_systems(FixedFirst, Self::advance_synced_timelines);
+        // NOTE: we don't have to run this in PostUpdate, we could run this right after RunFixedMainLoop?
+        app.add_systems(PostUpdate,
+            Self::sync_timelines.in_set(SyncSet::Sync));
+        if DRIVING {
+            app.add_systems(Last, Self::update_virtual_time);
+        }
+    }
+}
+
+pub struct SyncPlugin;
 
 
 impl Plugin for SyncPlugin {

@@ -87,6 +87,7 @@ impl Plugin for ClientPlugin {
 
         // remote timeline
         app.add_plugins(NetworkTimelinePlugin::<RemoteTimeline>::default());
+        app.add_observer(RemoteTimeline::handle_connect);
         app.add_observer(remote::update_remote_timeline);
         // app.add_systems(First, remote::advance_remote_timeline.after(time_system));
         app.add_systems(FixedFirst, remote::advance_remote_timeline);

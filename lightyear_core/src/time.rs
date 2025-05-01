@@ -232,6 +232,16 @@ impl From<Tick> for TickDelta {
     }
 }
 
+impl From<i16> for TickDelta {
+    fn from(value: i16) -> Self {
+        Self {
+            tick_diff: value.unsigned_abs(),
+            overstep: Default::default(),
+            neg: value.is_negative()
+        }
+    }
+}
+
 impl From<PositiveTickDelta> for TickDelta {
     fn from(value: PositiveTickDelta) -> Self {
         Self {

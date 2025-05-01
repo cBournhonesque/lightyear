@@ -1,9 +1,11 @@
 use crate::ping::manager::PingManager;
 use crate::prelude::InputTimeline;
+use crate::timeline::sync::SyncedTimeline;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Deref, DerefMut, Fixed, Query, Real, Reflect, Res, Time, Trigger};
+use bevy::prelude::{Component, Deref, DerefMut, Fixed, OnAdd, Query, Real, Reflect, Res, Time, Trigger};
 use core::time::Duration;
+use lightyear_connection::client::Connected;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{Overstep, TickDelta, TickInstant, TimeDelta};
 use lightyear_core::timeline::{NetworkTimeline, Timeline};
@@ -117,6 +119,17 @@ impl RemoteTimeline  {
                 smoothed_estimate = ?self.now,
                 "updated remote timeline estimate"
             );
+        }
+    }
+
+    /// On connection, reset the Synced timeline.
+    pub(crate) fn handle_connect(
+        trigger: Trigger<OnAdd, Connected>,
+        mut query: Query<&mut RemoteTimeline>,
+    ) {
+        if let Ok(mut timeline) = query.get_mut(trigger.target()) {
+            timeline.first_estimate = true;
+            timeline.last_received_tick = None;
         }
     }
 

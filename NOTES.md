@@ -16,10 +16,16 @@ TODO:
 - ON DISCONNECTION, we reset ReplicateionReceiver, ReplicationSender, Transport to their default state.
   - But maybe we should to the reset on Connection, so that if users changed something it gets taken into account?
   - Also we might need to reset the MessageReceiver/MessageSender
+
+- ON NETCODE STOP, HOW DO WE DISCONNECT EACH CLIENTOF BUT STILL SEND PACKETS? 
+   - NETCODE STOP DOES NOT WORK
+   - we need a Unlinked and Stopping, so that we can send disconnect packets and then stop. otherwise
+   - 
+- In SimpleBox, when we disconnect and reconnect, the timeline sync doesn't work! Is it because we don't remove the IsSynced?
+  Or some other state is not reset on disconnection?
+  - YES, NEED TO RESET THE TIMELINES! INPUT/INTERPOLATED/REMOTE
+  - in particular we do input.reset() and interpoalted.reset()
     
-- In SimpleBox, it looks like when you spawn a box. We first send a SendActionsMessages with the Spawn.
-  but on the next frame we also send an UpdatesMessage!
-   -> Maybe it's just because of SinceLastAck
 
 NEEDS UNIT TEST:
 - check that 'send_tick' and replication change_ticks work correctly

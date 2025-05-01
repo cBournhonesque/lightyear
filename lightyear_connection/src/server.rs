@@ -1,5 +1,5 @@
 use crate::client::{Client, ClientState, Connect, Connected, Connecting, Disconnected};
-use crate::client_of::Server;
+use crate::client_of::{ClientOf, Server};
 use crate::direction::NetworkDirection;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
@@ -78,10 +78,17 @@ impl Stopped {
 pub struct ConnectionPlugin;
 
 impl ConnectionPlugin {
-    /// When the start request to start, we also start the ServerLink
-    fn start(trigger: Trigger<Start>, mut commands: Commands) {
+    /// When the start request to Start, we also start the ServerLink.
+    /// We also despawn any existing ClientOf.
+    fn start(
+        trigger: Trigger<Start>,
+        mut commands: Commands
+    ) {
         trace!("Triggering LinkStart because Start was triggered");
         commands.trigger_targets(LinkStart, trigger.target());
+
+        // TODO: this was a crutch to make sure that all ClientOfs are despawned when Stop is called..
+        // commands.entity(trigger.target()).despawn_related::<Server>();
     }
 
     /// If the underlying link fails, we also stop the server
