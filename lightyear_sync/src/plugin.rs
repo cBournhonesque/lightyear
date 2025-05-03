@@ -90,7 +90,7 @@ impl<Synced: SyncedTimeline, Remote: NetworkTimeline + Default, const DRIVING: b
     ) {
         query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, mut local_timeline, ping_manager, has_is_synced)| {
             if !has_is_synced && sync_timeline.is_synced()  {
-                info!("Timeline {:?} is synced to {:?}", core::any::type_name::<Synced>(), core::any::type_name::<Remote>());
+                debug!("Timeline {:?} is synced to {:?}", core::any::type_name::<Synced>(), core::any::type_name::<Remote>());
                 commands.entity(entity).insert(IsSynced::<Synced>::default());
             }
             if let Some(sync_event) = sync_timeline.sync(main_timeline, ping_manager, tick_duration.0) {
@@ -100,7 +100,7 @@ impl<Synced: SyncedTimeline, Remote: NetworkTimeline + Default, const DRIVING: b
                     let synced_tick = sync_timeline.tick();
                     let delta = sync_event.tick_delta;
                     local_timeline.apply_delta(TickDelta::from_i16(sync_event.tick_delta));
-                    info!(
+                    debug!(
                         ?local_tick, ?synced_tick, ?delta, new_local_tick = ?local_timeline.tick(),
                         "Apply delta to LocalTimeline from driving pipeline {:?}'s SyncEvent", core::any::type_name::<Synced>());
                 }

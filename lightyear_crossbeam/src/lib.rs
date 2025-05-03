@@ -69,10 +69,11 @@ impl CrossbeamPlugin {
     }
 
     fn send(
-        mut query: Query<(&mut Link, &mut CrossbeamIo)>
+        mut query: Query<(&mut Link, &mut CrossbeamIo), With<Linked>>
     ) -> Result {
         query.iter_mut().try_for_each(|(mut link, mut crossbeam_io)| {
             link.send.drain().try_for_each(|payload| {
+                trace!("send data: {payload:?}");
                 crossbeam_io.sender.try_send(payload)
             })
         })?;
@@ -81,13 +82,14 @@ impl CrossbeamPlugin {
 
     fn receive(
         time: Res<Time<Real>>,
-        mut query: Query<(&mut Link, &mut CrossbeamIo)>
+        mut query: Query<(&mut Link, &mut CrossbeamIo), With<Linked>>
     ) {
         query.par_iter_mut().for_each(|(mut link, mut crossbeam_io)| {
             // Try to receive all available messages
             loop {
                 match crossbeam_io.receiver.try_recv() {
                     Ok(data) => {
+                        trace!("recv data: {data:?}");
                         link.recv.push(data, time.elapsed())
                     }
                     Err(TryRecvError::Empty) => {break},

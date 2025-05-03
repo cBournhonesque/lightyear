@@ -7,14 +7,13 @@ use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
-use lightyear_replication::control::OwnedBy;
+use lightyear_replication::control::{Owned, OwnedBy};
 use lightyear_replication::message::ActionsChannel;
 use lightyear_replication::prelude::{ComponentReplicationOverride, ComponentReplicationOverrides, Replicate, ReplicationGroupId, ReplicationSender};
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::Transport;
 use test_log::test;
-use tracing::info;
 
 #[test]
 fn test_spawn() {
@@ -457,6 +456,7 @@ fn test_owned_by() {
             lifetime: Default::default(),
         }
     )).id();
+    assert!(stepper.client_of(1).get::<Owned>().is_some());
 
     // the server entity is replicated to both clients
     stepper.frame_step(2);
@@ -464,7 +464,6 @@ fn test_owned_by() {
         .expect("entity is not present in entity map");
 
     // client 1 disconnects
-    info!("Disconnecting client 1");
     stepper.disconnect_client();
     stepper.frame_step(2);
 

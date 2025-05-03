@@ -764,7 +764,7 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
             // convert the entity to a network entity (possibly mapped)
             let entity = manager.entity_mapper.to_remote(entity);
             sender.prepare_entity_despawn(entity, group.group_id(Some(entity)));
-            trace!("prepareing despawn to sender");
+            trace!("preparing despawn to sender");
         });
 }
 

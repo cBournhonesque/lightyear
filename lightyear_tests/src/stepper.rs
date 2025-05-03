@@ -1,6 +1,7 @@
 use crate::protocol::ProtocolPlugin;
 #[cfg(not(feature = "std"))]
 use alloc::vec;
+use bevy::asset::AssetContainer;
 use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
@@ -149,6 +150,8 @@ impl ClientServerStepper {
             ReplicationReceiver::default(),
             // we will act like each client has a different port
             Link::new(SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LOCALHOST), client_id as u16), None),
+            // For Crossbeam we need to mark the IO as Linked, as there is no ServerLink to do that for us
+            Linked,
             crossbeam_server
         )).id());
         client_id
@@ -156,15 +159,19 @@ impl ClientServerStepper {
 
     /// Disconnect the last client
     pub(crate) fn disconnect_client(&mut self) {
-        let client_id = self.client_entities.len() - 1;
-        let client_entity = self.client_entities[client_id];
-        let server_entity = self.client_of_entities[client_id];
+        let client_entity = self.client_entities.pop().unwrap();
+        let server_entity = self.client_of_entities.pop().unwrap();
+
         self.client_app.world_mut().trigger_targets(Disconnect, client_entity);
-        self.server_app.world_mut().trigger_targets(Disconnect, server_entity);
+        // on the server normally we should wait for the client to send a Disconnect message, but if we despawn the client entity
+        // the crossbeam io gets severed
+        self.server_app.world_mut().entity_mut(server_entity).insert(Disconnected {
+            reason: None,
+        });
+        self.client_app.world_mut().flush();
+        self.server_app.world_mut().flush();
         self.client_app.world_mut().despawn(client_entity);
         self.server_app.world_mut().despawn(server_entity);
-        self.client_entities.remove(client_id);
-        self.client_of_entities.remove(client_id);
         self.frame_step(1);
     }
 

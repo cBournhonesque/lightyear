@@ -3,7 +3,6 @@ pub(crate) mod packet {
     use core::ops::{AddAssign, SubAssign};
     use core::time::Duration;
     use lightyear_utils::ready_buffer::ReadyBuffer;
-    use tracing::trace;
 
     type PacketStatsBuffer = ReadyBuffer<Duration, PacketStats>;
 
@@ -85,8 +84,6 @@ pub(crate) mod packet {
 
             // compute stats
             self.compute_stats();
-            trace!("stats buffer len: {}", self.stats_buffer.len());
-            trace!("packet loss: {}", self.final_stats.packet_loss);
         }
 
         fn compute_stats(&mut self) {

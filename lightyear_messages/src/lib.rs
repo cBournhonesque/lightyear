@@ -22,8 +22,8 @@ mod receive_trigger;
 #[cfg(feature = "client")]
 mod client;
 #[cfg(feature = "server")]
-mod server;
-mod multi;
+pub mod server;
+pub mod multi;
 
 pub mod prelude {
     pub use crate::plugin::MessageSet;
@@ -34,6 +34,9 @@ pub mod prelude {
     pub use crate::send_trigger::TriggerSender;
     pub use crate::trigger::AppTriggerExt;
     pub use crate::{Message, MessageManager};
+
+    #[cfg(feature = "server")]
+    pub use crate::server::ServerMultiMessageSender;
 }
 
 // send-trigger: prepare message TriggerMessage<M> to be sent.

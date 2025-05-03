@@ -9,12 +9,15 @@ use lightyear_serde::writer::Writer;
 use lightyear_transport::channel::Channel;
 use lightyear_transport::prelude::Transport;
 
+/// SystemParam to help:
+/// 1) sending a message to multiple remote peers at the same time
+/// 2) send a message without needing to clone it
 #[derive(SystemParam)]
-struct MultiMessageSender<'w, 's> {
-    players: Query<'w, 's, (&'static mut MessageManager, &'static mut Transport)>,
-    registry: Res<'w, MessageRegistry>,
+pub struct MultiMessageSender<'w, 's> {
+    pub(crate) query: Query<'w, 's, (&'static mut MessageManager, &'static mut Transport)>,
+    pub(crate) registry: Res<'w, MessageRegistry>,
     // TODO: should we let users provide their own Writer?
-    writer: Local<'s, Writer>
+    pub(crate) writer: Local<'s, Writer>
 }
 
 impl<'w, 's> MultiMessageSender<'w, 's> {
@@ -34,11 +37,11 @@ impl<'w, 's> MultiMessageSender<'w, 's> {
                 &mut SendEntityMap::default()
             )?;
             let bytes = self.writer.split();
-            self.players.iter_many_unique_mut(senders).try_for_each(|(_, mut transport)| {
+            self.query.iter_many_unique_mut(senders).try_for_each(|(_, mut transport)| {
                 transport.send_with_priority::<C>(bytes.clone(), priority)
             })?;
         } else {
-            self.players.iter_many_unique_mut(senders).try_for_each(|(mut manager, mut transport)| {
+            self.query.iter_many_unique_mut(senders).try_for_each(|(mut manager, mut transport)| {
                 self.registry.serialize::<M>(
                     message,
                     &mut self.writer,
@@ -60,4 +63,5 @@ impl<'w, 's> MultiMessageSender<'w, 's> {
     ) -> Result {
         self.send_with_priority::<M, C>(message, senders, 1.0)
     }
+
 }
