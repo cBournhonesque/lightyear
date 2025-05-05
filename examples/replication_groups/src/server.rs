@@ -1,3 +1,4 @@
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear::client::components::Confirmed;
 use lightyear::client::prediction::Predicted;

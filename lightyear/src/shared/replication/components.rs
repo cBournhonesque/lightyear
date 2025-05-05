@@ -1,15 +1,28 @@
 //! Components used for replication
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::prelude::{Component, Entity, Reflect};
 use bevy::time::{Timer, TimerMode};
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 
 use crate::connection::id::ClientId;
 use crate::protocol::component::ComponentKind;
-use crate::serialize::reader::Reader;
+use crate::serialize::reader::{ReadInteger, Reader};
 use crate::serialize::{SerializationError, ToBytes};
-use crate::shared::replication::network_target::NetworkTarget;
+use crate::serialize::writer::WriteInteger;
+
+/// Marker that indicates that this entity is to be replicated.
+///
+/// This is not confused with `Replicating` which is only present on the entity when the entity
+/// is currently being replicated. (removing `Replicating` pauses replication updates).
+///
+/// `ReplicationMarker` is required by `ReplicateToServer` and `ReplicationTarget`
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
+#[reflect(Component)]
+#[require(ReplicationGroup, Replicating)]
+pub struct ReplicationMarker;
 
 /// Marker component that indicates that the entity was initially spawned via replication
 /// (it was being replicated from a remote world)
@@ -87,46 +100,58 @@ pub enum TargetEntity {
     Preexisting(Entity),
 }
 
-/// Component that defines how the hierarchy of an entity (parent/children) should be replicated
+/// Marker component that defines how the hierarchy of an entity (parent/children) should be replicated.
 ///
-/// If the component is absent, the [`Parent`](bevy::prelude::Parent)/[`Children`](bevy::prelude::Children) components will not be replicated.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+/// When `DisableReplicateHierarchy` is added to an entity, we will stop replicating their children.
+///
+/// If the component is added on an entity with `Replicate`, it's children will be replicated using
+/// the same replication settings as the Parent.
+/// This is achieved via the marker component `ReplicateLikeParent` added on each child.
+/// You can remove the `ReplicateLikeParent` component to disable this on a child entity. You can then
+/// add the replication components on the child to replicate it independently from the parents.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
-pub struct ReplicateHierarchy {
-    /// If true, the direct [`Children`](bevy::prelude::Children) of this entity will be replicated
-    pub enabled: bool,
-    /// If true, recursively add `Replicate` and `ParentSync` components to all children to make sure they are replicated
-    ///
-    /// If false, you can still replicate hierarchies, but in a more fine-grained manner. You will have to add the `Replicate`
-    /// and `ParentSync` components to the children yourself
-    pub recursive: bool,
-}
+pub struct DisableReplicateHierarchy;
 
-impl Default for ReplicateHierarchy {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            recursive: true,
-        }
-    }
-}
+// - each entity has a ReplicateLike(entity)
+//   - the entity can be itself or another one (usually a parent)
+// - when we spawn Replicate, etc., we insert a ReplicateLike(itself)
+//   - maybe this is not needed, and in the replication system we have 2 steps; one for ReplicateLike and one for entities that have Replication?
+// - in the replication systems, we iterate through all the ReplicateLike(entity), fetch the components on the 'like' entity, and then go
+//   - if the entity itself has a replication component, we will use that instead of the one from ReplicateLike
+// - if we add DisableReplicateHierarchy, we remove ReplicateLike from all children (but not from itself)
+// - when we remove ReplicateLike, we remove ReplicateLike recursively in all children as well
 
 // TODO: do we need this? or do we just check if delta compression fn is present in the registry?
 /// If this component is present, the component will be replicated via delta-compression.
 ///
 /// Instead of sending the full component every time, we will only send the diffs between the old
 /// and new state.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
-pub struct DeltaCompression<C> {
-    _marker: std::marker::PhantomData<C>,
+pub struct DeltaCompression {
+    // we use a Vec instead of a HashSet to go faster, I doubt there would be many cases
+    // where we have duplicate kinds here
+    kinds: Vec<ComponentKind>,
 }
 
-impl<C> Default for DeltaCompression<C> {
-    fn default() -> Self {
-        Self {
-            _marker: Default::default(),
-        }
+impl DeltaCompression {
+    pub fn add<C: Component>(mut self) -> Self {
+        self.kinds.push(ComponentKind::of::<C>());
+        self
+    }
+
+    pub fn remove<C: Component>(mut self) -> Self {
+        self.kinds.retain(|kind| *kind != ComponentKind::of::<C>());
+        self
+    }
+
+    pub fn enabled<C: Component>(&self) -> bool {
+        self.enabled_kind(ComponentKind::of::<C>())
+    }
+
+    pub(crate) fn enabled_kind(&self, kind: ComponentKind) -> bool {
+        self.kinds.contains(&kind)
     }
 }
 
@@ -191,40 +216,41 @@ impl DisabledComponents {
     }
 }
 
-/// If this component is present, we will replicate only the inserts/removals of the component,
-/// not the updates (i.e. the component will get only replicated once at entity spawn)
-#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
+/// Component that can be used to specify which components we will only send inserts/removals
+/// but not component updates. The component will only get replicated once at entity spawn.
+#[derive(Component, Clone, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
-pub struct ReplicateOnceComponent<C> {
-    _marker: std::marker::PhantomData<C>,
+pub struct ReplicateOnce {
+    // we use a Vec instead of a HashSet to go faster, I doubt there would be many cases
+    // where we have duplicate kinds here
+    kinds: Vec<ComponentKind>,
 }
 
-impl<C> Default for ReplicateOnceComponent<C> {
-    fn default() -> Self {
-        Self {
-            _marker: Default::default(),
-        }
+impl ReplicateOnce {
+    pub fn add<C: Component>(mut self) -> Self {
+        self.add_mut::<C>();
+        self
     }
-}
 
-// TODO: maybe have 3 fields:
-//  - target
-//  - override replication_target: bool (if true, we will completely override the replication target. If false, we do the intersection)
-//  - override visibility: bool (if true, we will completely override the visibility. If false, we do the intersection)
-/// This component lets you override the replication target for a specific component
-#[derive(Component, Clone, Debug, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct OverrideTargetComponent<C> {
-    pub target: NetworkTarget,
-    _marker: std::marker::PhantomData<C>,
-}
+    pub fn add_mut<C: Component>(&mut self) {
+        self.kinds.push(ComponentKind::of::<C>());
+    }
 
-impl<C> OverrideTargetComponent<C> {
-    pub fn new(target: NetworkTarget) -> Self {
-        Self {
-            target,
-            _marker: Default::default(),
-        }
+    pub fn remove<C: Component>(mut self) -> Self {
+        self.remove_mut::<C>();
+        self
+    }
+
+    pub fn remove_mut<C: Component>(&mut self) {
+        self.kinds.retain(|kind| *kind != ComponentKind::of::<C>());
+    }
+
+    pub fn enabled<C: Component>(&self) -> bool {
+        self.enabled_kind(ComponentKind::of::<C>())
+    }
+
+    pub(crate) fn enabled_kind(&self, kind: ComponentKind) -> bool {
+        self.kinds.contains(&kind)
     }
 }
 
@@ -330,7 +356,7 @@ impl ReplicationGroup {
     /// This can be useful to send updates for a group of entities less frequently than the default send_interval.
     /// For example the send_interval could be 30Hz, but you could set the send_frequency to 10Hz for a group of entities
     /// to buffer updates less frequently.
-    pub fn set_send_frequency(mut self, send_frequency: bevy::utils::Duration) -> Self {
+    pub fn set_send_frequency(mut self, send_frequency: core::time::Duration) -> Self {
         self.send_frequency = Some(Timer::new(send_frequency, TimerMode::Repeating));
         self
     }
@@ -339,13 +365,25 @@ impl ReplicationGroup {
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub struct ReplicationGroupId(pub u64);
 
+
+// Re-use the Entity serialization since ReplicationGroupId are often entities
 impl ToBytes for ReplicationGroupId {
-    fn len(&self) -> usize {
+    fn bytes_len(&self) -> usize {
         8
+        // TODO: if it's a valid entity (generation > 0 and high-bit is 0)
+        //  optimize by serializing as an entity!
+        // Entity::try_from_bits(self.0).map_or_else(|_| 8, |entity| entity.bytes_len())
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-        buffer.write_u64::<NetworkEndian>(self.0)?;
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+        // Entity::try_from_bits(self.0).map_or_else(|_| {)
+        //     buffer.write_u64(self.0)?;
+        //     Ok(())
+        // }, |entity| {
+        //     entity.to_bytes(buffer)
+        // })?;
+        buffer.write_u64(self.0)?;
+        // Entity::to_bytes(&Entity::from_bits(self.0), buffer)?;
         Ok(())
     }
 
@@ -353,10 +391,14 @@ impl ToBytes for ReplicationGroupId {
     where
         Self: Sized,
     {
-        Ok(Self(buffer.read_u64::<NetworkEndian>()?))
+        Ok(Self(buffer.read_u64()?))
+        // let entity = Entity::from_bytes(buffer)?;
+        // Ok(Self(entity.to_bits()))
     }
 }
 
+// NOTE: we don't add a #[require(ReplicateToClient)] attribute here
+//  so that it's possible to override the NetworkRelevanceMode for a ReplicateLike entity
 #[derive(Component, Clone, Copy, Default, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub enum NetworkRelevanceMode {

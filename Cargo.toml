@@ -13,11 +13,11 @@ exclude = ["examples/certificates"]
 
 
 [workspace.package]
-version = "0.19.0"
+version = "0.20.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 publish = false
-edition = "2021"
-rust-version = "1.82"
+edition = "2024"
+rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 
 # Enable max optimizations for dependencies, but not for our code:
@@ -40,9 +40,9 @@ debug = false
 
 [workspace.dependencies]
 
-lightyear_avian = { path = "./lightyear_avian", version = "0.19.0", default-features = false }
+lightyear_avian = { path = "./lightyear_avian", version = "0.20.0", default-features = false }
 lightyear_examples_common = { path = "./examples/common", default-features = false }
-lightyear = { path = "./lightyear", version = "0.19.0", default-features = false }
+lightyear = { path = "./lightyear", version = "0.20.0", default-features = false }
 
 # utils
 anyhow = { version = "1.0.75", features = [] }
@@ -50,7 +50,8 @@ clap = { version = "4.5.4", features = ["derive"] }
 chrono = "0.4.38"
 cfg-if = "1.0"
 enum_dispatch = "0.3"
-governor = "0.8.1"
+governor = "0.10"
+hashbrown = "0.15"
 nonzero_ext = "0.3.0"
 parking_lot = "0.12.3"
 paste = "1.0"
@@ -58,29 +59,31 @@ rand = "0.9"
 ringbuffer = "0.15"
 thiserror = "2.0.3"
 seahash = "4.1.0"
+smallvec = { version = "1", features = ["union", "const_generics"] }
+variadics_please = "1.1.0"
 zstd = "0.13.1"
 
+# no_std
+no_std_io2 = { version = "0.9.0", features = ["alloc"] }
 
 # serialization
 
-bincode = { version = "2.0.0-rc.3", features = ["serde"] }
-byteorder = "1.5.0"
-bytes = { version = "1.8", features = ["serde"] }
+bincode = { version = "2.0.0-rc.3", default-features = false, features = ["serde", "alloc"] }
+bytes = { version = "1.8", default-features = false, features = ["serde"] }
 self_cell = "1.0"
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
 
 # netcode
 
-chacha20poly1305 = { version = "0.10", features = ["std"] }
+chacha20poly1305 = { version = "0.10" }
 
 # derive
 
-lightyear_macros = { version = "0.19.0", path = "./macros" }
+lightyear_macros = { path = "./macros", version = "0.20.0"}
 
 # tracing
 
 tracing = "0.1.40"
-tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.17", features = [
   "registry",
   "env-filter",
@@ -95,7 +98,7 @@ crossbeam-channel = { version = "0.5.13", features = [] }
 metrics = "0.24"
 metrics-util = "0.19"
 metrics-tracing-context = "0.18"
-metrics-exporter-prometheus = { version = "0.16", default-features = false, features = [
+metrics-exporter-prometheus = { version = "0.17", default-features = false, features = [
   "http-listener",
 ] }
 
@@ -125,7 +128,7 @@ wtransport = { version = "0.6.1", features = [
   "self-signed",
   "dangerous-configuration",
 ] }
-tokio-tungstenite = { version = "0.23.0", features = ["connect", "handshake"] }
+tokio-tungstenite = { version = "0.26", features = ["connect", "handshake"] }
 
 
 # WASM things
@@ -170,9 +173,7 @@ approx = "0.5.1"
 
 # Bevy
 # (we add back features needed for gui clients if desired)
-
-bevy = { version = "0.15", default-features = false, features = [
-  "multi_threaded",
+bevy = { version = "0.16", default-features = false, features = [
   "bevy_state",
   "serialize",
   "bevy_asset",
@@ -183,7 +184,7 @@ bevy = { version = "0.15", default-features = false, features = [
 ] }
 
 # input
-leafwing-input-manager = { version = "0.16", default-features = false, features = [
+leafwing-input-manager = { version = "0.17", default-features = false, features = [
   "keyboard",
 ] }
 
@@ -194,19 +195,19 @@ avian3d = { version = "=0.2.0", default-features = false }
 
 
 # gui debug ui
-bevy-inspector-egui = { version = "0.29", default-features = false, features = [
+bevy-inspector-egui = { version = "0.31", default-features = false, features = [
   "bevy_pbr",
   "bevy_image",
   "bevy_render",
   "egui_open_url",
 ] }
-bevy_egui = { version = "0.32", default-features = false, features = [
+bevy_egui = { version = "0.34", default-features = false, features = [
   "open_url",
   "default_fonts",
   "render",
 ] }
-bevy_metrics_dashboard = "0.4"
-egui_extras = "0.30"
+bevy_metrics_dashboard = "0.6"
+egui_extras = "0.31"
 
 # bevygap for deploying on Edgegap
 bevygap_server_plugin = { version = "0.3.1" }
@@ -214,3 +215,6 @@ bevygap_client_plugin = { version = "0.3.1" }
 
 [workspace.lints.clippy]
 type_complexity = "allow"
+alloc_instead_of_core = "warn"
+std_instead_of_alloc = "warn"
+std_instead_of_core = "warn"

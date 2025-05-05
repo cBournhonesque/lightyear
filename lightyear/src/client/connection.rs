@@ -1,11 +1,11 @@
 //! Specify how a Client sends/receives messages with a Server
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Resource, World};
-use bevy::utils::Duration;
-#[cfg(feature = "leafwing")]
-use bevy::utils::HashMap;
 use bytes::Bytes;
+use core::time::Duration;
 use tracing::{debug, trace, trace_span};
 
 use crate::channel::builder::{
@@ -24,7 +24,7 @@ use crate::packet::priority_manager::PriorityConfig;
 use crate::prelude::client::PredictionConfig;
 use crate::prelude::{ChannelKind, ClientId, Message, MessageRegistry, ReplicationConfig};
 use crate::protocol::channel::ChannelRegistry;
-use crate::protocol::component::ComponentRegistry;
+use crate::protocol::component::registry::ComponentRegistry;
 use crate::protocol::registry::NetId;
 use crate::serialize::reader::Reader;
 use crate::serialize::writer::Writer;
@@ -73,10 +73,6 @@ pub struct ConnectionManager {
     pub(crate) events: ConnectionEvents,
     pub ping_manager: PingManager,
     pub(crate) sync_manager: SyncManager,
-
-    /// Used to read the leafwing InputMessages from other clients
-    #[cfg(feature = "leafwing")]
-    pub(crate) received_leafwing_input_messages: HashMap<NetId, Vec<Bytes>>,
     /// Used to transfer raw bytes to a system that can convert the bytes to the actual type
     pub(crate) received_messages: Vec<(NetId, Bytes)>,
     pub(crate) writer: Writer,
@@ -112,8 +108,6 @@ impl Default for ConnectionManager {
             ping_manager: PingManager::new(PingConfig::default()),
             sync_manager: SyncManager::new(SyncConfig::default(), PredictionConfig::default()),
             events: ConnectionEvents::default(),
-            #[cfg(feature = "leafwing")]
-            received_leafwing_input_messages: HashMap::default(),
             received_messages: Vec::default(),
             writer: Writer::with_capacity(0),
             messages_to_send: Vec::default(),
@@ -163,8 +157,6 @@ impl ConnectionManager {
             ping_manager: PingManager::new(client_config.ping),
             sync_manager: SyncManager::new(client_config.sync, client_config.prediction),
             events: ConnectionEvents::default(),
-            #[cfg(feature = "leafwing")]
-            received_leafwing_input_messages: HashMap::default(),
             received_messages: Vec::default(),
             writer: Writer::with_capacity(MAX_PACKET_SIZE),
             messages_to_send: Vec::default(),
@@ -215,7 +207,7 @@ impl ConnectionManager {
 
     fn send_ping(&mut self, ping: Ping) -> Result<(), ClientError> {
         trace!("Sending ping {:?}", ping);
-        let mut writer = Writer::with_capacity(ping.len());
+        let mut writer = Writer::with_capacity(ping.bytes_len());
         ping.to_bytes(&mut writer)?;
         let message_bytes = writer.to_bytes();
         self.message_manager
@@ -224,7 +216,7 @@ impl ConnectionManager {
     }
 
     fn send_pong(&mut self, pong: Pong) -> Result<(), ClientError> {
-        let mut writer = Writer::with_capacity(pong.len());
+        let mut writer = Writer::with_capacity(pong.bytes_len());
         pong.to_bytes(&mut writer)?;
         let message_bytes = writer.to_bytes();
         self.message_manager
@@ -520,6 +512,7 @@ mod tests {
     #[test]
     fn test_map_entities_to_remote() {
         let mut stepper = BevyStepper::default();
+
 
         // spawn an entity on server
         let server_entity = stepper

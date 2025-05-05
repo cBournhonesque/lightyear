@@ -1,15 +1,14 @@
 //! Keep track of the archetypes that should be replicated
-use std::mem;
+use core::mem;
 
 use crate::client::replication::send::ReplicateToServer;
-use crate::prelude::{ChannelDirection, ComponentRegistry, Replicating};
+use crate::prelude::{ChannelDirection, ComponentRegistry, ReplicateLike, Replicating};
 use crate::protocol::component::ComponentKind;
-use crate::server::replication::send::ReplicationTarget;
+use crate::server::replication::send::ReplicateToClient;
 use crate::shared::replication::authority::HasAuthority;
-use bevy::ecs::archetype::ArchetypeEntity;
-use bevy::ecs::component::{ComponentTicks, StorageType};
-use bevy::ecs::storage::{SparseSets, Table};
-use bevy::ptr::Ptr;
+use bevy::ecs::archetype::Archetypes;
+use bevy::ecs::component::Components;
+use bevy::platform::collections::HashMap;
 use bevy::{
     ecs::{
         archetype::{ArchetypeGeneration, ArchetypeId},
@@ -17,11 +16,12 @@ use bevy::{
     },
     prelude::*,
 };
+use tracing::trace;
 
 /// Cached information about all replicated archetypes.
 ///
 /// The generic component is the component that is used to identify if the archetype is used for Replication.
-/// This is the [`ReplicateToServer`] or [`ReplicationTarget`] component.
+/// This is the [`ReplicateToServer`] or [`ReplicateToClient`] component.
 /// (not the [`Replicating`], which just indicates if we are in the process of replicating.
 // NOTE: we keep the generic so that we can have both resources in the same world in
 // host-server mode
@@ -30,12 +30,15 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
     /// Function that returns true if the direction is compatible with sending from this peer
     send_direction: SendDirectionFn,
     /// ID of the component identifying if the archetype is used for Replication.
-    /// This is the [`ReplicateToServer`] or [`ReplicationTarget`] component.
+    /// This is the [`ReplicateToServer`] or [`ReplicateToClient`] component.
     /// (not the [`Replicating`], which just indicates if we are in the process of replicating.
     replication_component_id: ComponentId,
     /// ID of the [`Replicating`] component, which indicates that the entity is being replicated.
     /// If this component is not present, we pause all replication (inserts/updates/spawns)
     replicating_component_id: ComponentId,
+    /// ID of the [`ReplicateLike`] component. If present, we will replicate with the same parameters as the
+    /// entity stored in `ReplicateLike`
+    replicate_like_component_id: ComponentId,
     /// ID of the [`HasAuthority`] component, which indicates that the current peer has authority over the entity.
     /// On the client, we only send replication updates if we have authority.
     /// On the server, we still send replication updates even if we don't have authority, because
@@ -45,8 +48,8 @@ pub(crate) struct ReplicatedArchetypes<C: Component> {
     generation: ArchetypeGeneration,
 
     /// Archetypes marked as replicated.
-    pub(crate) archetypes: Vec<ReplicatedArchetype>,
-    marker: std::marker::PhantomData<C>,
+    pub(crate) archetypes: HashMap<ArchetypeId, Vec<ReplicatedComponent>>,
+    marker: core::marker::PhantomData<C>,
 }
 
 pub type SendDirectionFn = fn(ChannelDirection) -> bool;
@@ -66,7 +69,7 @@ fn send_to_client(direction: ChannelDirection) -> bool {
 }
 
 pub(crate) type ClientReplicatedArchetypes = ReplicatedArchetypes<ReplicateToServer>;
-pub(crate) type ServerReplicatedArchetypes = ReplicatedArchetypes<ReplicationTarget>;
+pub(crate) type ServerReplicatedArchetypes = ReplicatedArchetypes<ReplicateToClient>;
 
 impl FromWorld for ClientReplicatedArchetypes {
     fn from_world(world: &mut World) -> Self {
@@ -86,9 +89,10 @@ impl<C: Component> ReplicatedArchetypes<C> {
             send_direction: send_to_server,
             replication_component_id: world.register_component::<ReplicateToServer>(),
             replicating_component_id: world.register_component::<Replicating>(),
+            replicate_like_component_id: world.register_component::<ReplicateLike>(),
             has_authority_component_id: Some(world.register_component::<HasAuthority>()),
             generation: ArchetypeGeneration::initial(),
-            archetypes: Vec::new(),
+            archetypes: HashMap::default(),
             marker: Default::default(),
         }
     }
@@ -96,91 +100,49 @@ impl<C: Component> ReplicatedArchetypes<C> {
     pub(crate) fn server(world: &mut World) -> Self {
         Self {
             send_direction: send_to_client,
-            replication_component_id: world.register_component::<ReplicationTarget>(),
+            replication_component_id: world.register_component::<ReplicateToClient>(),
             replicating_component_id: world.register_component::<Replicating>(),
+            replicate_like_component_id: world.register_component::<ReplicateLike>(),
             has_authority_component_id: None,
             generation: ArchetypeGeneration::initial(),
-            archetypes: Vec::new(),
+            archetypes: HashMap::default(),
             marker: Default::default(),
         }
     }
 }
 
-/// An archetype that should have some components replicated
-pub(crate) struct ReplicatedArchetype {
-    pub(crate) id: ArchetypeId,
-    pub(crate) components: Vec<ReplicatedComponent>,
-}
-
 pub(crate) struct ReplicatedComponent {
-    pub(crate) delta_compression: bool,
-    pub(crate) replicate_once: bool,
-    pub(crate) override_target: Option<ComponentId>,
     pub(crate) id: ComponentId,
     pub(crate) kind: ComponentKind,
-    pub(crate) storage_type: StorageType,
-}
-
-/// Get the component data as a [`Ptr`] and its change ticks
-///
-/// # Safety
-///
-/// Component should be present in the Table or SparseSet
-pub(crate) unsafe fn get_erased_component<'w>(
-    table: &'w Table,
-    sparse_sets: &'w SparseSets,
-    entity: &ArchetypeEntity,
-    storage_type: StorageType,
-    component_id: ComponentId,
-) -> (Ptr<'w>, ComponentTicks) {
-    match storage_type {
-        StorageType::Table => {
-            let component = table
-                .get_component(component_id, entity.table_row())
-                .unwrap_unchecked();
-            let ticks = table
-                .get_ticks_unchecked(component_id, entity.table_row())
-                .unwrap_unchecked();
-            (component, ticks)
-        }
-        StorageType::SparseSet => {
-            let sparse_set = sparse_sets.get(component_id).unwrap_unchecked();
-            let component = sparse_set.get(entity.id()).unwrap_unchecked();
-            let ticks = sparse_set.get_ticks(entity.id()).unwrap_unchecked();
-
-            (component, ticks)
-        }
-    }
 }
 
 impl<C: Component> ReplicatedArchetypes<C> {
     /// Update the list of archetypes that should be replicated.
-    pub(crate) fn update(&mut self, world: &World, registry: &ComponentRegistry) {
-        let old_generation = mem::replace(&mut self.generation, world.archetypes().generation());
+    pub(crate) fn update(
+        &mut self,
+        archetypes: &Archetypes,
+        components: &Components,
+        registry: &ComponentRegistry,
+    ) {
+        let old_generation = mem::replace(&mut self.generation, archetypes.generation());
 
         // iterate through the newly added archetypes
-        for archetype in world.archetypes()[old_generation..]
-            .iter()
-            .filter(|archetype| {
-                archetype.contains(self.replication_component_id)
+        for archetype in archetypes[old_generation..].iter().filter(|archetype| {
+            archetype.contains(self.replicate_like_component_id)
+                || (archetype.contains(self.replication_component_id)
                     && archetype.contains(self.replicating_component_id)
                     // on the client, we only replicate if we have authority
                     // (on the server, we need to replicate to other clients even if we don't have authority)
                     && self
                         .has_authority_component_id
-                        .map_or(true, |id| archetype.contains(id))
-            })
-        {
-            let mut replicated_archetype = ReplicatedArchetype {
-                id: archetype.id(),
-                components: Vec::new(),
-            };
-            // TODO: pause inserts/updates if Replicating is not present on the entity!
+                        .map_or(true, |id| archetype.contains(id)))
+        }) {
+            let mut replicated_archetype = Vec::new();
             // add all components of the archetype that are present in the ComponentRegistry, and:
             // - ignore component if the component is disabled
             // - check if delta-compression is enabled
             archetype.components().for_each(|component| {
-                let info = unsafe { world.components().get_info(component).unwrap_unchecked() };
+                let info = unsafe { components.get_info(component).unwrap_unchecked() };
                 // if the component has a type_id (i.e. is a rust type)
                 if let Some(kind) = info.type_id().map(ComponentKind) {
                     // the component is not registered for replication in the ComponentProtocol
@@ -200,34 +162,13 @@ impl<C: Component> ReplicatedArchetypes<C> {
                         return;
                     }
                     trace!("including {:?} in replicated components", info.name());
-
-                    // check per component metadata
-                    // TODO: should we store the components in a hashmap for faster lookup?
-                    let delta_compression = archetype
-                        .components()
-                        .any(|c| c == replication_metadata.delta_compression_id);
-                    let replicate_once = archetype
-                        .components()
-                        .any(|c| c == replication_metadata.replicate_once_id);
-                    let override_target = archetype
-                        .components()
-                        .any(|c| c == replication_metadata.override_target_id)
-                        .then_some(replication_metadata.override_target_id);
-
-                    // SAFETY: component ID obtained from this archetype.
-                    let storage_type =
-                        unsafe { archetype.get_storage_type(component).unwrap_unchecked() };
-                    replicated_archetype.components.push(ReplicatedComponent {
-                        delta_compression,
-                        replicate_once,
-                        override_target,
+                    replicated_archetype.push(ReplicatedComponent {
                         id: component,
                         kind,
-                        storage_type,
                     });
                 }
             });
-            self.archetypes.push(replicated_archetype);
+            self.archetypes.insert(archetype.id(), replicated_archetype);
         }
     }
 }

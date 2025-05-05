@@ -1,11 +1,12 @@
 //! Module to handle replicating entities and components from server to client
+#[cfg(not(feature = "std"))]
+use alloc::{vec::Vec};
 use bevy::ecs::entity::EntityHash;
-use std::fmt::Debug;
-use std::hash::Hash;
+use core::fmt::Debug;
+use core::hash::Hash;
 
+use bevy::platform::collections::HashMap;
 use bevy::prelude::{Entity, Resource};
-use bevy::utils::hashbrown::HashMap;
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 
 use crate::connection::id::ClientId;
@@ -13,9 +14,9 @@ use crate::packet::message::MessageId;
 use crate::prelude::Tick;
 use crate::protocol::component::ComponentNetId;
 use crate::protocol::EventContext;
-use crate::serialize::reader::Reader;
-use crate::serialize::varint::{varint_len, VarIntReadExt, VarIntWriteExt};
-use crate::serialize::writer::Writer;
+use crate::serialize::reader::{ReadInteger, ReadVarInt, Reader};
+use crate::serialize::varint::{varint_len};
+use crate::serialize::writer::{WriteInteger, Writer};
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::events::connection::{
     ClearEvents, IterComponentInsertEvent, IterComponentRemoveEvent, IterComponentUpdateEvent,
@@ -23,9 +24,9 @@ use crate::shared::events::connection::{
 };
 use crate::shared::replication::components::ReplicationGroupId;
 
+pub(crate) mod archetypes;
 pub mod components;
 
-pub(crate) mod archetypes;
 pub(crate) mod authority;
 pub mod delta;
 pub mod entity_map;
@@ -38,20 +39,18 @@ pub(crate) mod receive;
 pub(crate) mod resources;
 pub(crate) mod send;
 pub(crate) mod systems;
-pub(crate) mod utils;
-
 /// Serialize Entity as two varints for the index and generation (because they will probably be low).
 /// Revisit this when relations comes out
 ///
 /// TODO: optimize for the case where generation == 1, which should be most cases
 impl ToBytes for Entity {
-    fn len(&self) -> usize {
-        varint_len(self.index() as u64) + varint_len(self.generation() as u64)
+    fn bytes_len(&self) -> usize {
+        varint_len(self.index() as u64) + 4
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         buffer.write_varint(self.index() as u64)?;
-        buffer.write_u32::<NetworkEndian>(self.generation())?;
+        buffer.write_u32(self.generation())?;
         // buffer.write_varint(self.generation() as u64)?;
         Ok(())
     }
@@ -61,10 +60,11 @@ impl ToBytes for Entity {
         Self: Sized,
     {
         let index = buffer.read_varint()?;
+
         // TODO: investigate why it doesn't work with varint?
         // NOTE: not that useful now that we use a high bit to symbolize 'is_masked'
         // let generation = buffer.read_varint()?;
-        let generation = buffer.read_u32::<NetworkEndian>()? as u64;
+        let generation = buffer.read_u32()? as u64;
         let bits = generation << 32 | index;
         Ok(Entity::from_bits(bits))
     }
@@ -81,11 +81,11 @@ pub struct EntityActions {
 }
 
 impl ToBytes for EntityActions {
-    fn len(&self) -> usize {
-        self.spawn.len() + self.insert.len() + self.remove.len() + self.updates.len()
+    fn bytes_len(&self) -> usize {
+        self.spawn.bytes_len() + self.insert.bytes_len() + self.remove.bytes_len() + self.updates.bytes_len()
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         self.spawn.to_bytes(buffer)?;
         self.insert.to_bytes(buffer)?;
         self.remove.to_bytes(buffer)?;
@@ -116,16 +116,16 @@ pub(crate) enum SpawnAction {
 }
 
 impl ToBytes for SpawnAction {
-    fn len(&self) -> usize {
+    fn bytes_len(&self) -> usize {
         match &self {
             SpawnAction::None => 1,
             SpawnAction::Spawn => 1,
             SpawnAction::Despawn => 1,
-            SpawnAction::Reuse(entity) => 1 + entity.len(),
+            SpawnAction::Reuse(entity) => 1 + entity.bytes_len(),
         }
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         match &self {
             SpawnAction::None => buffer.write_u8(0)?,
             SpawnAction::Spawn => buffer.write_u8(1)?,
@@ -171,11 +171,11 @@ pub struct SendEntityActionsMessage {
 }
 
 impl ToBytes for SendEntityActionsMessage {
-    fn len(&self) -> usize {
-        self.sequence_id.len() + self.group_id.len() + self.actions.len()
+    fn bytes_len(&self) -> usize {
+        self.sequence_id.bytes_len() + self.group_id.bytes_len() + self.actions.bytes_len()
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         self.sequence_id.to_bytes(buffer)?;
         self.group_id.to_bytes(buffer)?;
         self.actions.to_bytes(buffer)?;
@@ -204,11 +204,11 @@ pub struct EntityActionsMessage {
 }
 
 impl ToBytes for EntityActionsMessage {
-    fn len(&self) -> usize {
-        self.sequence_id.len() + self.group_id.len() + self.actions.len()
+    fn bytes_len(&self) -> usize {
+        self.sequence_id.bytes_len() + self.group_id.bytes_len() + self.actions.bytes_len()
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         self.sequence_id.to_bytes(buffer)?;
         self.group_id.to_bytes(buffer)?;
         self.actions.to_bytes(buffer)?;
@@ -240,11 +240,11 @@ pub struct SendEntityUpdatesMessage {
 }
 
 impl ToBytes for SendEntityUpdatesMessage {
-    fn len(&self) -> usize {
-        self.group_id.len() + self.last_action_tick.len() + self.updates.len()
+    fn bytes_len(&self) -> usize {
+        self.group_id.bytes_len() + self.last_action_tick.bytes_len() + self.updates.bytes_len()
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         self.group_id.to_bytes(buffer)?;
         self.last_action_tick.to_bytes(buffer)?;
         self.updates.to_bytes(buffer)?;
@@ -279,11 +279,11 @@ pub struct EntityUpdatesMessage {
 }
 
 impl ToBytes for EntityUpdatesMessage {
-    fn len(&self) -> usize {
-        self.group_id.len() + self.last_action_tick.len() + self.updates.len()
+    fn bytes_len(&self) -> usize {
+        self.group_id.bytes_len() + self.last_action_tick.bytes_len() + self.updates.bytes_len()
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         self.group_id.to_bytes(buffer)?;
         self.last_action_tick.to_bytes(buffer)?;
         self.updates.to_bytes(buffer)?;
@@ -335,7 +335,7 @@ pub(crate) trait ReplicationReceive: Resource + ReplicationPeer {
 ///
 /// The trait is made public because it is needed in the macros
 pub(crate) trait ReplicationSend: Resource + ReplicationPeer {
-    type Error: std::error::Error;
+    type Error: core::error::Error;
     fn writer(&mut self) -> &mut Writer;
 
     /// Return the list of clients that connected to the server since we last sent any replication messages

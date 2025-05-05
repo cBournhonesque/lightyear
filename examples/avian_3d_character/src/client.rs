@@ -2,7 +2,7 @@ use avian3d::prelude::*;
 use bevy::app::PluginGroupBuilder;
 use bevy::input::keyboard::Key;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use leafwing_input_manager::prelude::*;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use lightyear::prelude::client::*;

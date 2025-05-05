@@ -20,7 +20,7 @@ use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::events::systems::push_component_events;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
 use bevy::app::{App, Plugin, PreUpdate};
-use bevy::prelude::{Component, Event, IntoSystemConfigs};
+use bevy::prelude::{Component, Event, IntoScheduleConfigs};
 
 /// Plugin that handles generating bevy [`Events`](Event) related to networking and replication
 #[derive(Default)]

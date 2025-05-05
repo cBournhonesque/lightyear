@@ -1,10 +1,10 @@
 //! Module to handle the various possible ClientIds
-use crate::serialize::reader::Reader;
+use crate::serialize::reader::{ReadInteger, Reader};
 use crate::serialize::{SerializationError, ToBytes};
 use bevy::reflect::Reflect;
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use core::fmt::Formatter;
 use serde::{Deserialize, Serialize};
-use std::fmt::Formatter;
+use crate::serialize::writer::WriteInteger;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum ClientId {
@@ -19,23 +19,28 @@ pub enum ClientId {
 }
 
 impl ToBytes for ClientId {
-    fn len(&self) -> usize {
-        9
+    fn bytes_len(&self) -> usize {
+        match self {
+            ClientId::Netcode(_) => 1 + 8,
+            ClientId::Steam(_) => 1 + 8,
+            ClientId::Local(_) => 1 + 8,
+            ClientId::Server => 1,
+        }
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         match self {
             ClientId::Netcode(id) => {
                 buffer.write_u8(0)?;
-                buffer.write_u64::<NetworkEndian>(*id)?;
+                buffer.write_u64(*id)?;
             }
             ClientId::Steam(id) => {
                 buffer.write_u8(1)?;
-                buffer.write_u64::<NetworkEndian>(*id)?;
+                buffer.write_u64(*id)?;
             }
             ClientId::Local(id) => {
                 buffer.write_u8(2)?;
-                buffer.write_u64::<NetworkEndian>(*id)?;
+                buffer.write_u64(*id)?;
             }
             ClientId::Server => {
                 buffer.write_u8(3)?;
@@ -49,9 +54,9 @@ impl ToBytes for ClientId {
         Self: Sized,
     {
         match buffer.read_u8()? {
-            0 => Ok(ClientId::Netcode(buffer.read_u64::<NetworkEndian>()?)),
-            1 => Ok(ClientId::Steam(buffer.read_u64::<NetworkEndian>()?)),
-            2 => Ok(ClientId::Local(buffer.read_u64::<NetworkEndian>()?)),
+            0 => Ok(ClientId::Netcode(buffer.read_u64()?)),
+            1 => Ok(ClientId::Steam(buffer.read_u64()?)),
+            2 => Ok(ClientId::Local(buffer.read_u64()?)),
             3 => Ok(ClientId::Server),
             _ => Err(SerializationError::InvalidValue),
         }
@@ -76,7 +81,7 @@ impl ClientId {
 }
 
 impl core::fmt::Display for ClientId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         core::fmt::Debug::fmt(self, f)
         // match self {
         //     ClientId::Netcode(id) => write!(f, "NetcodeClientId({})", id),

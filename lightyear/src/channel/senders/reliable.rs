@@ -1,9 +1,11 @@
+use alloc::collections::{BTreeMap, VecDeque};
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+use bevy::platform::collections::HashSet;
 use bevy::prelude::{Timer, TimerMode};
-use std::collections::VecDeque;
-use std::collections::{BTreeMap, HashSet};
 
-use bevy::utils::Duration;
 use bytes::Bytes;
+use core::time::Duration;
 use crossbeam_channel::{Receiver, Sender};
 use tracing::trace;
 
@@ -200,7 +202,7 @@ impl ChannelSend for ReliableSender {
             match &mut unacked_message_with_priority.unacked_message {
                 UnackedMessage::Single {
                     bytes,
-                    ref mut last_sent,
+                    last_sent,
                 } => {
                     if should_send(last_sent) {
                         trace!("Should send message {:?}", message_id);
@@ -255,8 +257,8 @@ impl ChannelSend for ReliableSender {
 
         // TODO: use double-buffer to reuse allocated memory?
         (
-            std::mem::take(&mut self.single_messages_to_send),
-            std::mem::take(&mut self.fragmented_messages_to_send),
+            core::mem::take(&mut self.single_messages_to_send),
+            core::mem::take(&mut self.fragmented_messages_to_send),
         )
 
         // TODO: handle if we couldn't send all messages?
@@ -264,7 +266,7 @@ impl ChannelSend for ReliableSender {
         // TODO: get back the list of messages we could not send?
 
         // // build the packets from those messages
-        // let single_messages_to_send = std::mem::take(&mut self.single_messages_to_send);
+        // let single_messages_to_send = core::mem::take(&mut self.single_messages_to_send);
         // let (remaining_messages_to_send, sent_message_ids) =
         //     packet_manager.pack_messages_within_channel(messages_to_send);
         // self.messages_to_send = remaining_messages_to_send;
@@ -337,8 +339,8 @@ impl ChannelSend for ReliableSender {
 
 #[cfg(test)]
 mod tests {
-    use bevy::utils::Duration;
     use bytes::Bytes;
+    use core::time::Duration;
 
     use crate::channel::builder::ReliableSettings;
     use crate::packet::message::SingleData;

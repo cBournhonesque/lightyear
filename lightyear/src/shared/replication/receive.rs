@@ -1,28 +1,28 @@
 //! General struct handling replication
-use std::collections::BTreeMap;
+use alloc::collections::BTreeMap;
 
 use super::entity_map::RemoteEntityMap;
 use super::{EntityActionsMessage, EntityUpdatesMessage, SpawnAction};
 use crate::packet::message::MessageId;
 use crate::prelude::client::Confirmed;
 use crate::prelude::{ClientId, Tick};
-use crate::protocol::component::ComponentRegistry;
+use crate::protocol::component::registry::ComponentRegistry;
 use crate::serialize::reader::Reader;
 use crate::shared::events::connection::ConnectionEvents;
 use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
 use crate::shared::replication::components::{InitialReplicated, Replicated, ReplicationGroupId};
 #[cfg(test)]
 use crate::utils::captures::Captures;
+use bevy::platform::collections::HashSet;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{DespawnRecursiveExt, Entity, EntityWorldMut, World};
-use bevy::utils::{hashbrown, HashSet};
+use bevy::prelude::{Entity, EntityWorldMut, World};
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
 
-type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
-
-type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
+type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
 #[derive(Debug)]
 pub struct ReplicationReceiver {
@@ -335,11 +335,6 @@ impl ReplicationReceiver {
                     return;
                 };
 
-                // At this point we know that at least one Action message was applied, otherwise the
-                // earlier check would have returned None
-                debug_assert!(channel.latest_tick.is_some(), "channel latest tick is None");
-
-
                 // pop the oldest until we reach the max applicable index
                 while channel.buffered_updates.len() > max_applicable_idx {
                     let (remote_tick, message) = channel.buffered_updates.pop_oldest().unwrap();
@@ -347,7 +342,9 @@ impl ReplicationReceiver {
                     // We restricted the updates only to those that have a last_action_tick <= latest_tick,
                     // but we also need to make sure that we don't apply updates that are too old!
                     // (older than the latest_tick applied from any Actions message above!)
-                    if remote_tick <= channel.latest_tick.unwrap() {
+                    //
+                    // Note that the channel.latest tick could still be done in case of authority-transfer!
+                    if channel.latest_tick.is_some_and(|latest_tick| remote_tick <= latest_tick) {
                         // TODO: those ticks could be history and could be interesting. They are older than the latest_tick though
                         continue;
                     }
@@ -384,7 +381,7 @@ pub struct GroupChannel {
     // set of local entities that are part of the same Replication Group
     // (we use local entities because we might not be aware of the remote entities,
     //  if the remote is doing pre-mapping)
-    local_entities: HashSet<Entity>,
+    pub(crate) local_entities: HashSet<Entity>,
     // actions
     pub(crate) actions_pending_recv_message_id: MessageId,
     pub(crate) actions_recv_message_buffer: BTreeMap<MessageId, (Tick, EntityActionsMessage)>,
@@ -705,7 +702,7 @@ impl GroupChannel {
                     self.local_entities.remove(&local_entity);
                     // TODO: we despawn all children as well right now, but that might not be what we want?
                     if let Ok(entity_mut) = world.get_entity_mut(local_entity) {
-                        entity_mut.despawn_recursive();
+                        entity_mut.despawn();
                     }
                     events.push_despawn(local_entity);
                     local_entity_to_group.remove(&local_entity);
@@ -761,10 +758,12 @@ impl GroupChannel {
             //  to know for which client we should do the pre-prediction
 
             // removals
-            trace!(remote_entity = ?entity, ?actions.remove, "Received RemoveComponent");
-            for kind in actions.remove {
-                component_registry.raw_remove(kind, &mut local_entity_mut, remote_tick, events);
-            }
+            component_registry.batch_remove(
+                actions.remove,
+                &mut local_entity_mut,
+                remote_tick,
+                events,
+            );
 
             // updates
             trace!(remote_entity = ?entity, "Received UpdateComponent");
@@ -914,12 +913,14 @@ impl GroupChannel {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
     use super::*;
     use crate::prelude::ServerReplicate;
     use crate::shared::replication::EntityActions;
     use crate::tests::protocol::{ComponentSyncModeOnce, ComponentSyncModeSimple};
     use crate::tests::stepper::BevyStepper;
-    use bevy::prelude::{OnAdd, Query, Trigger, With};
+    use bevy::prelude::{OnAdd, OnRemove, Query, Trigger, With, Without};
 
     /// Test that the UpdatesIterator works correctly, when we want to iterate through
     /// the buffered updates we have received
@@ -1486,7 +1487,7 @@ mod tests {
         stepper.client_app.add_observer(
             |trigger: Trigger<OnAdd, ComponentSyncModeSimple>,
              query: Query<(), With<ComponentSyncModeOnce>>| {
-                assert!(query.get(trigger.entity()).is_ok());
+                assert!(query.get(trigger.target()).is_ok());
             },
         );
         // make sure that when ComponentOnce is added, ComponentSimple was also added
@@ -1494,7 +1495,7 @@ mod tests {
         stepper.client_app.add_observer(
             |trigger: Trigger<OnAdd, ComponentSyncModeOnce>,
              query: Query<(), With<ComponentSyncModeSimple>>| {
-                assert!(query.get(trigger.entity()).is_ok());
+                assert!(query.get(trigger.target()).is_ok());
             },
         );
         stepper.init();
@@ -1512,7 +1513,66 @@ mod tests {
             .client_app
             .world_mut()
             .query_filtered::<(), (With<ComponentSyncModeOnce>, With<ComponentSyncModeSimple>)>()
-            .get_single(stepper.client_app.world())
+            .single(stepper.client_app.world())
+            .is_ok());
+    }
+
+    /// Test that receive() removes multiple components at the same time
+    /// instead of one by one
+    #[test]
+    fn test_batch_removes_write() {
+        let mut stepper = BevyStepper::default_no_init();
+        // the observer runs before the component is removed
+        // make sure that if ComponentSimple still exists, ComponentOnce also does
+        stepper.client_app.add_observer(
+            |trigger: Trigger<OnRemove, ComponentSyncModeSimple>,
+             query: Query<(), With<ComponentSyncModeOnce>>| {
+                assert!(query.get(trigger.target()).is_ok());
+            },
+        );
+        // the observer runs before the component is removed
+        // make sure that if ComponentOnce still exists, ComponentSimple also does
+        // i.e. both components are removed at the same time
+        stepper.client_app.add_observer(
+            |trigger: Trigger<OnRemove, ComponentSyncModeOnce>,
+             query: Query<(), With<ComponentSyncModeSimple>>| {
+                assert!(query.get(trigger.target()).is_ok());
+            },
+        );
+        stepper.init();
+
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                ServerReplicate::default(),
+                ComponentSyncModeOnce(1.0),
+                ComponentSyncModeSimple(1.0),
+            ))
+            .id();
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // remove both components
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_entity)
+            .remove::<(ComponentSyncModeOnce, ComponentSyncModeSimple)>();
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // check that the components were removed
+        assert!(stepper
+            .client_app
+            .world_mut()
+            .query_filtered::<(), (
+                With<Replicated>,
+                Without<ComponentSyncModeSimple>,
+                Without<ComponentSyncModeOnce>
+            )>()
+            .single(stepper.client_app.world())
             .is_ok());
     }
 }

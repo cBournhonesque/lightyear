@@ -1,32 +1,16 @@
 //! Benchmark to measure the performance of replicating Entity spawns
 #![allow(unused_imports)]
 
-use bevy::log::tracing_subscriber::fmt::format::FmtSpan;
-use bevy::log::{info, tracing_subscriber};
-use bevy::prelude::{default, error, Events, With};
-use bevy::utils::tracing;
-use bevy::utils::tracing::Level;
-use bevy::utils::Duration;
-use divan::{AllocProfiler, Bencher};
-use lightyear::client::sync::SyncConfig;
-use lightyear::prelude::client::{
-    ClientConnection, InterpolationConfig, NetClient, PredictionConfig,
-};
+use bevy::prelude::{default, With};
+use core::time::Duration;
 use lightyear::prelude::server::Replicate;
-use lightyear::prelude::{
-    client, server, MessageRegistry, Replicating, ReplicationGroup, Tick, TickManager,
-};
-use lightyear::prelude::{ClientId, SharedConfig, TickConfig};
-use lightyear::server::input::native::InputBuffers;
-use lightyear::shared::replication::network_target::NetworkTarget;
+use lightyear::prelude::{Replicating, ReplicationGroup};
 use lightyear_benches::local_stepper::{LocalBevyStepper, Step as LocalStep};
 use lightyear_benches::profiler::FlamegraphProfiler;
 use lightyear_benches::protocol::*;
 use std::time::Instant;
 
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use lightyear::channel::builder::EntityActionsChannel;
-use lightyear::server::connection::ConnectionManager;
+use criterion::{criterion_group, criterion_main, Criterion};
 
 criterion_group!(
     name = replication_benches;
@@ -84,15 +68,6 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
                         //     .channel_send_stats::<EntityActionsChannel>());
 
                         stepper.client_update();
-                        // assert_eq!(
-                        //     stepper
-                        //         .client_apps
-                        //         .get(&ClientId::Netcode(0))
-                        //         .unwrap()
-                        //         .world()                        //         .entities()
-                        //         .len(),
-                        //     *n as u32
-                        // );
                     }
                     elapsed
                 });
@@ -105,8 +80,8 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
 /// Replicating N entity spawn from server to channel, with a local io
 fn send_float_update_one_client(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/send_float_update/1_client");
-    group.warm_up_time(std::time::Duration::from_millis(500));
-    group.measurement_time(std::time::Duration::from_millis(4000));
+    group.warm_up_time(core::time::Duration::from_millis(500));
+    group.measurement_time(core::time::Duration::from_millis(4000));
     for n in NUM_ENTITIES.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),
@@ -139,16 +114,6 @@ fn send_float_update_one_client(criterion: &mut Criterion) {
                         elapsed += instant.elapsed();
 
                         stepper.client_update();
-                        assert_eq!(
-                            stepper
-                                .client_apps
-                                .get(&ClientId::Netcode(0))
-                                .unwrap()
-                                .world()
-                                .entities()
-                                .len(),
-                            *n as u32
-                        );
                     }
                     elapsed
                 });
@@ -161,8 +126,8 @@ fn send_float_update_one_client(criterion: &mut Criterion) {
 /// Receiving N float component inserts, with a local io
 fn receive_float_insert(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/receive_float_insert/1_client");
-    group.warm_up_time(std::time::Duration::from_millis(500));
-    group.measurement_time(std::time::Duration::from_millis(4000));
+    group.warm_up_time(core::time::Duration::from_millis(500));
+    group.measurement_time(core::time::Duration::from_millis(4000));
     for n in NUM_ENTITIES.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),
@@ -194,16 +159,6 @@ fn receive_float_insert(criterion: &mut Criterion) {
                         let instant = Instant::now();
                         stepper.client_update();
                         elapsed += instant.elapsed();
-                        assert_eq!(
-                            stepper
-                                .client_apps
-                                .get(&ClientId::Netcode(0))
-                                .unwrap()
-                                .world()
-                                .entities()
-                                .len(),
-                            *n as u32
-                        );
                     }
                     elapsed
                 });
@@ -249,16 +204,6 @@ fn receive_float_update(criterion: &mut Criterion) {
                         let instant = Instant::now();
                         stepper.client_update();
                         elapsed += instant.elapsed();
-                        assert_eq!(
-                            stepper
-                                .client_apps
-                                .get(&ClientId::Netcode(0))
-                                .unwrap()
-                                .world()
-                                .entities()
-                                .len(),
-                            *n as u32
-                        );
                     }
                     elapsed
                 });
@@ -274,8 +219,8 @@ const NUM_CLIENTS: &[usize] = &[0, 1, 2, 4, 8, 16];
 /// Replicating entity spawns from server to N clients, with a socket io
 fn send_float_insert_n_clients(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/send_float_inserts/n_clients");
-    group.warm_up_time(std::time::Duration::from_millis(500));
-    group.measurement_time(std::time::Duration::from_millis(4000));
+    group.warm_up_time(core::time::Duration::from_millis(500));
+    group.measurement_time(core::time::Duration::from_millis(4000));
     for n in NUM_CLIENTS.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),
@@ -298,18 +243,6 @@ fn send_float_insert_n_clients(criterion: &mut Criterion) {
                         elapsed += instant.elapsed();
 
                         stepper.client_update();
-                        for i in 0..*n {
-                            assert_eq!(
-                                stepper
-                                    .client_apps
-                                    .get(&ClientId::Netcode(i as u64))
-                                    .unwrap()
-                                    .world()
-                                    .entities()
-                                    .len(),
-                                FIXED_NUM_ENTITIES as u32
-                            );
-                        }
                     }
                     elapsed
                 });

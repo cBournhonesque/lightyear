@@ -2,7 +2,7 @@ use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use lightyear::client::input::InputSystemSet;
 use lightyear::inputs::native::{ActionState, InputMarker};
 use lightyear::prelude::client::*;

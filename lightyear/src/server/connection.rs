@@ -1,11 +1,13 @@
 //! Specify how a Server sends/receives messages with a Client
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, vec, vec::Vec};
 use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::{EntityHash, MapEntities};
+use bevy::ecs::entity::MapEntities;
+use bevy::platform::collections::hash_map::{Entry, HashMap};
 use bevy::prelude::{Component, Entity, Resource, World};
 use bevy::ptr::Ptr;
-use bevy::utils::{hashbrown, hashbrown::hash_map::Entry};
-use bevy::utils::{Duration, HashMap};
 use bytes::Bytes;
+use core::time::Duration;
 use tracing::{debug, info, info_span, trace, trace_span};
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
@@ -23,12 +25,11 @@ use crate::packet::message_manager::MessageManager;
 use crate::packet::packet_builder::{Payload, RecvPayload};
 use crate::prelude::server::DisconnectEvent;
 use crate::prelude::{
-    ChannelKind, Message, PreSpawnedPlayerObject, ReplicationConfig, ReplicationGroup,
-    ShouldBePredicted,
+    ChannelKind, Message, PreSpawned, ReplicationConfig, ReplicationGroup, ShouldBePredicted,
 };
 use crate::protocol::channel::ChannelRegistry;
 use crate::protocol::component::{
-    ComponentError, ComponentKind, ComponentNetId, ComponentRegistry,
+    registry::ComponentRegistry, ComponentError, ComponentKind, ComponentNetId,
 };
 use crate::protocol::message::registry::MessageRegistry;
 use crate::protocol::message::MessageError;
@@ -54,8 +55,6 @@ use crate::shared::sets::ServerMarker;
 use crate::shared::tick_manager::Tick;
 use crate::shared::tick_manager::TickManager;
 use crate::shared::time_manager::TimeManager;
-
-type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
 
 #[derive(Resource)]
 pub struct ConnectionManager {
@@ -182,7 +181,7 @@ impl ConnectionManager {
                     .values()
                     .filter(move |c| client_ids.contains(&c.client_id)),
             ),
-            NetworkTarget::None => Box::new(std::iter::empty()),
+            NetworkTarget::None => Box::new(core::iter::empty()),
         }
     }
 
@@ -211,7 +210,7 @@ impl ConnectionManager {
 
     /// Add a new [`Connection`] to the list of connections with the given [`ClientId`]
     pub(crate) fn add(&mut self, client_id: ClientId, client_entity: Entity) {
-        if let Entry::Vacant(e) = self.connections.entry(client_id) {
+        match self.connections.entry(client_id) { Entry::Vacant(e) => {
             #[cfg(feature = "metrics")]
             metrics::gauge!("server::connected_clients").increment(1.0);
 
@@ -230,9 +229,9 @@ impl ConnectionManager {
             });
             self.new_clients.push(client_id);
             e.insert(connection);
-        } else {
+        } _ => {
             info!("Client {} was already in the connections list", client_id);
-        }
+        }}
     }
 
     /// Remove the connection associated with the given [`ClientId`]
@@ -295,7 +294,7 @@ impl ConnectionManager {
 
                 // rebroadcast messages
                 messages_to_rebroadcast
-                    .extend(std::mem::take(&mut connection.messages_to_rebroadcast));
+                    .extend(core::mem::take(&mut connection.messages_to_rebroadcast));
                 Ok::<(), ServerError>(())
             })?;
         for (message, target, channel_kind) in messages_to_rebroadcast {
@@ -353,7 +352,7 @@ pub(crate) fn connected_targets_mut<'a: 'b, 'b>(
                 .values_mut()
                 .filter(move |c| client_ids.contains(&c.client_id)),
         ),
-        NetworkTarget::None => Box::new(std::iter::empty()),
+        NetworkTarget::None => Box::new(core::iter::empty()),
     }
 }
 
@@ -615,6 +614,7 @@ impl Connection {
                         //  instead just read the bytes for the target!!
                         let ClientMessage { message, target } =
                             ClientMessage::from_bytes(&mut reader)?;
+                        // dbg!(message.as_ref());
 
                         let mut reader = Reader::from(message);
                         let net_id = NetId::from_bytes(&mut reader)?;
@@ -644,7 +644,7 @@ impl Connection {
         // TODO: do i really need this? I could just create events in this function directly?
         //  why do i need to make events a field of the connection?
         //  is it because of push_connection?
-        Ok(std::mem::replace(&mut self.events, ConnectionEvents::new()))
+        Ok(core::mem::replace(&mut self.events, ConnectionEvents::new()))
     }
 
     /// Receive bytes for a single message.
@@ -693,7 +693,7 @@ impl Connection {
         entity: Entity,
         group_id: ReplicationGroupId,
         component_registry: &ComponentRegistry,
-        data: &mut C,
+        data: &C,
     ) -> Result<(), ServerError> {
         let net_id = component_registry
             .get_net_id::<C>()
@@ -794,10 +794,10 @@ impl ConnectionManager {
         //         client_entity: None,
         //     }));
 
-        // same thing for PreSpawnedPlayerObject: that component should only be replicated to prediction_target
+        // same thing for PreSpawned: that component should only be replicated to prediction_target
         let mut actual_target = target;
         let should_be_predicted_kind = ComponentKind::of::<ShouldBePredicted>();
-        let pre_spawned_player_object_kind = ComponentKind::of::<PreSpawnedPlayerObject>();
+        let pre_spawned_player_object_kind = ComponentKind::of::<PreSpawned>();
         if kind == should_be_predicted_kind || kind == pre_spawned_player_object_kind {
             actual_target = prediction_target.unwrap().clone();
         }

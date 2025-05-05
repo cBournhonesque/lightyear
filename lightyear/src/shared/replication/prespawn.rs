@@ -1,17 +1,18 @@
 //! Shared logic to handle prespawning entities
 
-use crate::prelude::{
-    ComponentRegistry, ParentSync, PrePredicted, PreSpawnedPlayerObject, ShouldBePredicted, Tick,
-};
+use crate::prelude::{ComponentRegistry, PrePredicted, PreSpawned, ShouldBePredicted, Tick};
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::components::{Controlled, ShouldBeInterpolated};
+use crate::shared::replication::hierarchy::ReplicateLike;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::ecs::archetype::Archetype;
 use bevy::ecs::component::Components;
-use std::any::TypeId;
-use std::hash::{Hash, Hasher};
+use core::any::TypeId;
+use core::hash::{Hash, Hasher};
 use tracing::trace;
 
-/// Compute the default PreSpawnedPlayerObject hash used to match server entities with prespawned client entities
+/// Compute the default PreSpawned hash used to match server entities with prespawned client entities
 pub(crate) fn compute_default_hash(
     component_registry: &ComponentRegistry,
     components: &Components,
@@ -44,11 +45,11 @@ pub(crate) fn compute_default_hash(
             if let Some(type_id) = components.get_info(component_id).unwrap().type_id() {
                 // ignore some book-keeping components that are included in the component registry
                 if type_id != TypeId::of::<PrePredicted>()
-                    && type_id != TypeId::of::<PreSpawnedPlayerObject>()
+                    && type_id != TypeId::of::<PreSpawned>()
                     && type_id != TypeId::of::<ShouldBePredicted>()
                     && type_id != TypeId::of::<ShouldBeInterpolated>()
                     && type_id != TypeId::of::<Controlled>()
-                    && type_id != TypeId::of::<ParentSync>()
+                    && type_id != TypeId::of::<ReplicateLike>()
                 {
                     return component_registry
                         .kind_map

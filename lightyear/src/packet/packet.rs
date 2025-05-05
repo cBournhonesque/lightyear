@@ -5,18 +5,8 @@ use crate::packet::packet_builder::Payload;
 use crate::protocol::channel::ChannelId;
 use crate::serialize::ToBytes;
 use crate::utils::wrapping_id::wrapping_id;
-
-cfg_if::cfg_if!(
-    if #[cfg(test)] {
-        use bytes::Bytes;
-        use crate::serialize::varint::VarIntReadExt;
-        use crate::prelude::PacketError;
-        use crate::packet::header::PacketHeader;
-        use crate::packet::packet_type::PacketType;
-        use crate::packet::message::{SingleData, FragmentData};
-        use bevy::utils::HashMap;
-    }
-);
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 // Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);
@@ -50,9 +40,9 @@ impl Packet {
     /// Check if we can write a channel_id + the number of messages in the packet.
     /// If we can, reserve some space for it
     pub(crate) fn can_fit_channel(&mut self, channel_id: ChannelId) -> bool {
-        let size = channel_id.len() + 1;
+        let size = channel_id.bytes_len() + 1;
         // size of the channel + 1 for the number of messages
-        let can_fit = self.can_fit(channel_id.len() + 1);
+        let can_fit = self.can_fit(channel_id.bytes_len() + 1);
         if can_fit {
             // reserve the space to write the channel
             self.prewritten_size += size;
@@ -67,45 +57,55 @@ impl Packet {
     pub(crate) fn is_empty(&self) -> bool {
         self.message_acks.is_empty()
     }
-
-    /// For tests, parse the packet so that we can inspect the contents
-    /// For production, parse the packets directly into messages to not allocate
-    /// an intermediary data structure
-    #[cfg(test)]
-    pub(crate) fn parse_packet_payload(
-        self,
-    ) -> Result<HashMap<ChannelId, Vec<Bytes>>, PacketError> {
-        let mut cursor = self.payload.into();
-        let mut res: HashMap<ChannelId, Vec<Bytes>> = HashMap::new();
-        let header = PacketHeader::from_bytes(&mut cursor)?;
-
-        if header.get_packet_type() == PacketType::DataFragment {
-            // read the fragment data
-            let channel_id = ChannelId::from_bytes(&mut cursor)?;
-            let fragment_data = FragmentData::from_bytes(&mut cursor)?;
-            res.entry(channel_id).or_default().push(fragment_data.bytes);
-        }
-        // read single message data
-        // TODO: avoid infinite loop here!
-        while cursor.has_remaining() {
-            let channel_id = ChannelId::from_bytes(&mut cursor)?;
-            let num_messages = cursor.read_varint()?;
-            for i in 0..num_messages {
-                let single_data = SingleData::from_bytes(&mut cursor)?;
-                res.entry(channel_id).or_default().push(single_data.bytes);
-            }
-        }
-        Ok(res)
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+    use crate::prelude::PacketError;
+    use crate::packet::header::PacketHeader;
+    use crate::packet::packet_type::PacketType;
+    use crate::packet::message::{SingleData, FragmentData};
+    use bevy::platform::collections::HashMap;
     use bevy::prelude::{default, Reflect};
 
     use lightyear_macros::ChannelInternal;
-
     use crate::prelude::{ChannelMode, ChannelRegistry, ChannelSettings};
+    use crate::protocol::channel::ChannelId;
+    use crate::serialize::reader::{ReadVarInt};
+    use crate::serialize::ToBytes;
+    use super::*;
+
+    impl Packet {
+        /// For tests, parse the packet so that we can inspect the contents
+        /// For production, parse the packets directly into messages to not allocate
+        /// an intermediary data structure
+        pub(crate) fn parse_packet_payload(
+            self,
+        ) -> Result<HashMap<ChannelId, Vec<Bytes>>, PacketError> {
+            let mut cursor = self.payload.into();
+            let mut res: HashMap<ChannelId, Vec<Bytes>> = HashMap::default();
+            let header = PacketHeader::from_bytes(&mut cursor)?;
+
+            if header.get_packet_type() == PacketType::DataFragment {
+                // read the fragment data
+                let channel_id = ChannelId::from_bytes(&mut cursor)?;
+                let fragment_data = FragmentData::from_bytes(&mut cursor)?;
+                res.entry(channel_id).or_default().push(fragment_data.bytes);
+            }
+            // read single message data
+            // TODO: avoid infinite loop here!
+            while cursor.has_remaining() {
+                let channel_id = ChannelId::from_bytes(&mut cursor)?;
+                let num_messages = cursor.read_varint()?;
+                for i in 0..num_messages {
+                    let single_data = SingleData::from_bytes(&mut cursor)?;
+                    res.entry(channel_id).or_default().push(single_data.bytes);
+                }
+            }
+            Ok(res)
+        }
+    }
 
     #[derive(ChannelInternal, Reflect)]
     struct Channel1;

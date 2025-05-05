@@ -1,10 +1,10 @@
 /*!
 Defines components that are used for the client-side prediction and interpolation
 */
-use std::fmt::Debug;
-
+use bevy::ecs::component::Mutable;
 use bevy::prelude::{Component, Entity, ReflectComponent};
 use bevy::reflect::Reflect;
+use core::fmt::Debug;
 
 use crate::prelude::{Message, Tick};
 
@@ -26,8 +26,11 @@ pub struct Confirmed {
     pub tick: Tick,
 }
 
-pub trait SyncComponent: Component + Clone + PartialEq + Message {}
-impl<T> SyncComponent for T where T: Component + Clone + PartialEq + Message {}
+pub trait MutComponent: Component<Mutability = Mutable> {}
+
+impl<T> MutComponent for T where T: Component<Mutability = Mutable> {}
+pub trait SyncComponent: MutComponent + Clone + PartialEq + Message {}
+impl<T> SyncComponent for T where T: MutComponent + Clone + PartialEq + Message {}
 
 /// Function that will interpolate between two values
 pub trait LerpFn<C> {

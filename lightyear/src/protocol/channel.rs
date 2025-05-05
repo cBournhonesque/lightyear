@@ -1,8 +1,8 @@
 use bevy::app::App;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::{Resource, TypePath};
-use bevy::utils::Duration;
-use std::any::TypeId;
-use std::collections::HashMap;
+use core::any::TypeId;
+use core::time::Duration;
 
 use crate::channel::builder::{
     AuthorityChannel, Channel, ChannelBuilder, ChannelSettings, PongChannel,
@@ -69,7 +69,7 @@ pub struct ChannelRegistry {
 impl ChannelRegistry {
     pub(crate) fn new(input_send_interval: Duration) -> Self {
         let mut registry = Self {
-            builder_map: HashMap::new(),
+            builder_map: HashMap::default(),
             kind_map: TypeMapper::new(),
             built: false,
         };
@@ -136,7 +136,7 @@ impl ChannelRegistry {
 
     /// Build all the channels in the registry
     pub fn channels(&self) -> HashMap<ChannelKind, ChannelContainer> {
-        let mut channels = HashMap::new();
+        let mut channels = HashMap::default();
         for (type_id, builder) in self.builder_map.iter() {
             channels.insert(*type_id, builder.build());
         }

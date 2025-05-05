@@ -1,5 +1,5 @@
 //! Map between local and remote entities
-use bevy::ecs::entity::{EntityHashMap, EntityMapper};
+use bevy::ecs::entity::{hash_map::EntityHashMap, EntityMapper};
 use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
 use tracing::{debug, error, trace};
@@ -20,11 +20,15 @@ pub struct EntityMap(pub(crate) EntityHashMap<Entity>);
 
 impl EntityMapper for EntityMap {
     /// Try to map the entity using the map, or don't do anything if it fails
-    fn map_entity(&mut self, entity: Entity) -> Entity {
+    fn get_mapped(&mut self, entity: Entity) -> Entity {
         self.0.get(&entity).copied().unwrap_or_else(|| {
             debug!("Failed to map entity {entity:?}");
             entity
         })
+    }
+
+    fn set_mapped(&mut self, source: Entity, target: Entity) {
+        self.0.set_mapped(source, target);
     }
 }
 
@@ -33,16 +37,20 @@ pub struct SendEntityMap(pub(crate) EntityHashMap<Entity>);
 
 impl EntityMapper for SendEntityMap {
     /// Try to map the entity using the map, or return the initial entity if it doesn't work
-    fn map_entity(&mut self, entity: Entity) -> Entity {
+    fn get_mapped(&mut self, entity: Entity) -> Entity {
         // if we have the entity in our mapping, map it and mark it as mapped
         // so that on the receive side we don't map it again
-        if let Some(mapped) = self.0.get(&entity) {
+        match self.0.get(&entity) { Some(mapped) => {
             trace!("Mapping entity {entity:?} to {mapped:?} in SendEntityMap!");
             RemoteEntityMap::mark_mapped(*mapped)
-        } else {
+        } _ => {
             // otherwise just send the entity as is, and the receiver will map it
             entity
-        }
+        }}
+    }
+
+    fn set_mapped(&mut self, source: Entity, target: Entity) {
+        self.0.insert(source, target);
     }
 }
 
@@ -51,7 +59,7 @@ pub struct ReceiveEntityMap(pub(crate) EntityHashMap<Entity>);
 
 impl EntityMapper for ReceiveEntityMap {
     /// Map an entity from the remote World to the local World
-    fn map_entity(&mut self, entity: Entity) -> Entity {
+    fn get_mapped(&mut self, entity: Entity) -> Entity {
         // if the entity was already mapped on the send side, we don't need to map it again
         // since it's the local world entity
         if RemoteEntityMap::is_mapped(entity) {
@@ -63,6 +71,10 @@ impl EntityMapper for ReceiveEntityMap {
                 Entity::PLACEHOLDER
             })
         }
+    }
+
+    fn set_mapped(&mut self, source: Entity, target: Entity) {
+        self.0.insert(source, target);
     }
 }
 
@@ -140,11 +152,11 @@ impl RemoteEntityMap {
     /// Convert a local entity to a network entity that we can send
     /// We will try to map it to a remote entity if we can
     pub(crate) fn to_remote(&self, local_entity: Entity) -> Entity {
-        if let Some(remote_entity) = self.local_to_remote.get(&local_entity) {
+        match self.local_to_remote.get(&local_entity) { Some(remote_entity) => {
             Self::mark_mapped(*remote_entity)
-        } else {
+        } _ => {
             local_entity
-        }
+        }}
     }
 
     /// Get the remote entity corresponding to the local entity in the entity map
@@ -172,10 +184,10 @@ impl RemoteEntityMap {
                 self.remote_to_local.remove(&remote);
             }
             return Some(local);
-        } else if let Some(local) = self.remote_to_local.remove(&remote_entity) {
+        } else { match self.remote_to_local.remove(&remote_entity) { Some(local) => {
             self.local_to_remote.remove(&local);
             return Some(local);
-        }
+        } _ => {}}}
         None
     }
 

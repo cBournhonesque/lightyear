@@ -2,7 +2,7 @@
 
 use crate::prelude::ClientId;
 
-pub type Result<T> = std::result::Result<T, ServerError>;
+pub type Result<T> = core::result::Result<T, ServerError>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ServerError {

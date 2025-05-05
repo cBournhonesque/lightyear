@@ -42,6 +42,7 @@ gui = [
   "bevy/webgl2",
   "bevy/bevy_winit",
   "bevy/bevy_picking",
+  "bevy/bevy_ui_picking_backend",
   "bevy/bevy_sprite",
   "bevy/bevy_text",
   "bevy/bevy_ui",
@@ -49,7 +50,7 @@ gui = [
 ]
 
 [dependencies]
-lightyear = { workspace = true, features = ["webtransport"] }
+lightyear = { workspace = true, features = ["udp", "webtransport"] }
 anyhow.workspace = true
 async-compat.workspace = true
 cfg-if.workspace = true
@@ -57,12 +58,14 @@ clap.workspace = true
 crossbeam-channel.workspace = true
 rand.workspace = true
 serde.workspace = true
-bevy.workspace = true
+bevy = { workspace = true, features = ["bevy_log"]}
 bevygap_client_plugin = { workspace = true, optional = true }
 bevygap_server_plugin = { workspace = true, optional = true }
 bevy-inspector-egui = { workspace = true, optional = true }
 bevy_metrics_dashboard = { workspace = true, optional = true }
 bevy_egui = { workspace = true, optional = true }
+tracing.workspace = true
+
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 web-sys = { workspace = true, features = ["Window", "Location"] }

@@ -62,7 +62,7 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
     mut commands: Commands,
     mut query: Query<(Entity, &mut C, &mut Correction<C>)>,
 ) {
-    let kind = std::any::type_name::<C>();
+    let kind = core::any::type_name::<C>();
     let current_tick = tick_manager.tick();
     for (entity, mut component, mut correction) in query.iter_mut() {
         let mut t = (current_tick - correction.original_tick) as f32
@@ -107,7 +107,7 @@ pub(crate) fn set_original_prediction_post_rollback<C: SyncComponent>(
     for (entity, mut component, mut correction) in query.iter_mut() {
         // correction has not started (even if a correction happens while a previous correction was going on, current_visual is None)
         if correction.current_visual.is_none() {
-            trace!(component = ?std::any::type_name::<C>(), "reset value post-rollback, before first correction");
+            trace!(component = ?core::any::type_name::<C>(), "reset value post-rollback, before first correction");
             // TODO: this is very inefficient.
             //  1. we only do the clone() once but if there's multiple frames before a FixedUpdate, we clone multiple times (mitigated by Added filter)
             //        although Added probably  doesn't work if we have nested Corrections..
@@ -125,17 +125,17 @@ pub(crate) fn set_original_prediction_post_rollback<C: SyncComponent>(
 pub(crate) fn restore_corrected_state<C: SyncComponent>(
     mut query: Query<(&mut C, &mut Correction<C>)>,
 ) {
-    let kind = std::any::type_name::<C>();
+    let kind = core::any::type_name::<C>();
     for (mut component, mut correction) in query.iter_mut() {
-        if let Some(correction) = std::mem::take(&mut correction.current_correction) {
+        match core::mem::take(&mut correction.current_correction) { Some(correction) => {
             debug!("restoring corrected component: {:?}", kind);
             *component.bypass_change_detection() = correction;
-        } else {
+        } _ => {
             debug!(
                 "Corrected component was None so couldn't restore: {:?}",
                 kind
             );
-        }
+        }}
     }
 }
 
@@ -154,7 +154,7 @@ mod tests {
     use approx::assert_relative_eq;
     use bevy::app::FixedUpdate;
     use bevy::prelude::default;
-    use std::time::Duration;
+    use core::time::Duration;
 
     fn increment_component_system(mut query: Query<(Entity, &mut ComponentCorrection)>) {
         for (entity, mut component) in query.iter_mut() {

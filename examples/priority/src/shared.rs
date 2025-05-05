@@ -1,8 +1,8 @@
 use bevy::color::palettes::css::{BLUE, GREEN, RED};
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use leafwing_input_manager::action_state::ActionState;
-use std::ops::Deref;
+use core::ops::Deref;
 
 use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;

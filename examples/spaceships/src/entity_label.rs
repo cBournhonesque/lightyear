@@ -117,7 +117,7 @@ fn label_changed(
 /// see: https://github.com/bevyengine/bevy/issues/1780
 /// so labels will rotate with entities by default
 fn fix_entity_label_rotations(
-    mut q_text: Query<(&Parent, &mut Transform), With<EntityLabelChild>>,
+    mut q_text: Query<(&ChildOf, &mut Transform), With<EntityLabelChild>>,
     q_parents: Query<(&Transform, &EntityLabel), Without<EntityLabelChild>>,
 ) {
     for (parent, mut transform) in q_text.iter_mut() {

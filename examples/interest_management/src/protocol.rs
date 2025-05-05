@@ -1,4 +1,4 @@
-use std::ops::{Add, Mul};
+use core::ops::{Add, Mul};
 
 use bevy::ecs::entity::MapEntities;
 use bevy::math::Vec2;

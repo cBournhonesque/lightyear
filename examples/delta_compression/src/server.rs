@@ -9,8 +9,8 @@
 use crate::protocol::*;
 use crate::shared;
 use bevy::app::PluginGroupBuilder;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy::utils::HashMap;
 use lightyear::inputs::native::ActionState;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;

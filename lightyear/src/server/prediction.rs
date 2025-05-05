@@ -4,6 +4,7 @@ use crate::prelude::server::{AuthorityCommandExt, AuthorityPeer};
 use crate::prelude::{PrePredicted, Replicated, ServerConnectionManager};
 use crate::server::networking::NetworkingState;
 use bevy::prelude::*;
+use tracing::debug;
 
 /// When we receive an entity that a clients wants PrePredicted,
 /// we immediately transfer authority back to the server. The server will replicate the PrePredicted
@@ -20,7 +21,7 @@ pub(crate) fn handle_pre_predicted(
     if server_state.get() != &NetworkingState::Started {
         return;
     }
-    if let Ok((local_entity, pre_predicted, replicated)) = q.get(trigger.entity()) {
+    if let Ok((local_entity, pre_predicted, replicated)) = q.get(trigger.target()) {
         let sending_client = replicated.from.unwrap();
         // if the client who created the PrePredicted entity is the local client, no need to do anything!
         // (the client Observer already adds Predicted on the entity)

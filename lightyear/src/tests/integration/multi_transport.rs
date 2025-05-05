@@ -4,7 +4,7 @@ use crate::prelude::client::{InterpolationConfig, PredictionConfig};
 use crate::prelude::{SharedConfig, TickConfig};
 use crate::tests::multi_stepper::MultiBevyStepper;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 #[test]
 fn test_multi_transport() {

@@ -1,6 +1,8 @@
-use bevy::utils::HashMap;
-use std::collections::VecDeque;
-use std::num::NonZeroU32;
+use bevy::platform::collections::HashMap;
+use alloc::collections::VecDeque;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+use core::num::NonZeroU32;
 
 use crossbeam_channel::{Receiver, Sender};
 use governor::{DefaultDirectRateLimiter, Quota};
@@ -179,13 +181,13 @@ impl PriorityManager {
         );
 
         // select the top messages with the rate limiter
-        let mut single_data: HashMap<ChannelId, VecDeque<SingleData>> = HashMap::new();
-        let mut fragment_data: HashMap<ChannelId, VecDeque<FragmentData>> = HashMap::new();
+        let mut single_data: HashMap<ChannelId, VecDeque<SingleData>> = HashMap::default();
+        let mut fragment_data: HashMap<ChannelId, VecDeque<FragmentData>> = HashMap::default();
         let mut bytes_used = 0;
         while let Some(buffered_message) = all_messages.pop() {
             // we don't use the exact size of the message, but the size of the bytes
             // we will adjust for this later
-            let message_bytes = buffered_message.data.len() as u32;
+            let message_bytes = buffered_message.data.bytes_len() as u32;
             let nonzero_message_bytes = NonZeroU32::try_from(message_bytes).unwrap();
             let Ok(result) = self.limiter.check_n(nonzero_message_bytes) else {
                 error!("the bandwidth does not have enough capacity for a message of this size!");

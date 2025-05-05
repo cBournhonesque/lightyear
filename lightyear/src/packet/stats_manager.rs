@@ -1,7 +1,7 @@
 /// Statistics for packets
 pub(crate) mod packet {
-    use bevy::utils::Duration;
-    use std::ops::{AddAssign, SubAssign};
+    use core::time::Duration;
+    use core::ops::{AddAssign, SubAssign};
     use tracing::trace;
 
     use crate::shared::time_manager::{TimeManager, WrappedTime};
@@ -79,7 +79,7 @@ pub(crate) mod packet {
                 self.rolling_stats -= stats;
             }
             // add the current stats to the rolling stats
-            let current_stats = std::mem::take(&mut self.current_stats);
+            let current_stats = core::mem::take(&mut self.current_stats);
             self.rolling_stats += current_stats;
             self.stats_buffer
                 .push(time_manager.current_time(), current_stats);

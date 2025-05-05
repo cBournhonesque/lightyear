@@ -1,30 +1,29 @@
-use std::{
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
-
+use alloc::sync::Arc;
 use async_compat::Compat;
+use bevy::platform::hash::FixedHasher;
 use bevy::tasks::{futures_lite, IoTaskPool};
-use bevy::utils::HashMap;
+use core::net::SocketAddr;
 use futures_util::{
     future, pin_mut,
     stream::{SplitSink, TryStreamExt},
     SinkExt, StreamExt, TryFutureExt,
 };
+use std::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
-use tracing::{debug, info, trace};
-use tracing_log::log::error;
+use tracing::{debug, error, info, trace};
 
 use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
 use crate::server::io::{ServerIoEvent, ServerIoEventReceiver, ServerNetworkEventSender};
 use crate::transport::error::{Error, Result};
 use crate::transport::io::IoState;
 use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
+
+type HashMap<K, V> = bevy::platform::collections::HashMap<K, V, FixedHasher>;
 
 pub(crate) struct WebSocketServerSocketBuilder {
     pub(crate) server_addr: SocketAddr,
@@ -40,12 +39,12 @@ impl ServerTransportBuilder for WebSocketServerSocketBuilder {
         Option<ServerNetworkEventSender>,
     )> {
         let (serverbound_tx, serverbound_rx) = unbounded_channel::<(SocketAddr, Message)>();
-        let clientbound_tx_map = ClientBoundTxMap::new(Mutex::new(HashMap::new()));
+        let clientbound_tx_map = ClientBoundTxMap::new(Mutex::new(HashMap::default()));
         // channels used to cancel the task
         let (close_tx, close_rx) = async_channel::unbounded();
         // channels used to check the status of the io task
         let (status_tx, status_rx) = async_channel::unbounded();
-        let addr_to_task = Arc::new(Mutex::new(HashMap::new()));
+        let addr_to_task = Arc::new(Mutex::new(HashMap::default()));
 
         let sender = WebSocketServerSocketSender {
             server_addr: self.server_addr,
@@ -231,7 +230,7 @@ impl PacketSender for WebSocketServerSocketSender {
     fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()> {
         if let Some(clientbound_tx) = self.addr_to_clientbound_tx.lock().unwrap().get(address) {
             clientbound_tx
-                .send(Message::Binary(payload.to_vec()))
+                .send(Message::Binary(payload.to_vec().into()))
                 .map_err(|e| {
                     Error::WebSocket(
                         std::io::Error::other(format!("unable to send message to client: {}", e))

@@ -1,16 +1,17 @@
 //! Defines bevy resources needed for Prediction
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Entity, Resource};
-use std::cell::UnsafeCell;
+use core::cell::UnsafeCell;
 
 use crate::prelude::{ComponentRegistry, Tick};
 use crate::protocol::component::ComponentError;
 use crate::shared::replication::entity_map::PredictedEntityMap;
 use crate::utils::ready_buffer::ReadyBuffer;
-use bevy::utils::hashbrown;
 
-type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
 #[derive(Resource, Default, Debug)]
 pub(crate) struct PredictionManager {

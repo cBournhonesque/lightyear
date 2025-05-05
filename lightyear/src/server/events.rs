@@ -1,8 +1,7 @@
 //! Wrapper around [`ConnectionEvents`] that adds server-specific functionality
 
-use bevy::ecs::entity::EntityHash;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy::utils::{hashbrown, HashMap};
 
 use crate::connection::id::ClientId;
 use crate::server::connection::ConnectionManager;
@@ -14,7 +13,7 @@ use crate::shared::events::plugin::EventsPlugin;
 use crate::shared::events::systems::push_component_events;
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 
-type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
+use tracing::debug;
 
 /// Plugin that adds bevy [`Events`] related to networking and replication
 #[derive(Default)]
@@ -31,7 +30,6 @@ impl Plugin for ServerEventsPlugin {
             // SYSTEMS
             .add_systems(
                 PreUpdate,
-                // TODO: check if this should be between Receive and EmitEvents
                 emit_connect_events.in_set(InternalMainSet::<ServerMarker>::ReceiveEvents),
             );
     }
@@ -50,7 +48,7 @@ fn emit_connect_events(
         if connection_manager.events.has_connections() {
             for connect_event in connection_manager.events.iter_connections() {
                 debug!("Client connected event: {}", connect_event.client_id);
-                connect_events.send(connect_event);
+                connect_events.write(connect_event);
                 // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
                 // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
                 //  so a bunch of Resources have been removed from the World
@@ -62,7 +60,7 @@ fn emit_connect_events(
         if connection_manager.events.has_disconnections() {
             for disconnect_event in connection_manager.events.iter_disconnections() {
                 debug!("Client disconnected event: {}", disconnect_event.client_id);
-                disconnect_events.send(disconnect_event);
+                disconnect_events.write(disconnect_event);
                 // TODO: trigger all events in batch? https://github.com/bevyengine/bevy/pull/13953
                 // NOTE: we don't trigger the event immediately because we're inside world.resource_scope
                 //  so a bunch of Resources have been removed from the World
@@ -125,7 +123,7 @@ impl ServerEvents {
     // {
     //     self.events.iter_mut().flat_map(|(client_id, events)| {
     //         let messages = events.into_iter_messages::<M>();
-    //         let client_ids = std::iter::once(client_id.clone()).cycle();
+    //         let client_ids = core::iter::once(client_id.clone()).cycle();
     //         return messages.zip(client_ids);
     //     })
     // }
@@ -138,7 +136,7 @@ impl ServerEvents {
 
     // TODO: should we consume connections?
     pub fn iter_connections(&mut self) -> Vec<ConnectEvent> {
-        std::mem::take(&mut self.connections)
+        core::mem::take(&mut self.connections)
     }
 
     pub fn has_connections(&self) -> bool {
@@ -146,7 +144,7 @@ impl ServerEvents {
     }
 
     pub fn iter_disconnections(&mut self) -> Vec<DisconnectEvent> {
-        std::mem::take(&mut self.disconnections)
+        core::mem::take(&mut self.disconnections)
     }
 
     pub fn has_disconnections(&self) -> bool {
@@ -176,7 +174,7 @@ impl IterEntitySpawnEvent<ClientId> for ServerEvents {
     fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let entities = events.into_iter_entity_spawn().map(|(entity, _)| entity);
-            let client_ids = std::iter::once(*client_id).cycle();
+            let client_ids = core::iter::once(*client_id).cycle();
             entities.zip(client_ids)
         }))
     }
@@ -192,7 +190,7 @@ impl IterEntityDespawnEvent<ClientId> for ServerEvents {
     fn into_iter_entity_despawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ClientId)> + '_> {
         Box::new(self.events.iter_mut().flat_map(|(client_id, events)| {
             let entities = events.into_iter_entity_despawn().map(|(entity, _)| entity);
-            let client_ids = std::iter::once(*client_id).cycle();
+            let client_ids = core::iter::once(*client_id).cycle();
             entities.zip(client_ids)
         }))
     }
@@ -212,7 +210,7 @@ impl IterComponentUpdateEvent<ClientId> for ServerEvents {
             let updates = events
                 .iter_component_update::<C>()
                 .map(|(entity, _)| entity);
-            let client_ids = std::iter::once(*client_id).cycle();
+            let client_ids = core::iter::once(*client_id).cycle();
             updates.zip(client_ids)
         }))
     }
@@ -226,7 +224,7 @@ impl IterComponentRemoveEvent<ClientId> for ServerEvents {
             let updates = events
                 .iter_component_remove::<C>()
                 .map(|(entity, _)| entity);
-            let client_ids = std::iter::once(*client_id).cycle();
+            let client_ids = core::iter::once(*client_id).cycle();
             updates.zip(client_ids)
         }))
     }
@@ -240,7 +238,7 @@ impl IterComponentInsertEvent<ClientId> for ServerEvents {
             let updates = events
                 .iter_component_insert::<C>()
                 .map(|(entity, _)| entity);
-            let client_ids = std::iter::once(*client_id).cycle();
+            let client_ids = core::iter::once(*client_id).cycle();
             updates.zip(client_ids)
         }))
     }

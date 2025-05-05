@@ -12,23 +12,29 @@ use crate::transport::middleware::compression::zstd::compression::ZstdCompressor
 use crate::transport::middleware::compression::zstd::decompression::ZstdDecompressor;
 use crate::transport::middleware::conditioner::LinkConditioner;
 use crate::transport::middleware::PacketReceiverWrapper;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "udp", not(target_family = "wasm")))]
 use crate::transport::udp::UdpSocketBuilder;
 #[cfg(feature = "websocket")]
 use crate::transport::websocket::client::WebSocketClientSocketBuilder;
 #[cfg(feature = "webtransport")]
 use crate::transport::webtransport::client::WebTransportClientSocketBuilder;
 use crate::transport::{BoxedReceiver, Transport};
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, vec::Vec};
 use bevy::prelude::TypePath;
+use core::net::SocketAddr;
 use crossbeam_channel::{Receiver, Sender};
-use std::net::SocketAddr;
+// only with WebTransport, UDP or WebSocket
+#[allow(unused_imports)]
+#[cfg(feature = "std")]
+use std::io;
 
 /// Use this to configure the [`Transport`] that will be used to establish a connection with the
 /// server.
 #[derive(Clone, Debug, TypePath)]
 pub enum ClientTransport {
     /// Use a [`UdpSocket`](std::net::UdpSocket)
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(feature = "udp", not(target_family = "wasm")))]
     UdpSocket(SocketAddr),
     /// Use [`WebTransport`](https://wicg.github.io/web-transport/) as a transport layer
     #[cfg(feature = "webtransport")]
@@ -55,7 +61,7 @@ pub enum ClientTransport {
 impl ClientTransport {
     pub(super) fn build(self) -> ClientTransportBuilderEnum {
         match self {
-            #[cfg(not(target_family = "wasm"))]
+            #[cfg(all(feature = "udp", not(target_family = "wasm")))]
             ClientTransport::UdpSocket(addr) => {
                 ClientTransportBuilderEnum::UdpSocket(UdpSocketBuilder { local_addr: addr })
             }
@@ -92,9 +98,14 @@ impl ClientTransport {
 }
 
 impl Default for ClientTransport {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(feature = "udp", not(target_family = "wasm")))]
     fn default() -> Self {
         ClientTransport::UdpSocket(crate::transport::LOCAL_SOCKET)
+    }
+
+    #[cfg(all(not(feature = "udp"), not(target_family = "wasm")))]
+    fn default() -> Self {
+        ClientTransport::Dummy
     }
 
     #[cfg(target_family = "wasm")]
@@ -111,12 +122,12 @@ impl SharedIoConfig<ClientTransport> {
         #[allow(unused_mut)]
         let (mut sender, receiver) = transport.split();
         #[allow(unused_mut)]
-        let mut receiver: BoxedReceiver = if let Some(conditioner_config) = self.conditioner {
+        let mut receiver: BoxedReceiver = match self.conditioner { Some(conditioner_config) => {
             let conditioner = LinkConditioner::new(conditioner_config);
             Box::new(conditioner.wrap(receiver))
-        } else {
+        } _ => {
             Box::new(receiver)
-        };
+        }};
         match self.compression {
             CompressionConfig::None => {}
             #[cfg(feature = "zstd")]

@@ -9,8 +9,8 @@
 use crate::protocol::*;
 use crate::shared;
 use bevy::app::PluginGroupBuilder;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy::utils::HashMap;
 use lightyear::client::components::Confirmed;
 use lightyear::client::prediction::Predicted;
 use lightyear::inputs::native::ActionState;
@@ -43,20 +43,19 @@ pub(crate) fn handle_connections(
 ) {
     for connection in connections.read() {
         let client_id = connection.client_id;
-        // in host-server mode, server and client are running in the same app, no need to replicate to the local client
-        let replicate = Replicate {
-            sync: SyncTarget {
-                prediction: NetworkTarget::Single(client_id),
-                interpolation: NetworkTarget::AllExceptSingle(client_id),
-            },
-            controlled_by: ControlledBy {
-                target: NetworkTarget::Single(client_id),
-                ..default()
-            },
-            ..default()
-        };
         let entity = commands
-            .spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate))
+            .spawn((
+                PlayerBundle::new(client_id, Vec2::ZERO),
+                ReplicateToClient::default(),
+                SyncTarget {
+                    prediction: NetworkTarget::Single(client_id),
+                    interpolation: NetworkTarget::AllExceptSingle(client_id),
+                },
+                ControlledBy {
+                    target: NetworkTarget::Single(client_id),
+                    ..default()
+                },
+            ))
             .id();
         info!("Create entity {:?} for client {:?}", entity, client_id);
     }

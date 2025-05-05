@@ -1,7 +1,7 @@
 //! This module contains the shared code between the client and the server.
 
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use lightyear::prelude::*;

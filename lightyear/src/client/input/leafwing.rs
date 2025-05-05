@@ -30,7 +30,7 @@
 //! Make sure that all your systems that depend on user inputs are added to the [`FixedUpdate`] [`Schedule`].
 //!
 //! Currently, global inputs (that are stored in a [`Resource`] instead of being attached to a specific [`Entity`] are not supported)
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 use bevy::prelude::*;
 use leafwing_input_manager::plugin::InputManagerSystem;
@@ -169,7 +169,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
         ),
         With<InputMap<A>>,
     >,
-) {
+) -> Result {
     // we send a message from the latest tick that we have available, which is the delayed tick
     let input_delay_ticks = connection.input_delay_ticks() as i16;
     let tick = tick_manager.tick() + input_delay_ticks;
@@ -187,8 +187,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
     // A redundancy of 2 means that we can recover from 1 lost packet
     let mut num_tick: u16 =
         ((input_send_interval.as_nanos() / config.shared.tick.tick_duration.as_nanos()) + 1)
-            .try_into()
-            .unwrap();
+            .try_into()?;
     num_tick *= input_config.packet_redundancy;
     let mut message = InputMessage::<A>::new(tick);
     for (entity, input_buffer, predicted, pre_predicted) in input_buffer_query.iter() {
@@ -263,6 +262,7 @@ fn prepare_input_message<A: LeafwingUserAction>(
     );
     message_buffer.0.push(message);
 
+    Ok(())
     // NOTE: keep the older input values in the InputBuffer! because they might be needed when we rollback for client prediction
 }
 
@@ -273,7 +273,7 @@ fn send_input_messages<A: LeafwingUserAction>(
     mut message_buffer: ResMut<MessageBuffer<A>>,
     time_manager: Res<TimeManager>,
     tick_manager: Res<TickManager>,
-) {
+) -> Result {
     trace!(
         "Number of input messages to send: {:?}",
         message_buffer.0.len()
@@ -291,11 +291,9 @@ fn send_input_messages<A: LeafwingUserAction>(
             );
         }
         connection
-            .send_message::<InputChannel, InputMessage<A>>(&message)
-            .unwrap_or_else(|err| {
-                error!("Error while sending input message: {:?}", err);
-            });
+            .send_message::<InputChannel, InputMessage<A>>(&message)?;
     }
+    Ok(())
 }
 
 /// Read the InputMessages of other clients from the server to update their InputBuffer and ActionState.
@@ -358,13 +356,13 @@ fn receive_remote_player_input_messages<A: LeafwingUserAction>(
                                     let margin = input_buffer.end_tick().unwrap() - tick;
                                     metrics::gauge!(format!(
                                                     "inputs::{}::remote_player::{}::buffer_margin",
-                                                    std::any::type_name::<A>(),
+                                                    core::any::type_name::<A>(),
                                                     entity
                                                 ))
                                         .set(margin as f64);
                                     metrics::gauge!(format!(
                                                     "inputs::{}::remote_player::{}::buffer_size",
-                                                    std::any::type_name::<A>(),
+                                                    core::any::type_name::<A>(),
                                                     entity
                                                 ))
                                         .set(input_buffer.len() as f64);
@@ -424,13 +422,14 @@ fn receive_tick_events<A: LeafwingUserAction>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::time::Duration;
     use leafwing_input_manager::action_state::ActionState;
     use leafwing_input_manager::input_map::InputMap;
-    use std::time::Duration;
 
     use crate::prelude::client::{InterpolationDelay, PredictionConfig};
-    use crate::prelude::server::Replicate;
-    use crate::prelude::{client, SharedConfig, TickConfig};
+    use crate::prelude::server::{Replicate, SyncTarget};
+    use crate::prelude::{client, NetworkTarget, ServerReceiveMessage, ServerSendMessage, SharedConfig, TickConfig};
+    use crate::tests::multi_stepper::MultiBevyStepper;
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
 
@@ -698,5 +697,87 @@ mod tests {
             .get_single(stepper.server_app.world())
             .unwrap();
         assert_ne!(delay.delay_ms, 0);
+    }
+
+    pub(crate) fn replicate_inputs(
+        mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<LeafwingInput1>>>>,
+        mut send_inputs: EventWriter<ServerSendMessage<InputMessage<LeafwingInput1>>>,
+    ) {
+        // rebroadcast the input to other clients
+        // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
+        // so that the server had the time to process the inputs
+        send_inputs.send_batch(receive_inputs.drain().map(|ev| {
+            ServerSendMessage::new_with_target::<InputChannel>(
+                ev.message,
+                NetworkTarget::AllExceptSingle(ev.from),
+            )
+        }));
+    }
+    #[test]
+    fn test_receive_inputs_other_clients() {
+        let mut stepper = MultiBevyStepper::default();
+        // server propagate inputs to other clients
+        stepper.server_app.add_systems(
+            PreUpdate,
+            replicate_inputs.after(crate::server::input::leafwing::InputSystemSet::ReceiveInputs),
+        );
+        let server_entity = stepper
+            .server_app
+            .world_mut()
+            .spawn((
+                ActionState::<LeafwingInput1>::default(),
+                Replicate {
+                    sync: SyncTarget {
+                        prediction: NetworkTarget::All,
+                        interpolation: NetworkTarget::None,
+                    },
+                    ..default()
+                },
+            ))
+            .id();
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        let client_entity_2 = stepper
+            .client_app_2
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+        let client_entity_1 = stepper
+            .client_app_1
+            .world()
+            .resource::<client::ConnectionManager>()
+            .replication_receiver
+            .remote_entity_map
+            .get_local(server_entity)
+            .expect("entity was not replicated to client");
+        stepper
+            .client_app_2
+            .world_mut()
+            .entity_mut(client_entity_2)
+            .insert(InputMap::<LeafwingInput1>::new([(
+                LeafwingInput1::Jump,
+                KeyCode::KeyA,
+            )]));
+        stepper.frame_step();
+        stepper.frame_step();
+
+        // client 1 should have received the InputMessage from client 2 which was broadcasted by the client
+        assert!(stepper
+            .client_app_1
+            .world()
+            .get::<ActionState<LeafwingInput1>>(client_entity_1)
+            .is_some());
+        assert!(stepper
+            .client_app_1
+            .world()
+            .get::<InputBuffer<LeafwingInput1>>(client_entity_1)
+            .unwrap()
+            .end_tick()
+            .is_some());
     }
 }

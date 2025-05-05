@@ -11,9 +11,10 @@ use async_compat::Compat;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 
+use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use bevy::tasks::IoTaskPool;
-use bevy::utils::{Duration, HashSet};
+use core::time::Duration;
 use tokio::io::AsyncWriteExt;
 
 use lightyear::prelude::server::*;

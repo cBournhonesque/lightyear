@@ -1,11 +1,18 @@
 //! Contains the `LinkConditioner` struct which can be used to simulate network conditions
 use bevy::reflect::Reflect;
-use std::net::SocketAddr;
+#[cfg(feature = "std")]
+use std::{io};
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{boxed::Box, format, string::String, vec, vec::Vec},
+    no_std_io2::io,
+};
+use core::net::SocketAddr;
 
-use bevy::utils::Duration;
 use cfg_if::cfg_if;
+use core::time::Duration;
 use rand;
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
 
 use crate::transport::error::Result;
 use crate::transport::middleware::PacketReceiverWrapper;
@@ -16,7 +23,7 @@ cfg_if! {
     if #[cfg(test)] {
         use mock_instant::global::Instant;
     } else {
-        use bevy::utils::Instant;
+        use bevy::platform::time::Instant;
     }
 }
 
@@ -53,8 +60,8 @@ impl<P: Eq> LinkConditioner<P> {
 
     /// Add latency/jitter/loss to a packet
     fn condition_packet(&mut self, packet: P) {
-        let mut rng = thread_rng();
-        if rng.gen_range(0.0..1.0) <= self.config.incoming_loss {
+        let mut rng = rng();
+        if rng.random_range(0.0..1.0) <= self.config.incoming_loss {
             return;
         }
         let mut latency: i32 = self.config.incoming_latency.as_millis() as i32;
@@ -62,7 +69,7 @@ impl<P: Eq> LinkConditioner<P> {
         let mut packet_timestamp = Instant::now();
         if self.config.incoming_jitter > Duration::default() {
             let jitter: i32 = self.config.incoming_jitter.as_millis() as i32;
-            latency += rng.gen_range(-jitter..jitter);
+            latency += rng.random_range(-jitter..jitter);
         }
         if latency > 0 {
             packet_timestamp += Duration::from_millis(latency as u64);

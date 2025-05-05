@@ -1,7 +1,7 @@
 use crate::prelude::{Channel, ChannelKind, Message};
 use crate::shared::replication::network_target::NetworkTarget;
 use bevy::prelude::Resource;
-use std::error::Error;
+use core::error::Error;
 
 /// Shared trait between client and server to send messages to a target
 pub trait MessageSend: private::InternalMessageSend {

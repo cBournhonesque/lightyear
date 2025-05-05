@@ -9,15 +9,15 @@ It will interact with bevy's [`Time`] resource, and potentially change the relat
 The network serialization uses a u32 which can only represent times up to 46 days.
 This module contains some helper functions to compute the difference between two times.
 */
-use std::fmt::Formatter;
-use std::ops::{Add, AddAssign, Mul, Sub, SubAssign};
+use core::fmt::Formatter;
+use core::ops::{Add, AddAssign, Mul, Sub, SubAssign};
 
 use bevy::app::{App, RunFixedMainLoop, RunFixedMainLoopSystem};
-use bevy::prelude::{IntoSystemConfigs, Plugin, Res, ResMut, Resource, Time};
+use bevy::platform::time::Instant;
+use bevy::prelude::*;
 use bevy::time::Fixed;
-use bevy::utils::Duration;
-use bevy::utils::Instant;
 use chrono::Duration as ChronoDuration;
+use core::time::Duration;
 
 pub use wrapped_time::WrappedTime;
 
@@ -143,14 +143,13 @@ impl TimeManager {
 }
 
 mod wrapped_time {
-    use crate::serialize::reader::Reader;
+    use crate::serialize::reader::{ReadInteger, Reader};
     use crate::serialize::{SerializationError, ToBytes};
-    use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
     use serde::{
         de::{Error, Visitor},
         Deserialize, Deserializer, Serialize, Serializer,
     };
-
+    use crate::serialize::writer::WriteInteger;
     use super::*;
 
     /// Time since start of server, in milliseconds
@@ -173,7 +172,7 @@ mod wrapped_time {
     impl Visitor<'_> for WrappedTimeVisitor {
         type Value = WrappedTime;
 
-        fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+        fn expecting(&self, formatter: &mut Formatter) -> core::fmt::Result {
             formatter.write_str("a u32 representing the time in milliseconds")
         }
 
@@ -194,13 +193,13 @@ mod wrapped_time {
     }
 
     impl ToBytes for WrappedTime {
-        fn len(&self) -> usize {
+        fn bytes_len(&self) -> usize {
             4
         }
 
         // NOTE: we only encode the milliseconds up to u32, which is 46 days
-        fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-            buffer.write_u32::<NetworkEndian>(self.millis())?;
+        fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+            buffer.write_u32(self.millis())?;
             Ok(())
         }
 
@@ -208,16 +207,16 @@ mod wrapped_time {
         where
             Self: Sized,
         {
-            let millis = buffer.read_u32::<NetworkEndian>()?;
+            let millis = buffer.read_u32()?;
             Ok(Self {
                 elapsed: Duration::from_millis(millis as u64),
             })
         }
     }
 
-    impl std::fmt::Display for WrappedTime {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            std::fmt::Debug::fmt(self, f)
+    impl core::fmt::Display for WrappedTime {
+        fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+            core::fmt::Debug::fmt(self, f)
         }
     }
 
@@ -269,7 +268,7 @@ mod wrapped_time {
         pub fn tick_generation(&self, tick_duration: Duration, tick: Tick) -> u16 {
             let period = tick_duration * (u16::MAX as u32 + 1);
             // TODO: use try into instead of as, to avoid wrapping?
-            let gen = (self.elapsed.as_nanos() / period.as_nanos()) as u16;
+            let generation = (self.elapsed.as_nanos() / period.as_nanos()) as u16;
             let remainder =
                 ((self.elapsed.as_nanos() % period.as_nanos()) / tick_duration.as_nanos()) as u16;
 
@@ -277,13 +276,13 @@ mod wrapped_time {
             let tick_from_tick = tick.0 as i32;
             // case 1: tick |G| tick_from_time
             if tick_from_time - tick_from_tick > i16::MAX as i32 {
-                gen.saturating_add(1)
+                generation.saturating_add(1)
             // case 2: tick_from_time |G| tick
             } else if tick_from_time - tick_from_tick < i16::MIN as i32 {
-                gen.saturating_sub(1)
+                generation.saturating_sub(1)
             // case 3: |G| tick_from_time tick |G+1|
             } else {
-                gen
+                generation
             }
         }
     }

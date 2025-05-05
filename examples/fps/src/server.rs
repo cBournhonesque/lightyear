@@ -1,9 +1,9 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
-use bevy::utils::Duration;
+use core::time::Duration;
 use leafwing_input_manager::prelude::*;
-use std::ops::DerefMut;
+use core::ops::DerefMut;
 
 use crate::protocol::*;
 use crate::shared;
@@ -97,14 +97,11 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
                 interpolation: NetworkTarget::All,
                 ..default()
             },
-            // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
-            hierarchy: ReplicateHierarchy {
-                enabled: false,
-                recursive: false,
-            },
             // NOTE: all predicted entities must be part of the same replication group!
             ..default()
         },
+        // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
+        DisableReplicateHierarchy,
         Transform::from_xyz(-200.0, 10.0, 0.0),
         RigidBody::Kinematic,
         Collider::circle(BOT_RADIUS),
@@ -119,14 +116,11 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
                 prediction: NetworkTarget::All,
                 ..default()
             },
-            // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
-            hierarchy: ReplicateHierarchy {
-                enabled: false,
-                recursive: false,
-            },
             // NOTE: all predicted entities must be part of the same replication group!
             ..default()
         },
+        // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
+        DisableReplicateHierarchy,
         Transform::from_xyz(200.0, 10.0, 0.0),
         RigidBody::Kinematic,
         Collider::circle(BOT_RADIUS),
@@ -177,7 +171,7 @@ pub(crate) fn compute_hit_lag_compensation(
                 .map(|(mut score, _)| {
                     score.0 += 1;
                 });
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         }
     })
 }
@@ -216,7 +210,7 @@ pub(crate) fn compute_hit_prediction(
                 .map(|(mut score, _)| {
                     score.0 += 1;
                 });
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         }
     })
 }

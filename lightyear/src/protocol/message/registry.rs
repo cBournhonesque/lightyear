@@ -11,14 +11,15 @@ use crate::serialize::ToBytes;
 use crate::server::config::ServerConfig;
 use crate::shared::replication::entity_map::{ReceiveEntityMap, SendEntityMap};
 use bevy::ecs::entity::MapEntities;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy::utils::HashMap;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use tracing::debug;
 
 pub struct MessageRegistration<'a, M> {
     pub(crate) app: &'a mut App,
-    pub(crate) _marker: std::marker::PhantomData<M>,
+    pub(crate) _marker: core::marker::PhantomData<M>,
 }
 
 impl<M> MessageRegistration<'_, M> {
@@ -71,11 +72,11 @@ impl AppMessageInternalExt for App {
                 ErasedSerializeFns::new_custom_serde::<M>(serialize_fns),
             );
         }
-        debug!("register message {}", std::any::type_name::<M>());
+        debug!("register message {}", core::any::type_name::<M>());
         register_message::<M>(self, direction);
         MessageRegistration {
             app: self,
-            _marker: std::marker::PhantomData,
+            _marker: core::marker::PhantomData,
         }
     }
 }
@@ -170,7 +171,7 @@ pub(crate) fn register_message<M: Message>(app: &mut App, direction: ChannelDire
 /// ### Customizing Message behaviour
 ///
 /// There are some cases where you might want to define additional behaviour for a message.
-/// For example, if the message contains [`Entities`](bevy::prelude::Entity), you need to specify how those en
+/// For example, if the message contains [`Entities`](Entity), you need to specify how those en
 /// entities will be mapped from the remote world to the local world.
 ///
 /// Provided that your type implements [`MapEntities`], you can extend the protocol to support this behaviour, by
@@ -187,7 +188,7 @@ pub(crate) fn register_message<M: Message>(app: &mut App, direction: ChannelDire
 ///
 /// impl MapEntities for MyMessage {
 ///    fn map_entities<M: EntityMapper>(&mut self, entity_map: &mut M) {
-///        self.0 = entity_map.map_entity(self.0);
+///        self.0 = entity_map.get_mapped(self.0);
 ///    }
 /// }
 ///

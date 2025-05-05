@@ -1,7 +1,4 @@
 //! The transport is a UDP socket
-use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
-
 use crate::client::io::transport::{ClientTransportBuilder, ClientTransportEnum};
 use crate::client::io::{ClientIoEventReceiver, ClientNetworkEventSender};
 use crate::server::io::transport::{ServerTransportBuilder, ServerTransportEnum};
@@ -10,6 +7,10 @@ use crate::transport::io::IoState;
 use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
 
 use super::error::Result;
+
+use alloc::sync::Arc;
+use core::net::SocketAddr;
+use std::sync::Mutex;
 
 pub struct UdpSocketBuilder {
     pub(crate) local_addr: SocketAddr,
@@ -128,25 +129,19 @@ impl PacketReceiver for UdpSocketBuffer {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
-    use std::str::FromStr;
-
-    use crate::client::io::transport::ClientTransportBuilder;
-    use crate::server::io::transport::ServerTransportBuilder;
-    use bevy::utils::Duration;
-
+    use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+    use super::*;
+    use core::time::Duration;
     use crate::transport::middleware::conditioner::{LinkConditioner, LinkConditionerConfig};
     use crate::transport::middleware::PacketReceiverWrapper;
     use crate::transport::udp::UdpSocketBuilder;
-    use crate::transport::{PacketReceiver, PacketSender, Transport};
 
     #[test]
     fn test_udp_socket() {
         // let the OS assign a port
-        let local_addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
+        let local_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0));
         let (client_socket, _, _, _) = UdpSocketBuilder { local_addr }
             .connect()
             .expect("could not connect to socket");
@@ -177,7 +172,7 @@ mod tests {
         use mock_instant::global::MockClock;
 
         // let the OS assign a port
-        let local_addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
+        let local_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0));
 
         let (client_socket, _, _, _) = UdpSocketBuilder { local_addr }
             .connect()

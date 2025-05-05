@@ -9,12 +9,14 @@ use crate::protocol::channel::ChannelId;
 use crate::protocol::registry::NetId;
 use crate::serialize::varint::varint_len;
 use crate::serialize::{SerializationError, ToBytes};
-use byteorder::WriteBytesExt;
+use alloc::collections::VecDeque;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 use bytes::Bytes;
-use std::collections::VecDeque;
 use tracing::trace;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
+use crate::serialize::writer::WriteInteger;
 
 pub type Payload = Vec<u8>;
 
@@ -204,8 +206,8 @@ impl PacketBuilder {
                                 break;
                             }
 
-                            if packet.can_fit(single_messages[num_messages].len()) {
-                                packet.prewritten_size += single_messages[num_messages].len();
+                            if packet.can_fit(single_messages[num_messages].bytes_len()) {
+                                packet.prewritten_size += single_messages[num_messages].bytes_len();
                                 num_messages += 1;
                             } else {
                                 // can't add any more messages (since we sorted messages from smallest to largest)
@@ -265,8 +267,8 @@ impl PacketBuilder {
                     break;
                 }
 
-                if packet.can_fit(single_messages[num_messages].len()) {
-                    packet.prewritten_size += single_messages[num_messages].len();
+                if packet.can_fit(single_messages[num_messages].bytes_len()) {
+                    packet.prewritten_size += single_messages[num_messages].bytes_len();
                     num_messages += 1;
                 } else {
                     // can't add any more messages (since we sorted messages from smallest to largest)
@@ -306,15 +308,15 @@ impl PacketBuilder {
             trace!("Writing packet with {} messages", *num_messages);
             channel_id.to_bytes(&mut packet.payload)?;
             // write the number of messages for the current channel
-            packet.payload.write_u8(*num_messages as u8).unwrap();
+            packet.payload.write_u8(*num_messages as u8)?;
             // write the messages
             for _ in 0..*num_messages {
                 // TODO: deal with error
                 let message = messages.pop_front().unwrap();
-                message.to_bytes(&mut packet.payload).unwrap();
+                message.to_bytes(&mut packet.payload)?;
                 packet.prewritten_size = packet
                     .prewritten_size
-                    .checked_sub(message.len())
+                    .checked_sub(message.bytes_len())
                     .ok_or(SerializationError::SubstractionOverflow)?;
                 // only send a MessageAck when the message has an id (otherwise we don't expect an ack)
                 if let Some(id) = message.id {
@@ -339,7 +341,7 @@ impl PacketBuilder {
     //     struct Section(Vec<u8>);
     //     impl Section {
     //         fn len(&self) -> usize {
-    //             self.0.len() + std::mem::size_of::<u32>()
+    //             self.0.len() + core::mem::size_of::<u32>()
     //         }
     //         fn write(&self, out: &mut Vec<u8>) {
     //             out.reserve(self.len());
@@ -388,7 +390,7 @@ impl PacketBuilder {
     //                     let keep_fragments = (b.len() - remaining).div_ceil(Packet::MAX_SIZE);
     //                     if flush_fragments < keep_fragments {
     //                         // TODO try to fill current packet by with packets after the single large packet.
-    //                         packets.push(Packet(std::mem::take(&mut bytes)));
+    //                         packets.push(Packet(core::mem::take(&mut bytes)));
     //                         remaining = Packet::MAX_SIZE;
     //                     }
     //                     (i, b)
@@ -418,7 +420,7 @@ impl PacketBuilder {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
+    use alloc::collections::VecDeque;
 
     use bevy::prelude::{default, TypePath};
     use bytes::Bytes;
@@ -618,8 +620,7 @@ mod tests {
         let big_bytes = Bytes::from(vec![1u8; num_big_bytes]);
         let fragmenter = FragmentSender::new();
         let fragments = fragmenter
-            .build_fragments(MessageId(3), None, big_bytes.clone())
-            .unwrap();
+            .build_fragments(MessageId(3), None, big_bytes.clone())?;
 
         let small_bytes = Bytes::from(vec![7u8; 10]);
         let small_message = SingleData::new(None, small_bytes.clone());

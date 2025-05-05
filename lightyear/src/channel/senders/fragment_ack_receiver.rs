@@ -1,4 +1,6 @@
-use bevy::utils::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+use bevy::platform::collections::HashMap;
 use tracing::{error, trace};
 
 use crate::packet::message::{FragmentIndex, MessageId};
@@ -13,7 +15,7 @@ pub struct FragmentAckReceiver {
 impl FragmentAckReceiver {
     pub fn new() -> Self {
         Self {
-            fragment_messages: HashMap::new(),
+            fragment_messages: HashMap::default(),
         }
     }
 

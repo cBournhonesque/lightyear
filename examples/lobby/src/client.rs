@@ -79,7 +79,7 @@ fn handle_connection(
     for event in connection_event.read() {
         let client_id = event.client_id();
         if let Ok(entity) = debug_text.get_single() {
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         }
     }
 }
@@ -96,7 +96,7 @@ fn on_disconnect(
     let existing_client_id = connection.id();
 
     for entity in entities.iter() {
-        commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn();
     }
     commands.remove_resource::<Lobbies>();
 
@@ -200,7 +200,7 @@ mod game {
 mod lobby {
     use std::net::SocketAddr;
 
-    use bevy::utils::HashMap;
+    use bevy::platform::collections::HashMap;
     use bevy_egui::egui::Separator;
     use bevy_egui::{egui, EguiContexts};
     use egui_extras::{Column, TableBuilder};

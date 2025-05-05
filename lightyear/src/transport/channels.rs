@@ -1,8 +1,16 @@
 //! Purely local io for testing
 //! Messages are sent via channels
-use std::net::SocketAddr;
+#[cfg(feature = "std")]
+use std::{io};
+#[cfg(not(feature = "std"))]
+use {
+    alloc::{boxed::Box, format, string::String, vec, vec::Vec},
+    no_std_io2::io,
+};
+use core::net::SocketAddr;
 
-use bevy::utils::HashMap;
+
+use bevy::platform::collections::HashMap;
 use crossbeam_channel::{Receiver, Select, Sender};
 use self_cell::self_cell;
 use tracing::debug;
@@ -25,8 +33,8 @@ impl Channels {
     /// Create a [`Channels`] object with a list of channels.
     /// Each channel allow us to send and receive packets to a remote client.
     pub(crate) fn new(channels: Vec<(SocketAddr, Receiver<Vec<u8>>, Sender<Vec<u8>>)>) -> Self {
-        let mut remote_recv = HashMap::new();
-        let mut remote_send = HashMap::new();
+        let mut remote_recv = HashMap::default();
+        let mut remote_send = HashMap::default();
         for (remote_addr, recv, send) in channels {
             debug!("adding remote: {:?}", remote_addr);
             remote_recv.insert(remote_addr, recv);
@@ -36,7 +44,7 @@ impl Channels {
         // receiver is a self-referential struct
         let owner = ChannelsReceiverOwner { recv: remote_recv };
         let receiver = ChannelsReceiver::new(owner, |o| {
-            let mut id_map = HashMap::new();
+            let mut id_map = HashMap::default();
             let mut select = Select::new();
             for (addr, recv) in o.recv.iter() {
                 let idx = select.recv(recv);
@@ -110,10 +118,10 @@ impl PacketReceiver for ChannelsReceiver {
                             dependent.buffer = data;
                             Ok(Some((dependent.buffer.as_mut_slice(), *addr)))
                         }
-                        Err(e) => Err(std::io::Error::other(format!(
+                        Err(e) => Err(io::Error::other(format!(
                             "error receiving packet from channels: {:?}",
                             e
-                        ))
+                        ).as_str())
                         .into()),
                     }
                 },
@@ -132,9 +140,9 @@ impl PacketSender for ChannelsSender {
         self.send
             .get(addr)
             .ok_or::<Error>(
-                std::io::Error::other("could not find remote sender channel for address").into(),
+                io::Error::other("could not find remote sender channel for address").into(),
             )?
             .try_send(payload.to_vec())
-            .map_err(|_| std::io::Error::other("error sending packet to channels").into())
+            .map_err(|_| io::Error::other("error sending packet to channels").into())
     }
 }

@@ -13,7 +13,7 @@ use crate::shared;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
+use core::time::Duration;
 use lightyear::client::input::InputSystemSet;
 use lightyear::inputs::native::{ActionState, InputMarker};
 pub use lightyear::prelude::client::*;
@@ -48,7 +48,7 @@ impl Plugin for ExampleClientPlugin {
 /// over the ball
 pub(crate) fn handle_ball(trigger: Trigger<OnAdd, BallMarker>, mut commands: Commands) {
     commands
-        .entity(trigger.entity())
+        .entity(trigger.target())
         .insert((
             Replicate::default(),
             Name::new("Ball"),
@@ -114,10 +114,10 @@ fn on_disconnect(
     debug_text: Query<Entity, With<ClientIdText>>,
 ) {
     for entity in player_entities.iter() {
-        commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn();
     }
     for entity in debug_text.iter() {
-        commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn();
     }
 }
 

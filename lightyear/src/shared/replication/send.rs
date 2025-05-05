@@ -1,12 +1,14 @@
 //! General struct handling replication
-use std::iter::Extend;
+use core::iter::Extend;
 
 use crate::channel::builder::{EntityActionsChannel, EntityUpdatesChannel};
+#[cfg(not(feature = "std"))]
+use alloc::{string::ToString, vec::Vec};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::EntityHash;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::Entity;
 use bevy::ptr::Ptr;
-use bevy::utils::{hashbrown, HashMap};
 use bytes::Bytes;
 use crossbeam_channel::Receiver;
 use tracing::{debug, error, trace};
@@ -32,9 +34,8 @@ use {
     crate::utils::captures::Captures,
 };
 
-type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
-
-type EntityHashSet<K> = hashbrown::HashSet<K, EntityHash>;
+type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
+type EntityHashSet<K> = bevy::platform::collections::HashSet<K, EntityHash>;
 
 /// When a [`EntityUpdatesMessage`](super::EntityUpdatesMessage) message gets buffered (and we have access to its [`MessageId`]),
 /// we keep track of some information related to this message.
@@ -103,34 +104,7 @@ impl ReplicationSender {
         }
     }
 
-    /// Keep track of the message_id/bevy_tick/tick where a replication-update message has been sent
-    /// for a given group
-    #[cfg(test)]
-    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn buffer_replication_update_message(
-        &mut self,
-        group_id: ReplicationGroupId,
-        message_id: MessageId,
-        bevy_tick: BevyTick,
-        tick: Tick,
-    ) {
-        self.updates_message_id_to_group_id.insert(
-            message_id,
-            UpdateMessageMetadata {
-                group_id,
-                bevy_tick,
-                tick,
-                delta: vec![],
-            },
-        );
-        // If we don't have a bandwidth cap, buffering a message is equivalent to sending it
-        // so we can set the `send_tick` right away
-        if !self.bandwidth_cap_enabled {
-            if let Some(channel) = self.group_channels.get_mut(&group_id) {
-                channel.send_tick = Some(bevy_tick);
-            }
-        }
-    }
+
 
     /// Get the `send_tick` for a given group.
     ///
@@ -151,14 +125,14 @@ impl ReplicationSender {
         // 1. handle all nack update messages
         while let Ok(message_id) = self.updates_nack_receiver.try_recv() {
             // remember to remove the entry from the map to avoid memory leakage
-            if let Some(UpdateMessageMetadata {
+            match self.updates_message_id_to_group_id.remove(&message_id)
+            { Some(UpdateMessageMetadata {
                 group_id,
                 bevy_tick,
                 ..
-            }) = self.updates_message_id_to_group_id.remove(&message_id)
-            {
+            }) => {
                 if let SendUpdatesMode::SinceLastSend = self.replication_config.send_updates_mode {
-                    if let Some(channel) = self.group_channels.get_mut(&group_id) {
+                    match self.group_channels.get_mut(&group_id) { Some(channel) => {
                         // when we know an update message has been lost, we need to reset our send_tick
                         // to our previous ack_tick
                         trace!(
@@ -176,14 +150,14 @@ impl ReplicationSender {
 
                         // TODO: if all clients lost a given message, than we can immediately drop the
                         //  delta-compression data for that tick
-                    } else {
+                    } _ => {
                         error!("Received an update message-id nack but the corresponding group channel does not exist");
-                    }
+                    }}
                 }
-            } else {
+            } _ => {
                 // NOTE: this happens when a message-id is split between multiple packets (fragmented messages)
                 trace!("Received an update message-id nack ({message_id:?}) but we don't know the corresponding group id");
-            }
+            }}
         }
     }
 
@@ -200,13 +174,13 @@ impl ReplicationSender {
         }
         // TODO: handle errors that are not channel::isEmpty
         while let Ok(message_id) = self.message_send_receiver.try_recv() {
-            if let Some(UpdateMessageMetadata {
+            match self.updates_message_id_to_group_id.get(&message_id)
+            { Some(UpdateMessageMetadata {
                 group_id,
                 bevy_tick,
                 ..
-            }) = self.updates_message_id_to_group_id.get(&message_id)
-            {
-                if let Some(channel) = self.group_channels.get_mut(group_id) {
+            }) => {
+                match self.group_channels.get_mut(group_id) { Some(channel) => {
                     // TODO: should we also reset the priority for replication-action messages?
                     // reset the priority
                     debug!(
@@ -216,14 +190,14 @@ impl ReplicationSender {
                     );
                     channel.send_tick = Some(*bevy_tick);
                     channel.accumulated_priority = 0.0;
-                } else {
+                } _ => {
                     error!(?message_id, ?group_id, "Received a send message-id notification but the corresponding group channel does not exist");
-                }
-            } else {
+                }}
+            } _ => {
                 error!(?message_id,
                     "Received an send message-id notification but we don't know the corresponding group id"
                 );
-            }
+            }}
         }
     }
 
@@ -241,14 +215,14 @@ impl ReplicationSender {
         // TODO: handle errors that are not channel::isEmpty
         while let Ok(message_id) = self.updates_ack_receiver.try_recv() {
             // remember to remove the entry from the map to avoid memory leakage
-            if let Some(UpdateMessageMetadata {
+            match self.updates_message_id_to_group_id.remove(&message_id)
+            { Some(UpdateMessageMetadata {
                 group_id,
                 bevy_tick,
                 tick,
                 delta,
-            }) = self.updates_message_id_to_group_id.remove(&message_id)
-            {
-                if let Some(channel) = self.group_channels.get_mut(&group_id) {
+            }) => {
+                match self.group_channels.get_mut(&group_id) { Some(channel) => {
                     // update the ack tick for the channel
                     debug!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
                     channel.ack_bevy_tick = Some(bevy_tick);
@@ -261,12 +235,12 @@ impl ReplicationSender {
 
                     // update the acks for the delta manager
                     delta_manager.receive_ack(tick, group_id, component_registry);
-                } else {
+                } _ => {
                     error!("Received an update message-id ack but the corresponding group channel does not exist");
-                }
-            } else {
+                }}
+            } _ => {
                 error!("Received an update message-id ack but we don't know the corresponding group id");
-            }
+            }}
         }
     }
 
@@ -527,7 +501,7 @@ impl ReplicationSender {
             .map(|group_id| {
                 // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
                 let channel = self.group_channels.get_mut(&group_id).unwrap();
-                let mut actions = std::mem::take(&mut channel.pending_actions);
+                let mut actions = core::mem::take(&mut channel.pending_actions);
                 // add any updates for that group
                 if self.group_with_updates.remove(&group_id) {
                     for (entity, components) in channel.pending_updates.drain() {
@@ -606,7 +580,7 @@ impl ReplicationSender {
         self.group_with_actions.drain().try_for_each(|group_id| {
             // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
             let channel = self.group_channels.get_mut(&group_id).unwrap();
-            let mut actions = std::mem::take(&mut channel.pending_actions);
+            let mut actions = core::mem::take(&mut channel.pending_actions);
 
             // TODO: should we be careful about not mapping entities for actions if it's a Spawn action?
             //  how could that happen?
@@ -696,7 +670,7 @@ impl ReplicationSender {
     ) -> impl Iterator<Item = (EntityUpdatesMessage, f32)> + Captures<&()> {
         self.group_with_updates.drain().map(|group_id| {
             let channel = self.group_channels.get_mut(&group_id).unwrap();
-            let updates = std::mem::take(&mut channel.pending_updates);
+            let updates = core::mem::take(&mut channel.pending_updates);
 
             trace!(?group_id, "pending updates: {:?}", updates);
             let priority = channel.accumulated_priority;
@@ -726,7 +700,7 @@ impl ReplicationSender {
     ) -> Result<(), PacketError> {
         self.group_with_updates.drain().try_for_each(|group_id| {
             let channel = self.group_channels.get_mut(&group_id).unwrap();
-            let updates = std::mem::take(&mut channel.pending_updates);
+            let updates = core::mem::take(&mut channel.pending_updates);
             trace!(?group_id, "pending updates: {:?}", updates);
             let priority = channel.accumulated_priority;
             let message = SendEntityUpdatesMessage {
@@ -766,7 +740,7 @@ impl ReplicationSender {
                     group_id,
                     bevy_tick,
                     tick,
-                    delta: std::mem::take(&mut channel.pending_delta_updates),
+                    delta: core::mem::take(&mut channel.pending_delta_updates),
                 },
             );
             // If we don't have a bandwidth cap, buffering a message is equivalent to sending it
@@ -866,6 +840,36 @@ mod tests {
     use bevy::prelude::*;
 
     use super::*;
+
+    impl ReplicationSender {
+        /// Keep track of the message_id/bevy_tick/tick where a replication-update message has been sent
+        /// for a given group
+        #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
+        pub(crate) fn buffer_replication_update_message(
+            &mut self,
+            group_id: ReplicationGroupId,
+            message_id: MessageId,
+            bevy_tick: BevyTick,
+            tick: Tick,
+        ) {
+            self.updates_message_id_to_group_id.insert(
+                message_id,
+                UpdateMessageMetadata {
+                    group_id,
+                    bevy_tick,
+                    tick,
+                    delta: Vec::new(),
+                },
+            );
+            // If we don't have a bandwidth cap, buffering a message is equivalent to sending it
+            // so we can set the `send_tick` right away
+            if !self.bandwidth_cap_enabled {
+                if let Some(channel) = self.group_channels.get_mut(&group_id) {
+                    channel.send_tick = Some(bevy_tick);
+                }
+            }
+        }
+    }
 
     #[test]
     fn test_delta_compression() {

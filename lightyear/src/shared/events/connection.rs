@@ -1,9 +1,11 @@
 /*! Defines a [`ConnectionEvents`] struct that is used to store all events that are received from a connection
  */
-use std::iter;
+use core::iter;
 
+use bevy::platform::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, vec::Vec};
 use bevy::prelude::{Component, Entity, Resource};
-use bevy::utils::HashMap;
 use tracing::trace;
 
 use crate::prelude::Tick;
@@ -156,7 +158,7 @@ pub trait IterEntitySpawnEvent<Ctx: EventContext = ()> {
 
 impl IterEntitySpawnEvent for ConnectionEvents {
     fn into_iter_entity_spawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
-        let spawns = std::mem::take(&mut self.spawns);
+        let spawns = core::mem::take(&mut self.spawns);
         Box::new(spawns.into_iter().map(|entity| (entity, ())))
     }
 
@@ -173,7 +175,7 @@ pub trait IterEntityDespawnEvent<Ctx: EventContext = ()> {
 
 impl IterEntityDespawnEvent for ConnectionEvents {
     fn into_iter_entity_despawn(&mut self) -> Box<dyn Iterator<Item = (Entity, ())> + '_> {
-        let despawns = std::mem::take(&mut self.despawns);
+        let despawns = core::mem::take(&mut self.despawns);
         Box::new(despawns.into_iter().map(|entity| (entity, ())))
     }
 

@@ -19,7 +19,7 @@ use crate::transport::io::IoState;
 use crate::transport::{BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MTU};
 
 // Adapted from https://github.com/briansmith/ring/blob/befdc87ac7cbca615ab5d68724f4355434d3a620/src/test.rs#L364-L393
-pub fn from_hex(hex_str: &str) -> std::result::Result<Vec<u8>, String> {
+pub fn from_hex(hex_str: &str) -> core::result::Result<Vec<u8>, String> {
     if hex_str.len() % 2 != 0 {
         return Err(format!(
             "Hex string does not have an even number of digits. Length: {}. String: .{}.",
@@ -37,7 +37,7 @@ pub fn from_hex(hex_str: &str) -> std::result::Result<Vec<u8>, String> {
     Ok(result)
 }
 
-fn from_hex_digit(d: u8) -> std::result::Result<u8, String> {
+fn from_hex_digit(d: u8) -> core::result::Result<u8, String> {
     use core::ops::RangeInclusive;
     const DECIMAL: (u8, RangeInclusive<u8>) = (0, b'0'..=b'9');
     const HEX_LOWER: (u8, RangeInclusive<u8>) = (10, b'a'..=b'f');

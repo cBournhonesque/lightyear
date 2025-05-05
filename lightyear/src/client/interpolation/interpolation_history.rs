@@ -1,8 +1,6 @@
-use std::ops::Deref;
+use core::ops::Deref;
 
-use bevy::prelude::{
-    Commands, Component, DetectChanges, Entity, Has, Query, Ref, Res, With, Without,
-};
+use bevy::prelude::*;
 use tracing::{debug, trace};
 
 use crate::client::components::Confirmed;
@@ -91,7 +89,7 @@ pub(crate) fn add_component_history<C: SyncComponent>(
     // for a confirmed entity that already had the components inserted
     // (in case of authority transfer)
     confirmed_entities: Query<(&Confirmed, &C)>,
-) {
+) -> Result {
     let current_tick = connection
         .sync_manager
         .interpolation_tick(tick_manager.as_ref());
@@ -102,7 +100,7 @@ pub(crate) fn add_component_history<C: SyncComponent>(
         if let Some(p) = confirmed_entity.interpolated {
             if let Ok(interpolated_entity) = interpolated_entities.get(p) {
                 // safety: we know the entity exists
-                let mut interpolated_entity_mut = commands.get_entity(interpolated_entity).unwrap();
+                let mut interpolated_entity_mut = commands.get_entity(interpolated_entity)?;
                 // insert history
                 let history = ConfirmedHistory::<C>::new();
                 // map any entities from confirmed to interpolated
@@ -134,6 +132,7 @@ pub(crate) fn add_component_history<C: SyncComponent>(
             }
         }
     }
+    Ok(())
 }
 
 /// When we receive a server update for an interpolated component, we need to store it in the confirmed history,
@@ -147,7 +146,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
     >,
     confirmed_entities: Query<(Entity, &Confirmed, Ref<C>, Has<HasAuthority>)>,
 ) {
-    let kind = std::any::type_name::<C>();
+    let kind = core::any::type_name::<C>();
     for (confirmed_entity, confirmed, confirmed_component, has_authority) in
         confirmed_entities.iter()
     {

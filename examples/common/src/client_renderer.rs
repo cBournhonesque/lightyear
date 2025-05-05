@@ -1,5 +1,7 @@
+use bevy::ecs::{relationship::RelatedSpawner, spawn::SpawnWith};
 use bevy::picking::prelude::{Click, Pointer};
-use bevy::prelude::*;
+use bevy::{input::common_conditions::input_toggle_active, prelude::*};
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 #[cfg(feature = "bevygap_client")]
 use bevygap_client_plugin::prelude::*;
 use lightyear::prelude::client::*;
@@ -21,6 +23,13 @@ struct GameName(String);
 
 impl Plugin for ExampleClientRendererPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins((
+            bevy_inspector_egui::bevy_egui::EguiPlugin {
+                enable_multipass_for_primary_context: true,
+            },
+            // Show inspector with F12
+            WorldInspectorPlugin::default().run_if(input_toggle_active(false, KeyCode::F12)),
+        ));
         app.insert_resource(GameName(self.name.clone()));
         app.insert_resource(ClearColor::default());
         // TODO common shortcuts for enabling the egui world inspector etc.
@@ -39,7 +48,9 @@ impl Plugin for ExampleClientRendererPlugin {
             app.insert_resource(bevygap_client_config);
         }
 
-        spawn_connect_button(app);
+        // spawn the Example label and connect button
+        app.world_mut().spawn(name_and_button_bar());
+
         app.add_systems(
             PreUpdate,
             (handle_connection, handle_disconnection).after(MainSet::Receive),
@@ -52,7 +63,7 @@ impl Plugin for ExampleClientRendererPlugin {
 }
 
 fn set_window_title(mut window: Query<&mut Window>, game_name: Res<GameName>) {
-    let mut window = window.get_single_mut().unwrap();
+    let mut window = window.single_mut().unwrap();
     window.title = format!("Lightyear Example: {}", game_name.0);
 }
 
@@ -71,19 +82,20 @@ fn on_update_status_message(
 #[derive(Component)]
 struct StatusMessageMarker;
 
-/// Create a button that allow you to connect/disconnect to a server
-pub(crate) fn spawn_connect_button(app: &mut App) {
-    app.world_mut()
-        .spawn(Node {
+fn name_and_button_bar() -> impl Bundle {
+    (
+        Name::new("Name and Button Bar"),
+        Node {
             width: Val::Percent(100.0),
             height: Val::Percent(100.0),
             align_items: AlignItems::FlexEnd,
             justify_content: JustifyContent::FlexEnd,
             flex_direction: FlexDirection::Row,
             ..default()
-        })
-        .with_children(|parent| {
+        },
+        Children::spawn(SpawnWith(|parent: &mut RelatedSpawner<ChildOf>| {
             parent.spawn((
+                Name::new("Example Name"),
                 Text("Lightyear Example".to_string()),
                 TextColor(Color::srgb(0.9, 0.9, 0.9).with_alpha(0.4)),
                 TextFont::from_font_size(18.0),
@@ -96,23 +108,7 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                 },
             ));
             parent
-                .spawn((
-                    Text("Connect".to_string()),
-                    TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                    TextFont::from_font_size(20.0),
-                    BorderColor(Color::BLACK),
-                    Node {
-                        width: Val::Px(150.0),
-                        height: Val::Px(65.0),
-                        border: UiRect::all(Val::Px(5.0)),
-                        // horizontally center child text
-                        justify_content: JustifyContent::Center,
-                        // vertically center child text
-                        align_items: AlignItems::Center,
-                        ..default()
-                    },
-                    Button,
-                ))
+                .spawn(button("Connect"))
                 .observe(
                     |_: Trigger<Pointer<Click>>,
                      mut commands: Commands,
@@ -131,14 +127,38 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                         };
                     },
                 );
-        });
+        })),
+    )
+}
+
+/// A button bundle
+fn button<T: Into<String>>(text: T) -> impl Bundle {
+    (
+        Button,
+        Name::new("Button"),
+        BorderColor(Color::WHITE),
+        BorderRadius::MAX,
+        Node {
+            width: Val::Px(150.0),
+            height: Val::Px(65.0),
+            border: UiRect::all(Val::Px(5.0)),
+            // horizontally center child text
+            justify_content: JustifyContent::Center,
+            // vertically center child text
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        Text(text.into()),
+        TextColor(Color::srgb(0.9, 0.9, 0.9)),
+        TextFont::from_font_size(20.0),
+    )
 }
 
 pub(crate) fn update_button_text(
     state: Res<State<NetworkingState>>,
     mut text_query: Query<&mut Text, With<Button>>,
 ) {
-    if let Ok(mut text) = text_query.get_single_mut() {
+    if let Ok(mut text) = text_query.single_mut() {
         match state.get() {
             NetworkingState::Disconnected => {
                 text.0 = "Connect".to_string();
@@ -196,6 +216,6 @@ pub(crate) fn handle_disconnection(
 /// (Replicated entities are automatically despawned by lightyear on disconnection)
 fn on_disconnect(mut commands: Commands, debug_text: Query<Entity, With<ClientIdText>>) {
     for entity in debug_text.iter() {
-        commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn();
     }
 }

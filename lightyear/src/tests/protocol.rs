@@ -1,10 +1,11 @@
-use std::ops::{Add, Mul};
+use core::ops::{Add, Mul};
 
+#[cfg(not(feature = "std"))]
+use alloc::{string::{String, ToString}, vec, vec::Vec};
 use bevy::app::{App, Plugin};
-use bevy::ecs::entity::{MapEntities, VisitEntities, VisitEntitiesMut};
+use bevy::ecs::entity::MapEntities;
+use bevy::platform::collections::HashSet;
 use bevy::prelude::{default, Component, Entity, EntityMapper, Event, Reflect, Resource};
-use bevy::utils::HashSet;
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use cfg_if::cfg_if;
 use lightyear_macros::ChannelInternal;
 use serde::{Deserialize, Serialize};
@@ -15,8 +16,8 @@ use crate::protocol::message::registry::AppMessageExt;
 use crate::protocol::message::resource::AppResourceExt;
 use crate::protocol::message::trigger::AppTriggerExt;
 use crate::protocol::serialize::SerializeFns;
-use crate::serialize::reader::Reader;
-use crate::serialize::writer::Writer;
+use crate::serialize::reader::{ReadInteger, Reader};
+use crate::serialize::writer::{WriteInteger, Writer};
 use crate::serialize::SerializationError;
 use crate::shared::input::InputConfig;
 use crate::shared::replication::delta::Diffable;
@@ -34,7 +35,7 @@ pub struct EntityMessage(pub Entity);
 
 impl MapEntities for EntityMessage {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.map_entity(self.0);
+        self.0 = entity_mapper.get_mapped(self.0);
     }
 }
 
@@ -64,14 +65,14 @@ pub(crate) fn serialize_component2(
     data: &ComponentSyncModeSimple,
     writer: &mut Writer,
 ) -> Result<(), SerializationError> {
-    writer.write_u32::<NetworkEndian>(data.0.to_bits())?;
+    writer.write_u32(data.0.to_bits())?;
     Ok(())
 }
 
 pub(crate) fn deserialize_component2(
     reader: &mut Reader,
 ) -> Result<ComponentSyncModeSimple, SerializationError> {
-    let data = f32::from_bits(reader.read_u32::<NetworkEndian>()?);
+    let data = f32::from_bits(reader.read_u32()?);
     Ok(ComponentSyncModeSimple(data))
 }
 
@@ -83,7 +84,7 @@ pub struct ComponentMapEntities(pub Entity);
 
 impl MapEntities for ComponentMapEntities {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.map_entity(self.0);
+        self.0 = entity_mapper.get_mapped(self.0);
     }
 }
 
@@ -135,7 +136,7 @@ impl Diffable for ComponentDeltaCompression2 {
     type Delta = (HashSet<usize>, HashSet<usize>);
 
     fn base_value() -> Self {
-        Self(HashSet::new())
+        Self(HashSet::default())
     }
 
     fn diff(&self, other: &Self) -> Self::Delta {
@@ -169,12 +170,12 @@ pub(crate) fn serialize_resource2(
     data: &Resource2,
     writer: &mut Writer,
 ) -> Result<(), SerializationError> {
-    writer.write_u32::<NetworkEndian>(data.0.to_bits())?;
+    writer.write_u32(data.0.to_bits())?;
     Ok(())
 }
 
 pub(crate) fn deserialize_resource2(reader: &mut Reader) -> Result<Resource2, SerializationError> {
-    let data = f32::from_bits(reader.read_u32::<NetworkEndian>()?);
+    let data = f32::from_bits(reader.read_u32()?);
     Ok(Resource2(data))
 }
 

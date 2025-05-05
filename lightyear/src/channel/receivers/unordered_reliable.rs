@@ -1,4 +1,5 @@
-use std::collections::{btree_map, BTreeMap, HashSet};
+use alloc::collections::{btree_map, BTreeMap};
+use bevy::platform::collections::HashSet;
 
 use bytes::Bytes;
 
@@ -33,7 +34,7 @@ impl UnorderedReliableReceiver {
             pending_recv_message_id: MessageId(0),
             recv_message_buffer: BTreeMap::new(),
             fragment_receiver: FragmentReceiver::new(),
-            received_message_ids: HashSet::new(),
+            received_message_ids: HashSet::default(),
         }
     }
 }

@@ -1,10 +1,15 @@
 use crate::prelude::ClientId;
-use crate::serialize::reader::Reader;
+use crate::serialize::reader::{ReadInteger, Reader};
+use crate::serialize::writer::WriteInteger;
 use crate::serialize::{SerializationError, ToBytes};
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+use bevy::platform::hash::FixedHasher;
 use bevy::prelude::Reflect;
-use bevy::utils::HashSet;
-use byteorder::{ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
+
+type HS<K> = hashbrown::HashSet<K, FixedHasher>;
+type HashSet<K> = bevy::platform::collections::HashSet<K, FixedHasher>;
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect)]
 /// NetworkTarget indicated which clients should receive some message
@@ -26,18 +31,18 @@ pub enum NetworkTarget {
 }
 
 impl ToBytes for NetworkTarget {
-    fn len(&self) -> usize {
+    fn bytes_len(&self) -> usize {
         match self {
             NetworkTarget::None => 1,
-            NetworkTarget::AllExceptSingle(client_id) => 1 + client_id.len(),
-            NetworkTarget::AllExcept(client_ids) => 1 + client_ids.len(),
+            NetworkTarget::AllExceptSingle(client_id) => 1 + client_id.bytes_len(),
+            NetworkTarget::AllExcept(client_ids) => 1 + client_ids.bytes_len(),
             NetworkTarget::All => 1,
-            NetworkTarget::Only(client_ids) => 1 + client_ids.len(),
-            NetworkTarget::Single(client_id) => 1 + client_id.len(),
+            NetworkTarget::Only(client_ids) => 1 + client_ids.bytes_len(),
+            NetworkTarget::Single(client_id) => 1 + client_id.bytes_len(),
         }
     }
 
-    fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         match self {
             NetworkTarget::None => {
                 buffer.write_u8(0)?;
@@ -325,7 +330,7 @@ impl NetworkTarget {
                     *self = NetworkTarget::All;
                 }
                 NetworkTarget::Only(target_client_ids) => {
-                    let mut new_targets = HashSet::from_iter(target_client_ids.clone());
+                    let mut new_targets = HS::from_iter(target_client_ids.clone());
                     new_targets.insert(*existing_client_id);
                     *self = NetworkTarget::from(Vec::from_iter(new_targets));
                 }

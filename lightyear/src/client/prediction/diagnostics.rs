@@ -4,7 +4,7 @@ use crate::prelude::{client::is_disconnected, is_host_server};
 use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 /// Plugin in charge of collecting diagnostics for the prediction systems.
 pub struct PredictionDiagnosticsPlugin {

@@ -1,8 +1,10 @@
 //! Replication-related errors
 
 use crate::serialize::SerializationError;
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 
-pub type Result<T> = std::result::Result<T, ReplicationError>;
+pub type Result<T> = core::result::Result<T, ReplicationError>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ReplicationError {

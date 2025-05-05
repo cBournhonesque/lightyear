@@ -1,6 +1,6 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 use leafwing_input_manager::prelude::*;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use serde::{Deserialize, Serialize};

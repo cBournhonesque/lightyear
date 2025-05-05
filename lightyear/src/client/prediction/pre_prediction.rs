@@ -2,6 +2,7 @@
 //! then the ownership gets transferred to the server.
 
 use bevy::prelude::*;
+use tracing::debug;
 
 use crate::client::components::Confirmed;
 use crate::client::prediction::resource::PredictionManager;
@@ -9,10 +10,10 @@ use crate::client::prediction::Predicted;
 use crate::client::replication::send::ReplicateToServer;
 use crate::prelude::client::is_synced;
 use crate::prelude::{
-    is_host_server, HasAuthority, NetworkIdentityState, ReplicateHierarchy, Replicating,
-    ReplicationGroup, ShouldBePredicted, TickManager,
+    is_host_server, DisableReplicateHierarchy, HasAuthority, NetworkIdentityState, ReplicateLike,
+    Replicating, ReplicationGroup, ShouldBePredicted, TickManager,
 };
-use crate::server::replication::send::ReplicationTarget;
+use crate::server::replication::send::ReplicateToClient;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::sets::{ClientMarker, InternalReplicationSet};
 
@@ -65,10 +66,11 @@ impl PrePredictionPlugin {
             // remove Replicating first so that we don't replicate a despawn
             commands.entity(entity).remove::<Replicating>();
             commands.entity(entity).remove::<(
-                ReplicationTarget,
+                ReplicateToClient,
                 ReplicateToServer,
                 ReplicationGroup,
-                ReplicateHierarchy,
+                DisableReplicateHierarchy,
+                ReplicateLike,
                 HasAuthority,
             )>();
         }
@@ -93,8 +95,8 @@ impl PrePredictionPlugin {
         // PrePredicted was replicated from the server:
         // When we receive an update from the server that confirms a pre-predicted entity,
         // we will add the Predicted component
-        if let Some(&predicted) = predicted_map.confirmed_to_predicted.get(&trigger.entity()) {
-            let confirmed = trigger.entity();
+        match predicted_map.confirmed_to_predicted.get(&trigger.target()) { Some(&predicted) => {
+            let confirmed = trigger.target();
             debug!("Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}");
             commands.queue(move |world: &mut World| {
                 world
@@ -104,8 +106,8 @@ impl PrePredictionPlugin {
                     })
                     .remove::<ShouldBePredicted>();
             });
-        } else {
-            let predicted_entity = trigger.entity();
+        } _ => {
+            let predicted_entity = trigger.target();
             if is_host_server(identity) {
                 // for host-server, we don't want to spawn a separate entity because
                 //  the confirmed/predicted/server entity are the same! Instead we just want
@@ -142,7 +144,7 @@ impl PrePredictionPlugin {
                         .insert(confirmed_entity, predicted_entity);
                 });
             }
-        }
+        }}
     }
 }
 
@@ -185,7 +187,7 @@ mod tests {
             .client_app
             .world_mut()
             .query_filtered::<Entity, With<Confirmed>>()
-            .get_single(stepper.client_app.world())
+            .single(stepper.client_app.world())
             .unwrap();
 
         // need to step multiple times because the server entity doesn't handle messages from future ticks
@@ -309,19 +311,19 @@ mod tests {
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<ComponentClientToServer>>()
-            .get_single(stepper.server_app.world())
+            .single(stepper.server_app.world())
             .expect("parent entity was not replicated");
         let server_child = stepper
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<ComponentSyncModeFull>>()
-            .get_single(stepper.server_app.world())
+            .single(stepper.server_app.world())
             .expect("child entity was not replicated");
         assert_eq!(
             stepper
                 .server_app
                 .world()
-                .get::<Parent>(server_child)
+                .get::<ChildOf>(server_child)
                 .unwrap()
                 .get(),
             server_parent
@@ -378,7 +380,7 @@ mod tests {
             .server_app
             .world_mut()
             .query_filtered::<Entity, With<Predicted>>()
-            .get_single(stepper.server_app.world())
+            .single(stepper.server_app.world())
             .unwrap();
 
         // need to step multiple times because the server entity doesn't handle messages from future ticks

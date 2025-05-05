@@ -1,10 +1,13 @@
 //! WebTransport client implementation.
-use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use alloc::sync::Arc;
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, format, vec, vec::Vec};
+use core::net::SocketAddr;
+use std::sync::Mutex;
 
 use async_compat::Compat;
+use bevy::platform::hash::FixedHasher;
 use bevy::tasks::IoTaskPool;
-use bevy::utils::HashMap;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -21,6 +24,8 @@ use crate::transport::io::IoState;
 use crate::transport::{
     BoxedReceiver, BoxedSender, PacketReceiver, PacketSender, Transport, MIN_MTU, MTU,
 };
+
+type HashMap<K, V> = bevy::platform::collections::HashMap<K, V, FixedHasher>;
 
 pub(crate) struct WebTransportServerSocketBuilder {
     pub(crate) server_addr: SocketAddr,
@@ -43,8 +48,8 @@ impl ServerTransportBuilder for WebTransportServerSocketBuilder {
         let (close_tx, close_rx) = async_channel::unbounded();
         // channels used to check the status of the io task
         let (status_tx, status_rx) = async_channel::unbounded();
-        let to_client_senders = Arc::new(Mutex::new(HashMap::new()));
-        let addr_to_task = Arc::new(Mutex::new(HashMap::new()));
+        let to_client_senders = Arc::new(Mutex::new(HashMap::default()));
+        let addr_to_task = Arc::new(Mutex::new(HashMap::default()));
 
         let sender = WebTransportServerSocketSender {
             server_addr: self.server_addr,

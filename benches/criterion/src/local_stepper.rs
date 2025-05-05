@@ -1,22 +1,15 @@
 //! Helpers to setup a bevy app where I can just step the world easily.
 //! Uses crossbeam channels to mock the network
-use bevy::core::TaskPoolThreadAssignmentPolicy;
 use bevy::ecs::system::RunSystemOnce;
-use bevy::log::{error, Level, LogPlugin};
-use bevy::utils::Duration;
+use core::time::Duration;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use bevy::prelude::{
-    default, App, Commands, Mut, Plugin, PluginGroup, Real, Resource, TaskPoolOptions,
-    TaskPoolPlugin, Time,
-};
+use bevy::platform::collections::HashMap;
+use bevy::prelude::{default, App, Commands, Mut, Plugin, Real, Resource, Time};
 use bevy::state::app::StatesPlugin;
-use bevy::tasks::available_parallelism;
 use bevy::time::TimeUpdateStrategy;
-use bevy::utils::HashMap;
 use bevy::MinimalPlugins;
-
 use lightyear::connection::netcode::generate_key;
 use lightyear::prelude::client::*;
 use lightyear::prelude::server::*;
@@ -55,7 +48,7 @@ pub struct LocalBevyStepper {
     pub frame_duration: Duration,
     /// fixed timestep duration
     pub tick_duration: Duration,
-    pub current_time: bevy::utils::Instant,
+    pub current_time: bevy::platform::time::Instant,
 }
 
 impl Default for LocalBevyStepper {
@@ -89,7 +82,7 @@ impl LocalBevyStepper {
         interpolation_config: InterpolationConfig,
         frame_duration: Duration,
     ) -> Self {
-        let now = bevy::utils::Instant::now();
+        let now = bevy::platform::time::Instant::now();
         // Local channels transport only works with server socket = LOCAL_SOCKET
         let server_addr = LOCAL_SOCKET;
 
@@ -99,7 +92,7 @@ impl LocalBevyStepper {
         let client_id = 111;
 
         let mut client_params = vec![];
-        let mut client_apps = HashMap::new();
+        let mut client_apps = HashMap::default();
         for i in 0..num_clients {
             // Setup io
             let client_id = i as u64;
@@ -232,7 +225,7 @@ impl LocalBevyStepper {
         self.client_apps.values_mut().for_each(|client_app| {
             client_app.finish();
             client_app.cleanup();
-            client_app
+            let _ = client_app
                 .world_mut()
                 .run_system_once(|mut commands: Commands| commands.connect_client());
         });

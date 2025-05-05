@@ -1,11 +1,5 @@
 //! Tests related to the server using multiple transports at the same time to connect to clients
 use crate::client::networking::ClientCommandsExt;
-use bevy::prelude::{default, App, PluginGroup, Real, Time};
-use bevy::state::app::StatesPlugin;
-use bevy::time::TimeUpdateStrategy;
-use bevy::utils::Duration;
-use bevy::MinimalPlugins;
-
 use crate::connection::netcode::generate_key;
 use crate::prelude::client::{
     Authentication, ClientConfig, ClientTransport, InterpolationConfig, NetClient, NetConfig,
@@ -15,6 +9,14 @@ use crate::prelude::server::{NetcodeConfig, ServerCommandsExt, ServerConfig, Ser
 use crate::prelude::*;
 use crate::tests::protocol::*;
 use crate::transport::LOCAL_SOCKET;
+#[cfg(not(feature = "std"))]
+use alloc::vec;
+use bevy::input::InputPlugin;
+use bevy::prelude::{default, App, PluginGroup, Real, Time};
+use bevy::state::app::StatesPlugin;
+use bevy::time::TimeUpdateStrategy;
+use bevy::MinimalPlugins;
+use core::time::Duration;
 
 pub(crate) const TEST_CLIENT_ID_1: u64 = 1;
 pub(crate) const TEST_CLIENT_ID_2: u64 = 2;
@@ -28,7 +30,7 @@ pub struct MultiBevyStepper {
     pub frame_duration: Duration,
     /// fixed timestep duration
     pub tick_duration: Duration,
-    pub current_time: bevy::utils::Instant,
+    pub current_time: bevy::platform::time::Instant,
 }
 
 impl Default for MultiBevyStepper {
@@ -63,7 +65,7 @@ impl MultiBevyStepper {
         interpolation_config: InterpolationConfig,
         frame_duration: Duration,
     ) -> Self {
-        let now = bevy::utils::Instant::now();
+        let now = bevy::platform::time::Instant::now();
 
         // both clients will use the same client id
         let server_addr = LOCAL_SOCKET;
@@ -150,6 +152,11 @@ impl MultiBevyStepper {
             .get_resource_mut::<Time<Real>>()
             .unwrap()
             .update_with_instant(now);
+        #[cfg(feature = "leafwing")]
+        {
+            server_app.add_plugins(LeafwingInputPlugin::<LeafwingInput1>::default());
+            server_app.add_plugins(LeafwingInputPlugin::<LeafwingInput2>::default());
+        }
 
         let build_client = |net_config: NetConfig| -> App {
             let mut client_app = App::new();
@@ -171,6 +178,12 @@ impl MultiBevyStepper {
                 .get_resource_mut::<Time<Real>>()
                 .unwrap()
                 .update_with_instant(now);
+            #[cfg(feature = "leafwing")]
+            {
+                client_app.add_plugins(LeafwingInputPlugin::<LeafwingInput1>::default());
+                client_app.add_plugins(LeafwingInputPlugin::<LeafwingInput2>::default());
+                client_app.add_plugins(InputPlugin);
+            }
             client_app
         };
 
@@ -194,10 +207,10 @@ impl MultiBevyStepper {
     }
 
     pub fn init(&mut self) {
-        let _ = self.server_app.world_mut().start_server();
-        let _ = self.client_app_1.world_mut().connect_client();
+        self.server_app.world_mut().start_server();
+        self.client_app_1.world_mut().connect_client();
 
-        let _ = self.client_app_2.world_mut().connect_client();
+        self.client_app_2.world_mut().connect_client();
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
@@ -240,19 +253,13 @@ impl MultiBevyStepper {
         self.advance_time(self.frame_duration);
         self.client_app_1.update();
         self.client_app_2.update();
-        // sleep a bit to make sure that local io receives the packets
-        std::thread::sleep(Duration::from_millis(1));
         self.server_app.update();
-        std::thread::sleep(Duration::from_millis(1));
     }
 
     pub(crate) fn tick_step(&mut self) {
         self.advance_time(self.tick_duration);
         self.client_app_1.update();
         self.client_app_2.update();
-        // sleep a bit to make sure that local io receives the packets
-        std::thread::sleep(Duration::from_millis(1));
         self.server_app.update();
-        std::thread::sleep(Duration::from_millis(1));
     }
 }

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 use crate::protocol::*;
 use crate::shared;
@@ -86,7 +86,7 @@ pub(crate) fn replicate_players(
         // to other clients
         if let Some(mut e) = commands.get_entity(entity) {
             let replicate = Replicate {
-                target: ReplicationTarget {
+                target: ReplicateToClient {
                     // we want to replicate back to the original client, since they are using a pre-spawned entity
                     target: NetworkTarget::All,
                 },
@@ -126,7 +126,7 @@ pub(crate) fn replicate_cursors(
         // to other clients
         if let Some(mut e) = commands.get_entity(entity) {
             e.insert(Replicate {
-                target: ReplicationTarget {
+                target: ReplicateToClient {
                     // do not replicate back to the client that owns the cursor!
                     target: NetworkTarget::AllExceptSingle(client_id),
                 },

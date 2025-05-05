@@ -1,7 +1,6 @@
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy::utils::HashMap;
-use std::ops::Deref;
-
+use core::ops::Deref;
 pub use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 

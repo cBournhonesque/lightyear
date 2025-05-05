@@ -1,11 +1,12 @@
-use byteorder::ReadBytesExt;
+use alloc::collections::VecDeque;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+use bevy::platform::collections::HashMap;
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender};
-use std::collections::{HashMap, VecDeque};
 use tracing::trace;
 #[cfg(feature = "trace")]
 use tracing::{instrument, Level};
-
 use crate::channel::builder::ChannelContainer;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::senders::ChannelSend;
@@ -22,7 +23,7 @@ use crate::packet::packet_type::PacketType;
 use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
 use crate::protocol::channel::{ChannelId, ChannelKind, ChannelRegistry};
 use crate::protocol::registry::NetId;
-use crate::serialize::reader::Reader;
+use crate::serialize::reader::{ReadInteger, Reader};
 use crate::serialize::writer::Writer;
 use crate::serialize::{SerializationError, ToBytes};
 use crate::shared::ping::manager::PingManager;
@@ -66,7 +67,7 @@ impl MessageManager {
             priority_manager: PriorityManager::new(priority_config),
             channels: channel_registry.channels(),
             channel_registry: channel_registry.clone(),
-            packet_to_message_ack_map: HashMap::new(),
+            packet_to_message_ack_map: HashMap::default(),
             nack_senders: vec![],
         }
     }
@@ -231,7 +232,7 @@ impl MessageManager {
             trace!(packet_id = ?packet.packet_id, num_messages = ?packet.num_messages(), "sending packet");
             // TODO: should we update this to include fragment info as well?
             // Step 2. Update the packet_to_message_id_map (only for channels that care about acks)
-            std::mem::take(&mut packet.message_acks)
+            core::mem::take(&mut packet.message_acks)
                 .into_iter()
                 .try_for_each(|(channel_id, message_ack)| {
                     let channel_kind = self
@@ -382,7 +383,7 @@ impl MessageManager {
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn read_messages(
         &mut self,
-    ) -> impl Iterator<Item = (ChannelKind, (Tick, bytes::Bytes))> + Captures<&()> {
+    ) -> impl Iterator<Item = (ChannelKind, (Tick, Bytes))> + Captures<&()> {
         self.channels
             .iter_mut()
             .flat_map(move |(channel_kind, channel)| {
@@ -398,9 +399,9 @@ impl MessageManager {
 
     #[cfg(test)]
     pub fn collect_messages(
-        messages: impl Iterator<Item = (ChannelKind, (Tick, bytes::Bytes))>,
-    ) -> HashMap<ChannelKind, Vec<(Tick, bytes::Bytes)>> {
-        let mut map = HashMap::new();
+        messages: impl Iterator<Item = (ChannelKind, (Tick, Bytes))>,
+    ) -> HashMap<ChannelKind, Vec<(Tick, Bytes)>> {
+        let mut map = HashMap::default();
         for (channel_kind, (tick, bytes)) in messages {
             map.entry(channel_kind)
                 .or_insert_with(Vec::new)
@@ -435,8 +436,6 @@ impl MessageManager {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use bevy::prelude::default;
 
     use crate::packet::message::MessageId;
@@ -485,7 +484,7 @@ mod tests {
         let payloads = client_message_manager.send_packets(Tick(0))?;
         assert_eq!(
             client_message_manager.packet_to_message_ack_map,
-            HashMap::from([(
+            HashMap::from_iter([(
                 PacketId(0),
                 vec![(
                     channel_kind_2,
@@ -661,7 +660,7 @@ mod tests {
         let payloads = client_message_manager.send_packets(Tick(0))?;
         assert_eq!(
             client_message_manager.packet_to_message_ack_map,
-            HashMap::from([(
+            HashMap::from_iter([(
                 PacketId(0),
                 vec![(
                     Channel2::kind(),

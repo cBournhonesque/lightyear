@@ -2,11 +2,11 @@ use std::f32::consts::TAU;
 
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
-use bevy::utils::HashMap;
 use client::Rollback;
+use core::time::Duration;
 use leafwing_input_manager::action_diff::ActionDiff;
 use leafwing_input_manager::prelude::*;
 use lightyear::client::connection;

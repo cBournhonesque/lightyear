@@ -7,7 +7,14 @@ use crate::transport::error::{Error, Result};
 use crate::transport::io::{BaseIo, IoState};
 use bevy::prelude::{Deref, DerefMut};
 use crossbeam_channel::Sender;
-use std::net::SocketAddr;
+
+#[cfg(feature = "std")]
+use std::{io};
+#[cfg(not(feature = "std"))]
+use {
+    no_std_io2::io,
+};
+use core::net::SocketAddr;
 
 pub struct IoContext {
     pub(crate) event_sender: Option<ServerNetworkEventSender>,
@@ -23,7 +30,7 @@ impl Io {
         if let Some(event_sender) = self.context.event_sender.as_mut() {
             event_sender
                 .try_send(ServerIoEvent::ServerDisconnected(
-                    std::io::Error::other("server requested disconnection").into(),
+                    io::Error::other("server requested disconnection").into(),
                 ))
                 .map_err(Error::from)?;
         }

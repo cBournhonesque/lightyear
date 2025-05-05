@@ -7,20 +7,21 @@ pub mod leafwing;
 
 use crate::inputs::native::input_buffer::InputBuffer;
 use crate::inputs::native::UserActionState;
-use crate::prelude::{is_host_server, server::is_started, TickManager};
+use crate::prelude::{server::is_started, TickManager};
 use crate::shared::sets::{InternalMainSet, ServerMarker};
 use bevy::prelude::*;
+use tracing::trace;
 
 pub struct BaseInputPlugin<A> {
     rebroadcast_inputs: bool,
-    marker: std::marker::PhantomData<A>,
+    marker: core::marker::PhantomData<A>,
 }
 
 impl<A> Default for BaseInputPlugin<A> {
     fn default() -> Self {
         Self {
             rebroadcast_inputs: false,
-            marker: std::marker::PhantomData,
+            marker: core::marker::PhantomData,
         }
     }
 }
@@ -78,6 +79,7 @@ fn update_action_state<A: UserActionState>(
     mut action_state_query: Query<(Entity, &mut A, &mut InputBuffer<A>)>,
 ) {
     let tick = tick_manager.tick();
+
     for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
         // We only apply the ActionState from the buffer if we have one.
         // If we don't (because the input packet is late or lost), we won't do anything.
@@ -97,7 +99,7 @@ fn update_action_state<A: UserActionState>(
                 // so that we can handle lost messages
                 metrics::gauge!(format!(
                     "inputs::{}::{}::buffer_size",
-                    std::any::type_name::<A>(),
+                    core::any::type_name::<A>(),
                     entity
                 ))
                 .set(input_buffer.len() as f64);

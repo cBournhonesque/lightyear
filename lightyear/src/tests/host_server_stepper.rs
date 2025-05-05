@@ -8,13 +8,15 @@ use crate::prelude::*;
 use crate::shared::time_manager::WrappedTime;
 use crate::tests::protocol::*;
 use crate::transport::LOCAL_SOCKET;
+#[cfg(not(feature = "std"))]
+use alloc::vec;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::input::InputPlugin;
 use bevy::prelude::{default, App, Commands, Mut, Real, Time, World};
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
-use bevy::utils::Duration;
 use bevy::MinimalPlugins;
+use core::time::Duration;
 
 pub const LOCAL_CLIENT_ID: u64 = 111;
 pub const EXTERNAL_CLIENT_ID: u64 = 112;
@@ -26,7 +28,7 @@ pub struct HostServerStepper {
     pub server_app: App,
     pub frame_duration: Duration,
     pub tick_duration: Duration,
-    pub current_time: bevy::utils::Instant,
+    pub current_time: bevy::platform::time::Instant,
 }
 
 impl Default for HostServerStepper {
@@ -161,7 +163,7 @@ impl HostServerStepper {
         }
 
         // Initialize Real time (needed only for the first TimeSystem run)
-        let now = bevy::utils::Instant::now();
+        let now = bevy::platform::time::Instant::now();
         client_app
             .world_mut()
             .get_resource_mut::<Time<Real>>()
@@ -237,7 +239,7 @@ impl HostServerStepper {
                 commands.start_server();
                 commands.connect_client();
             });
-        let _ = self.client_app.world_mut().connect_client();
+        self.client_app.world_mut().connect_client();
         // Advance the world to let the connection process complete
         for _ in 0..100 {
             if self
@@ -260,7 +262,7 @@ impl HostServerStepper {
                 commands.start_server();
                 commands.connect_client();
             });
-        let _ = self.client_app.world_mut().connect_client();
+        self.client_app.world_mut().connect_client();
 
         // Advance the world to let the connection process complete
         for _ in 0..100 {
@@ -284,7 +286,7 @@ impl HostServerStepper {
                 commands.stop_server();
                 commands.disconnect_client();
             });
-        let _ = self.client_app.world_mut().disconnect_client();
+        self.client_app.world_mut().disconnect_client();
 
         // Advance the world to let the disconnection process complete
         for _ in 0..100 {

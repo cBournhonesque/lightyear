@@ -12,7 +12,7 @@ You can find more information in the [book](https://cbournhonesque.github.io/lig
 `lightyear` provides two plugins groups: [`ServerPlugins`](prelude::server::ServerPlugins) and [`ClientPlugins`](prelude::client::ClientPlugins) that will handle the networking for you.
 
 ```rust
-use bevy::utils::Duration;
+use core::time::Duration;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 use lightyear::prelude::client::*;
@@ -159,10 +159,11 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 ```
 
 [`Replicated`]: prelude::Replicated
-[`ReplicationTarget`]: prelude::server::ReplicationTarget
+[`ReplicationTarget`]: prelude::server::ReplicateToClient
 [`Replicating`]: prelude::Replicating
 [`SharedConfig`]: prelude::SharedConfig
  */
+#![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::missing_transmute_annotations)]
 #![allow(unused_variables)]
 #![allow(clippy::too_many_arguments)]
@@ -172,6 +173,8 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 // only enables the `doc_cfg` feature when
 // the `docsrs` configuration attribute is defined
 #![cfg_attr(docsrs, feature(doc_cfg))]
+
+extern crate alloc;
 
 // re-exports
 #[doc(hidden)]
@@ -188,7 +191,7 @@ pub mod prelude {
         Channel, ChannelBuilder, ChannelContainer, ChannelDirection, ChannelMode, ChannelSettings,
         InputChannel, ReliableSettings,
     };
-    pub use crate::client::prediction::prespawn::PreSpawnedPlayerObject;
+    pub use crate::client::prediction::prespawn::PreSpawned;
     pub use crate::connection::id::ClientId;
     pub use crate::connection::netcode::{generate_key, ConnectToken, Key};
     #[cfg(feature = "leafwing")]
@@ -197,7 +200,10 @@ pub mod prelude {
     pub use crate::packet::error::PacketError;
     pub use crate::packet::message::Message;
     pub use crate::protocol::channel::{AppChannelExt, ChannelKind, ChannelRegistry};
-    pub use crate::protocol::component::{AppComponentExt, ComponentRegistry, Linear};
+    pub use crate::protocol::component::{
+        interpolation::Linear,
+        registry::{AppComponentExt, ComponentRegistry},
+    };
     pub use crate::protocol::message::{
         registry::{AppMessageExt, MessageRegistry},
         resource::AppResourceExt,
@@ -214,12 +220,12 @@ pub mod prelude {
     pub use crate::shared::plugin::SharedPlugin;
     pub use crate::shared::replication::authority::HasAuthority;
     pub use crate::shared::replication::components::{
-        DeltaCompression, DisabledComponents, NetworkRelevanceMode, OverrideTargetComponent,
-        PrePredicted, ReplicateHierarchy, ReplicateOnceComponent, Replicated, Replicating,
-        ReplicationGroup, ShouldBePredicted, TargetEntity,
+        DeltaCompression, DisableReplicateHierarchy, DisabledComponents, NetworkRelevanceMode,
+        PrePredicted, ReplicateOnce, Replicated, Replicating, ReplicationGroup, ReplicationMarker,
+        ShouldBePredicted, TargetEntity,
     };
     pub use crate::shared::replication::entity_map::RemoteEntityMap;
-    pub use crate::shared::replication::hierarchy::ParentSync;
+    pub use crate::shared::replication::hierarchy::{ChildOfSync, RelationshipSync, ReplicateLike};
     pub use crate::shared::replication::network_target::NetworkTarget;
     pub use crate::shared::replication::plugin::ReplicationConfig;
     pub use crate::shared::replication::plugin::SendUpdatesMode;
@@ -270,9 +276,7 @@ pub mod prelude {
     pub use rename::*;
 
     pub mod client {
-        pub use crate::client::components::{
-            ComponentSyncMode, Confirmed, LerpFn, SyncComponent, SyncMetadata,
-        };
+        pub use crate::client::components::{ComponentSyncMode, Confirmed, LerpFn, SyncMetadata};
         pub use crate::client::config::{ClientConfig, NetcodeConfig, PacketConfig};
         pub use crate::client::connection::ConnectionManager;
         pub use crate::client::error::ClientError;
@@ -335,7 +339,8 @@ pub mod prelude {
         pub use crate::server::replication::commands::DespawnReplicationCommandExt;
         pub use crate::server::replication::{
             send::{
-                ControlledBy, Lifetime, Replicate, ReplicationTarget, ServerFilter, SyncTarget,
+                ControlledBy, Lifetime, OverrideTarget, Replicate, ReplicateToClient, ServerFilter,
+                SyncTarget,
             },
             ReplicationSet, ServerReplicationSet,
         };

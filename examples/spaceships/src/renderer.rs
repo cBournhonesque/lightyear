@@ -9,8 +9,9 @@ use bevy::core_pipeline::bloom::Bloom;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
+use core::time::Duration;
 use leafwing_input_manager::action_state::ActionState;
-use lightyear::client::prediction::prespawn::PreSpawnedPlayerObject;
+use lightyear::client::prediction::prespawn::PreSpawned;
 use lightyear::inputs::leafwing::input_buffer::InputBuffer;
 use lightyear::prelude::client::*;
 use lightyear::prelude::Replicating;
@@ -27,7 +28,6 @@ use lightyear::{
 };
 use std::f32::consts::PI;
 use std::f32::consts::TAU;
-use std::time::Duration;
 
 pub struct SpaceshipsRendererPlugin;
 
@@ -85,12 +85,12 @@ fn add_visual_interpolation_components(
     q: Query<Entity, (Without<Wall>, With<Predicted>)>,
     mut commands: Commands,
 ) {
-    if !q.contains(trigger.entity()) {
+    if !q.contains(trigger.target()) {
         return;
     }
-    debug!("Adding visual interp component to {:?}", trigger.entity());
+    debug!("Adding visual interp component to {:?}", trigger.target());
     commands
-        .entity(trigger.entity())
+        .entity(trigger.target())
         .insert(VisualInterpolateStatus::<Transform> {
             // We must trigger change detection on visual interpolation
             // to make sure that child entities (sprites, meshes, text)
@@ -209,21 +209,21 @@ fn draw_predicted_entities(
             &Rotation,
             &ColorComponent,
             &Collider,
-            Has<PreSpawnedPlayerObject>,
+            Has<PreSpawned>,
             Option<&ActionState<PlayerActions>>,
             Option<&InputBuffer<PlayerActions>>,
         ),
         (
             // skip drawing bullet outlines, since we add a mesh + material to them
             Without<BulletMarker>,
-            Or<(With<PreSpawnedPlayerObject>, With<Predicted>)>,
+            Or<(With<PreSpawned>, With<Predicted>)>,
         ),
     >,
     tick_manager: Res<TickManager>,
 ) {
     for (e, position, rotation, color, collider, prespawned, opt_action, opt_ib) in &predicted {
         // render prespawned translucent until acknowledged by the server
-        // (at which point the PreSpawnedPlayerObject component is removed)
+        // (at which point the PreSpawned component is removed)
         let col = if prespawned {
             color.0.with_alpha(0.5)
         } else {

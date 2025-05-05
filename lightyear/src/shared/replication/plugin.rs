@@ -1,7 +1,7 @@
 //! This module contains the `ReplicationReceivePlugin` and `ReplicationSendPlugin` plugins, which control
 //! the replication of entities and resources.
 //!
-use crate::shared::replication::hierarchy::{HierarchyReceivePlugin, HierarchySendPlugin};
+use crate::shared::replication::hierarchy::{RelationshipReceivePlugin, RelationshipSendPlugin};
 use crate::shared::replication::resources::{
     receive::ResourceReceivePlugin, send::ResourceSendPlugin,
 };
@@ -10,7 +10,7 @@ use crate::shared::replication::{ReplicationReceive, ReplicationSend};
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet, MainSet};
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
+use core::time::Duration;
 
 #[derive(Clone, Copy, Debug, Reflect)]
 pub struct ReplicationConfig {
@@ -50,7 +50,7 @@ pub(crate) mod receive {
     use super::*;
     pub(crate) struct ReplicationReceivePlugin<R> {
         clean_interval: Duration,
-        _marker: std::marker::PhantomData<R>,
+        _marker: core::marker::PhantomData<R>,
     }
 
     impl<R> ReplicationReceivePlugin<R> {
@@ -58,7 +58,7 @@ pub(crate) mod receive {
             Self {
                 // TODO: find a better constant for the clean interval?
                 clean_interval: tick_interval * (i16::MAX as u32 / 3),
-                _marker: std::marker::PhantomData,
+                _marker: core::marker::PhantomData,
             }
         }
     }
@@ -69,7 +69,7 @@ pub(crate) mod receive {
             if !app.is_plugin_added::<shared::SharedPlugin>() {
                 app.add_plugins(shared::SharedPlugin);
             }
-            app.add_plugins(HierarchyReceivePlugin::<R>::default())
+            app.add_plugins(RelationshipReceivePlugin::<R, ChildOf>::default())
                 .add_plugins(ResourceReceivePlugin::<R>::default());
 
             // SYSTEMS
@@ -84,17 +84,18 @@ pub(crate) mod receive {
 pub(crate) mod send {
     use super::*;
     use crate::prelude::{Replicating, ReplicationGroup, TimeManager};
+    use crate::shared::replication::hierarchy::HierarchySendPlugin;
 
     pub(crate) struct ReplicationSendPlugin<R> {
         send_interval: Duration,
         clean_interval: Duration,
-        _marker: std::marker::PhantomData<R>,
+        _marker: core::marker::PhantomData<R>,
     }
 
     #[derive(Resource, Debug)]
     pub(crate) struct SendIntervalTimer<R: Send + Sync + 'static> {
         pub(crate) timer: Option<Timer>,
-        _marker: std::marker::PhantomData<R>,
+        _marker: core::marker::PhantomData<R>,
     }
 
     impl<R: Send + Sync + 'static> ReplicationSendPlugin<R> {
@@ -103,7 +104,7 @@ pub(crate) mod send {
                 send_interval,
                 // TODO: find a better constant for the clean interval?
                 clean_interval: tick_interval * (i16::MAX as u32 / 3),
-                _marker: std::marker::PhantomData,
+                _marker: core::marker::PhantomData,
             }
         }
 
@@ -148,11 +149,16 @@ pub(crate) mod send {
     impl<R: ReplicationSend> Plugin for ReplicationSendPlugin<R> {
         fn build(&self, app: &mut App) {
             // PLUGINS
+
+            // we add this condition to not add a plugin twice if running in HostServer mode
             if !app.is_plugin_added::<shared::SharedPlugin>() {
                 app.add_plugins(shared::SharedPlugin);
             }
-            app.add_plugins(ResourceSendPlugin::<R>::default())
-                .add_plugins(HierarchySendPlugin::<R>::default());
+            if !app.is_plugin_added::<RelationshipSendPlugin<ChildOf>>() {
+                app.add_plugins(RelationshipSendPlugin::<ChildOf>::default());
+            }
+            app.add_plugins(ResourceSendPlugin::<R>::default());
+            app.add_plugins(HierarchySendPlugin::<R>::default());
 
             // RESOURCES
             app.insert_resource(SendIntervalTimer::<R> {
@@ -161,7 +167,7 @@ pub(crate) mod send {
                 } else {
                     Some(Timer::new(self.send_interval, TimerMode::Repeating))
                 },
-                _marker: std::marker::PhantomData,
+                _marker: core::marker::PhantomData,
             });
 
             // SETS
@@ -188,7 +194,6 @@ pub(crate) mod send {
                     (
                         InternalReplicationSet::<R::SetMarker>::BufferEntityUpdates,
                         InternalReplicationSet::<R::SetMarker>::BufferComponentUpdates,
-                        InternalReplicationSet::<R::SetMarker>::BufferDespawnsAndRemovals,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::Buffer),
                     (
@@ -198,7 +203,6 @@ pub(crate) mod send {
                         // TODO: verify this, why does handle-replicate-update need to run every frame?
                         //  because Removed<Replicate> is cleared every frame?
                         // NOTE: HandleReplicateUpdate should also run every frame?
-                        // NOTE: BufferDespawnsAndRemovals is not in MainSet::Send because we need to run them every frame
                         InternalReplicationSet::<R::SetMarker>::AfterBuffer,
                     )
                         .in_set(InternalReplicationSet::<R::SetMarker>::SendMessages),
@@ -218,6 +222,7 @@ pub(crate) mod send {
                 ),
             );
             // SYSTEMS
+
             app.add_systems(
                 PreUpdate,
                 ReplicationSendPlugin::<R>::tick_send_interval_timer.after(MainSet::Receive),
@@ -241,20 +246,23 @@ pub(crate) mod send {
 }
 
 pub(crate) mod shared {
+    use crate::client::components::ComponentSyncMode;
     use crate::client::replication::send::ReplicateToServer;
     use crate::prelude::{
-        NetworkRelevanceMode, PrePredicted, RemoteEntityMap, ReplicateHierarchy, Replicated,
-        ReplicationConfig, ReplicationGroup, ShouldBePredicted, TargetEntity,
+        AppComponentExt, AppMessageExt, ChannelDirection, ComponentRegistry, NetworkRelevanceMode,
+        PrePredicted, PreSpawned, RelationshipSync, RemoteEntityMap, Replicated, ReplicationConfig,
+        ReplicationGroup, ShouldBePredicted, TargetEntity,
     };
-    use crate::server::replication::send::ReplicationTarget;
-    use crate::shared::replication::authority::{AuthorityPeer, HasAuthority};
+    use crate::server::replication::send::ReplicateToClient;
+    use crate::shared::replication::authority::{AuthorityChange, AuthorityPeer, HasAuthority};
     use crate::shared::replication::components::{
-        Controlled, Replicating, ReplicationGroupId, ReplicationGroupIdBuilder,
-        ShouldBeInterpolated,
+        Controlled, DisableReplicateHierarchy, Replicating, ReplicationGroupId,
+        ReplicationGroupIdBuilder, ShouldBeInterpolated,
     };
     use crate::shared::replication::entity_map::{InterpolatedEntityMap, PredictedEntityMap};
+    use crate::shared::replication::hierarchy::ReplicateLike;
     use crate::shared::replication::network_target::NetworkTarget;
-    use bevy::prelude::{App, Plugin};
+    use bevy::prelude::{App, ChildOf, Plugin};
 
     pub(crate) struct SharedPlugin;
 
@@ -265,9 +273,10 @@ pub(crate) mod shared {
                 .register_type::<Replicated>()
                 .register_type::<Controlled>()
                 .register_type::<Replicating>()
-                .register_type::<ReplicationTarget>()
+                .register_type::<ReplicateToClient>()
                 .register_type::<ReplicateToServer>()
-                .register_type::<ReplicateHierarchy>()
+                .register_type::<DisableReplicateHierarchy>()
+                .register_type::<ReplicateLike>()
                 .register_type::<ReplicationGroupIdBuilder>()
                 .register_type::<ReplicationGroup>()
                 .register_type::<ReplicationConfig>()
@@ -282,6 +291,32 @@ pub(crate) mod shared {
                 .register_type::<HasAuthority>()
                 .register_type::<AuthorityPeer>()
                 .register_type::<InterpolatedEntityMap>();
+        }
+
+        fn finish(&self, app: &mut App) {
+            // PROTOCOL
+            // we register components here because
+            // - we need to run this in `finish` so that all plugins have been built (so ClientPlugin and ServerPlugin
+            // both exists)
+            // - the replication::SharedPlugin should only be added once, even when running in host-server mode
+            app.register_component::<PreSpawned>(ChannelDirection::Bidirectional);
+            app.register_component::<PrePredicted>(ChannelDirection::Bidirectional);
+            app.register_component::<ShouldBePredicted>(ChannelDirection::ServerToClient);
+            app.register_component::<ShouldBeInterpolated>(ChannelDirection::ServerToClient);
+            app.register_component::<RelationshipSync<ChildOf>>(ChannelDirection::Bidirectional)
+                // to replicate ReplicationSync on the predicted/interpolated entities so that they spawn their own hierarchies
+                .add_prediction(ComponentSyncMode::Simple)
+                .add_interpolation(ComponentSyncMode::Simple)
+                .add_map_entities();
+            app.register_component::<Controlled>(ChannelDirection::ServerToClient)
+                .add_prediction(ComponentSyncMode::Once)
+                .add_interpolation(ComponentSyncMode::Once);
+
+            app.register_message::<AuthorityChange>(ChannelDirection::ServerToClient)
+                .add_map_entities();
+
+            // check that the protocol was built correctly
+            app.world().resource::<ComponentRegistry>().check();
         }
     }
 }

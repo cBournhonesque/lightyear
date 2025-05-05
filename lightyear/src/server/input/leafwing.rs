@@ -12,20 +12,20 @@ use crate::prelude::{
     ServerSendMessage, TickManager,
 };
 use crate::server::connection::ConnectionManager;
-use crate::server::input::InputSystemSet;
+pub(crate) use crate::server::input::InputSystemSet;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 
 pub struct LeafwingInputPlugin<A> {
     pub(crate) rebroadcast_inputs: bool,
-    pub(crate) marker: std::marker::PhantomData<A>,
+    pub(crate) marker: core::marker::PhantomData<A>,
 }
 
 impl<A> Default for LeafwingInputPlugin<A> {
     fn default() -> Self {
         Self {
             rebroadcast_inputs: false,
-            marker: std::marker::PhantomData,
+            marker: core::marker::PhantomData,
         }
     }
 }
@@ -34,7 +34,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
     fn build(&self, app: &mut App) {
         app.add_plugins(super::BaseInputPlugin::<ActionState<A>> {
             rebroadcast_inputs: self.rebroadcast_inputs,
-            marker: std::marker::PhantomData,
+            marker: core::marker::PhantomData,
         });
 
         // SYSTEMS

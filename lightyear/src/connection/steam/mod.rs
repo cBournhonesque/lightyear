@@ -1,4 +1,6 @@
 use crate::prelude::LinkConditionerConfig;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 use steamworks::networking_types::{NetworkingConfigEntry, NetworkingConfigValue};
 
 pub(crate) mod client;
@@ -12,7 +14,7 @@ pub(crate) fn get_networking_options(
         NetworkingConfigValue::NagleTime,
         0,
     )];
-    if let Some(ref conditioner) = conditioner {
+    if let Some(conditioner) = conditioner {
         // TODO: float options are not useable, see https://github.com/Noxime/steamworks-rs/pull/168
         // options.push(NetworkingConfigEntry::new_float(
         //     NetworkingConfigValue::FakePacketLossRecv,

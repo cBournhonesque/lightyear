@@ -3,11 +3,11 @@ use std::f32::consts::TAU;
 use avian3d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::math::VectorSpace;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
-use bevy::utils::Duration;
-use bevy::utils::HashMap;
 use client::Rollback;
+use core::time::Duration;
 use leafwing_input_manager::action_diff::ActionDiff;
 use leafwing_input_manager::prelude::*;
 use lightyear::client::connection;
@@ -141,24 +141,22 @@ fn init(mut commands: Commands) {
         // Floors don't need to be predicted since they will never move.
         // We put it in the same replication group to avoid having the players be replicated before the floor
         // and falling infinitely
-        Replicate {
-            group: REPLICATION_GROUP,
-            ..default()
-        },
+        ReplicateToClient::default(),
+        REPLICATION_GROUP,
     ));
 
     // Blocks need to be predicted because their position, rotation, velocity
     // may change.
-    let block_replicate_component = Replicate {
-        sync: SyncTarget {
+    let block_replicate_component = (
+        ReplicateToClient::default(),
+        SyncTarget {
             prediction: NetworkTarget::All,
             ..default()
         },
         // Make sure that all entities that are predicted are part of the
         // same replication group
-        group: REPLICATION_GROUP,
-        ..default()
-    };
+        REPLICATION_GROUP,
+    );
     // commands.spawn((
     //     Name::new("Block"),
     //     BlockPhysicsBundle::default(),
@@ -188,23 +186,18 @@ pub(crate) fn handle_connections(
     for connection in connections.read() {
         let client_id = connection.client_id;
         info!("Client connected with client-id {client_id:?}. Spawning character entity.");
-        // Replicate newly connected clients to all players
-        let mut replicate = Replicate {
-            controlled_by: ControlledBy {
-                target: NetworkTarget::Single(client_id),
+
+        let sync = if global.predict_all {
+            SyncTarget {
+                prediction: NetworkTarget::All,
                 ..default()
-            },
-            // Make sure that all entities that are predicted are part of the
-            // same replication group
-            group: REPLICATION_GROUP,
-            ..default()
-        };
-        if global.predict_all {
-            replicate.sync.prediction = NetworkTarget::All;
+            }
         } else {
-            replicate.sync.prediction = NetworkTarget::Single(connection.client_id);
-            replicate.sync.interpolation = NetworkTarget::AllExceptSingle(client_id);
-        }
+            SyncTarget {
+                prediction: NetworkTarget::Single(connection.client_id),
+                interpolation: NetworkTarget::AllExceptSingle(client_id),
+            }
+        };
 
         // Pick color and position for player.
         let available_colors = [
@@ -233,7 +226,16 @@ pub(crate) fn handle_connections(
                 Name::new("Character"),
                 ActionState::<CharacterAction>::default(),
                 Position(Vec3::new(x, 3.0, z)),
-                replicate,
+                // replicate newly connected clients
+                ReplicateToClient::default(),
+                sync,
+                // Make sure that all entities that are predicted are part of the
+                // same replication group
+                REPLICATION_GROUP,
+                ControlledBy {
+                    target: NetworkTarget::Single(client_id),
+                    ..default()
+                },
                 CharacterPhysicsBundle::default(),
                 ColorComponent(color.into()),
                 CharacterMarker,

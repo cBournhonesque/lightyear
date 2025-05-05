@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+use bevy::platform::collections::HashMap;
 
 use bytes::Bytes;
 use tracing::trace;
@@ -17,7 +19,7 @@ pub struct FragmentReceiver {
 impl FragmentReceiver {
     pub fn new() -> Self {
         Self {
-            fragment_messages: HashMap::new(),
+            fragment_messages: HashMap::default(),
         }
     }
 
@@ -117,7 +119,7 @@ impl FragmentConstructor {
 
         if self.num_received_fragments == self.num_fragments {
             trace!("Received all fragments!");
-            let payload = std::mem::take(&mut self.bytes);
+            let payload = core::mem::take(&mut self.bytes);
             return Some((self.tick, payload.into()));
         }
 

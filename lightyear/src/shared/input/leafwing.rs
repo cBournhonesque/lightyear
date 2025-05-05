@@ -7,7 +7,7 @@ use crate::protocol::message::registry::AppMessageInternalExt;
 use crate::server::config::ServerConfig;
 use crate::shared::input::InputConfig;
 use bevy::app::{App, Plugin};
-use leafwing_input_manager::prelude::{ActionState, InputMap};
+use leafwing_input_manager::prelude::ActionState;
 
 pub struct LeafwingInputPlugin<A> {
     pub config: InputConfig<A>,
@@ -33,7 +33,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
 
         app.register_required_components::<ActionState<A>, InputBuffer<A>>();
         app.register_required_components::<InputBuffer<A>, ActionState<A>>();
-        app.register_required_components::<InputMap<A>, ActionState<A>>();
+        // app.register_required_components::<InputMap<A>, ActionState<A>>();
         if is_client {
             app.add_plugins(
                 crate::client::input::leafwing::LeafwingInputPlugin::<A>::new(self.config),
@@ -42,7 +42,7 @@ impl<A: LeafwingUserAction> Plugin for LeafwingInputPlugin<A> {
         if is_server {
             app.add_plugins(crate::server::input::leafwing::LeafwingInputPlugin::<A> {
                 rebroadcast_inputs: self.config.rebroadcast_inputs,
-                marker: std::marker::PhantomData,
+                marker: core::marker::PhantomData,
             });
         }
     }

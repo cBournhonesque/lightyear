@@ -4,7 +4,7 @@
 //! You can use the `#[protocol]` attribute to specify additional behaviour:
 //! - how entities contained in the message should be mapped from the remote world to the local world
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
-use std::ops::{Add, Mul};
+use core::ops::{Add, Mul};
 
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{
@@ -22,7 +22,7 @@ use tracing::{info, trace};
 pub(crate) struct PlayerBundle {
     id: PlayerId,
     position: PlayerPosition,
-    delta: DeltaCompression<PlayerPosition>,
+    delta: DeltaCompression,
     color: PlayerColor,
 }
 
@@ -36,7 +36,7 @@ impl PlayerBundle {
         Self {
             id: PlayerId(id),
             position: PlayerPosition(position),
-            delta: DeltaCompression::default(),
+            delta: DeltaCompression::default().add::<PlayerPosition>(),
             color: PlayerColor(color),
         }
     }
@@ -119,7 +119,7 @@ pub struct PlayerParent(Entity);
 
 impl MapEntities for PlayerParent {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.map_entity(self.0);
+        self.0 = entity_mapper.get_mapped(self.0);
     }
 }
 

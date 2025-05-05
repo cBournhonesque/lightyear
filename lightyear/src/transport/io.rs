@@ -1,7 +1,8 @@
 //! Wrapper around a transport, that can perform additional transformations such as
 //! bandwidth monitoring or compression
-use std::fmt::{Debug, Formatter};
-use std::net::SocketAddr;
+use core::fmt::{Debug, Formatter};
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
+
 
 use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
 use bevy::prelude::*;
@@ -39,7 +40,7 @@ impl<T: Send + Sync> BaseIo<T> {
     }
 
     // TODO: no stats are being computed here!
-    pub fn split(&mut self) -> (&mut impl PacketSender, &mut impl PacketReceiver) {
+    pub fn split(&mut self) -> (&mut (impl PacketSender + use<T>), &mut (impl PacketReceiver + use<T>)) {
         (&mut self.sender, &mut self.receiver)
     }
 
@@ -49,7 +50,7 @@ impl<T: Send + Sync> BaseIo<T> {
 }
 
 impl<T: Send + Sync> Debug for BaseIo<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Io").finish()
     }
 }

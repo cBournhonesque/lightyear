@@ -3,7 +3,7 @@ name = "lightyear_avian"
 version.workspace = true
 authors.workspace = true
 rust-version.workspace = true
-edition = "2021"
+edition.workspace = true
 description = "Helper library to use Lightyear with Avian"
 readme = "../README.md"
 repository = "https://github.com/cBournhonesque/lightyear"
@@ -15,6 +15,8 @@ publish = true
 
 
 [features]
+default = ["std"]
+std = ["lightyear/std"]
 2d = ["dep:avian2d", "avian2d/2d"]
 3d = ["dep:avian3d", "avian3d/3d"]
 lag_compensation = []

@@ -1,12 +1,14 @@
 //! Defines the plugin related to the client networking (sending and receiving packets).
-use std::ops::DerefMut;
-
 use async_channel::TryRecvError;
 use bevy::ecs::system::{RunSystemOnce, SystemChangeTick};
-use bevy::prelude::ResMut;
 use bevy::prelude::*;
-use bevy::utils::Duration;
-use tracing::{error, trace};
+use core::ops::DerefMut;
+use core::time::Duration;
+#[cfg(feature = "std")]
+use std::io;
+use tracing::{debug, error, trace};
+#[cfg(not(feature = "std"))]
+use no_std_io2::io;
 
 use crate::client::config::ClientConfig;
 use crate::client::connection::ConnectionManager;
@@ -19,9 +21,9 @@ use crate::connection::client::{ClientConnection, ConnectionError, ConnectionSta
 use crate::connection::server::IoConfig;
 use crate::prelude::client::NetConfig;
 use crate::prelude::{
-    is_host_server, server, ChannelRegistry, MainSet, MessageRegistry, TickManager, TimeManager,
+    is_host_server, server, ChannelRegistry, ComponentRegistry, MainSet, MessageRegistry,
+    TickManager, TimeManager,
 };
-use crate::protocol::component::ComponentRegistry;
 use crate::server::clients::ControlledEntities;
 use crate::shared::replication::components::Replicated;
 use crate::shared::sets::{ClientMarker, InternalMainSet};
@@ -128,7 +130,7 @@ pub(crate) fn receive_packets(
     component_registry: Res<ComponentRegistry>,
     message_registry: Res<MessageRegistry>,
     system_change_tick: SystemChangeTick,
-) {
+) -> Result {
     trace!("Receive server packets");
     let delta = virtual_time.delta();
     // UPDATE: update client state, send keep-alives, receive packets from io, update connection sync state
@@ -165,14 +167,15 @@ pub(crate) fn receive_packets(
 
     // RECV PACKETS: buffer packets into message managers
     while let Some(packet) = netclient.recv() {
+        // TODO: should we just ignore the erroring-packet instead of exiting the system? probably..
         connection
-            .recv_packet(packet, tick_manager.as_ref(), component_registry.as_ref())
-            .unwrap();
+            .recv_packet(packet, tick_manager.as_ref(), component_registry.as_ref())?
     }
+    Ok(())
 }
 
 /// Read from internal buffers and apply the changes to the world
-pub(crate) fn receive(world: &mut World) {
+pub(crate) fn receive(world: &mut World) -> Result {
     let unsafe_world = world.as_unsafe_world_cell();
 
     // TODO: an alternative would be to use `Commands + EntityMut` which both don't conflict with resources
@@ -185,14 +188,15 @@ pub(crate) fn receive(world: &mut World) {
     let time_manager = unsafe { unsafe_world.get_resource::<TimeManager>() }.unwrap();
     let tick_manager = unsafe { unsafe_world.get_resource::<TickManager>() }.unwrap();
     // RECEIVE: read messages and parse them into events
-    let _ = connection_manager
+    connection_manager
         .receive(
             unsafe { unsafe_world.world_mut() },
             component_registry.as_mut(),
             time_manager,
             tick_manager,
         )
-        .inspect_err(|e| error!("Error receiving packets: {}", e));
+        .inspect_err(|e| error!("Error receiving packets: {}", e))?;
+    Ok(())
 }
 
 pub(crate) fn send(
@@ -201,20 +205,20 @@ pub(crate) fn send(
     tick_manager: Res<TickManager>,
     time_manager: Res<TimeManager>,
     mut connection: ResMut<ConnectionManager>,
-) {
+) -> Result {
     trace!("Send packets to server");
     // SEND_PACKETS: send buffered packets to io
     let packet_bytes = connection
-        .send_packets(time_manager.as_ref(), tick_manager.as_ref())
-        .unwrap();
+        .send_packets(time_manager.as_ref(), tick_manager.as_ref())?;
     for packet_byte in packet_bytes {
         let _ = netcode.send(packet_byte.as_slice()).map_err(|e| {
             error!("Error sending packet: {}", e);
         });
     }
 
-    // no need to clear the connection, because we already std::mem::take it
+    // no need to clear the connection, because we already core::mem::take it
     // client.connection.clear();
+    Ok(())
 }
 
 /// Send messages in host-server mode
@@ -223,15 +227,16 @@ pub(crate) fn send_host_server(
     netcode: Res<ClientConnection>,
     mut client_manager: ResMut<ConnectionManager>,
     mut server_manager: ResMut<crate::server::connection::ConnectionManager>,
-) {
-    let _ = client_manager
+) -> Result {
+    client_manager
         .send_packets_host_server(netcode.id(), server_manager.as_mut())
         .inspect_err(|e| {
             error!(
                 "Error sending messages from local client to server in host-server mode: {}",
                 e
             )
-        });
+        })?;
+    Ok(())
 }
 
 /// Update the sync manager.
@@ -335,7 +340,7 @@ fn listen_io_state(
                 Err(TryRecvError::Closed) => {
                     error!("Io status channel has been closed when it shouldn't be");
                     netclient.disconnect_reason = Some(ConnectionError::Transport(
-                        std::io::Error::other("Io status channel has been closed").into(),
+                        io::Error::other("Io status channel has been closed").into(),
                     ));
                     disconnect = true;
                 }
@@ -373,7 +378,7 @@ fn on_connect(
         "Running OnConnect schedule with client id: {:?}",
         netcode.id()
     );
-    connect_event_writer.send(ConnectEvent::new(netcode.id()));
+    connect_event_writer.write(ConnectEvent::new(netcode.id()));
     // also trigger the event
     commands.trigger(ConnectEvent::new(netcode.id()));
 }
@@ -410,7 +415,7 @@ fn on_connect_host_server(
         .unwrap()
         .set_local_client();
     metadata.client_entity = Some(client_entity);
-    connect_event_writer.send(ConnectEvent::new(netcode.id()));
+    connect_event_writer.write(ConnectEvent::new(netcode.id()));
     // also trigger the event
     commands.trigger(ConnectEvent::new(netcode.id()));
 }
@@ -428,8 +433,8 @@ fn on_disconnecting(
 ) {
     // despawn any entities that were spawned from replication
     received_entities.iter().for_each(|e| {
-        if let Some(commands) = commands.get_entity(e) {
-            commands.despawn_recursive();
+        if let Ok(mut commands) = commands.get_entity(e) {
+            commands.despawn();
         }
     });
 
@@ -440,8 +445,8 @@ fn on_disconnecting(
 
     // no need to update the io state, because we will recreate a new `ClientConnection`
     // for the next connection attempt
-    let reason = std::mem::take(&mut netclient.disconnect_reason);
-    disconnect_event_writer.send(DisconnectEvent { reason });
+    let reason = core::mem::take(&mut netclient.disconnect_reason);
+    disconnect_event_writer.write(DisconnectEvent { reason });
     // TODO: how can we also provide a reason here? or do we even need to?
     // we need to also trigger the event because we sometimes react to it via observers
     commands.trigger(DisconnectEvent { reason: None });
@@ -457,7 +462,7 @@ fn on_disconnecting_host_server(
     mut networking_state: ResMut<NextState<NetworkingState>>,
 ) {
     let client_id = netcode.id();
-    if let Some(client_entity) = std::mem::take(&mut metadata.client_entity) {
+    if let Some(client_entity) = core::mem::take(&mut metadata.client_entity) {
         // removing the client from the server's connection list also emits the server DisconnectEvent
         connection_manager.remove(client_id);
     }
@@ -470,7 +475,7 @@ fn on_disconnecting_host_server(
 /// This has several benefits:
 /// - the client connection's internal time is up-to-date (otherwise it might not be, since we don't call `update` while disconnected)
 /// - we can take into account any changes to the client config
-fn rebuild_client_connection(world: &mut World) {
+fn rebuild_client_connection(world: &mut World) -> Result {
     let client_config = world.resource::<ClientConfig>().clone();
 
     // if the server is started, that means we're planning to run in host-server mode
@@ -495,8 +500,9 @@ fn rebuild_client_connection(world: &mut World) {
     // drop the previous client connection to make sure we release any resources before creating the new one
     world.remove_resource::<ClientConnection>();
     // insert the new client connection
-    let client_connection = client_config.net.build_client();
+    let client_connection = client_config.net.build_client()?;
     world.insert_resource(client_connection);
+    Ok(())
 }
 
 // TODO: the design where the user has to call world.connect_client() is better because the user can handle the Error however they want!
@@ -506,7 +512,7 @@ fn rebuild_client_connection(world: &mut World) {
 /// - rebuild the client connection manager
 /// - start the connection process
 /// - set the networking state to `Connecting`
-fn connect(world: &mut World) {
+fn connect(world: &mut World) -> Result {
     // TODO: should we prevent running Connect if we're already Connected?
     // if world.resource::<ClientConnection>().state() == NetworkingState::Connected {
     //     error!("The client is already started. The client can only start connecting when it is disconnected.");
@@ -517,7 +523,7 @@ fn connect(world: &mut World) {
     // - this allows us to take into account any changes to the client config (when building a
     // new client connection and connection manager, which want to do because we need to reset
     // the internal time, sync, priority, message numbers, etc.)
-    rebuild_client_connection(world);
+    rebuild_client_connection(world)?;
     if let Err(e) = world.resource_mut::<ClientConnection>().connect() {
         error!("Error connecting client: {}", e);
         world.resource_mut::<ClientConnection>().disconnect_reason = Some(e);
@@ -526,6 +532,7 @@ fn connect(world: &mut World) {
             .resource_mut::<NextState<NetworkingState>>()
             .set(NetworkingState::Disconnected);
     }
+    Ok(())
 }
 
 pub trait ClientCommandsExt {

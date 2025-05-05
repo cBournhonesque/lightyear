@@ -21,12 +21,10 @@ macro_rules! wrapping_id {
         paste! {
         mod [<$struct_name:lower _module>] {
             use serde::{Deserialize, Serialize};
-            use byteorder::{NetworkEndian, WriteBytesExt};
-            use std::ops::{Add, AddAssign, Deref, Sub};
-            use std::cmp::Ordering;
+            use core::ops::{Add, AddAssign, Deref, Sub};
+            use core::cmp::Ordering;
             use bevy::reflect::Reflect;
-            use byteorder::ReadBytesExt;
-            use crate::serialize::{SerializationError, reader::Reader, ToBytes};
+            use crate::serialize::{SerializationError, reader::{Reader, ReadInteger}, writer::WriteInteger, ToBytes};
             use crate::utils::wrapping_id::{wrapping_diff, WrappedId};
 
             // define the struct
@@ -35,19 +33,19 @@ macro_rules! wrapping_id {
             pub struct $struct_name(pub u16);
 
             impl ToBytes for $struct_name {
-                fn len(&self) -> usize {
+                fn bytes_len(&self) -> usize {
                     2
                 }
 
-                fn to_bytes<T: WriteBytesExt>(&self, buffer: &mut T) -> Result<(), SerializationError> {
-                    Ok(buffer.write_u16::<NetworkEndian>(self.0)?)
+                fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+                    Ok(buffer.write_u16(self.0)?)
                 }
 
                 fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
                 where
                     Self: Sized,
                 {
-                    Ok(Self(buffer.read_u16::<NetworkEndian>()?))
+                    Ok(Self(buffer.read_u16()?))
                 }
             }
 
@@ -157,7 +155,7 @@ pub fn wrapping_diff(a: u16, b: u16) -> i16 {
 
 #[cfg(test)]
 mod sequence_compare_tests {
-    use super::wrapping_id;
+    use super::*;
 
     wrapping_id!(Id);
 

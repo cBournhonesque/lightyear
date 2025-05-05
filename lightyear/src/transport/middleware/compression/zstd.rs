@@ -2,6 +2,8 @@
 
 use crate::connection::netcode::MAX_PKT_BUF_SIZE;
 use crate::transport::error::{Error, Result};
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use std::net::SocketAddr;
 
 pub(crate) mod compression {

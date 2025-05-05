@@ -3,14 +3,16 @@
 use crate::prelude::{ComponentRegistry, Message, Tick};
 use crate::protocol::component::ComponentKind;
 use crate::shared::replication::components::ReplicationGroupId;
+use bevy::platform::collections::HashMap;
 use bevy::ecs::entity::EntityHash;
 use bevy::prelude::{Component, Entity};
 use bevy::ptr::Ptr;
-use bevy::utils::{hashbrown, HashMap};
 
+use alloc::collections::BTreeMap;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+use core::ptr::NonNull;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::ptr::NonNull;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum DeltaType {
@@ -135,7 +137,7 @@ impl DeltaManager {
     }
 }
 
-type EntityHashMap<K, V> = hashbrown::HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
 /// We have a shared store of the component values for diffable components.
 /// We keep some of the values in memory so that we can compute the delta between the previously
@@ -219,6 +221,8 @@ impl DeltaComponentStore {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
     use super::*;
     use crate::tests::protocol::ComponentDeltaCompression;
     use bevy::prelude::World;
