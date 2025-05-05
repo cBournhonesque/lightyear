@@ -937,7 +937,7 @@ mod tests {
                 .entity_mut(client_child)
                 .get::<ChildOf>()
                 .unwrap()
-                .get(),
+                .parent(),
             client_parent
         );
 
@@ -997,7 +997,7 @@ mod tests {
                 .world()
                 .get::<ChildOf>(server_child)
                 .unwrap()
-                .get(),
+                .parent(),
             server_parent
         );
         assert_eq!(

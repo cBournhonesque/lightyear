@@ -331,7 +331,6 @@ pub(crate) mod send {
     /// Some of the components can be updated at runtime even after the entity has been replicated.
     /// For example you can update the [`ReplicateToClient`] to change which clients should receive the entity.
     #[derive(Bundle, Clone, Default, PartialEq, Debug, Reflect)]
-    #[deprecated(since="0.20.0", note="Please insert ReplicateToClient directly, which will add any other required components")]
     pub struct Replicate {
         /// Which clients should this entity be replicated to?
         pub target: ReplicateToClient,

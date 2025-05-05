@@ -12,7 +12,7 @@ use crate::prelude::{
     ServerSendMessage, TickManager,
 };
 use crate::server::connection::ConnectionManager;
-use crate::server::input::InputSystemSet;
+pub(crate) use crate::server::input::InputSystemSet;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 

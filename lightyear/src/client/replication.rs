@@ -303,7 +303,6 @@ pub(crate) mod send {
     /// - [`ReplicationGroup`] to group entities together for replication. Entities in the same group
     ///   will be sent together in the same message.
     #[derive(Bundle, Clone, Default, PartialEq, Debug, Reflect)]
-    #[deprecated(since="0.20.0", note="Please insert ReplicateToServer directly, which will add any other required components")]
     pub struct Replicate {
         /// Marker indicating that the entity should be replicated to the server.
         /// If this component is removed, the entity will be despawned on the server.

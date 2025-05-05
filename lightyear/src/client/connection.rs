@@ -4,8 +4,6 @@ use alloc::{vec, vec::Vec};
 use bevy::ecs::component::Tick as BevyTick;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Resource, World};
-#[cfg(feature = "leafwing")]
-use bevy::utils::HashMap;
 use bytes::Bytes;
 use core::time::Duration;
 use tracing::{debug, trace, trace_span};
@@ -514,6 +512,7 @@ mod tests {
     #[test]
     fn test_map_entities_to_remote() {
         let mut stepper = BevyStepper::default();
+
 
         // spawn an entity on server
         let server_entity = stepper

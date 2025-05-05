@@ -55,7 +55,6 @@ use crate::prelude::{
 use crate::shared::input::InputConfig;
 use crate::shared::replication::components::PrePredicted;
 use crate::shared::tick_manager::TickEvent;
-use crate::tests::protocol::ComponentSyncModeFull;
 
 // TODO: is this actually necessary? The sync happens in PostUpdate,
 //  so maybe it's ok if the InputMessages contain the pre-sync tick! (since those inputs happened
@@ -730,7 +729,7 @@ mod tests {
                 Replicate {
                     sync: SyncTarget {
                         prediction: NetworkTarget::All,
-                        interpolation: None,
+                        interpolation: NetworkTarget::None,
                     },
                     ..default()
                 },

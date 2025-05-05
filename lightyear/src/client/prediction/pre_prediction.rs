@@ -158,7 +158,6 @@ mod tests {
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{ComponentClientToServer, ComponentSyncModeFull};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
-    use bevy::ecs::relationship::Relationship;
 
     /// Simple preprediction case
     /// Also check that the PredictionHistory is correctly added to the PrePredicted entity
