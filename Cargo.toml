@@ -231,7 +231,7 @@ bevy = { version = "0.16", default-features = false, features = [
 ] }
 
 # input
-leafwing-input-manager = { version = "0.16", default-features = false, features = [
+leafwing-input-manager = { version = "0.17", default-features = false, features = [
   "keyboard",
 ] }
 

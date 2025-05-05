@@ -9,6 +9,7 @@
 use crate::protocol::*;
 use crate::shared;
 use bevy::app::PluginGroupBuilder;
+use bevy::asset::ron::Error::Message;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear::connection::client::Connected;
@@ -25,9 +26,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(FixedUpdate, movement);
         app.add_observer(handle_new_client);
         app.add_observer(handle_connected);
-        // app.add_systems(Update, (send_message));
-        // #[cfg(not(feature = "client"))]
-        // app.add_systems(Update, server_start_stop);
+        app.add_systems(Update, send_message);
     }
 }
 
@@ -80,34 +79,6 @@ pub(crate) fn handle_connected(
 }
 
 
-// /// Handle client disconnections: we want to despawn every entity that was controlled by that client.
-// ///
-// /// Lightyear creates one entity per client, which contains metadata associated with that client.
-// /// You can find that entity by calling `ConnectionManager::client_entity(client_id)`.
-// ///
-// /// That client entity contains the `ControlledEntities` component, which is a set of entities that are controlled by that client.
-// ///
-// /// By default, lightyear automatically despawns all the `ControlledEntities` when the client disconnects;
-// /// but in this example we will also do it manually to showcase how it can be done.
-// /// (however we don't actually run the system)
-// pub(crate) fn handle_disconnections(
-//     mut commands: Commands,
-//     mut disconnections: EventReader<DisconnectEvent>,
-//     manager: Res<ConnectionManager>,
-//     client_query: Query<&ControlledEntities>,
-// ) {
-//     for disconnection in disconnections.read() {
-//         debug!("Client {:?} disconnected", disconnection.client_id);
-//         if let Ok(client_entity) = manager.client_entity(disconnection.client_id) {
-//             if let Ok(controlled_entities) = client_query.get(client_entity) {
-//                 for entity in controlled_entities.entities() {
-//                     commands.entity(entity).despawn();
-//                 }
-//             }
-//         }
-//     }
-// }
-
 /// Read client inputs and move players in server therefore giving a basis for other clients
 fn movement(
     timeline: Single<&LocalTimeline, With<Server>>,
@@ -127,39 +98,23 @@ fn movement(
     }
 }
 
-// // only run this in dedicated server mode
-// #[cfg(not(feature = "client"))]
-// pub(crate) fn server_start_stop(
-//     mut commands: Commands,
-//     state: Res<State<NetworkingState>>,
-//     input: Option<Res<ButtonInput<KeyCode>>>,
-// ) {
-//     if input.is_some_and(|input| input.just_pressed(KeyCode::KeyS)) {
-//         if state.get() == &NetworkingState::Stopped {
-//             commands.start_server();
-//         } else {
-//             commands.stop_server();
-//         }
-//     }
-// }
 
-// TODO: how do we send a message to all clients of a server?
-//  we could just iterate through all clients, but ideally we only serialize once, no?
-//  Maybe a ServerMessageSender that serializes once, and then buffers the bytes on each Transport?
-
-// /// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
-// /// and cannot do input handling)
-// pub(crate) fn send_message(
-//     mut senders: Query<&mut MessageSender<Message1>>,
-//     input: Option<Res<ButtonInput<KeyCode>>>,
-// ) {
-//     if input.is_some_and(|input| input.pressed(KeyCode::KeyM)) {
-//         let message = Message1(5);
-//         info!("Send message: {:?}", message);
-//         server
-//             .send_message_to_target::<Channel1, Message1>(&message, NetworkTarget::All)
-//             .unwrap_or_else(|e| {
-//                 error!("Failed to send message: {:?}", e);
-//             });
-//     }
-// }
+/// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
+/// and cannot do input handling)
+pub(crate) fn send_message(
+    mut sender: ServerMultiMessageSender,
+    server: Single<&Server>,
+    input: Option<Res<ButtonInput<KeyCode>>>,
+) {
+    if input.is_some_and(|input| input.just_pressed(KeyCode::KeyM)) {
+        let message = Message1(5);
+        info!("Sending message: {:?}", message);
+        sender.send::<_, Channel1>(
+            &message,
+            server.into_inner(),
+            &NetworkTarget::All
+        ).unwrap_or_else(|e| {
+            error!("Failed to send message: {:?}", e);
+        });
+    }
+}

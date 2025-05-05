@@ -30,10 +30,10 @@ impl<C: Channel> ChannelRegistration<'_, C> {
     pub(crate) fn add_server_direction(&mut self, direction: NetworkDirection) {
          match direction {
             NetworkDirection::ClientToServer => {
-                self.app.add_observer(add_sender_channel::<C>);
+                self.app.add_observer(add_receiver_channel::<C>);
             }
             NetworkDirection::ServerToClient => {
-                self.app.add_observer(add_receiver_channel::<C>);
+                self.app.add_observer(add_sender_channel::<C>);
             }
             NetworkDirection::Bidirectional => {
                 self.add_server_direction(NetworkDirection::ClientToServer);

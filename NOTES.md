@@ -20,14 +20,14 @@ TODO:
 - ON NETCODE STOP, HOW DO WE DISCONNECT EACH CLIENTOF BUT STILL SEND PACKETS? 
    - NETCODE STOP DOES NOT WORK
    - we need a Unlinked and Stopping, so that we can send disconnect packets and then stop. otherwise
-   - 
-- In SimpleBox, when we disconnect and reconnect, the timeline sync doesn't work! Is it because we don't remove the IsSynced?
-  Or some other state is not reset on disconnection?
-  - YES, NEED TO RESET THE TIMELINES! INPUT/INTERPOLATED/REMOTE
-  - in particular we do input.reset() and interpoalted.reset()
+
+- add compression in Transport before splitting bytes into fragments.
+
+- refactor replication to not use hashmaps if no replication group is used.
     
 
 NEEDS UNIT TEST:
+- check that we don't send replication-updates for entities that are not visible
 - check that 'send_tick' and replication change_ticks work correctly
 - check the PredictionTarget for ReplicateLike is not using the root's PredictionTarget
 - check that the relationship between Link and Connect works correctly.

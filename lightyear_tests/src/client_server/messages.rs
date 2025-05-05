@@ -126,9 +126,6 @@ fn test_send_multi_messages_with_target() {
     info!("Sending messages from server to client");
     let send_message = StringMessage("World".to_string());
     let message = send_message.clone();
-    let client_of_0 = stepper.client_of_entities[0];
-    let client_of_1 = stepper.client_of_entities[1];
-
     let system_id = stepper.server_app.register_system(
         move |mut sender: ServerMultiMessageSender, server: Single<&Server>| {
             sender.send::<_, Channel1>(

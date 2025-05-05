@@ -24,9 +24,12 @@ fn my_system(
 ```
 */
 
+use crate::prelude::{ReplicateLikeChildren, ReplicationSender};
 use crate::send::ReplicationBufferSet;
+use bevy::ecs::entity::hash_map::EntityHashMap;
 use bevy::ecs::entity::hash_set::EntityHashSet;
 use bevy::ecs::entity::EntityIndexSet;
+use bevy::platform::collections::hash_map::Entry;
 use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 use tracing::*;
@@ -42,6 +45,15 @@ pub(crate) enum VisibilityState {
     Maintained,
 }
 
+impl VisibilityState {
+    /// Returns true if the entity is currently replicated to the client
+    pub fn is_visible(&self) -> bool {
+        matches!(self, &VisibilityState::Gained | &VisibilityState::Maintained)
+    }
+}
+
+// TODO: should we store this on the sender entity instead?
+//  it would make it faster to 'reset' the visibility every send_interval for each sender
 /// We will replicate this entity to the clients specified in the `Replicate` component.
 /// On top of that, we will apply interest management logic to determine which peers should receive the entity
 ///
@@ -56,10 +68,7 @@ pub(crate) enum VisibilityState {
 pub struct NetworkVisibility {
     /// List of clients that the entity is currently replicated to.
     /// Will be updated before the other replication systems
-    // pub(crate) clients_cache: HashMap<PeerId, VisibilityState>,
-    pub(crate) gained: EntityHashSet,
-    pub(crate) visible: EntityHashSet,
-    pub(crate) lost: EntityHashSet,
+    pub(crate) clients: EntityHashMap<VisibilityState>,
 }
 
 impl NetworkVisibility {
@@ -67,32 +76,57 @@ impl NetworkVisibility {
     pub(crate) fn is_visible(
         &self, sender: Entity,
     ) -> bool {
-        self.visible.contains(&sender) || self.gained.contains(&sender)
+        self.clients.get(&sender).is_some_and(|v| v.is_visible())
     }
 
     pub fn gain_visibility(
         &mut self,
         sender: Entity,
     ) {
-        // if the entity was already relevant (Relevance::Maintained), be careful to not set it to
-        // Relevance::Gained as it would trigger a duplicate spawn replication action
-        if !self.visible.contains(&sender) {
-            self.gained.insert(sender);
-        }
-        self.lost.remove(&sender);
+        self.clients.entry(sender)
+            .and_modify(|v| {
+                // if the entity was already relevant (Relevance::Maintained), be careful to not set it to
+                // Relevance::Gained as it would trigger a duplicate spawn replication action
+                if *v != VisibilityState::Maintained {
+                    *v = VisibilityState::Gained;
+                }
+            })
+            .or_insert(VisibilityState::Gained);
     }
 
     pub fn lose_visibility(
         &mut self,
         sender: Entity,
     ) {
-        // Only lose relevance if the client was visible to the entity
-        // (to avoid multiple despawn messages)
-        if self.gained.remove(&sender) {
-            return;
+        match self.clients.entry(sender) {
+            Entry::Occupied(mut e) => {
+                if e.get() == &VisibilityState::Gained {
+                    // if the entity was already relevant (Relevance::Maintained), be careful to not set it to
+                    // Relevance::Gained as it would trigger a duplicate spawn replication action
+                    e.remove();
+                } else {
+                    *(e.get_mut()) = VisibilityState::Lost;
+                }
+            }
+            Entry::Vacant(_) => {}
         }
-        if self.visible.remove(&sender) {
-            self.lost.insert(sender);
+    }
+
+    /// Update the visibility of the entity after buffer was done
+    fn update_visibility(
+        &mut self,
+        sender: Entity,
+    ) {
+        match self.clients.entry(sender) {
+            Entry::Occupied(mut e) => {
+                if *e.get() == VisibilityState::Gained {
+                    e.insert(VisibilityState::Maintained);
+                }
+                if *e.get() == VisibilityState::Lost {
+                    e.remove();
+                }
+            }
+            Entry::Vacant(_) => {}
         }
     }
 }
@@ -104,19 +138,35 @@ pub struct NetworkVisibilityPlugin;
 
 impl NetworkVisibilityPlugin {
 
+    // TODO: ideally we would run this in the main 'buffer' system (for performance), but bevy currently has limitations where
+    //  we cannot get one mutable component from FilteredEntityMut
+    //  See: https://discord.com/channels/691052431525675048/1368398098002345984/1368398098002345984
+    //
     /// Update the visibility for each replicated entity.
     /// Gained becomes Maintained, Lost becomes cleared.
     fn update_network_visibility(
-        mut query: Query<&mut NetworkVisibility>
+        mut query: Query<&mut NetworkVisibility>,
+        root_query: Query<&ReplicateLikeChildren>,
+        mut manager_query: Query<(Entity, &ReplicationSender)>,
     ) {
-        query.iter_mut().for_each(|mut vis| {
-            // enable split borrows
-            let mut vis = vis.as_mut();
-            vis.lost.clear();
-            vis.gained.drain().for_each(|peer| {
-                vis.visible.insert(peer);
+        manager_query.iter_mut().for_each(|(sender_entity, sender)| {
+            if !sender.send_timer.finished() {
+                return;
+            }
+            sender.replicated_entities.iter().for_each(|root_entity| {
+                if let Ok(mut vis) = query.get_mut(*root_entity) {
+                    vis.update_visibility(sender_entity);
+                }
+                if let Ok(children) = root_query.get(*root_entity) {
+                    for child in children.iter() {
+                        if let Ok(mut vis) = query.get_mut(child) {
+                            vis.update_visibility(sender_entity);
+                        }
+                    }
+                }
             });
-        })
+
+        });
     }
 }
 
@@ -157,30 +207,27 @@ mod tests {
         let sender = app.world_mut().spawn_empty().id();
 
         app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().gain_visibility(sender);
-        assert!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().gained.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Gained));
 
         // after an update: Gained -> Visible
         app.update();
-        assert!(!app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().gained.contains(&sender));
-        assert!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Maintained));
 
         // if an entity is already visible, we do not make it Gained
         app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().gain_visibility(sender);
-        assert!(!app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().gained.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Maintained));
 
         // entity now loses Visibility
         app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().lose_visibility(sender);
-        assert!(!app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
-        assert!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().lost.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Lost));
 
         // after an update: Lost -> Cleared
         app.update();
-        assert!(!app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().lost.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), None);
 
         // if we Gain/Lose visibility in the same tick, do nothing
         app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().gain_visibility(sender);
         app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().lose_visibility(sender);
-        assert!(!app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().gained.contains(&sender));
-        assert!(!app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().lost.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), None);
     }
 }

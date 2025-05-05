@@ -108,8 +108,7 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
         app.add_message::<Message1>()
-            // add a direction so that a MessageSender<Message1> is automatically added to your clients or servers
-            .add_direction(NetworkDirection::Bidirectional);
+            .add_direction(NetworkDirection::ServerToClient);
 
         // inputs
         app.add_plugins(input::native::InputPlugin::<Inputs>::default());
@@ -131,6 +130,7 @@ impl Plugin for ProtocolPlugin {
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             ..default()
-        });
+        })
+            .add_direction(NetworkDirection::ServerToClient);
     }
 }

@@ -1,0 +1,109 @@
+use bevy::prelude::*;
+use lightyear::input::client::InputSet;
+use lightyear::input::native::prelude::{ActionState, InputMarker};
+use lightyear::prelude::*;
+
+use crate::protocol::*;
+use crate::shared::shared_movement_behaviour;
+
+pub struct ExampleClientPlugin;
+
+impl Plugin for ExampleClientPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            FixedPreUpdate,
+            // Inputs have to be buffered in the WriteClientInputs set
+            buffer_input.in_set(InputSet::WriteClientInputs),
+        );
+        app.add_systems(FixedUpdate, movement);
+        app.add_systems(
+            Update,
+            (
+                handle_predicted_spawn,
+                handle_interpolated_spawn,
+            ),
+        );
+    }
+}
+
+
+/// System that reads from peripherals and adds inputs to the buffer
+/// This system must be run in the `InputSystemSet::BufferInputs` set in the `FixedPreUpdate` schedule
+/// to work correctly.
+///
+/// I would also advise to use the `leafwing` feature to use the `LeafwingInputPlugin` instead of the
+/// `InputPlugin`, which contains more features.
+pub(crate) fn buffer_input(
+    mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
+    keypress: Res<ButtonInput<KeyCode>>,
+) {
+    if let Ok(mut action_state) = query.single_mut() {
+        let mut input = None;
+        let mut direction = Inputs::default();
+        if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
+            direction.up = true;
+        }
+        if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
+            direction.down = true;
+        }
+        if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
+            direction.left = true;
+        }
+        if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
+            direction.right = true;
+        }
+        if !direction.is_none() {
+            input = Some(direction);
+        }
+        action_state.value = input;
+    }
+}
+
+
+pub(crate) fn movement(
+    // TODO: maybe make prediction mode a separate component!!!
+    mut position_query: Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>,
+) {
+    for (position, input) in position_query.iter_mut() {
+        if let Some(input) = &input.value {
+            shared_movement_behaviour(position, input);
+        }
+    }
+}
+
+
+/// When the predicted copy of the client-owned entity is spawned, do stuff
+/// - assign it a different saturation
+/// - keep track of it in the Global resource
+pub(crate) fn handle_predicted_spawn(
+    mut predicted: Query<(Entity, &mut PlayerColor), Added<Predicted>>,
+    mut commands: Commands,
+) {
+    for (entity, mut color) in predicted.iter_mut() {
+        let hsva = Hsva {
+            saturation: 0.4,
+            ..Hsva::from(color.0)
+        };
+        color.0 = Color::from(hsva);
+        warn!("Add InputMarker to entity: {:?}", entity);
+        commands
+            .entity(entity)
+            .insert((
+                InputMarker::<Inputs>::default(),
+            ));
+    }
+}
+
+// When the predicted copy of the client-owned entity is spawned, do stuff
+// - assign it a different saturation
+pub(crate) fn handle_interpolated_spawn(
+    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
+) {
+    for mut color in interpolated.iter_mut() {
+        let hsva = Hsva {
+            saturation: 0.1,
+            ..Hsva::from(color.0)
+        };
+        color.0 = Color::from(hsva);
+    }
+}

@@ -7,7 +7,7 @@ use bevy::ecs::archetype::Archetypes;
 use bevy::ecs::component::{ComponentId, ComponentTicks, Components, HookContext};
 use bevy::ecs::entity::{EntityIndexSet, UniqueEntitySlice, UniqueEntityVec};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
-use bevy::ecs::world::{DeferredWorld, FilteredEntityRef};
+use bevy::ecs::world::{DeferredWorld, FilteredEntityMut, FilteredEntityRef};
 use bevy::platform::collections::HashSet;
 use bevy::ptr::Ptr;
 
@@ -26,7 +26,7 @@ use crate::receive::ReplicationReceiver;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::ComponentKind;
 use crate::send::ReplicationSender;
-use crate::visibility::immediate::NetworkVisibility;
+use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 
 use crate::control::{Controlled, OwnedBy};
 use lightyear_connection::client::Connected;
@@ -336,7 +336,7 @@ pub(crate) fn update_cached_replicate_post_buffer(
 
 pub(crate) fn replicate(
     // query &C + various replication components
-    entity_query: Query<FilteredEntityRef>,
+    mut entity_query: Query<FilteredEntityMut>,
     // TODO: should we put the DeltaManager in the same component?
     mut manager_query: Query<(
         Entity,
@@ -441,7 +441,7 @@ pub(crate) fn replicate_entity(
         group_ready,
         replicate,
         cached_replicate,
-        network_visibility,
+        visibility,
         owned_by,
         entity_ref,
         is_replicate_like_added,
@@ -530,7 +530,7 @@ pub(crate) fn replicate_entity(
         entity,
         group_id,
         entity_mapper,
-        network_visibility,
+        visibility,
         sender,
         sender_entity,
     );
@@ -547,7 +547,7 @@ pub(crate) fn replicate_entity(
         interpolation_target,
         owned_by,
         cached_replicate,
-        network_visibility,
+        visibility,
         component_registry,
         sender,
         sender_entity,
@@ -558,6 +558,10 @@ pub(crate) fn replicate_entity(
     // If the group is not set to send, skip this entity
     if !group_ready {
         return;
+    }
+    // If we are using visibility and this sender is not visible, skip
+    if visibility.is_some_and(|vis| !vis.is_visible(sender_entity)) {
+        return
     }
 
     // d. all components that were added or changed and that are not disabled
@@ -604,6 +608,7 @@ pub(crate) fn replicate_entity(
             component_ticks,
             &replicate,
             group_id,
+            visibility.and_then(|v| v.clients.get(&sender_entity)),
             delta_compression,
             replicate_once,
             entity_mapper,
@@ -648,7 +653,10 @@ pub(crate) fn replicate_entity_despawn(
     sender: &mut ReplicationSender,
     sender_entity: Entity,
 ) {
-    if visibility.is_some_and(|v| v.lost.contains(&sender_entity)) {
+    if visibility
+        .and_then(|v| v.clients.get(&sender_entity))
+        .is_some_and(|s| s == &VisibilityState::Lost) {
+        trace!(?entity, ?sender_entity, "Replicate entity despawn because visibility lost");
         let entity = entity_map.to_remote(entity);
         sender.prepare_entity_despawn(entity, group_id);
     }
@@ -679,14 +687,13 @@ pub(crate) fn replicate_entity_spawn(
     remote_peer_id: PeerId,
 ) {
     // 1. replicate was added/updated and the sender was not in the previous Replicate's target
-    trace!("Replicate change tick: {:?}", replicate.last_changed());
-    let replicate_updated = sender.is_updated(replicate.last_changed()) && cached_replicate.is_none_or(|cached| !cached.senders.contains(&sender_entity)) && network_visibility.is_none_or(|vis| vis
-        .is_visible
-    (sender_entity));
+    let replicate_updated = sender.is_updated(replicate.last_changed()) && cached_replicate.is_none_or(|cached| !cached.senders.contains(&sender_entity)) && network_visibility.is_none_or(|vis| vis.is_visible(sender_entity));
     // 2. replicate was not updated but NetworkVisibility is gained for this sender
-    let network_visibility_updated = network_visibility.is_some_and(|vis| vis.gained.contains(&sender_entity));
-    if replicate_updated || network_visibility_updated || is_replicate_like_added {
-        trace!(?entity, ?group_id, ?sender_entity, ?replicate, ?cached_replicate, ?replicate_updated, ?network_visibility_updated, "Sending Spawn");
+    let network_visibility_gained = network_visibility.and_then(|v| v.clients.get(&sender_entity)).is_some_and(|v| v == &VisibilityState::Gained);
+    // 3. replicate-like was added and the the entity is visible for this sender
+    let replicate_like_and_visible = is_replicate_like_added && network_visibility.is_none_or(|vis| vis.is_visible(sender_entity));
+    if replicate_updated || network_visibility_gained || replicate_like_and_visible {
+        trace!(?entity, ?group_id, ?sender_entity, ?replicate, ?cached_replicate, ?network_visibility, ?replicate_updated, ?network_visibility_gained, ?replicate_like_and_visible, "Sending Spawn");
         sender.prepare_entity_spawn(entity, group_id, priority);
 
         if controlled_by.is_some_and(|c| c.owner == remote_peer_id) {
@@ -784,6 +791,7 @@ fn replicate_component_update(
     component_ticks: ComponentTicks,
     replicate: &Ref<Replicate>,
     group_id: ReplicationGroupId,
+    visibility: Option<&VisibilityState>,
     delta_compression: bool,
     replicate_once: bool,
     entity_map: &mut RemoteEntityMap,
@@ -797,7 +805,7 @@ fn replicate_component_update(
     // TODO: ideally we would use target.is_added(), but we do the trick of setting all the
     //  ReplicateToServer components to `changed` when the client first connects so that we replicate existing entities to the server
     //  That is why `force_insert = True` if ReplicateToServer is changed.
-    if sender.is_updated(component_ticks.added) || sender.is_updated(replicate.last_changed()) {
+    if sender.is_updated(component_ticks.added) || sender.is_updated(replicate.last_changed()) || visibility.is_some_and(|v| v == &VisibilityState::Gained) {
         insert = true;
     } else {
         // do not send updates for these components, only inserts/removes

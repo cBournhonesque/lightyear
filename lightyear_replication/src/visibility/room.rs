@@ -46,7 +46,7 @@ use bevy::reflect::Reflect;
 
 use crate::send::ReplicationBufferSet;
 use crate::visibility::error::NetworkVisibilityError;
-use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilitySet};
+use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilitySet, VisibilityState};
 use serde::{Deserialize, Serialize};
 use tracing::*;
 
@@ -89,24 +89,28 @@ impl RoomPlugin {
         };
         match trigger.event() {
             RoomEvent::AddEntity(entity) => {
+                trace!("Adding entity {entity:?} to room {room:?}");
                 room.clients.iter().for_each(|c| {
                     room_events.events.entry(*entity).or_default().gain_visibility(*c);
                 });
                 room.entities.insert(*entity);
             }
             RoomEvent::RemoveEntity(entity) => {
+                trace!("Removing entity {entity:?} from room {room:?}");
                  room.clients.iter().for_each(|c| {
                     room_events.events.entry(*entity).or_default().lose_visibility(*c);
                  });
                  room.entities.remove(entity);
             }
             RoomEvent::AddSender(entity) => {
+                trace!("Adding sender {entity:?} to room {room:?}");
                 room.entities.iter().for_each(|e| {
                     room_events.events.entry(*e).or_default().gain_visibility(*entity);
                 });
                 room.clients.insert(*entity);
             }
             RoomEvent::RemoveSender(entity) => {
+                trace!("Removing sender {entity:?} from room {room:?}");
                 room.entities.iter().for_each(|e| {
                     room_events.events.entry(*e).or_default().lose_visibility(*entity);
                 });
@@ -124,14 +128,18 @@ impl RoomPlugin {
         // TODO: should we use iter_mut here to keep the allocated NetworkVisibilty?
         room_events.events.drain(..).for_each(|(entity, mut room_vis)| {
             if let Ok(mut vis) = query.get_mut(entity) {
-                room_vis.gained.drain().for_each(|sender| {
-                    vis.gain_visibility(sender);
-                });
-                room_vis.lost.drain().for_each(|sender| {
-                    vis.lose_visibility(sender);
+                room_vis.clients.drain().for_each(|(sender, state)| {
+                    match state {
+                        VisibilityState::Gained => vis.gain_visibility(sender),
+                        VisibilityState::Lost => vis.lose_visibility(sender),
+                        VisibilityState::Maintained => {
+                            unreachable!()
+                        }
+                    }
                 });
             } else {
-                commands.entity(entity).insert(NetworkVisibility::from(room_vis));
+                trace!("Inserting NetworkVisibility from room visibility: {room_vis:?}");
+                commands.entity(entity).try_insert(NetworkVisibility::from(room_vis));
             }
         });
     }
@@ -168,32 +176,41 @@ pub struct RoomEvents {
 pub struct RoomVisibility {
     /// List of clients that the entity is currently replicated to.
     /// Will be updated before the other replication systems
-    gained: EntityHashSet,
-    lost: EntityHashSet,
+    clients: EntityHashMap<VisibilityState>,
 }
 
 impl RoomVisibility {
     fn gain_visibility(&mut self, sender: Entity) {
-        if self.lost.remove(&sender) {
-            return
+        match self.clients.entry(sender) {
+            Entry::Occupied(mut e) => {
+                if *e.get() == VisibilityState::Lost {
+                    e.remove();
+                }
+            }
+            Entry::Vacant(e) => {
+                e.insert(VisibilityState::Gained);
+            }
         }
-        self.gained.insert(sender);
     }
 
     fn lose_visibility(&mut self, sender: Entity) {
-        if self.gained.remove(&sender) {
-            return
+        match self.clients.entry(sender) {
+            Entry::Occupied(mut e) => {
+                if *e.get() == VisibilityState::Gained {
+                    e.remove();
+                }
+            }
+            Entry::Vacant(e) => {
+                e.insert(VisibilityState::Lost);
+            }
         }
-        self.lost.insert(sender);
     }
 }
 
 impl From<RoomVisibility> for NetworkVisibility {
     fn from(value: RoomVisibility) -> Self {
         Self {
-            gained: value.gained,
-            visible: EntityHashSet::default(),
-            lost: value.lost,
+            clients: Default::default(),
         }
     }
 }
@@ -247,13 +264,13 @@ mod tests {
         app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room);
         app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room);
         app.update();
-        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Maintained));
 
         // Client leaves room
         app.world_mut().trigger_targets(RoomEvent::RemoveSender(sender), room);
         app.world_mut().flush();
         app.world_mut().run_system_once(RoomPlugin::apply_room_events).ok();
-        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().lost.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Lost));
     }
 
     #[test]
@@ -270,13 +287,13 @@ mod tests {
         app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room);
         app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room);
         app.update();
-        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Maintained));
 
         // Entity leaves room
         app.world_mut().trigger_targets(RoomEvent::RemoveEntity(entity), room);
         app.world_mut().flush();
         app.world_mut().run_system_once(RoomPlugin::apply_room_events).ok();
-        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().lost.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Lost));
     }
 
 
@@ -295,7 +312,7 @@ mod tests {
         app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room);
         app.update();
 
-        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Maintained));
 
         // Entity leaves room
         let room_2 = app.world_mut().spawn(Room::default()).id();
@@ -305,7 +322,7 @@ mod tests {
         app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room_2);
         app.world_mut().flush();
         app.world_mut().run_system_once(RoomPlugin::apply_room_events).ok();
-        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Maintained));
     }
 
     /// The client is in room A and B
@@ -324,13 +341,13 @@ mod tests {
         app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room_2);
         app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room);
         app.update();
-        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Maintained));
 
         // Entity leaves room
         app.world_mut().trigger_targets(RoomEvent::RemoveEntity(entity), room);
         app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room_2);
         app.update();
-        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Maintained));
     }
 
 
@@ -350,14 +367,14 @@ mod tests {
         app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room);
         app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room_2);
         app.update();
-        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Maintained));
 
         // Entity leaves room
         app.world_mut().trigger_targets(RoomEvent::RemoveSender(sender), room);
         app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room_2);
         app.update();
         app.world_mut().run_system_once(RoomPlugin::apply_room_events).ok();
-        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Maintained));
     }
 
 
@@ -377,13 +394,12 @@ mod tests {
         app.world_mut().trigger_targets(RoomEvent::AddSender(sender), room);
         app.world_mut().trigger_targets(RoomEvent::AddEntity(entity), room);
         app.update();
-        assert!(app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Maintained));
 
         // Entity leaves room
         app.world_mut().trigger_targets(RoomEvent::RemoveSender(sender), room);
         app.world_mut().trigger_targets(RoomEvent::RemoveEntity(entity), room);
         app.update();
-        assert!(!app.world().get::<NetworkVisibility>(entity).unwrap().visible.contains(&sender));
-
+        assert_eq!(app.world_mut().get_mut::<NetworkVisibility>(entity).unwrap().clients.get(&sender), Some(&VisibilityState::Maintained));
     }
 }

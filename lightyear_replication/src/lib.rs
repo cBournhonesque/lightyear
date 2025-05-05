@@ -36,7 +36,7 @@ pub mod prelude {
     pub use crate::authority::HasAuthority;
     pub use crate::buffer::Replicate;
     pub use crate::components::*;
-    pub use crate::control::{Controlled, Owned, OwnedBy, Lifetime};
+    pub use crate::control::{Controlled, Lifetime, Owned, OwnedBy};
     pub use crate::hierarchy::{ChildOfSync, DisableReplicateHierarchy, HierarchySendPlugin, RelationshipReceivePlugin, RelationshipSendPlugin, RelationshipSync, ReplicateLike, ReplicateLikeChildren};
     pub use crate::message::*;
     pub use crate::plugin::ReplicationSet;
@@ -44,6 +44,6 @@ pub mod prelude {
     pub use crate::registry::registry::{AppComponentExt, ComponentRegistration};
     pub use crate::send::{ReplicationBufferSet, ReplicationSendPlugin, ReplicationSender, SendUpdatesMode};
     pub use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin};
-    pub use crate::visibility::room::{Room, RoomPlugin};
+    pub use crate::visibility::room::{Room, RoomEvent, RoomPlugin};
 }
 
