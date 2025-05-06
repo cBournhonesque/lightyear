@@ -42,6 +42,7 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
 
     fn update_buffer(&self, input_buffer: &mut InputBuffer<Self::State>, end_tick: Tick) {
         let start_tick = end_tick - self.len() as u16;
+        // let start_tick = end_tick - input_buffer.len() as u16;
         input_buffer.set(start_tick, self.start_state.clone());
 
         let mut value = self.start_state.clone();
