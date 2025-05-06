@@ -22,6 +22,8 @@ default = [
   "prediction",
   "interpolation",
 ]
+
+# this needs "lightyear_*?/std" to propagate std feature to all sub-crates.
 std = [
   "bevy/std",
   # needed for bevy_transform parallel
@@ -34,6 +36,8 @@ std = [
   "lightyear_udp?/std",
   "lightyear_netcode?/std",
   "lightyear_prediction?/std",
+  "lightyear_inputs?/std",
+  "lightyear_inputs_leafwing?/std",
 ]
 client = [
   "lightyear_connection/client",
