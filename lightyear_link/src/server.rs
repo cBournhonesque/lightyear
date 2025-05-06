@@ -1,4 +1,6 @@
 use crate::{Linked, Linking, Unlinked};
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Entity, Reflect};

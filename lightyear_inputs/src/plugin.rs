@@ -47,6 +47,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
 
         app.register_required_components::<S::State, InputBuffer<S::State>>();
         app.register_required_components::<InputBuffer<S::State>, S::State>();
-        app.register_required_components::<S::Marker, S::State>();
+        app.try_register_required_components::<S::Marker, S::State>().ok();
     }
 }

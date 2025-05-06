@@ -10,12 +10,16 @@ STATUS:
 
 
 TODO:
+- update examples
+- update docstrings
+- update book
+- run benchmarks, and update how we write replication packets?
 - on the server, we get cases where the input buffer just contains [SameAsPrecedent]. Normally
   the first value should never be just SameAsPrecedent! That's due to `update_buffer` using `set_raw`. But maybe that's ok? if there's only SameAsPrecedent, we don't do anything (i.e. we re-use the existing inputs)
 
 - ON DISCONNECTION, we reset ReplicateionReceiver, ReplicationSender, Transport to their default state.
   - But maybe we should to the reset on Connection, so that if users changed something it gets taken into account?
-  - Also we might need to reset the MessageReceiver/MessageSender
+  - Also we might need to reset the MessageReceiver/MessageSender!
 
 - ON NETCODE STOP, HOW DO WE DISCONNECT EACH CLIENTOF BUT STILL SEND PACKETS? 
    - NETCODE STOP DOES NOT WORK

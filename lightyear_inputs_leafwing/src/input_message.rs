@@ -1,6 +1,9 @@
 use crate::action_diff::ActionDiff;
 use crate::action_state::LeafwingUserAction;
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String, vec, vec::Vec};
 use bevy::ecs::entity::MapEntities;
+use bevy::platform::time::Instant;
 use bevy::prelude::{Entity, EntityMapper, Reflect};
 use core::fmt::Write;
 use leafwing_input_manager::action_state::ActionState;
@@ -9,10 +12,11 @@ use leafwing_input_manager::Actionlike;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::input_message::ActionStateSequence;
-use std::time::Instant;
+use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-pub struct LeafwingSequence<A: LeafwingUserAction> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeafwingSequence<A: Actionlike> {
     pub(crate) start_state: ActionState<A>,
     pub(crate) diffs: Vec<Vec<ActionDiff<A>>>,
 }
@@ -38,7 +42,7 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
 
     fn update_buffer(&self, input_buffer: &mut InputBuffer<Self::State>, end_tick: Tick) {
         let start_tick = end_tick - self.len() as u16;
-        self.set(start_tick, self.start_state.clone());
+        input_buffer.set(start_tick, self.start_state.clone());
 
         let mut value = self.start_state.clone();
         for (delta, diffs_for_tick) in self.diffs.iter().enumerate() {

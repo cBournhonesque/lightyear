@@ -28,6 +28,11 @@ pub mod input {
     pub mod native {
         pub use lightyear_inputs_native::*;
     }
+
+    #[cfg(feature = "leafwing")]
+    pub mod leafwing {
+        pub use lightyear_inputs_leafwing::*;
+    }
 }
 
 
@@ -64,6 +69,10 @@ pub mod prelude {
         #[cfg(feature = "input_native")]
         pub mod native {
             pub use lightyear_inputs_native::prelude::*;
+        }
+        #[cfg(feature = "leafwing")]
+        pub mod leafwing {
+            pub use lightyear_inputs_leafwing::*;
         }
     }
 

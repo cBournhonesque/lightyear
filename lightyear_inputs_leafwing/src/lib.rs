@@ -10,3 +10,7 @@ mod action_state;
 mod input_message;
 
 mod plugin;
+
+pub mod prelude {
+    pub use crate::plugin::InputPlugin;
+}

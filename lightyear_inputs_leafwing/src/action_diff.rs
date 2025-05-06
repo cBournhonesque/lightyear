@@ -1,4 +1,6 @@
 use crate::action_state::LeafwingUserAction;
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String, vec, vec::Vec};
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::Reflect;
 use leafwing_input_manager::action_state::{ActionKindData, ActionState};
