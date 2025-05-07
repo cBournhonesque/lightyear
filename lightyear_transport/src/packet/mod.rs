@@ -35,5 +35,5 @@ pub mod error;
 pub(crate) mod packet_builder;
 /// Defines the [`PacketType`](packet_type::PacketType) enum
 pub(crate) mod packet_type;
-pub(crate) mod priority_manager;
+pub mod priority_manager;
 pub(crate) mod stats_manager;

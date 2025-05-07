@@ -56,13 +56,16 @@ pub(crate) fn handle_new_client(
     trigger: Trigger<OnAdd, ClientOf>,
     mut commands: Commands,
 ) {
-    commands.entity(trigger.target()).insert(
+    info!("New client connected: {:?}", trigger.target());
+    commands.entity(trigger.target()).insert((
         ReplicationSender::new(
             SEND_INTERVAL,
             SendUpdatesMode::SinceLastAck,
             false,
         ),
-    );
+        // limit to 3KB/s
+        Transport::new(PriorityConfig::new(3000))
+    ));
 }
 
 /// Spawn the player entity when a client connects
@@ -82,7 +85,6 @@ pub(crate) fn handle_connected(
             PlayerId(client_id),
             Position(Vec2::splat(300.0)),
             PlayerColor(color),
-            // ActionState::<Inputs>::default(),
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
             InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),

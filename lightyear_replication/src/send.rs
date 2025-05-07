@@ -127,7 +127,7 @@ impl ReplicationSendPlugin {
         time: Res<Time<Real>>,
         component_registry: Res<ComponentRegistry>,
         change_tick: SystemChangeTick,
-        mut query: Query<(&mut ReplicationSender, &mut DeltaManager, &mut Transport, &LocalTimeline)>,
+        mut query: Query<(&mut ReplicationSender, &mut DeltaManager, &mut Transport, &LocalTimeline), With<Connected>>,
     ) {
         query.par_iter_mut().for_each(|(mut sender, mut delta, mut transport, timeline)| {
             let bevy_tick = change_tick.this_run();
@@ -145,7 +145,7 @@ impl ReplicationSendPlugin {
         change_tick: SystemChangeTick,
         // We send messages directly through the transport instead of MessageSender<EntityActionsMessage>
         // but I don't remember why
-        mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline)>,
+        mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline), With<Connected>>,
     ) {
         let actions_net_id = *message_registry.kind_map.net_id(&MessageKind::of::<ActionsMessage>()).unwrap();
         let updates_net_id = *message_registry.kind_map.net_id(&MessageKind::of::<UpdatesMessage>()).unwrap();
@@ -175,7 +175,7 @@ impl ReplicationSendPlugin {
     /// Check which replication messages were actually sent, and update the
     /// priority accordingly
     fn update_priority(
-        mut query: Query<(&mut ReplicationSender, &mut Transport)>,
+        mut query: Query<(&mut ReplicationSender, &mut Transport), With<Connected>>,
     ) {
         query.par_iter_mut().for_each(|(mut sender, mut transport)| {
             if !sender.send_timer.finished() {

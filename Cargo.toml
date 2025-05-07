@@ -237,8 +237,8 @@ leafwing-input-manager = { version = "0.17", default-features = false, features 
 
 # physics
 # NOTE: avian 0.2.1 seems to be causing some issues, test with the fps example
-avian2d = { version = "=0.2.0", default-features = false }
-avian3d = { version = "=0.2.0", default-features = false }
+avian2d = { git = "https://github.com/Jondolf/avian.git", branch = "main", default-features = false }
+avian3d = { git = "https://github.com/Jondolf/avian.git", branch = "main", default-features = false }
 
 
 # gui debug ui

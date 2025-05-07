@@ -45,8 +45,18 @@ impl Default for PriorityConfig {
     }
 }
 
+impl PriorityConfig {
+    pub fn new(bytes_per_second_quota: u32) -> Self {
+        let cap = bytes_per_second_quota.try_into().unwrap();
+        Self {
+            bandwidth_quota: Quota::per_second(cap).allow_burst(cap),
+            enabled: true,
+        }
+    }
+}
+
 #[derive(Debug)]
-pub(crate) struct PriorityManager {
+pub struct PriorityManager {
     pub(crate) config: PriorityConfig,
     // TODO: can I do without this limiter?
     pub(crate) limiter: DefaultDirectRateLimiter,
@@ -64,7 +74,7 @@ impl Default for PriorityManager {
 }
 
 impl PriorityManager {
-    pub(crate) fn new(config: PriorityConfig) -> Self {
+    pub fn new(config: PriorityConfig) -> Self {
         let quota = config.bandwidth_quota.clone();
         Self {
             config: config,

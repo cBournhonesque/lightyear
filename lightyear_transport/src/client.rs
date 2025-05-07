@@ -1,13 +1,13 @@
 use crate::channel::registry::ChannelRegistration;
 use crate::channel::Channel;
 use crate::prelude::{ChannelRegistry, Transport};
-use bevy::prelude::{OnAdd, Query, Res, Trigger};
+use bevy::prelude::{OnInsert, Query, Res, Trigger, With};
 use lightyear_connection::client::Client;
 use lightyear_connection::direction::NetworkDirection;
 
 pub(crate) fn add_sender_channel<C: Channel>(
-    trigger: Trigger<OnAdd, Client>,
-    mut query: Query<&mut Transport>,
+    trigger: Trigger<OnInsert, (Transport, Client)>,
+    mut query: Query<&mut Transport, With<Client>>,
     registry: Res<ChannelRegistry>) {
     if let Ok(mut transport) = query.get_mut(trigger.target()) {
         transport.add_sender_from_registry::<C>(&registry)
@@ -15,8 +15,8 @@ pub(crate) fn add_sender_channel<C: Channel>(
 }
 
 pub(crate) fn add_receiver_channel<C: Channel>(
-    trigger: Trigger<OnAdd, Client>,
-    mut query: Query<&mut Transport>,
+    trigger: Trigger<OnInsert, (Transport, Client)>,
+    mut query: Query<&mut Transport, With<Client>>,
     registry: Res<ChannelRegistry>
 ) {
     if let Ok(mut transport) = query.get_mut(trigger.target()) {

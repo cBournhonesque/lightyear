@@ -21,7 +21,6 @@ pub(crate) fn shared_movement_behaviour(
     mut position: Mut<Position>,
     action_state: &ActionState<Inputs>,
 ) {
-    info!(pressed= ?action_state.get_pressed(), "Shared movement behaviour");
     if action_state.pressed(&Inputs::Up) {
         position.y += MOVE_SPEED;
     }

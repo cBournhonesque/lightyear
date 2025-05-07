@@ -19,7 +19,7 @@ use lightyear_utils::collections::HashMap;
 
 use crate::channel::Channel;
 use crate::error::TransportError;
-use crate::prelude::ChannelRegistry;
+use crate::prelude::{ChannelRegistry, PriorityConfig};
 use crossbeam_channel::{Receiver, Sender};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_link::SendPayload;
@@ -61,7 +61,7 @@ pub struct Transport {
     pub receivers: HashMap<ChannelId, ReceiverMetadata>,
     pub senders: HashMap<ChannelKind, SenderMetadata>,
     /// PriorityManager shared between all channels of this transport
-    pub(crate) priority_manager: PriorityManager,
+    pub priority_manager: PriorityManager,
     /// PacketBuilder shared between all channels of this transport
     pub(crate) packet_manager: PacketBuilder,
     /// Map to keep track of which messages have been sent in which packets, so that
@@ -78,20 +78,26 @@ pub struct Transport {
     pub recv: Vec<RecvPayload>,
 }
 
-impl Default for Transport {
-    fn default() -> Self {
+impl Transport {
+    pub fn new(priority_config: PriorityConfig) -> Self {
         let (send_channel, recv_channel) = crossbeam_channel::unbounded();
         Self {
             receivers: Default::default(),
             senders: Default::default(),
-            priority_manager: Default::default(),
-            packet_manager: Default::default(),
+            priority_manager: PriorityManager::new(priority_config),
+            packet_manager: PacketBuilder::default(),
             packet_to_message_ack_map: Default::default(),
             send_channel,
             recv_channel,
             send: vec![],
             recv: vec![],
         }
+    }
+}
+
+impl Default for Transport {
+    fn default() -> Self {
+        Self::new(PriorityConfig::default())
     }
 }
 

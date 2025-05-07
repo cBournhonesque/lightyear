@@ -4,6 +4,13 @@ STATUS:
 - SimpleBox:
   - runs ok in client/server. Confirmed updates are far behind
   - host-server not tested
+- Priority:
+  - runs ok in client/server
+  - host-server not tested
+- ReplicationGorups:
+  - runs ok in client/server
+  - host-server not tested
+
 
 
 - Have a pane where you can see the running clients, servers, processes.

@@ -29,7 +29,7 @@ pub(crate) fn add_input_map(
     predicted_players: Query<Entity, (Added<PlayerId>, With<Predicted>)>,
 ) {
     for player_entity in predicted_players.iter() {
-        commands.entity(player_entity).insert((
+        commands.entity(player_entity).insert(
              InputMap::<Inputs>::new([
                 (Inputs::Right, KeyCode::ArrowRight),
                 (Inputs::Right, KeyCode::KeyD),
@@ -40,8 +40,7 @@ pub(crate) fn add_input_map(
                 (Inputs::Down, KeyCode::ArrowDown),
                 (Inputs::Down, KeyCode::KeyS),
             ]),
-            ActionState::<Inputs>::default(),
-        ));
+        );
     }
 }
 
