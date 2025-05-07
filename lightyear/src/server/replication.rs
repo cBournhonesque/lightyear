@@ -110,11 +110,6 @@ pub(crate) mod send {
             app.add_systems(
                 PostUpdate,
                 (
-                    // TODO: putting it here means we might miss entities that are spawned and despawned within the send_interval? bug or feature?
-                    //  be careful that newly_connected_client is cleared every send_interval, not every frame.
-                    replicate
-                        .in_set(InternalReplicationSet::<ServerMarker>::BufferEntityUpdates)
-                        .in_set(InternalReplicationSet::<ServerMarker>::BufferComponentUpdates),
                     (
                         handle_replication_target_update,
                         buffer_replication_messages,
@@ -640,6 +635,7 @@ pub(crate) mod send {
                 authority_peer,
                 visibility,
                 &mut sender,
+                &system_ticks
             );
 
             // add all entity spawns
@@ -734,6 +730,11 @@ pub(crate) mod send {
         connection_manager: &mut ConnectionManager,
         system_ticks: &SystemChangeTick,
     ) {
+        // NOTE: we cannot use directly `is_changed` and `is_added` because of this bug
+        // https://github.com/bevyengine/bevy/issues/13735
+        let is_changed = replication_target.last_changed().is_newer_than(system_ticks.last_run(), system_ticks.this_run());
+        let is_added = replication_target.added().is_newer_than(system_ticks.last_run(), system_ticks.this_run());
+
         let mut target = match visibility {
             // for room mode, no need to handle newly-connected clients specially; they just need
             // to be added to the correct room
@@ -755,7 +756,7 @@ pub(crate) mod send {
                                 ClientRelevance::Lost => {}
                                 ClientRelevance::Maintained => {
                                     // only try to replicate if the replicate component was just added
-                                    if replication_target.is_added() {
+                                    if is_added {
                                         trace!(
                                             ?entity,
                                             ?client_id,
@@ -773,11 +774,11 @@ pub(crate) mod send {
             None => {
                 let mut target = NetworkTarget::None;
                 // only try to replicate if the replicate component was just added
-                if is_replicate_like_added || replication_target.is_added() {
+                if is_replicate_like_added || is_added {
                     trace!(?entity, "send entity spawn");
                     // TODO: avoid this clone!
                     target = replication_target.target.clone();
-                } else if replication_target.is_changed() {
+                } else if is_changed {
                     target = replication_target.target.clone();
                     // if the replication target changed (for example from [1] to [1, 2]), do not replicate again to [1]
                     if let Some(cached_target) = cached_replication_target {
@@ -930,6 +931,7 @@ pub(crate) mod send {
         authority_peer: Option<&AuthorityPeer>,
         visibility: Option<&CachedNetworkRelevance>,
         sender: &mut ConnectionManager,
+        system_ticks: &SystemChangeTick,
     ) {
         // 1. send despawn for clients that lost visibility
         let mut target: NetworkTarget = match visibility {
@@ -953,8 +955,14 @@ pub(crate) mod send {
                 NetworkTarget::None
             }
         };
+
+        // NOTE: we cannot use directly `is_changed` and `is_added` because of this bug
+        // https://github.com/bevyengine/bevy/issues/13735
+        let is_changed = replication_target.last_changed().is_newer_than(system_ticks.last_run(), system_ticks.this_run());
+        let is_added = replication_target.added().is_newer_than(system_ticks.last_run(), system_ticks.this_run());
+
         // 2. if the replication target changed, find the clients that were removed in the new replication target
-        if replication_target.is_changed() && !replication_target.is_added() {
+        if is_changed && !is_added {
             if let Some(cached_target) = cached_replication_target {
                 // get targets that we had before but not anymore
                 let mut new_despawn = cached_target.value.target.clone();
@@ -1006,6 +1014,11 @@ pub(crate) mod send {
         system_ticks: &SystemChangeTick,
         sender: &mut ConnectionManager,
     ) {
+        // NOTE: we cannot use directly `is_changed` and `is_added` because of this bug
+        // https://github.com/bevyengine/bevy/issues/13735
+        let is_changed = replication_target.last_changed().is_newer_than(system_ticks.last_run(), system_ticks.this_run());
+        let is_added = replication_target.added().is_newer_than(system_ticks.last_run(), system_ticks.this_run());
+
         // TODO: maybe iterate through all the connected clients instead, to avoid allocations?
         // use the overriden target if present
         let target = override_target.map_or(&replication_target.target, |override_target| {
@@ -1013,7 +1026,7 @@ pub(crate) mod send {
         });
         // if the replication target is added, we force an insert. This is to capture
         // existing components that were added before ReplicationTarget was added
-        let force_insert = replication_target.is_changed();
+        let force_insert = is_changed;
         // error!("force_insert: {}", force_insert);
         let (mut insert_target, mut update_target): (NetworkTarget, NetworkTarget) =
             match visibility {
@@ -1233,10 +1246,7 @@ pub(crate) mod send {
         use crate::client::events::ComponentUpdateEvent;
         use crate::prelude::client::Confirmed;
         use crate::prelude::server::{ControlledBy, NetConfig, RelevanceManager, Replicate};
-        use crate::prelude::{
-            client, server, ChannelDirection, DeltaCompression, LinkConditionerConfig,
-            ReplicateOnce, Replicated,
-        };
+        use crate::prelude::{client, server, ChannelDirection, DeltaCompression, LinkConditionerConfig, ReplicateOnce, Replicated, SharedConfig, TickConfig};
         use crate::server::replication::send::SyncTarget;
         use crate::shared::replication::components::{Controlled, ReplicationGroupId};
         use crate::shared::replication::delta::DeltaComponentHistory;
@@ -1247,7 +1257,7 @@ pub(crate) mod send {
         use bevy::ecs::system::RunSystemOnce;
         use bevy::platform::collections::HashSet;
         use bevy::prelude::{default, EventReader, Resource, Update};
-
+        use crate::client::config::ClientConfig;
         // TODO: test entity spawn newly connected client
 
         #[test]
@@ -1341,6 +1351,46 @@ pub(crate) mod send {
                 .entity(client_child)
                 .get::<Controlled>()
                 .is_some());
+        }
+
+        /// Test that if the replication send systems don't run every frame, we still correctly replicate entities
+        #[test]
+        fn test_entity_spawn_send_interval() {
+            let tick_duration = Duration::from_millis(10);
+            let mut stepper = BevyStepper::new(
+
+                SharedConfig {
+                    server_replication_send_interval: 2 * tick_duration,
+                    client_replication_send_interval: 2 * tick_duration,
+                    tick: TickConfig {
+                        tick_duration,
+                    },
+                },
+                ClientConfig::default(),
+                tick_duration,
+            );
+            stepper.build();
+            stepper.init();
+
+            // spawn an entity on server
+            let server_entity = stepper.server_app.world_mut().spawn(
+                ReplicateToClient::default()
+            ).id();
+            stepper.advance_time(tick_duration);
+            stepper.server_app.update();
+            stepper.client_app.update();
+            stepper.frame_step();
+            stepper.frame_step();
+
+            // check that the entity was spawned
+            let client_entity = stepper
+                .client_app
+                .world()
+                .resource::<client::ConnectionManager>()
+                .replication_receiver
+                .remote_entity_map
+                .get_local(server_entity)
+                .expect("entity was not replicated to client");
         }
 
         /// Check that a child is replicated correctly if ReplicateLike is added to it
