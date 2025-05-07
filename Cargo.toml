@@ -13,7 +13,7 @@ exclude = ["examples/certificates"]
 
 
 [workspace.package]
-version = "0.20.0"
+version = "0.20.1"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 publish = false
 edition = "2024"
@@ -40,9 +40,9 @@ debug = false
 
 [workspace.dependencies]
 
-lightyear_avian = { path = "./lightyear_avian", version = "0.20.0", default-features = false }
+lightyear_avian = { path = "./lightyear_avian", version = "0.20.1", default-features = false }
 lightyear_examples_common = { path = "./examples/common", default-features = false }
-lightyear = { path = "./lightyear", version = "0.20.0", default-features = false }
+lightyear = { path = "./lightyear", version = "0.20.1", default-features = false }
 
 # utils
 anyhow = { version = "1.0.75", features = [] }
@@ -79,7 +79,7 @@ chacha20poly1305 = { version = "0.10" }
 
 # derive
 
-lightyear_macros = { path = "./macros", version = "0.20.0"}
+lightyear_macros = { path = "./macros", version = "0.20.1"}
 
 # tracing
 
@@ -206,7 +206,7 @@ bevy_egui = { version = "0.34", default-features = false, features = [
   "default_fonts",
   "render",
 ] }
-bevy_metrics_dashboard = "0.6"
+bevy_metrics_dashboard = "0.7"
 egui_extras = "0.31"
 
 # bevygap for deploying on Edgegap
