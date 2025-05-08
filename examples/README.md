@@ -51,7 +51,7 @@ You can modify the file `assets/settings.ron` to modify some networking settings
 
 NOTE: I am using [trunk](https://trunkrs.dev/) to build and serve the wasm example.
 
-To test the example in wasm, you can run the following commands: ``RUSTFLAGS='--cfg getrandom_backend="wasm_js"' trunk server --features=client``
+To test the example in wasm, you can run the following commands: ``RUSTFLAGS='--cfg getrandom_backend="wasm_js"' trunk serve --features=client``
 
 You will need a valid SSL certificate to test the example in wasm using webtransport. You will need to run the following
 commands:
@@ -62,7 +62,7 @@ commands:
   like `1fd28860bd2010067cee636a64bcbb492142295b297fd8c480e604b70ce4d644`)
 - You then have to replace the certificate digest in the `assets/settings.ron` file with the one that the server printed
   out.
-- then start the client wasm test with ``RUSTFLAGS='--cfg getrandom_backend="wasm_js"' trunk server --features=client``
+- then start the client wasm test with ``RUSTFLAGS='--cfg getrandom_backend="wasm_js"' trunk serve --features=client``
 
 
 ## NOTES

@@ -155,6 +155,7 @@ xwt-web = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
 zstd = { workspace = true, optional = true, features = ["wasm"] }
+web-time.workspace = true
 
 
 [dev-dependencies]
