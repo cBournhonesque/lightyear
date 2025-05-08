@@ -4,11 +4,9 @@ use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::shared::color_from_id;
-// Use preludes
 use lightyear::prelude::client::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::utils::avian2d::*; // Keep avian utils
 
 pub const BALL_SIZE: f32 = 15.0;
 pub const PLAYER_SIZE: f32 = 40.0;
@@ -18,86 +16,7 @@ pub const PLAYER_SIZE: f32 = 40.0;
 // will always be consistent (= on the same tick)
 pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
-// Player
-#[derive(Bundle)]
-pub(crate) struct PlayerBundle {
-    id: PlayerId,
-    position: Position,
-    color: ColorComponent,
-    replicate: ReplicateToServer,
-    physics: PhysicsBundle,
-    inputs: InputManagerBundle<PlayerActions>,
-    // IMPORTANT: this lets the server know that the entity is pre-predicted
-    // when the server replicates this entity; we will get a Confirmed entity which will use this entity
-    // as the Predicted version
-    pre_predicted: PrePredicted,
-    name: Name,
-}
 
-impl PlayerBundle {
-    // Updated to use PeerId
-    pub(crate) fn new(id: PeerId, position: Vec2, input_map: InputMap<PlayerActions>) -> Self {
-        let color = color_from_id(id);
-        Self {
-            id: PlayerId(id), // Store PeerId
-            position: Position(position),
-            color: ColorComponent(color),
-            // ReplicateToServer is handled implicitly by client predicting the entity
-            // replicate: ReplicateToServer::default(),
-            physics: PhysicsBundle::player(),
-            inputs: InputManagerBundle::<PlayerActions> {
-                action_state: ActionState::default(),
-                input_map,
-            },
-            pre_predicted: PrePredicted::default(),
-            name: Name::from("Player"),
-        }
-    }
-}
-
-// Ball
-#[derive(Bundle)]
-pub(crate) struct BallBundle {
-    position: Position,
-    color: ColorComponent,
-    // Use new replication components directly
-    replicate: Replicate,
-    prediction_target: Option<PredictionTarget>,
-    interpolation_target: Option<InterpolationTarget>,
-    marker: BallMarker,
-    physics: PhysicsBundle,
-    name: Name,
-}
-
-impl BallBundle {
-    pub(crate) fn new(position: Vec2, color: Color, predicted: bool) -> Self {
-        let replicate = Replicate::to_clients(NetworkTarget::All); // Default replicate to all
-        let (prediction_target, interpolation_target, group) = if predicted {
-            (
-                Some(PredictionTarget::to_clients(NetworkTarget::All)),
-                None, // No interpolation if predicted
-                REPLICATION_GROUP, // Use prediction group
-            )
-        } else {
-            (
-                None, // No prediction if not predicted
-                Some(InterpolationTarget::to_clients(NetworkTarget::All)),
-                ReplicationGroup::default(), // Default group if not predicted
-            )
-        };
-
-        Self {
-            position: Position(position),
-            color: ColorComponent(color),
-            replicate: replicate.set_group(group), // Set group on replicate
-            prediction_target,
-            interpolation_target,
-            physics: PhysicsBundle::ball(),
-            marker: BallMarker,
-            name: Name::from("Ball"),
-        }
-    }
-}
 
 #[derive(Bundle)]
 pub(crate) struct PhysicsBundle {
@@ -139,15 +58,7 @@ pub struct ColorComponent(pub(crate) Color);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
-// Channels
 
-#[derive(Channel)]
-pub struct Channel1;
-
-// Messages
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Message1(pub usize);
 
 // Inputs
 
@@ -166,7 +77,7 @@ pub enum AdminActions {
 }
 
 // Protocol
-#[derive(Clone)] // Added Clone
+#[derive(Clone)]
 pub(crate) struct ProtocolPlugin;
 // { // Removed predict_all field
 //     pub(crate) predict_all: bool,
@@ -174,8 +85,6 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        // messages
-        app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
         // Use new input plugin path and default config
         app.add_plugins(input::leafwing::InputPlugin::<PlayerActions>::default());
@@ -219,11 +128,5 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<AngularVelocity>()
             .add_prediction(PredictionMode::Full);
-
-        // channels
-        app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        });
     }
 }

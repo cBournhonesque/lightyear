@@ -14,19 +14,6 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // Removed AdminActions setup
-        // app.init_resource::<ActionState<AdminActions>>();
-        // app.insert_resource(InputMap::<AdminActions>::new([ ... ]));
-
-        // Removed init system
-        // app.add_systems(Startup, init);
-        // Removed handle_connection system
-        // app.add_systems(
-        //     PreUpdate,
-        //     handle_connection
-        //         .after(MainSet::Receive)
-        //         .before(PredictionSet::SpawnPrediction),
-        // );
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
         app.add_systems(FixedUpdate, player_movement);
         app.add_systems(
@@ -42,13 +29,6 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-// Removed init system
-// pub(crate) fn init(mut commands: Commands) {
-//     commands.connect_client();
-// }
-
-// Removed handle_connection system (player spawning is server-authoritative)
-// pub(crate) fn handle_connection( ... ) { ... }
 
 
 /// Blueprint pattern: when the ball gets replicated from the server, add all the components
@@ -116,7 +96,7 @@ fn add_player_physics(
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
-    tick_manager: Res<TickManager>,
+    timeline: Single<&LocalTimeline>,
     mut velocity_query: Query<
         (
             Entity,
@@ -128,9 +108,10 @@ fn player_movement(
         With<Predicted>,
     >,
 ) {
+    let tick = timeline.tick();
     for (entity, player_id, position, velocity, action_state) in velocity_query.iter_mut() {
         if !action_state.get_pressed().is_empty() {
-            trace!(?entity, tick = ?tick_manager.tick(), ?position, actions = ?action_state.get_pressed(), "applying movement to predicted player");
+            trace!(?entity, ?tick, ?position, actions = ?action_state.get_pressed(), "applying movement to predicted player");
             // note that we also apply the input to the other predicted clients! even though
             //  their inputs are only replicated with a delay!
             // TODO: add input decay?
@@ -138,6 +119,7 @@ fn player_movement(
         }
     }
 }
+
 
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation

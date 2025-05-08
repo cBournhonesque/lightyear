@@ -38,7 +38,7 @@ lightyear = { workspace = true, features = [
   "avian2d",
 ] }
 lightyear_examples_common_new.workspace = true
-
+lightyear_frame_interpolation.workspace = true
 leafwing-input-manager.workspace = true
 avian2d = { workspace = true, features = [
   "2d",
@@ -47,13 +47,10 @@ avian2d = { workspace = true, features = [
   "parallel",
   "serialize",
 ] }
+
 serde.workspace = true
-anyhow.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 bevy.workspace = true
-rand.workspace = true
-metrics-exporter-prometheus = { workspace = true, optional = true }
 
 [lints]
 workspace = true

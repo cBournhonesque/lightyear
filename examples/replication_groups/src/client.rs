@@ -8,7 +8,7 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::input::client::*;
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::*;
-use lightyear_frame_interpolation::{FixedUpdateInterpolationPlugin, FrameInterpolate};
+use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 pub struct ExampleClientPlugin;
 
@@ -34,7 +34,7 @@ impl Plugin for ExampleClientPlugin {
         // add visual interpolation for the predicted snake (which gets updated in the FixedUpdate schedule)
         // (updating it only during FixedUpdate might cause visual artifacts, see:
         //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
-        app.add_plugins(FixedUpdateInterpolationPlugin::<PlayerPosition>::default());
+        app.add_plugins(FrameInterpolationPlugin::<PlayerPosition>::default());
         app.add_systems(Update, debug_pre_visual_interpolation);
         app.add_systems(Last, debug_post_visual_interpolation);
     }

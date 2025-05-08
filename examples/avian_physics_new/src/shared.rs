@@ -1,29 +1,60 @@
 use avian2d::prelude::*;
-use bevy::color::palettes::css;
-use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
-use core::time::Duration;
 use leafwing_input_manager::prelude::ActionState;
-use tracing::Level;
-
-// Removed diagnostics plugins and common
-// use lightyear::client::prediction::diagnostics::PredictionDiagnosticsPlugin;
-use lightyear::prelude::client::*;
-use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
-// use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
-// use lightyear::transport::io::IoDiagnosticsPlugin;
-// use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
-use std::hash::{Hash, Hasher}; // Added for PeerId hashing
+use std::hash::{Hash, Hasher};
 
 use crate::protocol::*;
 pub(crate) const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
 
-// Removed SharedPlugin and its build method
-// #[derive(Clone)]
-// pub struct SharedPlugin { ... }
-// impl Plugin for SharedPlugin { ... }
+#[derive(Clone)]
+pub struct SharedPlugin {
+    pub predict_all: bool,
+}
+
+impl Plugin for SharedPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(ProtocolPlugin);
+        // bundles
+        app.add_systems(Startup, init);
+
+        // physics
+        app.add_plugins(
+            PhysicsPlugins::default()
+                .build()
+                .disable::<ColliderHierarchyPlugin>(),
+        )
+        .insert_resource(Gravity(Vec2::ZERO));
+
+        // registry types for reflection
+        app.register_type::<PlayerId>();
+    }
+}
+
+pub(crate) fn init(mut commands: Commands) {
+    commands.spawn(WallBundle::new(
+        Vec2::new(-WALL_SIZE, -WALL_SIZE),
+        Vec2::new(-WALL_SIZE, WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(-WALL_SIZE, WALL_SIZE),
+        Vec2::new(WALL_SIZE, WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(WALL_SIZE, WALL_SIZE),
+        Vec2::new(WALL_SIZE, -WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(WALL_SIZE, -WALL_SIZE),
+        Vec2::new(-WALL_SIZE, -WALL_SIZE),
+        Color::WHITE,
+    ));
+}
+
 
 // Generate pseudo-random color from id
 // Updated to use PeerId
@@ -61,10 +92,6 @@ pub(crate) fn shared_movement_behaviour(
     *velocity = LinearVelocity(velocity.clamp_length_max(MAX_VELOCITY));
 }
 
-// Removed debug logging systems
-// pub(crate) fn after_physics_log(...) { ... }
-// pub(crate) fn last_log(...) { ... }
-// pub(crate) fn log() { ... }
 
 // Wall
 #[derive(Bundle)]

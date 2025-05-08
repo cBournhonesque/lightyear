@@ -20,7 +20,9 @@ TODO:
 - update examples
 - update docstrings
 - update book
+- add dedicated pre-predicted + inputs example
 - run benchmarks, and update how we write replication packets?
+- add unit test for replicating entities between the ServerSendInterval
 - on the server, we get cases where the input buffer just contains [SameAsPrecedent]. Normally
   the first value should never be just SameAsPrecedent! That's due to `update_buffer` using `set_raw`. But maybe that's ok? if there's only SameAsPrecedent, we don't do anything (i.e. we re-use the existing inputs)
 

@@ -45,7 +45,7 @@ use lightyear_replication::registry::registry::ComponentRegistry;
 use tracing::trace;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum FixedUpdateInterpolationSet {
+pub enum FrameInterpolationSet {
     /// Restore the correct component values
     Restore,
     /// Update the previous/current component values used for visual interpolation
@@ -53,11 +53,11 @@ pub enum FixedUpdateInterpolationSet {
     /// Interpolate the visual state of the game with 1 tick of delay
     Interpolate,
 }
-pub struct FixedUpdateInterpolationPlugin<C> {
+pub struct FrameInterpolationPlugin<C> {
     _marker: core::marker::PhantomData<C>,
 }
 
-impl<C> Default for FixedUpdateInterpolationPlugin<C> {
+impl<C> Default for FrameInterpolationPlugin<C> {
     fn default() -> Self {
         Self {
             _marker: core::marker::PhantomData,
@@ -66,14 +66,14 @@ impl<C> Default for FixedUpdateInterpolationPlugin<C> {
 }
 
 
-impl<C: Component<Mutability=Mutable> + Clone + Ease> Plugin for FixedUpdateInterpolationPlugin<C> {
+impl<C: Component<Mutability=Mutable> + Clone + Ease> Plugin for FrameInterpolationPlugin<C> {
     fn build(&self, app: &mut App) {
         // SETS
         app.configure_sets(
             PreUpdate,
             // make sure that we restore the actual component value before we perform a rollback check
             (
-                FixedUpdateInterpolationSet::Restore,
+                FrameInterpolationSet::Restore,
                 // the correct value to avoid rollbacks is the corrected value
                 PredictionSet::RestoreVisualCorrection,
                 PredictionSet::CheckRollback,
@@ -86,11 +86,11 @@ impl<C: Component<Mutability=Mutable> + Clone + Ease> Plugin for FixedUpdateInte
         //   after Correction)
         app.configure_sets(
             FixedLast,
-            FixedUpdateInterpolationSet::Update.run_if(not(is_in_rollback)),
+            FrameInterpolationSet::Update.run_if(not(is_in_rollback)),
         );
         app.configure_sets(
             PostUpdate,
-            FixedUpdateInterpolationSet::Interpolate
+            FrameInterpolationSet::Interpolate
                 .before(TransformPropagate)
                 // we don't want the visual interpolation value to be the one replicated!
                 .after(ReplicationSet::Send),
@@ -100,16 +100,16 @@ impl<C: Component<Mutability=Mutable> + Clone + Ease> Plugin for FixedUpdateInte
         app.add_systems(
             PreUpdate,
             restore_from_visual_interpolation::<C>
-                .in_set(FixedUpdateInterpolationSet::Restore),
+                .in_set(FrameInterpolationSet::Restore),
         );
         app.add_systems(
             FixedLast,
             update_visual_interpolation_status::<C>
-                .in_set(FixedUpdateInterpolationSet::Update),
+                .in_set(FrameInterpolationSet::Update),
         );
         app.add_systems(
             PostUpdate,
-            visual_interpolation::<C>.in_set(FixedUpdateInterpolationSet::Interpolate),
+            visual_interpolation::<C>.in_set(FrameInterpolationSet::Interpolate),
         );
     }
 }
@@ -247,7 +247,7 @@ mod tests {
         stepper.client_app.world_mut().insert_resource(Toggle(true));
         stepper
             .client_app
-            .add_plugins(FixedUpdateInterpolationPlugin::<InterpolationModeFull>::default());
+            .add_plugins(FrameInterpolationPlugin::<InterpolationModeFull>::default());
         let entity = stepper
             .client_app
             .world_mut()
@@ -1019,7 +1019,7 @@ mod tests {
             .add_systems(FixedUpdate, fixed_update_increment);
         stepper
             .client_app
-            .add_plugins(FixedUpdateInterpolationPlugin::<ComponentCorrection>::default());
+            .add_plugins(FrameInterpolationPlugin::<ComponentCorrection>::default());
         stepper.build();
         stepper.init();
         let tick = stepper.client_tick();

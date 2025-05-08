@@ -28,17 +28,14 @@ fn main() {
 
     let mut app = cli.build_app(
         Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
-        true // Use physics loop
+        true
     );
 
     app.add_plugins(ProtocolPlugin);
 
-    // NOTE: The predict_all and show_confirmed flags previously passed to plugins are not included here.
-    // This might require adjustments in the client/server/renderer plugins if they need this data.
-
     #[cfg(feature = "client")]
     {
-        app.add_plugins(ExampleClientPlugin); // Assuming ExampleClientPlugin doesn't need args now
+        app.add_plugins(ExampleClientPlugin);
         if matches!(cli.mode, Some(Mode::Client { .. })) {
             use lightyear::prelude::Connect;
             use lightyear_examples_common_new::client::{ClientTransports, ExampleClient};
@@ -47,7 +44,7 @@ fn main() {
                 client_port: CLIENT_PORT,
                 server_addr: SERVER_ADDR,
                 conditioner: None,
-                transport: ClientTransports::Udp, // Avian example likely uses UDP
+                transport: ClientTransports::Udp,
                 shared: SHARED_SETTINGS,
             }).id();
             app.world_mut().trigger_targets(Connect, client)
@@ -59,11 +56,11 @@ fn main() {
         use lightyear_examples_common_new::server::{ExampleServer, ServerTransports};
         use lightyear::connection::server::Start;
 
-        app.add_plugins(ExampleServerPlugin); // Assuming ExampleServerPlugin doesn't need args now
+        app.add_plugins(ExampleServerPlugin);
         if matches!(cli.mode, Some(Mode::Server)) {
             let server = app.world_mut().spawn(ExampleServer {
                 conditioner: None,
-                transport: ServerTransports::Udp { // Avian example likely uses UDP
+                transport: ServerTransports::Udp {
                     local_port: SERVER_PORT
                 },
                 shared: SHARED_SETTINGS
@@ -73,7 +70,9 @@ fn main() {
     }
 
     #[cfg(feature = "gui")]
-    app.add_plugins(crate::renderer::ExampleRendererPlugin); // Assuming ExampleRendererPlugin doesn't need args now
+    app.add_plugins(renderer::ExampleRendererPlugin {
+        show_confirmed: true
+    });
 
     // run the app
     app.run();
