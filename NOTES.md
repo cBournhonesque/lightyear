@@ -30,12 +30,8 @@ TODO:
   - But maybe we should to the reset on Connection, so that if users changed something it gets taken into account?
   - Also we might need to reset the MessageReceiver/MessageSender!
 
-- ON NETCODE STOP, HOW DO WE DISCONNECT EACH CLIENTOF BUT STILL SEND PACKETS? 
-   - NETCODE STOP DOES NOT WORK
-   - we need a Unlinked and Stopping, so that we can send disconnect packets and then stop. otherwise
-
+- in netcode: the difference between `send_packets` and `send_netcode_packets` is a bit awkward...
 - add compression in Transport before splitting bytes into fragments.
-
 - refactor replication to not use hashmaps if no replication group is used.
     
 

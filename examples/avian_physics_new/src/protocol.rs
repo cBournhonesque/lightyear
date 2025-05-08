@@ -4,9 +4,7 @@ use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::shared::color_from_id;
-use lightyear::prelude::client::*;
 use lightyear::prelude::input::leafwing;
-use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
 pub const BALL_SIZE: f32 = 15.0;
@@ -113,14 +111,14 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Position>()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full)
-            .add_interpolation_fn(position::lerp)
-            .add_correction_fn(position::lerp);
+            .add_linear_interpolation_fn()
+            .add_linear_correction_fn();
 
         app.register_component::<Rotation>()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full)
-            .add_interpolation_fn(rotation::lerp)
-            .add_correction_fn(rotation::lerp);
+            .add_linear_interpolation_fn()
+            .add_linear_correction_fn();
 
         // NOTE: interpolation/correction is only needed for components that are visually displayed!
         // we still need prediction to be able to correctly predict the physics on the client
