@@ -72,7 +72,7 @@ pub mod prelude {
         }
         #[cfg(feature = "leafwing")]
         pub mod leafwing {
-            pub use lightyear_inputs_leafwing::*;
+            pub use lightyear_inputs_leafwing::prelude::*;
         }
     }
 

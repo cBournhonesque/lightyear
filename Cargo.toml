@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
   "lightyear",
   "lightyear_core",
@@ -236,8 +236,8 @@ leafwing-input-manager = { version = "0.17", default-features = false, features 
 ] }
 
 # physics
-avian2d = { git = "https://github.com/Jondolf/avian.git", branch = "main", default-features = false }
-avian3d = { git = "https://github.com/Jondolf/avian.git", branch = "main", default-features = false }
+avian2d = { path = "../avian/crates/avian2d", default-features = false }
+avian3d = { path = "../avian/crates/avian3d", default-features = false }
 
 
 # gui debug ui

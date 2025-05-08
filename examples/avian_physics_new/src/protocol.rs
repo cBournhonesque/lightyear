@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::shared::color_from_id;
 use lightyear::prelude::client::*;
+use lightyear::prelude::input::leafwing;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
@@ -87,14 +88,14 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // inputs
         // Use new input plugin path and default config
-        app.add_plugins(input::leafwing::InputPlugin::<PlayerActions>::default());
+        app.add_plugins(leafwing::InputPlugin::<PlayerActions>::default());
         // app.add_plugins(LeafwingInputPlugin::<PlayerActions> {
         //     config: InputConfig::<PlayerActions> {
         //         rebroadcast_inputs: self.predict_all, // Removed config
         //         ..default()
         //     },
         // });
-        app.add_plugins(input::leafwing::InputPlugin::<AdminActions>::default());
+        app.add_plugins(leafwing::InputPlugin::<AdminActions>::default());
         // components
         // Use PredictionMode and InterpolationMode
         app.register_component::<PlayerId>()
