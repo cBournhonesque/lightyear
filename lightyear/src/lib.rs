@@ -225,7 +225,7 @@ pub mod prelude {
         ShouldBePredicted, TargetEntity,
     };
     pub use crate::shared::replication::entity_map::RemoteEntityMap;
-    pub use crate::shared::replication::hierarchy::{ChildOfSync, RelationshipSync, ReplicateLike};
+    pub use crate::shared::replication::hierarchy::{ChildOfSync, RelationshipSync, ReplicateLike, RelationshipSendPlugin, RelationshipReceivePlugin};
     pub use crate::shared::replication::network_target::NetworkTarget;
     pub use crate::shared::replication::plugin::ReplicationConfig;
     pub use crate::shared::replication::plugin::SendUpdatesMode;
