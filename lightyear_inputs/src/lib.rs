@@ -25,6 +25,11 @@ use serde::Serialize;
 
 
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
+/// A marker struct for the default channel used to send inputs from client to server.
+///
+/// This channel is typically configured as a Sequenced Unreliable channel,
+/// suitable for sending frequent, time-sensitive input data where occasional loss
+/// is acceptable and out-of-order delivery is handled by sequencing.
 pub struct InputChannel;
 
 

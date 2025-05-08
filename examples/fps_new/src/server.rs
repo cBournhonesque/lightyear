@@ -1,9 +1,9 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
+use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
-use core::ops::DerefMut;
 
 use crate::protocol::*;
 use crate::shared;
@@ -25,7 +25,7 @@ const BULLET_COLLISION_DISTANCE_CHECK: f32 = 4.0;
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(LagCompensationPlugin);
-        app.add_systems(Startup, (init, spawn_bots));
+        app.add_systems(Startup, spawn_bots);
         app.add_systems(Update, spawn_player);
         // the lag compensation systems need to run after LagCompensationSet::UpdateHistory
         app.add_systems(FixedUpdate, interpolated_bot_movement);
@@ -42,9 +42,6 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-pub(crate) fn init(mut commands: Commands) {
-    commands.start_server();
-}
 
 // Replicate the pre-spawned entities back to the client
 // We have to use `InitialReplicated` instead of `Replicated`, because
@@ -92,14 +89,8 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
     commands.spawn((
         InterpolatedBot,
         Name::new("InterpolatedBot"),
-        Replicate {
-            sync: SyncTarget {
-                interpolation: NetworkTarget::All,
-                ..default()
-            },
-            // NOTE: all predicted entities must be part of the same replication group!
-            ..default()
-        },
+        Replicate::to_clients(NetworkTarget::All),
+        InterpolationTarget::to_clients(NetworkTarget::All),
         // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
         DisableReplicateHierarchy,
         Transform::from_xyz(-200.0, 10.0, 0.0),
@@ -111,14 +102,9 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
     commands.spawn((
         PredictedBot,
         Name::new("PredictedBot"),
-        Replicate {
-            sync: SyncTarget {
-                prediction: NetworkTarget::All,
-                ..default()
-            },
-            // NOTE: all predicted entities must be part of the same replication group!
-            ..default()
-        },
+        Replicate::to_clients(NetworkTarget::All),
+        PredictionTarget::to_clients(NetworkTarget::All),
+        // NOTE: all predicted entities must be part of the same replication group!
         // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
         DisableReplicateHierarchy,
         Transform::from_xyz(200.0, 10.0, 0.0),

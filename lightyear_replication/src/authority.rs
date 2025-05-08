@@ -11,6 +11,11 @@ use bevy::prelude::*;
 use lightyear_core::id::PeerId;
 use serde::{Deserialize, Serialize};
 
+// Authority:
+// - each replicating entity can have a AuthorityOf relationship to a sender to signify that that sender has authority over the entity
+// - only one sender can have authority over an entity at a time
+// -
+
 /// Authority is used to define who is in charge of simulating an entity.
 ///
 /// In particular:

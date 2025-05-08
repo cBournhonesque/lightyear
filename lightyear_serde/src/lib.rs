@@ -1,10 +1,14 @@
-/*! # Lightyear Serde
-
-Low-level IO primitives for the lightyear networking library.
-This crate provides abstractions for sending and receiving raw bytes over the network.
-*/
-
-//! Serialization and deserialization of types
+//! # Lightyear Serde
+//!
+//! This crate provides serialization and deserialization utilities for Lightyear.
+//! It defines the `ToBytes` trait for converting types to and from byte representations,
+//! along with `Reader` and `Writer` utilities for handling byte streams.
+//!
+//! It includes implementations for common types and collections, and utilities for
+//! efficient serialization, such as varint encoding.
+//!
+//! This crate is fundamental for preparing data to be sent over the network and for
+//! reconstructing data received from remote peers.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -18,12 +22,18 @@ use bytes::Bytes;
 use core::hash::{BuildHasher, Hash};
 use no_std_io2::io;
 
+/// Utilities for mapping entities during serialization and deserialization.
 pub mod entity_map;
+/// Provides the `Reader` struct and traits for deserializing data from a byte stream.
 pub mod reader;
+/// Utilities for variable-length integer encoding and decoding.
 pub mod varint;
+/// Provides the `Writer` struct and traits for serializing data into a byte stream.
 pub mod writer;
+/// Defines traits and structures for registering serializable types.
 pub mod registry;
 
+/// Commonly used items from the `lightyear_serde` crate.
 pub mod prelude {
     pub use crate::SerializationError;
 }
@@ -32,6 +42,7 @@ use crate::writer::WriteInteger;
 
 pub type RawData = Vec<u8>;
 
+/// Errors that can occur during serialization or deserialization.
 #[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
 pub enum SerializationError {
@@ -49,6 +60,14 @@ pub enum SerializationError {
     BincodeDecode(#[from] bincode::error::DecodeError),
 }
 
+/// Trait for types that can be serialized to and deserialized from a byte stream.
+///
+/// This trait provides methods to:
+/// - Calculate the number of bytes required for serialization (`bytes_len`).
+/// - Serialize the type into a buffer (`to_bytes`).
+/// - Deserialize the type from a buffer (`from_bytes`).
+///
+/// It is implemented for various primitive types, collections, and `bytes::Bytes`.
 #[allow(clippy::len_without_is_empty)]
 pub trait ToBytes {
     fn bytes_len(&self) -> usize;
@@ -242,7 +261,7 @@ impl<K: ToBytes + Eq + Hash, V: ToBytes, S: Default + BuildHasher> ToBytes for H
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::serialize::writer::Writer;
+    use crate::writer::Writer;
     #[cfg(not(feature = "std"))]
     use alloc::vec;
     use bevy::prelude::Entity;

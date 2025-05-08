@@ -16,14 +16,18 @@ use tracing::error;
 use crate::manager::InterpolationManager;
 
 mod despawn;
+/// Contains the `InterpolateStatus` component and interpolation logic.
 pub mod interpolate;
+/// Defines `ConfirmedHistory` for storing historical states of confirmed entities.
 pub mod interpolation_history;
+/// Provides the `InterpolationPlugin` and related systems for Bevy integration.
 pub mod plugin;
 mod manager;
 mod spawn;
 mod registry;
 mod timeline;
 
+/// Commonly used items for client-side interpolation.
 pub mod prelude {
     pub use crate::manager::InterpolationManager;
     pub use crate::plugin::InterpolationSet;
@@ -31,7 +35,16 @@ pub mod prelude {
     pub use crate::{Interpolated, InterpolationMode};
 }
 
-/// Marker component for an entity that is being interpolated by the client
+/// Component added to client-side entities that are visually interpolated.
+///
+/// Interpolation is used to smooth the visual representation of entities received from the server.
+/// Instead of snapping to new positions/states upon receiving a server update, the entity's
+/// components are smoothly transitioned from their previous state to the new state over time.
+///
+/// This component links the interpolated entity to its server-confirmed counterpart.
+/// The `InterpolationPlugin` uses this to:
+/// - Store the component history of the confirmed entity.
+/// - Apply interpolated values to the components of this entity based on the `InterpolationTimeline`.
 #[derive(Debug, Reflect)]
 #[reflect(Component)]
 pub struct Interpolated {
@@ -111,5 +124,10 @@ pub enum InterpolationMode {
 }
 
 
+/// Trait for components that can be synchronized for interpolation.
+///
+/// This is a marker trait, requiring `Component<Mutability=Mutable> + Clone + PartialEq`.
+/// Components implementing this trait can have their state managed by the interpolation systems
+/// according to the specified `InterpolationMode`.
 pub trait SyncComponent: Component<Mutability=Mutable> + Clone + PartialEq {}
 impl<T> SyncComponent for T where T: Component<Mutability=Mutable> + Clone + PartialEq {}

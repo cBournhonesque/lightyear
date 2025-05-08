@@ -1,8 +1,15 @@
-/*! # Lightyear IO
-
-Low-level IO primitives for the lightyear networking library.
-This crate provides abstractions for sending and receiving raw bytes over the network.
-*/
+//! # Lightyear UDP Transport
+//!
+//! This crate provides a UDP transport layer for Lightyear.
+//! It defines `UdpIo` which uses `std::net::UdpSocket` for sending and receiving raw byte
+//! payloads over UDP. This is a common and often preferred transport for real-time games
+//! due to its low overhead.
+//!
+//! The `UdpPlugin` integrates this transport into a Bevy application, managing the
+//! lifecycle of UDP sockets and handling the IO operations in conjunction with Lightyear's
+//! `Link` component.
+//!
+//! It also includes server-specific UDP IO handling when the "server" feature is enabled.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -17,9 +24,12 @@ use core::net::SocketAddr;
 use lightyear_link::{Link, LinkSet, LinkStart, Linked, Unlink, Unlinked};
 use std::sync::Mutex;
 
+/// Provides server-specific UDP IO functionalities.
+/// This module is only available when the "server" feature is enabled.
 #[cfg(feature = "server")]
 pub mod server;
 
+/// Commonly used items for UDP transport in Lightyear.
 pub mod prelude {
     pub use crate::UdpIo;
 
@@ -33,6 +43,14 @@ pub mod prelude {
 /// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>
 pub(crate) const MTU: usize = 1472;
 
+/// Component that manages a UDP socket for network communication.
+///
+/// This component is added to an entity with a `Link` component to enable
+/// sending and receiving data over UDP. It holds the local socket address,
+/// the `std::net::UdpSocket` (once linked), and a buffer for incoming data.
+///
+/// The `UdpPlugin` is responsible for creating and managing the actual socket
+/// based on the `LinkState`.
 #[derive(Component)]
 #[require(Link)]
 pub struct UdpIo {
@@ -55,6 +73,15 @@ impl UdpIo {
     }
 }
 
+/// Bevy plugin to integrate UDP-based IO with Lightyear.
+///
+/// This plugin adds systems to:
+/// - Bind UDP sockets when a `LinkStart` event occurs for an entity with `UdpIo` and `Unlinked`.
+/// - Close UDP sockets when an `Unlink` event occurs.
+/// - Send outgoing packets from the `Link`'s send buffer over UDP.
+/// - Receive incoming packets from UDP and push them to the `Link`'s receive buffer.
+///
+/// It uses the `LinkSet` system sets to order these operations correctly within Bevy's schedule.
 pub struct UdpPlugin;
 
 impl UdpPlugin {

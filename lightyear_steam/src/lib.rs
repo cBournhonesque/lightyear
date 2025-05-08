@@ -1,3 +1,13 @@
+//! # Lightyear Steam Networking
+//!
+//! This crate provides an integration layer for using Steam's networking sockets
+//! (specifically `steamworks::networking_sockets`) as a transport for Lightyear.
+//!
+//! It handles the setup of Steam P2P connections and wraps them in a way that
+//! can be used by Lightyear's `Link` component. This allows Lightyear to send
+//! and receive messages over the Steam network infrastructure.
+//!
+//! Note: This crate requires the `steamworks` crate and a running Steam client.
 use crate::prelude::LinkConditionerConfig;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};

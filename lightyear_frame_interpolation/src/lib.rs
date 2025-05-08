@@ -44,6 +44,12 @@ use lightyear_replication::prelude::ReplicationSet;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use tracing::trace;
 
+/// System sets used by the `FrameInterpolationPlugin`.
+///
+/// These sets help order the systems responsible for:
+/// - Restoring the actual component values before other game logic.
+/// - Updating the history of component values used for interpolation.
+/// - Performing the visual interpolation itself.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum FrameInterpolationSet {
     /// Restore the correct component values
@@ -53,6 +59,42 @@ pub enum FrameInterpolationSet {
     /// Interpolate the visual state of the game with 1 tick of delay
     Interpolate,
 }
+/// Bevy plugin to enable visual interpolation for a specific component `C`.
+///
+/// This plugin adds systems to store the state of component `C` at each `FixedUpdate` tick
+/// and then interpolate between the previous and current tick's state during the `PostUpdate`
+/// schedule, using the `Time<Fixed>::overstep_percentage`. This helps smooth
+/// visuals when the rendering framerate doesn't align perfectly with the fixed simulation rate.
+///
+/// To use this, the component `C` must implement `Component<Mutability=Mutable> + Clone + Ease`.
+/// You also need to add the `FrameInterpolate<C>` component to entities
+/// for which you want to enable this visual interpolation.
+///
+/// # Example
+/// ```rust,ignore
+/// use bevy::prelude::*;
+/// use lightyear_frame_interpolation::FrameInterpolationPlugin;
+/// use lightyear_protocols::prelude::client::Ease; // Assuming Ease is defined here
+///
+/// #[derive(Component, Clone)]
+/// struct MyComponent(f32);
+///
+/// // Implement Ease for MyComponent
+/// impl Ease for MyComponent {
+///    fn ease(start: Self, end: Self, t: f32) -> Self {
+///        MyComponent(start.0 + (end.0 - start.0) * t)
+///    }
+/// }
+///
+/// fn main() {
+///     let mut app = App::new();
+///     app.add_plugins(DefaultPlugins);
+///     // Add the plugin for MyComponent
+///     app.add_plugins(FrameInterpolationPlugin::<MyComponent>::default());
+///     // ... other setup ...
+///     app.run();
+/// }
+/// ```
 pub struct FrameInterpolationPlugin<C> {
     _marker: core::marker::PhantomData<C>,
 }

@@ -3,15 +3,13 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
-// Use preludes
 use lightyear::prelude::client::*;
+use lightyear::prelude::input::leafwing;
 use lightyear::prelude::server::*;
+use lightyear::prelude::Channel;
 use lightyear::prelude::*;
-use lightyear::prelude::Channel; // Explicitly import Channel trait
-// Removed unused imports
 // use lightyear::shared::input::InputConfig;
 // use lightyear::shared::replication::components::ReplicationGroupIdBuilder;
-use lightyear::utils::bevy::*; // Keep bevy utils
 
 use crate::shared::color_from_id;
 
@@ -43,23 +41,6 @@ pub struct ColorComponent(pub(crate) Color);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BulletMarker;
 
-// Channels
-
-#[derive(Channel)]
-pub struct Channel1;
-
-// Removed manual impl Channel block
-// impl Channel for Channel1 {
-//     fn name(&self) -> &'static str {
-//         "Channel1"
-//     }
-// }
-
-// Messages
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Message1(pub usize);
-
 // Inputs
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect)]
@@ -87,11 +68,9 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        // messages
-        app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
         // Use new input plugin path and default config
-        app.add_plugins(input::leafwing::InputPlugin::<PlayerActions>::default());
+        app.add_plugins(leafwing::InputPlugin::<PlayerActions>::default());
         // app.add_plugins(LeafwingInputPlugin::<PlayerActions> {
         //     config: InputConfig::<PlayerActions> {
         //         // enable lag compensation; the input messages sent to the server will include the
@@ -136,11 +115,5 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<InterpolatedBot>()
             .add_interpolation(InterpolationMode::Once);
-
-        // channels
-        app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        });
     }
 }

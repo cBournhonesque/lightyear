@@ -4,8 +4,7 @@ use leafwing_input_manager::action_state::ActionData;
 use leafwing_input_manager::buttonlike::ButtonState::Pressed;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
-use lightyear::client::input::InputSystemSet;
-use lightyear::inputs::native::input_buffer::InputBuffer;
+use lightyear::input::client::InputSet;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -24,7 +23,7 @@ impl Plugin for ExampleClientPlugin {
             FixedPreUpdate,
             update_cursor_state_from_window
                 // make sure that we update the ActionState before we buffer it in the InputBuffer
-                .before(InputSystemSet::BufferClientInputs)
+                .before(InputSet::BufferClientInputs)
                 .in_set(InputManagerSystem::ManualControl),
         );
         app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));

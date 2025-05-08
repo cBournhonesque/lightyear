@@ -1,8 +1,14 @@
-/*! # Lightyear IO
-
-Low-level IO primitives for the lightyear networking library.
-This crate provides abstractions for sending and receiving raw bytes over the network.
-*/
+//! # Lightyear Replication
+//!
+//! This crate handles the logic for replicating entities and components
+//! from the server to clients.
+//!
+//! It includes systems for:
+//! - Tracking changes to components.
+//! - Serializing and sending replication messages.
+//! - Receiving and applying replication updates on clients.
+//! - Managing entity authority and visibility (e.g., interest management, rooms).
+//! - Handling component registration for replication.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -10,28 +16,36 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
+/// Handles the registration of components for replication.
 pub mod registry;
 
 
 pub(crate) mod archetypes;
+/// Defines components related to replication, such as `Replicate` and `ParentSync`.
 pub mod components;
 
 pub(crate) mod authority;
+/// Defines error types that can occur during replication.
 pub mod error;
 pub(crate) mod hierarchy;
 pub(crate) mod plugin;
+/// Handles receiving and applying replication updates on the client.
 pub mod receive;
 
 pub(crate) mod send;
 
+/// Defines the structure of messages used for replication.
 pub mod message;
 pub(crate) mod buffer;
 pub(crate) mod delta;
 
+/// Manages entity visibility for replication (e.g., interest management, rooms).
 pub mod visibility;
+/// Manages entity control and ownership.
 pub mod control;
 mod client;
 
+/// Commonly used items for replication.
 pub mod prelude {
     pub use crate::authority::HasAuthority;
     pub use crate::buffer::Replicate;

@@ -1,8 +1,11 @@
-/*! # Lightyear Crossbeam
-
-Low-level IO primitives for the lightyear networking library.
-This crate provides abstractions for sending and receiving raw bytes over the network.
-*/
+//! # Lightyear Crossbeam
+//!
+//! This crate provides a transport layer for Lightyear that uses `crossbeam-channel`.
+//! It's primarily intended for local testing or scenarios where in-process message passing
+//! is desired, simulating a network connection without actual network I/O.
+//!
+//! It defines `CrossbeamIo` for channel-based communication and `CrossbeamPlugin`
+//! to integrate this transport into a Bevy application.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -22,6 +25,11 @@ pub(crate) const MTU: usize = 1472;
 const LOCALHOST: SocketAddr = SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
 
 
+/// A component that facilitates communication over `crossbeam-channel`.
+///
+/// This acts as a transport layer, allowing messages to be sent and received
+/// via in-memory channels, simulating a network link. It holds the sender
+/// and receiver ends of the channels.
 #[derive(Component)]
 #[require(Link::new(LOCALHOST, None))]
 pub struct CrossbeamIo {
@@ -49,6 +57,10 @@ impl CrossbeamIo {
     }
 }
 
+/// Bevy plugin to integrate the `CrossbeamIo` transport.
+///
+/// This plugin sets up the necessary systems for sending and receiving data
+/// via `crossbeam-channel` when a `Link` component is present and active.
 pub struct CrossbeamPlugin;
 
 impl CrossbeamPlugin {

@@ -1,8 +1,15 @@
-/*! # Lightyear IO
-
-Low-level IO primitives for the lightyear networking library.
-This crate provides abstractions for sending and receiving raw bytes over the network.
-*/
+//! # Lightyear Link
+//!
+//! This crate defines the `Link` component and related abstractions for network communication.
+//! A `Link` represents a connection to a remote peer and handles the buffering of incoming
+//! and outgoing byte payloads. It is transport-agnostic, meaning the actual sending and
+//! receiving of bytes over a physical (or virtual) network is handled by a separate IO layer
+//! (e.g., UDP, WebTransport, Crossbeam channels).
+//!
+//! It also includes features like:
+//! - Link conditioning (simulating latency, jitter, packet loss) via `LinkConditioner`.
+//! - Link state management (`Linked`, `Linking`, `Unlinked`).
+//! - Basic link statistics (`LinkStats`).
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -23,6 +30,7 @@ use bytes::Bytes;
 use core::net::SocketAddr;
 use core::time::Duration;
 
+/// Commonly used items from the `lightyear_link` crate.
 pub mod prelude {
     pub use crate::server::{LinkOf, ServerLink};
     pub use crate::{Link, LinkSet, LinkStart, LinkStats, Linked, Linking, RecvLinkConditioner, Unlinked};
@@ -31,6 +39,7 @@ pub mod prelude {
 pub type RecvPayload = Bytes;
 pub type SendPayload = Bytes;
 
+/// Represents the current connection state of a `Link`.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkState {
     /// The link is not established
@@ -63,6 +72,10 @@ pub struct Link {
     pub remote_addr: Option<SocketAddr>,
 }
 
+/// Type alias for a `LinkConditioner` specifically for receiving `RecvPayload`.
+///
+/// This is used to simulate network conditions (latency, jitter, packet loss)
+/// on incoming packets.
 pub type RecvLinkConditioner = LinkConditioner<RecvPayload>;
 
 impl Link {
@@ -91,6 +104,10 @@ impl Link {
     }
 }
 
+/// Handles receiving and buffering incoming payloads for a `Link`.
+///
+/// It contains a buffer for payloads and an optional `LinkConditioner`
+/// to simulate network conditions on received data.
 #[derive(Default)]
 pub struct LinkReceiver{
     buffer: VecDeque<RecvPayload>,
@@ -130,6 +147,10 @@ impl LinkReceiver {
     }
 
 }
+/// Handles buffering outgoing payloads for a `Link`.
+///
+/// It contains a buffer for payloads that are ready to be sent by the
+/// underlying IO transport.
 #[derive(Default)]
 pub struct LinkSender(VecDeque<SendPayload>);
 
@@ -164,6 +185,7 @@ impl Link {
     }
 }
 
+/// Stores statistics about a `Link`, such as bytes/packets sent and received, RTT, and jitter.
 #[derive(Default)]
 pub struct LinkStats {
     /// Number of bytes received
@@ -183,6 +205,12 @@ pub struct LinkStats {
 //  - packet lost stats?
 //  - rtt/jitter estimate
 
+/// System sets for `Link`-related operations.
+///
+/// These are used to order systems that handle:
+/// - Receiving data from the IO layer into the `Link` buffer.
+/// - Applying link conditioning to received packets.
+/// - Sending data from the `Link` buffer to the IO layer.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum LinkSet {
     // PRE UPDATE
@@ -196,9 +224,17 @@ pub enum LinkSet {
     Send,
 }
 
+/// Event triggered to initiate the process of establishing a `Link`.
+///
+/// This event typically signals the underlying IO layer to start connecting
+/// to a remote peer.
 #[derive(Event)]
 pub struct LinkStart;
 
+/// Event triggered to initiate the process of terminating a `Link`.
+///
+/// This event typically signals the underlying IO layer to disconnect
+/// from the remote peer.
 #[derive(Event)]
 pub struct Unlink;
 
@@ -247,6 +283,14 @@ impl Unlinked {
 }
 
 
+/// Bevy plugin that sets up the systems for managing `Link` components.
+///
+/// This plugin configures system sets for:
+/// - Receiving data into `Link` buffers (`LinkSet::Receive`).
+/// - Applying link conditioning (`LinkSet::ApplyConditioner`).
+/// - Sending data from `Link` buffers (`LinkSet::Send`).
+///
+/// It also includes a system to apply the `LinkConditioner` if present on a `Link`.
 pub struct LinkPlugin;
 
 impl LinkPlugin {

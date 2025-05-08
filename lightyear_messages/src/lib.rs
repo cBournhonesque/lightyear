@@ -1,3 +1,10 @@
+//! # Lightyear Messages
+//!
+//! This crate provides the system for sending and receiving messages over the network.
+//!
+//! It defines the `Message` trait, which all messages must implement, and provides
+//! utilities for managing message sending and receiving, including `MessageSender`,
+//! `MessageReceiver`, and `MessageManager`.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -56,7 +63,12 @@ impl<T: Send + Sync + 'static> Message for T {}
 pub type MessageNetId = NetId;
 
 
-/// Component that will track the component_ids of the MessageReceiver<M> and MessageSender<M> that are present on the entity
+/// Manages sending and receiving messages for an entity.
+///
+/// This component is added to entities that need to send or receive messages.
+/// It keeps track of the `MessageSender<M>` and `MessageReceiver<M>` components
+/// attached to the entity, allowing the messaging system to interact with them.
+/// It also holds a `RemoteEntityMap` for mapping entities between client and server.
 #[derive(Component, Default, Reflect)]
 #[require(Transport)]
 pub struct MessageManager{

@@ -32,7 +32,15 @@ pub mod prelude {
     pub use crate::{Predicted, PredictionMode};
 }
 
-/// Marks an entity that is being predicted by the client
+/// Component added to client-side entities that are predicted.
+///
+/// Prediction allows the client to simulate the game state locally without waiting for server confirmation,
+/// reducing perceived latency. This component links the predicted entity to its server-confirmed counterpart.
+///
+/// When an entity is marked as `Predicted`, the `PredictionPlugin` will:
+/// - Store its component history.
+/// - Rollback and re-simulate the entity when a server correction is received.
+/// - Manage the relationship between the predicted entity and its corresponding confirmed entity received from the server.
 #[derive(Debug, Reflect)]
 #[reflect(Component)]
 pub struct Predicted {
@@ -124,5 +132,10 @@ pub enum PredictionMode {
     None,
 }
 
+/// Trait for components that can be synchronized between a confirmed entity and its predicted/interpolated counterpart.
+///
+/// This is a marker trait, requiring `Component<Mutability=Mutable> + Clone + PartialEq`.
+/// Components implementing this trait can have their state managed by the prediction and interpolation systems
+/// according to the specified `PredictionMode`.
 pub trait SyncComponent: Component<Mutability=Mutable> + Clone + PartialEq {}
 impl<T> SyncComponent for T where T: Component<Mutability=Mutable> + Clone + PartialEq {}
