@@ -2,7 +2,7 @@
 
 use crate::prelude::client::{InterpolationSet, PredictionSet};
 use crate::prelude::PrePredicted;
-use crate::shared::replication::components::{DisableReplicateHierarchy, ReplicationMarker};
+use crate::shared::replication::components::{DisableReplicateHierarchy, InitialReplicated, ReplicationMarker};
 use crate::shared::replication::ReplicationPeer;
 use crate::shared::sets::{InternalMainSet, InternalReplicationSet};
 use bevy::ecs::entity::MapEntities;
@@ -14,6 +14,8 @@ use core::fmt::{Debug, Formatter};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use tracing::trace;
+use crate::client::interpolation::Interpolated;
+use crate::client::prediction::Predicted;
 
 pub type ChildOfSync = RelationshipSync<ChildOf>;
 
@@ -98,7 +100,7 @@ impl<R: Relationship> RelationshipSendPlugin<R> {
     /// or if RelationshipSync is inserted,
     /// update the RelationshipSync to match the parent value
     fn handle_parent_insert(
-        trigger: Trigger<OnAdd, (R, RelationshipSync<R>)>,
+        trigger: Trigger<OnAdd, (R, RelationshipSync<R>, ReplicateLike, ReplicationMarker)>,
         // include filter to make sure that this is running on the send side
         mut query: Query<
             (&R, &mut RelationshipSync<R>),
@@ -151,10 +153,9 @@ impl<P: ReplicationPeer, R: Relationship + Debug> RelationshipReceivePlugin<P, R
         mut commands: Commands,
         hierarchy: Query<
             (Entity, &RelationshipSync<R>, Option<&R>),
-            // We add `Without<ReplicationMarker>` to guarantee that this is running for replicated entities.
             // With<Replicated> doesn't work because PrePredicted entities on the server side remove `Replicated`
-            // via an observer. Maybe `With<InitialReplicated>` would work.
-            (Changed<RelationshipSync<R>>, Without<ReplicationMarker>),
+            // via an observer
+            (Changed<RelationshipSync<R>>, Or<(With<InitialReplicated>, With<Predicted>, With<Interpolated>)>),
         >,
     ) {
         for (entity, parent_sync, parent) in hierarchy.iter() {
@@ -466,6 +467,7 @@ mod tests {
     use crate::tests::protocol::*;
     use crate::tests::stepper::BevyStepper;
     use bevy::prelude::Entity;
+    use crate::tests::host_server_stepper::HostServerStepper;
 
     fn setup_hierarchy() -> (BevyStepper, Entity, Entity, Entity) {
         let mut stepper = BevyStepper::default();
@@ -1126,5 +1128,38 @@ mod tests {
             .remote_entity_map
             .get_local(server_child)
             .expect("child entity was not replicated to client");
+    }
+
+    /// Test that inserting ParentSync on an entity in host-server mode doesn't
+    /// break the ChildOf-Children hierarchy
+    #[test]
+    fn test_parent_sync_host_server() {
+        let mut stepper = HostServerStepper::default();
+
+        let c1 = ClientId::Netcode(TEST_CLIENT_ID_1);
+        let c2 = ClientId::Netcode(TEST_CLIENT_ID_2);
+
+        let server_child = stepper.server_app.world_mut().spawn(
+            ChildOfSync::default(),
+        ).id();
+        let server_parent = stepper
+            .server_app
+            .world_mut()
+            .spawn_empty()
+            .add_child(server_child)
+            .id();
+        assert_eq!(
+            stepper.server_app.world().get::<ChildOf>(server_child),
+            Some(&ChildOf(server_parent))
+        );
+
+        stepper.frame_step();
+        stepper.frame_step();
+
+        assert!(stepper.server_app.world().get::<ChildOfSync>(server_child).is_some());
+        assert_eq!(
+            stepper.server_app.world().get::<ChildOf>(server_child),
+            Some(&ChildOf(server_parent))
+        );
     }
 }
