@@ -153,7 +153,7 @@ mod tests {
                 .world()
                 .get::<ChildOf>(confirmed_child)
                 .expect("confirmed child entity doesn't have a parent")
-                .get(),
+                .parent(),
             confirmed_parent
         );
 
@@ -179,7 +179,7 @@ mod tests {
                 .world()
                 .get::<ChildOf>(predicted_child)
                 .expect("predicted child entity doesn't have a parent")
-                .get(),
+                .parent(),
             predicted_parent
         );
     }
