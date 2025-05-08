@@ -31,6 +31,9 @@ pub struct Server {
 }
 
 impl Server {
+    // TODO: add a way for the server to disconnect a client
+
+
     /// Calls func on each value that matches the provided `target`
     pub fn apply_targets(
         &self,

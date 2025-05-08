@@ -84,11 +84,6 @@ pub enum ReplicationBufferSet {
     AfterBuffer,
     // Flush the buffered replication messages to the Transport
     Flush,
-
-    // Buffer types
-    EntityUpdates,
-    ComponentUpdates,
-    ResourceUpdates,
 }
 
 

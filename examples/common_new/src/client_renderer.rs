@@ -138,6 +138,9 @@ pub(crate) fn update_button_text(
     };
     if let Ok(mut text) = text_query.single_mut() {
         match client.state {
+            ClientState::Disconnecting => {
+                text.0 = "Disconnecting".to_string();
+            }
             ClientState::Disconnected => {
                 text.0 = "Connect".to_string();
             }

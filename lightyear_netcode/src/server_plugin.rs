@@ -5,8 +5,9 @@ use bevy::ecs::entity::unique_slice::UniqueEntitySlice;
 use bevy::prelude::*;
 use bevy::tasks::futures_lite::StreamExt;
 use core::net::SocketAddr;
-use lightyear_connection::client::{Connected, Connecting, Disconnected};
+use lightyear_connection::client::{Connected, Connecting, Disconnected, Disconnecting};
 use lightyear_connection::prelude::{server::*, *};
+use lightyear_connection::server::Stopping;
 use lightyear_core::id::PeerId;
 use lightyear_link::{Link, LinkSet, LinkStart, Unlink, Unlinked};
 use lightyear_transport::plugin::TransportSet;
@@ -96,7 +97,7 @@ impl NetcodeServerPlugin {
     /// and buffer them back into the link to be sent by the IO
     fn send(
         mut server_query: Query<(&mut NetcodeServer, &Server), Without<Stopped>>,
-        client_query: Query<(&mut Link, Option<&Connected>), With<ClientOf>>,
+        client_query: Query<(&mut Link, Option<&Connected>, Option<&Disconnecting>), With<ClientOf>>,
     ) {
         // TODO: we should be able to do ParIterMut if we can make the code understand
         //  that the transports/links are all mutually exclusive...
@@ -113,7 +114,7 @@ impl NetcodeServerPlugin {
 
             // SAFETY: we know that the entities of a relationship are unique
             let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(server.collection()) };
-            client_query.iter_many_unique_mut(unique_slice).for_each(|(mut link, connected)|  {
+            client_query.iter_many_unique_mut(unique_slice).for_each(|(mut link, connected, disconnecting)|  {
 
                 // TODO: we can be here while the link has been established, but the client is not yet connected
                 //  so the PeerId is not Netcode! I think we should just error?
@@ -122,6 +123,7 @@ impl NetcodeServerPlugin {
                 if let Some(PeerId::Netcode(client_id)) = connected.map(|c| c.remote_peer_id) {
                     for _ in 0..link.send.len() {
                         if let Some(payload) = link.send.pop() {
+                            trace!("SERVER: Sending packet to client {:?}", client_id);
                             netcode_server.inner.send(payload, client_id, &mut link.send).inspect_err(|e| {
                                 error!("Error sending packet: {:?}", e);
                             }).ok();
@@ -129,11 +131,17 @@ impl NetcodeServerPlugin {
                     }
 
                     // NOTE: we send any netcode packets AFTER the user payloads have been processed
+                    // (because we want the
                     netcode_server.inner.send_keepalives(client_id, &mut link.send);
                 } else {
                     // if the client is not connected, remove any messages buffered in link.send
                     // We don't want to allow users to send messages while not connected
-                    link.send.drain();
+                    //
+                    // However if we are disconnecting, we still want to send the disconnect packets
+                    // (we don't use `send_netcode_packets` because we need to remove the client from `send_queue`)
+                    if disconnecting.is_none() {
+                        link.send.drain();
+                    }
                 }
 
                 // even if it was not connected, we might need to send the netcode packets that were buffered
@@ -153,7 +161,7 @@ impl NetcodeServerPlugin {
     fn receive(
         parallel_commands: ParallelCommands,
         real_time: Res<Time<Real>>,
-        mut server_query: Query<(&mut NetcodeServer, &mut Server), Without<Stopped>>,
+        mut server_query: Query<(Entity, &mut NetcodeServer, &mut Server, Has<Stopping>), Without<Stopped>>,
         link_query: Query<(Entity, &mut Link, &mut ClientOf)>,
     ) {
         let delta = real_time.delta();
@@ -164,7 +172,7 @@ impl NetcodeServerPlugin {
         let mut link_query = Arc::new(link_query);
 
         // receive packets from the link and process them through the server
-        server_query.par_iter_mut().for_each(|(mut netcode_server, mut server)| {
+        server_query.par_iter_mut().for_each(|(server_entity, mut netcode_server, mut server, stopping)| {
             // SAFETY: we know that each client is unique to a single server so we won't
             //  violate aliasing rules
             let mut link_query = unsafe { link_query.reborrow_unsafe() };
@@ -222,12 +230,20 @@ impl NetcodeServerPlugin {
                                 reason: None,
                             })
                             .despawn();
-
                     })
                 })
             });
+
+            if stopping {
+                parallel_commands.command_scope(|mut c| {
+                    // after we sent disconnection packets, we can stop the server
+                    c.entity(server_entity).insert(Stopped);
+                });
+            }
         })
     }
+
+
 
     fn start(
         trigger: Trigger<Start>,
@@ -249,6 +265,7 @@ impl NetcodeServerPlugin {
             // TODO: should we stop the io?
             // // stop the ServerIo that is on this entity (for example webtransport server)
             // commands.trigger_targets(Unlink, server_entity);
+            commands.entity(server_entity).insert(Stopping);
 
             // SAFETY: we know that the list of client entities are unique because it is a Relationship
             let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(&server.clients) };
@@ -257,10 +274,10 @@ impl NetcodeServerPlugin {
                     error!("Client {:?} is not a Netcode client", connected.remote_peer_id);
                     return Err(crate::error::Error::UnknownClient(connected.remote_peer_id));
                 };
-                netcode_server.inner.disconnect(client_id, &mut link.send)?;
-
                 // this will make sure that `netcode.on_disconnect` is called, so the entity will get disconnected
                 // in the next frame from the `receive` system.
+                netcode_server.inner.disconnect(client_id, &mut link.send)?;
+                commands.entity(entity).insert(Disconnecting);
                 Ok(())
             });
         }

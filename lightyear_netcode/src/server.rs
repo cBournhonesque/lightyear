@@ -1000,6 +1000,7 @@ impl<Ctx> Server<Ctx> {
                 });
         }
         self.conn_cache.remove(client_id);
+        self.send_queue.remove(&addr);
         Ok(())
     }
 

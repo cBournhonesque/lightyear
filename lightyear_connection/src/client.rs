@@ -28,6 +28,7 @@ pub enum ClientState {
     Connected(PeerId),
     /// Client is connecting to the server
     Connecting,
+    Disconnecting,
     #[default]
     /// Client is disconnected from the server
     Disconnected,
@@ -43,8 +44,7 @@ impl Client {
     pub fn peer_id(&self) -> Option<PeerId> {
         match self.state {
             ClientState::Connected(peer_id) => Some(peer_id),
-            ClientState::Connecting => None,
-            ClientState::Disconnected => None,
+            _ => None,
         }
     }
 }
@@ -97,7 +97,7 @@ impl Connecting {
             client.state = ClientState::Connecting;
         }
         world.commands().entity(context.entity)
-            .remove::<(Connected, Disconnected)>();
+            .remove::<(Connected, Disconnecting, Disconnected)>();
     }
 }
 
@@ -118,7 +118,21 @@ impl Disconnected {
                 .remove(&peer_id);
         }
         world.commands().entity(context.entity)
-            .remove::<(Connecting, Connected)>();
+            .remove::<(Connecting, Disconnecting, Connected)>();
+    }
+}
+
+#[derive(Component, Default, Debug, Reflect)]
+#[component(on_add = Disconnecting::on_add)]
+pub struct Disconnecting;
+
+impl Disconnecting {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        if let Some(mut client) = world.get_mut::<Client>(context.entity) {
+            client.state = ClientState::Disconnecting;
+        }
+        world.commands().entity(context.entity)
+            .remove::<(Connected, Connecting, Disconnected)>();
     }
 }
 

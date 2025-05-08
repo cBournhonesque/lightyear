@@ -1,14 +1,14 @@
-use crate::client::{Client, ClientState, Connect, Connected, Connecting, Disconnected};
+use crate::client::{Client, ClientState, Connect, Connected, Connecting, Disconnected, Disconnecting};
 use crate::client_of::{ClientOf, Server};
 use crate::direction::NetworkDirection;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::app::{App, Plugin};
+use bevy::app::{App, Last, Plugin};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Commands, Component, Event, OnAdd, Query, Reflect, Trigger, With};
+use bevy::prelude::{Commands, Component, Entity, Event, OnAdd, Query, Reflect, Trigger, With};
 use core::fmt::Debug;
 use lightyear_link::prelude::ServerLink;
 use lightyear_link::{LinkStart, Unlinked};
@@ -46,7 +46,7 @@ impl Starting {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         trace!("Starting added: removing Started/Stopped");
         world.commands().entity(context.entity)
-            .remove::<(Started, Stopped)>();
+            .remove::<(Started, Stopped, Stopping)>();
     }
 }
 
@@ -58,7 +58,19 @@ impl Started {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         trace!("Started added: removing Starting/Stopped");
         world.commands().entity(context.entity)
-            .remove::<(Starting, Stopped)>();
+            .remove::<(Starting, Stopped, Stopping)>();
+    }
+}
+
+#[derive(Component, Event, Reflect)]
+#[component(on_add = Stopping::on_add)]
+pub struct Stopping;
+
+impl Stopping {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        trace!("Stopping added: removing Started/Starting");
+        world.commands().entity(context.entity)
+            .remove::<(Started, Starting, Stopped)>();
     }
 }
 
@@ -70,7 +82,7 @@ impl Stopped {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         trace!("Stopped added: removing Started/Starting");
         world.commands().entity(context.entity)
-            .remove::<(Started, Starting)>();
+            .remove::<(Started, Starting, Stopping)>();
     }
 }
 
@@ -103,12 +115,28 @@ impl ConnectionPlugin {
             commands.entity(trigger.target()).insert(Stopped);
         }
     }
+
+    /// Despawn disconnecting clients after 1 frame of Disconnecting
+    /// (We wait for 1 frame to make sure that any disconnection packets can be sent)
+    fn disconnect(
+        query: Query<Entity, (With<Disconnecting>, With<ClientOf>)>,
+        mut commands: Commands,
+    ) {
+        for entity in query.iter() {
+            trace!("Set ClientOf entity {:?} to Disconnected and despawn", entity);
+            // Set to Disconnected before despawning to trigger observers
+            commands.entity(entity).insert(Disconnected {
+                reason: None
+            }).despawn();
+        }
+    }
 }
 
 impl Plugin for ConnectionPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(Self::start);
         app.add_observer(Self::stop_if_link_fails);
+        app.add_systems(Last, Self::disconnect);
     }
 }
 

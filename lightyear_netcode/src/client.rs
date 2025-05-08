@@ -604,7 +604,6 @@ impl<Ctx> Client<Ctx> {
             "client sending {} disconnect packets to server",
             self.cfg.num_disconnect_packets
         );
-        // TODO: do this only if IoState is connected?
         for _ in 0..self.cfg.num_disconnect_packets {
             self.send_netcode_packet(DisconnectPacket::create())?;
         }

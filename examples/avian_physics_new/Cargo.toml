@@ -40,14 +40,13 @@ lightyear = { workspace = true, features = [
 lightyear_examples_common_new.workspace = true
 lightyear_frame_interpolation.workspace = true
 leafwing-input-manager.workspace = true
-avian2d = { path = "../../../avian/crates/avian2d"}
-#avian2d = { workspace = true, features = [
-#  "2d",
-#  "f32",
-#  "parry-f32",
-#  "parallel",
-#  "serialize",
-#] }
+avian2d = { workspace = true, features = [
+  "2d",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
+] }
 
 serde.workspace = true
 tracing.workspace = true
