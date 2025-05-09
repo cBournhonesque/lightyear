@@ -45,9 +45,12 @@ pub enum Error {
     Denied(ClientId),
     #[error("client_id {0} server ignored non-connection-request packet")]
     Ignored(SocketAddr),
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
     #[error("clock went backwards (did you invent a time machine?): {0}")]
     SystemTime(#[from] std::time::SystemTimeError),
+    #[cfg(all(feature = "std", target_arch = "wasm32"))]
+    #[error("clock went backwards (did you invent a time machine?): {0}")]
+    SystemTime(#[from] web_time::SystemTimeError),
     #[error("invalid connect token: {0}")]
     InvalidToken(super::token::InvalidTokenError),
     #[error(transparent)]

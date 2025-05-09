@@ -1,6 +1,8 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
+extern crate alloc;
+
 use crate::settings::get_settings;
 use bevy::prelude::*;
 use lightyear_examples_common::app::{Apps, Cli};

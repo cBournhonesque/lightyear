@@ -36,4 +36,4 @@ commands:
 - `cd "$(git rev-parse --show-toplevel)" && sh examples/certificates/generate.sh` (to generate the temporary SSL
   certificates, they are only valid for 2 weeks)
 - Start the server with: `cargo run -- server`
-- Then start the wasm client wasm with ``RUSTFLAGS='--cfg getrandom_backend="wasm_js"' trunk server --features=client``
+- Then start the wasm client wasm with ``RUSTFLAGS='--cfg getrandom_backend="wasm_js"' trunk serve --features=client``

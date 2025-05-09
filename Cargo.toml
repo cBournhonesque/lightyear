@@ -163,9 +163,9 @@ xwt-core = "0.6"
 xwt-web = "0.15.0"
 wasm-bindgen = "0.2.90"
 wasm-bindgen-futures = "0.4.42"
+web-time = "1.1.0"
 
 # dev deps
-
 wasm-bindgen-test = "0.3.39"
 mock_instant = "0.5"
 bitvec = "1.0"

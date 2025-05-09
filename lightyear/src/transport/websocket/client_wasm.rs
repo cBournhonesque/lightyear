@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use bevy::{tasks::IoTaskPool, utils::hashbrown::HashMap};
+use bevy::{tasks::IoTaskPool, platform::collections::HashMap};
 use tokio::sync::{
     mpsc::{self, error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
     Mutex,
