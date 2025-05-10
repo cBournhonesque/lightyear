@@ -124,7 +124,9 @@ use crate::registry::MessageRegistry;
 use crate::MessageManager;
 use bevy::app::{App, Last, PostUpdate, PreUpdate};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
-use bevy::prelude::{IntoScheduleConfigs, Plugin, SystemParamBuilder, SystemSet};
+use bevy::prelude::{IntoScheduleConfigs, OnAdd, Plugin, Query, SystemParamBuilder, SystemSet, Trigger};
+use lightyear_connection::client::Disconnected;
+use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::plugin::{TransportPlugin, TransportSet};
 use lightyear_transport::prelude::{ChannelRegistry, Transport};
 
@@ -146,6 +148,20 @@ pub enum MessageSet {
 //  MessageManager is similar to transport, it holds references to MessageReceiver<M> and MessageSender<M> component ids
 pub struct MessagePlugin;
 
+impl MessagePlugin {
+    // TODO: do something similar to Transport? (use observers instead of required_components)?
+    /// On disconnect:
+    /// - Reset the MessageManager to its original state
+    fn handle_disconnection(
+        trigger: Trigger<OnAdd, Disconnected>,
+        mut manager_query: Query<&mut MessageManager>,
+    ) {
+        if let Ok(mut manager) = manager_query.get_mut(trigger.target()) {
+            manager.entity_mapper = RemoteEntityMap::default();
+        }
+    }
+}
+
 impl Plugin for MessagePlugin {
 
     fn build(&self, app: &mut App) {
@@ -154,6 +170,8 @@ impl Plugin for MessagePlugin {
         if !app.is_plugin_added::<TransportPlugin>() {
             app.add_plugins(TransportPlugin);
         }
+
+        app.add_observer(Self::handle_disconnection);
 
         #[cfg(feature = "client")]
         app.register_required_components::<lightyear_connection::prelude::Client, MessageManager>();

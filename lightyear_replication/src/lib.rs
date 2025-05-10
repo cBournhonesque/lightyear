@@ -43,7 +43,6 @@ pub(crate) mod delta;
 pub mod visibility;
 /// Manages entity control and ownership.
 pub mod control;
-mod client;
 
 /// Commonly used items for replication.
 pub mod prelude {

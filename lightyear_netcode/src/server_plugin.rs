@@ -225,7 +225,7 @@ impl NetcodeServerPlugin {
                     parallel_commands.command_scope(|mut c| {
                         // first disconnect to trigger observers
                         c.entity(entity)
-                            .insert(Disconnected {
+                            .try_insert(Disconnected {
                                 reason: None,
                             })
                             .despawn();

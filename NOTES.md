@@ -48,7 +48,9 @@ NEEDS UNIT TEST:
 
 BUGS:
 - things break down with no conditioner because the client seems to sometimes be slightly ahead of server?
-- interpolation is slightly broken; sometimes the interpolation doesn't reach the last confirmed value
+- interpolation is broken; sometimes the interpolation doesn't reach the last confirmed value
+- replication: when a client connects, the existing entities should be replicated to it but it doesn't seem to be the case
+- when we receive a SyncEvent, we seem to go into a negative spiral. Maybe updating the InputBuffer to use the new ticks is incorrect?
 
 # Server sending messages
 

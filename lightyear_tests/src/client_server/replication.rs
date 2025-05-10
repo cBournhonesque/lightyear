@@ -46,6 +46,8 @@ fn test_spawn_from_replicate_change() {
         .expect("entity is not present in entity map");
 }
 
+/// When client 2 connects:
+/// - the existing entities are replicated to the new client
 #[test]
 fn test_spawn_new_connection() {
     let mut stepper = ClientServerStepper::single();
