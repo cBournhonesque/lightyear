@@ -1,20 +1,13 @@
-use avian2d::prelude::*;
-use bevy::color::palettes::css;
-use bevy::diagnostic::LogDiagnosticsPlugin;
-use bevy::prelude::*;
-use core::time::Duration;
-use leafwing_input_manager::prelude::ActionState;
-use tracing::Level;
-
-use lightyear::client::prediction::diagnostics::PredictionDiagnosticsPlugin;
-use lightyear::prelude::client::*;
-use lightyear::prelude::TickManager;
-use lightyear::prelude::*;
-use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
-use lightyear::transport::io::IoDiagnosticsPlugin;
-use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
-
 use crate::protocol::*;
+use avian2d::prelude::*;
+use bevy::prelude::*;
+use leafwing_input_manager::prelude::ActionState;
+use lightyear::connection::client_of::ClientOf;
+use lightyear::input::input_buffer::InputBuffer;
+use lightyear::prediction::rollback::Rollback;
+use lightyear::prelude::*;
+use std::hash::{Hash, Hasher};
+
 pub(crate) const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
 
@@ -25,9 +18,7 @@ pub struct SharedPlugin {
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ProtocolPlugin {
-            predict_all: self.predict_all,
-        });
+        app.add_plugins(ProtocolPlugin);
         // bundles
         app.add_systems(Startup, init);
 
@@ -39,23 +30,11 @@ impl Plugin for SharedPlugin {
         )
         .insert_resource(Gravity(Vec2::ZERO));
 
-        // add a log at the start of the physics schedule
-        app.add_systems(PhysicsSchedule, log.in_set(PhysicsStepSet::First));
-
-        app.add_systems(FixedPostUpdate, after_physics_log);
-        app.add_systems(Last, last_log);
+        app.add_systems(FixedLast, after_physics_log);
 
         // registry types for reflection
         app.register_type::<PlayerId>();
     }
-}
-
-// Generate pseudo-random color from id
-pub(crate) fn color_from_id(client_id: ClientId) -> Color {
-    let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
-    let s = 1.0;
-    let l = 0.5;
-    Color::hsl(h, s, l)
 }
 
 pub(crate) fn init(mut commands: Commands) {
@@ -81,11 +60,26 @@ pub(crate) fn init(mut commands: Commands) {
     ));
 }
 
+
+// Generate pseudo-random color from id
+// Updated to use PeerId
+pub(crate) fn color_from_id(client_id: PeerId) -> Color {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    client_id.hash(&mut hasher);
+    let h = hasher.finish() % 360;
+    // let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0; // Old way
+    let s = 1.0;
+    let l = 0.5;
+    Color::hsl(h as f32, s, l) // Use h as f32
+}
+
+
 // This system defines how we update the player's positions when we receive an input
 pub(crate) fn shared_movement_behaviour(
     mut velocity: Mut<LinearVelocity>,
     action: &ActionState<PlayerActions>,
 ) {
+    info!(pressed = ?action.get_pressed(), "shared movement");
     const MOVE_SPEED: f32 = 10.0;
     if action.pressed(&PlayerActions::Up) {
         velocity.y += MOVE_SPEED;
@@ -103,64 +97,32 @@ pub(crate) fn shared_movement_behaviour(
 }
 
 pub(crate) fn after_physics_log(
-    tick_manager: Res<TickManager>,
-    rollback: Option<Res<Rollback>>,
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
     players: Query<
-        (Entity, &Position, &Rotation),
+        (Entity, &Position, &Rotation, &ActionState<PlayerActions>),
         (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
     >,
     ball: Query<(&Position, &Rotation), (With<BallMarker>, Without<Confirmed>)>,
 ) {
-    let tick = rollback.map_or(tick_manager.tick(), |r| {
-        tick_manager.tick_or_rollback_tick(r.as_ref())
-    });
-    for (entity, position, rotation) in players.iter() {
-        trace!(
+    let (timeline, rollback) = timeline.into_inner();
+    let tick = timeline.tick();
+
+    for (entity, position, rotation, action_state) in players.iter() {
+        info!(
+            ?rollback,
             ?tick,
             ?entity,
             ?position,
             rotation = ?rotation.as_degrees(),
+            actions = ?action_state.get_pressed(),
             "Player after physics update"
         );
     }
-    for (position, rotation) in ball.iter() {
-        trace!(?tick, ?position, ?rotation, "Ball after physics update");
-    }
+    // for (position, rotation) in ball.iter() {
+    //     info!(?tick, ?position, ?rotation, "Ball after physics update");
+    // }
 }
 
-pub(crate) fn last_log(
-    tick_manager: Res<TickManager>,
-    players: Query<
-        (
-            Entity,
-            &Position,
-            &Rotation,
-            Option<&Correction<Position>>,
-            Option<&Correction<Rotation>>,
-        ),
-        (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
-    >,
-    ball: Query<(&Position, &Rotation), (With<BallMarker>, Without<Confirmed>)>,
-) {
-    let tick = tick_manager.tick();
-    for (entity, position, rotation, correction, rotation_correction) in players.iter() {
-        trace!(?tick, ?entity, ?position, ?correction, "Player LAST update");
-        trace!(
-            ?tick,
-            ?entity,
-            rotation = ?rotation.as_degrees(),
-            ?rotation_correction,
-            "Player LAST update"
-        );
-    }
-    for (position, rotation) in ball.iter() {
-        trace!(?tick, ?position, ?rotation, "Ball LAST update");
-    }
-}
-
-pub(crate) fn log() {
-    trace!("run physics schedule!");
-}
 
 // Wall
 #[derive(Bundle)]

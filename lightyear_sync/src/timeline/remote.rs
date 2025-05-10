@@ -1,11 +1,12 @@
 use crate::ping::manager::PingManager;
 use crate::prelude::InputTimeline;
-use crate::timeline::sync::SyncedTimeline;
+use crate::timeline::sync::{SyncTargetTimeline, SyncedTimeline};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Deref, DerefMut, Fixed, OnAdd, Query, Real, Reflect, Res, Time, Trigger};
+use bevy::prelude::{Component, Deref, DerefMut, Fixed, OnAdd, Query, Real, Reflect, Res, Time, Trigger, Without};
 use core::time::Duration;
 use lightyear_connection::client::Connected;
+use lightyear_core::prelude::Rollback;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{Overstep, TickDelta, TickInstant, TimeDelta};
 use lightyear_core::timeline::{NetworkTimeline, Timeline};
@@ -30,6 +31,8 @@ use tracing::trace;
 /// ```
 #[derive(Debug, Reflect)]
 pub struct RemoteEstimate {
+    /// Returns true if we have received a packet from the remote peer this frame
+    received_packet: bool,
     /// Most recent tick received from the Server
     last_received_tick: Option<Tick>,
     /// Exponential smoothing factor for our estimate of the remote time
@@ -44,6 +47,7 @@ pub struct RemoteEstimate {
 impl Default for RemoteEstimate {
     fn default() -> Self {
         Self {
+            received_packet: false,
             last_received_tick: None,
             remote_estimate_smoothing: 0.1,
             first_estimate: true,
@@ -93,6 +97,7 @@ impl RemoteTimeline  {
     /// This method will only update the estimate if the received tick is newer than
     /// the previously received tick.
     pub(crate) fn update(&mut self, remote_tick: Tick, ping_manager: &PingManager, tick_duration: Duration) {
+        self.context.received_packet = true;
         if self.context.last_received_tick
            .map_or(true, |previous_tick| remote_tick >= previous_tick) {
             self.context.last_received_tick = Some(remote_tick);
@@ -132,8 +137,8 @@ impl RemoteTimeline  {
             timeline.last_received_tick = None;
         }
     }
-
 }
+
 
 // TODO: instead of a trigger, should this be after MessageReceivedSet?
 /// Update the timeline in FixedUpdate based on the Pings received
@@ -154,7 +159,7 @@ pub(crate) fn update_remote_timeline(
 pub(crate) fn advance_remote_timeline(
     fixed_time: Res<Time<Fixed>>,
     tick_duration: Res<TickDuration>,
-    mut query: Query<&mut RemoteTimeline>,
+    mut query: Query<&mut RemoteTimeline, Without<Rollback>>,
 ) {
     let delta = fixed_time.delta();
     query.iter_mut().for_each(|mut t| {
@@ -162,3 +167,18 @@ pub(crate) fn advance_remote_timeline(
     })
 }
 
+/// Reset the bool that tracks if we received a packet this frame
+pub(crate) fn reset_received_packet_remote_timeline(
+    mut query: Query<&mut RemoteTimeline>,
+) {
+    query.iter_mut().for_each(|mut t| {
+        t.context.received_packet = false;
+    });
+}
+
+
+impl SyncTargetTimeline for RemoteTimeline {
+    fn is_ready(&self) -> bool {
+        self.received_packet
+    }
+}

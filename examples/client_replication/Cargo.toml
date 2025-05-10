@@ -16,20 +16,20 @@ default = ["client", "gui", "server", "netcode", "udp"]
 client = [
   "gui",
   "lightyear/client",
-  "lightyear_examples_common_new/client"
+  "lightyear_examples_common/client"
 ]
 gui = [
-  "lightyear_examples_common_new/gui"
+  "lightyear_examples_common/gui"
 ]
 server = [
   "lightyear/server",
-  "lightyear_examples_common_new/server"
+  "lightyear_examples_common/server"
 ]
 netcode = [
-  "lightyear_examples_common_new/netcode"
+  "lightyear_examples_common/netcode"
 ]
 udp = [
-  "lightyear_examples_common_new/udp",
+  "lightyear_examples_common/udp",
   # udp requires std
   "lightyear/std",
   "lightyear/udp",
@@ -42,7 +42,7 @@ lightyear = { "workspace" = true, features = [
   "prediction",
   "replication",
 ] }
-lightyear_examples_common_new.workspace = true
+lightyear_examples_common.workspace = true
 
 serde.workspace = true
 tracing.workspace = true

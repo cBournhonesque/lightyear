@@ -1,13 +1,13 @@
 use crate::ping::manager::PingManager;
 use crate::prelude::InputTimeline;
-use crate::timeline::sync::{SyncConfig, SyncEvent, SyncedTimeline};
+use crate::timeline::sync::{SyncConfig, SyncedTimeline};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{default, Component, Deref, DerefMut, Reflect};
 use core::time::Duration;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{Overstep, TickDelta, TickInstant, TimeDelta};
-use lightyear_core::timeline::{NetworkTimeline, Timeline};
+use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline};
 use tracing::trace;
 
 /// Config to specify how the snapshot interpolation should behave

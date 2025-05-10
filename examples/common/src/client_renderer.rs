@@ -2,8 +2,8 @@ use bevy::picking::prelude::{Click, Pointer};
 use bevy::prelude::*;
 #[cfg(feature = "bevygap_client")]
 use bevygap_client_plugin::prelude::*;
-use lightyear::prelude::client::*;
-use lightyear::prelude::MainSet;
+use lightyear::connection::client::ClientState;
+use lightyear::prelude::*;
 
 pub struct ExampleClientRendererPlugin {
     /// The name of the example, which must also match the edgegap application name.
@@ -40,14 +40,10 @@ impl Plugin for ExampleClientRendererPlugin {
         }
 
         spawn_connect_button(app);
-        app.add_systems(
-            PreUpdate,
-            (handle_connection, handle_disconnection).after(MainSet::Receive),
-        );
-        app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
-
         app.add_systems(Update, update_button_text);
         app.add_observer(on_update_status_message);
+        app.add_observer(handle_connection);
+        app.add_observer(handle_disconnection);
     }
 }
 
@@ -116,18 +112,17 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                 .observe(
                     |_: Trigger<Pointer<Click>>,
                      mut commands: Commands,
-                     state: Res<State<NetworkingState>>| {
-                        match state.get() {
-                            NetworkingState::Disconnected => {
-                                #[cfg(feature = "bevygap_client")]
-                                commands.bevygap_connect_client();
-                                #[cfg(not(feature = "bevygap_client"))]
-                                commands.connect_client();
+                     query: Query<(Entity, &Client)>| {
+                        let Ok((entity, client)) = query.single() else {
+                            return;
+                        };
+                        match client.state {
+                            ClientState::Disconnected => {
+                                commands.trigger_targets(Connect, entity);
                             }
-                            NetworkingState::Connecting | NetworkingState::Connected => {
-                                commands.disconnect_client();
+                            _ => {
+                                commands.trigger_targets(Disconnect, entity);
                             }
-                            _ => {}
                         };
                     },
                 );
@@ -135,22 +130,27 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
 }
 
 pub(crate) fn update_button_text(
-    state: Res<State<NetworkingState>>,
+    query: Query<&Client>,
     mut text_query: Query<&mut Text, With<Button>>,
 ) {
+    let Ok(client) = query.get_single() else {
+        return;
+    };
     if let Ok(mut text) = text_query.single_mut() {
-        match state.get() {
-            NetworkingState::Disconnected => {
+        match client.state {
+            ClientState::Disconnecting => {
+                text.0 = "Disconnecting".to_string();
+            }
+            ClientState::Disconnected => {
                 text.0 = "Connect".to_string();
             }
-            NetworkingState::Connecting => {
+            ClientState::Connecting => {
                 text.0 = "Connecting".to_string();
             }
-            NetworkingState::Connected => {
+            ClientState::Connected { ..} => {
                 text.0 = "Disconnect".to_string();
             }
-            _ => {}
-        };
+        }
     }
 }
 
@@ -162,39 +162,27 @@ pub struct ClientIdText;
 /// Listen for events to know when the client is connected, and spawn a text entity
 /// to display the client id
 pub(crate) fn handle_connection(
+    trigger: Trigger<OnAdd, Connected>,
+    query: Query<&Connected>,
     mut commands: Commands,
-    mut connection_event: EventReader<ConnectEvent>,
 ) {
-    for event in connection_event.read() {
-        let client_id = event.client_id();
-        commands.spawn((
-            Text(format!("Client {}", client_id)),
-            TextFont::from_font_size(30.0),
-            ClientIdText,
-        ));
-    }
+    let client_id = query.get(trigger.target()).unwrap().local_peer_id;
+    commands.spawn((
+        Text(format!("Client {}", client_id)),
+        TextFont::from_font_size(30.0),
+        ClientIdText,
+    ));
 }
 
 /// Listen for events to know when the client is disconnected, and print out the reason
 /// of the disconnection
 pub(crate) fn handle_disconnection(
-    mut events: EventReader<DisconnectEvent>,
+    _trigger: Trigger<OnAdd, Disconnected>,
     mut commands: Commands,
+    debug_text: Query<Entity, With<ClientIdText>>
 ) {
-    for event in events.read() {
-        let reason = &event.reason;
-        error!("Disconnected from server: {:?}", reason);
-        let msg = match reason {
-            None => "".to_string(), // clean.
-            Some(reason) => format!("Disconnected: {:?}", reason),
-        };
-        commands.trigger(UpdateStatusMessage(msg));
-    }
-}
-
-/// Remove the debug text when the client disconnect
-/// (Replicated entities are automatically despawned by lightyear on disconnection)
-fn on_disconnect(mut commands: Commands, debug_text: Query<Entity, With<ClientIdText>>) {
+    // TODO: add reason
+    commands.trigger(UpdateStatusMessage(String::from("Disconnected")));
     for entity in debug_text.iter() {
         commands.entity(entity).despawn();
     }

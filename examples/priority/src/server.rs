@@ -5,7 +5,7 @@ use leafwing_input_manager::action_state::ActionState;
 use lightyear::connection::client::Connected;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear_examples_common_new::shared::SEND_INTERVAL;
+use lightyear_examples_common::shared::SEND_INTERVAL;
 
 use crate::protocol::*;
 use crate::shared;

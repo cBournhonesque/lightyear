@@ -63,7 +63,6 @@ debug = false
 
 [workspace.dependencies]
 lightyear_avian = { path = "./lightyear_avian", version = "0.19.0", default-features = false }
-lightyear_examples_common = { path = "./examples/common", default-features = false }
 lightyear_macros = { path = "./lightyear_macros", version = "0.19.0", default-features = false}
 lightyear_netcode = { path = "./lightyear_netcode", version = "0.19.0", default-features = false }
 lightyear_connection = { path = "./lightyear_connection", version = "0.19.0", default-features = false }
@@ -89,7 +88,7 @@ lightyear_tests = { path = "./lightyear_tests", version = "0.19.0", default-feat
 lightyear_webtransport = { path = "./lightyear_webtransport", version = "0.19.0", default-features = false }
 
 # examples
-lightyear_examples_common_new = { path = "./examples/common_new", version = "0.19.0", default-features = false }
+lightyear_examples_common = { path = "./examples/common", version = "0.19.0", default-features = false }
 
 # utils
 anyhow = { version = "1.0.75", features = [] }
@@ -252,12 +251,8 @@ bevy_egui = { version = "0.34", default-features = false, features = [
   "default_fonts",
   "render",
 ] }
-bevy_metrics_dashboard = "0.6"
+bevy_metrics_dashboard = { version = "0.7", features = ["bevy_egui"]}
 egui_extras = "0.31"
-
-# bevygap for deploying on Edgegap
-bevygap_server_plugin = { version = "0.3.1" }
-bevygap_client_plugin = { version = "0.3.1" }
 
 [workspace.lints.clippy]
 type_complexity = "allow"

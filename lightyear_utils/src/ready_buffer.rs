@@ -2,6 +2,7 @@
 use alloc::collections::BinaryHeap;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
+use bevy::prelude::Reflect;
 use core::cmp::Ordering;
 
 /// A buffer that contains items associated with a key (a Tick, Instant, etc.)
@@ -10,7 +11,7 @@ use core::cmp::Ordering;
 /// when the key associated with the item is less than or equal to the current key
 ///
 /// The most recent item (by associated key) is returned first
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Reflect)]
 pub struct ReadyBuffer<K, T> {
     // TODO: compare performance with a SequenceBuffer of fixed size
     // TODO: add a maximum size to the buffer. The elements that are farther away from being ready dont' get added?
@@ -167,7 +168,7 @@ impl<K: Ord + Clone, T> ReadyBuffer<K, T> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Reflect)]
 pub struct ItemWithReadyKey<K, T> {
     pub key: K,
     pub item: T,

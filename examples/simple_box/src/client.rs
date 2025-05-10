@@ -21,7 +21,7 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::input::*;
 use lightyear::prelude::*;
-use lightyear_examples_common_new::client::ExampleClient;
+use lightyear_examples_common::client::ExampleClient;
 
 pub struct ExampleClientPlugin;
 

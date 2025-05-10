@@ -123,7 +123,6 @@ impl NetcodeServerPlugin {
                 if let Some(PeerId::Netcode(client_id)) = connected.map(|c| c.remote_peer_id) {
                     for _ in 0..link.send.len() {
                         if let Some(payload) = link.send.pop() {
-                            trace!("SERVER: Sending packet to client {:?}", client_id);
                             netcode_server.inner.send(payload, client_id, &mut link.send).inspect_err(|e| {
                                 error!("Error sending packet: {:?}", e);
                             }).ok();

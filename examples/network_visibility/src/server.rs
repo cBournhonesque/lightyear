@@ -6,7 +6,7 @@ use lightyear::connection::client::PeerMetadata;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::input::native::prelude::{ActionState, InputMarker};
 use lightyear::prelude::*;
-use lightyear_examples_common_new::shared::SEND_INTERVAL;
+use lightyear_examples_common::shared::SEND_INTERVAL;
 
 const GRID_SIZE: f32 = 200.0;
 const NUM_CIRCLES: i32 = 1;

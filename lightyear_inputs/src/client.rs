@@ -61,9 +61,10 @@ use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use core::marker::PhantomData;
 use core::time::Duration;
-use lightyear_core::prelude::NetworkTimeline;
+use lightyear_core::prelude::{NetworkTimeline, Rollback};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::timeline::LocalTimeline;
+use lightyear_core::timeline::SyncEvent;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageSender;
 use lightyear_messages::MessageManager;
@@ -72,7 +73,6 @@ use lightyear_prediction::Predicted;
 use lightyear_sync::plugin::SyncSet;
 use lightyear_sync::prelude::client::{Input, IsSynced};
 use lightyear_sync::prelude::InputTimeline;
-use lightyear_sync::timeline::sync::SyncEvent;
 use tracing::trace;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -214,14 +214,14 @@ fn buffer_action_state<S: ActionStateSequence>(
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
-    sender: Single<(&InputTimeline, &LocalTimeline), With<IsSynced<InputTimeline>>>,
+
+    sender: Single<(&InputTimeline, &LocalTimeline), (
+        // In rollback, we don't want to write any inputs
+        Without<Rollback>
+    )>,
     mut action_state_query: Query<(Entity, &S::State, &mut InputBuffer<S::State>), With<S::Marker>>,
 ) {
     let (input_timeline, local_timeline) = sender.into_inner();
-    // In rollback, we don't want to write any inputs
-    if input_timeline.is_rollback() {
-        return;
-    }
     let current_tick = local_timeline.tick();
     let tick = current_tick + input_timeline.input_delay() as i16;
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
@@ -249,27 +249,20 @@ fn buffer_action_state<S: ActionStateSequence>(
 /// Retrieve the ActionState for the current tick.
 fn get_action_state<S: ActionStateSequence>(
     // TODO: Disable this in Host-server mode!
-    sender: Single<(&LocalTimeline, &InputTimeline)>,
+    sender: Single<(&LocalTimeline, &InputTimeline, Has<Rollback>)>,
     // NOTE: we want to apply the Inputs for BOTH the local player and the remote player.
     // - local player: we need to get the input from the InputBuffer because of input delay
     // - remote player: we want to reduce the amount of rollbacks by updating the ActionState
     //   as fast as possible (the inputs are broadcasted with no delay)
     mut action_state_query: Query<(Entity, &mut S::State, &InputBuffer<S::State>)>,
 ) {
-    let (local_timeline, input_timeline) = sender.into_inner();
+    let (local_timeline, input_timeline, is_rollback) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
-    let tick = if !input_timeline.is_rollback() {
-        // If there is no rollback and no input_delay, we just buffered the input so there is nothing to do.
-        if input_delay == 0 {
-            return;
-        }
-        // If there is no rollback but input_delay, we also fetch it from the InputBuffer.
-        local_timeline.tick()
-    } else {
-        // If there is rollback, we fetch it from the InputBuffer for the rollback tick.
-        input_timeline.get_rollback_tick().unwrap()
-    };
-
+    // If there is no rollback and no input_delay, we just buffered the input so there is nothing to do.
+    if !is_rollback && input_delay == 0 {
+        return;
+    }
+    let tick = local_timeline.tick();
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
         // We only apply the ActionState from the buffer if we have one.
         // If we don't (which could happen for remote inputs), we won't do anything.
@@ -292,18 +285,18 @@ fn get_action_state<S: ActionStateSequence>(
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<S: ActionStateSequence>(
-    sender: Query<(&InputTimeline, &LocalTimeline), With<IsSynced<InputTimeline>>>,
+    sender: Query<(&InputTimeline, &LocalTimeline, Has<Rollback>), With<IsSynced<InputTimeline>>>,
     mut action_state_query: Query<
         (Entity, &mut S::State, &InputBuffer<S::State>),
         // Filter so that this is only for directly controlled players, not remote players
         With<S::Marker>,
     >,
 ) {
-    let Ok((input_timeline, local_timeline)) = sender.single() else {
+    let Ok((input_timeline, local_timeline, is_rollback)) = sender.single() else {
         return;
     };
     let input_delay_ticks = input_timeline.input_delay() as i16;
-    if input_timeline.is_rollback() || input_delay_ticks == 0 {
+    if is_rollback || input_delay_ticks == 0 {
         return;
     }
     let delayed_tick = local_timeline.tick() + input_delay_ticks;
@@ -367,7 +360,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     mut message_buffer: ResMut<MessageBuffer<S>>,
     tick_duration: Res<TickDuration>,
     input_config: Res<InputConfig<S::Action>>,
-    sender: Single<(&LocalTimeline, &InputTimeline, &MessageManager), With<IsSynced<InputTimeline>>>,
+    sender: Single<(&LocalTimeline, &InputTimeline, &MessageManager), (With<IsSynced<InputTimeline>>, Without<Rollback>)>,
     input_buffer_query: Query<
         (
             Entity,
@@ -379,10 +372,6 @@ fn prepare_input_message<S: ActionStateSequence>(
     >,
 ) {
     let ((local_timeline, input_timeline, message_manager)) = sender.into_inner();
-    // no need to prepare messages to send if in rollback
-    if input_timeline.is_rollback() {
-        return
-    };
 
     // we send a message from the latest tick that we have available, which is the delayed tick
     let current_tick = local_timeline.tick();
@@ -602,6 +591,7 @@ fn send_input_messages<S: ActionStateSequence>(
         sender.send::<InputChannel>(message);
     }
 }
+
 
 /// In case the client tick changes suddenly, we also update the InputBuffer accordingly
 fn receive_tick_events<S: ActionStateSequence>(

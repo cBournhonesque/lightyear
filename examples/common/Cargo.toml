@@ -12,14 +12,11 @@ license = "MIT OR Apache-2.0"
 exclude = ["/tests"]
 
 [features]
-default = ["steam", "websocket", "client", "server", "gui"]
-steam = ["lightyear/steam"]
-websocket = ["lightyear/websocket"]
-server = []
-client = ["gui"]
-bevygap_client = ["client", "dep:bevygap_client_plugin"]
-bevygap_server = ["server", "dep:bevygap_server_plugin"]
-visualizer = ["gui", "lightyear/visualizer"]
+default = ["client", "server", "gui", "netcode", "udp"]
+client = ["lightyear/client", "gui"]
+server = ["lightyear/server"]
+netcode = ["lightyear/netcode"]
+udp = ["lightyear/udp"]
 
 # this serves as a bit of "workspace-hack" crate by enabling all bevy features needed by examples.
 # you can read about workspace-hack crates here: https://docs.rs/cargo-hakari/latest/cargo_hakari/about/index.html
@@ -45,11 +42,16 @@ gui = [
   "bevy/bevy_sprite",
   "bevy/bevy_text",
   "bevy/bevy_ui",
+  "bevy/bevy_ui_picking_backend",
   "bevy/bevy_window",
 ]
 
 [dependencies]
-lightyear = { workspace = true, features = ["webtransport"] }
+lightyear = {"workspace" = true, features = [
+  "interpolation",
+  "prediction",
+  "replication",
+]}
 anyhow.workspace = true
 async-compat.workspace = true
 cfg-if.workspace = true
@@ -59,8 +61,6 @@ rand.workspace = true
 serde.workspace = true
 bevy.workspace = true
 #bevy = { workspace = true, features = ["bevy_log"]}
-bevygap_client_plugin = { workspace = true, optional = true }
-bevygap_server_plugin = { workspace = true, optional = true }
 bevy-inspector-egui = { workspace = true, optional = true }
 bevy_metrics_dashboard = { workspace = true, optional = true }
 bevy_egui = { workspace = true, optional = true }

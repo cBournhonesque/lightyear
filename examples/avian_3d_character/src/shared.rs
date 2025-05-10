@@ -2,21 +2,25 @@ use bevy::ecs::query::QueryData;
 use bevy::math::VectorSpace;
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::inputs::leafwing::input_buffer::InputBuffer;
-use server::ControlledEntities;
+// Updated InputBuffer path
+use lightyear::prelude::client::InputBuffer;
+// Removed unused import
+// use server::ControlledEntities;
 use std::hash::{Hash, Hasher};
 
 use avian3d::prelude::*;
 use avian3d::sync::{position_to_transform, SyncSet};
 use bevy::prelude::TransformSystem::TransformPropagate;
 use leafwing_input_manager::prelude::ActionState;
-use lightyear::shared::replication::components::Controlled;
+// Updated Controlled path
+use lightyear::prelude::Controlled;
 use tracing::Level;
 
 use lightyear::prelude::client::*;
 use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
-use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
+// Removed unused import
+// use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
 
@@ -85,163 +89,36 @@ impl Default for BlockPhysicsBundle {
     }
 }
 
-#[derive(Clone)]
-pub struct SharedPlugin {
-    pub predict_all: bool,
-}
+// Removed SharedPlugin and its build method, including physics setup.
+// #[derive(Clone)]
+// pub struct SharedPlugin {
+//     pub predict_all: bool,
+// }
+//
+// impl Plugin for SharedPlugin {
+//     fn build(&self, app: &mut App) {
+//         app.add_plugins(ProtocolPlugin {
+//             predict_all: self.predict_all,
+//         });
+//
+//         // Physics setup removed - likely handled by cli.build_app in main.rs
+//         // ... (physics setup code was here) ...
+//     }
+// }
 
-impl Plugin for SharedPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_plugins(ProtocolPlugin {
-            predict_all: self.predict_all,
-        });
+// Removed debug logging systems
+// pub(crate) fn after_physics_log(...) { ... }
+// pub(crate) fn fixed_last_log(...) { ... }
+// pub(crate) fn last_log(...) { ... }
 
-        // Physics
-
-        // Position and Rotation are the primary source of truth so no need to
-        // sync changes from Transform to Position.
-        // (we are not applying manual updates to Transform)
-        app.insert_resource(avian3d::sync::SyncConfig {
-            transform_to_position: false,
-            position_to_transform: true,
-            ..default()
-        });
-        // disable sleeping
-        app.insert_resource(SleepingThreshold {
-            linear: -0.01,
-            angular: -0.01,
-        });
-
-        app.add_systems(
-            FixedPostUpdate,
-            after_physics_log.after(PhysicsSet::StepSimulation),
-        );
-
-        app.add_plugins(
-            PhysicsPlugins::default()
-                .build()
-                .disable::<PhysicsInterpolationPlugin>(),
-            // disable Sleeping plugin as it can mess up physics rollbacks
-            // TODO: disabling sleeping plugin causes the player to fall through the floor
-            // .disable::<SleepingPlugin>(),
-        );
-
-        // add an extra sync for cases where:
-        // - we receive a Position, do a rollback and set C=Correct, apply sync
-        // - in RunFixedMainLoop, we set C=Original
-        // - FixedUpdate doesn't run because frame rate is too high!
-        // - then the Transform that we show is C=Correct instead of C=Original!
-        app.add_systems(
-            PostUpdate,
-            position_to_transform
-                .in_set(PhysicsSet::Sync)
-                .run_if(|config: Res<avian3d::sync::SyncConfig>| config.position_to_transform),
-        );
-        // app.add_systems(FixedLast, fixed_last_log
-        //     .before(PredictionSet::IncrementRollbackTick)
-        //     .after(InterpolationSet::UpdateVisualInterpolationState));
-        // app.add_systems(Last, last_log);
-    }
-}
-
-pub(crate) fn after_physics_log(
-    tick_manager: Res<TickManager>,
-    rollback: Option<Res<Rollback>>,
-    // collisions: Option<Res<Collisions>>,
-    query: Query<(Entity, &Position, &Rotation), (Without<Confirmed>, With<CharacterMarker>)>,
-) {
-    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
-        tick_manager.tick_or_rollback_tick(r.as_ref())
-    });
-    // info!(?tick, ?collisions, "collisions");
-    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
-
-    // if is_rollback {
-    //     println!("rollback tick {}", tick.0);
-    // }
-    // for (entity, position, rotation) in query.iter() {
-    //     warn!(
-    //         ?is_rollback,
-    //         ?tick,
-    //         ?entity,
-    //         ?position,
-    //         ?rotation,
-    //         "Block after physics update"
-    //     );
-    // }
-}
-
-pub(crate) fn fixed_last_log(
-    tick_manager: Res<TickManager>,
-    rollback: Option<Res<Rollback>>,
-    // collisions: Option<Res<Collisions>>,
-    query: Query<
-        (Entity, &Position, Option<&Correction<Position>>),
-        (Without<Confirmed>, With<ProjectileMarker>),
-    >,
-) {
-    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
-        tick_manager.tick_or_rollback_tick(r.as_ref())
-    });
-    // info!(?tick, ?collisions, "collisions");
-    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
-
-    // if is_rollback {
-    //     println!("rollback tick {}", tick.0);
-    // }
-    for (entity, position, correction) in query.iter() {
-        warn!(
-            ?is_rollback,
-            ?tick,
-            ?entity,
-            ?position,
-            ?correction,
-            "Bullet in fixed-last"
-        );
-    }
-}
-pub(crate) fn last_log(
-    time_manager: Res<TimeManager>,
-    tick_manager: Res<TickManager>,
-    rollback: Option<Res<Rollback>>,
-    // collisions: Option<Res<Collisions>>,
-    query: Query<
-        (
-            Entity,
-            &Transform,
-            Option<&Correction<Position>>,
-            Option<&VisualInterpolateStatus<Transform>>,
-        ),
-        (Without<Confirmed>, With<ProjectileMarker>),
-    >,
-) {
-    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
-        tick_manager.tick_or_rollback_tick(r.as_ref())
-    });
-    let overstep = time_manager.overstep();
-    // info!(?tick, ?collisions, "collisions");
-    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
-
-    // if is_rollback {
-    //     println!("rollback tick {}", tick.0);
-    // }
-    for (entity, transform, correction, visual_interpolate) in query.iter() {
-        warn!(
-            ?is_rollback,
-            ?tick,
-            ?entity,
-            ?transform,
-            ?correction,
-            ?visual_interpolate,
-            ?overstep,
-            "Bullet in last"
-        );
-    }
-}
 
 /// Generate pseudo-random color based on `client_id`.
-pub(crate) fn color_from_id(client_id: ClientId) -> Color {
-    let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
+// Updated to use PeerId
+pub(crate) fn color_from_id(client_id: PeerId) -> Color {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    client_id.hash(&mut hasher);
+    let h = hasher.finish() % 360;
+    // let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0; // Old way
     let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)

@@ -83,10 +83,6 @@ compile_error!("server feature is not supported in wasm");
 #[cfg(all(feature = "client", not(feature = "gui")))]
 compile_error!("client feature requires gui feature");
 
-#[cfg(all(not(feature = "client"), not(feature = "server")))]
-compile_error!("One of server, client features must be enabled");
-
-pub mod app;
 #[cfg(any(feature = "bevygap_server", feature = "bevygap_client"))]
 pub mod bevygap_shared;
 #[cfg(all(feature = "gui", feature = "client"))]
@@ -94,5 +90,10 @@ pub mod client_renderer;
 
 #[cfg(all(feature = "gui", feature = "server"))]
 pub mod server_renderer;
-pub mod settings;
 pub mod shared;
+
+#[cfg(feature = "client")]
+pub mod client;
+#[cfg(feature = "server")]
+pub mod server;
+pub mod cli;

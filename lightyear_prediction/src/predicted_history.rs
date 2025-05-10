@@ -15,10 +15,10 @@ use bevy::prelude::*;
 use core::ops::Deref;
 use lightyear_core::history_buffer::HistoryBuffer;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::timeline::SyncEvent;
 use lightyear_replication::prelude::Confirmed;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::InputTimeline;
-use lightyear_sync::timeline::sync::SyncEvent;
 
 pub(crate) type PredictionHistory<C> = HistoryBuffer<C>;
 
@@ -27,11 +27,10 @@ pub(crate) type PredictionHistory<C> = HistoryBuffer<C>;
 /// This system only handles changes, removals are handled in `apply_component_removal`
 pub(crate) fn update_prediction_history<T: Component + Clone>(
     mut query: Query<(Ref<T>, &mut PredictionHistory<T>)>,
-    timeline_query: Single<(&LocalTimeline, &InputTimeline)>,
+    timeline: Single<&LocalTimeline, With<PredictionManager>>,
 ) {
     // tick for which we will record the history (either the current client tick or the current rollback tick)
-    let (timeline, input_timeline) = timeline_query.into_inner();
-    let tick = input_timeline.tick_or_rollback_tick(timeline.tick());
+    let tick = timeline.tick();
 
     // update history if the predicted component changed
     for (component, mut history) in query.iter_mut() {
@@ -64,10 +63,9 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
 pub(crate) fn apply_component_removal_predicted<C: Component>(
     trigger: Trigger<OnRemove, C>,
     mut predicted_query: Query<&mut PredictionHistory<C>>,
-    timeline_query: Single<(&LocalTimeline, &InputTimeline)>,
+    timeline: Single<&LocalTimeline, With<PredictionManager>>,
 ) {
-    let (timeline, input_timeline) = timeline_query.into_inner();
-    let tick = input_timeline.tick_or_rollback_tick(timeline.tick());
+    let tick = timeline.tick();
     // if the component was removed from the Predicted entity, add the Removal to the history
     if let Ok(mut history) = predicted_query.get_mut(trigger.target()) {
         // tick for which we will record the history (either the current client tick or the current rollback tick)

@@ -34,5 +34,5 @@ pub mod id;
 pub mod prelude {
     pub use crate::id::PeerId;
     pub use crate::tick::Tick;
-    pub use crate::timeline::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin, RollbackState, Timeline};
+    pub use crate::timeline::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin, Rollback, RollbackState, SyncEvent, Timeline};
 }

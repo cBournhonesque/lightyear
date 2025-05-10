@@ -3,13 +3,13 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use lightyear::client::components::{ComponentSyncMode, LerpFn};
-use lightyear::prelude::client::Replicate;
-use lightyear::prelude::server::SyncTarget;
+use lightyear::prelude::client::*;
+use lightyear::prelude::input::leafwing;
+use lightyear::prelude::server::*;
+use lightyear::prelude::Channel;
 use lightyear::prelude::*;
-use lightyear::shared::input::InputConfig;
-use lightyear::shared::replication::components::ReplicationGroupIdBuilder;
-use lightyear::utils::bevy::*;
+// use lightyear::shared::input::InputConfig;
+// use lightyear::shared::replication::components::ReplicationGroupIdBuilder;
 
 use crate::shared::color_from_id;
 
@@ -29,7 +29,7 @@ pub struct InterpolatedBot;
 
 // Components
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
-pub struct PlayerId(pub ClientId);
+pub struct PlayerId(pub PeerId); // Use PeerId
 
 /// Number of bullet hits
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
@@ -40,16 +40,6 @@ pub struct ColorComponent(pub(crate) Color);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BulletMarker;
-
-// Channels
-
-#[derive(Channel)]
-pub struct Channel1;
-
-// Messages
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Message1(pub usize);
 
 // Inputs
 
@@ -78,54 +68,52 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        // messages
-        app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
-        app.add_plugins(LeafwingInputPlugin::<PlayerActions> {
-            config: InputConfig::<PlayerActions> {
-                // enable lag compensation; the input messages sent to the server will include the
-                // interpolation delay of that client
-                lag_compensation: true,
-                ..default()
-            },
-        });
+        // Use new input plugin path and default config
+        app.add_plugins(leafwing::InputPlugin::<PlayerActions>::default());
+        // app.add_plugins(LeafwingInputPlugin::<PlayerActions> {
+        //     config: InputConfig::<PlayerActions> {
+        //         // enable lag compensation; the input messages sent to the server will include the
+        //         // interpolation delay of that client
+        //         lag_compensation: true, // Assuming lag compensation is handled elsewhere or default
+        //         ..default()
+        //     },
+        // });
         // components
-        app.register_component::<Name>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
-        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        // Use PredictionMode and InterpolationMode
+        app.register_component::<Name>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerId>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
-        app.register_component::<Transform>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
+        app.register_component::<Transform>()
+            .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full)
             .add_interpolation_fn(TransformLinearInterpolation::lerp);
 
-        app.register_component::<ColorComponent>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<ColorComponent>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
-        app.register_component::<Score>(ChannelDirection::ServerToClient);
+        // Score component doesn't need prediction/interpolation by default
+        app.register_component::<Score>();
 
-        app.register_component::<RigidBody>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once);
+        // RigidBody might only need prediction if physics runs client-side?
+        // Assuming Once is okay for now.
+        app.register_component::<RigidBody>()
+            .add_prediction(PredictionMode::Once);
 
-        app.register_component::<BulletMarker>(ChannelDirection::Bidirectional)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<BulletMarker>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
-        app.register_component::<PredictedBot>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<PredictedBot>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
-        app.register_component::<InterpolatedBot>(ChannelDirection::ServerToClient)
-            .add_interpolation(ComponentSyncMode::Once);
-
-        // channels
-        app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        });
+        app.register_component::<InterpolatedBot>()
+            .add_interpolation(InterpolationMode::Once);
     }
 }

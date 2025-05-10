@@ -23,24 +23,16 @@ use bevy::time::{Fixed, Time};
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
+use lightyear_core::timeline::Rollback;
 use lightyear_replication::prelude::{Confirmed, Replicated, ReplicationReceiver};
 use lightyear_replication::registry::registry::ComponentRegistry;
-use lightyear_sync::prelude::InputTimeline;
 use parking_lot::RwLock;
 use tracing::*;
 
 pub struct RollbackPlugin;
 
 impl Plugin for RollbackPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(
-            FixedLast,
-            increment_rollback_tick.in_set(PredictionSet::IncrementRollbackTick),
-        );
-        app.configure_sets(
-            FixedLast, PredictionSet::IncrementRollbackTick.in_set(PredictionSet::All),
-        );
-    }
+    fn build(&self, app: &mut App) {}
 
     /// Wait until every component has been registered in the ComponentRegistry
     fn finish(&self, app: &mut App) {
@@ -90,6 +82,7 @@ impl Plugin for RollbackPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(check_rollback);
@@ -121,17 +114,18 @@ fn check_rollback(
     // we want Query<&mut PredictionHistory<C>, With<Predicted>>
     // make sure to include disabled entities
     mut predicted_entities: Query<FilteredEntityMut>,
-    receiver_query: Single<(&ReplicationReceiver, &InputTimeline, &LocalTimeline)>,
+    receiver_query: Single<(Entity, &ReplicationReceiver, &PredictionManager, &LocalTimeline)>,
     prediction_registry: Res<PredictionRegistry>,
     component_registry: Res<ComponentRegistry>,
     system_ticks: SystemChangeTick,
+    commands: ParallelCommands,
 ) {
     // TODO: iterate through each archetype in parallel? using rayon
 
     // TODO: maybe have a sparse-set component with ConfirmedUpdated to quickly query only through predicted entities
     //  that received a confirmed update? Would the iteration even be faster? since entities with or without sparse-set
     //  would still be in the same table
-    let (replication_receiver, input_timeline, local_timeline) = receiver_query.into_inner();
+    let (manager_entity, replication_receiver, prediction_manager, local_timeline) = receiver_query.into_inner();
     let tick = local_timeline.tick();
     // no need to check for rollback if we didn't receive any packet
     if !replication_receiver.has_received_this_frame() {
@@ -146,8 +140,9 @@ fn check_rollback(
             // skip if the confirmed entity does not exist
             return
         };
+        // TODO: should we introduce a Rollback marker component?
         // we already know we are in rollback, no need to check again
-        if input_timeline.is_rollback() {
+        if prediction_manager.is_rollback() {
             return
         }
 
@@ -158,7 +153,7 @@ fn check_rollback(
         //     system_ticks.this_run(),
         // );
 
-        // TODO: should we send an event when an en entity receives an update? so that we check rollback
+        // TODO: should we send an event when an entity receives an update? so that we check rollback
         //  only for entities that receive an update?
         // skip the entity if the replication group did not receive any updates
         let confirmed_ticks = confirmed_ref.get_change_ticks::<Confirmed>().unwrap();
@@ -184,9 +179,14 @@ fn check_rollback(
             .iter()
             .filter(|(_, m)| m.sync_mode == PredictionMode::Full)
             .map(|(kind, m)| (component_registry.kind_to_component_id[kind], m))
-            .take_while(|_| !input_timeline.is_rollback()) {
+            .take_while(|_| !prediction_manager.is_rollback()) {
             if (prediction_metadata.check_rollback)(&prediction_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
-                input_timeline.set_rollback_tick(confirmed_tick + 1);
+                // During `prepare_rollback` we will reset the component to their values on `confirmed_tick`.
+                // Then when we do Rollback in PreUpdate, we will start by incrementing the tick, which will be equal to `confirmed_tick + 1`
+                prediction_manager.set_rollback_tick(confirmed_tick);
+                commands.command_scope(|mut c| {
+                    c.entity(manager_entity).insert(Rollback);
+                });
                 return;
             }
         }
@@ -224,15 +224,12 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         (With<Predicted>, Without<Confirmed>, Without<PreSpawned>),
     >,
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
-    manager_query: Single<(&LocalTimeline, &PredictionManager)>,
+    manager_query: Single<(&LocalTimeline, &PredictionManager), With<Rollback>>,
 ) {
     let kind = core::any::type_name::<C>();
-
-    let _span = trace_span!("client rollback prepare");
-    debug!("in prepare rollback");
-
     let (timeline, manager) = manager_query.into_inner();
     let current_tick = timeline.tick();
+    let _span = trace_span!("prepare_rollback", tick = ?current_tick, kind = ?kind);
     for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
         let rollback_tick = confirmed.tick;
 
@@ -389,19 +386,15 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
     // TODO: have a way to make these systems run in parallel
     //  - either by using RwLock in PredictionManager
     //  - or by using a system that iterates through archetypes, a la replicon?
-    timeline_query: Single<(&InputTimeline, &mut PredictionManager)>,
+    mut prediction_manager: Single<(&mut PredictionManager), With<Rollback>>,
 ) {
     let kind = core::any::type_name::<C>();
     let _span = trace_span!("client prepare rollback for pre-spawned entities");
 
-    let (timeline, mut prediction_manager) = timeline_query.into_inner();
-    let Some(rollback_tick_plus_one) = timeline.get_rollback_tick() else {
+    let Some(rollback_tick) = prediction_manager.get_rollback_start_tick() else {
         error!("prepare_rollback_prespawn should only be called when we are in rollback");
         return;
     };
-
-    // careful, the current_tick is already incremented by 1 in the check_rollback stage...
-    let rollback_tick = rollback_tick_plus_one - 1;
 
     // 0. If the prespawned entity didn't exist at the rollback tick, despawn it
     // TODO: also handle deleting pre-predicted entities!
@@ -410,7 +403,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
     let mut entities_to_despawn = EntityHashSet::default();
     for (_, hash) in prediction_manager
         .prespawn_tick_to_hash
-        .drain_after(&rollback_tick_plus_one)
+        .drain_after(&(rollback_tick + 1))
     {
         if let Some(entities) = prediction_manager.prespawn_hash_to_entities.remove(&hash) {
             entities_to_despawn.extend(entities);
@@ -485,18 +478,15 @@ pub(crate) fn prepare_rollback_non_networked<
         (Entity, Option<&mut C>, &mut PredictionHistory<C>),
         With<Predicted>,
     >,
-    timeline: Single<&InputTimeline, With<PredictionManager>>,
+    prediction_manager: Single<&PredictionManager, With<Rollback>>,
 ) {
     let kind = core::any::type_name::<C>();
     let _span = trace_span!("client prepare rollback for non networked component", ?kind);
 
-    let Some(rollback_tick_plus_one) = timeline.get_rollback_tick() else {
+    let Some(rollback_tick) = prediction_manager.get_rollback_start_tick() else {
         error!("prepare_rollback_non_networked_components should only be called when we are in rollback");
         return;
     };
-
-    // careful, the current_tick is already incremented by 1 in the check_rollback stage...
-    let rollback_tick = rollback_tick_plus_one - 1;
 
     // 0. If the entity didn't exist at the rollback tick, despawn it
     // TODO? or is it handled for us?
@@ -534,20 +524,17 @@ pub(crate) fn prepare_rollback_non_networked<
 // Revert `resource` to its value at the tick that the incoming rollback will rollback to.
 pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
     mut commands: Commands,
-    timeline: Single<(&InputTimeline), With<PredictionManager>>,
+    prediction_manager: Single<(&PredictionManager), With<Rollback>>,
     resource: Option<ResMut<R>>,
     mut history: ResMut<ResourceHistory<R>>,
 ) {
     let kind = core::any::type_name::<R>();
     let _span = trace_span!("client prepare rollback for resource", ?kind);
 
-    let Some(rollback_tick_plus_one) = timeline.get_rollback_tick() else {
+    let Some(rollback_tick) = prediction_manager.get_rollback_start_tick() else {
         error!("prepare_rollback_resource should only be called when we are in rollback");
         return;
     };
-
-    // careful, the current_tick is already incremented by 1 in the check_rollback stage...
-    let rollback_tick = rollback_tick_plus_one - 1;
 
     // 1. restore the resource to the historical value
     match history.pop_until_tick(rollback_tick) {
@@ -616,26 +603,20 @@ fn rollback_fixed_time(current_fixed_time: &Time<Fixed>, num_rollback_ticks: i16
 }
 
 pub(crate) fn run_rollback(world: &mut World) {
-    let current_tick = world.query::<&LocalTimeline>().single(world).unwrap().tick();
-    let input_timeline = world.query::<&InputTimeline>().single(world).unwrap();
+    let (entity, mut local_timeline, prediction_manager) = world.query::<(Entity, &mut LocalTimeline, &PredictionManager)>().single_mut(world).unwrap();
 
     // NOTE: all predicted entities should be on the same tick!
     // TODO: might not need to check the state, because we only run this system if we are in rollback
-    let current_rollback_tick = input_timeline
-        .get_rollback_tick()
+    let current_tick = local_timeline.tick();
+    let rollback_start_tick = prediction_manager
+        .get_rollback_start_tick()
         .expect("we should be in rollback");
 
-    // NOTE: careful! we restored the state to the end of tick `confirmed.tick`
-    //  and we know that `current_rollback_tick` = `confirmed.tick + 1`
-    //  we want to run fixed-update to be at the end of `current_tick`, so we need to run
-    // `current_tick - confirmed.tick` = `current_tick - (current_rollback_tick - 1)` ticks
-    // (we set `current_rollback_tick` to `confirmed + 1` so that on the FixedUpdate rollback run, we fetch the input for
-    // `confirmed.tick + 1)`
-    let num_rollback_ticks = current_tick + 1 - current_rollback_tick;
-    debug!(
-        "Rollback between {:?} and {:?}",
-        current_rollback_tick, current_tick
-    );
+    // NOTE: we reverted all components to the end of `current_roll
+    let num_rollback_ticks = current_tick - rollback_start_tick;
+    // reset the local timeline to be at the end of rollback_start_tick and we want to reach the end of current_tick
+    local_timeline.apply_delta((-num_rollback_ticks).into());
+    debug!("Rollback between {:?} and {:?}", rollback_start_tick, current_tick);
     #[cfg(feature = "metrics")]
     {
         metrics::counter!("prediction::rollbacks::count").increment(1);
@@ -643,8 +624,7 @@ pub(crate) fn run_rollback(world: &mut World) {
         metrics::gauge!("prediction::rollbacks::ticks").set(num_rollback_ticks);
     }
 
-    // Keep track of the generic time resource so it can be restored after the
-    // rollback.
+    // Keep track of the generic time resource so it can be restored after the rollback.
     let time_resource = *world.resource::<Time>();
 
     // Rollback the fixed time resource in preparation for the rollback.
@@ -661,8 +641,10 @@ pub(crate) fn run_rollback(world: &mut World) {
     // predicted/rollback components and resources). This is similar to what
     // `bevy_time::fixed::run_fixed_main_schedule()` does
     for i in 0..num_rollback_ticks {
-        debug!("Rollback tick: {:?}", current_rollback_tick + i);
-
+        // we add 1 here because running FixedUpdate will start by incrementing the tick
+        let rollback_tick = rollback_start_tick + i + 1;
+        let _span = debug_span!("rollback", tick = ?rollback_tick).entered();
+        info!(?rollback_tick, "rollback");
         // Set the rollback tick's generic time resource to the fixed time
         // resource that was just advanced.
         *world.resource_mut::<Time>() = world.resource::<Time<Fixed>>().as_generic();
@@ -693,8 +675,9 @@ pub(crate) fn run_rollback(world: &mut World) {
     metrics.rollback_ticks += num_rollback_ticks as u32;
 
     // revert the state of Rollback for the next frame
-    let timeline = world.query::<&mut InputTimeline>().single_mut(world).unwrap();
-    timeline.set_non_rollback();
+    let prediction_manager = world.query::<&mut PredictionManager>().single_mut(world).unwrap();
+    prediction_manager.set_non_rollback();
+    world.entity_mut(entity).remove::<Rollback>();
 }
 
 #[cfg(feature = "metrics")]
@@ -703,12 +686,6 @@ pub(crate) fn no_rollback() {
     metrics::gauge!("prediction::rollbacks::ticks").set(0);
 }
 
-pub(crate) fn increment_rollback_tick(timeline: Single<&InputTimeline, With<PredictionManager>>) {
-    if timeline.is_rollback() {
-        trace!("increment rollback tick");
-        timeline.increment_rollback_tick();
-    }
-}
 
 #[cfg(test)]
 pub(crate) mod test_utils {

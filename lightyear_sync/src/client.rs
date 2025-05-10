@@ -7,11 +7,12 @@ use crate::timeline::input::Input;
 #[cfg(feature = "interpolation")]
 use crate::timeline::interpolation::InterpolationTimeline;
 use crate::timeline::remote;
-use crate::timeline::sync::{SyncEvent, SyncedTimeline};
+use crate::timeline::sync::SyncedTimeline;
 use bevy::prelude::*;
 use lightyear_connection::client::Client;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin};
 use lightyear_core::time::TickDelta;
+use lightyear_core::timeline::SyncEvent;
 
 // When a Client is created; we want to add a PredictedTimeline? InterpolatedTimeline?
 //  or should we let the user do it?
@@ -91,6 +92,7 @@ impl Plugin for ClientPlugin {
         app.add_observer(remote::update_remote_timeline);
         // app.add_systems(First, remote::advance_remote_timeline.after(time_system));
         app.add_systems(FixedFirst, remote::advance_remote_timeline);
+        app.add_systems(Last, remote::reset_received_packet_remote_timeline);
     }
 }
 

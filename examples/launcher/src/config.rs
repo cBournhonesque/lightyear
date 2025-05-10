@@ -3,9 +3,9 @@ use bevy::prelude::{Reflect, Resource};
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 use core::time::Duration;
 // Import serde traits
-use lightyear_examples_common_new::client::ClientTransports;
-use lightyear_examples_common_new::server::ServerTransports;
-use lightyear_examples_common_new::shared::SharedSettings;
+use lightyear_examples_common::client::ClientTransports;
+use lightyear_examples_common::server::ServerTransports;
+use lightyear_examples_common::shared::SharedSettings;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, EnumString};
 

@@ -16,20 +16,20 @@ default = ["client", "gui", "server", "netcode", "udp"]
 client = [
   "gui",
   "lightyear/client",
-  "lightyear_examples_common_new/client"
+  "lightyear_examples_common/client"
 ]
 gui = [
-  "lightyear_examples_common_new/gui"
+  "lightyear_examples_common/gui"
 ]
 server = [
   "lightyear/server",
-  "lightyear_examples_common_new/server"
+  "lightyear_examples_common/server"
 ]
 netcode = [
-  "lightyear_examples_common_new/netcode"
+  "lightyear_examples_common/netcode"
 ]
 udp = [
-  "lightyear_examples_common_new/udp",
+  "lightyear_examples_common/udp",
   # udp requires std
   "lightyear/std",
   "lightyear/udp",
@@ -50,7 +50,7 @@ udp = [
 lightyear = { "workspace" = true, features = [
   "input_native",
 ]}
-lightyear_examples_common_new.workspace = true
+lightyear_examples_common.workspace = true
 serde.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
@@ -59,9 +59,6 @@ bevy.workspace = true
 rand.workspace = true
 metrics-exporter-prometheus = { workspace = true, optional = true }
 bevy-inspector-egui = { workspace = true, optional = true }
-bevygap_client_plugin = { workspace = true, optional = true, features = [
-  "matchmaker-tls",
-] }
 
 [lints]
 workspace = true

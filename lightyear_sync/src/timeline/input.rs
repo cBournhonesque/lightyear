@@ -1,5 +1,5 @@
 use crate::ping::manager::PingManager;
-use crate::timeline::sync::{SyncConfig, SyncEvent, SyncedTimeline};
+use crate::timeline::sync::{SyncConfig, SyncedTimeline};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{default, Component, Deref, DerefMut, Query, Reflect, Res, Trigger};
@@ -9,7 +9,7 @@ use core::time::Duration;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
-use lightyear_core::timeline::{NetworkTimeline, RollbackState, Timeline};
+use lightyear_core::timeline::{NetworkTimeline, RollbackState, SyncEvent, Timeline};
 use lightyear_link::{Link, LinkStats};
 use parking_lot::RwLock;
 use tracing::trace;
@@ -25,11 +25,6 @@ pub struct Input {
 
     pub(crate) input_delay_config: InputDelayConfig,
     is_synced: bool,
-
-    /// We use a RwLock because we want to be able to update this value from multiple systems
-    /// in parallel.
-    #[reflect(ignore)]
-    pub rollback: RwLock<RollbackState>,
 }
 
 impl Input {
@@ -38,13 +33,6 @@ impl Input {
     /// Return the input delay in number of ticks
     pub fn input_delay(&self) -> u16 {
         self.input_delay_ticks
-    }
-
-    pub fn tick_or_rollback_tick(&self, current_tick: Tick ) -> Tick {
-        match *self.rollback.read().deref() {
-            RollbackState::ShouldRollback { current_tick: rollback_tick } => rollback_tick,
-            RollbackState::Default => current_tick,
-        }
     }
 
     /// Update the input delay based on the current RTT and tick duration
@@ -59,42 +47,6 @@ impl Input {
             timeline.input_delay_ticks =  timeline.input_delay_config.input_delay_ticks(rtt, tick_duration.0);
         }
     }
-
-    /// Returns true if we are currently in a rollback state
-    pub fn is_rollback(&self) -> bool {
-        match *self.rollback.read().deref() {
-            RollbackState::ShouldRollback { .. } => true,
-            RollbackState::Default => false,
-        }
-    }
-
-    /// Get the current rollback tick
-    pub fn get_rollback_tick(&self) -> Option<Tick> {
-        match *self.rollback.read().deref() {
-            RollbackState::ShouldRollback { current_tick } => Some(current_tick),
-            RollbackState::Default => None,
-        }
-    }
-
-    /// Increment the rollback tick
-    pub fn increment_rollback_tick(&self) {
-        if let RollbackState::ShouldRollback {
-            ref mut current_tick,
-        } = *self.rollback.write().deref_mut()
-        {
-            *current_tick += 1;
-        }
-    }
-
-    /// Set the rollback state back to non-rollback
-    pub fn set_non_rollback(&self) {
-        *self.rollback.write().deref_mut() = RollbackState::Default;
-    }
-
-    /// Set the rollback state to `ShouldRollback` with the given tick
-    pub fn set_rollback_tick(&self, tick: Tick) {
-        *self.rollback.write().deref_mut() = RollbackState::ShouldRollback { current_tick: tick };
-    }
 }
 
 impl Default for Input {
@@ -105,7 +57,6 @@ impl Default for Input {
             relative_speed: 1.0,
             input_delay_config: InputDelayConfig::no_input_delay(),
             is_synced: false,
-            rollback: RwLock::new(RollbackState::Default),
         }
     }
 }

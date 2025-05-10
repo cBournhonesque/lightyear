@@ -6,15 +6,19 @@ use alloc::vec::Vec;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::entity::EntityHash;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Entity, Reflect, Resource, World};
+use bevy::prelude::{Component, Entity, Query, Reflect, Res, Resource, Trigger, World};
 use core::cell::UnsafeCell;
-use lightyear_core::prelude::Tick;
+use lightyear_core::prelude::{RollbackState, Tick};
+use lightyear_core::tick::TickDuration;
+use lightyear_core::timeline::SyncEvent;
 use lightyear_replication::receive::TempWriteBuffer;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_replication::registry::ComponentError;
 use lightyear_serde::entity_map::EntityMap;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_utils::ready_buffer::ReadyBuffer;
+use parking_lot::RwLock;
+use std::ops::{Deref, DerefMut};
 use tracing::info;
 
 #[derive(Resource)]
@@ -33,7 +37,7 @@ pub struct PredictedEntityMap {
     pub confirmed_to_predicted: EntityMap,
 }
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
 #[component(on_add = PredictionManager::on_add)]
 #[require(InputTimeline)]
 pub struct PredictionManager {
@@ -50,6 +54,7 @@ pub struct PredictionManager {
     /// We wrap it into an UnsafeCell because the MapEntities trait requires a mutable reference to the EntityMap,
     /// but in our case calling map_entities will not mutate the map itself; by doing so we can improve the parallelism
     /// by avoiding a `ResMut<PredictionManager>` in our systems.
+    #[reflect(ignore)]
     pub(crate) predicted_entity_map: UnsafeCell<PredictedEntityMap>,
     /// Map from the hash of a PrespawnedPlayerObject to the corresponding local entity
     /// NOTE: multiple entities could share the same hash. In which case, upon receiving a server prespawned entity,
@@ -60,7 +65,12 @@ pub struct PredictionManager {
     pub(crate) prespawn_hash_to_entities: EntityHashMap<u64, Vec<Entity>>,
     /// Store the spawn tick of the entity, as well as the corresponding hash
     pub(crate) prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
+    #[reflect(ignore)]
     pub(crate) temp_write_buffer: TempWriteBuffer,
+    /// We use a RwLock because we want to be able to update this value from multiple systems
+    /// in parallel.
+    #[reflect(ignore)]
+    pub rollback: RwLock<RollbackState>,
 }
 
 impl Default for PredictionManager {
@@ -72,6 +82,7 @@ impl Default for PredictionManager {
             prespawn_hash_to_entities: EntityHashMap::default(),
             prespawn_tick_to_hash: ReadyBuffer::default(),
             temp_write_buffer: TempWriteBuffer::default(),
+            rollback: RwLock::new(RollbackState::Default),
         }
     }
 }
@@ -106,5 +117,32 @@ impl PredictionManager {
             let entity_map = &mut *self.predicted_entity_map.get();
             component_registry.map_entities::<C>(component, &mut entity_map.confirmed_to_predicted)
         }
+    }
+
+    /// Returns true if we are currently in a rollback state
+    pub fn is_rollback(&self) -> bool {
+        match *self.rollback.read().deref() {
+            RollbackState::RollbackStart { .. } => true,
+            RollbackState::Default => false,
+        }
+    }
+
+    /// Get the current rollback tick
+    pub fn get_rollback_start_tick(&self) -> Option<Tick> {
+        match *self.rollback.read().deref() {
+            RollbackState::RollbackStart(start_tick) => Some(start_tick),
+            RollbackState::Default => None,
+        }
+    }
+
+
+    /// Set the rollback state back to non-rollback
+    pub fn set_non_rollback(&self) {
+        *self.rollback.write().deref_mut() = RollbackState::Default;
+    }
+
+    /// Set the rollback state to `ShouldRollback` with the given tick
+    pub fn set_rollback_tick(&self, tick: Tick) {
+        *self.rollback.write().deref_mut() = RollbackState::RollbackStart(tick)
     }
 }

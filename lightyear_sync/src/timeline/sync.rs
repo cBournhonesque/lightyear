@@ -4,26 +4,7 @@ use core::time::Duration;
 use lightyear_core::prelude::Tick;
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{TickDelta, TickInstant, TimeDelta};
-use lightyear_core::timeline::{NetworkTimeline, TimelineContext};
-
-#[derive(Event, Debug)]
-pub struct SyncEvent<T> {
-    // NOTE: it's inconvenient to re-sync the Timeline from a TickInstant to another TickInstant,
-    //  so instead we will apply a delta number of ticks with no overstep (so that it's easy
-    //  to update the LocalTimeline
-    /// Delta in number of ticks to apply to the timeline
-    pub tick_delta: i16,
-    pub(crate) marker: core::marker::PhantomData<T>,
-}
-
-impl<T: TimelineContext> SyncEvent<T> {
-    pub(crate) fn new(tick_delta: i16) -> Self {
-        SyncEvent {
-            tick_delta,
-            marker: core::marker::PhantomData,
-        }
-    }
-}
+use lightyear_core::timeline::{NetworkTimeline, SyncEvent, TimelineContext};
 
 /// Marker component to indicate that the timeline has been synced
 #[derive(Component, Debug)]
@@ -38,16 +19,6 @@ impl<T> Default for IsSynced<T> {
         }
     }
 }
-
-impl<T> Clone for SyncEvent<T> {
-    fn clone(&self) -> Self {
-        SyncEvent {
-            tick_delta: self.tick_delta,
-            marker: core::marker::PhantomData,
-        }
-    }
-}
-impl<T> Copy for SyncEvent<T> {}
 
 /// Timeline that is synced to another timeline
 pub trait SyncedTimeline: NetworkTimeline {
@@ -73,6 +44,11 @@ pub trait SyncedTimeline: NetworkTimeline {
 
     /// Reset the timeline to its initial state (used when a client reconnects)
     fn reset(&mut self);
+}
+
+pub trait SyncTargetTimeline: NetworkTimeline + Default {
+    /// Returns true if the SyncTimelines are allowed to use this timeline as a sync target this frame
+    fn is_ready(&self) -> bool;
 }
 
 

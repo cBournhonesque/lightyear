@@ -32,6 +32,7 @@ use core::time::Duration;
 
 /// Commonly used items from the `lightyear_link` crate.
 pub mod prelude {
+    pub use crate::conditioner::LinkConditionerConfig;
     pub use crate::server::{LinkOf, ServerLink};
     pub use crate::{Link, LinkSet, LinkStart, LinkStats, Linked, Linking, RecvLinkConditioner, Unlinked};
 }
@@ -313,6 +314,7 @@ impl LinkPlugin {
 
 impl Plugin for LinkPlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(PreUpdate, Self::apply_link_conditioner.in_set(LinkSet::ApplyConditioner));
         app.configure_sets(PreUpdate, (LinkSet::Receive, LinkSet::ApplyConditioner).chain());
         app.configure_sets(PostUpdate, LinkSet::Send);
     }

@@ -3,11 +3,7 @@ use super::predicted_history::apply_confirmed_update;
 use super::resource_history::{
     handle_tick_event_resource_history, update_resource_history, ResourceHistory,
 };
-use super::rollback::{
-    prepare_rollback, prepare_rollback_non_networked,
-    prepare_rollback_prespawn, prepare_rollback_resource, remove_prediction_disable, run_rollback,
-    RollbackPlugin,
-};
+use super::rollback::{prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn, prepare_rollback_resource, remove_prediction_disable, run_rollback, RollbackPlugin};
 use super::spawn::spawn_predicted_entity;
 use crate::correction::{
     get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback,
@@ -28,8 +24,8 @@ use bevy::ecs::entity_disabling::DefaultQueryFilters;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 use core::time::Duration;
+use lightyear_core::timeline::Rollback;
 use lightyear_replication::prelude::ReplicationSet;
-use lightyear_sync::prelude::InputTimeline;
 
 /// Plugin that enables client-side prediction
 #[derive(Default)]
@@ -77,17 +73,14 @@ pub enum PredictionSet {
     /// Visually interpolate the predicted components to the corrected state
     VisualCorrection,
 
-    // FixedLast Sets
-    /// Increment the rollback tick after the main fixed-update physics loop has run
-    IncrementRollbackTick,
-
     /// General set encompassing all other system sets
     All,
 }
 
-/// Returns true if we are doing rollback
-pub fn is_in_rollback(query: Single<&InputTimeline, With<PredictionManager>>) -> bool {
-    query.is_rollback()
+
+/// Returns true if we are in rollback
+pub fn is_in_rollback(query: Query<(), (With<PredictionManager>, With<Rollback>)>) -> bool {
+    query.single().is_ok()
 }
 
 /// Enable rollbacking a component even if the component is not networked

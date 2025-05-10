@@ -22,7 +22,7 @@ lightyear = { "workspace" = true, features = [
   "udp",
   "std",
 ] }
-lightyear_examples_common_new = {"workspace" = true, features = [
+lightyear_examples_common = {"workspace" = true, features = [
   "client",
   "server",
   "gui",

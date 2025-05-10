@@ -4,12 +4,14 @@ use bevy::input::keyboard::Key;
 use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
-use lightyear::inputs::leafwing::input_buffer::InputBuffer;
+// Updated InputBuffer path
+use lightyear::prelude::client::InputBuffer;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::Controlled;
-use lightyear::shared::tick_manager;
-use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
+// Updated Controlled path
+use lightyear::prelude::Controlled;
+// Removed unused import
+// use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
 use crate::shared::*;
@@ -18,7 +20,8 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, connect_to_server);
+        // Removed: Connection handled in main.rs
+        // app.add_systems(Startup, connect_to_server);
         app.add_systems(
             FixedUpdate,
             // In host-server mode, the server portion is already applying the
@@ -74,21 +77,23 @@ fn handle_character_actions(
     }
 }
 
-pub(crate) fn connect_to_server(mut commands: Commands) {
-    commands.connect_client();
-}
+// Removed: Connection handled in main.rs
+// pub(crate) fn connect_to_server(mut commands: Commands) {
+//     commands.connect_client();
+// }
 
 /// Add physics to characters that are newly predicted. If the client controls
 /// the character then add an input component.
 fn handle_new_character(
-    connection: Res<ClientConnection>,
+    // Removed: ClientConnection resource is likely not needed, Has<Controlled> is sufficient
+    // connection: Res<ClientConnection>,
     mut commands: Commands,
     mut character_query: Query<
         (Entity, &ColorComponent, Has<Controlled>),
         (Added<Predicted>, With<CharacterMarker>),
     >,
 ) {
-    for (entity, color, is_controlled) in &mut character_query {
+    for (entity, _color, is_controlled) in &mut character_query {
         if is_controlled {
             info!("Adding InputMap to controlled and predicted entity {entity:?}");
             commands.entity(entity).insert(
@@ -99,10 +104,10 @@ fn handle_new_character(
                     .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd()),
             );
         } else {
-            info!("Remote character replicated to us: {entity:?}");
+            info!("Remote character predicted for us: {entity:?}");
         }
-        let client_id = connection.id();
-        info!(?entity, ?client_id, "Adding physics to character");
+        // let client_id = connection.id(); // Removed
+        info!(?entity, "Adding physics to character");
         commands
             .entity(entity)
             .insert(CharacterPhysicsBundle::default());
@@ -113,11 +118,12 @@ fn handle_new_character(
 /// replicated floors instead of predicted floors because predicted floors do
 /// not exist since floors aren't predicted.
 fn handle_new_floor(
-    connection: Res<ClientConnection>,
+    // Removed: ClientConnection resource is likely not needed
+    // connection: Res<ClientConnection>,
     mut commands: Commands,
-    character_query: Query<Entity, (Added<Replicated>, With<FloorMarker>)>,
+    floor_query: Query<Entity, (Added<Replicated>, With<FloorMarker>)>, // Renamed query variable
 ) {
-    for entity in &character_query {
+    for entity in &floor_query {
         info!(?entity, "Adding physics to floor");
         commands
             .entity(entity)
@@ -127,11 +133,12 @@ fn handle_new_floor(
 
 /// Add physics to blocks that are newly predicted.
 fn handle_new_block(
-    connection: Res<ClientConnection>,
+    // Removed: ClientConnection resource is likely not needed
+    // connection: Res<ClientConnection>,
     mut commands: Commands,
-    character_query: Query<Entity, (Added<Predicted>, With<BlockMarker>)>,
+    block_query: Query<Entity, (Added<Predicted>, With<BlockMarker>)>, // Renamed query variable
 ) {
-    for entity in &character_query {
+    for entity in &block_query {
         info!(?entity, "Adding physics to block");
         commands
             .entity(entity)

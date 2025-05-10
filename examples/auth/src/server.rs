@@ -18,7 +18,7 @@ use core::time::Duration;
 use lightyear::netcode::ConnectToken;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear_examples_common_new::shared::{SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
+use lightyear_examples_common::shared::{SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
 use tokio::io::AsyncWriteExt;
 
 use crate::shared;

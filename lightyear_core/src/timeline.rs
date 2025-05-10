@@ -116,20 +116,16 @@ impl<T: TimelineContext> DerefMut for  Timeline<T> {
 }
 
 
-/// Resource that will track whether we should do rollback or not
-/// (We have this as a resource because if any predicted entity needs to be rolled-back; we should roll back all predicted entities)
+/// Track whether we are in rollback or not
 #[derive(Debug, Default, Reflect)]
 pub enum RollbackState {
     /// We are not in a rollback state
     #[default]
     Default,
-    /// We should do a rollback starting from the current_tick
-    ShouldRollback {
-        /// Current tick of the rollback process
-        ///
-        /// (note: we will start the rollback from the next tick after we notice the mismatch)
-        current_tick: Tick,
-    },
+    /// We should do a rollback starting from this tick
+    /// 
+    /// i.e. the predicted component values will be reverted to this tick, and we will start running FixedUpdate from the next tick
+    RollbackStart(Tick),
 }
 
 impl Local {}
@@ -216,3 +212,40 @@ impl Plugin for TimelinePlugin {
         app.world_mut().trigger(SetTickDuration(self.tick_duration));
     }
 }
+
+#[derive(Event, Debug)]
+pub struct SyncEvent<T> {
+    // NOTE: it's inconvenient to re-sync the Timeline from a TickInstant to another TickInstant,
+    //  so instead we will apply a delta number of ticks with no overstep (so that it's easy
+    //  to update the LocalTimeline
+    /// Delta in number of ticks to apply to the timeline
+    pub tick_delta: i16,
+    pub marker: core::marker::PhantomData<T>,
+}
+
+impl<T: TimelineContext> SyncEvent<T> {
+    pub fn new(tick_delta: i16) -> Self {
+        SyncEvent {
+            tick_delta,
+            marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<T> Clone for SyncEvent<T> {
+    fn clone(&self) -> Self {
+        SyncEvent {
+            tick_delta: self.tick_delta,
+            marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<T> Copy for SyncEvent<T> {}
+
+
+/// Marker component inserted on the Link if we are currently in rollback
+/// 
+/// This is in `lightyear_core` to avoid circular dependencies. Many other plugins behave differently during rollback
+#[derive(Component)]
+pub struct Rollback;

@@ -46,6 +46,9 @@ NEEDS UNIT TEST:
     - we trigger LinkStart
     -> ALTERNATIVE: the udp can keep working even if disconnected?
 
+BUGS:
+- things break down with no conditioner because the client seems to sometimes be slightly ahead of server?
+- interpolation is slightly broken; sometimes the interpolation doesn't reach the last confirmed value
 
 # Server sending messages
 

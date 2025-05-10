@@ -14,15 +14,15 @@
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear::netcode::NetcodeClient;
-use lightyear_examples_common_new::cli::{Cli, Mode};
-use lightyear_examples_common_new::shared::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
+use lightyear_examples_common::cli::{Cli, Mode};
+use lightyear_examples_common::shared::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
 
 use crate::client::ExampleClientPlugin;
 use crate::server::ExampleServerPlugin;
 use crate::shared::AUTH_BACKEND_ADDRESS;
 use lightyear::connection::server::Start;
-use lightyear_examples_common_new::client::{ClientTransports, ExampleClient};
-use lightyear_examples_common_new::server::{ExampleServer, ServerTransports};
+use lightyear_examples_common::client::{ClientTransports, ExampleClient};
+use lightyear_examples_common::server::{ExampleServer, ServerTransports};
 
 mod client;
 

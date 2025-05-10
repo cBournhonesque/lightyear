@@ -1,7 +1,7 @@
 use crate::ping::manager::PingManager;
 use crate::ping::plugin::PingPlugin;
 use crate::prelude::InputTimeline;
-use crate::timeline::sync::{IsSynced, SyncedTimeline};
+use crate::timeline::sync::{IsSynced, SyncTargetTimeline, SyncedTimeline};
 use crate::timeline::DrivingTimeline;
 use bevy::app::{App, FixedFirst, Plugin};
 use bevy::prelude::*;
@@ -9,7 +9,7 @@ use lightyear_connection::client::{Connected, Disconnect, Disconnected};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::TickDelta;
-use lightyear_core::timeline::{NetworkTimeline, NetworkTimelinePlugin};
+use lightyear_core::timeline::{NetworkTimeline, NetworkTimelinePlugin, Rollback};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SyncSet {
@@ -25,7 +25,7 @@ pub struct SyncedTimelinePlugin<Synced, Remote, const DRIVING: bool = false>{
     pub(crate) _marker: core::marker::PhantomData<(Synced, Remote)>,
 }
 
-impl<Synced: SyncedTimeline, Remote: NetworkTimeline + Default, const DRIVING: bool> SyncedTimelinePlugin<Synced, Remote, DRIVING> {
+impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> SyncedTimelinePlugin<Synced, Remote, DRIVING> {
     /// On connection, reset the Synced timeline.
     pub(crate) fn handle_connect(
         trigger: Trigger<OnAdd, Connected>,
@@ -66,7 +66,8 @@ impl<Synced: SyncedTimeline, Remote: NetworkTimeline + Default, const DRIVING: b
     pub(crate) fn advance_synced_timelines(
         fixed_time: Res<Time<Fixed>>,
         tick_duration: Res<TickDuration>,
-        mut query: Query<(&mut Synced, Has<DrivingTimeline<Synced>>), With<Connected>>,
+        // make sure to not update the timelines during Rollback
+        mut query: Query<(&mut Synced, Has<DrivingTimeline<Synced>>), (With<Connected>, Without<Rollback>)>,
     ) {
         let delta = fixed_time.delta();
         query.iter_mut().for_each(|(mut t, is_main)| {
@@ -88,7 +89,13 @@ impl<Synced: SyncedTimeline, Remote: NetworkTimeline + Default, const DRIVING: b
         mut commands: Commands,
         mut query: Query<(Entity, &mut Synced, &Remote, &mut LocalTimeline, &PingManager, Has<IsSynced<Synced>>), With<Connected>>,
     ) {
+        // TODO: return early if we haven't received any remote packets? (nothing to sync to)
+
         query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, mut local_timeline, ping_manager, has_is_synced)| {
+            // return early if the remote timeline hasn't received any packets
+            if !main_timeline.is_ready() {
+                return;
+            }
             if !has_is_synced && sync_timeline.is_synced()  {
                 debug!("Timeline {:?} is synced to {:?}", core::any::type_name::<Synced>(), core::any::type_name::<Remote>());
                 commands.entity(entity).insert(IsSynced::<Synced>::default());
@@ -119,7 +126,7 @@ impl<Synced, Remote, const DRIVING: bool> Default for SyncedTimelinePlugin<Synce
     }
 }
 
-impl<Synced: SyncedTimeline, Remote: NetworkTimeline + Default, const DRIVING: bool> Plugin
+impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Plugin
 for SyncedTimelinePlugin<Synced, Remote, DRIVING>
 {
     fn build(&self, app: &mut App) {
