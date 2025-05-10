@@ -207,7 +207,9 @@ pub mod prelude {
     pub use crate::protocol::message::{
         registry::{AppMessageExt, MessageRegistry},
         resource::AppResourceExt,
-        trigger::AppTriggerExt
+        trigger::{AppTriggerExt, TriggerMessage},
+        client::ClientTriggerExt,
+        server::ServerTriggerExt,
     };
     pub use crate::protocol::serialize::AppSerializeExt;
     pub use crate::shared::config::SharedConfig;

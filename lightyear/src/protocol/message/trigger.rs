@@ -31,7 +31,7 @@ pub trait AppTriggerExt {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct TriggerMessage<E> {
+pub struct TriggerMessage<E> {
     // TODO: we want to use &E for serialization, E for deserialization
     pub(crate) event: E,
     pub(crate) target_entities: Vec<Entity>,
