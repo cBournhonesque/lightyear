@@ -23,7 +23,7 @@ lightyear_core.workspace = true
 lightyear_connection.workspace = true
 lightyear_messages = {workspace = true, features = ["client"]}
 lightyear_replication = {workspace = true, features = ["interpolation"]}
-lightyear_sync = {workspace = true, features = ["interpolation"]}
+lightyear_sync = {workspace = true}
 
 # utils
 tracing.workspace = true

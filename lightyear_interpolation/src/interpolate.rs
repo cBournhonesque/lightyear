@@ -1,13 +1,13 @@
 use crate::interpolation_history::ConfirmedHistory;
 use crate::registry::InterpolationRegistry;
+use crate::timeline::InterpolationTimeline;
 use crate::SyncComponent;
 use bevy::ecs::component::Mutable;
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
 use lightyear_core::tick::TickDuration;
-use lightyear_sync::prelude::client::{Input, InterpolationTimeline, IsSynced};
-use lightyear_sync::timeline::interpolation::Interpolation;
+use lightyear_sync::prelude::client::{Input, IsSynced};
 use tracing::*;
 
 // if we haven't received updates since UPDATE_INTERPOLATION_START_TICK_FACTOR * send_interval
@@ -67,9 +67,8 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
     let kind = core::any::type_name::<C>();
     let timeline = interpolation.into_inner();
 
-    // TODO: compute this from an average of the last N updates for an entity?
-    // // how many ticks between each interpolation (add 1 to roughly take the ceil)
-    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR * timeline.remote_send_interval.as_secs_f32() / tick_duration.as_secs_f32()) as i16 + 1;
+    // how many ticks between each interpolation
+    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR * timeline.remote_send_interval.as_secs_f32() / tick_duration.as_secs_f32()).ceil() as i16;
 
     let current_interpolate_tick = timeline.now().tick;
     let current_interpolate_overstep = timeline.now().overstep;
@@ -135,8 +134,10 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
             if let Some((start_tick, _)) = temp_start {
                 if current_interpolate_tick - start_tick < send_interval_delta_tick {
                     start = temp_start;
+                } else {
+                    trace!(?current_interpolate_tick, ?start_tick, ?send_interval_delta_tick,
+                        "Reset the start_tick because it's been too long since we received an update");
                 }
-                trace!("Reset the start_tick because it's been too long since we received an update");
                 // else (if it's been too long), reset the server tick to None
             }
         }

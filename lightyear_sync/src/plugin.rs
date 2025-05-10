@@ -61,26 +61,6 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Sy
         }
     }
 
-    /// Update the timeline in FixedUpdate based on the Time<Virtual>
-    /// Should we use this only in FixedUpdate::First? because we need the tick in FixedUpdate to be correct for the timeline
-    pub(crate) fn advance_synced_timelines(
-        fixed_time: Res<Time<Fixed>>,
-        tick_duration: Res<TickDuration>,
-        // make sure to not update the timelines during Rollback
-        mut query: Query<(&mut Synced, Has<DrivingTimeline<Synced>>), (With<Connected>, Without<Rollback>)>,
-    ) {
-        let delta = fixed_time.delta();
-        query.iter_mut().for_each(|(mut t, is_main)| {
-            // the main timeline has already been used to update the game's speed, so we don't want to apply the relative_speed again!
-            if is_main {
-                t.apply_duration(delta, tick_duration.0);
-            } else {
-                let new_delta = delta.mul_f32(t.relative_speed());
-                t.apply_duration(new_delta, tick_duration.0);
-            }
-        })
-    }
-
     /// Sync timeline T to timeline Remote by either
     /// - speeding up/slowing down the timeline T to match timeline Remote
     /// - emitting a SyncEvent<T>
@@ -136,10 +116,8 @@ for SyncedTimelinePlugin<Synced, Remote, DRIVING>
         app.register_required_components::<Synced, Remote>();
         app.add_observer(Self::handle_connect);
         app.add_observer(Self::handle_disconnect);
-        app.add_systems(FixedFirst, Self::advance_synced_timelines);
         // NOTE: we don't have to run this in PostUpdate, we could run this right after RunFixedMainLoop?
-        app.add_systems(PostUpdate,
-            Self::sync_timelines.in_set(SyncSet::Sync));
+        app.add_systems(PostUpdate, Self::sync_timelines.in_set(SyncSet::Sync));
         if DRIVING {
             app.add_systems(Last, Self::update_virtual_time);
         }

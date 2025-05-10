@@ -62,7 +62,7 @@ pub struct PingManager {
     /// The number of pings we have sent
     pub(crate) pings_sent: u32,
     /// The number of pongs we have received
-    pub(crate) pongs_recv: u32,
+    pub pongs_recv: u32,
 }
 
 impl Default for PingManager {

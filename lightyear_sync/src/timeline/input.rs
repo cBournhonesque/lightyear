@@ -1,12 +1,14 @@
 use crate::ping::manager::PingManager;
+use crate::prelude::DrivingTimeline;
 use crate::timeline::sync::{SyncConfig, SyncedTimeline};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{default, Component, Deref, DerefMut, Query, Reflect, Res, Trigger};
+use bevy::prelude::{default, Component, Deref, DerefMut, Fixed, Has, Query, Reflect, Res, Time, Trigger, With, Without};
 use core::ops::Deref;
 use core::ops::DerefMut;
 use core::time::Duration;
-use lightyear_core::prelude::LocalTimeline;
+use lightyear_connection::client::Connected;
+use lightyear_core::prelude::{LocalTimeline, Rollback};
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, RollbackState, SyncEvent, Timeline};
@@ -152,6 +154,26 @@ impl InputDelayConfig {
 
 #[derive(Component, Deref, DerefMut, Default, Debug, Reflect)]
 pub struct InputTimeline(Timeline<Input>);
+
+impl InputTimeline {
+
+    /// Update the timeline in FixedFirst
+    ///
+    /// The InputTimeline is the driving timeline (it is used to update Time<Virtual> and LocalTimeline
+    /// so we simply apply delta.
+    pub(crate) fn advance_timeline(
+        fixed_time: Res<Time<Fixed>>,
+        tick_duration: Res<TickDuration>,
+        // make sure to not update the timelines during Rollback
+        mut query: Query<&mut InputTimeline, (With<Connected>, Without<Rollback>)>,
+    ) {
+        let delta = fixed_time.delta();
+        query.iter_mut().for_each(|mut t| {
+            // the main timeline has already been used to update the game's speed, so we don't want to apply the relative_speed again!
+            t.apply_duration(delta, tick_duration.0);
+        })
+    }
+}
 
 
 impl SyncedTimeline for InputTimeline {

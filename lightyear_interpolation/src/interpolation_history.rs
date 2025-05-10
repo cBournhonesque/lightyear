@@ -3,13 +3,13 @@ use core::ops::Deref;
 use crate::interpolate::InterpolateStatus;
 use crate::manager::InterpolationManager;
 use crate::registry::InterpolationRegistry;
+use crate::timeline::InterpolationTimeline;
 use crate::{Interpolated, InterpolationMode, SyncComponent};
 use bevy::prelude::*;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::HasAuthority;
 use lightyear_replication::registry::registry::ComponentRegistry;
-use lightyear_sync::prelude::client::InterpolationTimeline;
 use lightyear_utils::ready_buffer::ReadyBuffer;
 use tracing::{debug, trace};
 

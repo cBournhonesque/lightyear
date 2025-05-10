@@ -4,7 +4,6 @@ use bevy::prelude::*;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::components::ShouldBeInterpolated;
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
-use lightyear_sync::prelude::client::InterpolationTimeline;
 use tracing::trace;
 
 /// Spawn an interpolated entity for each confirmed entity that has the `ShouldBeInterpolated` component added

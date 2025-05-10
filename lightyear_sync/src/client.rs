@@ -64,8 +64,6 @@ impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
 
         app.register_type::<(InputTimeline, RemoteTimeline)>();
-        #[cfg(feature = "interpolation")]
-        app.register_type::<InterpolationTimeline>();
 
         if !app.is_plugin_added::<SyncPlugin>() {
             app.add_plugins(SyncPlugin);
@@ -80,17 +78,11 @@ impl Plugin for ClientPlugin {
         // the client will use the Input timeline as the driving timeline
         app.add_plugins(SyncedTimelinePlugin::<InputTimeline, RemoteTimeline, true>::default());
 
-        #[cfg(feature = "interpolation")]
-        {
-            app.register_required_components::<Client, InterpolationTimeline>();
-            app.add_plugins(SyncedTimelinePlugin::<InterpolationTimeline, RemoteTimeline>::default());
-        }
-
         // remote timeline
         app.add_plugins(NetworkTimelinePlugin::<RemoteTimeline>::default());
         app.add_observer(RemoteTimeline::handle_connect);
         app.add_observer(remote::update_remote_timeline);
-        // app.add_systems(First, remote::advance_remote_timeline.after(time_system));
+        app.add_systems(FixedFirst, InputTimeline::advance_timeline);
         app.add_systems(FixedFirst, remote::advance_remote_timeline);
         app.add_systems(Last, remote::reset_received_packet_remote_timeline);
     }

@@ -25,7 +25,6 @@ std = [
     "bytes/std",
     "serde/std",
 ]
-interpolation = []
 
 [dependencies]
 lightyear_utils.workspace = true

@@ -1,11 +1,10 @@
 //! Defines bevy resources needed for Interpolation
+use crate::timeline::InterpolationTimeline;
 use bevy::prelude::{Component, Entity, Reflect, Resource};
 use core::cell::UnsafeCell;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_replication::registry::ComponentError;
 use lightyear_serde::entity_map::EntityMap;
-// TODO: the interpolation timeline should be defined in lightyear_interpolation
-use lightyear_sync::timeline::interpolation::InterpolationTimeline;
 
 #[derive(Default, Debug, Reflect)]
 pub struct InterpolatedEntityMap {
