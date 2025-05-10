@@ -91,6 +91,16 @@ fn player_shoot(
     for (action_state, controlled_by, position) in &query {
         if action_state.just_pressed(&CharacterAction::Shoot) {
             if let NetworkTarget::Single(player_id) = controlled_by.target {
+                let mut replicate_once = ReplicateOnce::default();
+                let replicate_once = replicate_once
+                    .add::<Position>()
+                    .add::<Rotation>()
+                    .add::<LinearVelocity>()
+                    .add::<AngularVelocity>()
+                    .add::<ComputedMass>()
+                    .add::<ExternalForce>()
+                    .add::<ExternalImpulse>();
+
                 commands.spawn((
                     Name::new("Projectile"),
                     ProjectileMarker,
@@ -117,13 +127,7 @@ fn player_shoot(
                         ..default()
                     },
                     // we don't want clients to receive any replication updates after the initial spawn
-                    ReplicateOnceComponent::<Position>::default(),
-                    ReplicateOnceComponent::<Rotation>::default(),
-                    ReplicateOnceComponent::<LinearVelocity>::default(),
-                    ReplicateOnceComponent::<AngularVelocity>::default(),
-                    ReplicateOnceComponent::<ComputedMass>::default(),
-                    ReplicateOnceComponent::<ExternalForce>::default(),
-                    ReplicateOnceComponent::<ExternalImpulse>::default(),
+                    replicate_once
                 ));
             }
         }

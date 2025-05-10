@@ -35,7 +35,6 @@ impl Plugin for SharedPlugin {
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
-                .disable::<ColliderHierarchyPlugin>(),
         )
         .insert_resource(Gravity(Vec2::ZERO));
 
