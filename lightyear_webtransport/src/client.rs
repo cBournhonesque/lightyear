@@ -55,9 +55,12 @@ impl ClientWebTransportPlugin {
             client_io.close_sender = Some(close_tx);
             client_io.to_server_sender = Some(to_server_sender);
             client_io.from_server_receiver = Some(from_server_receiver);
+            let server_addr = client_io.server_addr;
+            let local_addr = client_io.local_addr;
+            
             IoTaskPool::get().spawn(Compat::new(async move {
                 let mut config = ClientConfig::builder()
-                    .with_bind_address(client_io.local_addr)
+                    .with_bind_address(local_addr)
                     .with_no_cert_validation()
                     .build();
                 let mut quic_config = wtransport::quinn::TransportConfig::default();
@@ -66,7 +69,7 @@ impl ClientWebTransportPlugin {
                     .min_mtu(MTU as u16);
                 config.quic_config_mut().transport_config(Arc::new(quic_config));
 
-                let server_url = format!("https://{}", client_io.server_addr);
+                let server_url = format!("https://{}", server_addr);
                 info!("Connecting to server via webtransport at server url: {}", &server_url);
 
                 let endpoint = match wtransport::Endpoint::client(config) {
@@ -91,7 +94,7 @@ impl ClientWebTransportPlugin {
                             }
                         };
 
-                        info!("Connected to WebTransport server at {}", client_io.server_addr);
+                        info!("Connected to WebTransport server at {}", server_addr);
                         let connection = Arc::new(connection);
 
                         // Spawn a task for receiving datagrams
@@ -151,7 +154,12 @@ impl ClientWebTransportPlugin {
         mut query: Query<&mut ClientWebTransportIo>,
     ) -> Result {
         if let Ok(mut client_io) = query.get_mut(trigger.target()) {
-            client_io.close_sender.as_mut().send_blocking(())?;
+            if let Some(close_sender) = client_io.close_sender.take() {
+                // Send a close signal to the task
+                if let Err(e) = close_sender.send_blocking(()) {
+                    error!("Failed to send close signal: {:?}", e);
+                }
+            }
             client_io.close_sender = None;
             client_io.to_server_sender = None;
             client_io.from_server_receiver = None;
@@ -162,7 +170,7 @@ impl ClientWebTransportPlugin {
     fn send(
         mut client_query: Query<(&mut ClientWebTransportIo, &mut Link), Without<Unlinked>>
     ) {
-        client_query.par_iter_mut().for_each(|(client_io, mut link)| {
+        client_query.par_iter_mut().for_each(|(mut client_io, mut link)| {
             link.send.drain().for_each(|send_payload| {
                 client_io.to_server_sender.as_mut().map(|s| s.send(send_payload).unwrap_or_else(|e| {
                     error!("Error sending WebTransport packet: {}", e);
