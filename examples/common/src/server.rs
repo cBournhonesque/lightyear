@@ -17,6 +17,7 @@ use bevy::tasks::IoTaskPool;
 use lightyear::netcode::{NetcodeServer, PRIVATE_KEY_BYTES};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+use lightyear::webtransport::wtransport::Identity;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -130,6 +131,16 @@ impl ExampleServer {
                     );
                     entity_mut.insert(ServerUdpIo::new(server_addr));
                 }
+                ServerTransports::WebTransport { local_port, certificate} => {
+                    let server_addr = SocketAddr::new(
+                        Ipv4Addr::UNSPECIFIED.into(),
+                        local_port,
+                    );
+                    entity_mut.insert(WebTransportServer {
+                        server_addr,
+                        certificate: (&certificate).into()
+                    });
+                }
                 _ => {}
             };
             Ok(())
@@ -164,6 +175,59 @@ impl Default for WebTransportCertificateSettings {
     }
 }
 
+impl From<&WebTransportCertificateSettings> for Identity {
+    fn from(wt: &WebTransportCertificateSettings) -> Identity {
+        match wt {
+            WebTransportCertificateSettings::AutoSelfSigned(sans) => {
+                // In addition to and Subject Alternate Names (SAN) added via the config,
+                // we add the public ip and domain for edgegap, if detected, and also
+                // any extra values specified via the SELF_SIGNED_SANS environment variable.
+                let mut sans = sans.clone();
+                // Are we running on edgegap?
+                if let Ok(public_ip) = std::env::var("ARBITRIUM_PUBLIC_IP") {
+                    println!("🔐 SAN += ARBITRIUM_PUBLIC_IP: {}", public_ip);
+                    sans.push(public_ip);
+                    sans.push("*.pr.edgegap.net".to_string());
+                }
+                // generic env to add domains and ips to SAN list:
+                // SELF_SIGNED_SANS="example.org,example.com,127.1.1.1"
+                if let Ok(san) = std::env::var("SELF_SIGNED_SANS") {
+                    println!("🔐 SAN += SELF_SIGNED_SANS: {}", san);
+                    sans.extend(san.split(',').map(|s| s.to_string()));
+                }
+                println!("🔐 Generating self-signed certificate with SANs: {sans:?}");
+                let identity = Identity::self_signed(sans).unwrap();
+                let digest = identity.certificate_chain().as_slice()[0].hash();
+                println!("🔐 Certificate digest: {digest}");
+                identity
+            }
+            WebTransportCertificateSettings::FromFile {
+                cert: cert_pem_path,
+                key: private_key_pem_path,
+            } => {
+                println!(
+                    "Reading certificate PEM files:\n * cert: {}\n * key: {}",
+                    cert_pem_path, private_key_pem_path
+                );
+                // this is async because we need to load the certificate from io
+                // we need async_compat because wtransport expects a tokio reactor
+                let identity = IoTaskPool::get()
+                    .scope(|s| {
+                        s.spawn(Compat::new(async {
+                            Identity::load_pemfiles(cert_pem_path, private_key_pem_path)
+                                .await
+                                .unwrap()
+                        }));
+                    })
+                    .pop()
+                    .unwrap();
+                let digest = identity.certificate_chain().as_slice()[0].hash();
+                println!("🔐 Certificate digest: {digest}");
+                identity
+            }
+        }
+    }
+}
 
 
 

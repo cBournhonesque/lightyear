@@ -30,6 +30,10 @@ impl PluginGroup for ClientPlugins {
         let builder = builder.add_group(SharedPlugins {
             tick_duration: self.tick_duration
         });
+        
+        // IO
+        #[cfg(feature = "webtransport")]
+        let builder = builder.add(lightyear_webtransport::client::WebTransportClientPlugin);
 
         // CONNECTION
         #[cfg(feature = "netcode")]

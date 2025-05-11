@@ -43,6 +43,7 @@ client = [
   "lightyear_inputs?/client",
   "lightyear_inputs_leafwing?/client",
   "lightyear_inputs_native?/client",
+  "lightyear_webtransport?/client"
 ]
 server = [
   "lightyear_connection/server",
@@ -79,7 +80,6 @@ netcode = [
   "dep:lightyear_netcode",
 ]
 visualizer = ["dep:bevy_metrics_dashboard", "metrics"]
-mock_time = ["dep:mock_instant"]
 webtransport = [
   "std",
   "dep:lightyear_webtransport"
@@ -157,9 +157,6 @@ lightyear_inputs_leafwing = {workspace = true, optional = true}
 lightyear_inputs_native = {workspace = true, optional = true}
 lightyear_crossbeam = {workspace = true, optional = true}
 lightyear_webtransport = {workspace = true, optional = true}
-
-# utils
-mock_instant = { workspace = true, optional = true }
 
 # no_std
 # TODO: only enable in no_std

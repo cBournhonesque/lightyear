@@ -21,7 +21,7 @@ use alloc::sync::Arc;
 use bevy::prelude::*;
 use bytes::{BufMut, BytesMut};
 use core::net::SocketAddr;
-use lightyear_link::{Link, LinkSet, LinkStart, Linked, Unlink, Unlinked};
+use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Unlink, Unlinked};
 use std::sync::Mutex;
 
 /// Provides server-specific UDP IO functionalities.
@@ -189,6 +189,9 @@ impl UdpPlugin {
 
 impl Plugin for UdpPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<LinkPlugin>() {
+            app.add_plugins(LinkPlugin);
+        }
         app.add_observer(Self::link);
         app.add_observer(Self::unlink);
         app.add_systems(PreUpdate, Self::receive.in_set(LinkSet::Receive));

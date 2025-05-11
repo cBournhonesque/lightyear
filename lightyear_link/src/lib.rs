@@ -69,6 +69,7 @@ pub struct Link {
     // TODO: maybe put this somewhere else? So that link is completely independent of how io
     //   is handled? (i.e. it might not even required a SocketAddr)
     //   maybe we have a LinkId, and for example netcode would only be compatible if the LinkId has a SocketAddr?
+    pub local_addr: Option<SocketAddr>,
     /// Address of the remote peer
     pub remote_addr: Option<SocketAddr>,
 }
@@ -90,6 +91,7 @@ impl Link {
             send: LinkSender::default(),
             state: Default::default(),
             stats: LinkStats::default(),
+            local_addr: None,
             remote_addr: Some(remote_addr),
         }
     }
@@ -237,7 +239,9 @@ pub struct LinkStart;
 /// This event typically signals the underlying IO layer to disconnect
 /// from the remote peer.
 #[derive(Event)]
-pub struct Unlink;
+pub struct Unlink {
+    pub reason: String,
+}
 
 #[derive(Component, Default, Debug)]
 #[component(on_insert = Linking::on_insert)]

@@ -1,61 +1,85 @@
 [package]
 name = "lightyear_webtransport"
 version.workspace = true
-authors.workspace = true
+authors = ["aecsocket <aecsocket@tutanota.com>"]
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 description = "IO primitives for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
 
-[features]
-default = ["std"]
-std = [
-]
-server = []
-
-[dependencies]
-lightyear_link.workspace = true
-lightyear_connection.workspace = true
-
-# wtransport
-wtransport.workspace = true
-
-
-# bevy
-bevy.workspace = true
-
-# utils
-async-channel.workspace = true
-async-compat.workspace = true
-futures.workspace = true
-tokio.workspace = true
-tracing.workspace = true
-thiserror.workspace = true
-
-
-# serde
-bytes.workspace = true
-
-# wasm
-[target."cfg(target_family = \"wasm\")".dependencies]
-console_error_panic_hook.workspace = true
-wasm-bindgen.workspace = true
-wasm-bindgen-futures.workspace = true
-xwt-core.workspace = true
-xwt-web.workspace = true
-web-sys = { version = "0.3", features = [
-  "Document",
-  "WebTransport",
-  "WebTransportHash",
-  "WebTransportOptions",
-  "WebTransportBidirectionalStream",
-  "WebTransportSendStream",
-  "WebTransportReceiveStream",
-  "ReadableStreamDefaultReader",
-  "WritableStreamDefaultWriter",
-  "WebTransportDatagramDuplexStream",
-] }
-
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustflags    = ["--cfg=web_sys_unstable_apis"]
+targets      = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+
+[features]
+default = ["self-signed"]
+client = []
+server = []
+
+## Enables `wtransport/self-signed`, allowing you to generate self-signed certificates easily for
+## use in a server.
+##
+## Note that, without explicitly allowing your server's self-signed certificate (or using
+## `dangerous-configuration` and disabling certificate validation), clients will not be able to
+## connect to a server with self-signed certificates.
+self-signed = ["wtransport/self-signed"]
+
+## Enables `wtransport/dangerous-configuration`, allowing you to use potentially dangerous
+## certificate validation configurations.
+##
+## You should not use dangerous configurations in production builds of your app.
+dangerous-configuration = ["wtransport/dangerous-configuration"]
+
+## Enable this when generating docs.
+document-features = ["dep:document-features"]
+
+[dependencies]
+aeronet_io.workspace = true
+lightyear_connection.workspace = true
+lightyear_link.workspace = true
+
+anyhow            = { workspace = true }
+base64            = { workspace = true }
+bevy_app          = { workspace = true }
+bevy_ecs          = { workspace = true }
+bevy_platform     = { workspace = true }
+bevy_reflect      = { workspace = true }
+bevy_time       = { workspace = true }
+bytes             = { workspace = true }
+cfg-if            = { workspace = true }
+document-features = { workspace = true, optional = true }
+futures           = { workspace = true }
+thiserror.workspace = true
+tracing           = { workspace = true }
+xwt-core          = { workspace = true }
+
+
+derive_more = { workspace = true, features = [
+  "display",
+  "error",
+  "deref",
+  "deref_mut",
+] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+gloo-timers          = { workspace = true, features = ["futures"] }
+js-sys               = { workspace = true }
+wasm-bindgen         = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+xwt-web              = { workspace = true }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+spki           = { workspace = true, features = ["fingerprint"] }
+tokio          = { workspace = true, features = ["rt-multi-thread"] }
+wtransport     = { workspace = true }
+x509-cert      = { workspace = true }
+xwt-wtransport = { workspace = true }
+
+[dev-dependencies]
+bevy      = { workspace = true }
+bevy_egui = { workspace = true }

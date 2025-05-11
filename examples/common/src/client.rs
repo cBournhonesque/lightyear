@@ -7,6 +7,7 @@ use bevy::asset::ron;
 use bevy::prelude::*;
 use core::time::Duration;
 
+use crate::client::ClientTransports::WebTransport;
 use crate::shared::SharedSettings;
 #[cfg(not(target_family = "wasm"))]
 use async_compat::Compat;
@@ -89,13 +90,16 @@ impl ExampleClient {
                 ClientTransports::Udp => {
                     entity_mut.insert(UdpIo::new(client_addr)?);
                 }
+                ClientTransports::WebTransport {
+                    #[cfg(target_family = "wasm")]
+                    certificate_digest,
+                } => {
+                    entity_mut.insert(WebTransportClient {
+                        server_addr: settings.server_addr,
+                        certificate_digest: "".to_string(),
+                    });
+                }
                 _ => {}
-                // ClientTransports::WebTransport {
-                //     #[cfg(target_family = "wasm")]
-                //     certificate_digest,
-                // } => {
-                //
-                // }
             };
             Ok(())
         });

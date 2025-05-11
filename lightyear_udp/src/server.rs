@@ -21,7 +21,7 @@ use lightyear_connection::client::Disconnected;
 use lightyear_connection::client_of::{ClientOf, Server};
 use lightyear_core::id::PeerId;
 use lightyear_link::prelude::{LinkOf, ServerLink};
-use lightyear_link::{Link, LinkSet, LinkStart, Linked, Unlink, Unlinked};
+use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Unlink, Unlinked};
 use smallvec::SmallVec;
 
 /// Maximum transmission units; maximum size in bytes of a UDP packet
@@ -220,6 +220,9 @@ impl ServerUdpPlugin {
 
 impl Plugin for ServerUdpPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<LinkPlugin>() {
+            app.add_plugins(LinkPlugin);
+        }
         app.add_observer(Self::link);
         app.add_observer(Self::unlink);
         app.add_systems(PreUpdate, Self::receive.in_set(LinkSet::Receive));

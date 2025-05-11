@@ -20,6 +20,11 @@ pub mod prediction {
     pub use lightyear_prediction::*;
 }
 
+#[cfg(feature = "webtransport")]
+pub mod webtransport {
+    pub use lightyear_webtransport::*;
+}
+
 
 #[cfg(any(feature = "input_native", feature = "leafwing"))]
 pub mod input {
@@ -52,6 +57,8 @@ pub mod prelude {
 
     #[cfg(all(not(target_family = "wasm"), feature="udp"))]
     pub use lightyear_udp::prelude::*;
+    #[cfg(feature = "webtransport")]
+    pub use lightyear_webtransport::prelude::*;
 
     #[cfg(feature = "netcode")]
     pub use lightyear_netcode::prelude::*;
@@ -85,6 +92,8 @@ pub mod prelude {
 
         #[cfg(feature = "netcode")]
         pub use lightyear_netcode::prelude::client::*;
+        #[cfg(feature = "webtransport")]
+        pub use lightyear_webtransport::prelude::client::*;
 
         #[cfg(any(feature = "input_native", feature = "leafwing"))]
         pub mod input {
@@ -105,6 +114,8 @@ pub mod prelude {
 
         #[cfg(feature = "netcode")]
         pub use lightyear_netcode::prelude::server::*;
+        #[cfg(feature = "webtransport")]
+        pub use lightyear_webtransport::prelude::server::*;
 
         #[cfg(any(feature = "input_native", feature = "leafwing"))]
         pub mod input {

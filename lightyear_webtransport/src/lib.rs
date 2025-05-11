@@ -1,38 +1,49 @@
-//! # Lightyear WebTransport
-//!
-//! This crate provides a WebTransport transport layer for Lightyear.
-//! WebTransport is a modern, low-latency, bidirectional protocol built on top of HTTP/3,
-//! suitable for web-based real-time applications.
-//!
-//! This crate offers:
-//! - `ClientWebTransportPlugin`: For integrating WebTransport as a client in Bevy applications.
-//! - `ServerWebTransportPlugin` (when "server" feature is enabled): For integrating WebTransport
-//!   as a server.
-//! - WASM-specific client implementations via the `client_wasm` module.
-//!
-//! It allows Lightyear to communicate over WebTransport, leveraging its benefits for
-//! browser-based games or applications requiring web compatibility.
-#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+//! ## Feature flags
+#![cfg_attr(feature = "document-features", doc = document_features::document_features!())]
+#![cfg_attr(
+    target_family = "wasm",
+    expect(
+        clippy::future_not_send,
+        clippy::arc_with_non_send_sync,
+        reason = "`Send`, `Sync` are not used on WASM"
+    )
+)]
 
 extern crate alloc;
 
-use bevy::prelude::*;
-
-/// Provides server-side WebTransport functionalities.
-/// This module is only available when the "server" feature is enabled.
-#[cfg(feature = "server")]
-pub mod server;
-
-/// Provides client-side WebTransport functionalities.
+pub mod cert;
+#[cfg(feature = "client")]
 pub mod client;
+pub mod session;
 
-pub use client::ClientWebTransportPlugin;
+mod runtime;
+pub use runtime::WebTransportRuntime;
 
-#[cfg(feature = "server")]
-pub use server::ServerWebTransportPlugin;
+cfg_if::cfg_if! {
+    if #[cfg(target_family = "wasm")] {
+        mod js_error;
+        pub use js_error::JsError;
 
-/// Provides WASM-specific client-side WebTransport functionalities.
-/// This module is only available when targeting WASM.
-// Re-export client_wasm for WASM targets
-#[cfg(target_family = "wasm")]
-pub mod client_wasm;
+        pub use xwt_web;
+    } else {
+        #[cfg(feature = "server")]
+        pub mod server;
+
+        pub use wtransport;
+    }
+}
+
+
+
+pub mod prelude {
+    #[cfg(feature = "client")]
+    pub mod client {
+        pub use crate::client::WebTransportClient;
+    }
+    
+    #[cfg(feature = "server")]
+    pub mod server {
+        pub use crate::server::WebTransportServer;
+    }
+}

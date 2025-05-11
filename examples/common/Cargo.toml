@@ -51,6 +51,8 @@ lightyear = {"workspace" = true, features = [
   "interpolation",
   "prediction",
   "replication",
+  "webtransport",
+  "udp",
 ]}
 anyhow.workspace = true
 async-compat.workspace = true

@@ -48,6 +48,8 @@ impl PluginGroup for ServerPlugins {
         // IO
         #[cfg(feature = "udp")]
         let builder = builder.add(lightyear_udp::server::ServerUdpPlugin);
+        #[cfg(feature = "webtransport")]
+        let builder = builder.add(lightyear_webtransport::server::WebTransportServerPlugin);
 
 
         // CONNECTION
