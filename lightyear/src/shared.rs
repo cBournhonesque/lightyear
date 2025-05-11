@@ -26,6 +26,7 @@ impl PluginGroup for SharedPlugins {
             .add(lightyear_replication::prelude::RelationshipSendPlugin::<ChildOf>::default())
             .add(lightyear_replication::prelude::RelationshipReceivePlugin::<ChildOf>::default())
             .add(lightyear_replication::prelude::HierarchySendPlugin)
+            .add(lightyear_replication::prelude::AuthorityPlugin)
             .add(lightyear_replication::prelude::ReplicationReceivePlugin);
 
         // IO

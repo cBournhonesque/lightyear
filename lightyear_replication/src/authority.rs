@@ -6,51 +6,205 @@
 //! In this case C1 has authority even though the server is still replicating some states.
 //!
 
+use crate::send::ReplicationSender;
 use bevy::ecs::entity::MapEntities;
+use bevy::ecs::system::{SystemId, SystemParam};
 use bevy::prelude::*;
+use lightyear_connection::client::PeerMetadata;
+use lightyear_connection::prelude::NetworkDirection;
 use lightyear_core::id::PeerId;
+use lightyear_messages::prelude::{AppTriggerExt, RemoteTrigger, TriggerSender};
+use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, ReliableSettings};
 use serde::{Deserialize, Serialize};
-
 // Authority:
 // - each replicating entity can have a AuthorityOf relationship to a sender to signify that that sender has authority over the entity
 // - only one sender can have authority over an entity at a time
-// -
+// - a peer can:
+//    - abandon authority over an entity
+//    - request authority over an entity
+//      - on the remote side, we have an AuthorityTransferBehaviour where the authority can be requested/stolen/disabled
+//    - give authority to the remote peer
+//
+// - do we have a 'server' with a view at all times of who has authority over an entity? like in the previous design?
 
-/// Authority is used to define who is in charge of simulating an entity.
+// - scenarios:
+//   - server spawns E1 with Predicted::Single(C1), Interpolated:AllExceptSingle(C1)
+//     - replicated to C1 and C2
+//     - C1 requests authority over E1. C1 controls the Confirmed entity directly? Or the Predicted entity?
+//   - client spawns E1, server adds Interpolated(AllExceptSingle(C1)) and Predicted::Single(C1)
+//     - client starts by directly controlling E1 I guess
+//     - if the server takes over the authority, then C1 should spawn a predicted entity
+
+// initial impl:
+//  - when you request authority, all the senders you own will request authority.
+//    - for example server starts with authority.
+//      - all its replication
+
+
+/// Component that can be added to an entity to indicate how it should behave
+/// in case a remote peer requests authority over it.
 ///
-/// In particular:
-/// - a client with Authority won't accept replication updates from the server
-/// - a client without Authority won't be sending any replication updates
-/// - a server won't accept replication updates from clients without Authority
+/// The absence of this component is equivalent to `AuthorityTransfer::Denied`.
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq, Reflect)]
-#[reflect(Component)]
-pub struct HasAuthority;
-
-#[derive(
-    Component, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default, Reflect,
-)]
-#[reflect(Component)]
-pub enum AuthorityPeer {
-    None,
+pub enum AuthorityTransfer {
+    /// Authority can be requested, but it can be rejected by the current authority
+    Request,
+    /// Authority can be requested, and it will be granted automatically
+    Steal,
     #[default]
-    Server,
-    Client(PeerId),
+    /// Authority cannot be requested
+    Denied,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct AuthorityChange {
-    pub entity: Entity,
-    pub gain_authority: bool,
-    /// Should we add prediction for that entity? This can be useful if the entity was originally
-    /// spawned by a client C1, and then the authority was transferred away from that client.
-    /// Now we want to start predicting the entity on client C1, but we cannot just rely on the normal
-    /// systems because the entity already exists, and ShouldBePredicted only gets sent on the initial Spawn message
-    pub add_prediction: bool,
-    pub add_interpolation: bool,
+
+
+/// Trigger that can be networked to give or take authority over an entity.
+#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy, Reflect)]
+pub enum AuthorityTransferRequest {
+    Request,
+    Give,
 }
 
-impl MapEntities for AuthorityChange {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.entity = entity_mapper.get_mapped(self.entity);
+/// Trigger that can be networked to give or take authority over an entity.
+#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy, Reflect)]
+pub enum AuthorityTransferResponse {
+    Granted,
+    Denied,
+}
+
+
+struct AuthorityChannel;
+
+pub struct AuthorityPlugin;
+
+impl Plugin for AuthorityPlugin {
+    fn build(&self, app: &mut App) {
+        app.register_type::<AuthorityTransfer>();
+        app.add_channel::<AuthorityChannel>(
+    ChannelSettings {
+                mode: ChannelMode::SequencedReliable(ReliableSettings::default()),
+                send_frequency: Default::default(),
+                priority: 10.0,
+            }
+        )
+            .add_direction(NetworkDirection::Bidirectional);
+        app.add_trigger::<AuthorityTransferRequest>()
+            .add_direction(NetworkDirection::Bidirectional);
+        app.add_trigger::<AuthorityTransferResponse>()
+            .add_direction(NetworkDirection::Bidirectional);
+
+
+        app.add_observer(Self::handle_authority_request);
+        app.add_observer(Self::handle_authority_response);
+        app.add_observer(Self::give_authority);
+        app.add_observer(Self::request_authority);
     }
+}
+
+
+impl AuthorityPlugin {
+    fn handle_authority_request(
+        trigger: Trigger<RemoteTrigger<AuthorityTransferRequest>>,
+        metadata: Res<PeerMetadata>,
+        mut sender_query: Query<(&mut ReplicationSender, &mut TriggerSender<AuthorityTransferResponse>)>,
+        mut query: Query<&AuthorityTransfer>,
+    ) {
+        if let Some(&sender_entity) = metadata.mapping.get(&trigger.from) {
+            let entity = trigger.target();
+            if let Ok((mut sender, mut response_sender)) = sender_query.get_mut(sender_entity) {
+                trace!("Received authority request: {:?} for entity {:?}, from peer: {:?}", trigger.trigger, entity, trigger.from);
+                match trigger.trigger {
+                    AuthorityTransferRequest::Request => {
+                        // Check if the entity has authority transfer enabled
+                        if let Ok(transfer) = query.get(entity) {
+                            match transfer {
+                                AuthorityTransfer::Request => {
+                                    todo!("let the user specify a hook to call to decide if the authority should be transferred");
+                                }
+                                AuthorityTransfer::Steal => {
+                                    response_sender.trigger_targets::<AuthorityChannel>(AuthorityTransferResponse::Granted, core::iter::once(entity));
+                                    sender.replicated_entities.insert(entity, true);
+                                }
+                                AuthorityTransfer::Denied => {
+                                    response_sender.trigger_targets::<AuthorityChannel>(AuthorityTransferResponse::Denied, core::iter::once(entity));
+                                }
+                            }
+                        }
+                    }
+                    AuthorityTransferRequest::Give => {
+                        sender.replicated_entities.insert(entity, true);
+                    }
+                }
+            }
+        }
+    }
+
+    fn handle_authority_response(
+        trigger: Trigger<RemoteTrigger<AuthorityTransferResponse>>,
+        metadata: Res<PeerMetadata>,
+        mut sender_query: Query<&mut ReplicationSender>,
+    ) {
+        if let Some(&sender_entity) = metadata.mapping.get(&trigger.from) {
+            let entity = trigger.target();
+            if let Ok(mut sender) = sender_query.get_mut(sender_entity) {
+                trace!("Authority response: {:?} for entity {:?}, from peer: {:?}", trigger.trigger, entity, trigger.from);
+                match trigger.trigger {
+                    AuthorityTransferResponse::Granted => {
+                        // we have been granted authority by the remote peer
+                        sender.replicated_entities.insert(entity, true);
+                    }
+                    AuthorityTransferResponse::Denied => {}
+                }
+            }
+        }
+    }
+    
+    fn give_authority(
+        trigger: Trigger<GiveAuthority>,
+        metadata: Res<PeerMetadata>,
+        mut sender_query: Query<(&mut ReplicationSender, &mut TriggerSender<AuthorityTransferRequest>)>,
+    ) {
+        if let Some(sender_entity) = metadata.mapping.get(&trigger.remote_peer) {
+            if let Ok((mut sender, mut trigger_sender)) = sender_query.get_mut(*sender_entity) {
+                sender.replicated_entities.entry(trigger.entity).and_modify(|entry| {
+                    if *entry {
+                        // we have authority over the entity, we can give it away
+                        trace!("Give authority for entity {:?} to peer: {:?}", trigger.entity, trigger.remote_peer);
+                        trigger_sender.trigger_targets::<AuthorityChannel>(AuthorityTransferRequest::Give, core::iter::once(trigger.entity));
+                        *entry = false;
+                    }
+                });
+            }
+        }
+    }
+    
+    fn request_authority(
+        trigger: Trigger<RequestAuthority>,
+        metadata: Res<PeerMetadata>,
+        mut sender_query: Query<(&ReplicationSender, &mut TriggerSender<AuthorityTransferRequest>)>,
+    ) {
+        if let Some(sender_entity) = metadata.mapping.get(&trigger.remote_peer) {
+            if let Ok((sender, mut trigger_sender)) = sender_query.get_mut(*sender_entity) {
+                if !sender.has_authority(trigger.entity) {
+                    trace!("Request authority for entity {:?} from peer: {:?}", trigger.entity, trigger.remote_peer);
+                    trigger_sender.trigger_targets::<AuthorityChannel>(AuthorityTransferRequest::Request, core::iter::once(trigger.entity));
+                }
+            }
+        }
+    }
+}
+
+
+/// Trigger to emit to give authority over entity `entity` to the remote peer
+#[derive(Event, Debug)]
+pub struct GiveAuthority {
+    pub entity: Entity,
+    pub remote_peer: PeerId,
+}
+
+/// Trigger to emit to request authority over entity `entity` from the remote peer
+#[derive(Event, Debug)]
+pub struct RequestAuthority {
+    pub entity: Entity,
+    pub remote_peer: PeerId,
 }

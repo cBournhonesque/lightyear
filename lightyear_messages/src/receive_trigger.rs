@@ -15,6 +15,7 @@ use bevy::prelude::Event;
 use lightyear_core::id::PeerId;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_transport::packet::message::MessageId;
+use tracing::trace;
 
 /// Bevy Event emitted when a `TriggerMessage<M>` is received and processed.
 /// Contains the original trigger `M` and the `PeerId` of the sender.
@@ -45,15 +46,16 @@ pub(crate) type ReceiveTriggerFn = unsafe fn(
 pub(crate) unsafe fn receive_trigger_typed<M: Message + Event>(
     commands: &ParallelCommands,
     reader: &mut Reader,
-    channel_kind: ChannelKind, // Keep args consistent, though not all might be used
+    channel_kind: ChannelKind,
     remote_tick: Tick,
     message_id: Option<MessageId>,
     serialize_metadata: &ErasedSerializeFns,
     entity_map: &mut ReceiveEntityMap,
-    from: PeerId, // Add sender PeerId
+    from: PeerId,
 ) -> Result<(), MessageError> {
     // we deserialize the message and send a MessageEvent
     let message = unsafe { serialize_metadata.deserialize::<_, TriggerMessage<M>, M>(reader, entity_map)? };
+    trace!("Received trigger message: {:?} from: {from:?}. Target: {:?}", core::any::type_name::<M>(), message.target_entities);
     let trigger = RemoteTrigger {
         trigger: message.trigger,
         from,

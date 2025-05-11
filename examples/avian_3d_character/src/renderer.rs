@@ -7,14 +7,9 @@ use crate::{
 };
 use avian3d::{math::AsF32, prelude::*};
 use bevy::{color::palettes::css::MAGENTA, prelude::*};
-use lightyear::{
-    client::prediction::diagnostics::PredictionDiagnosticsPlugin,
-    prelude::{client::*, *},
-    transport::io::IoDiagnosticsPlugin,
-};
-use lightyear::{
-    client::prediction::rollback::DisableRollback, prelude::server::ReplicationTarget,
-};
+use lightyear::prediction::plugin::PredictionSet;
+use lightyear::prelude::{client::*, *};
+use lightyear_frame_interpolation::FrameInterpolationPlugin;
 
 pub struct ExampleRendererPlugin;
 
@@ -48,7 +43,7 @@ impl Plugin for ExampleRendererPlugin {
 
         // Set up visual interp plugins for Transform. Transform is updated in FixedUpdate
         // by the physics plugin so we make sure that in PostUpdate we interpolate it
-        app.add_plugins(VisualInterpolationPlugin::<Transform>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Transform>::default());
 
         // Observers that add VisualInterpolationStatus components to entities
         // which receive a Position and are predicted
@@ -84,7 +79,7 @@ type PosToTransformComponents = (
     &'static mut Transform,
     &'static Position,
     &'static Rotation,
-    Option<&'static Parent>,
+    Option<&'static ChildOf>,
 );
 
 // Avian's sync plugin only runs for entities with RigidBody, but we want to also apply it for interpolated entities

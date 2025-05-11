@@ -12,7 +12,6 @@ use bevy::platform::collections::HashSet;
 use bevy::ptr::Ptr;
 
 use crate::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
-use crate::authority::HasAuthority;
 #[cfg(feature = "interpolation")]
 use crate::components::{InterpolationTarget, ShouldBeInterpolated};
 #[cfg(feature = "prediction")]
@@ -70,7 +69,6 @@ pub enum ReplicationMode {
 /// - If sender is an Entity that has a ReplicationSender, we will replicate on that entity
 /// - If the entity is None, we will try to find a unique ReplicationSender in the app
 #[derive(Component, Clone, Default, Debug, PartialEq, Reflect)]
-#[require(HasAuthority)]
 #[require(Replicating)]
 #[require(ReplicationGroup)]
 #[component(on_insert = Replicate::on_insert)]
@@ -79,6 +77,8 @@ pub struct Replicate {
     mode: ReplicationMode,
     #[reflect(ignore)]
     pub(crate) senders: EntityIndexSet,
+    // do we have authority over this entity?
+    authority: bool,
 }
 
 impl Replicate {
@@ -86,7 +86,13 @@ impl Replicate {
         Self {
             mode,
             senders: EntityIndexSet::default(),
+            authority: true
         }
+    }
+    
+    pub fn without_authority(mut self) -> Self {
+        self.authority = false;
+        self
     }
 
     #[cfg(feature = "client")]
@@ -94,6 +100,7 @@ impl Replicate {
         Self {
             mode: ReplicationMode::SingleClient,
             senders: EntityIndexSet::default(),
+            authority: true
         }
     }
 
@@ -102,6 +109,7 @@ impl Replicate {
         Self {
             mode: ReplicationMode::SingleServer(target),
             senders: EntityIndexSet::default(),
+            authority: true
         }
     }
 
@@ -109,6 +117,7 @@ impl Replicate {
         Self {
             mode: ReplicationMode::Manual(senders),
             senders: EntityIndexSet::default(),
+            authority: true
         }
     }
 
@@ -139,7 +148,7 @@ impl Replicate {
                         error!("No ReplicationSender found in the world");
                         return;
                     };
-                    sender.add_replicated_entity(context.entity);
+                    sender.add_replicated_entity(context.entity, replicate.authority);
                     // SAFETY: the senders are guaranteed to be unique because OnAdd recreates the component from scratch
                     unsafe {
                         replicate.senders.insert(sender_entity);
@@ -158,7 +167,7 @@ impl Replicate {
                         "Adding replicated entity {} to sender {}",
                         context.entity, sender_entity
                     );
-                    sender.add_replicated_entity(context.entity);
+                    sender.add_replicated_entity(context.entity, replicate.authority);
                     replicate.senders.insert(sender_entity);
                 }
                 #[cfg(feature = "server")]
@@ -183,7 +192,7 @@ impl Replicate {
                             error!("ClientOf {client:?} not found");
                             return;
                         };
-                        sender.add_replicated_entity(context.entity);
+                        sender.add_replicated_entity(context.entity, replicate.authority);
                         replicate.senders.insert(client);
                     });
                 }
@@ -195,7 +204,7 @@ impl Replicate {
                         error!("No ReplicationSender found in the world");
                         return;
                     };
-                    sender.add_replicated_entity(context.entity);
+                    sender.add_replicated_entity(context.entity, replicate.authority);
                     replicate.senders.insert(*entity);
                 }
                 #[cfg(feature = "server")]
@@ -223,7 +232,7 @@ impl Replicate {
                                 error!("No Client found in the world");
                                 return;
                             };
-                            sender.add_replicated_entity(context.entity);
+                            sender.add_replicated_entity(context.entity, replicate.authority);
                             replicate.senders.insert(client_entity);
                         }
                     );
@@ -243,7 +252,7 @@ impl Replicate {
                             return;
                         };
                         info!("Adding replicated entity {} to sender {}", context.entity, sender_entity);
-                        sender.add_replicated_entity(context.entity);
+                        sender.add_replicated_entity(context.entity, replicate.authority);
                         replicate.senders.insert(*sender_entity);
                     }
                 }
@@ -285,7 +294,7 @@ impl Replicate {
                     ReplicationMode::SingleServer(target) => {
                         if client_of.is_some() && target.targets(&connected.remote_peer_id) {
                             info!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
-                            sender.add_replicated_entity(entity);
+                            sender.add_replicated_entity(entity, replicate.authority);
                             replicate.senders.insert(sender_entity);
                         }
                     }
@@ -293,13 +302,13 @@ impl Replicate {
                     #[cfg(feature = "server")]
                     ReplicationMode::Server(e, target) => {
                         if client_of.is_some_and(|c| c.server == *e) && target.targets(&connected.remote_peer_id) {
-                            sender.add_replicated_entity(entity);
+                            sender.add_replicated_entity(entity, replicate.authority);
                             replicate.senders.insert(sender_entity);
                         }
                     }
                     ReplicationMode::Target(target) => {
                         if target.targets(&connected.remote_peer_id) {
-                            sender.add_replicated_entity(entity);
+                            sender.add_replicated_entity(entity, replicate.authority);
                             replicate.senders.insert(sender_entity);
                         }
                     }
@@ -375,9 +384,13 @@ pub(crate) fn replicate(
             sender.replicated_entities);
             // we iterate by index to avoid split borrow issues
             for i in 0..sender.replicated_entities.len() {
-                let entity = sender.replicated_entities[i];
+                let (&entity, &authority) = sender.replicated_entities.get_index(i).unwrap();
+                if !authority {
+                    trace!("Skipping entity {entity:?} because we don't have authority");
+                    return;
+                }
                 let Ok(root_entity_ref) = entity_query.get(entity) else {
-                    error!("Replicated Entity {:?} not found in entity_query", entity);
+                    trace!("Replicated Entity {:?} not found in entity_query", entity);
                     return;
                 };
                 replicate_entity(

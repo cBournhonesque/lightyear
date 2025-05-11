@@ -145,7 +145,7 @@ crossbeam-channel = { version = "0.5.13", features = [] }
 metrics = "0.24"
 metrics-util = "0.19"
 metrics-tracing-context = "0.18"
-metrics-exporter-prometheus = { version = "0.16", default-features = false, features = [
+metrics-exporter-prometheus = { version = "0.17", default-features = false, features = [
   "http-listener",
 ] }
 
@@ -198,8 +198,7 @@ web-sys = { version = "0.3", features = [
   "BinaryType",
 ] }
 
-# latest version that still uses bevy 0.14:
-bevy_web_keepalive = "0.3.4"
+bevy_web_keepalive = "0.3.5"
 
 futures-lite = "2.1.0"
 getrandom = { version = "0.3.0", features = [
@@ -235,8 +234,8 @@ leafwing-input-manager = { version = "0.17", default-features = false, features 
 ] }
 
 # physics
-avian2d = { path = "../avian/crates/avian2d", default-features = false }
-avian3d = { path = "../avian/crates/avian3d", default-features = false }
+avian2d = { version = "0.3", default-features = false }
+avian3d = { version = "0.3", default-features = false }
 
 
 # gui debug ui

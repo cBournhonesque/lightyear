@@ -1,5 +1,4 @@
 //! Keep track of the archetypes that should be replicated
-use crate::authority::HasAuthority;
 use crate::buffer::Replicate;
 use crate::components::{ComponentReplicationConfig, ComponentReplicationOverrides, Replicating};
 use crate::hierarchy::ReplicateLike;
@@ -36,11 +35,6 @@ pub(crate) struct ReplicatedArchetypes {
     /// ID of the [`ReplicateLike`] component. If present, we will replicate with the same parameters as the
     /// entity stored in `ReplicateLike`
     replicate_like_component_id: ComponentId,
-    /// ID of the [`HasAuthority`] component, which indicates that the current peer has authority over the entity.
-    /// On the client, we only send replication updates if we have authority.
-    /// On the server, we still send replication updates even if we don't have authority, because
-    /// we need to relay the changes to other clients.
-    has_authority_component_id: Option<ComponentId>,
     /// Highest processed archetype ID.
     generation: ArchetypeGeneration,
 
@@ -54,7 +48,6 @@ impl FromWorld for ReplicatedArchetypes {
             replication_component_id: world.register_component::<Replicate>(),
             replicating_component_id: world.register_component::<Replicating>(),
             replicate_like_component_id: world.register_component::<ReplicateLike>(),
-            has_authority_component_id: Some(world.register_component::<HasAuthority>()),
             generation: ArchetypeGeneration::initial(),
             archetypes: HashMap::default(),
         }
@@ -83,12 +76,7 @@ impl ReplicatedArchetypes {
         for archetype in archetypes[old_generation..].iter().filter(|archetype| {
             archetype.contains(self.replicate_like_component_id)
                 || (archetype.contains(self.replication_component_id)
-                    && archetype.contains(self.replicating_component_id)
-                    // on the client, we only replicate if we have authority
-                    // (on the server, we need to replicate to other clients even if we don't have authority)
-                    && self
-                        .has_authority_component_id
-                        .map_or(true, |id| archetype.contains(id)))
+                    && archetype.contains(self.replicating_component_id))
         }) {
             let mut replicated_archetype = Vec::new();
 

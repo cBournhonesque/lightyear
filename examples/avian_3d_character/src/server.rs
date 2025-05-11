@@ -8,14 +8,13 @@ use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
-use lightyear::prelude::client::{Confirmed, Predicted}; // Keep client components for queries
+use lightyear::connection::client::Connected;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::connection::client::Connected; // Import Connected
-use lightyear_examples_common::shared::SEND_INTERVAL; // Import SEND_INTERVAL
+use lightyear_examples_common::shared::SEND_INTERVAL;
 
 use crate::protocol::*;
-use crate::shared; // Keep shared import
+use crate::shared;
 use crate::shared::apply_character_action;
 use crate::shared::BlockPhysicsBundle;
 use crate::shared::CharacterPhysicsBundle;
@@ -26,34 +25,18 @@ use crate::shared::CHARACTER_CAPSULE_RADIUS;
 use crate::shared::FLOOR_HEIGHT;
 use crate::shared::FLOOR_WIDTH;
 
-// Plugin for server-specific logic
-#[derive(Clone)] // Added Clone
+#[derive(Clone)]
 pub struct ExampleServerPlugin;
-// { // Removed predict_all field
-//     pub(crate) predict_all: bool,
-// }
-
-// Removed Global resource
-// #[derive(Resource)]
-// pub struct Global {
-//     predict_all: bool,
-// }
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        // Removed Global resource insertion
-        // app.insert_resource(Global {
-        //     predict_all: self.predict_all,
-        // });
-        app.add_systems(Startup, setup); // Use setup instead of init
+        app.add_systems(Startup, setup);
         app.add_systems(
             FixedUpdate,
             (handle_character_actions, player_shoot, despawn_system),
         );
-        // Use observers for connection events
         app.add_observer(handle_new_client);
         app.add_observer(handle_connected);
-        // app.add_systems(Update, handle_connections); // Removed old handler
     }
 }
 
@@ -86,85 +69,64 @@ fn despawn_system(
 }
 
 fn player_shoot(
-    mut commands: Commands, // Added back mut commands
-    query: Query<(&ActionState<CharacterAction>, &Position, Has<Controlled>), Without<Predicted>>, // Query server-auth entities
-    tick_manager: Res<TickManager>,
+    mut commands: Commands,
+    timeline: Single<&LocalTimeline, With<Server>>,
+    query: Query<(&ActionState<CharacterAction>, &Position, &Replicated, Has<Controlled>), Without<Predicted>>,
     time: Res<Time<Fixed>>,
 ) {
-    for (action_state, position, is_controlled) in &query {
-        // Find the controlling player_id if this entity is controlled
-        // TODO: This is inefficient. Ideally, the Controlled component stores the PeerId.
-        //       Or we query for the ClientOf entity associated with this controlled entity.
-        //       For now, we assume the ActionState is only present on controlled entities.
-        //       A better approach might be needed.
-        let maybe_player_id = if is_controlled {
-             // This is a placeholder - need a reliable way to get PeerId from ActionState owner
-             None // FIXME: How to get PeerId here?
-        } else { None };
-
-
+    for (action_state, position, replicated, is_controlled) in &query {
+        let peer_id = replicated.from;
         if action_state.just_pressed(&CharacterAction::Shoot) {
-             if let Some(player_id) = maybe_player_id { // Check if we found a player_id
-                commands.spawn((
-                    Name::new("Projectile"),
-                    ProjectileMarker,
-                    DespawnAfter {
-                        spawned_at: time.elapsed_secs(),
-                        lifetime: Duration::from_millis(10000),
-                    },
-                    RigidBody::Dynamic,
-                    position.clone(), // Use current position
-                    Rotation::default(),
-                    LinearVelocity(Vec3::Z * 10.), // arbitrary direction
-                    // Use new replication components
-                    Replicate::to_clients(NetworkTarget::All) // Replicate projectile to all
-                        .set_group(REPLICATION_GROUP),
-                    PredictionTarget::to_clients(NetworkTarget::All), // Predict projectile for all
-                    InterpolationTarget::to_clients(NetworkTarget::None), // No interpolation for projectile
-                    // ControlledBy is implicitly handled by PredictionTarget/InterpolationTarget
-                    // we don't want clients to receive any replication updates after the initial spawn
-                    ReplicateOnceComponent::<Position>::default(), // Keep ReplicateOnce
-                    ReplicateOnceComponent::<Rotation>::default(), // Keep ReplicateOnce
-                    ReplicateOnceComponent::<LinearVelocity>::default(),
-                    ReplicateOnceComponent::<AngularVelocity>::default(),
-                    ReplicateOnceComponent::<ComputedMass>::default(),
-                    ReplicateOnceComponent::<ExternalForce>::default(),
-                    ReplicateOnceComponent::<ExternalImpulse>::default(),
-                ));
-            }
+            commands.spawn((
+                Name::new("Projectile"),
+                ProjectileMarker,
+                DespawnAfter {
+                    spawned_at: time.elapsed_secs(),
+                    lifetime: Duration::from_millis(10000),
+                },
+                RigidBody::Dynamic,
+                position.clone(), // Use current position
+                Rotation::default(),
+                LinearVelocity(Vec3::Z * 10.),
+                Replicate::to_clients(NetworkTarget::All),
+                REPLICATION_GROUP,
+                PredictionTarget::to_clients(NetworkTarget::All),
+                OwnedBy {
+                    owner: PeerId::Server,
+                    lifetime: Default::default(),
+                },
+                // we don't want clients to receive any replication updates after the initial spawn
+                ReplicateOnceComponent::<Position>::default(),
+                ReplicateOnceComponent::<Rotation>::default(),
+                ReplicateOnceComponent::<LinearVelocity>::default(),
+                ReplicateOnceComponent::<AngularVelocity>::default(),
+                ReplicateOnceComponent::<ComputedMass>::default(),
+                ReplicateOnceComponent::<ExternalForce>::default(),
+                ReplicateOnceComponent::<ExternalImpulse>::default(),
+            ));
         }
     }
 }
 
 // Renamed from init, removed start_server
 fn setup(mut commands: Commands) {
-    // commands.start_server(); // Removed: Handled in main.rs
-
     commands.spawn((
         Name::new("Floor"),
         FloorPhysicsBundle::default(),
         FloorMarker,
         Position::new(Vec3::ZERO),
-        // Use new replication components
-        Replicate::to_clients(NetworkTarget::All) // Replicate floor to all clients
-            .set_group(REPLICATION_GROUP), // Put in replication group
-        // Floor doesn't need prediction/interpolation targets
+        Replicate::to_clients(NetworkTarget::All),
+        REPLICATION_GROUP,
     ));
 
-    // Blocks spawning logic can be added here if needed, using the new replication components
-    // let block_replicate = Replicate::to_clients(NetworkTarget::All)
-    //     .set_group(REPLICATION_GROUP);
-    // let block_prediction = PredictionTarget::to_clients(NetworkTarget::All);
-    // let block_interpolation = InterpolationTarget::to_clients(NetworkTarget::All); // Or None if not needed
-    // commands.spawn((
-    //     Name::new("Block"),
-    //     BlockPhysicsBundle::default(),
-    //     BlockMarker,
-    //     Position::new(Vec3::new(1.0, 1.0, 0.0)),
-    //     block_replicate.clone(),
-    //     block_prediction.clone(),
-    //     block_interpolation.clone(),
-    // ));
+    commands.spawn((
+        Name::new("Block"),
+        BlockPhysicsBundle::default(),
+        BlockMarker,
+        Position::new(Vec3::new(1.0, 1.0, 0.0)),
+        Replicate::to_clients(NetworkTarget::All),
+        PredictionTarget::to_clients(NetworkTarget::All),
+    ));
 }
 
 /// Add the ReplicationSender component to new clients
@@ -190,7 +152,7 @@ pub(crate) fn handle_connected(
     character_query: Query<Entity, With<CharacterMarker>>, // Query existing characters
 ) {
     let connected = query.get(trigger.target()).unwrap();
-    let client_id = connected.peer_id; // Use PeerId
+    let client_id = connected.remote_peer_id;
     info!("Client connected with client-id {client_id:?}. Spawning character entity.");
 
     // Track the number of characters to pick colors and starting positions.
@@ -216,12 +178,13 @@ pub(crate) fn handle_connected(
             Name::new("Character"),
             ActionState::<CharacterAction>::default(),
             Position(Vec3::new(x, 3.0, z)),
-            // Use new replication components
-            Replicate::to_clients(NetworkTarget::All) // Replicate character to all clients
-                .set_group(REPLICATION_GROUP), // Put in replication group
-            prediction_target, // Set prediction target
-            interpolation_target, // Set interpolation target
-            // ControlledBy is implicitly handled by PredictionTarget/InterpolationTarget
+            Replicate::to_clients(NetworkTarget::All),
+            REPLICATION_GROUP,
+            PredictionTarget::to_clients(NetworkTarget::All),
+            OwnedBy {
+                owner: client_id,
+                lifetime: Default::default(),
+            },
             CharacterPhysicsBundle::default(),
             ColorComponent(color.into()),
             CharacterMarker,

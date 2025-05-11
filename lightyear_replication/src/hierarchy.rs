@@ -95,6 +95,7 @@ impl<R: Relationship> MapEntities for RelationshipSync<R> {
     }
 }
 
+// TODO: have a single plugin but let users say 'is_relationship' in registration?
 /// Plugin that lets you send replication updates for a given [`Relationship`] `R`
 pub struct RelationshipSendPlugin<R> {
     _marker: core::marker::PhantomData<R>,

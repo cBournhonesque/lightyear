@@ -8,14 +8,8 @@ use leafwing_input_manager::prelude::*;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{color_from_id, shared_player_movement, BOT_RADIUS};
-use lightyear::client::prediction::Predicted;
-use lightyear::prelude::client::{Confirmed, InterpolationDelay};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::InitialReplicated;
-use lightyear_avian::prelude::{
-    LagCompensationHistory, LagCompensationPlugin, LagCompensationSet, LagCompensationSpatialQuery,
-};
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
@@ -48,40 +42,35 @@ impl Plugin for ExampleServerPlugin {
 // the server has already assumed authority over the entity so the `Replicated` component
 // has been removed
 pub(crate) fn spawn_player(
-    mut connections: EventReader<ConnectEvent>,
+    trigger: Trigger<OnAdd, Connected>,
+    query: Query<&Connected, With<ClientOf>>,
     mut commands: Commands,
     replicated_players: Query<
         (Entity, &InitialReplicated),
         (Added<InitialReplicated>, With<PlayerId>),
     >,
 ) {
-    connections.read().for_each(|event| {
-        let client_id = event.client_id;
-        let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
-        let color = color_from_id(client_id);
-        info!("Spawning player with id: {}", client_id);
-        commands.spawn((
-            Replicate {
-                sync: SyncTarget {
-                    prediction: NetworkTarget::Single(client_id),
-                    interpolation: NetworkTarget::AllExceptSingle(client_id),
-                },
-                controlled_by: ControlledBy {
-                    target: NetworkTarget::Single(client_id),
-                    ..default()
-                },
-                // make sure that all predicted entities (i.e. all entities for a given client) are part of the same replication group
-                group: ReplicationGroup::new_id(client_id.to_bits()),
-                ..default()
-            },
-            Score(0),
-            PlayerId(client_id),
-            Transform::from_xyz(0.0, y, 0.0),
-            ColorComponent(color),
-            ActionState::<PlayerActions>::default(),
-            Name::new("Player"),
-        ));
-    });
+    let client_id = query.get(trigger.target()).unwrap().remote_peer_id;
+    let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
+    let color = color_from_id(client_id);
+    info!("Spawning player with id: {}", client_id);
+    commands.spawn((
+        Replicate::to_clients(NetworkTarget::All),
+        PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+        InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+        OwnedBy {
+            owner: client_id,
+            lifetime: Default::default(),
+        },
+           // make sure that all predicted entities (i.e. all entities for a given client) are part of the same replication group
+        ReplicationGroup::new_id(client_id.to_bits()),
+        Score(0),
+        PlayerId(client_id),
+        Transform::from_xyz(0.0, y, 0.0),
+        ColorComponent(color),
+        ActionState::<PlayerActions>::default(),
+        Name::new("Player"),
+    ));
 }
 
 /// Spawn bots (one predicted, one interpolated)
@@ -119,7 +108,7 @@ pub(crate) fn compute_hit_lag_compensation(
     // to apply lag-compensation (i.e. compute the collision between the bullet and the collider as it
     // was seen by the client when they fired the shot)
     mut commands: Commands,
-    tick_manager: Res<TickManager>,
+    timeline: Single<&LocalTimeline, With<Server>>,
     query: LagCompensationSpatialQuery,
     bullets: Query<(Entity, &PlayerId, &Position, &LinearVelocity), With<BulletMarker>>,
     manager: Res<ConnectionManager>,
@@ -129,7 +118,7 @@ pub(crate) fn compute_hit_lag_compensation(
     client_query: Query<&InterpolationDelay>,
     mut player_query: Query<(&mut Score, &PlayerId)>,
 ) {
-    let tick = tick_manager.tick();
+    let tick = timeline.tick();
     bullets.iter().for_each(|(entity, id, position, velocity)| {
         let Ok(delay) = manager
             .client_entity(id.0)
@@ -164,17 +153,16 @@ pub(crate) fn compute_hit_lag_compensation(
 
 pub(crate) fn compute_hit_prediction(
     mut commands: Commands,
-    tick_manager: Res<TickManager>,
+    timeline: Single<&LocalTimeline, With<Server>>,
     query: SpatialQuery,
     bullets: Query<(Entity, &PlayerId, &Position, &LinearVelocity), With<BulletMarker>>,
     bot_query: Query<(), (With<PredictedBot>, Without<Confirmed>)>,
-    manager: Res<ConnectionManager>,
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
     // metadata)
     mut player_query: Query<(&mut Score, &PlayerId)>,
 ) {
-    let tick = tick_manager.tick();
+    let tick = timeline.tick();
     bullets.iter().for_each(|(entity, id, position, velocity)| {
         if let Some(hit_data) = query.cast_ray_predicate(
             position.0,
@@ -202,10 +190,10 @@ pub(crate) fn compute_hit_prediction(
 }
 
 fn interpolated_bot_movement(
-    tick_manager: Res<TickManager>,
+    timeline: Single<&LocalTimeline, With<Server>>,
     mut query: Query<&mut Position, With<InterpolatedBot>>,
 ) {
-    let tick = tick_manager.tick();
+    let tick = timeline.tick();
     query.iter_mut().for_each(|mut position| {
         // change direction every 200ticks
         let direction = if (tick.0 / 200) % 2 == 0 { 1.0 } else { -1.0 };

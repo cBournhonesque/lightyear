@@ -524,7 +524,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                     ReplicationMode::SingleServer(target) => {
                         if client_of.is_some() && target.targets(&connected.remote_peer_id) {
                             info!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
-                            sender.add_replicated_entity(entity);
+                            sender.add_replicated_entity(entity, true);
                             replicate.senders.insert(sender_entity);
                         }
                     }
@@ -532,13 +532,13 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                     #[cfg(feature = "server")]
                     ReplicationMode::Server(e, target) => {
                         if target.targets(&connected.remote_peer_id) && client_of.is_some_and(|c| c.server == *e) {
-                            sender.add_replicated_entity(entity);
+                            sender.add_replicated_entity(entity, true);
                             replicate.senders.insert(sender_entity);
                         }
                     }
                     ReplicationMode::Target(target) => {
                         if target.targets(&connected.remote_peer_id) {
-                            sender.add_replicated_entity(entity);
+                            sender.add_replicated_entity(entity, true);
                             replicate.senders.insert(sender_entity);
                         }
                     }

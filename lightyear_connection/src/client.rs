@@ -137,7 +137,7 @@ impl Disconnecting {
 }
 
 
-/// Resource that maintains a mapping from a PeerId to the corresponding local Entity
+/// Resource that maintains a mapping from a remote PeerId to the corresponding local Entity
 /// that is connected to that peer
 #[derive(Resource, Debug, Default, Reflect)]
 #[reflect(Resource)]

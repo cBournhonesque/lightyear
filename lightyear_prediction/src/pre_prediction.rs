@@ -6,7 +6,7 @@ use crate::Predicted;
 use bevy::prelude::*;
 use lightyear_connection::identity::{is_host_server, NetworkIdentityState};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_replication::prelude::{Confirmed, DisableReplicateHierarchy, HasAuthority, Replicate, ReplicateLike, Replicating, ReplicationBufferSet, ReplicationGroup, ShouldBePredicted};
+use lightyear_replication::prelude::{Confirmed, DisableReplicateHierarchy, Replicate, ReplicateLike, Replicating, ReplicationBufferSet, ReplicationGroup, ShouldBePredicted};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -70,7 +70,6 @@ impl PrePredictionPlugin {
                 ReplicationGroup,
                 DisableReplicateHierarchy,
                 ReplicateLike,
-                HasAuthority,
             )>();
         }
     }

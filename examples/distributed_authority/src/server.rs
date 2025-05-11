@@ -11,36 +11,27 @@ use crate::shared;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use core::time::Duration;
-// Use server ActionState, new connection types, replication components
-use lightyear::prelude::server::{ActionState, Authority, ClientOf, Connected, Replicate, ReplicationSender, ServerConnectionManager, ServerPlugin};
+use lightyear::input::native::prelude::ActionState;
 use lightyear::prelude::*;
+use lightyear_examples_common::shared::SEND_INTERVAL;
 use std::sync::Arc;
-use lightyear_examples_common::shared::SEND_INTERVAL; // Import SEND_INTERVAL
 
-#[derive(Clone)] // Added Clone
+#[derive(Clone)]
 pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        // Renamed init to setup, removed start_server
         app.add_systems(Startup, setup);
-        // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
-        // Use observer for connections
         app.add_observer(handle_connected);
         app.add_systems(
             Update,
-            (transfer_authority, update_ball_color), // Removed handle_connections
+            (transfer_authority, update_ball_color),
         );
     }
 }
 
-// Removed start_server system
-// fn start_server(mut commands: Commands) {
-//     commands.start_server();
-// }
 
-// Renamed from init
 fn setup(mut commands: Commands) {
     commands.spawn((
         BallMarker,
@@ -48,8 +39,7 @@ fn setup(mut commands: Commands) {
         Position(Vec2::new(300.0, 0.0)),
         Speed(Vec2::new(0.0, 1.0)),
         PlayerColor(Color::WHITE),
-        // Use simplified Replicate component, add others separately
-        Replicate::to_clients(NetworkTarget::All), // Replicate to all clients
+        Replicate::to_clients(NetworkTarget::All),
         InterpolationTarget::to_clients(NetworkTarget::All), // Interpolate ball on all clients
         // Allow clients to gain authority over Position and Speed
         ControlledComponents {
@@ -69,13 +59,13 @@ fn setup(mut commands: Commands) {
 
 /// Spawn player entity when a client connects
 pub(crate) fn handle_connected(
-    trigger: Trigger<OnAdd, Connected>, // Trigger on connection
+    trigger: Trigger<OnAdd, Connected>,
     mut commands: Commands,
-    query: Query<&Connected>, // Query Connected component
+    query: Query<&Connected>,
 ) {
     let client_entity = trigger.target();
     let Ok(connected) = query.get(client_entity) else { return };
-    let client_id = connected.peer_id; // Get PeerId
+    let client_id = connected.remote_peer_id;
 
     // Standard prediction: predict owner, interpolate others
     let prediction_target = PredictionTarget::to_clients(NetworkTarget::Single(client_id));

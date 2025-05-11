@@ -37,6 +37,7 @@ pub mod prelude {
     pub use crate::ping::message::{Ping, Pong};
     pub use crate::ping::PingChannel;
     pub use crate::plugin::SyncPlugin;
+    pub use crate::timeline::sync::{IsSynced, SyncConfig};
     pub use crate::timeline::{input::InputTimeline, DrivingTimeline};
 
     #[cfg(feature = "client")]

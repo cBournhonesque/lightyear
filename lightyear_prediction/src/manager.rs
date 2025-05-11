@@ -8,6 +8,7 @@ use bevy::ecs::entity::EntityHash;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Entity, Query, Reflect, Res, Resource, Trigger, World};
 use core::cell::UnsafeCell;
+use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::{RollbackState, Tick};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::timeline::SyncEvent;
@@ -18,7 +19,6 @@ use lightyear_serde::entity_map::EntityMap;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_utils::ready_buffer::ReadyBuffer;
 use parking_lot::RwLock;
-use std::ops::{Deref, DerefMut};
 use tracing::info;
 
 #[derive(Resource)]

@@ -5,11 +5,10 @@ use bevy::color::palettes::basic::GREEN;
 use bevy::color::palettes::css::BLUE;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
-use lightyear::client::interpolation::VisualInterpolationPlugin;
-use lightyear::prelude::client::{Interpolated, Predicted, VisualInterpolateStatus};
-use lightyear::prelude::server::ReplicateToClient;
-use lightyear::prelude::{NetworkIdentity, PreSpawned, Replicated};
-use lightyear_avian::prelude::AabbEnvelopeHolder;
+use lightyear::interpolation::Interpolated;
+use lightyear::prediction::prespawn::PreSpawned;
+use lightyear::prelude::{Predicted, Replicate, Replicated};
+use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
@@ -22,7 +21,7 @@ impl Plugin for ExampleRendererPlugin {
         app.add_observer(add_predicted_bot_visuals);
         app.add_observer(add_bullet_visuals);
         app.add_observer(add_player_visuals);
-        app.add_plugins(VisualInterpolationPlugin::<Transform>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Transform>::default());
 
         #[cfg(feature = "client")]
         {
@@ -65,8 +64,8 @@ fn display_score(
     mut score_text: Query<&mut Text, With<ScoreText>>,
     hits: Query<&Score, With<Replicated>>,
 ) {
-    if let Ok(score) = hits.get_single() {
-        if let Ok(mut text) = score_text.get_single_mut() {
+    if let Ok(score) = hits.single() {
+        if let Ok(mut text) = score_text.single_mut() {
             text.0 = format!("Score: {}", score.0);
         }
     }
@@ -92,7 +91,7 @@ pub struct VisibleFilter {
         // to show prespawned entities
         With<PreSpawned>,
         With<Interpolated>,
-        With<ReplicateToClient>,
+        With<Replicate>,
     )>,
     // we don't show any replicated (confirmed) entities
     b: Without<Replicated>,
@@ -118,7 +117,7 @@ fn add_player_visuals(
         if is_predicted {
             commands
                 .entity(trigger.target())
-                .insert(VisualInterpolateStatus::<Transform>::default());
+                .insert(FrameInterpolate::<Transform>::default());
         }
     }
 }
@@ -141,7 +140,7 @@ fn add_bullet_visuals(
                 color: color.0,
                 ..Default::default()
             })),
-            VisualInterpolateStatus::<Transform>::default(),
+            FrameInterpolate::<Transform>::default(),
         ));
     }
 }
@@ -186,7 +185,7 @@ fn add_predicted_bot_visuals(
                 ..Default::default()
             })),
             // predicted entities are updated in FixedUpdate so they need to be visually interpolated
-            VisualInterpolateStatus::<Transform>::default(),
+            FrameInterpolate::<Transform>::default(),
         ));
     }
 }

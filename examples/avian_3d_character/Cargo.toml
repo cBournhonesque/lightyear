@@ -24,8 +24,6 @@ netcode = [
 ]
 udp = [
   "lightyear_examples_common/udp",
-  # udp requires std
-  "lightyear/std",
   "lightyear/udp",
 ]
 
@@ -37,12 +35,12 @@ lightyear = { workspace = true, features = [
   "leafwing",
   "avian3d",
 ] }
+lightyear_frame_interpolation.workspace = true
 lightyear_examples_common.workspace = true
 leafwing-input-manager = { workspace = true, default-features = false, features = [
   "keyboard",
   "gamepad",
 ] }
-
 avian3d = { workspace = true, features = [
   "3d",
   "f32",
@@ -50,13 +48,10 @@ avian3d = { workspace = true, features = [
   "parallel",
   "serialize",
 ] }
-anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 serde.workspace = true
 bevy.workspace = true
-rand.workspace = true
-metrics-exporter-prometheus = { workspace = true, optional = true }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook.workspace = true

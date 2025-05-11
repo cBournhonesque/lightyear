@@ -55,34 +55,62 @@ fn test_send_messages() {
 }
 
 
+#[derive(Resource)]
+struct TriggerBuffer<M>(Vec<(Entity, M, Entity)>);
+
+impl<M> Default for TriggerBuffer<M> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
 
 /// System to check that we received the message on the server
 fn count_triggers_observer<M: Event + Debug + Clone>(
     trigger: Trigger<RemoteTrigger<M>>,
     peer_metadata: Res<PeerMetadata>,
-    mut buffer: ResMut<Buffer<M>>,
+    mut buffer: ResMut<TriggerBuffer<M>>,
 ) {
     info!("Received trigger: {:?}", trigger);
     // Get the entity that is 'receiving' the trigger
     let remote = *peer_metadata.mapping.get(&trigger.from).unwrap();
-    buffer.0.push((remote, trigger.trigger.clone()));
+    buffer.0.push((remote, trigger.trigger.clone(), trigger.target()));
 }
 
 
-// TODO: add test for trigger with entity map
 #[test]
 fn test_send_triggers() {
     let mut stepper = ClientServerStepper::single();
     stepper.server_app.add_observer(count_triggers_observer::<StringTrigger>);
-    stepper.server_app.init_resource::<Buffer<StringTrigger>>();
+    stepper.server_app.init_resource::<TriggerBuffer<StringTrigger>>();
 
     trace!("Sending trigger from client to server");
     let send_trigger = StringTrigger("Hello".to_string());
     stepper.client_mut(0).get_mut::<TriggerSender<StringTrigger>>().unwrap().trigger::<Channel1>(send_trigger.clone());
     stepper.frame_step(1);
 
-    assert_eq!(&stepper.server_app.world().resource::<Buffer<StringTrigger>>().0, &vec![(stepper.client_of_entities[0], send_trigger)]);
+    assert_eq!(&stepper.server_app.world().resource::<TriggerBuffer<StringTrigger>>().0, &vec![(stepper.client_of_entities[0], send_trigger, Entity::PLACEHOLDER)]);
 }
+
+#[test]
+fn test_send_triggers_map_entities() {
+    let mut stepper = ClientServerStepper::single();
+    let client_entity = stepper.client_app.world_mut().spawn(Replicate::to_server()).id();
+    stepper.frame_step(1);
+    let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+        .expect("entity is not present in entity map");
+    
+    stepper.server_app.add_observer(count_triggers_observer::<EntityTrigger>);
+    stepper.server_app.init_resource::<TriggerBuffer<EntityTrigger>>();
+
+    trace!("Sending trigger from client to server");
+    let send_trigger = EntityTrigger(client_entity);
+    stepper.client_mut(0).get_mut::<TriggerSender<EntityTrigger>>().unwrap().trigger_targets::<Channel1>(send_trigger, core::iter::once(client_entity));
+    stepper.frame_step(1);
+
+    assert_eq!(&stepper.server_app.world().resource::<TriggerBuffer<EntityTrigger>>().0, &vec![(stepper.client_of_entities[0], EntityTrigger(server_entity), server_entity)]);
+}
+
+
 
 
 /// Test sending a message to multiple clients

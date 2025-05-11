@@ -1,5 +1,5 @@
 #[cfg(feature = "client")]
-mod client;
+pub mod client;
 
 #[cfg(feature = "server")]
 mod server;

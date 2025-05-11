@@ -62,15 +62,11 @@ pub(crate) fn init(mut commands: Commands) {
 
 
 // Generate pseudo-random color from id
-// Updated to use PeerId
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    client_id.hash(&mut hasher);
-    let h = hasher.finish() % 360;
-    // let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0; // Old way
+    let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
-    Color::hsl(h as f32, s, l) // Use h as f32
+    Color::hsl(h, s, l)
 }
 
 

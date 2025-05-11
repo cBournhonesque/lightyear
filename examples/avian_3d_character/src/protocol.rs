@@ -1,21 +1,17 @@
+use crate::shared::color_from_id;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
+use lightyear::input::prelude::InputConfig;
+use lightyear::prelude::client::*;
+use lightyear::prelude::input::leafwing;
+use lightyear::prelude::server::*;
+use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::shared::color_from_id;
-// Keep if used
-use lightyear::prelude::client::*;
-// Use client prelude
-use lightyear::prelude::server::*;
-// Use server prelude
-use lightyear::prelude::*;
-use lightyear::utils::avian3d::{position, rotation};
-// Keep avian utils
-
 // For prediction, we want everything entity that is predicted to be part of
-// the same replication group This will make sure that they will be replicated
+// the same replication group. This will make sure that they will be replicated
 // in the same message and that all the entities in the group will always be
 // consistent (= on the same tick)
 pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
@@ -62,13 +58,12 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // Use new input plugin path and default config
-        app.add_plugins(input::leafwing::InputPlugin::<CharacterAction>::default());
-        // app.add_plugins(LeafwingInputPlugin::<CharacterAction> {
-        //     config: InputConfig::<CharacterAction> {
-        //         rebroadcast_inputs: self.predict_all, // Removed config
-        //         ..default()
-        //     },
-        // });
+        app.add_plugins(leafwing::InputPlugin::<CharacterAction> {
+            config: InputConfig::<CharacterAction> {
+                rebroadcast_inputs: true,
+                ..default()
+            },
+        });
 
         // Use PredictionMode and InterpolationMode
         app.register_component::<ColorComponent>()
@@ -120,22 +115,22 @@ impl Plugin for ProtocolPlugin {
         // out rendering between fixedupdate ticks.
         app.register_component::<Position>()
             .add_prediction(PredictionMode::Full)
-            .add_interpolation_fn(position::lerp)
+            .add_linear_correction_fn()
             .add_interpolation(InterpolationMode::Full)
-            .add_correction_fn(position::lerp);
+            .add_linear_interpolation_fn();
 
         app.register_component::<Rotation>()
             .add_prediction(PredictionMode::Full)
-            .add_interpolation_fn(rotation::lerp)
+            .add_linear_correction_fn()
             .add_interpolation(InterpolationMode::Full)
-            .add_correction_fn(rotation::lerp);
+            .add_linear_interpolation_fn();
 
         // do not replicate Transform but make sure to register an interpolation function
         // for it so that we can do visual interpolation
         // (another option would be to replicate transform and not use Position/Rotation at all)
         // NOTE: TransformLinearInterpolation might be in a different path or handled differently now.
         // Assuming it's still needed and available via prelude or bevy::prelude.
-        app.add_interpolation::<Transform>(); // Removed ComponentSyncMode::None
-        app.add_interpolation_fn::<Transform>(bevy::transform::TransformInterpolation::lerp); // Assuming path
+        // app.add_interpolation::<Transform>(); // Removed ComponentSyncMode::None
+        // app.add_interpolation_fn::<Transform>(bevy::transform::TransformInterpolation::lerp); // Assuming path
     }
 }

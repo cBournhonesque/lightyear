@@ -29,10 +29,8 @@ pub struct TriggerMessage<M: Message> {
 // TODO: handle the case where the trigger message is not MapEntities
 impl<M: Message + MapEntities> MapEntities for TriggerMessage<M> {
     fn map_entities<Mapper: EntityMapper>(&mut self, entity_mapper: &mut Mapper) {
-        // Map the inner trigger first if it contains entities
+        // only map the trigger as the target entities are mapped separately
         self.trigger.map_entities(entity_mapper);
-        // Map the target entities
-        self.target_entities.iter_mut().for_each(|e| e.map_entities(entity_mapper));
     }
 }
 
@@ -117,7 +115,7 @@ impl AppTriggerExt for App {
 
 
 fn trigger_serialize<M: Event>(
-    _: &mut SendEntityMap,
+    mapper: &mut SendEntityMap,
     message: &TriggerMessage<M>,
     writer: &mut Writer,
     serialize: SerializeFn<M>,
@@ -126,15 +124,16 @@ fn trigger_serialize<M: Event>(
     serialize(&message.trigger, writer)?;
     // Serialize the target entities
     writer.write_varint(message.target_entities.len() as u64)?;
-    writer.write_u32(message.target_entities.len() as u32)?;
     for entity in &message.target_entities {
+        let mut entity = *entity;
+        entity.map_entities(mapper);
         entity.to_bytes(writer)?;
     }
     Ok(())
 }
 
 fn trigger_deserialize<M: Event>(
-    _: &mut ReceiveEntityMap,
+    mapper: &mut ReceiveEntityMap,
     reader: &mut Reader,
     deserialize: DeserializeFn<M>,
 ) -> Result<TriggerMessage<M>, SerializationError> {
@@ -144,7 +143,9 @@ fn trigger_deserialize<M: Event>(
     let len = reader.read_varint()?;
     let mut targets = Vec::with_capacity(len as usize);
     for _ in 0..len {
-        targets.push(Entity::from_bytes(reader)?);
+        let mut entity = Entity::from_bytes(reader)?;
+        entity.map_entities(mapper);
+        targets.push(entity);
     };
     Ok(TriggerMessage {
         trigger: inner,
@@ -164,8 +165,9 @@ fn trigger_serialize_mapped<M: Event + MapEntities + Clone>(
     serialize(&message.trigger, writer)?;
     // Serialize the target entities
     writer.write_varint(message.target_entities.len() as u64)?;
-    writer.write_u32(message.target_entities.len() as u32)?;
     for entity in &message.target_entities {
+        let mut entity = *entity;
+        entity.map_entities(mapper);
         entity.to_bytes(writer)?;
     }
     Ok(())
@@ -183,7 +185,9 @@ fn trigger_deserialize_mapped<M: Event + MapEntities>(
     let len = reader.read_varint()?;
     let mut targets = Vec::with_capacity(len as usize);
     for _ in 0..len {
-        targets.push(Entity::from_bytes(reader)?);
+        let mut entity = Entity::from_bytes(reader)?;
+        entity.map_entities(mapper);
+        targets.push(entity);
     };
     Ok(TriggerMessage {
         trigger: inner,

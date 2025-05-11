@@ -7,9 +7,10 @@ use leafwing_input_manager::prelude::*;
 // Updated InputBuffer path
 use lightyear::prelude::client::InputBuffer;
 use lightyear::prelude::client::*;
-use lightyear::prelude::*;
+use lightyear::prelude::input::InputBuffer;
 // Updated Controlled path
 use lightyear::prelude::Controlled;
+use lightyear::prelude::*;
 // Removed unused import
 // use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
@@ -20,14 +21,13 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // Removed: Connection handled in main.rs
-        // app.add_systems(Startup, connect_to_server);
         app.add_systems(
             FixedUpdate,
             // In host-server mode, the server portion is already applying the
             // character actions and so we don't want to apply the character
             // actions twice.
-            handle_character_actions.run_if(not(is_host_server)),
+            handle_character_actions
+                // .run_if(not(is_host_server)),
         );
         app.add_systems(
             Update,
@@ -44,20 +44,14 @@ fn handle_character_actions(
     mut query: Query<
         (
             &ActionState<CharacterAction>,
-            &InputBuffer<CharacterAction>,
+            &InputBuffer<ActionState<CharacterAction>>,
             CharacterQuery,
         ),
         With<Predicted>,
     >,
-    tick_manager: Res<TickManager>,
-    rollback: Option<Res<Rollback>>,
+    timeline: Single<&LocalTimeline, With<Client>>,
 ) {
-    // Get the current tick. It may be a part of a rollback.
-    let tick = rollback
-        .as_ref()
-        .map(|rb| tick_manager.tick_or_rollback_tick(rb))
-        .unwrap_or(tick_manager.tick());
-
+    let tick = timeline.tick();
     for (action_state, input_buffer, mut character) in &mut query {
         // Use the current character action if it is.
         if input_buffer.get(tick).is_some() {
@@ -77,16 +71,10 @@ fn handle_character_actions(
     }
 }
 
-// Removed: Connection handled in main.rs
-// pub(crate) fn connect_to_server(mut commands: Commands) {
-//     commands.connect_client();
-// }
 
 /// Add physics to characters that are newly predicted. If the client controls
 /// the character then add an input component.
 fn handle_new_character(
-    // Removed: ClientConnection resource is likely not needed, Has<Controlled> is sufficient
-    // connection: Res<ClientConnection>,
     mut commands: Commands,
     mut character_query: Query<
         (Entity, &ColorComponent, Has<Controlled>),
@@ -106,7 +94,6 @@ fn handle_new_character(
         } else {
             info!("Remote character predicted for us: {entity:?}");
         }
-        // let client_id = connection.id(); // Removed
         info!(?entity, "Adding physics to character");
         commands
             .entity(entity)
@@ -118,10 +105,8 @@ fn handle_new_character(
 /// replicated floors instead of predicted floors because predicted floors do
 /// not exist since floors aren't predicted.
 fn handle_new_floor(
-    // Removed: ClientConnection resource is likely not needed
-    // connection: Res<ClientConnection>,
     mut commands: Commands,
-    floor_query: Query<Entity, (Added<Replicated>, With<FloorMarker>)>, // Renamed query variable
+    floor_query: Query<Entity, (Added<Replicated>, With<FloorMarker>)>,
 ) {
     for entity in &floor_query {
         info!(?entity, "Adding physics to floor");
@@ -133,10 +118,8 @@ fn handle_new_floor(
 
 /// Add physics to blocks that are newly predicted.
 fn handle_new_block(
-    // Removed: ClientConnection resource is likely not needed
-    // connection: Res<ClientConnection>,
     mut commands: Commands,
-    block_query: Query<Entity, (Added<Predicted>, With<BlockMarker>)>, // Renamed query variable
+    block_query: Query<Entity, (Added<Predicted>, With<BlockMarker>)>,
 ) {
     for entity in &block_query {
         info!(?entity, "Adding physics to block");

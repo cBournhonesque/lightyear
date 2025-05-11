@@ -2,7 +2,6 @@
 //! the replication of entities and resources.
 //!
 
-use crate::authority::{AuthorityPeer, HasAuthority};
 use crate::buffer::{Replicate, ReplicationMode};
 use crate::components::*;
 use crate::control::Controlled;
@@ -44,9 +43,7 @@ impl Plugin for SharedPlugin {
             .register_type::<ComponentReplicationOverride>()
             .register_type::<ReplicationGroupIdBuilder>()
             .register_type::<ReplicationGroup>()
-            .register_type::<ReplicationGroupId>()
-            .register_type::<HasAuthority>()
-            .register_type::<AuthorityPeer>();
+            .register_type::<ReplicationGroupId>();
 
         app.register_component::<Controlled>();
 

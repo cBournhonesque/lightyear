@@ -19,9 +19,8 @@ use lightyear_transport::prelude::Transport;
 use tracing::{error, info, trace};
 
 /// Component used to send triggers of type `M` remotely.
-/// This wraps a `MessageSender<TriggerMessage<M>>`.
 #[derive(Component)]
-#[require(MessageManager)] // Requires MessageManager like MessageSender
+#[require(MessageManager)]
 #[component(on_add = TriggerSender::<M>::on_add_hook)]
 pub struct TriggerSender<M: Event> {
     send: Vec<(TriggerMessage<M>, ChannelKind, Priority)>,
@@ -115,8 +114,6 @@ impl<M: Event> TriggerSender<M> {
             trigger,
             target_entities: targets.into_iter().collect(),
         };
-        // Use the inner MessageSender to send the TriggerMessage
-        // Use a default priority for now, could be configurable
         self.send.push((message, ChannelKind::of::<C>(), 1.0));
     }
 }

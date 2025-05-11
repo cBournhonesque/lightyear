@@ -1,15 +1,13 @@
 use avian2d::prelude::RigidBody;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
-use serde::{Deserialize, Serialize};
-
+use lightyear::input::prelude::InputConfig;
 use lightyear::prelude::client::*;
 use lightyear::prelude::input::leafwing;
 use lightyear::prelude::server::*;
 use lightyear::prelude::Channel;
 use lightyear::prelude::*;
-// use lightyear::shared::input::InputConfig;
-// use lightyear::shared::replication::components::ReplicationGroupIdBuilder;
+use serde::{Deserialize, Serialize};
 
 use crate::shared::color_from_id;
 
@@ -70,17 +68,15 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // inputs
         // Use new input plugin path and default config
-        app.add_plugins(leafwing::InputPlugin::<PlayerActions>::default());
-        // app.add_plugins(LeafwingInputPlugin::<PlayerActions> {
-        //     config: InputConfig::<PlayerActions> {
-        //         // enable lag compensation; the input messages sent to the server will include the
-        //         // interpolation delay of that client
-        //         lag_compensation: true, // Assuming lag compensation is handled elsewhere or default
-        //         ..default()
-        //     },
-        // });
+        app.add_plugins(leafwing::InputPlugin::<PlayerActions> {
+              config: InputConfig::<PlayerActions> {
+              // enable lag compensation; the input messages sent to the server will include the
+              // interpolation delay of that client
+              lag_compensation: true,
+              ..default()
+            },
+        });
         // components
-        // Use PredictionMode and InterpolationMode
         app.register_component::<Name>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
@@ -91,7 +87,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Transform>()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full)
-            .add_interpolation_fn(TransformLinearInterpolation::lerp);
+            .add_linear_interpolation_fn(TransformLinearInterpolation::lerp);
 
         app.register_component::<ColorComponent>()
             .add_prediction(PredictionMode::Once)

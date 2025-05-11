@@ -1,7 +1,6 @@
 //! General struct handling replication
 use alloc::collections::BTreeMap;
 
-use crate::authority::{AuthorityPeer, HasAuthority};
 use crate::components::{Confirmed, InitialReplicated, Replicated, ReplicationGroupId};
 use crate::message::{ActionsMessage, SpawnAction, UpdatesMessage};
 use crate::registry::registry::ComponentRegistry;
@@ -10,7 +9,7 @@ use alloc::alloc::Layout;
 use alloc::vec::Vec;
 use bevy::app::{App, Plugin, PreUpdate};
 use bevy::ecs::component::ComponentId;
-use bevy::ecs::entity::EntityHash;
+use bevy::ecs::entity::{EntityHash, EntityIndexMap};
 use bevy::ecs::system::SystemState;
 use bevy::ecs::world::WorldEntityFetch;
 use bevy::platform::collections::HashSet;
@@ -25,6 +24,7 @@ use tracing::{debug, error, info, trace};
 
 use crate::plugin;
 use crate::plugin::ReplicationSet;
+use crate::prelude::ReplicationSender;
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_connection::client_of::ClientOf;
 use lightyear_core::id::PeerId;
@@ -112,6 +112,8 @@ impl ReplicationReceivePlugin {
             let _guard = span.enter();
             let unsafe_world = world.as_unsafe_world_cell();
             // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
+            let mut sender = unsafe { unsafe_world.world_mut() }.get_mut::<ReplicationSender>(entity).unwrap();
+            // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
             let mut receiver = unsafe { unsafe_world.world_mut() }.get_mut::<ReplicationReceiver>(entity).unwrap();
             // let client_of = unsafe { unsafe_world.world_mut() }.get::<ClientOf>(entity);
             let mut manager = unsafe { unsafe_world.world_mut() }.get_mut::<MessageManager>(entity).unwrap();
@@ -119,9 +121,8 @@ impl ReplicationReceivePlugin {
             // SAFETY: the world will only be used to apply replication updates, which doesn't conflict with other accesses
             let world = unsafe { unsafe_world.world_mut() };
 
-
             let tick = local_timeline.tick();
-            receiver.apply_world(world, entity, remote_peer, &mut manager.entity_mapper, component_registry, tick);
+            receiver.apply_world(world, entity, remote_peer, &mut manager.entity_mapper, &sender.replicated_entities, component_registry, tick);
             receiver.tick_cleanup(tick);
         });
     }
@@ -399,11 +400,11 @@ impl ReplicationReceiver {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_world(
         &mut self,
-        // TODO: should we use commands for command batching?
         world: &mut World,
         receiver_entity: Entity,
         remote: PeerId,
         remote_entity_map: &mut RemoteEntityMap,
+        authority_map: &EntityIndexMap<bool>,
         component_registry: &ComponentRegistry,
         current_tick: Tick,
     ) {
@@ -447,6 +448,7 @@ impl ReplicationReceiver {
                         remote_tick,
                         message,
                         remote_entity_map,
+                        authority_map,
                         &mut self.local_entity_to_group,
                         &mut self.temp_write_buffer,
                     );
@@ -504,6 +506,7 @@ impl ReplicationReceiver {
                         is_history,
                         message,
                         remote_entity_map,
+                        authority_map,
                     );
                 }
             })
@@ -743,6 +746,7 @@ impl GroupChannel {
         remote_tick: Tick,
         message: ActionsMessage,
         remote_entity_map: &mut RemoteEntityMap,
+        authority_map: &EntityIndexMap<bool>,
         local_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
         temp_write_buffer: &mut TempWriteBuffer
     ) {
@@ -802,11 +806,6 @@ impl GroupChannel {
                     ));
                     self.local_entities.insert(local_entity.id());
                     local_entity_to_group.insert(local_entity.id(), group_id);
-                    // if the entity was replicated from a client to the server, update the AuthorityPeer
-                    if !matches!(remote, PeerId::Server) {
-                        local_entity.insert(AuthorityPeer::Client(remote));
-                    }
-
                     remote_entity_map.insert(*remote_entity, local_entity.id());
                     trace!("Updated remote entity map: {:?}", remote_entity_map);
                     debug!("Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}", local_entity.id());
@@ -836,10 +835,12 @@ impl GroupChannel {
                 error!(?entity, "cannot find entity");
                 continue;
             };
-            if !Self::authority_check(&mut local_entity_mut, remote) {
+            // the local Sender has authority over the entity, so we don't want to accept the updates
+            if authority_map.get(&local_entity_mut.id()).is_some_and(|authority| *authority) {
                 trace!("Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}", remote, entity);
                 continue;
             }
+
 
             // inserts
             // TODO: remove updates that are duplicate for the same component
@@ -904,26 +905,6 @@ impl GroupChannel {
         self.update_confirmed_tick(world, group_id, remote_tick);
     }
 
-    // TODO: should we accept updates from the client that lost authority if they are from a
-    //  tick before the moment where we changed authority? seems like we should?
-    /// Check if we can accept updates for this entity, based on the authority
-    /// - on the server: only accept updates from the client who has authority
-    /// - on the client: only accept updates if we don't have authority
-    ///
-    /// Returns true if we can accept updates for this entity
-    fn authority_check(entity_mut: &mut EntityWorldMut, remote: PeerId) -> bool {
-        match remote {
-            PeerId::Server => {
-                 entity_mut.get::<HasAuthority>().is_none()
-            }
-            c => {
-                entity_mut
-                .get::<AuthorityPeer>()
-                .is_some_and(|authority| *authority == AuthorityPeer::Client(c))
-            }
-        }
-    }
-
     pub(crate) fn apply_updates_message(
         &mut self,
         world: &mut World,
@@ -933,6 +914,7 @@ impl GroupChannel {
         is_history: bool,
         message: UpdatesMessage,
         remote_entity_map: &mut RemoteEntityMap,
+        authority_map: &EntityIndexMap<bool>,
     ) {
         let group_id = message.group_id;
         // TODO: store this in ConfirmedHistory?
@@ -954,10 +936,12 @@ impl GroupChannel {
                 info!(remote_entity = ?entity, "update for entity that doesn't exist?");
                 continue;
             };
-            if !Self::authority_check(&mut local_entity_mut, remote) {
-                trace!("Ignored a replication update received from peer {:?} that does not have authority over the entity: {:?}", remote, entity);
+            // the local Sender has authority over the entity, so we don't want to accept the updates
+            if authority_map.get(&local_entity_mut.id()).is_some_and(|authority| *authority) {
+                trace!("Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}", remote, entity);
                 continue;
-            };
+            }
+
             for component in components {
                 let mut reader = Reader::from(component);
                 let _ = component_registry

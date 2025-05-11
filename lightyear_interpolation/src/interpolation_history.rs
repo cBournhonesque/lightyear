@@ -8,7 +8,6 @@ use crate::{Interpolated, InterpolationMode, SyncComponent};
 use bevy::prelude::*;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
 use lightyear_replication::components::Confirmed;
-use lightyear_replication::prelude::HasAuthority;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_utils::ready_buffer::ReadyBuffer;
 use tracing::{debug, trace};
@@ -141,25 +140,26 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
         &mut ConfirmedHistory<C>,
         (With<Interpolated>, Without<Confirmed>),
     >,
-    confirmed_entities: Query<(Entity, &Confirmed, Ref<C>, Has<HasAuthority>)>,
+    confirmed_entities: Query<(Entity, &Confirmed, Ref<C>)>,
 ) {
     let kind = core::any::type_name::<C>();
     let (timeline, manager) = query.into_inner();
-    for (confirmed_entity, confirmed, confirmed_component, has_authority) in
+    for (confirmed_entity, confirmed, confirmed_component) in
         confirmed_entities.iter()
     {
         if let Some(p) = confirmed.interpolated {
             if confirmed_component.is_changed() && !confirmed_component.is_added() {
                 if let Ok(mut history) = interpolated_entities.get_mut(p) {
-                    // if has_authority is true, we will consider the Confirmed value as the source of truth
-                    // else it will be the server updates
-                    // TODO: as an alternative, we could set the confirmed.tick to be equal to the current tick
-                    //  if we have authority! Then it would also work for prediction?
-                    let tick = if has_authority {
-                        timeline.tick()
-                    } else {
-                        confirmed.tick
-                    };
+                    // // if has_authority is true, we will consider the Confirmed value as the source of truth
+                    // // else it will be the server updates
+                    // // TODO: as an alternative, we could set the confirmed.tick to be equal to the current tick
+                    // //  if we have authority! Then it would also work for prediction?
+                    // let tick = if has_authority {
+                    //     timeline.tick()
+                    // } else {
+                    //     confirmed.tick
+                    // };
+                    let tick = confirmed.tick;
 
                     // let Some(tick) = client
                     //     .replication_receiver()

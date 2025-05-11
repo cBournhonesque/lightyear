@@ -5,12 +5,13 @@ use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
-use protocol::ProtocolPlugin; // Import ProtocolPlugin
+use protocol::ProtocolPlugin;
 
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
+use crate::shared::SharedPlugin;
 
 #[cfg(feature = "client")]
 mod client;
@@ -21,7 +22,6 @@ mod renderer;
 
 #[cfg(feature = "server")]
 mod server;
-// mod settings; // Settings are now handled by common_new
 mod shared;
 
 fn main() {
@@ -29,13 +29,10 @@ fn main() {
 
     let mut app = cli.build_app(
         Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
-        false // No physics loop needed
+        true
     );
 
-    // add the protocol plugin
-    app.add_plugins(ProtocolPlugin);
-    // Removed SharedPlugin addition
-    // apps.add_user_shared_plugin(SharedPlugin);
+    app.add_plugins(SharedPlugin);
 
     #[cfg(feature = "client")]
     {

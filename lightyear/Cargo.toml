@@ -110,6 +110,7 @@ avian3d = [
 # IO LAYERS
 udp = [
   "dep:lightyear_udp",
+  "std",
 ]
 websocket = [
   "std",

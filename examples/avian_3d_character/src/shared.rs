@@ -2,25 +2,17 @@ use bevy::ecs::query::QueryData;
 use bevy::math::VectorSpace;
 use bevy::prelude::*;
 use core::time::Duration;
-// Updated InputBuffer path
-use lightyear::prelude::client::InputBuffer;
-// Removed unused import
-// use server::ControlledEntities;
 use std::hash::{Hash, Hasher};
 
 use avian3d::prelude::*;
 use avian3d::sync::{position_to_transform, SyncSet};
 use bevy::prelude::TransformSystem::TransformPropagate;
 use leafwing_input_manager::prelude::ActionState;
-// Updated Controlled path
 use lightyear::prelude::Controlled;
 use tracing::Level;
 
 use lightyear::prelude::client::*;
-use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
-// Removed unused import
-// use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
 
@@ -89,27 +81,57 @@ impl Default for BlockPhysicsBundle {
     }
 }
 
-// Removed SharedPlugin and its build method, including physics setup.
-// #[derive(Clone)]
-// pub struct SharedPlugin {
-//     pub predict_all: bool,
-// }
-//
-// impl Plugin for SharedPlugin {
-//     fn build(&self, app: &mut App) {
-//         app.add_plugins(ProtocolPlugin {
-//             predict_all: self.predict_all,
-//         });
-//
-//         // Physics setup removed - likely handled by cli.build_app in main.rs
-//         // ... (physics setup code was here) ...
-//     }
-// }
+#[derive(Clone)]
+pub struct SharedPlugin;
 
-// Removed debug logging systems
-// pub(crate) fn after_physics_log(...) { ... }
-// pub(crate) fn fixed_last_log(...) { ... }
-// pub(crate) fn last_log(...) { ... }
+impl Plugin for SharedPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(ProtocolPlugin);
+
+                // Physics
+
+        // Position and Rotation are the primary source of truth so no need to
+        // sync changes from Transform to Position.
+        // (we are not applying manual updates to Transform)
+        app.insert_resource(avian3d::sync::SyncConfig {
+            transform_to_position: false,
+            position_to_transform: true,
+            ..default()
+        });
+        // disable sleeping
+        app.insert_resource(SleepingThreshold {
+            linear: -0.01,
+            angular: -0.01,
+        });
+
+        // app.add_systems(
+        //     FixedPostUpdate,
+        //     after_physics_log.after(PhysicsSet::StepSimulation),
+        // );
+
+        app.add_plugins(
+            PhysicsPlugins::default()
+                .build()
+                .disable::<PhysicsInterpolationPlugin>(),
+            // disable Sleeping plugin as it can mess up physics rollbacks
+            // TODO: disabling sleeping plugin causes the player to fall through the floor
+            // .disable::<SleepingPlugin>(),
+        );
+
+        // add an extra sync for cases where:
+        // - we receive a Position, do a rollback and set C=Correct, apply sync
+        // - in RunFixedMainLoop, we set C=Original
+        // - FixedUpdate doesn't run because frame rate is too high!
+        // - then the Transform that we show is C=Correct instead of C=Original!
+        app.add_systems(
+            PostUpdate,
+            position_to_transform
+                .in_set(PhysicsSet::Sync)
+                .run_if(|config: Res<avian3d::sync::SyncConfig>| config.position_to_transform),
+        );
+    }
+}
+
 
 
 /// Generate pseudo-random color based on `client_id`.

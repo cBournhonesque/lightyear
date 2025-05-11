@@ -3,7 +3,6 @@ use core::iter::Extend;
 
 use super::message::{ActionsChannel, EntityActions, MetadataChannel, SendEntityActionsMessage, SenderMetadata, SpawnAction, UpdatesChannel, UpdatesSendMessage};
 use super::message::{ActionsMessage, UpdatesMessage};
-use crate::authority::HasAuthority;
 use crate::buffer;
 use crate::buffer::Replicate;
 #[cfg(feature = "interpolation")]
@@ -23,7 +22,7 @@ use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 use alloc::{string::ToString, vec::Vec};
 use bevy::app::{App, Last, Plugin, PostUpdate, PreUpdate};
 use bevy::ecs::component::{ComponentId, ComponentTicks, Tick as BevyTick};
-use bevy::ecs::entity::{EntityHash, EntityIndexSet, UniqueEntityVec};
+use bevy::ecs::entity::{EntityHash, EntityIndexMap, EntityIndexSet, UniqueEntityVec};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -308,14 +307,13 @@ impl Plugin for ReplicationSendPlugin {
 
         let replicate = (
             QueryParamBuilder::new(|builder| {
-                // Or<(With<ReplicateLike>, (With<Replicating>, With<ReplicateToClient>, With<HasAuthority>))>
+                // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
                 builder.or(|b| {
                     b.with::<ReplicateLikeChildren>();
                     b.with::<ReplicateLike>();
                     b.and(|b| {
                         b.with::<Replicating>();
                         b.with::<Replicate>();
-                        b.with::<HasAuthority>();
                     });
                 });
                 builder.optional(|b| {
@@ -355,13 +353,12 @@ impl Plugin for ReplicationSendPlugin {
 
         let buffer_component_remove = (
             QueryParamBuilder::new(|builder| {
-                // Or<(With<ReplicateLike>, (With<Replicating>, With<ReplicateToClient>, With<HasAuthority>))>
+                // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
                 builder.or(|b| {
                     b.with::<ReplicateLike>();
                     b.and(|b| {
                         b.with::<Replicating>();
                         b.with::<Replicate>();
-                        b.with::<HasAuthority>();
                     });
                 });
                 builder.optional(|b| {
@@ -413,7 +410,7 @@ impl Plugin for ReplicationSendPlugin {
 #[require(LocalTimeline)]
 #[require(DeltaManager)]
 pub struct ReplicationSender {
-    pub(crate) replicated_entities: EntityIndexSet,
+    pub(crate) replicated_entities: EntityIndexMap<bool>,
     pub(crate) writer: Writer,
     /// Map from message-id to the corresponding group-id that sent this update message, as well as the `send_tick` BevyTick
     /// when we buffered the message. (so that when it's acked, we know we only need to include updates that happened after that tick,
@@ -458,7 +455,7 @@ impl ReplicationSender {
         send_timer.tick(Duration::MAX);
         Self {
             // SEND
-            replicated_entities: EntityIndexSet::default(),
+            replicated_entities: EntityIndexMap::default(),
             writer: Writer::default(),
             updates_message_id_to_group_id: Default::default(),
             group_with_actions: EntityHashSet::default(),
@@ -485,8 +482,13 @@ impl ReplicationSender {
         self.send_timer.duration()
     }
 
-    pub(crate) fn add_replicated_entity(&mut self, entity: Entity) {
-        self.replicated_entities.insert(entity);
+    pub(crate) fn add_replicated_entity(&mut self, entity: Entity, authority: bool) {
+        self.replicated_entities.insert(entity, authority);
+    }
+    
+    /// Returns true if this sender has authority over the entity
+    pub fn has_authority(&self, entity: Entity) -> bool {
+        self.replicated_entities.get(&entity).is_some_and(|a| *a)
     }
 
 
