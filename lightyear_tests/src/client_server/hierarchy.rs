@@ -15,14 +15,14 @@ use test_log::test;
 fn test_spawn_with_child() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app.world_mut().spawn((
+    let client_entity = stepper.client_app().world_mut().spawn((
         Replicate::to_server(),
     )).id();
     stepper.frame_step(1);
     stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
         .expect("entity is not present in entity map");
 
-    let client_child = stepper.client_app.world_mut().spawn((
+    let client_child = stepper.client_app().world_mut().spawn((
         ChildOf(client_entity),
     )).id();
     stepper.frame_step(1);
@@ -82,10 +82,10 @@ fn test_hierarchy_replication() {
         .expect("entity is not present in entity map");
 
     let (client_parent, client_parent_sync, client_parent_component) = stepper
-        .client_app
+        .client_app()
         .world_mut()
         .query::<(Entity, &ChildOfSync, &ChildOf)>()
-        .single(stepper.client_app.world())
+        .single(stepper.client_app().world())
         .unwrap();
 
     assert_eq!(client_parent_sync.entity, Some(client_grandparent));
@@ -127,7 +127,7 @@ fn test_hierarchy_replication() {
     // 2. make sure that the parent has been removed on the receiver side, and that ParentSync has been updated
     assert_eq!(
         stepper
-            .client_app
+            .client_app()
             .world_mut()
             .entity_mut(client_parent)
             .get::<ChildOfSync>(),
@@ -135,14 +135,14 @@ fn test_hierarchy_replication() {
     );
     assert_eq!(
         stepper
-            .client_app
+            .client_app()
             .world_mut()
             .entity_mut(client_parent)
             .get::<ChildOf>(),
         None,
     );
     assert!(stepper
-        .client_app
+        .client_app()
         .world_mut()
         .entity_mut(client_grandparent)
         .get::<Children>()

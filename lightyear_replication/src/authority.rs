@@ -16,6 +16,7 @@ use lightyear_core::id::PeerId;
 use lightyear_messages::prelude::{AppTriggerExt, RemoteTrigger, TriggerSender};
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, ReliableSettings};
 use serde::{Deserialize, Serialize};
+
 // Authority:
 // - each replicating entity can have a AuthorityOf relationship to a sender to signify that that sender has authority over the entity
 // - only one sender can have authority over an entity at a time
@@ -35,10 +36,13 @@ use serde::{Deserialize, Serialize};
 //     - client starts by directly controlling E1 I guess
 //     - if the server takes over the authority, then C1 should spawn a predicted entity
 
-// initial impl:
-//  - when you request authority, all the senders you own will request authority.
-//    - for example server starts with authority.
-//      - all its replication
+
+// ISSUES:
+//  - there are no safeguards for multiple clients having authority over an entity at the same time!
+//    Maybe in a client-server architecture the server should monitor which peer (server, or client X) has authority over an entity
+//    Then the server is allowed to take authority over an entity or give authority. Maybe when the sender sends the SenderMetadata, it can
+//    send its AuthorityPriority?
+
 
 
 /// Component that can be added to an entity to indicate how it should behave
@@ -122,13 +126,16 @@ impl AuthorityPlugin {
                                     todo!("let the user specify a hook to call to decide if the authority should be transferred");
                                 }
                                 AuthorityTransfer::Steal => {
+                                    trace!("Remote peer {:?} is taking authority from us for entity {entity:?}", trigger.from);
                                     response_sender.trigger_targets::<AuthorityChannel>(AuthorityTransferResponse::Granted, core::iter::once(entity));
-                                    sender.replicated_entities.insert(entity, true);
+                                    sender.replicated_entities.insert(entity, false);
                                 }
                                 AuthorityTransfer::Denied => {
                                     response_sender.trigger_targets::<AuthorityChannel>(AuthorityTransferResponse::Denied, core::iter::once(entity));
                                 }
                             }
+                        } else {
+                            response_sender.trigger_targets::<AuthorityChannel>(AuthorityTransferResponse::Denied, core::iter::once(entity));
                         }
                     }
                     AuthorityTransferRequest::Give => {
@@ -158,7 +165,7 @@ impl AuthorityPlugin {
             }
         }
     }
-    
+
     fn give_authority(
         trigger: Trigger<GiveAuthority>,
         metadata: Res<PeerMetadata>,
@@ -177,7 +184,7 @@ impl AuthorityPlugin {
             }
         }
     }
-    
+
     fn request_authority(
         trigger: Trigger<RequestAuthority>,
         metadata: Res<PeerMetadata>,

@@ -429,8 +429,8 @@ mod tests {
             .id();
         stepper.frame_step();
 
-        let current_tick = stepper.client_app.world().resource::<TickManager>().tick();
-        let prediction_manager = stepper.client_app.world().resource::<PredictionManager>();
+        let current_tick = stepper.client_app().world().resource::<TickManager>().tick();
+        let prediction_manager = stepper.client_app().world().resource::<PredictionManager>();
         let expected_hash: u64 = 14837968436853353711;
         assert_eq!(
             prediction_manager
@@ -648,7 +648,7 @@ mod tests {
             .is_none());
 
         // if the Confirmed entity is despawned, the Predicted entity should also be despawned
-        stepper.client_app.world_mut().despawn(confirmed);
+        stepper.client_app().world_mut().despawn(confirmed);
         stepper.frame_step();
         assert!(stepper
             .client_app
@@ -684,7 +684,7 @@ mod tests {
             .client_app
             .world_mut()
             .query_filtered::<(Entity, &Confirmed), With<Replicated>>()
-            .single(stepper.client_app.world())
+            .single(stepper.client_app().world())
             .unwrap();
         let client_predicted = confirmed.predicted.unwrap();
 
@@ -749,7 +749,7 @@ mod tests {
         );
 
         // If we despawn the confirmed entity, the predicted entity should also be despawned
-        stepper.client_app.world_mut().despawn(client_confirmed_2);
+        stepper.client_app().world_mut().despawn(client_confirmed_2);
         stepper.frame_step();
         assert!(stepper
             .client_app
@@ -816,7 +816,7 @@ mod tests {
     #[test]
     fn test_prespawn_local_despawn_match() {
         let mut stepper = BevyStepper::default();
-        stepper.client_app.add_systems(
+        stepper.client_app().add_systems(
             PreUpdate,
             panic_on_rollback
                 .run_if(is_in_rollback)

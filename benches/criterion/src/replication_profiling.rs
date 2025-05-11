@@ -30,7 +30,7 @@ fn main() {
 
         // buffer and send replication messages
         stepper.server_app.update();
-        stepper.client_app.update();
+        stepper.client_app().update();
 
         if let Ok(report) = guard.report().build() {
             let file = File::create("flamegraph.svg").unwrap();

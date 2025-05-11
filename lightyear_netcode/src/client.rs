@@ -658,7 +658,7 @@ impl<Ctx> Client<Ctx> {
 //         let mut stepper = BevyStepper::default_no_init();
 //
 //         stepper.server_app.world_mut().start_server();
-//         stepper.client_app.world_mut().connect_client();
+//         stepper.client_app().world_mut().connect_client();
 //
 //         // Wait until the server sees a single client
 //         for _ in 0..100 {
@@ -690,7 +690,7 @@ impl<Ctx> Client<Ctx> {
 //                 .get()
 //         );
 //         // Immediately disconnect the client
-//         stepper.client_app.world_mut().disconnect_client();
+//         stepper.client_app().world_mut().disconnect_client();
 //
 //         // Wait for the client to time out
 //         for _ in 0..10000 {

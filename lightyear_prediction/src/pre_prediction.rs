@@ -192,7 +192,7 @@ mod tests {
             .client_app
             .world_mut()
             .query_filtered::<Entity, With<Confirmed>>()
-            .single(stepper.client_app.world())
+            .single(stepper.client_app().world())
             .unwrap();
 
         // need to step multiple times because the server entity doesn't handle messages from future ticks
@@ -345,7 +345,7 @@ mod tests {
         stepper.frame_step();
 
         // check that the client parent and child entity both have the Predicted component, and that a confirmed entity has been spawned
-        let parent_predicted = stepper.client_app.world().get::<Predicted>(parent).unwrap();
+        let parent_predicted = stepper.client_app().world().get::<Predicted>(parent).unwrap();
         let confirmed_entity = parent_predicted.confirmed_entity.unwrap();
         assert!(stepper
             .client_app
@@ -353,7 +353,7 @@ mod tests {
             .get::<Confirmed>(confirmed_entity)
             .is_some());
 
-        let child_predicted = stepper.client_app.world().get::<Predicted>(child).unwrap();
+        let child_predicted = stepper.client_app().world().get::<Predicted>(child).unwrap();
         let confirmed_entity = child_predicted.confirmed_entity.unwrap();
         assert!(stepper
             .client_app

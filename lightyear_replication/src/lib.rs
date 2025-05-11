@@ -46,7 +46,7 @@ pub mod control;
 
 /// Commonly used items for replication.
 pub mod prelude {
-    pub use crate::authority::{AuthorityPlugin, AuthorityTransferRequest, AuthorityTransferResponse, GiveAuthority, RequestAuthority};
+    pub use crate::authority::{AuthorityPlugin, AuthorityTransfer, AuthorityTransferRequest, AuthorityTransferResponse, GiveAuthority, RequestAuthority};
     pub use crate::buffer::Replicate;
     pub use crate::components::*;
     pub use crate::control::{Controlled, Lifetime, Owned, OwnedBy};

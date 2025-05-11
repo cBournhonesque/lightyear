@@ -17,7 +17,7 @@ use tracing::info;
 fn test_remote_client_replicated_input() {
     let mut stepper = ClientServerStepper::single();
 
-    stepper.client_app.world_mut().query::<&IsSynced<InputTimeline>>().single(stepper.client_app.world()).unwrap();
+    stepper.client_app().world_mut().query::<&IsSynced<InputTimeline>>().single(stepper.client_app().world()).unwrap();
 
     // SETUP
     // entity controlled by the remote client
@@ -34,12 +34,12 @@ fn test_remote_client_replicated_input() {
 
     // TEST
     stepper
-        .client_app
+        .client_app()
         .world_mut()
         .entity_mut(client_entity)
         .insert(InputMarker::<MyInput>::default());
     stepper
-        .client_app
+        .client_app()
         .world_mut()
         .get_mut::<ActionState<MyInput>>(client_entity)
         .unwrap()
@@ -99,7 +99,7 @@ fn test_remote_client_predicted_input() {
         .expect("entity was not replicated to client");
 
     let client_predicted = stepper
-        .client_app
+        .client_app()
         .world()
         .get::<Confirmed>(client_confirmed)
         .unwrap()
@@ -109,12 +109,12 @@ fn test_remote_client_predicted_input() {
 
     // TEST
     stepper
-        .client_app
+        .client_app()
         .world_mut()
         .entity_mut(client_predicted)
         .insert(InputMarker::<MyInput>::default());
     stepper
-        .client_app
+        .client_app()
         .world_mut()
         .get_mut::<ActionState<MyInput>>(client_predicted)
         .unwrap()
@@ -175,12 +175,12 @@ fn test_remote_client_confirmed_input() {
 
     // TEST
     stepper
-        .client_app
+        .client_app()
         .world_mut()
         .entity_mut(client_confirmed)
         .insert(InputMarker::<MyInput>::default());
     stepper
-        .client_app
+        .client_app()
         .world_mut()
         .get_mut::<ActionState<MyInput>>(client_confirmed)
         .unwrap()
@@ -409,7 +409,7 @@ fn test_remote_client_confirmed_input() {
 //     // Run server first, then client, so the server's rebroadcasted inputs can be read by the client
 //     stepper.advance_time(stepper.frame_duration);
 //     stepper.server_app.update();
-//     stepper.client_app.update();
+//     stepper.client_app().update();
 //
 //     let server_tick = stepper.server_tick();
 //

@@ -486,6 +486,14 @@ impl ReplicationSender {
         self.replicated_entities.insert(entity, authority);
     }
     
+    pub fn gain_authority(&mut self, entity: Entity) {
+        self.replicated_entities.insert(entity, true);
+    }
+    
+    pub fn lose_authority(&mut self, entity: Entity) {
+        self.replicated_entities.insert(entity, false);
+    }
+    
     /// Returns true if this sender has authority over the entity
     pub fn has_authority(&self, entity: Entity) -> bool {
         self.replicated_entities.get(&entity).is_some_and(|a| *a)

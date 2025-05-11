@@ -56,7 +56,7 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
                         stepper.server_app.update();
                         elapsed += instant.elapsed();
 
-                        stepper.client_app.update();
+                        stepper.client_app().update();
                     }
                     elapsed
                 });
@@ -102,7 +102,7 @@ fn send_float_update_one_client(criterion: &mut Criterion) {
                         stepper.server_app.update();
                         elapsed += instant.elapsed();
 
-                        stepper.client_app.update();
+                        stepper.client_app().update();
                     }
                     elapsed
                 });
@@ -140,7 +140,7 @@ fn receive_float_insert(criterion: &mut Criterion) {
 
                         // receive messages
                         let instant = Instant::now();
-                        stepper.client_app.update();
+                        stepper.client_app().update();
                         elapsed += instant.elapsed();
                     }
                     elapsed
@@ -182,7 +182,7 @@ fn receive_float_update(criterion: &mut Criterion) {
                         stepper.advance_time(stepper.frame_duration);
                         stepper.server_app.update();
                         let instant = Instant::now();
-                        stepper.client_app.update();
+                        stepper.client_app().update();
                         elapsed += instant.elapsed();
                     }
                     elapsed
@@ -222,7 +222,7 @@ fn send_float_insert_n_clients(criterion: &mut Criterion) {
                         stepper.server_app.update();
                         elapsed += instant.elapsed();
 
-                        stepper.client_app.update();
+                        stepper.client_app().update();
                     }
                     elapsed
                 });

@@ -1125,16 +1125,16 @@ mod unit_tests {
             .unwrap()
             .0 = 1.0;
         received_confirmed_update(&mut stepper, confirmed, tick - 2);
-        stepper.client_app.insert_resource(TimeTracker::default());
-        stepper.client_app.add_systems(FixedUpdate, track_time);
+        stepper.client_app().insert_resource(TimeTracker::default());
+        stepper.client_app().add_systems(FixedUpdate, track_time);
 
-        let time_before_next_tick = *stepper.client_app.world().resource::<Time<Fixed>>();
+        let time_before_next_tick = *stepper.client_app().world().resource::<Time<Fixed>>();
 
         stepper.frame_step();
 
         // Verify that the 2 rollback ticks and regular tick occurred with the
         // correct delta times and elapsed times.
-        let time_tracker = stepper.client_app.world().resource::<TimeTracker>();
+        let time_tracker = stepper.client_app().world().resource::<TimeTracker>();
         assert_eq!(
             time_tracker.snapshots,
             vec![
@@ -1156,7 +1156,7 @@ mod unit_tests {
             ]
         );
 
-        // println!("{:?}", stepper.client_app.world().resource::<TimeTracker>());
+        // println!("{:?}", stepper.client_app().world().resource::<TimeTracker>());
     }
 
     /// Test that:

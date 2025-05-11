@@ -1,8 +1,6 @@
 use crate::protocol::ProtocolPlugin;
 #[cfg(not(feature = "std"))]
 use alloc::vec;
-use bevy::asset::AssetContainer;
-use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
@@ -16,13 +14,14 @@ const PROTOCOL_ID: u64 = 0;
 const KEY: [u8; 32] = [0; 32];
 const SERVER_ADDR: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0));
 
+
 /// Stepper with:
 /// - n client in one 'client' App
 /// - 1 server in another App, with n ClientOf connected to each client
 /// Connected via crossbeam channels, and using Netcode for connection
 /// We create two separate apps to make it easy to order the client and server updates.
 pub struct ClientServerStepper {
-    pub client_app: App,
+    pub client_apps: Vec<App>,
     pub server_app: App,
     pub client_entities: Vec<Entity>,
     pub server_entity: Entity,
@@ -48,7 +47,6 @@ impl ClientServerStepper {
 }
 
 
-// Do not forget to use --features mock_time when using the LinkConditioner
 impl ClientServerStepper {
     pub fn new(
         tick_duration: Duration,
@@ -68,42 +66,30 @@ impl ClientServerStepper {
                 ..Default::default()
             })
         )).id();
+        server_app.finish();
+        server_app.cleanup();
 
-        let mut client_app = App::new();
-        client_app.add_plugins((MinimalPlugins, StatesPlugin));
-        client_app.add_plugins(ProtocolPlugin);
-        client_app.add_plugins(client::ClientPlugins {
-            tick_duration,
-        });
-
-        // Initialize Real time (needed only for the first TimeSystem run)
-        let now = bevy::platform::time::Instant::now();
-        client_app
-            .world_mut()
-            .get_resource_mut::<Time<Real>>()
-            .unwrap()
-            .update_with_instant(now);
-        server_app
-            .world_mut()
-            .get_resource_mut::<Time<Real>>()
-            .unwrap()
-            .update_with_instant(now);
-
-        let mut client_entities = vec![];
-        let mut client_of_entities = vec![];
         Self {
-            client_app,
+            client_apps: vec![],
             server_app,
-            client_entities,
+            client_entities: vec![],
             server_entity,
-            client_of_entities,
+            client_of_entities: vec![],
             frame_duration,
             tick_duration,
-            current_time: now,
+            current_time: bevy::platform::time::Instant::now(),
         }
     }
 
     pub(crate) fn new_client(&mut self) -> usize {
+        let mut client_app = App::new();
+        client_app.add_plugins((MinimalPlugins, StatesPlugin));
+        client_app.add_plugins(ProtocolPlugin);
+        client_app.add_plugins(client::ClientPlugins {
+            tick_duration: self.tick_duration,
+        });
+        client_app.finish();
+        client_app.cleanup();
         let client_id = self.client_entities.len();
         let (crossbeam_client, crossbeam_server) = lightyear_crossbeam::CrossbeamIo::new_pair();
 
@@ -113,7 +99,7 @@ impl ClientServerStepper {
             private_key: KEY,
             client_id: client_id as u64,
         };
-        self.client_entities.push(self.client_app.world_mut().spawn((
+        self.client_entities.push(client_app.world_mut().spawn((
             Client::default(),
             // Send pings every frame, so that the Acks are sent every frame
             PingManager::new(PingConfig {
@@ -144,6 +130,7 @@ impl ClientServerStepper {
             Linked,
             crossbeam_server
         )).id());
+        self.client_apps.push(client_app);
         client_id
     }
 
@@ -151,16 +138,17 @@ impl ClientServerStepper {
     pub(crate) fn disconnect_client(&mut self) {
         let client_entity = self.client_entities.pop().unwrap();
         let server_entity = self.client_of_entities.pop().unwrap();
+        let mut client_app = self.client_apps.pop().unwrap();
 
-        self.client_app.world_mut().trigger_targets(Disconnect, client_entity);
+        client_app.world_mut().trigger_targets(Disconnect, client_entity);
         // on the server normally we should wait for the client to send a Disconnect message, but if we despawn the client entity
         // the crossbeam io gets severed
         self.server_app.world_mut().entity_mut(server_entity).insert(Disconnected {
             reason: None,
         });
-        self.client_app.world_mut().flush();
+        client_app.world_mut().flush();
         self.server_app.world_mut().flush();
-        self.client_app.world_mut().despawn(client_entity);
+        client_app.world_mut().despawn(client_entity);
         self.server_app.world_mut().despawn(server_entity);
         self.frame_step(1);
     }
@@ -169,23 +157,27 @@ impl ClientServerStepper {
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
         let mut stepper = Self::new(tick_duration, frame_duration);
-        stepper.build();
         stepper
+    }
+    
+    pub fn client_app(&mut self) -> &mut App {
+        assert_eq!(self.client_apps.len(), 1);
+        &mut self.client_apps[0]
     }
 
     pub(crate) fn client_tick(&self, id: usize) -> Tick {
-        self.client_app.world().entity(self.client_entities[id]).get::<LocalTimeline>().unwrap().tick()
+        self.client_apps[id].world().entity(self.client_entities[id]).get::<LocalTimeline>().unwrap().tick()
     }
     pub(crate) fn server_tick(&self) -> Tick {
         self.server_app.world().entity(self.server_entity).get::<LocalTimeline>().unwrap().tick()
     }
 
     pub fn client(&self, id: usize) -> EntityRef {
-        self.client_app.world().entity(self.client_entities[id])
+        self.client_apps[id].world().entity(self.client_entities[id])
     }
 
     pub fn client_mut(&mut self, id: usize) -> EntityWorldMut {
-        self.client_app.world_mut().entity_mut(self.client_entities[id])
+        self.client_apps[id].world_mut().entity_mut(self.client_entities[id])
     }
 
     pub fn server(&self) -> EntityRef {
@@ -204,15 +196,22 @@ impl ClientServerStepper {
         self.server_app.world_mut().entity_mut(self.client_of_entities[id])
     }
 
-    pub(crate) fn build(&mut self) {
-        self.client_app.finish();
-        self.client_app.cleanup();
-        self.server_app.finish();
-        self.server_app.cleanup();
-    }
     pub(crate) fn init(&mut self) {
-        for client_id in self.client_entities.iter() {
-            self.client_app.world_mut().trigger_targets(Connect, *client_id);
+        // Initialize Real time (needed only for the first TimeSystem run)
+        let now = bevy::platform::time::Instant::now();
+        self.current_time = now;
+        self.server_app
+            .world_mut()
+            .get_resource_mut::<Time<Real>>()
+            .unwrap()
+            .update_with_instant(now);
+        for i in 0..self.client_entities.len() {
+            self.client_apps[i]
+                .world_mut()
+                .get_resource_mut::<Time<Real>>()
+                .unwrap()
+                .update_with_instant(now);
+            self.client_apps[i].world_mut().trigger_targets(Connect, self.client_entities[i]);
         }
         self.server_app.world_mut().trigger_targets(Start, self.server_entity);
         self.wait_for_connection();
@@ -243,15 +242,18 @@ impl ClientServerStepper {
 
     pub fn advance_time(&mut self, duration: Duration) {
         self.current_time += duration;
-        self.client_app
-            .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
+        self.client_apps.iter_mut().for_each(|client_app| {
+            client_app
+                .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
+        });
         self.server_app
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
-        // mock_instant::global::MockClock::advance(duration);
     }
 
     pub(crate) fn flush(&mut self) {
-        self.client_app.world_mut().flush();
+        self.client_apps.iter_mut().for_each(|client_app| {
+            client_app.world_mut().flush();
+        });
         self.server_app.world_mut().flush();
     }
 
@@ -267,7 +269,9 @@ impl ClientServerStepper {
             };
             let server_tick = self.server_tick() + 1;
             info!(?client_tick, ?server_tick, "Frame step");
-            self.client_app.update();
+            self.client_apps.iter_mut().for_each(|client_app| {
+                client_app.update();
+            });
             self.server_app.update();
         }
     }
@@ -275,7 +279,9 @@ impl ClientServerStepper {
     pub(crate) fn tick_step(&mut self, n: usize) {
         for _ in 0..n {
             self.advance_time(self.tick_duration);
-            self.client_app.update();
+            self.client_apps.iter_mut().for_each(|client_app| {
+                client_app.update();
+            });
             self.server_app.update();
         }
     }

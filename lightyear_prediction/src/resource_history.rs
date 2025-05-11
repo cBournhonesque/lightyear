@@ -66,7 +66,7 @@ mod tests {
     #[test]
     fn test_update_history() {
         let mut stepper = BevyStepper::default();
-        stepper.client_app.add_resource_rollback::<TestResource>();
+        stepper.client_app().add_resource_rollback::<TestResource>();
 
         // 1. Updating TestResource resource
         stepper
@@ -175,7 +175,7 @@ mod tests {
         //     .with_max_level(tracing::Level::DEBUG)
         //     .init();
         let mut stepper = BevyStepper::default_no_init();
-        stepper.client_app.add_resource_rollback::<TestResource>();
+        stepper.client_app().add_resource_rollback::<TestResource>();
         stepper.build();
         stepper.wait_for_connection();
 

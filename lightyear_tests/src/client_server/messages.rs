@@ -34,8 +34,8 @@ fn test_send_messages() {
     let mut stepper = ClientServerStepper::single();
     stepper.server_app.init_resource::<Buffer<StringMessage>>();
     stepper.server_app.add_systems(Update, count_messages_observer::<StringMessage>);
-    stepper.client_app.init_resource::<Buffer<StringMessage>>();
-    stepper.client_app.add_systems(Update, count_messages_observer::<StringMessage>);
+    stepper.client_app().init_resource::<Buffer<StringMessage>>();
+    stepper.client_app().add_systems(Update, count_messages_observer::<StringMessage>);
 
     info!("Sending message from client to server");
     let send_message = StringMessage("Hello".to_string());
@@ -50,7 +50,7 @@ fn test_send_messages() {
     stepper.client_of_mut(0).get_mut::<MessageSender<StringMessage>>().unwrap().send::<Channel1>(send_message.clone());
     stepper.frame_step(2);
 
-    let received_messages = stepper.client_app.world().resource::<Buffer<StringMessage>>();
+    let received_messages = stepper.client_apps[0].world().resource::<Buffer<StringMessage>>();
     assert_eq!(&received_messages.0, &vec![(stepper.client_entities[0], send_message)]);
 }
 
@@ -94,11 +94,11 @@ fn test_send_triggers() {
 #[test]
 fn test_send_triggers_map_entities() {
     let mut stepper = ClientServerStepper::single();
-    let client_entity = stepper.client_app.world_mut().spawn(Replicate::to_server()).id();
+    let client_entity = stepper.client_app().world_mut().spawn(Replicate::to_server()).id();
     stepper.frame_step(1);
     let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
         .expect("entity is not present in entity map");
-    
+
     stepper.server_app.add_observer(count_triggers_observer::<EntityTrigger>);
     stepper.server_app.init_resource::<TriggerBuffer<EntityTrigger>>();
 
@@ -118,8 +118,11 @@ fn test_send_triggers_map_entities() {
 fn test_send_multi_messages() {
     let mut stepper = ClientServerStepper::with_clients(2);
 
-    stepper.client_app.init_resource::<Buffer<StringMessage>>();
-    stepper.client_app.add_systems(Update, count_messages_observer::<StringMessage>);
+    stepper.client_apps[0].init_resource::<Buffer<StringMessage>>();
+    stepper.client_apps[0].add_systems(Update, count_messages_observer::<StringMessage>);
+    
+    stepper.client_apps[1].init_resource::<Buffer<StringMessage>>();
+    stepper.client_apps[1].add_systems(Update, count_messages_observer::<StringMessage>);
 
     info!("Sending messages from server to client");
     let send_message = StringMessage("World".to_string());
@@ -138,8 +141,9 @@ fn test_send_multi_messages() {
     stepper.server_app.world_mut().run_system(system_id);
     stepper.frame_step(2);
 
-    let received_messages = stepper.client_app.world().resource::<Buffer<StringMessage>>();
+    let received_messages = stepper.client_apps[0].world().resource::<Buffer<StringMessage>>();
     assert!(&received_messages.0.contains(&(stepper.client_entities[0], send_message.clone())));
+    let received_messages = stepper.client_apps[1].world().resource::<Buffer<StringMessage>>();
     assert!(&received_messages.0.contains(&(stepper.client_entities[1], send_message.clone())));
 }
 
@@ -148,8 +152,10 @@ fn test_send_multi_messages() {
 fn test_send_multi_messages_with_target() {
     let mut stepper = ClientServerStepper::with_clients(2);
 
-    stepper.client_app.init_resource::<Buffer<StringMessage>>();
-    stepper.client_app.add_systems(Update, count_messages_observer::<StringMessage>);
+    stepper.client_apps[0].init_resource::<Buffer<StringMessage>>();
+    stepper.client_apps[0].add_systems(Update, count_messages_observer::<StringMessage>);
+    stepper.client_apps[1].init_resource::<Buffer<StringMessage>>();
+    stepper.client_apps[1].add_systems(Update, count_messages_observer::<StringMessage>);
 
     info!("Sending messages from server to client");
     let send_message = StringMessage("World".to_string());
@@ -166,7 +172,8 @@ fn test_send_multi_messages_with_target() {
     stepper.server_app.world_mut().run_system(system_id);
     stepper.frame_step(2);
 
-    let received_messages = stepper.client_app.world().resource::<Buffer<StringMessage>>();
+    let received_messages = stepper.client_apps[0].world().resource::<Buffer<StringMessage>>();
     assert!(&received_messages.0.contains(&(stepper.client_entities[0], send_message.clone())));
+    let received_messages = stepper.client_apps[1].world().resource::<Buffer<StringMessage>>();
     assert!(&received_messages.0.contains(&(stepper.client_entities[1], send_message.clone())));
 }

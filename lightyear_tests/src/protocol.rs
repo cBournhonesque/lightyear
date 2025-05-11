@@ -67,6 +67,9 @@ pub struct CompDisabled(pub f32);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompReplicateOnce(pub f32);
 
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect, MapEntities)]
+pub struct CompMap(#[entities] pub Entity);
+
 // Inputs
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
 pub struct NativeInput(pub i16);
@@ -104,6 +107,8 @@ impl Plugin for ProtocolPlugin {
         .add_direction(NetworkDirection::Bidirectional);
         // components
         app.register_component::<CompA>();
+        app.register_component::<CompMap>()
+            .add_map_entities();
         app.register_component::<CompDisabled>()
             .with_replication_config(ComponentReplicationConfig {
                 disable: true,

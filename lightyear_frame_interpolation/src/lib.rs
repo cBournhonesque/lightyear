@@ -286,7 +286,7 @@ mod tests {
         stepper
             .client_app
             .add_systems(FixedUpdate, fixed_update_increment);
-        stepper.client_app.world_mut().insert_resource(Toggle(true));
+        stepper.client_app().world_mut().insert_resource(Toggle(true));
         stepper
             .client_app
             .add_plugins(FrameInterpolationPlugin::<InterpolationModeFull>::default());
@@ -536,7 +536,7 @@ mod tests {
             max_relative = 0.1
         );
 
-        stepper.client_app.world_mut().resource_mut::<Toggle>().0 = false;
+        stepper.client_app().world_mut().resource_mut::<Toggle>().0 = false;
         stepper.frame_step();
         assert_relative_eq!(
             stepper
@@ -606,7 +606,7 @@ mod tests {
             0.33,
             max_relative = 0.1
         );
-        stepper.client_app.world_mut().resource_mut::<Toggle>().0 = true;
+        stepper.client_app().world_mut().resource_mut::<Toggle>().0 = true;
         stepper.frame_step();
         assert_relative_eq!(
             stepper
@@ -930,7 +930,7 @@ mod tests {
             max_relative = 0.1
         );
 
-        stepper.client_app.world_mut().resource_mut::<Toggle>().0 = false;
+        stepper.client_app().world_mut().resource_mut::<Toggle>().0 = false;
         stepper.frame_step();
         assert_relative_eq!(
             stepper
@@ -1001,7 +1001,7 @@ mod tests {
             max_relative = 0.1
         );
 
-        stepper.client_app.world_mut().resource_mut::<Toggle>().0 = true;
+        stepper.client_app().world_mut().resource_mut::<Toggle>().0 = true;
         stepper.frame_step();
         assert_relative_eq!(
             stepper
@@ -1055,7 +1055,7 @@ mod tests {
         };
         // we create the stepper manually to not run init()
         let mut stepper = BevyStepper::new(shared_config, client_config, frame_duration);
-        stepper.client_app.world_mut().insert_resource(Toggle(true));
+        stepper.client_app().world_mut().insert_resource(Toggle(true));
         stepper
             .client_app
             .add_systems(FixedUpdate, fixed_update_increment);

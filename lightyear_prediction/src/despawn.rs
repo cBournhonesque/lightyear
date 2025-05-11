@@ -258,7 +258,7 @@ mod tests {
         let predicted_entity = confirmed.predicted.unwrap();
 
         // despawn the confirmed entity
-        stepper.client_app.world_mut().despawn(confirmed_entity);
+        stepper.client_app().world_mut().despawn(confirmed_entity);
         stepper.frame_step();
 
         // check that the predicted entity got despawned

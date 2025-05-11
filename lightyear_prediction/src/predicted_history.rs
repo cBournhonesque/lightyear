@@ -606,7 +606,7 @@ mod tests {
     fn test_predicted_sync_batch() {
         let mut stepper = BevyStepper::default_no_init();
         // make sure that when ComponentSimple is added, ComponentOnce was also added
-        stepper.client_app.add_observer(
+        stepper.client_app().add_observer(
             |trigger: Trigger<OnAdd, PredictionModeSimple>,
              query: Query<(), With<PredictionModeOnce>>| {
                 assert!(query.get(trigger.target()).is_ok());
@@ -614,7 +614,7 @@ mod tests {
         );
         // make sure that when ComponentOnce is added, ComponentSimple was also added
         // i.e. both components are added at the same time
-        stepper.client_app.add_observer(
+        stepper.client_app().add_observer(
             |trigger: Trigger<OnAdd, PredictionModeOnce>,
              query: Query<(), With<PredictionModeSimple>>| {
                 assert!(query.get(trigger.target()).is_ok());
@@ -622,7 +622,7 @@ mod tests {
         );
         stepper.init();
 
-        stepper.client_app.world_mut().spawn((
+        stepper.client_app().world_mut().spawn((
             ShouldBePredicted,
             PredictionModeOnce(1.0),
             PredictionModeSimple(1.0),
@@ -639,7 +639,7 @@ mod tests {
                 With<PredictionModeSimple>,
                 With<Predicted>
             )>()
-            .single(stepper.client_app.world())
+            .single(stepper.client_app().world())
             .is_ok());
     }
 

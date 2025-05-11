@@ -296,7 +296,7 @@ pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
 //             .id();
 //
 //         // Set the latest received server tick
-//         let confirmed_tick = stepper.client_app.world_mut().resource_mut::<ClientConnectionManager>()
+//         let confirmed_tick = stepper.client_app().world_mut().resource_mut::<ClientConnectionManager>()
 //             .replication_receiver
 //             .remote_entity_map
 //             .get_confirmed_tick(confirmed_entity)

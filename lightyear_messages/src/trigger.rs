@@ -17,6 +17,7 @@ use lightyear_serde::writer::{WriteInteger, Writer};
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 /// The message sent over the network to trigger an event `M` on remote targets.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -124,9 +125,13 @@ fn trigger_serialize<M: Event>(
     serialize(&message.trigger, writer)?;
     // Serialize the target entities
     writer.write_varint(message.target_entities.len() as u64)?;
+    
+    info!("serialize trigger: {:?}", core::any::type_name::<M>());
     for entity in &message.target_entities {
+        info!("serialize entity before map: {entity:?}");
         let mut entity = *entity;
         entity.map_entities(mapper);
+        info!("serialize entity after map: {entity:?}");
         entity.to_bytes(writer)?;
     }
     Ok(())
