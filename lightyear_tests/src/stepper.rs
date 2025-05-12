@@ -59,7 +59,6 @@ impl ClientServerStepper {
             tick_duration
         });
         let server_entity = server_app.world_mut().spawn((
-            server::Server::default(),
             NetcodeServer::new(lightyear_netcode::server_plugin::NetcodeConfig {
                 protocol_id: PROTOCOL_ID,
                 private_key: KEY,

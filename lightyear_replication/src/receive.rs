@@ -111,8 +111,12 @@ impl ReplicationReceivePlugin {
             let span = trace_span!("ReplicationReceiver", entity = ?entity);
             let _guard = span.enter();
             let unsafe_world = world.as_unsafe_world_cell();
+            // Get the list of entities which we might have authority over
             // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
-            let mut sender = unsafe { unsafe_world.world_mut() }.get_mut::<ReplicationSender>(entity).unwrap();
+            let authority_map = unsafe { unsafe_world.world_mut() }.get::<ReplicationSender>(entity)
+                .as_ref()
+                .map(|s| &s.replicated_entities);
+            
             // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
             let mut receiver = unsafe { unsafe_world.world_mut() }.get_mut::<ReplicationReceiver>(entity).unwrap();
             // let client_of = unsafe { unsafe_world.world_mut() }.get::<ClientOf>(entity);
@@ -122,7 +126,7 @@ impl ReplicationReceivePlugin {
             let world = unsafe { unsafe_world.world_mut() };
 
             let tick = local_timeline.tick();
-            receiver.apply_world(world, entity, remote_peer, &mut manager.entity_mapper, &sender.replicated_entities, component_registry, tick);
+            receiver.apply_world(world, entity, remote_peer, &mut manager.entity_mapper, authority_map, component_registry, tick);
             receiver.tick_cleanup(tick);
         });
     }
@@ -404,7 +408,7 @@ impl ReplicationReceiver {
         receiver_entity: Entity,
         remote: PeerId,
         remote_entity_map: &mut RemoteEntityMap,
-        authority_map: &EntityIndexMap<bool>,
+        authority_map: Option<&EntityIndexMap<bool>>,
         component_registry: &ComponentRegistry,
         current_tick: Tick,
     ) {
@@ -746,7 +750,7 @@ impl GroupChannel {
         remote_tick: Tick,
         message: ActionsMessage,
         remote_entity_map: &mut RemoteEntityMap,
-        authority_map: &EntityIndexMap<bool>,
+        authority_map: Option<&EntityIndexMap<bool>>,
         local_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
         temp_write_buffer: &mut TempWriteBuffer
     ) {
@@ -836,7 +840,7 @@ impl GroupChannel {
                 continue;
             };
             // the local Sender has authority over the entity, so we don't want to accept the updates
-            if authority_map.get(&local_entity_mut.id()).is_some_and(|authority| *authority) {
+            if authority_map.is_some_and(|a| a.get(&local_entity_mut.id()).is_some_and(|authority| *authority)) {
                 trace!("Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}", remote, entity);
                 continue;
             }
@@ -914,7 +918,7 @@ impl GroupChannel {
         is_history: bool,
         message: UpdatesMessage,
         remote_entity_map: &mut RemoteEntityMap,
-        authority_map: &EntityIndexMap<bool>,
+        authority_map: Option<&EntityIndexMap<bool>>,
     ) {
         let group_id = message.group_id;
         // TODO: store this in ConfirmedHistory?
@@ -937,7 +941,7 @@ impl GroupChannel {
                 continue;
             };
             // the local Sender has authority over the entity, so we don't want to accept the updates
-            if authority_map.get(&local_entity_mut.id()).is_some_and(|authority| *authority) {
+            if authority_map.is_some_and(|a| a.get(&local_entity_mut.id()).is_some_and(|authority| *authority)) {
                 trace!("Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}", remote, entity);
                 continue;
             }

@@ -1,3 +1,4 @@
+use crate::client_of::{ClientOf};
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String};
 use bevy::app::{App, Plugin};
@@ -6,10 +7,9 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear_core::id::PeerId;
-use lightyear_link::prelude::Unlinked;
+use lightyear_link::prelude::{Server, Unlinked};
 use lightyear_link::LinkStart;
 use tracing::trace;
-
 
 /// Errors related to the client connection
 #[derive(thiserror::Error, Debug)]
@@ -157,7 +157,7 @@ impl ConnectionPlugin {
     /// If the underlying link fails, we also disconnect the client
     fn disconnect_if_link_fails(
         trigger: Trigger<OnAdd, Unlinked>,
-        query: Query<&Unlinked, Without<Disconnected>>,
+        query: Query<&Unlinked, (Without<Disconnected>, Without<Server>)>,
         mut commands: Commands
     ) {
         if let Ok(unlinked) = query.get(trigger.target()) {
@@ -176,6 +176,7 @@ impl Plugin for ConnectionPlugin {
         app.register_type::<PeerMetadata>();
         app.add_observer(Self::connect);
         app.add_observer(Self::disconnect_if_link_fails);
+        app.add_observer(ClientOf::on_insert);
     }
 }
 

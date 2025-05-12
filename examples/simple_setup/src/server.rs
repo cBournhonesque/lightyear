@@ -44,9 +44,8 @@ fn handle_new_client(
 /// Start the server
 fn startup(mut commands: Commands) -> Result {
     let server = commands.spawn((
-        Server::default(),
         NetcodeServer::new(NetcodeConfig::default()),
-        ServerUdpIo::new(SERVER_ADDR)?
+        ServerUdpIo::new(SERVER_ADDR)
     )).id();
     commands.trigger_targets(Start, server);
     Ok(())

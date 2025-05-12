@@ -26,6 +26,7 @@ use crate::conditioner::LinkConditioner;
 use alloc::collections::VecDeque;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
+use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::Bytes;
 use core::net::SocketAddr;
@@ -34,8 +35,12 @@ use core::time::Duration;
 /// Commonly used items from the `lightyear_link` crate.
 pub mod prelude {
     pub use crate::conditioner::LinkConditionerConfig;
-    pub use crate::server::{LinkOf, ServerLink};
+    pub use crate::server::{LinkOf, Server};
     pub use crate::{Link, LinkSet, LinkStart, LinkStats, Linked, Linking, RecvLinkConditioner, Unlinked};
+    
+    pub mod server {
+        pub use crate::server::{LinkOf, Server};
+    }
 }
 
 pub type RecvPayload = Bytes;
@@ -57,7 +62,6 @@ pub enum LinkState {
 /// Represents a link between two peers, allowing for sending and receiving data.
 /// This only stores the payloads to be sent and received, the actual bytes will be sent by an Io component
 #[derive(Component, Default)]
-#[component(on_add = Link::on_add)]
 pub struct Link {
     // TODO: instead of Vec should we use Channels to allow parallel processing?
     //  or maybe ArrayQueue?
@@ -96,16 +100,6 @@ impl Link {
             remote_addr: Some(remote_addr),
         }
     }
-    fn on_add(mut world: DeferredWorld, context: HookContext) {
-        let entity_ref = world.entity(context.entity);
-        if !entity_ref.contains::<Unlinked>()
-            && !entity_ref.contains::<Linked>()
-             && !entity_ref.contains::<Linking>() {
-            trace!("Inserting Unlinked because Link was added");
-            world.commands().entity(context.entity)
-                .insert(Unlinked { reason: None});
-        };
-    }
 }
 
 /// Handles receiving and buffering incoming payloads for a `Link`.
@@ -133,9 +127,9 @@ impl LinkReceiver {
         self.buffer.push_back(value);
     }
 
-    pub fn push(&mut self, value: RecvPayload, elapsed: Duration) {
+    pub fn push(&mut self, value: RecvPayload, instant: Instant) {
         if let Some(conditioner) = &mut self.conditioner {
-            conditioner.condition_packet(value, elapsed);
+            conditioner.condition_packet(value, instant);
         } else {
             self.push_raw(value);
         }
@@ -240,9 +234,8 @@ pub struct LinkStart;
 /// This event typically signals the underlying IO layer to disconnect
 /// from the remote peer.
 #[derive(Event, Clone, Debug)]
-pub enum Unlink {
-    ByLocal(String),
-    ByRemote(String),
+pub struct Unlink {
+    pub reason: String
 }
 
 #[derive(Component, Default, Debug)]
@@ -302,19 +295,30 @@ pub struct LinkPlugin;
 
 impl LinkPlugin {
     pub fn apply_link_conditioner(
-        time: Res<Time<Real>>,
         mut query: Query<&mut Link>,
     ) {
         query.par_iter_mut().for_each(|mut link| {
             // enable split borrows
             let recv = &mut link.recv;
             if let Some(conditioner) = &mut recv.conditioner {
-                while let Some(packet) = conditioner.pop_packet(time.elapsed()) {
+                while let Some(packet) = conditioner.pop_packet(Instant::now()) {
                     // cannot use push_raw() because of partial borrows issue
                     recv.buffer.push_back(packet);
                 }
             }
         });
+    }
+
+    /// If the user requested to unlink, then we insert the Unlinked component
+    fn unlink(
+        mut trigger: Trigger<Unlink>,
+        mut commands: Commands,
+    ) {
+        if let Ok(mut c) = commands.get_entity(trigger.target()) {
+            c.insert(Unlinked {
+                reason: core::mem::take(&mut trigger.reason)
+            });
+        }
     }
 }
 
@@ -323,5 +327,7 @@ impl Plugin for LinkPlugin {
         app.add_systems(PreUpdate, Self::apply_link_conditioner.in_set(LinkSet::ApplyConditioner));
         app.configure_sets(PreUpdate, (LinkSet::Receive, LinkSet::ApplyConditioner).chain());
         app.configure_sets(PostUpdate, LinkSet::Send);
+
+        app.add_observer(Self::unlink);
     }
 }

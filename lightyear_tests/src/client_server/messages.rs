@@ -5,7 +5,6 @@ use bevy::prelude::*;
 use core::fmt::Debug;
 use lightyear::prelude::*;
 use lightyear_connection::client::PeerMetadata;
-use lightyear_connection::client_of::Server;
 use lightyear_messages::multi::MultiMessageSender;
 use test_log::test;
 use tracing::trace;

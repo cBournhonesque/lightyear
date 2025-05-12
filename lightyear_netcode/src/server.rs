@@ -791,6 +791,7 @@ impl<Ctx> Server<Ctx> {
     pub(crate) fn send_netcode_packets(&mut self, addr: SocketAddr, sender: &mut LinkSender) {
         self.send_queue.get_mut(&addr).map(|queue| {
             queue.drain(..).for_each(|send_payload| {
+                trace!("server sending netcode packet");
                 sender.push(send_payload);
             });
         });

@@ -25,6 +25,7 @@ server = ["lightyear_connection/server"]
 test_utils = []
 
 [dependencies]
+lightyear_link.workspace = true
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_core.workspace = true

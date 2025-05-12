@@ -19,6 +19,7 @@ std = [
 test_utils = []
 
 [dependencies]
+lightyear_core.workspace = true
 lightyear_utils.workspace = true
 
 # utils

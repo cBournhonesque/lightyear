@@ -31,12 +31,11 @@ use crate::control::{Controlled, OwnedBy};
 use lightyear_connection::client::Connected;
 use lightyear_connection::client::{Client, PeerMetadata};
 use lightyear_connection::client_of::ClientOf;
-#[cfg(feature = "server")]
-use lightyear_connection::client_of::Server;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_core::id::PeerId;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
+use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::MessageManager;
 use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
 use lightyear_transport::prelude::Transport;
@@ -89,7 +88,7 @@ impl Replicate {
             authority: true
         }
     }
-    
+
     pub fn without_authority(mut self) -> Self {
         self.authority = false;
         self
@@ -175,7 +174,7 @@ impl Replicate {
                     let unsafe_world = world.as_unsafe_world_cell();
                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
                     let world = unsafe { unsafe_world.world_mut() };
-                    let Ok(server) = world.query::<&Server>().single(world) else {
+                    let Ok(server) = world.query_filtered::<&Server, With<Server>>().single(world) else {
                         error!("No Server found in the world");
                         return;
                     };
@@ -183,7 +182,7 @@ impl Replicate {
                     let world = unsafe { unsafe_world.world_mut() };
                     let peer_metadata = world.resource::<PeerMetadata>() ;
                     let world = unsafe { unsafe_world.world_mut() };
-                    server.apply_targets(target, &peer_metadata.mapping, &mut |client| {
+                    target.apply_targets(server.collection().iter().copied(), &peer_metadata.mapping, &mut |client| {
                         trace!("Adding replicated entity {} to ClientOf {}", context.entity, client);
                         let Ok(mut sender) = world
                             .query_filtered::<&mut ReplicationSender, With<ClientOf>>()
@@ -211,18 +210,20 @@ impl Replicate {
                 ReplicationMode::Server(server, target) => {
                     let unsafe_world = world.as_unsafe_world_cell();
                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
-                    let Some(server) = unsafe { unsafe_world.world() }
-                        .entity(*server)
-                        .get::<Server>()
-                    else {
+                    let entity_ref = unsafe { unsafe_world.world() }.entity(*server);
+                    if !entity_ref.contains::<Server>() {
+                        error!("No Server found in the world");
+                        return;
+                    }
+                    let Some(server) = entity_ref.get::<Server>() else {
                         error!("No Server found in the world");
                         return;
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
                     let peer_metadata = unsafe { unsafe_world.world() }.resource::<PeerMetadata>();
                     let world = unsafe { unsafe_world.world_mut() };
-                    server.apply_targets(
-                        target,
+                    target.apply_targets(
+                        server.collection().iter().copied(),
                         &peer_metadata.mapping,
                         &mut |client_entity| {
                             let Ok(mut sender) = world
@@ -280,7 +281,7 @@ impl Replicate {
     /// When a new client connects, check if we need to replicate existing entities to it
     pub(crate) fn handle_connection(
         trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
-        mut sender_query: Query<(Entity, &mut ReplicationSender, &Connected, Option<&Client>, Option<&ClientOf>)>,
+        mut sender_query: Query<(Entity, &mut ReplicationSender, &Connected, Option<&Client>, Option<&LinkOf>)>,
         mut replicate_query: Query<(Entity, &mut Replicate)>,
     ) {
         if let Ok((sender_entity, mut sender, connected, client, client_of)) = sender_query.get_mut(trigger.target()) {

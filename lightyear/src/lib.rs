@@ -105,6 +105,7 @@ pub mod prelude {
     #[cfg(feature = "server")]
     pub mod server {
         pub use crate::server::ServerPlugins;
+        pub use lightyear_link::prelude::server::*;
         pub use lightyear_connection::prelude::server::*;
         pub use lightyear_sync::prelude::server::*;
 

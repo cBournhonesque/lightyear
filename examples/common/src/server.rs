@@ -17,7 +17,6 @@ use bevy::tasks::IoTaskPool;
 use lightyear::netcode::{NetcodeServer, PRIVATE_KEY_BYTES};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::webtransport::wtransport::Identity;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -103,7 +102,6 @@ impl ExampleServer {
             let mut entity_mut = world.entity_mut(entity);
             let settings = entity_mut.take::<ExampleServer>().unwrap();
             entity_mut.insert((
-                Server::default(),
                 Name::from("Server"),
             ));
 
@@ -136,7 +134,7 @@ impl ExampleServer {
                         Ipv4Addr::UNSPECIFIED.into(),
                         local_port,
                     );
-                    entity_mut.insert(WebTransportServer {
+                    entity_mut.insert(WebTransportServerIo {
                         server_addr,
                         certificate: (&certificate).into()
                     });

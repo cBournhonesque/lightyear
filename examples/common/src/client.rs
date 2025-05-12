@@ -98,7 +98,7 @@ impl ExampleClient {
                             "".to_string()
                         }
                     };
-                    entity_mut.insert(WebTransportClient {
+                    entity_mut.insert(WebTransportClientIo {
                         server_addr: settings.server_addr,
                         certificate_digest,
                     });

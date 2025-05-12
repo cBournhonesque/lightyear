@@ -4,7 +4,6 @@ use bevy::ecs::relationship::{Relationship, RelationshipHookMode, RelationshipSo
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use lightyear_connection::client::{Disconnected, PeerMetadata};
-use lightyear_connection::client_of::Server;
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::LocalTimeline;
 use serde::{Deserialize, Serialize};

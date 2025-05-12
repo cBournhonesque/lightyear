@@ -166,6 +166,7 @@ impl NetcodeClientPlugin {
                 .insert(Connecting);
         }
     }
+    
     fn disconnect(
         trigger: Trigger<Disconnect>,
         mut commands: Commands,

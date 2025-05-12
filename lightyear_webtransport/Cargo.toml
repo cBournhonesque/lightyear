@@ -18,8 +18,12 @@ targets      = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [features]
 default = ["self-signed"]
-client = ["aeronet_webtransport/client"]
-server = ["aeronet_webtransport/server"]
+client = [
+    "aeronet_webtransport/client"
+]
+server = [
+    "aeronet_webtransport/server",
+]
 
 ## Enables `wtransport/self-signed`, allowing you to generate self-signed certificates easily for
 ## use in a server.
@@ -40,44 +44,7 @@ aeronet_webtransport.workspace = true
 aeronet_io.workspace = true
 lightyear_connection.workspace = true
 lightyear_link.workspace = true
+lightyear_aeronet.workspace = true
+bevy.workspace = true
 
-anyhow            = { workspace = true }
-base64            = { workspace = true }
-bevy_app          = { workspace = true }
-bevy_ecs          = { workspace = true }
-bevy_platform     = { workspace = true }
-bevy_reflect      = { workspace = true }
-bevy_time       = { workspace = true }
-bytes             = { workspace = true }
-cfg-if            = { workspace = true }
-document-features = { workspace = true, optional = true }
-futures           = { workspace = true }
 thiserror.workspace = true
-tracing           = { workspace = true }
-xwt-core          = { workspace = true }
-
-
-derive_more = { workspace = true, features = [
-  "display",
-  "error",
-  "deref",
-  "deref_mut",
-] }
-
-[target.'cfg(target_family = "wasm")'.dependencies]
-gloo-timers          = { workspace = true, features = ["futures"] }
-js-sys               = { workspace = true }
-wasm-bindgen         = { workspace = true }
-wasm-bindgen-futures = { workspace = true }
-xwt-web              = { workspace = true }
-
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-spki           = { workspace = true, features = ["fingerprint"] }
-tokio          = { workspace = true, features = ["rt-multi-thread"] }
-wtransport     = { workspace = true }
-x509-cert      = { workspace = true }
-xwt-wtransport = { workspace = true }
-
-[dev-dependencies]
-bevy      = { workspace = true }
-bevy_egui = { workspace = true }

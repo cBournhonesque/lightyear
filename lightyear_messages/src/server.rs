@@ -9,14 +9,14 @@ use bevy::ecs::entity::EntitySet;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use lightyear_connection::client::PeerMetadata;
-use lightyear_connection::client_of::{ClientOf, Server};
+use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::network_target::NetworkTarget;
+use lightyear_link::prelude::Server;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::writer::Writer;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use tracing::error;
-
 
 #[derive(SystemParam)]
 pub struct ServerMultiMessageSender<'w, 's> {
@@ -51,7 +51,7 @@ impl<'w, 's> ServerMultiMessageSender<'w, 's> {
                 &mut SendEntityMap::default()
             )?;
             let bytes = self.sender.writer.split();
-            server.apply_targets(target, &self.metadata.mapping, &mut |sender| {
+            target.apply_targets(server.collection().iter().copied(), &self.metadata.mapping, &mut |sender| {
                 if let Ok((_, mut transport)) = self.sender.query.get_mut(sender) {
                     transport.send_with_priority::<C>(bytes.clone(), priority)
                         .inspect_err(|e| error!("Failed to send message: {e}"))
@@ -59,7 +59,7 @@ impl<'w, 's> ServerMultiMessageSender<'w, 's> {
                 }
             });
         } else {
-            server.apply_targets(target, &self.metadata.mapping, &mut |sender| {
+            target.apply_targets(server.collection().iter().copied(), &self.metadata.mapping, &mut |sender| {
                 if let Ok((_, mut transport)) = self.sender.query.get_mut(sender) {
                     self.sender.registry.serialize::<M>(
                         message,

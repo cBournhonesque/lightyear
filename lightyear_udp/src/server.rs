@@ -14,14 +14,15 @@ use crate::UdpIo;
 use bevy::ecs::query::QueryEntityError;
 use bevy::platform::collections::hash_map::Entry;
 use bevy::platform::collections::{HashMap, HashSet};
+use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::{BufMut, BytesMut};
 use core::net::SocketAddr;
 use lightyear_connection::client::Disconnected;
-use lightyear_connection::client_of::{ClientOf, Server};
+use lightyear_connection::client_of::ClientOf;
 use lightyear_core::id::PeerId;
-use lightyear_link::prelude::{LinkOf, ServerLink};
-use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Unlink, Unlinked};
+use lightyear_link::prelude::{LinkOf, Server};
+use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Linking, Unlink, Unlinked};
 use smallvec::SmallVec;
 
 /// Maximum transmission units; maximum size in bytes of a UDP packet
@@ -29,7 +30,7 @@ use smallvec::SmallVec;
 pub(crate) const MTU: usize = 1472;
 
 #[derive(Component)]
-#[require(ServerLink)]
+#[require(Server)]
 pub struct ServerUdpIo {
     local_addr: SocketAddr,
     // TODO: add possibility to set the remote addr
@@ -55,7 +56,7 @@ impl ServerUdpPlugin {
     // TODO: we don't want this system to panic on error
     fn link(
         trigger: Trigger<LinkStart>,
-        mut query: Query<&mut ServerUdpIo, With<Unlinked>>,
+        mut query: Query<&mut ServerUdpIo, (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
         if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
@@ -162,7 +163,7 @@ impl ServerUdpPlugin {
                                     let entity = *entry.get();
                                     match link_query.get_mut(entity) {
                                         Ok(mut link) => {
-                                            link.recv.push(payload, time.elapsed());
+                                            link.recv.push(payload, Instant::now());
                                         }
                                         Err(_) => {
                                             error!(
@@ -179,22 +180,17 @@ impl ServerUdpPlugin {
                                 Entry::Vacant(vacant) => {
                                     let mut link = Link::new(address, None);
                                     info!("Received UDP packet from new address: {}", address);
-                                    link.recv.push(payload, time.elapsed());
+                                    link.recv.push(payload, Instant::now());
                                     commands.command_scope(|mut c| {
                                         let entity = c
                                             .spawn((
                                                 LinkOf {
                                                     server: server_entity,
                                                 },
-                                                ClientOf {
-                                                    server: server_entity,
-                                                },
                                                 link,
+                                                Linked,
                                             ))
-                                            // we insert Linked separately because adding Link adds Unlinked as a RequiredComponent
-                                            .insert(Linked)
                                             .id();
-
                                         info!(?entity, ?server_entity, "Spawn new ClientOf");
                                         vacant.insert(entity);
                                     });

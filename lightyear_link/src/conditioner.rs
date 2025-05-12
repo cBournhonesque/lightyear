@@ -1,5 +1,6 @@
 //! Contains the `LinkConditioner` struct which can be used to simulate network conditions
 use crate::RecvPayload;
+use bevy::platform::time::Instant;
 use bevy::reflect::Reflect;
 use core::time::Duration;
 use lightyear_utils::ready_buffer::ReadyBuffer;
@@ -24,7 +25,7 @@ pub struct LinkConditionerConfig {
 #[derive(Debug, Clone)]
 pub struct LinkConditioner<P: Eq> {
     config: LinkConditionerConfig,
-    pub time_queue: ReadyBuffer<Duration, P>,
+    pub time_queue: ReadyBuffer<Instant, P>,
     last_packet: Option<P>,
 }
 
@@ -40,13 +41,13 @@ impl<P: Eq> LinkConditioner<P> {
     /// Add latency/jitter/loss to a packet
     ///
     /// `elapsed`: Duration since app start
-    pub(crate) fn condition_packet(&mut self, packet: P, elapsed: Duration) {
+    pub(crate) fn condition_packet(&mut self, packet: P, instant: Instant) {
         let mut rng = rand::rng();
         if rng.random_range(0.0..1.0) <= self.config.incoming_loss {
             return;
         }
         let mut latency: i32 = self.config.incoming_latency.as_millis() as i32;
-        let mut packet_timestamp = elapsed;
+        let mut packet_timestamp = instant;
         if self.config.incoming_jitter > Duration::default() {
             let jitter: i32 = self.config.incoming_jitter.as_millis() as i32;
             latency += rng.random_range(-jitter..jitter);
@@ -58,9 +59,9 @@ impl<P: Eq> LinkConditioner<P> {
     }
 
     /// Check if a packet is ready to be returned
-    pub(crate) fn pop_packet(&mut self, elapsed: Duration) -> Option<P> {
+    pub(crate) fn pop_packet(&mut self, instant: Instant) -> Option<P> {
         self.time_queue
-            .pop_item(&elapsed)
+            .pop_item(&instant)
             .map(|(_, packet)| packet)
     }
 }

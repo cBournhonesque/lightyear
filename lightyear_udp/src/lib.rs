@@ -17,12 +17,11 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-use alloc::sync::Arc;
+use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::{BufMut, BytesMut};
 use core::net::SocketAddr;
-use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Unlink, Unlinked};
-use std::sync::Mutex;
+use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Linking, Unlink, Unlinked};
 
 /// Provides server-specific UDP IO functionalities.
 /// This module is only available when the "server" feature is enabled.
@@ -87,7 +86,7 @@ pub struct UdpPlugin;
 impl UdpPlugin {
     fn link(
         trigger: Trigger<LinkStart>,
-        mut query: Query<&mut UdpIo, With<Unlinked>>,
+        mut query: Query<&mut UdpIo, (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
         trace!("In LinkStart::UDP trigger");
@@ -103,15 +102,11 @@ impl UdpPlugin {
 
     fn unlink(
         trigger: Trigger<Unlink>,
-        mut query: Query<&mut UdpIo, With<Linked>>,
-        mut commands: Commands,
+        mut query: Query<&mut UdpIo, Without<Unlinked>>,
     ) {
         if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
             info!("UDP socket closed");
             udp_io.socket = None;
-            commands.entity(trigger.target()).insert(Unlinked {
-                reason: Some("Client request".to_string()),
-            });
         }
     }
 
@@ -133,7 +128,6 @@ impl UdpPlugin {
     }
 
     fn receive(
-        time: Res<Time<Real>>,
         mut query: Query<(&mut Link, &mut UdpIo), With<Linked>>
     ) {
         query.par_iter_mut().for_each(|(mut link, mut udp_io)| {
@@ -172,7 +166,7 @@ impl UdpPlugin {
                             udp_io.buffer.advance_mut(recv_len);
                         }
                         let payload = udp_io.buffer.split_to(recv_len);
-                        link.recv.push(payload.freeze(), time.elapsed());
+                        link.recv.push(payload.freeze(), Instant::now());
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         return

@@ -1,6 +1,6 @@
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::platform::collections::HashSet;
+use bevy::platform::collections::{HashMap, HashSet};
 use bevy::platform::hash::FixedHasher;
 use bevy::prelude::{Entity, Reflect};
 use core::hash::Hash;
@@ -15,6 +15,52 @@ type HS<K> = HashSet<K, FixedHasher>;
 
 pub type NetworkTarget = Target<PeerId>;
 pub type EntityTarget = Target<Entity>;
+
+
+impl NetworkTarget {
+    /// Calls func on each client entity that matches the provided `target`
+    pub fn apply_targets(
+        &self,
+        clients: impl Iterator<Item=Entity>,
+        mapping: &HashMap<PeerId, Entity>,
+        func: &mut impl FnMut(Entity)
+    ) {
+        match self {
+            NetworkTarget::All => clients.into_iter().for_each(|e| func(e)),
+            NetworkTarget::AllExceptSingle(client_id) => {
+                let except_entity = mapping.get(client_id).unwrap_or(&Entity::PLACEHOLDER);
+                clients.into_iter()
+                    .filter(|e| e != except_entity)
+                    .for_each(|e| func(e))
+            }
+            NetworkTarget::AllExcept(client_ids) => {
+                let entity_ids = client_ids.iter()
+                    .map(|p| *mapping.get(p).unwrap_or(&Entity::PLACEHOLDER))
+                    .collect::<SmallVec<[Entity; 4]>>();
+                clients.into_iter()
+                    .filter(|e| !entity_ids.contains(e))
+                    .for_each(|e| func(e))
+            }
+            NetworkTarget::Single(client_id) => {
+                let entity = mapping.get(client_id).unwrap_or(&Entity::PLACEHOLDER);
+                if let Some(e) = clients.into_iter().find(|e| e == entity) {
+                    func(e)
+                }
+            },
+            NetworkTarget::Only(client_ids) => {
+                let entity_ids = client_ids.iter()
+                    .map(|p| *mapping.get(p).unwrap_or(&Entity::PLACEHOLDER))
+                    .collect::<SmallVec<[Entity; 4]>>();
+                clients.into_iter()
+                    .filter(|e| entity_ids.contains(e))
+                    .for_each(|e| func(e))
+            }
+            NetworkTarget::None => {}
+        }
+    }
+        
+}
+
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Reflect)]
 /// Target indicated which clients should receive some message

@@ -1,5 +1,5 @@
 use crate::client::{Client, ClientState, Connect, Connected, Connecting, Disconnected, Disconnecting};
-use crate::client_of::{ClientOf, Server};
+use crate::client_of::{ClientOf};
 use crate::direction::NetworkDirection;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
@@ -10,13 +10,9 @@ use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Commands, Component, Entity, Event, OnAdd, Query, Reflect, Trigger, With};
 use core::fmt::Debug;
-use lightyear_link::prelude::ServerLink;
+use lightyear_link::prelude::Server;
 use lightyear_link::{LinkStart, Unlinked};
 use tracing::{info, trace};
-
-/// A dummy connection plugin that takes payloads directly from the Link
-/// to the Transport without any processing
-pub struct PassthroughClientPlugin;
 
 
 /// Errors related to the server connection

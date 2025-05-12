@@ -9,6 +9,7 @@ use lightyear_connection::client::{Connected, Connecting, Disconnected, Disconne
 use lightyear_connection::prelude::{server::*, *};
 use lightyear_connection::server::Stopping;
 use lightyear_core::id::PeerId;
+use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_link::{Link, LinkSet, LinkStart, Unlink, Unlinked};
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
@@ -96,8 +97,8 @@ impl NetcodeServerPlugin {
     /// Takes packets from the Link, process them through the server,
     /// and buffer them back into the link to be sent by the IO
     fn send(
-        mut server_query: Query<(&mut NetcodeServer, &Server), Without<Stopped>>,
-        client_query: Query<(&mut Link, Option<&Connected>, Option<&Disconnecting>), With<ClientOf>>,
+        mut server_query: Query<(&mut NetcodeServer, &Server), (With<Server>, Without<Stopped>)>,
+        client_query: Query<(&mut Link, Option<&Connected>, Option<&Disconnecting>), With<LinkOf>>,
     ) {
         // TODO: we should be able to do ParIterMut if we can make the code understand
         //  that the transports/links are all mutually exclusive...
@@ -161,7 +162,7 @@ impl NetcodeServerPlugin {
         parallel_commands: ParallelCommands,
         real_time: Res<Time<Real>>,
         mut server_query: Query<(Entity, &mut NetcodeServer, &mut Server, Has<Stopping>), Without<Stopped>>,
-        link_query: Query<(Entity, &mut Link, &mut ClientOf)>,
+        link_query: Query<(Entity, &mut Link, &LinkOf)>,
     ) {
         let delta = real_time.delta();
 
@@ -182,8 +183,8 @@ impl NetcodeServerPlugin {
             // enable split borrows
             let server = &mut *server;
             // SAFETY: we know that the list of client entities are unique because it is a Relationship
-            let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(&server.clients) };
-            link_query.iter_many_unique_mut(unique_slice).for_each(|(entity, mut link, client_of)| {
+            let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(&server.collection()) };
+            link_query.iter_many_unique_mut(unique_slice).for_each(|(entity, mut link, link_of)| {
                 // #[cfg(feature = "test_utils")]
                 // trace!("SERVER: length of each packet in receive: {:?}", link.recv.iter().map(|p| p.len()).collect::<Vec<_>>());
 
@@ -211,9 +212,7 @@ impl NetcodeServerPlugin {
                                     local_peer_id: PeerId::Server,
                                     remote_peer_id: PeerId::Netcode(id)
                                 },
-                                ClientOf {
-                                    server: client_of.server,
-                                }
+                                ClientOf,
                             ));
                     })
                 });
@@ -246,10 +245,13 @@ impl NetcodeServerPlugin {
 
     fn start(
         trigger: Trigger<Start>,
+        query: Query<(), With<NetcodeServer>>,
         mut commands: Commands,
     ) {
-        // NOTE: for now there is no Starting
-        commands.entity(trigger.target()).insert(Started);
+        if let Ok(_) = query.get(trigger.target()) {
+            commands.entity(trigger.target()).insert(Started);
+            return;
+        }
     }
 
     fn stop(
@@ -267,7 +269,7 @@ impl NetcodeServerPlugin {
             commands.entity(server_entity).insert(Stopping);
 
             // SAFETY: we know that the list of client entities are unique because it is a Relationship
-            let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(&server.clients) };
+            let unique_slice = unsafe { UniqueEntitySlice::from_slice_unchecked(&server.collection()) };
             link_query.iter_many_unique_mut(unique_slice).try_for_each(|(entity, mut link, connected)| {
                 let PeerId::Netcode(client_id) = connected.remote_peer_id else {
                     error!("Client {:?} is not a Netcode client", connected.remote_peer_id);

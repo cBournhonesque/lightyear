@@ -23,7 +23,7 @@ extern crate alloc;
 extern crate core;
 
 use crate::client::{Client, Connected, Connecting, Disconnected};
-use crate::client_of::{ClientOf, Server};
+use crate::client_of::ClientOf;
 #[cfg(feature = "server")]
 use crate::server::{Started, Stopped};
 use bevy::app::{App, Plugin};
@@ -67,7 +67,7 @@ pub mod prelude {
 
     #[cfg(feature = "server")]
     pub mod server {
-        pub use crate::client_of::{ClientOf, Server};
+        pub use crate::client_of::ClientOf;
         pub use crate::server::{ConnectionError, Start, Started, Starting, Stop, Stopped};
     }
 }
@@ -89,7 +89,6 @@ impl Plugin for ConnectionPlugin {
         #[cfg(feature = "server")]
         app.register_type::<(
             ClientOf,
-            Server,
             Started,
             Stopped,
         )>();
