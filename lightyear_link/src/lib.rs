@@ -14,7 +14,8 @@
 
 extern crate alloc;
 mod conditioner;
-mod server;
+
+pub mod server;
 mod id;
 
 use alloc::collections::vec_deque::Drain;
@@ -238,9 +239,10 @@ pub struct LinkStart;
 ///
 /// This event typically signals the underlying IO layer to disconnect
 /// from the remote peer.
-#[derive(Event)]
-pub struct Unlink {
-    pub reason: String,
+#[derive(Event, Clone, Debug)]
+pub enum Unlink {
+    ByLocal(String),
+    ByRemote(String),
 }
 
 #[derive(Component, Default, Debug)]
@@ -274,7 +276,7 @@ impl Linked {
 #[derive(Component, Default, Debug)]
 #[component(on_insert = Unlinked::on_insert)]
 pub struct Unlinked {
-    pub reason: Option<String>,
+    pub reason: String,
 }
 
 impl Unlinked {

@@ -52,6 +52,7 @@ lightyear = {"workspace" = true, features = [
   "prediction",
   "replication",
   "webtransport",
+  "webtransport_self_signed",
   "udp",
 ]}
 anyhow.workspace = true

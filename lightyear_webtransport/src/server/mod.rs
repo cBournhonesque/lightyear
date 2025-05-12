@@ -2,6 +2,7 @@
 
 mod backend;
 
+use crate::client::WebTransportClient;
 use aeronet_io::connection::Disconnect;
 use bevy_ecs::error::CommandWithEntity;
 use lightyear_connection::client_of::ClientOf;
@@ -133,6 +134,22 @@ impl WebTransportServer {
     }
 
     // TODO: add unlink
+    #[must_use]
+    fn unlink(
+        trigger: Trigger<Unlink>,
+        mut query: Query<(Entity, &mut WebTransportServer), Without<Unlinked>>,
+        mut commands: Commands,
+    ) -> Result {
+        if let Ok((entity, mut server)) = query.get_mut(trigger.target()) {
+            commands.entity(entity).despawn_related::<ServerLink>();
+            commands.entity(entity)
+                .remove::<(Connecting, Connected)>()
+                .insert(Unlinked {
+                    reason: Some(trigger.reason.clone()),
+                });
+        }
+        Ok(())
+    }
 }
 
 fn open(mut entity: EntityWorldMut, config: ServerConfig) {

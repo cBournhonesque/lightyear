@@ -38,7 +38,8 @@ impl PluginGroup for ServerPlugins {
     fn build(self) -> PluginGroupBuilder {
         let builder = PluginGroupBuilder::start::<Self>();
         let builder = builder
-            .add(lightyear_sync::server::ServerPlugin);
+            .add(lightyear_sync::server::ServerPlugin)
+            .add(lightyear_link::server::ServerLinkPlugin);
 
 
         let builder = builder.add_group(SharedPlugins {

@@ -18,8 +18,8 @@ targets      = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [features]
 default = ["self-signed"]
-client = []
-server = []
+client = ["aeronet_webtransport/client"]
+server = ["aeronet_webtransport/server"]
 
 ## Enables `wtransport/self-signed`, allowing you to generate self-signed certificates easily for
 ## use in a server.
@@ -27,18 +27,16 @@ server = []
 ## Note that, without explicitly allowing your server's self-signed certificate (or using
 ## `dangerous-configuration` and disabling certificate validation), clients will not be able to
 ## connect to a server with self-signed certificates.
-self-signed = ["wtransport/self-signed"]
+self-signed = ["aeronet_webtransport/self-signed"]
 
 ## Enables `wtransport/dangerous-configuration`, allowing you to use potentially dangerous
 ## certificate validation configurations.
 ##
 ## You should not use dangerous configurations in production builds of your app.
-dangerous-configuration = ["wtransport/dangerous-configuration"]
-
-## Enable this when generating docs.
-document-features = ["dep:document-features"]
+dangerous-configuration = ["aeronet_webtransport/dangerous-configuration"]
 
 [dependencies]
+aeronet_webtransport.workspace = true
 aeronet_io.workspace = true
 lightyear_connection.workspace = true
 lightyear_link.workspace = true

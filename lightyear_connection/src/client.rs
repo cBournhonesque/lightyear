@@ -157,7 +157,7 @@ impl ConnectionPlugin {
     /// If the underlying link fails, we also disconnect the client
     fn disconnect_if_link_fails(
         trigger: Trigger<OnAdd, Unlinked>,
-        query: Query<&Unlinked, With<Connected>>,
+        query: Query<&Unlinked, Without<Disconnected>>,
         mut commands: Commands
     ) {
         if let Ok(unlinked) = query.get(trigger.target()) {

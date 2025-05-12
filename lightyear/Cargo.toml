@@ -84,6 +84,12 @@ webtransport = [
   "std",
   "dep:lightyear_webtransport"
 ]
+webtransport_self_signed = [
+  "lightyear_webtransport/self-signed"
+]
+webtransport_dangerous_configuration = [
+  "lightyear_webtransport/dangerous-configuration"
+]
 input_native = [
   "dep:lightyear_inputs",
   "dep:lightyear_inputs_native",

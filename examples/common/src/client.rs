@@ -26,10 +26,7 @@ use tracing::warn;
 pub enum ClientTransports {
     #[cfg(not(target_family = "wasm"))]
     Udp,
-    WebTransport {
-        #[cfg(target_family = "wasm")]
-        certificate_digest: String,
-    },
+    WebTransport,
     #[cfg(feature = "websocket")]
     WebSocket,
     #[cfg(feature = "steam")]
@@ -90,13 +87,20 @@ impl ExampleClient {
                 ClientTransports::Udp => {
                     entity_mut.insert(UdpIo::new(client_addr)?);
                 }
-                ClientTransports::WebTransport {
-                    #[cfg(target_family = "wasm")]
-                    certificate_digest,
-                } => {
+                ClientTransports::WebTransport => {
+                    let certificate_digest = {
+                        #[cfg(target_family = "wasm")]
+                        {
+                            include_str!("../../certificates/digest.txt").to_string()
+                        }
+                        #[cfg(not(target_family = "wasm"))]
+                        {
+                            "".to_string()
+                        }
+                    };
                     entity_mut.insert(WebTransportClient {
                         server_addr: settings.server_addr,
-                        certificate_digest: "".to_string(),
+                        certificate_digest,
                     });
                 }
                 _ => {}

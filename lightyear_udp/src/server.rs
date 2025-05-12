@@ -70,16 +70,11 @@ impl ServerUdpPlugin {
 
     fn unlink(
         trigger: Trigger<Unlink>,
-        mut query: Query<(Entity, &mut ServerUdpIo), With<Linked>>,
-        mut commands: Commands,
+        mut query: Query<&mut ServerUdpIo, Without<Unlinked>>,
     ) {
-        if let Ok((server, mut udp_io)) = query.get_mut(trigger.target()) {
+        if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
             info!("Server UDP socket closed");
-            commands.entity(server).despawn_related::<ServerLink>();
             udp_io.socket = None;
-            commands.entity(trigger.target()).insert(Unlinked {
-                reason: Some("User request".to_string()),
-            });
         }
     }
 
