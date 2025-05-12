@@ -3,14 +3,17 @@ use bevy::prelude::*;
 
 /// Returns true if the peer is a client (host-server counts as a server)
 pub fn is_client(identity: Option<Res<NetworkIdentityState>>) -> bool {
-    todo!();
-    // identity.is_some_and(|i| i.get() == &NetworkIdentityState::Client)
+    identity.is_some_and(|i| matches!(*i, NetworkIdentityState::Client))
 }
 
-/// Returns true if the peer is a server
+/// Returns true if the peer is a server or a host server.
 pub fn is_server(identity: Option<Res<NetworkIdentityState>>) -> bool {
-    todo!();
-    // identity.is_some_and(|i| i.get() != &NetworkIdentityState::Client)
+    identity.is_some_and(|i| {
+        matches!(
+            *i,
+            NetworkIdentityState::Server | NetworkIdentityState::HostServer
+        )
+    })
 }
 
 /// Returns true if we are running in host-server mode, i.e. the server is acting as a client
@@ -20,8 +23,7 @@ pub fn is_server(identity: Option<Res<NetworkIdentityState>>) -> bool {
 /// (checking if the mode is set to HostServer is not enough, it just means that the server plugin
 /// and client plugin are running in the same App)
 pub fn is_host_server(identity: Option<Res<NetworkIdentityState>>) -> bool {
-    todo!();
-    // identity.is_some_and(|i| i.get() == &NetworkIdentityState::HostServer)
+    identity.is_some_and(|i| matches!(*i, NetworkIdentityState::HostServer))
 }
 
 /// Returns true if the peer is a client (host-server counts as a server)
