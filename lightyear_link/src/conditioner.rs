@@ -1,5 +1,4 @@
 //! Contains the `LinkConditioner` struct which can be used to simulate network conditions
-use crate::RecvPayload;
 use bevy::platform::time::Instant;
 use bevy::reflect::Reflect;
 use core::time::Duration;

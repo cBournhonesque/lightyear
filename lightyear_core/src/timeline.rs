@@ -1,14 +1,11 @@
 use crate::prelude::Tick;
 use crate::tick::TickDuration;
 use crate::time::{Overstep, TickDelta, TickInstant};
-use bevy::app::{App, FixedFirst, Plugin, RunFixedMainLoop, RunFixedMainLoopSystem};
-use bevy::ecs::component::{HookContext, Mutable};
-use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Deref, DerefMut, Event, Fixed, IntoScheduleConfigs, Query, Reflect, Res, ResMut, Resource, Time, Trigger};
-use bevy::reflect::GetTypeRegistration;
+use bevy::app::{App, FixedFirst, Plugin};
+use bevy::ecs::component::Mutable;
+use bevy::prelude::{Component, Deref, DerefMut, Event, Fixed, Query, Reflect, ResMut, Time, Trigger};
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
-use parking_lot::RwLock;
 
 #[derive(Default, Debug, Clone, Reflect)]
 pub struct Timeline<T: TimelineContext> {

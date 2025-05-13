@@ -1,4 +1,3 @@
-use crate::client_of::ClientOf;
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String};
 use bevy::app::{App, Plugin};

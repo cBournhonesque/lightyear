@@ -14,10 +14,6 @@ use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
-use serde::{
-    de::{Error, Visitor},
-    Deserialize, Deserializer
-};
 
 // TODO: maybe let the user choose between u8 or u16 for quantization?
 // quantization error for u8 is about 0.2%, for u16 is 0.0008%

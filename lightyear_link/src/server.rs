@@ -1,4 +1,4 @@
-use crate::{Link, LinkPlugin, LinkSet, Linked, Linking, Unlink, Unlinked};
+use crate::{LinkPlugin, Linked, Linking, Unlink, Unlinked};
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::ecs::component::HookContext;
@@ -6,7 +6,7 @@ use bevy::ecs::relationship::Relationship;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use lightyear_core::prelude::LocalTimeline;
-use tracing::{info, trace};
+use tracing::trace;
 // TODO: should we also have a LinkId (remote addr/etc.) that uniquely identifies the link?
 
 #[derive(Component, Default, Debug, PartialEq, Eq, Reflect)]

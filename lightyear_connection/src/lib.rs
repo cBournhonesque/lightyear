@@ -23,7 +23,6 @@ extern crate alloc;
 extern crate core;
 
 use crate::client::{Client, Connected, Connecting, Disconnected};
-use crate::client_of::ClientOf;
 #[cfg(feature = "server")]
 use crate::server::{Started, Stopped};
 use bevy::app::{App, Plugin};

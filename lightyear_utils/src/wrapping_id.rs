@@ -136,7 +136,6 @@ macro_rules! wrapping_id {
     };
 }
 
-pub(crate) use wrapping_id;
 
 /// Retrieves the wrapping difference of b-a.
 /// Wraps around 32768

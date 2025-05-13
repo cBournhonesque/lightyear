@@ -1,6 +1,3 @@
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{App, Component, Event};
-use lightyear_serde::ToBytes;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 /// [`NetworkDirection`] specifies in which direction the packets can be sent

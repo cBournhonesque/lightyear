@@ -1,8 +1,6 @@
 //! Module to handle the various possible ClientIds
-use bevy::prelude::Entity;
 use bevy::reflect::Reflect;
 use core::fmt::Formatter;
-use core::net::SocketAddr;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};

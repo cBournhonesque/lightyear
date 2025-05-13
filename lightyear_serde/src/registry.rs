@@ -42,7 +42,7 @@ impl <C, M> ContextSerializeFns<C, M, M> {
 impl <C, M, I> ContextSerializeFns<C, M, I> {
 
     pub fn with_context<M2>(
-        mut self,
+        self,
         context_serialize: ContextSerializeFn<C, M2, I>,
     ) -> ContextSerializeFns<C, M2, I> {
         ContextSerializeFns {
@@ -78,7 +78,7 @@ impl <C, M> ContextDeserializeFns<C, M, M> {
 
 impl <C, M, I> ContextDeserializeFns<C, M, I> {
     pub fn with_context<M2>(
-        mut self,
+        self,
         context_deserialize: ContextDeserializeFn<C, M2, I>,
     ) -> ContextDeserializeFns<C, M2, I> {
         ContextDeserializeFns {
@@ -245,11 +245,11 @@ unsafe fn erased_serialize_fn<M: 'static>(
     message: Ptr,
     writer: &mut Writer,
     entity_map: &mut SendEntityMap,
-) -> Result<(), SerializationError> {
+) -> Result<(), SerializationError> { unsafe {
     // SAFETY: the Ptr was created for the message of type M
     let message = unsafe { message.deref::<M>() };
     erased_serialize_fn.serialize::<_, M, M>(message, writer, entity_map)
-}
+}}
 
 impl ErasedSerializeFns {
 

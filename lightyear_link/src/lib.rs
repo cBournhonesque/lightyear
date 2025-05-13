@@ -19,8 +19,6 @@ pub mod server;
 mod id;
 
 use alloc::collections::vec_deque::Drain;
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
 
 use crate::conditioner::LinkConditioner;
 use alloc::collections::VecDeque;
