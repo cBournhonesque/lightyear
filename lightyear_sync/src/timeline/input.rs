@@ -1,6 +1,6 @@
 use crate::ping::manager::PingManager;
 use crate::prelude::DrivingTimeline;
-use crate::timeline::sync::{SyncConfig, SyncedTimeline};
+use crate::timeline::sync::{SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{default, Component, Deref, DerefMut, Fixed, Has, Query, Reflect, Res, Time, Trigger, With, Without};
@@ -11,8 +11,8 @@ use lightyear_connection::client::Connected;
 use lightyear_core::prelude::{LocalTimeline, Rollback};
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
-use lightyear_core::timeline::{NetworkTimeline, RollbackState, SyncEvent, Timeline};
-use lightyear_link::{Link, LinkStats};
+use lightyear_core::timeline::{NetworkTimeline, RollbackState, SyncEvent, Timeline, TimelineContext};
+use lightyear_link::{Link, LinkStats, Linked};
 use parking_lot::RwLock;
 use tracing::trace;
 
@@ -155,19 +155,19 @@ impl InputDelayConfig {
 #[derive(Component, Deref, DerefMut, Default, Debug, Reflect)]
 pub struct InputTimeline(Timeline<Input>);
 
+impl TimelineContext for Input {}
+
 impl InputTimeline {
 
-    /// Update the timeline in FixedFirst
-    ///
-    /// The InputTimeline is the driving timeline (it is used to update Time<Virtual> and LocalTimeline
-    /// so we simply apply delta.
+    /// The InputTimeline is the driving timeline (it is used to update Time<Virtual> and LocalTimeline)
+    /// so we simply apply delta as the relative_speed is already applied
     pub(crate) fn advance_timeline(
-        fixed_time: Res<Time<Fixed>>,
+        time: Res<Time>,
         tick_duration: Res<TickDuration>,
         // make sure to not update the timelines during Rollback
-        mut query: Query<&mut InputTimeline, (With<Connected>, Without<Rollback>)>,
+        mut query: Query<&mut InputTimeline, (With<Linked>, Without<Rollback>)>,
     ) {
-        let delta = fixed_time.delta();
+        let delta = time.delta();
         query.iter_mut().for_each(|mut t| {
             // the main timeline has already been used to update the game's speed, so we don't want to apply the relative_speed again!
             t.apply_duration(delta, tick_duration.0);
@@ -177,15 +177,13 @@ impl InputTimeline {
 
 
 impl SyncedTimeline for InputTimeline {
-    // TODO: how can we make this configurable? or maybe just store the TICK_DURATION in the timeline itself?
-
     /// We want the Predicted timeline to be:
     /// - RTT/2 ahead of the server timeline, so that inputs sent from the server arrive on time
     /// - On top of that, we will take a bit of margin based on the jitter
     /// - we can reduce the ahead-delay by the input_delay
     /// Because of the input-delay, the time we return might be in the past compared with the main timeline
-    fn sync_objective<T: NetworkTimeline>(&self, remote: &T, ping_manager: &PingManager, tick_duration: Duration) -> TickInstant {
-        let remote = remote.now();
+    fn sync_objective<T: SyncTargetTimeline>(&self, remote: &T, ping_manager: &PingManager, tick_duration: Duration) -> TickInstant {
+        let remote = remote.current_estimate();
         let network_delay = TickDelta::from_duration(ping_manager.rtt() / 2, tick_duration);
         let jitter_margin = TickDelta::from_duration(ping_manager.jitter() * self.context.config.jitter_multiple as u32 + self.context.config.jitter_margin, tick_duration);
         let input_delay: TickDelta = Tick(self.context.input_delay_ticks).into();
@@ -207,31 +205,42 @@ impl SyncedTimeline for InputTimeline {
     ///
     /// Most of the times this will just be slight nudges to modify the speed of the [`SyncedTimeline`].
     /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`MainTimeline`] by sending a SyncEvent
-    fn sync<T: NetworkTimeline>(&mut self, main: &T, ping_manager: &PingManager, tick_duration: Duration) -> Option<SyncEvent<Self>> {
+    fn sync<T: SyncTargetTimeline>(&mut self, main: &T, ping_manager: &PingManager, tick_duration: Duration) -> Option<SyncEvent<Self>> {
         // skip syncing if we haven't received enough information
         if ping_manager.pongs_recv < self.config.handshake_pings as u32 {
             return None
         }
         self.is_synced = true;
-        // TODO: should we call current_estimate()? now() should basically return the same thing
         let now = self.now();
         let objective = self.sync_objective(main, ping_manager, tick_duration);
 
         let error = now - objective;
-        let is_ahead = error.is_positive();
-        let error_duration = error.to_duration(tick_duration);
-        let error_margin = tick_duration.mul_f32(self.config.error_margin);
-        let max_error_margin = tick_duration.mul_f32(self.config.max_error_margin);
-        trace!(?now, ?objective, ?error_duration, ?is_ahead, ?error_margin, ?max_error_margin, "InputTimeline sync");
-        if error_duration > max_error_margin {
-            return Some(self.resync(objective));
-        } else if error_duration > error_margin {
-            let ratio = if is_ahead {
-                1.0 / self.config.speedup_factor
-            } else {
-                1.0 * self.config.speedup_factor
-            };
-            self.set_relative_speed(ratio);
+        let error_ticks = error.to_f32();
+        let adjustment = self.config.speed_adjustment(error_ticks);
+        trace!(
+            ?now,
+            ?objective,
+            ?adjustment,
+            ?error_ticks,
+            error_margin = ?self.config.error_margin,
+            max_error_margin = ?self.config.max_error_margin,
+            "InputTimeline sync"
+        );
+        match adjustment {
+            SyncAdjustment::Resync => {
+                return Some(self.resync(objective));
+            },
+            SyncAdjustment::SpeedAdjust(ratio) => {
+                self.set_relative_speed(ratio);
+            }
+            SyncAdjustment::DoNothing => {
+                // within acceptable margins, gradually return to normal speed (1.0)
+                let current = self.relative_speed();
+                if (current - 1.0).abs() > 0.001 {
+                    let new_speed = current + (1.0 - current) * 0.1;
+                    self.set_relative_speed(new_speed);
+                }
+            }
         }
         None
     }

@@ -40,7 +40,7 @@ pub struct PlayerRoom(Entity);
 /// You can add additional components to update the connection. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
 pub(crate) fn handle_new_client(
-    trigger: Trigger<OnAdd, ClientOf>,
+    trigger: trigger<OnAdd, LinkOf>,
     mut commands: Commands,
 ) {
     commands.entity(trigger.target()).insert(

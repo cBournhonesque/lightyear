@@ -3,21 +3,25 @@ use alloc::sync::Arc;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::ToString, vec, vec::Vec};
 use bevy::platform::collections::HashMap;
-use bevy::prelude::Resource;
+use bevy::prelude::{Entity, EntityCommands, Resource};
 use bevy::reflect::List;
 use core::net::SocketAddr;
 use no_std_io2::io;
 use no_std_io2::io::Seek;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use super::{bytes::Bytes, crypto::{self, Key}, error::{Error, Result}, packet::{
     ChallengePacket, DeniedPacket, DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket,
     RequestPacket, ResponsePacket,
 }, replay::ReplayProtection, token::{ChallengeToken, ConnectToken, ConnectTokenBuilder, ConnectTokenPrivate}, ClientId, MAC_BYTES, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC};
 use crate::token::TOKEN_EXPIRE_SEC;
+use lightyear_connection::client::{Connected, Disconnected};
+use lightyear_connection::client_of::ClientOf;
+use lightyear_connection::prelude::Connecting;
 use lightyear_connection::server::ConnectionError;
 use lightyear_connection::shared::{ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason};
 use lightyear_core::id;
+use lightyear_core::id::PeerId;
 use lightyear_link::{Link, LinkReceiver, LinkSender, RecvPayload, SendPayload};
 use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::writer::Writer;
@@ -32,7 +36,7 @@ const CLIENT_TIMEOUT_SECS: i32 = 10;
 struct TokenEntry {
     time: f64,
     mac: [u8; 16],
-    addr: SocketAddr,
+    entity: Entity
 }
 
 struct TokenEntries {
@@ -63,8 +67,8 @@ impl TokenEntries {
             return true;
         };
         if let Some(matching) = matching {
-            // Allow reusing tokens only if the address matches
-            self.inner[matching].addr == entry.addr
+            // Allow reusing tokens only if the entity matches
+            self.inner[matching].entity == entry.entity
         } else {
             // If there is no matching entry, replace the oldest one
             self.inner[oldest] = entry;
@@ -73,12 +77,12 @@ impl TokenEntries {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Connection {
     confirmed: bool,
     connected: bool,
     client_id: ClientId,
-    addr: SocketAddr,
+    entity: Entity,
     timeout: i32,
     last_access_time: f64,
     last_send_time: f64,
@@ -111,8 +115,8 @@ struct ConnectionCache {
     // the main difference being that `Connection` includes the encryption mapping as well.
     clients: HashMap<ClientId, Connection>,
 
-    // map from client address to client id
-    client_id_map: HashMap<SocketAddr, ClientId>,
+    // map from client entity to client id
+    client_id_map: HashMap<Entity, ClientId>,
 
     // we are not using a free-list here to not allocate memory up-front, since `ReplayProtection` is biggish (~2kb)
     replay_protection: HashMap<ClientId, ReplayProtection>,
@@ -133,26 +137,27 @@ impl ConnectionCache {
     fn add(
         &mut self,
         client_id: ClientId,
-        addr: SocketAddr,
+        entity: Entity,
         timeout: i32,
         send_key: Key,
         receive_key: Key,
     ) {
-        if let Some((_, ref mut existing)) = self.find_by_addr(&addr) {
+        let time = self.time;
+        if let Some(existing) = self.mut_by_entity(&entity) {
             existing.client_id = client_id;
             existing.timeout = timeout;
             existing.send_key = send_key;
             existing.receive_key = receive_key;
-            existing.last_access_time = self.time;
+            existing.last_access_time = time;
             return;
         }
         let conn = Connection {
             confirmed: false,
             connected: false,
             client_id,
-            addr,
+            entity,
             timeout,
-            last_access_time: self.time,
+            last_access_time: time,
             last_send_time: f64::NEG_INFINITY,
             last_receive_time: f64::NEG_INFINITY,
             send_key,
@@ -163,7 +168,7 @@ impl ConnectionCache {
         self.replay_protection
             .insert(client_id, ReplayProtection::new());
 
-        self.client_id_map.insert(addr, client_id);
+        self.client_id_map.insert(entity, client_id);
     }
     fn remove(&mut self, client_id: ClientId) {
         let Some(conn) = self.clients.get(&client_id) else {
@@ -172,7 +177,7 @@ impl ConnectionCache {
         if !conn.is_connected() {
             return;
         }
-        self.client_id_map.remove(&conn.addr);
+        self.client_id_map.remove(&conn.entity);
         self.replay_protection.remove(&client_id);
         self.clients.remove(&client_id);
     }
@@ -181,14 +186,24 @@ impl ConnectionCache {
         self.clients.keys().cloned().collect()
     }
 
-    fn find_by_addr(&self, addr: &SocketAddr) -> Option<(ClientId, Connection)> {
+    fn find_by_entity(&self, entity: &Entity) -> Option<&Connection> {
         self.client_id_map
-            .get(addr)
-            .and_then(|id| self.clients.get(id).map(|conn| (*id, *conn)))
+            .get(entity)
+            .and_then(|id| self.clients.get(id))
     }
-    fn find_by_id(&self, client_id: ClientId) -> Option<Connection> {
-        self.clients.get(&client_id).cloned()
+    fn mut_by_entity(&mut self, entity: &Entity) -> Option<&mut Connection> {
+        self.client_id_map
+            .get(entity)
+            .and_then(|id| self.clients.get_mut(id))
     }
+    
+    fn find_by_id(&self, client_id: ClientId) -> Option<&Connection> {
+        self.clients.get(&client_id)
+    }
+    fn mut_by_id(&mut self, client_id: ClientId) -> Option<&mut Connection> {
+        self.clients.get_mut(&client_id)
+    }
+    
     fn update(&mut self, delta_ms: f64) {
         self.time += delta_ms;
     }
@@ -203,7 +218,7 @@ impl ConnectionCache {
     }
 }
 
-pub type Callback<Ctx> = Box<dyn FnMut(ClientId, SocketAddr, &mut Ctx) + Send + Sync + 'static>;
+pub type Callback<Ctx> = Box<dyn FnMut(ClientId, Entity, &mut Ctx) + Send + Sync + 'static>;
 
 /// Configuration for a server.
 ///
@@ -311,7 +326,7 @@ impl<Ctx> ServerConfig<Ctx> {
     /// See [`ServerConfig`] for an example.
     pub fn on_connect<F>(mut self, cb: F) -> Self
     where
-        F: FnMut(ClientId, SocketAddr, &mut Ctx) + Send + Sync + 'static,
+        F: FnMut(ClientId, Entity, &mut Ctx) + Send + Sync + 'static,
     {
         self.on_connect = Some(Box::new(cb));
         self
@@ -322,7 +337,7 @@ impl<Ctx> ServerConfig<Ctx> {
     /// See [`ServerConfig`] for an example.
     pub fn on_disconnect<F>(mut self, cb: F) -> Self
     where
-        F: FnMut(ClientId, SocketAddr, &mut Ctx) + Send + Sync + 'static,
+        F: FnMut(ClientId, Entity, &mut Ctx) + Send + Sync + 'static,
     {
         self.on_disconnect = Some(Box::new(cb));
         self
@@ -331,31 +346,8 @@ impl<Ctx> ServerConfig<Ctx> {
 
 /// The `netcode` server.
 ///
-/// Responsible for accepting connections from clients and communicating with them using the netcode protocol. <br>
+/// Responsible for accepting connections from clients and communicating with them using the netcode protocol.
 /// The server should be run in a loop to process incoming packets, send updates to clients, and maintain stable connections.
-///
-/// # Example
-///
-/// ```
-/// # use std::net::{SocketAddr, Ipv4Addr};
-/// # use core::time::Duration;
-/// # use std::thread;
-/// # use lightyear_link::Link;
-/// # use lightyear_netcode::{generate_key, Server};
-/// let mut link = Link::new(SocketAddr::from(([127, 0, 0, 1], 12345)));
-/// let private_key = generate_key();
-/// let protocol_id = 0x123456789ABCDEF0;
-/// let mut server = Server::new(protocol_id, private_key).unwrap();
-///
-/// let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
-///
-/// loop {
-///     server.update(tick_rate.as_secs_f64() / 1000.0, &mut link);
-///     thread::sleep(tick_rate);
-///     # break;
-/// }
-/// ```
-///
 pub struct Server<Ctx = ()> {
     time: f64,
     private_key: Key,
@@ -369,7 +361,7 @@ pub struct Server<Ctx = ()> {
     pub(crate) cfg: ServerConfig<Ctx>,
     // We cannot mix the netcode packets and the user's payload packets to send, so
     // we will temporarily buffer them here
-    send_queue: HashMap<SocketAddr, Vec<SendPayload>>,
+    send_queue: HashMap<Entity, Vec<SendPayload>>,
     // We use a Writer (wrapper around BytesMut) here because we will keep re-using the
     // same allocation for the bytes we send.
     // 1. We create an array on the stack of size MAX_PACKET_SIZE
@@ -448,59 +440,61 @@ impl<Ctx> Server<Ctx> {
         | 1 << Packet::KEEP_ALIVE
         | 1 << Packet::PAYLOAD
         | 1 << Packet::DISCONNECT;
-    fn on_connect(&mut self, client_id: ClientId, addr: SocketAddr) {
+    fn on_connect(&mut self, client_id: ClientId, entity: Entity) {
         if let Some(cb) = self.cfg.on_connect.as_mut() {
-            cb(client_id, addr, &mut self.cfg.context)
+            cb(client_id, entity, &mut self.cfg.context)
         }
     }
-    fn on_disconnect(&mut self, client_id: ClientId, addr: SocketAddr) {
+    fn on_disconnect(&mut self, client_id: ClientId, entity: Entity) {
         if let Some(cb) = self.cfg.on_disconnect.as_mut() {
-            cb(client_id, addr, &mut self.cfg.context)
+            cb(client_id, entity, &mut self.cfg.context)
         }
     }
     fn handle_client_error(&mut self, error: Error) {
         self.client_errors.push(error);
     }
-    fn touch_client(&mut self, client_id: Option<ClientId>) {
-        let Some(id) = client_id else {
-            return;
-        };
-        let Some(conn) = self.conn_cache.clients.get_mut(&id) else {
-            return;
-        };
-        conn.last_receive_time = self.time;
-        if !conn.is_confirmed() {
-            debug!("server confirmed connection with client {id}");
-            conn.confirm();
+    fn touch_client(&mut self, client_id: ClientId) {
+        if let Some(conn) = self.conn_cache.mut_by_id(client_id) {
+            conn.last_receive_time = self.time;
+            if !conn.is_confirmed() {
+                debug!("server confirmed connection with client {client_id}");
+                conn.confirm();
+            }
         }
     }
     fn process_packet(
         &mut self,
-        addr: SocketAddr,
         packet: Packet,
+        mut entity_mut: &mut EntityCommands
     ) -> Result<Option<RecvPayload>> {
-        let client_id = self.conn_cache.find_by_addr(&addr).map(|(id, _)| id);
+        let entity = entity_mut.id();
         match packet {
             Packet::Request(packet) => {
-                self.process_connection_request(addr, packet)?;
+                self.process_connection_request(packet, entity_mut)?;
                 Ok(None)
             },
             Packet::Response(packet) => {
-                self.process_connection_response(addr, packet)?;
+                self.process_connection_response(packet, entity)?;
                 Ok(None)
             },
             Packet::KeepAlive(_) => {
-                self.touch_client(client_id);
+                if let Some(client_id) = self.conn_cache.find_by_entity(&entity).map(|c| c.client_id) {
+                    self.touch_client(client_id);
+                }
                 Ok(None)
             }
             Packet::Payload(packet) => {
-                self.touch_client(client_id);
-                Ok(client_id.map(|_| packet.buf))
+                if let Some(client_id) = self.conn_cache.find_by_entity(&entity).map(|c| c.client_id) {
+                    self.touch_client(client_id);
+                    Ok(Some(packet.buf))
+                } else {
+                    Ok(None)
+                }
             }
             Packet::Disconnect(_) => {
-                if let Some(idx) = client_id {
+                if let Some(idx) = self.conn_cache.find_by_entity(&entity).map(|c| c.client_id) {
                     debug!("server disconnected client {idx}");
-                    self.on_disconnect(idx, addr);
+                    self.on_disconnect(idx, entity);
                     self.conn_cache.remove(idx);
                 }
                 Ok(None)
@@ -512,12 +506,12 @@ impl<Ctx> Server<Ctx> {
         &mut self,
         packet: Packet,
         key: Key,
-        addr: SocketAddr,
+        entity: Entity,
     ) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, self.sequence, &key, self.protocol_id)?;
         self.writer.extend_from_slice(&buf[..size]);
-        self.send_queue.entry(addr).or_default().push(self.writer.split());
+        self.send_queue.entry(entity).or_default().push(self.writer.split());
         self.sequence += 1;
         Ok(())
     }
@@ -561,7 +555,7 @@ impl<Ctx> Server<Ctx> {
         &mut self,
         packet: Packet,
         id: ClientId,
-        addr: SocketAddr,
+        entity: Entity
     ) -> Result<()> {
         let conn = &mut self
             .conn_cache
@@ -572,7 +566,7 @@ impl<Ctx> Server<Ctx> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
         self.writer.extend_from_slice(&buf[..size]);
-        self.send_queue.entry(addr).or_default().push(self.writer.split());
+        self.send_queue.entry(entity).or_default().push(self.writer.split());
 
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;
@@ -582,12 +576,13 @@ impl<Ctx> Server<Ctx> {
 
     fn process_connection_request(
         &mut self,
-        from_addr: SocketAddr,
         mut packet: RequestPacket,
+        entity_mut: &mut EntityCommands
     ) -> Result<()> {
         trace!("Server received connection request packet");
         let mut reader = io::Cursor::new(&mut packet.token_data[..]);
         let token = ConnectTokenPrivate::read_from(&mut reader)?;
+        let entity = entity_mut.id();
 
         // TODO: this doesn't work with local hosts because the local bind_addr is often 0.0.0.0, even though
         //  the tokens contain 127.0.0.1
@@ -605,10 +600,10 @@ impl<Ctx> Server<Ctx> {
         // };
         if self
             .conn_cache
-            .find_by_addr(&from_addr)
-            .is_some_and(|(_, conn)| conn.is_connected())
+            .find_by_entity(&entity)
+            .is_some_and(|conn| conn.is_connected())
         {
-            return Err(Error::ClientAddressInUse(from_addr));
+            return Err(Error::ClientEntityInUse(entity));
         };
         if self
             .conn_cache
@@ -619,7 +614,7 @@ impl<Ctx> Server<Ctx> {
         };
         let entry = TokenEntry {
             time: self.time,
-            addr: from_addr,
+            entity,
             mac: packet.token_data
                 [ConnectTokenPrivate::SIZE - MAC_BYTES..ConnectTokenPrivate::SIZE]
                 .try_into()?,
@@ -633,7 +628,7 @@ impl<Ctx> Server<Ctx> {
             self.send_netcode_packet(
                 DeniedPacket::create(DeniedReason::ServerFull),
                 token.server_to_client_key,
-                from_addr,
+                entity,
             )?;
             return Err(Error::ServerIsFull(id::PeerId::Netcode(token.client_id)));
         };
@@ -645,7 +640,7 @@ impl<Ctx> Server<Ctx> {
             self.send_netcode_packet(
                 DeniedPacket::create(denied_reason),
                 token.server_to_client_key,
-                from_addr,
+                entity,
             )?;
             return Err(Error::Denied(id::PeerId::Netcode(token.client_id)));
         }
@@ -664,16 +659,18 @@ impl<Ctx> Server<Ctx> {
         self.send_netcode_packet(
             ChallengePacket::create(self.challenge_sequence, challenge_token_encrypted),
             token.server_to_client_key,
-            from_addr,
+            entity,
         )?;
 
         self.conn_cache.add(
             token.client_id,
-            from_addr,
+            entity,
             token.timeout_seconds,
             token.server_to_client_key,
             token.client_to_server_key,
         );
+
+        entity_mut.insert(Connecting);
 
         debug!("server sent connection challenge packet");
         self.challenge_sequence += 1;
@@ -682,8 +679,8 @@ impl<Ctx> Server<Ctx> {
 
     fn process_connection_response(
         &mut self,
-        from_addr: SocketAddr,
         mut packet: ResponsePacket,
+        entity: Entity,
     ) -> Result<()> {
         let Ok(challenge_token) =
             ChallengeToken::decrypt(&mut packet.token, packet.sequence, &self.challenge_key)
@@ -692,10 +689,11 @@ impl<Ctx> Server<Ctx> {
         };
 
         let id: ClientId = challenge_token.client_id;
-        let Some(mut conn) = self.conn_cache.find_by_id(id) else {
+        // avoid borrow-checker by directly using `conn_cache.clients`
+        let Some(client) = self.conn_cache.clients.get(&id) else {
             return Err(Error::UnknownClient(id::PeerId::Netcode(id)));
         };
-        if conn.is_connected() {
+        if client.is_connected() {
             // TODO: most of the time this error can happen because we receive older 'ConnectionResponse' messages
             // even though the client is already connected. Should we just ignore this error?
             // return Err(Error::ClientIdInUse(id::ClientId::Netcode(id)));
@@ -703,26 +701,15 @@ impl<Ctx> Server<Ctx> {
         };
 
         if self.num_connected_clients() >= MAX_CLIENTS {
-            let send_key = self
-                .conn_cache
-                .clients
-                .get(&id)
-                .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?
-                .send_key;
-
             self.send_netcode_packet(
                 DeniedPacket::create(DeniedReason::ServerFull),
-                send_key,
-                from_addr,
+                client.send_key,
+                entity,
             )?;
             return Err(Error::ServerIsFull(id::PeerId::Netcode(id)));
         }
-
-        let client = self
-            .conn_cache
-            .clients
-            .get_mut(&id)
-            .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?;
+        
+        let client = self.conn_cache.clients.get_mut(&id).unwrap();
 
         client.connect();
         client.last_send_time = self.time;
@@ -731,8 +718,8 @@ impl<Ctx> Server<Ctx> {
             "server accepted client {} with id {}",
             id, challenge_token.client_id
         );
-        self.send_netcode_to_client(KeepAlivePacket::create(id), id, from_addr)?;
-        self.on_connect(id, from_addr);
+        self.send_netcode_to_client(KeepAlivePacket::create(id), id, entity)?;
+        self.on_connect(id, entity);
         Ok(())
     }
     fn check_for_timeouts(&mut self) {
@@ -743,16 +730,17 @@ impl<Ctx> Server<Ctx> {
             if !client.is_connected() {
                 continue;
             }
-            let addr = client.addr;
+            let entity = client.entity;
             if client.timeout.is_positive()
                 && client.last_receive_time + (client.timeout as f64) < self.time
             {
                 debug!("server timed out client {id}");
-                self.on_disconnect(id, addr);
+                self.on_disconnect(id, entity);
                 self.conn_cache.remove(id);
             }
         }
     }
+    
     // fn send_keepalives(&mut self, sender: &mut LinkSender) -> Result<()> {
     //     for id in self.conn_cache.ids() {
     //         let Some(client) = self.conn_cache.clients.get_mut(&id) else {
@@ -788,8 +776,8 @@ impl<Ctx> Server<Ctx> {
         Ok(())
     }
 
-    pub(crate) fn send_netcode_packets(&mut self, addr: SocketAddr, sender: &mut LinkSender) {
-        self.send_queue.get_mut(&addr).map(|queue| {
+    pub(crate) fn send_netcode_packets(&mut self, entity: Entity, sender: &mut LinkSender) {
+        self.send_queue.get_mut(&entity).map(|queue| {
             queue.drain(..).for_each(|send_payload| {
                 trace!("server sending netcode packet");
                 sender.push(send_payload);
@@ -802,7 +790,7 @@ impl<Ctx> Server<Ctx> {
         &mut self,
         buf: RecvPayload,
         now: u64,
-        addr: SocketAddr,
+        entity_mut: &mut EntityCommands,
     ) -> Result<Option<RecvPayload>> {
         if buf.len() <= 1 {
             // Too small to be a packet
@@ -810,23 +798,27 @@ impl<Ctx> Server<Ctx> {
         }
         let mut reader = io::Cursor::new(buf);
         let first_byte = reader.read_u8()?;
+        let entity = entity_mut.id();
         // reader.rewind()?;
-        let (key, replay_protection) = match self.conn_cache.find_by_addr(&addr) {
+        let (key, replay_protection) = match self.conn_cache.find_by_entity(&entity) {
             // Regardless of whether an entry in the connection cache exists for the client or not,
             // if the packet is a connection request we need to use the server's private key to decrypt it.
             _ if first_byte == Packet::REQUEST => (self.private_key, None),
-            Some((client_id, _)) => (
-                // If the packet is not a connection request, use the receive key to decrypt it.
-                self.conn_cache
-                    .clients
-                    .get(&client_id)
-                    .ok_or(Error::ClientNotFound(id::PeerId::Netcode(client_id)))?
-                    .receive_key,
-                self.conn_cache.replay_protection.get_mut(&client_id),
-            ),
+            Some(c) => {
+                let client_id = c.client_id;
+                (
+                    // If the packet is not a connection request, use the receive key to decrypt it.
+                    self.conn_cache
+                        .clients
+                        .get(&client_id)
+                        .ok_or(Error::ClientNotFound(id::PeerId::Netcode(client_id)))?
+                        .receive_key,
+                    self.conn_cache.replay_protection.get_mut(&client_id),
+                )
+            },
             None => {
                 // Not a connection request packet, and not a known client, so ignore
-                return Err(Error::Ignored(addr));
+                return Err(Error::Ignored(entity));
             }
         };
 
@@ -839,13 +831,13 @@ impl<Ctx> Server<Ctx> {
             Self::ALLOWED_PACKETS,
         )?;
 
-        self.process_packet(addr, packet)
+        self.process_packet(packet, entity_mut)
     }
 
     fn recv_packets(
         &mut self,
-        remote_addr: SocketAddr,
         receiver: &mut LinkReceiver,
+        entity_mut: &mut EntityCommands
     ) -> Result<()> {
         let now = super::utils::now()?;
 
@@ -854,7 +846,7 @@ impl<Ctx> Server<Ctx> {
         // the Transport can read them later
         for _ in 0..receiver.len() {
             if let Some(recv_packet) = receiver.pop() {
-                match self.recv_packet(recv_packet, now, remote_addr) {
+                match self.recv_packet(recv_packet, now, entity_mut) {
                     Ok(Some(payload)) => receiver.push_raw(payload),
                     Err(e) => self.handle_client_error(e),
                     _ => {}
@@ -862,29 +854,6 @@ impl<Ctx> Server<Ctx> {
             }
         }
         Ok(())
-    }
-    /// Updates the server.
-    ///
-    /// * Updates the server's elapsed time.
-    /// * Receives and processes packets from clients, any received payload packets will be queued.
-    /// * Sends keep-alive packets to connected clients.
-    /// * Checks for timed out clients and disconnects them.
-    ///
-    /// This method should be called regularly, probably at a fixed rate (e.g., 60Hz).
-    ///
-    /// # Panics
-    /// Panics if the server can't send or receive packets.
-    /// For a non-panicking version, use [`try_update`](Server::try_update).
-    pub fn update(&mut self, delta_ms: f64, link: &mut Link) {
-        self.try_update(delta_ms, link)
-            .expect("send/recv error while updating server");
-    }
-    /// The fallible version of [`update`](Server::update).
-    ///
-    /// Returns an error if the server can't send or receive packets.
-    pub fn try_update(&mut self, delta_ms: f64, link: &mut Link) -> Result<Vec<Error>> {
-        self.update_state(delta_ms);
-        self.receive(link)
     }
 
     /// Updates the server state without receiving packets.
@@ -896,10 +865,8 @@ impl<Ctx> Server<Ctx> {
 
     /// Receive packets from the links, process them.
     /// We might buffer some packets to the link as well (for Timeouts or ConnectionRequests, etc.)
-    pub fn receive(&mut self, link: &mut Link) -> Result<Vec<Error>> {
-        let remote_addr = link.remote_addr.expect("Netcode is only compatible \
-        with links that have a remote address");
-        self.recv_packets(remote_addr, &mut link.recv)?;
+    pub fn receive(&mut self, link: &mut Link, entity_mut: &mut EntityCommands) -> Result<Vec<Error>> {
+        self.recv_packets(&mut link.recv, entity_mut)?;
         Ok(self.client_errors.drain(..).collect())
     }
 
@@ -989,9 +956,9 @@ impl<Ctx> Server<Ctx> {
         if !conn.is_connected() {
             return Ok(());
         }
-        let addr = conn.addr;
+        let entity = conn.entity;
         debug!("server disconnecting client {client_id}");
-        self.on_disconnect(client_id, addr);
+        self.on_disconnect(client_id, entity);
         for _ in 0..self.cfg.num_disconnect_packets {
             // we do not use ? here because we want to continue even if the send fails
             let _ = self
@@ -1001,16 +968,16 @@ impl<Ctx> Server<Ctx> {
                 });
         }
         self.conn_cache.remove(client_id);
-        self.send_queue.remove(&addr);
+        self.send_queue.remove(&entity);
         Ok(())
     }
 
     /// Disconnects a client.
     ///
     /// The server will send a number of redundant disconnect packets to the client, and then remove its connection info.
-    pub(crate) fn disconnect_by_addr(&mut self, addr: SocketAddr, sender: &mut LinkSender) -> Result<()> {
-        let Some(client_id) = self.conn_cache.client_id_map.get(&addr) else {
-            return Err(Error::AddressNotFound(addr));
+    pub(crate) fn disconnect_by_entity(&mut self, entity: Entity, sender: &mut LinkSender) -> Result<()> {
+        let Some(client_id) = self.conn_cache.client_id_map.get(&entity) else {
+            return Err(Error::EntityNotFound(entity));
         };
         self.disconnect(*client_id, sender)
     }
@@ -1051,9 +1018,9 @@ impl<Ctx> Server<Ctx> {
             .count()
     }
 
-    /// Gets the address of a client.
-    pub fn client_addr(&self, client_id: ClientId) -> Option<SocketAddr> {
-        self.conn_cache.clients.get(&client_id).map(|c| c.addr)
+    /// Gets the entity of a client.
+    pub fn client_entity(&self, client_id: ClientId) -> Option<Entity> {
+        self.conn_cache.clients.get(&client_id).map(|c| c.entity)
     }
 
     /// Gets the address of the server

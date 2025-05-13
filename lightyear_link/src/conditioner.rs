@@ -91,8 +91,8 @@ impl LinkConditionerConfig {
     /// average condition
     pub fn average_condition() -> Self {
         LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(170),
-            incoming_jitter: Duration::from_millis(45),
+            incoming_latency: Duration::from_millis(100),
+            incoming_jitter: Duration::from_millis(15),
             incoming_loss: 0.02,
         }
     }
@@ -101,8 +101,8 @@ impl LinkConditionerConfig {
     /// poor condition
     pub fn poor_condition() -> Self {
         LinkConditionerConfig {
-            incoming_latency: Duration::from_millis(300),
-            incoming_jitter: Duration::from_millis(84),
+            incoming_latency: Duration::from_millis(200),
+            incoming_jitter: Duration::from_millis(30),
             incoming_loss: 0.04,
         }
     }

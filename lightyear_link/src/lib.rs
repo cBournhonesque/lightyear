@@ -37,7 +37,7 @@ pub mod prelude {
     pub use crate::conditioner::LinkConditionerConfig;
     pub use crate::server::{LinkOf, Server};
     pub use crate::{Link, LinkSet, LinkStart, LinkStats, Linked, Linking, RecvLinkConditioner, Unlinked};
-    
+
     pub mod server {
         pub use crate::server::{LinkOf, Server};
     }
@@ -186,14 +186,6 @@ impl Link {
 /// Stores statistics about a `Link`, such as bytes/packets sent and received, RTT, and jitter.
 #[derive(Default)]
 pub struct LinkStats {
-    /// Number of bytes received
-    pub recv_bytes: usize,
-    /// Number of bytes sent
-    pub send_bytes: usize,
-    /// Number of packets received
-    pub recv_packets: usize,
-    /// Number of packets sent
-    pub send_packets: usize,
     pub rtt: Duration,
     pub jitter: Duration,
 }

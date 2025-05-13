@@ -66,7 +66,7 @@ pub(crate) fn interpolate_log(
 ) {
     let tick = timeline.tick();
     for status in players.iter() {
-        info!(
+        trace!(
             ?tick,
             ?status,
             "Interpolation"
@@ -77,8 +77,8 @@ pub(crate) fn interpolate_log(
 pub(crate) fn fixed_post_log(
     timeline: Single<
         (&LocalTimeline, Has<Rollback>),
-        Without<Client>
-        // Or<(With<Client>, Without<ClientOf>)>
+        // Without<Client>
+        Or<(With<Client>, Without<ClientOf>)>
     >,
     players: Query<
         (Entity, &PlayerPosition),
@@ -90,7 +90,7 @@ pub(crate) fn fixed_post_log(
     let tick = timeline.tick();
     // for (entity, position, action_state, input_buffer) in players.iter() {
     for (entity, position) in players.iter() {
-        info!(
+        trace!(
             ?rollback,
             ?tick,
             ?entity,

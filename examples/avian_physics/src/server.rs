@@ -24,7 +24,7 @@ impl Plugin for ExampleServerPlugin {
 }
 
 pub(crate) fn handle_new_client(
-    trigger: Trigger<OnAdd, ClientOf>,
+    trigger: trigger<OnAdd, LinkOf>,
     mut commands: Commands,
 ) {
     commands.entity(trigger.target()).insert(

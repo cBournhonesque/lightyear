@@ -13,17 +13,16 @@ use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::prelude::Rollback;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{Overstep, PositiveTickDelta, TickDelta, TickInstant, TimeDelta};
-use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline};
+use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineContext};
 use lightyear_messages::prelude::{AppTriggerExt, RemoteTrigger};
 use lightyear_replication::message::SenderMetadata;
 use lightyear_replication::prelude::ReplicationSender;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
-use lightyear_sync::plugin::SyncedTimelinePlugin;
 use lightyear_sync::prelude::client::RemoteTimeline;
 use lightyear_sync::prelude::{DrivingTimeline, PingManager};
-use lightyear_sync::timeline::sync::{SyncConfig, SyncedTimeline};
+use lightyear_sync::timeline::sync::{SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline, SyncedTimelinePlugin};
 use tracing::trace;
 
 /// Config to specify how the snapshot interpolation should behave
@@ -82,6 +81,8 @@ pub struct Interpolation {
 #[derive(Component, Deref, DerefMut, Default, Reflect)]
 pub struct InterpolationTimeline(Timeline<Interpolation>);
 
+impl TimelineContext for Interpolation {}
+
 impl InterpolationTimeline {
 
     fn new(tick_duration: Duration, interpolation_config: InterpolationConfig, sync_config: SyncConfig) -> Self {
@@ -96,11 +97,11 @@ impl InterpolationTimeline {
 }
 
 impl SyncedTimeline for InterpolationTimeline {
-    fn sync_objective<T: NetworkTimeline>(&self, remote: &T, ping_manager: &PingManager, tick_duration: Duration) -> TickInstant {
+    fn sync_objective<T: SyncTargetTimeline>(&self, remote: &T, ping_manager: &PingManager, tick_duration: Duration) -> TickInstant {
         let delay = TickDelta::from_duration(self.interpolation_config.to_duration(self.remote_send_interval), tick_duration);
         // take extra margin if there is jitter
         let jitter_margin = TickDelta::from_duration(ping_manager.jitter() * self.sync_config.jitter_multiple as u32 + self.sync_config.jitter_margin, tick_duration);
-        let target = remote.now();
+        let target = remote.current_estimate();
         let obj = target - (delay + jitter_margin);
         trace!(
             ?target,
@@ -129,7 +130,7 @@ impl SyncedTimeline for InterpolationTimeline {
     ///
     /// Most of the times this will just be slight nudges to modify the speed of the [`SyncedTimeline`].
     /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`MainTimeline`] by sending a SyncEvent
-    fn sync<T: NetworkTimeline>(&mut self, remote: &T, ping_manager: &PingManager, tick_duration: Duration) -> Option<SyncEvent<Self>> {
+    fn sync<T: SyncTargetTimeline>(&mut self, remote: &T, ping_manager: &PingManager, tick_duration: Duration) -> Option<SyncEvent<Self>> {
         // skip syncing if we haven't received enough information
         if ping_manager.pongs_recv < self.sync_config.handshake_pings as u32 {
             return None
@@ -139,24 +140,32 @@ impl SyncedTimeline for InterpolationTimeline {
         let now = self.now();
         let objective = self.sync_objective(remote, ping_manager, tick_duration);
         let error = now - objective;
-        let is_ahead = error.is_positive();
-        let error_duration = error.to_duration(tick_duration);
-        let error_margin = tick_duration.mul_f32(self.sync_config.error_margin);
-        let max_error_margin = tick_duration.mul_f32(self.sync_config.max_error_margin);
-        trace!(?now, ?objective, ?error_duration, ?is_ahead, ?error_margin, ?max_error_margin, "InterpolationTimeline sync");
-        if error_duration > max_error_margin {
-            return Some(self.resync(objective));
-        } else if error_duration > error_margin {
-            let ratio = if is_ahead {
-                1.0 / self.sync_config.speedup_factor
-            } else {
-                1.0 * self.sync_config.speedup_factor
-            };
-            self.set_relative_speed(ratio);
-        }
-        // if it's the first time, we still send a SyncEvent (so that IsSynced is inserted)
-        if ping_manager.pongs_recv == self.sync_config.handshake_pings as u32 {
-            return Some(SyncEvent::new(0));
+        let error_ticks = error.to_f32();
+        let adjustment = self.sync_config.speed_adjustment(error_ticks);
+        trace!(
+            ?now,
+            ?objective,
+            ?adjustment,
+            ?error_ticks,
+            error_margin = ?self.sync_config.error_margin,
+            max_error_margin = ?self.sync_config.max_error_margin,
+            "InterpolationTimeline sync"
+        );
+        match adjustment {
+            SyncAdjustment::Resync => {
+                return Some(self.resync(objective));
+            },
+            SyncAdjustment::SpeedAdjust(ratio) => {
+                self.set_relative_speed(ratio);
+            }
+            SyncAdjustment::DoNothing => {
+                // within acceptable margins, gradually return to normal speed (1.0)
+                let current = self.relative_speed();
+                if (current - 1.0).abs() > 0.001 {
+                    let new_speed = current + (1.0 - current) * 0.1;
+                    self.set_relative_speed(new_speed);
+                }
+            }
         }
         None
     }
@@ -202,18 +211,18 @@ impl TimelinePlugin {
 
     /// Update the timeline in Update based on the Time<Virtual>
     pub(crate) fn advance_timeline(
-        time: Res<Time>,
+        time: Res<Time<Virtual>>,
         tick_duration: Res<TickDuration>,
         // make sure to not update the timelines during Rollback
         mut query: Query<&mut InterpolationTimeline, (With<Connected>, Without<Rollback>)>,
     ) {
         let delta = time.delta();
         query.iter_mut().for_each(|mut t| {
-            // TODO: maybe the interpolation timeline should progress at the same speed at the main timeline?
-            //  the driving timeline already updates based on our estimate of the remote timeline, so maybe there's no need to
-            //  do extra speedups on top of that!
-            // let new_delta = delta.mul_f32(t.relative_speed());
-            let new_delta = delta;
+            // make sure to account for the fact that Time<Virtual> is already updated from the Driving timeline 
+            let new_delta = delta
+                .div_f32(time.relative_speed())
+                .mul_f32(t.relative_speed());
+            trace!("Interpolation timeline advance by {new_delta:?}");
             t.apply_duration(new_delta, tick_duration.0);
         })
     }

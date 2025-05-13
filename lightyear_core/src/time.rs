@@ -207,7 +207,7 @@ impl From<Tick> for TickInstant {
 }
 
 /// Represents the difference between two TickInstants
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Reflect)]
 pub struct TickDelta {
     tick_diff: u16,
     overstep: Overstep,
@@ -307,6 +307,14 @@ impl TickDelta {
             }
         } else {
             TimeDelta::from_duration(duration).expect("Duration should be valid")
+        }
+    }
+    
+    pub fn to_f32(&self) -> f32 {
+        if self.is_negative() {
+            -(self.tick_diff as f32 + self.overstep.value())
+        } else {
+            self.tick_diff as f32 + self.overstep.value()
         }
     }
 

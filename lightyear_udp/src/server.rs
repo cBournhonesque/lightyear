@@ -191,7 +191,7 @@ impl ServerUdpPlugin {
                                                 Linked,
                                             ))
                                             .id();
-                                        info!(?entity, ?server_entity, "Spawn new ClientOf");
+                                        info!(?entity, ?server_entity, "Spawn new LinkOf");
                                         vacant.insert(entity);
                                     });
                                     continue;

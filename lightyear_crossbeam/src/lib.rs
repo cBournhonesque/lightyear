@@ -13,11 +13,12 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
+use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
-use lightyear_link::{Link, LinkSet, LinkStart, Linked, Unlink, Unlinked};
+use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Unlink, Unlinked};
 use tracing::error;
 
 /// Maximum transmission units; maximum size in bytes of a packet
@@ -71,15 +72,6 @@ impl CrossbeamPlugin {
         commands.entity(trigger.target()).insert(Linked);
     }
 
-    fn unlink(
-        trigger: Trigger<Unlink>,
-        mut commands: Commands,
-    ) {
-        commands.entity(trigger.target()).insert(Unlinked {
-            reason: Some("Client request".to_string()),
-        });
-    }
-
     fn send(
         mut query: Query<(&mut Link, &mut CrossbeamIo), With<Linked>>
     ) -> Result {
@@ -93,7 +85,6 @@ impl CrossbeamPlugin {
     }
 
     fn receive(
-        time: Res<Time<Real>>,
         mut query: Query<(&mut Link, &mut CrossbeamIo), With<Linked>>
     ) {
         query.par_iter_mut().for_each(|(mut link, mut crossbeam_io)| {
@@ -102,7 +93,7 @@ impl CrossbeamPlugin {
                 match crossbeam_io.receiver.try_recv() {
                     Ok(data) => {
                         trace!("recv data: {data:?}");
-                        link.recv.push(data, time.elapsed())
+                        link.recv.push(data, Instant::now())
                     }
                     Err(TryRecvError::Empty) => {break},
                     Err(TryRecvError::Disconnected) => {
@@ -117,8 +108,10 @@ impl CrossbeamPlugin {
 
 impl Plugin for CrossbeamPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<LinkPlugin>() {
+            app.add_plugins(LinkPlugin);
+        }
         app.add_observer(Self::link);
-        app.add_observer(Self::unlink);
         app.add_systems(PreUpdate, Self::receive.in_set(LinkSet::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(LinkSet::Send));
     }

@@ -188,7 +188,7 @@ impl PingManager {
     // TODO: optimization
     //  - for efficiency, we want to use a rolling mean/std algorithm
     //  - every N seconds (for example 2 seconds), we clear the buffer for stats older than 2 seconds and recompute mean/std from the remaining elements
-    /// Compute the stats (offset, rtt, jitter) from the stats present in the buffer
+    /// Compute the stats (rtt, jitter) from the stats present in the buffer
     pub fn compute_stats(&mut self) {
         let sample_count = self.sync_stats.len() as f64;
 

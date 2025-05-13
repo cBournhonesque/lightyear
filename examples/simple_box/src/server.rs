@@ -31,22 +31,23 @@ impl Plugin for ExampleServerPlugin {
 }
 
 
-/// When a new client tries to connect to a server, an entity is created for it with the `ClientOf` component.
-/// This entity represents the connection between the server and that client.
+/// When a new client tries to connect to a server, an entity is created for it with the `LinkOf` component.
+/// This entity represents the link between the server and that client.
 ///
-/// You can add additional components to update the connection. In this case we will add a `ReplicationSender` that
+/// You can add additional components to update the link. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
 pub(crate) fn handle_new_client(
-    trigger: Trigger<OnAdd, ClientOf>,
+    trigger: Trigger<OnAdd, LinkOf>,
     mut commands: Commands,
 ) {
-    commands.entity(trigger.target()).insert(
+    commands.entity(trigger.target()).insert((
         ReplicationSender::new(
             SEND_INTERVAL,
             SendUpdatesMode::SinceLastAck,
             false,
         ),
-    );
+        Name::from("Client")
+    ));
 }
 
 
@@ -75,7 +76,7 @@ pub(crate) fn handle_connected(
             }
         ))
         .id();
-    info!("Create entity {:?} for client {:?}", entity, client_id);
+    info!("Create player entity {:?} for client {:?}", entity, client_id);
 }
 
 

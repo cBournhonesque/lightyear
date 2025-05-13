@@ -26,7 +26,7 @@ impl Plugin for ExampleServerPlugin {
 ///
 /// You can add additional components to update the connection. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
-pub(crate) fn handle_new_client(
+pub(crate) fn stepper.client_app()
     trigger: Trigger<OnAdd, ClientOf>,
     mut commands: Commands,
 ) {

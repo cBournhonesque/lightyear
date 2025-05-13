@@ -59,8 +59,8 @@ fn main() {
                 client_port: CLIENT_PORT,
                 server_addr: SERVER_ADDR,
                 conditioner: Some(RecvLinkConditioner::new(LinkConditionerConfig::average_condition())),
-                transport: ClientTransports::WebTransport {} ,
-                // transport: ClientTransports::Udp,
+                // transport: ClientTransports::WebTransport,
+                transport: ClientTransports::Udp,
                 shared: SHARED_SETTINGS,
             }).id();
             app.world_mut().trigger_targets(Connect, client)
@@ -70,23 +70,22 @@ fn main() {
     #[cfg(feature = "server")]
     {
         use lightyear_examples_common::server::{ExampleServer, ServerTransports};
-        use lightyear_examples_common::server::WebTransportCertificateSettings;
         use lightyear::connection::server::Start;
 
         app.add_plugins(ExampleServerPlugin);
         if matches!(cli.mode, Some(Mode::Server)) {
             let server = app.world_mut().spawn(ExampleServer {
                 conditioner: None,
-                // transport: ServerTransports::Udp {
-                //     local_port: SERVER_PORT
-                // },
-                transport: ServerTransports::WebTransport { 
-                    local_port: SERVER_PORT,
-                    certificate: WebTransportCertificateSettings::FromFile {
-                        cert: "../certificates/cert.pem".to_string(),
-                        key: "../certificates/key.pem".to_string(),
-                    },
+                transport: ServerTransports::Udp {
+                    local_port: SERVER_PORT
                 },
+                // transport: ServerTransports::WebTransport {
+                //     local_port: SERVER_PORT,
+                //     certificate: WebTransportCertificateSettings::FromFile {
+                //         cert: "../certificates/cert.pem".to_string(),
+                //         key: "../certificates/key.pem".to_string(),
+                //     },
+                // },
                 shared: SHARED_SETTINGS
             }).id();
             app.world_mut().trigger_targets(Start, server);

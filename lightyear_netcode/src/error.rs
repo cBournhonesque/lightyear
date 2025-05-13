@@ -1,6 +1,6 @@
+use bevy::prelude::Entity;
 use core::array::TryFromSliceError;
 use core::net::SocketAddr;
-
 use lightyear_core::id::PeerId;
 use thiserror::Error;
 use tracing::{debug, warn};
@@ -16,8 +16,8 @@ pub enum Error {
     SizeMismatch(usize, usize),
     #[error("tried to send a packet to a client {0} that doesn't exist")]
     ClientNotFound(PeerId),
-    #[error("tried to send a packet to a address {0} that doesn't exist")]
-    AddressNotFound(SocketAddr),
+    #[error("tried to send a packet to an entity {0} that doesn't exist")]
+    EntityNotFound(Entity),
     #[error("tried to send a packet to a client that isn't connected")]
     ClientNotConnected(PeerId),
     #[error("failed to read connect token")]
@@ -32,8 +32,8 @@ pub enum Error {
     UnindexableConnectToken(#[from] TryFromSliceError),
     #[error("could not parse the socket addr: {0}")]
     AddressParseError(#[from] core::net::AddrParseError),
-    #[error("a client with address {0} is already connected")]
-    ClientAddressInUse(SocketAddr),
+    #[error("a client with entity {0} is already connected")]
+    ClientEntityInUse(Entity),
     #[error("client_id {0} a client with this id is already connected")]
     ClientIdInUse(PeerId),
     #[error("client_id {0} presented challenge token for unknown id")]
@@ -43,7 +43,7 @@ pub enum Error {
     #[error("client_id {0} handle_connection_request_fn returned false")]
     Denied(PeerId),
     #[error("client_id {0} server ignored non-connection-request packet")]
-    Ignored(SocketAddr),
+    Ignored(Entity),
     #[cfg(feature = "std")]
     #[error("clock went backwards (did you invent a time machine?): {0}")]
     SystemTime(#[from] std::time::SystemTimeError),

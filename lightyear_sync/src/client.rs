@@ -1,13 +1,13 @@
 /*! Handles syncing the time between the client and the server
 */
-use crate::plugin::{SyncPlugin, SyncedTimelinePlugin};
+use crate::plugin::SyncPlugin;
 use crate::prelude::client::RemoteTimeline;
 use crate::prelude::InputTimeline;
 use crate::timeline::input::Input;
 #[cfg(feature = "interpolation")]
 use crate::timeline::interpolation::InterpolationTimeline;
 use crate::timeline::remote;
-use crate::timeline::sync::SyncedTimeline;
+use crate::timeline::sync::{SyncedTimeline, SyncedTimelinePlugin};
 use bevy::prelude::*;
 use lightyear_connection::client::Client;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin};
@@ -77,13 +77,13 @@ impl Plugin for ClientPlugin {
         // TODO: should the DrivingTimeline be configurable?
         // the client will use the Input timeline as the driving timeline
         app.add_plugins(SyncedTimelinePlugin::<InputTimeline, RemoteTimeline, true>::default());
+        app.add_systems(PreUpdate, InputTimeline::advance_timeline);
 
         // remote timeline
         app.add_plugins(NetworkTimelinePlugin::<RemoteTimeline>::default());
         app.add_observer(RemoteTimeline::handle_connect);
         app.add_observer(remote::update_remote_timeline);
-        app.add_systems(FixedFirst, InputTimeline::advance_timeline);
-        app.add_systems(FixedFirst, remote::advance_remote_timeline);
+        app.add_systems(PreUpdate, remote::advance_remote_timeline);
         app.add_systems(Last, remote::reset_received_packet_remote_timeline);
     }
 }

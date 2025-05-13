@@ -32,11 +32,12 @@ impl<T: TimelineContext> From<T> for Timeline<T> {
 
 pub trait TimelineContext: Send + Sync + 'static {}
 
-impl<T: Send + Sync + 'static> TimelineContext for T {}
 
 // TODO: should we get rid of this trait and just use the Timeline<T> struct?
 //  maybe a trait gives us more options in the future
 pub trait NetworkTimeline: Component<Mutability=Mutable> {
+    const PAUSED_DURING_ROLLBACK: bool = true;
+    
     /// Estimate of the current time in the [`Timeline`]
     fn now(&self) -> TickInstant;
 
@@ -51,35 +52,6 @@ pub trait NetworkTimeline: Component<Mutability=Mutable> {
     }
 }
 
-
-// /// An extension trait for [`Time<Physics>`](Physics).
-// impl<T: TimelineContext> NetworkTimeline for Timeline<T> {
-//
-//     /// Estimate of the current time in the [`Timeline`]
-//     fn now(&self) -> TickInstant {
-//         self.now
-//     }
-//
-//     fn tick_duration(&self) -> Duration {
-//         self.tick_duration
-//     }
-//
-//     fn set_tick_duration(&mut self, duration: Duration) {
-//         self.tick_duration = duration;
-//     }
-//
-//     fn tick(&self) -> Tick {
-//         self.now().tick
-//     }
-//
-//     fn overstep(&self) -> Overstep {
-//         self.now().overstep
-//     }
-//
-//     fn apply_delta(&mut self, delta: TickDelta) {
-//         self.now = self.now + delta;
-//     }
-// }
 
 impl<C: TimelineContext, T: Component<Mutability=Mutable> + DerefMut<Target=Timeline<C>>> NetworkTimeline for T {
 
@@ -128,14 +100,15 @@ pub enum RollbackState {
     RollbackStart(Tick),
 }
 
-impl Local {}
 
 
 /// The local timeline that matches Time<Virtual>
-/// - the Tick is incremented every FixedUpdate
+/// - the Tick is incremented every FixedUpdate (including during rollback)
 /// - the overstep is set by the overstep of Time<Fixed>
 #[derive(Default, Clone, Reflect)]
 pub struct Local;
+
+impl TimelineContext for Local {}
 
 #[derive(Component, Deref, DerefMut, Default, Clone, Reflect)]
 pub struct LocalTimeline(Timeline<Local>);
@@ -197,7 +170,7 @@ impl Plugin for TimelinePlugin {
         // TODO: this should be in InputPlugin
         app.register_type::<RollbackState>();
 
-        app.register_type::<(LocalTimeline, Timeline<Local>)>();
+        app.register_type::<LocalTimeline>();
 
         app.insert_resource(TickDuration(self.tick_duration));
         app.world_mut().resource_mut::<Time<Fixed>>().set_timestep(self.tick_duration);

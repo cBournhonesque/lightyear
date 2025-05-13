@@ -32,6 +32,7 @@ use lightyear_connection::client::Connected;
 use lightyear_connection::client::{Client, PeerMetadata};
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::prelude::NetworkTarget;
+
 use lightyear_core::id::PeerId;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
@@ -171,10 +172,11 @@ impl Replicate {
                 }
                 #[cfg(feature = "server")]
                 ReplicationMode::SingleServer(target) => {
+                    use lightyear_connection::server::Started;
                     let unsafe_world = world.as_unsafe_world_cell();
                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
                     let world = unsafe { unsafe_world.world_mut() };
-                    let Ok(server) = world.query_filtered::<&Server, With<Server>>().single(world) else {
+                    let Ok(server) = world.query_filtered::<&Server, With<Started>>().single(world) else {
                         error!("No Server found in the world");
                         return;
                     };
@@ -208,15 +210,16 @@ impl Replicate {
                 }
                 #[cfg(feature = "server")]
                 ReplicationMode::Server(server, target) => {
+                    use lightyear_connection::server::Started;
                     let unsafe_world = world.as_unsafe_world_cell();
                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
                     let entity_ref = unsafe { unsafe_world.world() }.entity(*server);
-                    if !entity_ref.contains::<Server>() {
-                        error!("No Server found in the world");
+                    if !entity_ref.contains::<Started>() {
+                        error!("Server {:?} was not started", *server);
                         return;
                     }
                     let Some(server) = entity_ref.get::<Server>() else {
-                        error!("No Server found in the world");
+                        error!("Provided entity {:?} doesn't have a Server component", *server);
                         return;
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
