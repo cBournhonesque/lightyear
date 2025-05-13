@@ -1,8 +1,8 @@
 /*! Handles syncing the time between the client and the server
 */
-use crate::plugin::{SyncPlugin, SyncedTimelinePlugin};
-use crate::prelude::client::RemoteTimeline;
+use crate::plugin::SyncPlugin;
 use crate::prelude::InputTimeline;
+use crate::prelude::client::RemoteTimeline;
 use crate::timeline::input::Input;
 use crate::timeline::remote;
 use crate::timeline::sync::SyncedTimelinePlugin;
@@ -57,8 +57,7 @@ impl ClientPlugin {
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<(InputTimeline, RemoteTimeline)>();
-        #[cfg(feature = "interpolation")]
-        app.register_type::<InterpolationTimeline>();
+
         if !app.is_plugin_added::<SyncPlugin>() {
             app.add_plugins(SyncPlugin);
         }
@@ -75,6 +74,7 @@ impl Plugin for ClientPlugin {
 
         #[cfg(feature = "interpolation")]
         {
+            app.register_type::<InterpolationTimeline>();
             app.register_required_components::<Client, InterpolationTimeline>();
             app.add_plugins(
                 SyncedTimelinePlugin::<InterpolationTimeline, RemoteTimeline>::default(),

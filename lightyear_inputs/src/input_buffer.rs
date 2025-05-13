@@ -80,7 +80,7 @@ impl<T> Default for InputBuffer<T> {
 
 impl<T: Clone + PartialEq> InputBuffer<T> {
     /// Number of elements in the buffer
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.buffer.len()
     }
 
