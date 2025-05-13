@@ -10,10 +10,10 @@ use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy::prelude::{Commands, Component, Entity, Event, Query, Res, World};
-use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
+use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
 use tracing::{error, info, trace};
@@ -55,7 +55,8 @@ impl<M: Event> TriggerSender<M> {
         sender.send.drain(..).try_for_each(|(message, channel_kind, priority)| {
             // we write the message NetId, and then serialize the message
             net_id.to_bytes(&mut sender.writer)?;
-            serialize_metadata.serialize::<SendEntityMap, TriggerMessage<M>, M>(&message, &mut sender.writer, entity_map)?;
+            // SAFETY: the message has been checked to be of type `TriggerMessage<M>`
+            unsafe { serialize_metadata.serialize::<SendEntityMap, TriggerMessage<M>, M>(&message, &mut sender.writer, entity_map)? };
             let bytes = sender.writer.split();
             trace!("Sending message of type {:?} with net_id {net_id:?} on channel {channel_kind:?}", core::any::type_name::<TriggerMessage<M>>());
             transport.send_erased(channel_kind, bytes, priority)?;

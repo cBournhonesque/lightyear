@@ -11,10 +11,10 @@ use bevy::ecs::entity::{EntityMapper, MapEntities};
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy::prelude::{Component, Entity, Event, Query, Reflect, Res, With, Without, World};
 use lightyear_connection::client::Connected;
-use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
+use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
 use serde::{Deserialize, Serialize};
@@ -90,7 +90,8 @@ impl<M: Message> MessageSender<M> {
         sender.send.drain(..).try_for_each(|(message, channel_kind, priority)| {
             // we write the message NetId, and then serialize the message
             net_id.to_bytes(&mut sender.writer)?;
-            serialize_metadata.serialize::<SendEntityMap, M, M>(&message, &mut sender.writer, entity_map)?;
+            // SAFETY: the message has been checked to be of type `M`
+            unsafe { serialize_metadata.serialize::<SendEntityMap, M, M>(&message, &mut sender.writer, entity_map)? };
             let bytes = sender.writer.split();
             trace!("Sending message of type {:?} with net_id {net_id:?}/kind {:?} on channel {channel_kind:?}", core::any::type_name::<M>(), MessageKind::of::<M>());
             transport.send_erased(channel_kind, bytes, priority)?;
@@ -134,7 +135,7 @@ impl MessagePlugin {
     ) {
         // We use Arc to make the query Clone, since we know that we will only access MessageSender<M> components
         // on different entities
-        let mut message_sender_query = Arc::new(message_sender_query);
+        let message_sender_query = Arc::new(message_sender_query);
         transport_query
             .par_iter_mut()
             .for_each(|(entity, transport, mut message_manager)| {

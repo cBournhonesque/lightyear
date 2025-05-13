@@ -115,15 +115,14 @@
 //     }
 // }
 
-use crate::MessageManager;
 use crate::registry::MessageRegistry;
+use crate::MessageManager;
 use bevy::app::{App, Last, PostUpdate, PreUpdate};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
 use bevy::prelude::{
     IntoScheduleConfigs, OnAdd, Plugin, Query, SystemParamBuilder, SystemSet, Trigger,
 };
 use lightyear_connection::client::Disconnected;
-use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::plugin::{TransportPlugin, TransportSet};
 use lightyear_transport::prelude::{ChannelRegistry, Transport};
 
@@ -154,7 +153,7 @@ impl MessagePlugin {
         mut manager_query: Query<&mut MessageManager>,
     ) {
         if let Ok(mut manager) = manager_query.get_mut(trigger.target()) {
-            manager.entity_mapper = RemoteEntityMap::default();
+            manager.entity_mapper.clear();
         }
     }
 }
@@ -253,8 +252,8 @@ mod tests {
     use lightyear_core::prelude::Tick;
     use lightyear_link::Link;
     use lightyear_transport::channel::ChannelKind;
-    use lightyear_transport::plugin::tests::C;
     use lightyear_transport::plugin::tests::TestTransportPlugin;
+    use lightyear_transport::plugin::tests::C;
     use serde::{Deserialize, Serialize};
     use test_log::test;
 

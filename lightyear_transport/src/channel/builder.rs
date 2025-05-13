@@ -14,7 +14,6 @@ use bevy::prelude::Component;
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_link::Link;
-use lightyear_macros::Channel;
 use lightyear_utils::collections::HashMap;
 
 use crate::channel::Channel;

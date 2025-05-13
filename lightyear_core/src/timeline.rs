@@ -127,7 +127,7 @@ impl<T> Default for NetworkTimelinePlugin<T> {
 }
 
 impl<T: NetworkTimeline> Plugin for NetworkTimelinePlugin<T> {
-    fn build(&self, app: &mut App) {}
+    fn build(&self, _: &mut App) {}
 }
 
 /// Event that can be triggered to update the tick duration.

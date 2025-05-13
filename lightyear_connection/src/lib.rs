@@ -22,6 +22,7 @@ extern crate alloc;
 extern crate core;
 
 use crate::client::{Client, Connected, Connecting, Disconnected};
+use crate::client_of::ClientOf;
 #[cfg(feature = "server")]
 use crate::server::{Started, Stopped};
 use bevy::app::{App, Plugin};
@@ -54,9 +55,9 @@ pub enum ConnectionSet {
 }
 
 pub mod prelude {
-    pub use crate::ConnectionSet;
     pub use crate::direction::NetworkDirection;
     pub use crate::network_target::NetworkTarget;
+    pub use crate::ConnectionSet;
 
     pub use crate::client::{
         Client, Connect, Connected, Connecting, ConnectionError, Disconnect, Disconnected,
@@ -78,9 +79,9 @@ pub struct ConnectionPlugin;
 
 impl Plugin for ConnectionPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<(Client, Connected, Connecting, Disconnected)>();
+        app.register_type::<(Client, ClientOf, Connected, Connecting, Disconnected)>();
 
         #[cfg(feature = "server")]
-        app.register_type::<(ClientOf, Started, Stopped)>();
+        app.register_type::<(Started, Stopped)>();
     }
 }

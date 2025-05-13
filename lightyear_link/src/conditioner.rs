@@ -24,7 +24,6 @@ pub struct LinkConditionerConfig {
 pub struct LinkConditioner<P: Eq> {
     config: LinkConditionerConfig,
     pub time_queue: ReadyBuffer<Instant, P>,
-    last_packet: Option<P>,
 }
 
 impl<P: Eq> LinkConditioner<P> {
@@ -32,7 +31,6 @@ impl<P: Eq> LinkConditioner<P> {
         LinkConditioner {
             config,
             time_queue: ReadyBuffer::new(),
-            last_packet: None,
         }
     }
 

@@ -5,7 +5,7 @@ use core::time::Duration;
 use super::error::ChannelReceiveError;
 use bytes::Bytes;
 use lightyear_core::tick::Tick;
-use tracing::{info, trace};
+use tracing::trace;
 
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;

@@ -2,7 +2,6 @@
 use alloc::{vec, vec::Vec};
 use core::time::Duration;
 use indexmap::{IndexMap, IndexSet};
-use lightyear_utils::collections::HashMap;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use tracing::trace;
 
@@ -10,7 +9,6 @@ use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
 use crate::packet::stats_manager::packet::PacketStatsManager;
 use lightyear_core::tick::Tick;
-use lightyear_core::time::TickInstant;
 use lightyear_link::LinkStats;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;

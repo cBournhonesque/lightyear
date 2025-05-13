@@ -5,8 +5,8 @@ use crate::{SerializationError, ToBytes};
 use bevy::ecs::entity::MapEntities;
 use bevy::ptr::{Ptr, PtrMut};
 use core::any::TypeId;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 // TODO: this should be in lightyear_serde? it's not strictly related to messages?
 /// Stores function pointers related to serialization and deserialization
@@ -142,6 +142,7 @@ pub type ContextSerializeFn<C, M, I> =
 pub type ContextDeserializeFn<C, M, I> =
     fn(&mut C, reader: &mut Reader, DeserializeFn<I>) -> Result<M, SerializationError>;
 
+#[allow(unused)]
 type CloneFn<M> = fn(&M) -> M;
 
 /// Type of the entity mapping function
@@ -241,7 +242,7 @@ unsafe fn erased_serialize_fn<M: 'static>(
 ) -> Result<(), SerializationError> {
     unsafe {
         // SAFETY: the Ptr was created for the message of type M
-        let message = unsafe { message.deref::<M>() };
+        let message = message.deref::<M>();
         erased_serialize_fn.serialize::<_, M, M>(message, writer, entity_map)
     }
 }

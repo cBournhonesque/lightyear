@@ -7,11 +7,9 @@ use lightyear_utils::collections::HashMap;
 use crate::channel::ChannelKind;
 use crate::channel::builder::SenderMetadata;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
-use crate::packet::message::{FragmentData, MessageData, MessageId, SendMessage, SingleData};
-use crossbeam_channel::{Receiver, Sender};
+use crate::packet::message::{FragmentData, MessageData, SendMessage, SingleData};
 use governor::{DefaultDirectRateLimiter, Quota};
 use lightyear_core::network::NetId;
-use lightyear_core::tick::Tick;
 use nonzero_ext::*;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};

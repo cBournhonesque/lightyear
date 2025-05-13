@@ -1,6 +1,6 @@
 use alloc::collections::{BTreeMap, VecDeque};
 #[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use bevy::platform::collections::HashSet;
 use bevy::prelude::{Real, Time, Timer, TimerMode};
 
@@ -10,9 +10,7 @@ use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SendMessage, SingleData};
 use bytes::Bytes;
 use core::time::Duration;
-use crossbeam_channel::{Receiver, Sender};
 use lightyear_link::LinkStats;
-use lightyear_serde::SerializationError;
 use tracing::trace;
 
 #[derive(Debug)]

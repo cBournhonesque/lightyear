@@ -2,8 +2,6 @@ use crate::channel::senders::ChannelSend;
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
 use alloc::collections::VecDeque;
-#[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
 use bevy::prelude::{Real, Time};
 use bevy::time::{Timer, TimerMode};
 use bytes::Bytes;

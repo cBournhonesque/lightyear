@@ -1,6 +1,4 @@
 use alloc::collections::VecDeque;
-#[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
 use bevy::prelude::{Real, Time, Timer};
 use bevy::time::TimerMode;
 use core::time::Duration;

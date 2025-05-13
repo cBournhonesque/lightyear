@@ -4,10 +4,9 @@ use crate::reader::{ReadInteger, ReadVarInt, Reader};
 use crate::varint::varint_len;
 use crate::writer::WriteInteger;
 use crate::{SerializationError, ToBytes};
-use bevy::ecs::entity::{EntityMapper, hash_map::EntityHashMap};
+use bevy::ecs::entity::{hash_map::EntityHashMap, EntityMapper};
 use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
-use core::hash::Hasher;
 use tracing::{debug, error, trace};
 
 const MARKED: u64 = 1 << 62;
@@ -190,11 +189,12 @@ impl RemoteEntityMap {
         None
     }
 
+    #[allow(unused)]
     pub(crate) fn is_empty(&self) -> bool {
         self.remote_to_local.is_empty() && self.local_to_remote.is_empty()
     }
 
-    fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.local_to_remote.clear();
         self.remote_to_local.clear();
     }

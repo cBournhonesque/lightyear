@@ -5,19 +5,14 @@ use crate::channel::senders::ChannelSend;
 use crate::error::TransportError;
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
-use crate::packet::message::{FragmentData, ReceiveMessage, SendMessage, SingleData};
-use crate::packet::packet::Packet;
+use crate::packet::message::{FragmentData, ReceiveMessage, SingleData};
 use bevy::app::App;
-use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
-use bevy::ecs::world::FilteredEntityMut;
 use bevy::prelude::*;
 use bytes::Bytes;
-use lightyear_connection::client::Connected;
 use lightyear_connection::prelude::Disconnected;
-use lightyear_core::network::NetId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_link::{Link, LinkPlugin, LinkSet, Linked, Unlinked};
+use lightyear_link::{Link, LinkPlugin, LinkSet, Linked};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
 use tracing::{error, trace, warn};
@@ -53,7 +48,7 @@ impl TransportPlugin {
             .par_iter_mut()
             .for_each(|(entity, mut link, mut transport)| {
                 // enable split borrows
-                let mut transport = &mut *transport;
+                let transport = &mut *transport;
                 // update with the latest time
                 transport.senders.values_mut().for_each(|sender_metadata| {
                     sender_metadata.sender.update(&time, &link.stats);
@@ -211,7 +206,7 @@ impl TransportPlugin {
         query.par_iter_mut().for_each(|(entity, mut link, mut transport, timeline)| {
             let tick = timeline.tick();
             // allow split borrows
-            let mut transport = &mut *transport;
+            let transport = &mut *transport;
 
             // buffer all new messages in the Sender
             transport.recv_channel.try_iter().try_for_each(|(channel_kind, bytes, priority)| {
@@ -335,7 +330,7 @@ impl Plugin for TransportPlugin {
 #[cfg(any(test, feature = "test_utils"))]
 pub mod tests {
     use super::*;
-    use crate::channel::registry::{AppChannelExt, ChannelKind};
+    use crate::channel::registry::AppChannelExt;
     use crate::prelude::{ChannelMode, ChannelSettings};
 
     pub struct C;

@@ -1,11 +1,9 @@
 use crate::channel::Channel;
-use crate::channel::builder::{AuthorityChannel, ChannelSettings, InputChannel};
+use crate::channel::builder::ChannelSettings;
 use bevy::app::App;
-use bevy::ecs::component::ComponentId;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::{Resource, TypePath};
 use core::any::TypeId;
-use core::time::Duration;
 #[cfg(any(feature = "client", feature = "server"))]
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
@@ -64,7 +62,7 @@ pub struct ChannelRegistry {
 
 impl ChannelRegistry {
     pub(crate) fn new() -> Self {
-        let mut registry = Self {
+        let registry = Self {
             settings_map: HashMap::default(),
             kind_map: TypeMapper::new(),
             built: false,

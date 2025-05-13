@@ -1,5 +1,5 @@
-use crate::SerializationError;
 use crate::varint::varint_parse_len;
+use crate::SerializationError;
 use bytes::Bytes;
 use no_std_io2::io::{Cursor, Error, Read, Result, Seek, SeekFrom};
 
@@ -179,7 +179,7 @@ pub(crate) mod no_std {
         #[inline(always)]
         fn read(&mut self, bytes: &mut [u8]) -> core::result::Result<(), DecodeError> {
             self.read_exact(bytes)
-                .map_err(|inner| DecodeError::Other("could not decode"))
+                .map_err(|_| DecodeError::Other("could not decode"))
         }
     }
 }

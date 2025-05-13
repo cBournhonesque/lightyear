@@ -1,5 +1,5 @@
-use crate::Message;
 use crate::registry::MessageError;
+use crate::Message;
 use bevy::prelude::ParallelCommands;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::ReceiveEntityMap;
@@ -42,9 +42,9 @@ pub(crate) type ReceiveTriggerFn = unsafe fn(
 pub(crate) unsafe fn receive_trigger_typed<M: Message + Event>(
     commands: &ParallelCommands,
     reader: &mut Reader,
-    channel_kind: ChannelKind,
-    remote_tick: Tick,
-    message_id: Option<MessageId>,
+    _channel_kind: ChannelKind,
+    _remote_tick: Tick,
+    _message_id: Option<MessageId>,
     serialize_metadata: &ErasedSerializeFns,
     entity_map: &mut ReceiveEntityMap,
     from: PeerId,

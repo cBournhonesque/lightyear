@@ -1,12 +1,7 @@
 use crate::client::{
-    Client, ClientState, Connect, Connected, Connecting, Disconnected, Disconnecting,
+    Disconnected, Disconnecting,
 };
 use crate::client_of::ClientOf;
-use crate::direction::NetworkDirection;
-#[cfg(not(feature = "std"))]
-use alloc::string::String;
-#[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
 use bevy::app::{App, Last, Plugin};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
@@ -14,7 +9,7 @@ use bevy::prelude::{Commands, Component, Entity, Event, OnAdd, Query, Reflect, T
 use core::fmt::Debug;
 use lightyear_link::prelude::Server;
 use lightyear_link::{LinkStart, Unlinked};
-use tracing::{info, trace};
+use tracing::trace;
 
 /// Errors related to the server connection
 #[derive(thiserror::Error, Debug)]

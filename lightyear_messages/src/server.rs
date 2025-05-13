@@ -55,7 +55,7 @@ impl<'w, 's> ServerMultiMessageSender<'w, 's> {
                 server.collection().iter().copied(),
                 &self.metadata.mapping,
                 &mut |sender| {
-                    if let Ok((_, mut transport)) = self.sender.query.get_mut(sender) {
+                    if let Ok((_, transport)) = self.sender.query.get(sender) {
                         transport
                             .send_with_priority::<C>(bytes.clone(), priority)
                             .inspect_err(|e| error!("Failed to send message: {e}"))
@@ -68,7 +68,7 @@ impl<'w, 's> ServerMultiMessageSender<'w, 's> {
                 server.collection().iter().copied(),
                 &self.metadata.mapping,
                 &mut |sender| {
-                    if let Ok((_, mut transport)) = self.sender.query.get_mut(sender) {
+                    if let Ok((_, transport)) = self.sender.query.get(sender) {
                         self.sender
                             .registry
                             .serialize::<M>(

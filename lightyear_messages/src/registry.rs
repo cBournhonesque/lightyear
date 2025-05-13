@@ -23,8 +23,8 @@ use lightyear_transport::channel::senders::ChannelSenderEnum;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::{ChannelMode, ChannelRegistry, ChannelSettings};
 use lightyear_utils::registry::{TypeKind, TypeMapper};
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use tracing::debug;
 
 #[derive(thiserror::Error, Debug)]
@@ -294,9 +294,9 @@ pub struct MessageRegistration<'a, M> {
     pub(crate) _marker: core::marker::PhantomData<M>,
 }
 
-impl<M: Message> MessageRegistration<'_, M> {
+impl<'a, M: Message> MessageRegistration<'a, M> {
     #[cfg(feature = "test_utils")]
-    pub fn new(app: &mut App) -> Self {
+    pub fn new(app: &'a mut App) -> Self {
         Self {
             app,
             _marker: core::marker::PhantomData,
@@ -389,9 +389,9 @@ impl AppMessageExt for App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lightyear_serde::SerializationError;
     use lightyear_serde::reader::ReadInteger;
     use lightyear_serde::writer::WriteInteger;
+    use lightyear_serde::SerializationError;
     use serde::Deserialize;
 
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]

@@ -6,8 +6,8 @@
 //! The idea is that we have one allocation under the [`BytesMut`], when we finish writing a message,
 //! we can split the message of as a separate [`Bytes`], but
 
-use crate::SerializationError;
 use crate::varint::varint_len;
+use crate::SerializationError;
 use bytes::{BufMut, Bytes, BytesMut};
 use no_std_io2::io;
 use no_std_io2::io::{Result, Write};
@@ -224,7 +224,7 @@ pub(crate) mod no_std {
         #[inline(always)]
         fn write(&mut self, bytes: &[u8]) -> core::result::Result<(), EncodeError> {
             self.write_all(bytes)
-                .map_err(|inner| EncodeError::Other("encode error"))?;
+                .map_err(|_| EncodeError::Other("encode error"))?;
             Ok(())
         }
     }
