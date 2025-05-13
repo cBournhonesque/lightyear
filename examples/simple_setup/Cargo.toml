@@ -14,8 +14,9 @@ publish = false
 
 [dependencies]
 clap.workspace = true
-lightyear.workspace = true
+lightyear = { "workspace" = true, features = ["udp"]}
 bevy = { workspace = true, features = [
+  "bevy_log",
   "bevy_render",
   "bevy_core_pipeline",
   "bevy_winit",

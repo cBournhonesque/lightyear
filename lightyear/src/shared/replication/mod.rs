@@ -303,7 +303,7 @@ impl ToBytes for EntityUpdatesMessage {
 }
 
 /// Trait for a service that participates in replication.
-pub(crate) trait ReplicationPeer: Resource {
+pub trait ReplicationPeer: Resource {
     type Events: IterComponentInsertEvent<Self::EventContext>
         + IterComponentRemoveEvent<Self::EventContext>
         + IterComponentUpdateEvent<Self::EventContext>
