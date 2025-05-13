@@ -1,10 +1,10 @@
 //! Provides a system parameter for performing spatial queries while doing lag compensation.
-use bevy::ecs::system::SystemParam;
-use std::cell::RefCell;
 use super::history::{AabbEnvelopeHolder, LagCompensationConfig, LagCompensationHistory};
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use lightyear::prelude::client::InterpolationDelay;
 use lightyear::prelude::TickManager;
+use lightyear::prelude::client::InterpolationDelay;
+use std::cell::RefCell;
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use {
     avian2d::{math::*, prelude::*},
@@ -97,10 +97,16 @@ impl LagCompensationSpatialQuery<'_, '_> {
                 let Some((source_idx, (_, (start_position, start_rotation, _)))) = history
                     .into_iter()
                     .enumerate()
-                    .find(|(_, (history_tick, _))| *history_tick == interpolation_tick) else {
+                    .find(|(_, (history_tick, _))| *history_tick == interpolation_tick)
+                else {
                     let oldest_tick = history.front().map(|(tick, _)| *tick);
                     let recent_tick = history.back().map(|(tick, _)| *tick);
-                    error!(?oldest_tick, ?recent_tick, ?interpolation_tick, "Could not find history tick matching interpolation_tick");
+                    error!(
+                        ?oldest_tick,
+                        ?recent_tick,
+                        ?interpolation_tick,
+                        "Could not find history tick matching interpolation_tick"
+                    );
                     return false;
                 };
                 let (_, (target_position, target_rotation, _)) =

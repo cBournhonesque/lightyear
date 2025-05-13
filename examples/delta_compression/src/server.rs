@@ -12,10 +12,13 @@ use bevy::app::PluginGroupBuilder;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 // Use server ActionState, new connection types, replication components
-use lightyear::prelude::server::{ActionState, ClientOf, Connected, Replicate, ReplicationSender, ServerConnectionManager, ServerPlugin};
+use lightyear::prelude::server::{
+    ActionState, ClientOf, Connected, Replicate, ReplicationSender, ServerConnectionManager,
+    ServerPlugin,
+};
 use lightyear::prelude::*;
-use std::sync::Arc;
-use lightyear_examples_common::shared::SEND_INTERVAL; // Import SEND_INTERVAL
+use lightyear_examples_common::shared::SEND_INTERVAL;
+use std::sync::Arc; // Import SEND_INTERVAL
 
 #[derive(Clone)] // Added Clone
 pub struct ExampleServerPlugin;
@@ -53,12 +56,15 @@ pub(crate) fn handle_connected(
     query: Query<&Connected>, // Query Connected component
 ) {
     let client_entity = trigger.target();
-    let Ok(connected) = query.get(client_entity) else { return };
+    let Ok(connected) = query.get(client_entity) else {
+        return;
+    };
     let client_id = connected.peer_id; // Get PeerId
 
     // Standard prediction: predict owner, interpolate others
     let prediction_target = PredictionTarget::to_clients(NetworkTarget::Single(client_id));
-    let interpolation_target = InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id));
+    let interpolation_target =
+        InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id));
 
     let replicate = Replicate::to_clients(NetworkTarget::All); // Replicate to all
 
@@ -68,11 +74,7 @@ pub(crate) fn handle_connected(
         prediction_target,
         interpolation_target,
         // Add ReplicationSender to send updates back to clients
-        ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ),
+        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
     ));
     let entity = entity_commands.id();
     entity_map.0.insert(client_id, entity);
@@ -102,21 +104,29 @@ pub(crate) fn handle_disconnected(
     // For simplicity, let's try finding the PeerId via the map.
 
     // Find which PeerId disconnected by searching the map (less efficient)
-    let disconnected_peer_id = entity_map.0.iter()
+    let disconnected_peer_id = entity_map
+        .0
+        .iter()
         .find(|(_, &entity)| entity == client_entity)
         .map(|(peer_id, _)| *peer_id);
 
     if let Some(client_id) = disconnected_peer_id {
-         debug!("Client {:?} disconnected", client_id);
-         // Remove the client from the map and despawn their player entity
-         if let Some(player_entity) = entity_map.0.remove(&client_id) {
-             if let Some(entity_commands) = commands.get_entity(player_entity) {
-                 info!("Despawning player entity {:?} for client {:?}", player_entity, client_id);
-                 entity_commands.despawn();
-             }
-         }
+        debug!("Client {:?} disconnected", client_id);
+        // Remove the client from the map and despawn their player entity
+        if let Some(player_entity) = entity_map.0.remove(&client_id) {
+            if let Some(entity_commands) = commands.get_entity(player_entity) {
+                info!(
+                    "Despawning player entity {:?} for client {:?}",
+                    player_entity, client_id
+                );
+                entity_commands.despawn();
+            }
+        }
     } else {
-        error!("Could not find disconnected client in ClientEntityMap for entity {:?}", client_entity);
+        error!(
+            "Could not find disconnected client in ClientEntityMap for entity {:?}",
+            client_entity
+        );
     }
 
     // Old logic using ControlledEntities:
@@ -153,7 +163,8 @@ pub(crate) fn send_message(
         let message = Message1(5);
         info!("Send message: {:?}", message);
         // Use send_message_to_target and pass message by value
-        server.send_message_to_target::<Channel1, Message1>(message, NetworkTarget::All)
+        server
+            .send_message_to_target::<Channel1, Message1>(message, NetworkTarget::All)
             .unwrap_or_else(|e| {
                 error!("Failed to send message: {:?}", e);
             });

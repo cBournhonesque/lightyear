@@ -11,7 +11,6 @@ pub(crate) mod input_message;
 
 pub mod plugin;
 
-
 pub mod prelude {
     pub use crate::action_state::{ActionState, InputMarker};
     pub use crate::plugin::InputPlugin;

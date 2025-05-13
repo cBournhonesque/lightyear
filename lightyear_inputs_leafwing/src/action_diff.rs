@@ -179,7 +179,7 @@ mod tests {
         math::{Vec2, Vec3},
         prelude::Reflect,
     };
-    use leafwing_input_manager::{action_state::ActionState, Actionlike};
+    use leafwing_input_manager::{Actionlike, action_state::ActionState};
 
     #[derive(
         Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash, Reflect, Actionlike,

@@ -65,8 +65,7 @@ mod tests {
 
         let sender = FragmentSender::new();
 
-        let fragments = sender
-            .build_fragments(message_id, None, bytes.clone());
+        let fragments = sender.build_fragments(message_id, None, bytes.clone());
         let expected_num_fragments = 3;
         assert_eq!(fragments.len(), expected_num_fragments);
         assert_eq!(

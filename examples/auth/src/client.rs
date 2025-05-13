@@ -21,7 +21,6 @@ use lightyear::prelude::*;
 
 use crate::shared;
 
-
 pub struct ExampleClientPlugin {
     pub auth_backend_address: SocketAddr,
 }
@@ -39,7 +38,8 @@ impl Plugin for ExampleClientPlugin {
         if let Ok(button_entity) = app
             .world_mut()
             .query_filtered::<Entity, With<Button>>()
-            .single(app.world()) {
+            .single(app.world())
+        {
             app.world_mut().despawn(button_entity);
         }
 
@@ -67,12 +67,10 @@ fn fetch_connect_token(
         if let Some(connect_token) = block_on(future::poll_once(task)) {
             info!("Received ConnectToken, starting connection!");
             let client = client.into_inner();
-            commands.entity(client).insert(
-                NetcodeClient::new(
-                    Authentication::Token(connect_token),
-                    NetcodeConfig::default()
-                )?
-            );
+            commands.entity(client).insert(NetcodeClient::new(
+                Authentication::Token(connect_token),
+                NetcodeConfig::default(),
+            )?);
             commands.trigger_targets(Connect, client);
             connect_token_request.task = None;
         }
@@ -83,7 +81,6 @@ fn fetch_connect_token(
 /// Component to identify the text displaying the client id
 #[derive(Component)]
 pub struct ClientIdText;
-
 
 /// Get a ConnectToken via a TCP connection to the authentication server
 async fn get_connect_token_from_auth_backend(auth_backend_address: SocketAddr) -> ConnectToken {
@@ -119,7 +116,7 @@ async fn get_connect_token_from_auth_backend(auth_backend_address: SocketAddr) -
 fn on_disconnect(
     trigger: Trigger<OnInsert, Disconnected>,
     mut commands: Commands,
-    debug_text: Query<Entity, With<ClientIdText>>
+    debug_text: Query<Entity, With<ClientIdText>>,
 ) {
     for entity in debug_text.iter() {
         commands.entity(entity).despawn();
@@ -163,21 +160,16 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                     |trigger: Trigger<Pointer<Click>>,
                      mut commands: Commands,
                      mut task_state: ResMut<ConnectTokenRequestTask>,
-                    client: Single<(Entity, &Client)>| {
+                     client: Single<(Entity, &Client)>| {
                         let (client_entity, client) = client.into_inner();
                         match client.state {
                             ClientState::Disconnected => {
                                 info!("Starting task to get ConnectToken");
 
                                 let auth_backend_addr = task_state.auth_backend_addr;
-                                let task = IoTaskPool::get().spawn_local(Compat::new(
-                                    async move {
-                                        get_connect_token_from_auth_backend(
-                                            auth_backend_addr
-                                        )
-                                        .await
-                                    },
-                                ));
+                                let task = IoTaskPool::get().spawn_local(Compat::new(async move {
+                                    get_connect_token_from_auth_backend(auth_backend_addr).await
+                                }));
                                 task_state.task = Some(task);
                             }
                             _ => {

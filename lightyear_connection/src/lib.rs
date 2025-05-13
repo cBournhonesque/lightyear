@@ -18,7 +18,6 @@ This crates provide concepts that are only useful for a client-server architectu
 //   Maybe each crate can have #[client] and #[server] features for client-server specific stuff
 //   And then lightyear_client just calls the relevant functions from all the other crates (inputs, etc.)
 
-
 extern crate alloc;
 extern crate core;
 
@@ -33,8 +32,8 @@ pub mod client;
 #[cfg(feature = "server")]
 pub mod server;
 
-pub mod network_target;
 pub mod direction;
+pub mod network_target;
 
 pub mod client_of;
 pub mod identity;
@@ -55,11 +54,13 @@ pub enum ConnectionSet {
 }
 
 pub mod prelude {
+    pub use crate::ConnectionSet;
     pub use crate::direction::NetworkDirection;
     pub use crate::network_target::NetworkTarget;
-    pub use crate::ConnectionSet;
 
-    pub use crate::client::{Client, Connect, Connected, Connecting, ConnectionError, Disconnect, Disconnected};
+    pub use crate::client::{
+        Client, Connect, Connected, Connecting, ConnectionError, Disconnect, Disconnected,
+    };
 
     #[cfg(feature = "client")]
     pub mod client {}
@@ -71,27 +72,15 @@ pub mod prelude {
     }
 }
 
-
 /// Plugin to handle the connection logic.
 /// Registers relevant types.
 pub struct ConnectionPlugin;
 
 impl Plugin for ConnectionPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<(
-            Client,
-            Connected,
-            Connecting,
-            Disconnected
-        )>();
+        app.register_type::<(Client, Connected, Connecting, Disconnected)>();
 
         #[cfg(feature = "server")]
-        app.register_type::<(
-            ClientOf,
-            Started,
-            Stopped,
-        )>();
+        app.register_type::<(ClientOf, Started, Stopped)>();
     }
 }
-
-

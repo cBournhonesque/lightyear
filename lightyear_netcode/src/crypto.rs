@@ -1,9 +1,9 @@
-use no_std_io2::io as io;
+use no_std_io2::io;
 
 use super::{MAC_BYTES, PRIVATE_KEY_BYTES};
 use chacha20poly1305::{
-    aead::{rand_core::RngCore, OsRng},
     AeadInPlace, ChaCha20Poly1305, KeyInit, Tag, XChaCha20Poly1305, XNonce,
+    aead::{OsRng, rand_core::RngCore},
 };
 use lightyear_serde::writer::WriteInteger;
 

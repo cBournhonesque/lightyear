@@ -15,7 +15,9 @@ pub struct Position(pub(crate) Vec2);
 
 impl Ease for Position {
     fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
-        FunctionCurve::new(Interval::UNIT, move |t| Position(Vec2::lerp(start.0, end.0, t)))
+        FunctionCurve::new(Interval::UNIT, move |t| {
+            Position(Vec2::lerp(start.0, end.0, t))
+        })
     }
 }
 
@@ -25,7 +27,6 @@ pub struct PlayerColor(pub(crate) Color);
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 // Marker component
 pub struct CircleMarker;
-
 
 // Inputs
 
@@ -70,6 +71,5 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<CircleMarker>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
-
     }
 }

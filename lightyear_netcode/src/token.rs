@@ -1,14 +1,15 @@
 use super::{
+    CONNECT_TOKEN_BYTES, CONNECTION_TIMEOUT_SEC, NETCODE_VERSION, PRIVATE_KEY_BYTES,
+    USER_DATA_BYTES,
     bytes::Bytes,
     crypto::{self, Key},
     error::Error,
-    utils, CONNECTION_TIMEOUT_SEC, CONNECT_TOKEN_BYTES, NETCODE_VERSION, PRIVATE_KEY_BYTES,
-    USER_DATA_BYTES,
+    utils,
 };
 use alloc::borrow::ToOwned;
 #[cfg(not(feature = "std"))]
 use alloc::format;
-use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305, XNonce};
+use chacha20poly1305::{AeadCore, XChaCha20Poly1305, XNonce, aead::OsRng};
 use core::mem::size_of;
 use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use lightyear_serde::reader::ReadInteger;
@@ -16,7 +17,6 @@ use lightyear_serde::writer::WriteInteger;
 use lightyear_utils::free_list::{FreeList, FreeListIter};
 use no_std_io2::io::{self, Write};
 use thiserror::Error;
-
 
 const MAX_SERVERS_PER_CONNECT: usize = 32;
 pub(crate) const TOKEN_EXPIRE_SEC: i32 = 30;
@@ -85,7 +85,7 @@ impl Bytes for AddressList {
         buf.write_u32(self.len() as u32)?;
         for (_, addr) in self.iter() {
             match addr {
-               SocketAddr::V4(addr_v4) => {
+                SocketAddr::V4(addr_v4) => {
                     buf.write_u8(Self::IPV4)?;
                     buf.write_all(&addr_v4.ip().octets())?;
                     buf.write_u16(addr_v4.port())?;

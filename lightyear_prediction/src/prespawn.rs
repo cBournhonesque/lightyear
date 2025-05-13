@@ -1,9 +1,9 @@
 //! Handles spawning entities that are predicted
 
+use crate::Predicted;
 use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::PredictionSet;
 use crate::pre_prediction::PrePredicted;
-use crate::Predicted;
 use bevy::ecs::archetype::Archetype;
 use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
 use bevy::ecs::world::DeferredWorld;
@@ -13,9 +13,11 @@ use core::hash::{Hash, Hasher};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
 use lightyear_replication::components::{Replicated, ShouldBeInterpolated};
 use lightyear_replication::control::Controlled;
-use lightyear_replication::prelude::{Confirmed, ReplicateLike, ReplicationReceiver, ShouldBePredicted};
-use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::prelude::{
+    Confirmed, ReplicateLike, ReplicationReceiver, ShouldBePredicted,
+};
 use lightyear_replication::registry::ComponentKind;
+use lightyear_replication::registry::registry::ComponentRegistry;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, trace, warn};
 
@@ -133,7 +135,10 @@ impl PreSpawnedPlugin {
                 {
                     metrics::counter!("prespawn::no_match").increment(1);
                 }
-                debug!(?server_hash, "Received a PreSpawned entity from the server with a hash that does not match any client entity");
+                debug!(
+                    ?server_hash,
+                    "Received a PreSpawned entity from the server with a hash that does not match any client entity"
+                );
                 // remove the PreSpawned so that the entity can be normal-predicted
                 commands.entity(confirmed_entity).remove::<PreSpawned>();
                 return;
@@ -141,7 +146,10 @@ impl PreSpawnedPlugin {
 
             // if there are multiple entities, we will use the first one
             let client_entity = client_entity_list.pop().unwrap();
-            debug!("found a client pre-spawned entity corresponding to server pre-spawned entity! Spawning/finding a Predicted entity for it {}", server_hash);
+            debug!(
+                "found a client pre-spawned entity corresponding to server pre-spawned entity! Spawning/finding a Predicted entity for it {}",
+                server_hash
+            );
 
             // we found the corresponding client entity!
             // 1.a if the client_entity exists, remove the PreSpawned component from the client entity
@@ -181,9 +189,7 @@ impl PreSpawnedPlugin {
             // 2. assign Confirmed to the server entity's counterpart, and remove PreSpawned
             // get the confirmed tick for the entity
             // if we don't have it, something has gone very wrong
-            let confirmed_tick = receiver
-                .get_confirmed_tick(confirmed_entity)
-                .unwrap();
+            let confirmed_tick = receiver.get_confirmed_tick(confirmed_entity).unwrap();
             commands
                 .entity(confirmed_entity)
                 .insert(Confirmed {
@@ -313,7 +319,10 @@ impl Component for PreSpawned {
             // ignore replicated entities, we only want to iterate through entities spawned on the client directly
             let components = deferred_world.components();
             let link_entity = deferred_world.resource::<PredictionResource>().link_entity;
-            let tick  = deferred_world.get::<LocalTimeline>(link_entity).unwrap().tick();
+            let tick = deferred_world
+                .get::<LocalTimeline>(link_entity)
+                .unwrap()
+                .tick();
             let component_registry = deferred_world.resource::<ComponentRegistry>();
             let entity_ref = deferred_world.entity(entity);
             let hash = compute_default_hash(
@@ -402,7 +411,6 @@ pub(crate) fn compute_default_hash(
     hasher.finish()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,7 +418,7 @@ mod tests {
     use crate::manager::PredictionManager;
     use crate::predicted_history::PredictionHistory;
     use bevy::app::PreUpdate;
-    use bevy::prelude::{default, Entity, IntoScheduleConfigs, With};
+    use bevy::prelude::{Entity, IntoScheduleConfigs, With, default};
 
     #[test]
     fn test_compute_hash() {
@@ -429,7 +437,11 @@ mod tests {
             .id();
         stepper.frame_step();
 
-        let current_tick = stepper.client_app().world().resource::<TickManager>().tick();
+        let current_tick = stepper
+            .client_app()
+            .world()
+            .resource::<TickManager>()
+            .tick();
         let prediction_manager = stepper.client_app().world().resource::<PredictionManager>();
         let expected_hash: u64 = 14837968436853353711;
         assert_eq!(
@@ -460,10 +472,7 @@ mod tests {
                 .get::<PredictionHistory<PredictionModeFull>>()
                 .unwrap()
                 .peek(),
-            Some(&(
-                current_tick,
-                HistoryState::Updated(PredictionModeFull(1.0)),
-            ))
+            Some(&(current_tick, HistoryState::Updated(PredictionModeFull(1.0)),))
         );
     }
 
@@ -548,11 +557,13 @@ mod tests {
             client_prespawn_a
         );
         // The PreSpawnPlayerObject component has been removed on the client
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<PreSpawned>(client_prespawn_a)
-            .is_none());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<PreSpawned>(client_prespawn_a)
+                .is_none()
+        );
 
         let predicted_b = stepper
             .client_app
@@ -571,11 +582,13 @@ mod tests {
             client_prespawn_b
         );
         // The PreSpawnPlayerObject component has been removed on the client
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<PreSpawned>(client_prespawn_b)
-            .is_none());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<PreSpawned>(client_prespawn_b)
+                .is_none()
+        );
     }
 
     /// Client and server run the same system to prespawn an entity
@@ -641,20 +654,24 @@ mod tests {
             confirmed
         );
         // The PreSpawnPlayerObject component has been removed on the client
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<PreSpawned>(client_prespawn)
-            .is_none());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<PreSpawned>(client_prespawn)
+                .is_none()
+        );
 
         // if the Confirmed entity is despawned, the Predicted entity should also be despawned
         stepper.client_app().world_mut().despawn(confirmed);
         stepper.frame_step();
-        assert!(stepper
-            .client_app
-            .world()
-            .get_entity(client_prespawn)
-            .is_err());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get_entity(client_prespawn)
+                .is_err()
+        );
     }
 
     /// Client and server run the same system to prespawn an entity
@@ -751,11 +768,13 @@ mod tests {
         // If we despawn the confirmed entity, the predicted entity should also be despawned
         stepper.client_app().world_mut().despawn(client_confirmed_2);
         stepper.frame_step();
-        assert!(stepper
-            .client_app
-            .world()
-            .get_entity(client_predicted_2)
-            .is_err());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get_entity(client_predicted_2)
+                .is_err()
+        );
     }
 
     /// Client spawns a PreSpawned entity and tries to despawn it locally
@@ -783,26 +802,32 @@ mod tests {
             .prediction_despawn();
         stepper.frame_step();
         // check that the entity is disabled
-        assert!(stepper
-            .client_app
-            .world()
-            .get_entity(client_prespawn)
-            .is_ok());
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<PredictionDisable>(client_prespawn)
-            .is_some());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get_entity(client_prespawn)
+                .is_ok()
+        );
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<PredictionDisable>(client_prespawn)
+                .is_some()
+        );
 
         // if enough frames pass without match, the entity gets cleaned
         for _ in 0..10 {
             stepper.frame_step();
         }
-        assert!(stepper
-            .client_app
-            .world()
-            .get_entity(client_prespawn)
-            .is_err());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get_entity(client_prespawn)
+                .is_err()
+        );
     }
 
     fn panic_on_rollback() {
@@ -854,16 +879,20 @@ mod tests {
             stepper.frame_step();
         }
         // make sure that the client_prespawn entity was disabled
-        assert!(stepper
-            .client_app
-            .world()
-            .get_entity(client_prespawn)
-            .is_ok());
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<PredictionDisable>(client_prespawn)
-            .is_some());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get_entity(client_prespawn)
+                .is_ok()
+        );
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<PredictionDisable>(client_prespawn)
+                .is_some()
+        );
 
         // spawn the server prespawned entity
         let server_prespawn = stepper

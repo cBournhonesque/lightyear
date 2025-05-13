@@ -39,7 +39,7 @@ impl<'w, 's> ServerMultiMessageSender<'w, 's> {
         message: &M,
         server: &Server,
         target: &NetworkTarget,
-        priority: Priority
+        priority: Priority,
     ) -> Result {
         // if the message is not map-entities, we can serialize it once and clone the bytes
         if !self.sender.registry.is_map_entities::<M>()? {
@@ -48,46 +48,58 @@ impl<'w, 's> ServerMultiMessageSender<'w, 's> {
             self.sender.registry.serialize::<M>(
                 message,
                 &mut self.sender.writer,
-                &mut SendEntityMap::default()
+                &mut SendEntityMap::default(),
             )?;
             let bytes = self.sender.writer.split();
-            target.apply_targets(server.collection().iter().copied(), &self.metadata.mapping, &mut |sender| {
-                if let Ok((_, mut transport)) = self.sender.query.get_mut(sender) {
-                    transport.send_with_priority::<C>(bytes.clone(), priority)
-                        .inspect_err(|e| error!("Failed to send message: {e}"))
-                        .ok();
-                }
-            });
+            target.apply_targets(
+                server.collection().iter().copied(),
+                &self.metadata.mapping,
+                &mut |sender| {
+                    if let Ok((_, mut transport)) = self.sender.query.get_mut(sender) {
+                        transport
+                            .send_with_priority::<C>(bytes.clone(), priority)
+                            .inspect_err(|e| error!("Failed to send message: {e}"))
+                            .ok();
+                    }
+                },
+            );
         } else {
-            target.apply_targets(server.collection().iter().copied(), &self.metadata.mapping, &mut |sender| {
-                if let Ok((_, mut transport)) = self.sender.query.get_mut(sender) {
-                    self.sender.registry.serialize::<M>(
-                        message,
-                        &mut self.sender.writer,
-                        &mut SendEntityMap::default()
-                    ).unwrap();
-                    let bytes = self.sender.writer.split();
-                    transport.send_with_priority::<C>(bytes.clone(), priority)
-                        .inspect_err(|e| error!("Failed to send message: {e}"))
-                        .ok();
-                }
-            });
+            target.apply_targets(
+                server.collection().iter().copied(),
+                &self.metadata.mapping,
+                &mut |sender| {
+                    if let Ok((_, mut transport)) = self.sender.query.get_mut(sender) {
+                        self.sender
+                            .registry
+                            .serialize::<M>(
+                                message,
+                                &mut self.sender.writer,
+                                &mut SendEntityMap::default(),
+                            )
+                            .unwrap();
+                        let bytes = self.sender.writer.split();
+                        transport
+                            .send_with_priority::<C>(bytes.clone(), priority)
+                            .inspect_err(|e| error!("Failed to send message: {e}"))
+                            .ok();
+                    }
+                },
+            );
         }
         Ok(())
     }
 }
 
-
-
-
 impl<M: Message> MessageRegistration<'_, M> {
     pub(crate) fn add_server_direction(&mut self, direction: NetworkDirection) {
         match direction {
             NetworkDirection::ClientToServer => {
-                self.app.register_required_components::<ClientOf, MessageSender<M>>();
+                self.app
+                    .register_required_components::<ClientOf, MessageSender<M>>();
             }
             NetworkDirection::ServerToClient => {
-                self.app.register_required_components::<ClientOf, MessageReceiver<M>>();
+                self.app
+                    .register_required_components::<ClientOf, MessageReceiver<M>>();
             }
             NetworkDirection::Bidirectional => {
                 self.add_server_direction(NetworkDirection::ClientToServer);
@@ -102,7 +114,8 @@ impl<M: Event> TriggerRegistration<'_, M> {
         match direction {
             NetworkDirection::ClientToServer => {}
             NetworkDirection::ServerToClient => {
-                self.app.register_required_components::<ClientOf, TriggerSender<M>>();
+                self.app
+                    .register_required_components::<ClientOf, TriggerSender<M>>();
             }
             NetworkDirection::Bidirectional => {
                 self.add_server_direction(NetworkDirection::ClientToServer);

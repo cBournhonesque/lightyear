@@ -1,4 +1,3 @@
-
 #[derive(Clone, Copy, PartialEq, Debug)]
 /// [`NetworkDirection`] specifies in which direction the packets can be sent
 pub enum NetworkDirection {
@@ -7,14 +6,15 @@ pub enum NetworkDirection {
     Bidirectional,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::client::Client;
     use crate::client_of::ClientOf;
-    use bevy::prelude::{default, Entity};
-    use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelRegistry, ChannelSettings, Transport};
+    use bevy::prelude::{Entity, default};
+    use lightyear_transport::prelude::{
+        AppChannelExt, ChannelMode, ChannelRegistry, ChannelSettings, Transport,
+    };
 
     struct ChannelClientToServer;
 
@@ -31,17 +31,17 @@ mod tests {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
         })
-            .add_direction(NetworkDirection::ClientToServer);
+        .add_direction(NetworkDirection::ClientToServer);
         app.add_channel::<ChannelServerToClient>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
         })
-            .add_direction(NetworkDirection::ServerToClient);
-         app.add_channel::<ChannelBidirectional>(ChannelSettings {
+        .add_direction(NetworkDirection::ServerToClient);
+        app.add_channel::<ChannelBidirectional>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
         })
-             .add_direction(NetworkDirection::Bidirectional);
+        .add_direction(NetworkDirection::Bidirectional);
 
         let entity_mut = app.world_mut().spawn(Client);
         let transport = entity_mut.get::<Transport>().unwrap();
@@ -51,7 +51,7 @@ mod tests {
         transport.has_sender::<ChannelBidirectional>();
         transport.has_receiver::<ChannelBidirectional>();
 
-        let entity_mut = app.world_mut().spawn(ClientOf{
+        let entity_mut = app.world_mut().spawn(ClientOf {
             server: Entity::PLACEHOLDER,
         });
         let transport = entity_mut.get::<Transport>().unwrap();
@@ -61,7 +61,7 @@ mod tests {
         transport.has_sender::<ChannelBidirectional>();
         transport.has_receiver::<ChannelBidirectional>();
     }
-    
+
     struct MessageClientToServer;
 
     struct MessageServerToClient;
@@ -72,22 +72,41 @@ mod tests {
     fn test_message_direction() {
         let mut app = App::new();
 
-        MessageRegistration::<MessageClientToServer>::new(&mut app).add_direction(NetworkDirection::ClientToServer);
-        MessageRegistration::<MessageServerToClient>::new(&mut app).add_direction(NetworkDirection::ServerToClient);
-        MessageRegistration::<MessageBidirectional>::new(&mut app).add_direction(NetworkDirection::Bidirectional);
+        MessageRegistration::<MessageClientToServer>::new(&mut app)
+            .add_direction(NetworkDirection::ClientToServer);
+        MessageRegistration::<MessageServerToClient>::new(&mut app)
+            .add_direction(NetworkDirection::ServerToClient);
+        MessageRegistration::<MessageBidirectional>::new(&mut app)
+            .add_direction(NetworkDirection::Bidirectional);
 
         let entity_mut = app.world_mut().spawn(Client);
-        entity_mut.get::<MessageSender<MessageClientToServer>>().unwrap();
-        entity_mut.get::<MessageReceiver<MessageServerToClient>>().unwrap();
-        entity_mut.get::<MessageSender<MessageBidirectional>>().unwrap();
-        entity_mut.get::<MessageReceiver<MessageBidirectional>>().unwrap();
+        entity_mut
+            .get::<MessageSender<MessageClientToServer>>()
+            .unwrap();
+        entity_mut
+            .get::<MessageReceiver<MessageServerToClient>>()
+            .unwrap();
+        entity_mut
+            .get::<MessageSender<MessageBidirectional>>()
+            .unwrap();
+        entity_mut
+            .get::<MessageReceiver<MessageBidirectional>>()
+            .unwrap();
 
-        let entity_mut = app.world_mut().spawn(ClientOf{
+        let entity_mut = app.world_mut().spawn(ClientOf {
             server: Entity::PLACEHOLDER,
         });
-        entity_mut.get::<MessageReceiver<MessageClientToServer>>().unwrap();
-        entity_mut.get::<MessageSender<MessageServerToClient>>().unwrap();
-        entity_mut.get::<MessageSender<MessageBidirectional>>().unwrap();
-        entity_mut.get::<MessageReceiver<MessageBidirectional>>().unwrap();
+        entity_mut
+            .get::<MessageReceiver<MessageClientToServer>>()
+            .unwrap();
+        entity_mut
+            .get::<MessageSender<MessageServerToClient>>()
+            .unwrap();
+        entity_mut
+            .get::<MessageSender<MessageBidirectional>>()
+            .unwrap();
+        entity_mut
+            .get::<MessageReceiver<MessageBidirectional>>()
+            .unwrap();
     }
 }

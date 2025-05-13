@@ -49,19 +49,12 @@ impl Plugin for SharedPlugin {
 
         #[cfg(feature = "interpolation")]
         {
-            app.register_type::<(
-                ShouldBeInterpolated,
-                InterpolationTarget
-            )>();
+            app.register_type::<(ShouldBeInterpolated, InterpolationTarget)>();
             app.register_component::<ShouldBeInterpolated>();
         }
         #[cfg(feature = "prediction")]
         {
-            app.register_type::<(
-                ShouldBePredicted,
-                PrePredicted,
-                PredictionTarget
-            )>();
+            app.register_type::<(ShouldBePredicted, PrePredicted, PredictionTarget)>();
             app.register_component::<ShouldBePredicted>();
             app.register_component::<PrePredicted>();
         }
@@ -71,7 +64,7 @@ impl Plugin for SharedPlugin {
             send_frequency: Duration::default(),
             priority: 10.0,
         })
-            .add_direction(NetworkDirection::Bidirectional);
+        .add_direction(NetworkDirection::Bidirectional);
         app.add_channel::<UpdatesChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliableWithAcks,
             // we do not send the send_frequency to `replication_interval` here
@@ -81,7 +74,7 @@ impl Plugin for SharedPlugin {
             send_frequency: Duration::default(),
             priority: 1.0,
         })
-            .add_direction(NetworkDirection::Bidirectional);
+        .add_direction(NetworkDirection::Bidirectional);
         app.add_channel::<ActionsChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             // we do not send the send_frequency to `replication_interval` here
@@ -92,7 +85,7 @@ impl Plugin for SharedPlugin {
             // we want to send the entity actions as soon as possible
             priority: 10.0,
         })
-            .add_direction(NetworkDirection::Bidirectional);
+        .add_direction(NetworkDirection::Bidirectional);
         app.add_message_to_bytes::<ActionsMessage>()
             .add_direction(NetworkDirection::Bidirectional);
         app.add_message_to_bytes::<UpdatesMessage>()

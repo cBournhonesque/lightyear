@@ -88,7 +88,7 @@ impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
 
-                // Physics
+        // Physics
 
         // Position and Rotation are the primary source of truth so no need to
         // sync changes from Transform to Position.
@@ -131,8 +131,6 @@ impl Plugin for SharedPlugin {
         );
     }
 }
-
-
 
 /// Generate pseudo-random color based on `client_id`.
 // Updated to use PeerId

@@ -52,11 +52,11 @@
 //! NOTE: I would advise to activate the `leafwing` feature to handle inputs via the `input_leafwing` module, instead.
 //! That module is more up-to-date and has more features.
 //! This module is kept for simplicity but might get removed in the future.
+use crate::InputChannel;
 use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
-use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use core::marker::PhantomData;
@@ -65,14 +65,14 @@ use lightyear_core::prelude::{NetworkTimeline, Rollback};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::timeline::LocalTimeline;
 use lightyear_core::timeline::SyncEvent;
+use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageSender;
-use lightyear_messages::MessageManager;
-use lightyear_prediction::pre_prediction::PrePredicted;
 use lightyear_prediction::Predicted;
+use lightyear_prediction::pre_prediction::PrePredicted;
 use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::client::{Input, IsSynced};
 use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::client::{Input, IsSynced};
 use tracing::trace;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -110,9 +110,7 @@ pub struct ClientInputPlugin<S: ActionStateSequence> {
 
 impl<S: ActionStateSequence> ClientInputPlugin<S> {
     pub fn new(config: InputConfig<S::Action>) -> Self {
-        Self {
-            config,
-        }
+        Self { config }
     }
 }
 
@@ -121,7 +119,6 @@ impl<S: ActionStateSequence> ClientInputPlugin<S> {
         Self::new(InputConfig::default())
     }
 }
-
 
 impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
     fn build(&self, app: &mut App) {
@@ -139,32 +136,34 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
             RunFixedMainLoop,
             InputSet::ReceiveInputMessages
                 .before(RunFixedMainLoopSystem::FixedMainLoop)
-                .after(RunFixedMainLoopSystem::BeforeFixedMainLoop)
+                .after(RunFixedMainLoopSystem::BeforeFixedMainLoop),
         );
 
-        app.configure_sets(FixedPreUpdate, (
-            InputSet::WriteClientInputs,
-            InputSet::BufferClientInputs
-        ).chain());
-        app.configure_sets(FixedPostUpdate, (
-            // we write the InputMessage for the current tick, then restore the correct inputs
-            // if there is any input delay
-            InputSet::PrepareInputMessage,
-            InputSet::RestoreInputs
-        ).chain());
+        app.configure_sets(
+            FixedPreUpdate,
+            (InputSet::WriteClientInputs, InputSet::BufferClientInputs).chain(),
+        );
+        app.configure_sets(
+            FixedPostUpdate,
+            (
+                // we write the InputMessage for the current tick, then restore the correct inputs
+                // if there is any input delay
+                InputSet::PrepareInputMessage,
+                InputSet::RestoreInputs,
+            )
+                .chain(),
+        );
         app.configure_sets(
             PostUpdate,
-            (
-                (
-                    SyncSet::Sync,
-                    // run after SyncSet to make sure that the TickEvents are handled
-                    // and that the interpolation_delay injected in the message are correct
-                    InputSet::SendInputMessage,
-                    InputSet::CleanUp,
-                    MessageSet::Send,
-                )
-                    .chain(),
+            ((
+                SyncSet::Sync,
+                // run after SyncSet to make sure that the TickEvents are handled
+                // and that the interpolation_delay injected in the message are correct
+                InputSet::SendInputMessage,
+                InputSet::CleanUp,
+                MessageSet::Send,
             )
+                .chain(),),
         );
 
         // SYSTEMS
@@ -176,12 +175,11 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         //             .in_set(InputSet::ReceiveInputMessages),
         //     );
         // }
-        app.add_systems(FixedPreUpdate, (
-                buffer_action_state::<S>,
-                get_action_state::<S>
-            )
+        app.add_systems(
+            FixedPreUpdate,
+            (buffer_action_state::<S>, get_action_state::<S>)
                 .chain()
-                .in_set(InputSet::BufferClientInputs)
+                .in_set(InputSet::BufferClientInputs),
         );
         app.add_systems(
             FixedPostUpdate,
@@ -191,13 +189,16 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
                 //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
                 // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
                 get_delayed_action_state::<S>.in_set(InputSet::RestoreInputs),
-                prepare_input_message::<S>.in_set(InputSet::PrepareInputMessage)
-            )
+                prepare_input_message::<S>.in_set(InputSet::PrepareInputMessage),
+            ),
         );
-        app.add_systems(PostUpdate, (
-            clean_buffers::<S>.in_set(InputSet::CleanUp),
-            send_input_messages::<S>.in_set(InputSet::SendInputMessage),
-        ));
+        app.add_systems(
+            PostUpdate,
+            (
+                clean_buffers::<S>.in_set(InputSet::CleanUp),
+                send_input_messages::<S>.in_set(InputSet::SendInputMessage),
+            ),
+        );
         // if the client tick is updated because of a desync, update the ticks in the input buffers
         app.add_observer(receive_tick_events::<S>);
     }
@@ -214,11 +215,7 @@ fn buffer_action_state<S: ActionStateSequence>(
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
-
-    sender: Single<(&InputTimeline, &LocalTimeline), (
-        // In rollback, we don't want to write any inputs
-        Without<Rollback>
-    )>,
+    sender: Single<(&InputTimeline, &LocalTimeline), (Without<Rollback>)>,
     mut action_state_query: Query<(Entity, &S::State, &mut InputBuffer<S::State>), With<S::Marker>>,
 ) {
     let (input_timeline, local_timeline) = sender.into_inner();
@@ -281,7 +278,6 @@ fn get_action_state<S: ActionStateSequence>(
     }
 }
 
-
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<S: ActionStateSequence>(
@@ -335,7 +331,6 @@ fn clean_buffers<S: ActionStateSequence>(
     }
 }
 
-
 // TODO: is this actually necessary? The sync happens in PostUpdate,
 //  so maybe it's ok if the InputMessages contain the pre-sync tick! (since those inputs happened
 //  before the sync). If it's not needed, send the messages directly in FixedPostUpdate!
@@ -360,7 +355,10 @@ fn prepare_input_message<S: ActionStateSequence>(
     mut message_buffer: ResMut<MessageBuffer<S>>,
     tick_duration: Res<TickDuration>,
     input_config: Res<InputConfig<S::Action>>,
-    sender: Single<(&LocalTimeline, &InputTimeline, &MessageManager), (With<IsSynced<InputTimeline>>, Without<Rollback>)>,
+    sender: Single<
+        (&LocalTimeline, &InputTimeline, &MessageManager),
+        (With<IsSynced<InputTimeline>>, Without<Rollback>),
+    >,
     input_buffer_query: Query<
         (
             Entity,
@@ -389,10 +387,9 @@ fn prepare_input_message<S: ActionStateSequence>(
     let input_send_interval = Duration::default();
     // we send redundant inputs, so that if a packet is lost, we can still recover
     // A redundancy of 2 means that we can recover from 1 lost packet
-    let mut num_tick: u16 =
-        ((input_send_interval.as_nanos() / tick_duration.as_nanos()) + 1)
-            .try_into()
-            .unwrap();
+    let mut num_tick: u16 = ((input_send_interval.as_nanos() / tick_duration.as_nanos()) + 1)
+        .try_into()
+        .unwrap();
     num_tick *= input_config.packet_redundancy;
     let mut message = InputMessage::<S>::new(tick);
     for (entity, input_buffer, predicted, pre_predicted) in input_buffer_query.iter() {
@@ -414,12 +411,11 @@ fn prepare_input_message<S: ActionStateSequence>(
             // TODO: the problem is that we wait until we have received the server answer. Ideally we would like
             //  to wait until the server has received the PrePredicted entity
             if predicted.is_none() {
-                continue
+                continue;
             }
             trace!(
                 ?tick,
-                "sending inputs for pre-predicted entity! Local client entity: {:?}",
-                entity
+                "sending inputs for pre-predicted entity! Local client entity: {:?}", entity
             );
             // TODO: not sure if this whole pre-predicted inputs thing is worth it, because the server won't be able to
             //  to receive the inputs until it receives the pre-predicted spawn message.
@@ -431,7 +427,6 @@ fn prepare_input_message<S: ActionStateSequence>(
             // 0. the entity is pre-predicted, no need to convert the entity (the mapping will be done on the server, when
             // receiving the message. It's possible because the server received the PrePredicted entity before)
             Some(InputTarget::PrePredictedEntity(entity))
-
         } else {
             // 1. if the entity is confirmed, we need to convert the entity to the server's entity
             // 2. if the entity is predicted, we need to first convert the entity to confirmed, and then from confirmed to remote
@@ -446,11 +441,7 @@ fn prepare_input_message<S: ActionStateSequence>(
                 None
             }
         } {
-            if let Some(state_sequence) = S::build_from_input_buffer(
-                input_buffer,
-                num_tick,
-                tick,
-            ) {
+            if let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_tick, tick) {
                 message.inputs.push(PerTargetData {
                     target,
                     states: state_sequence,
@@ -471,7 +462,6 @@ fn prepare_input_message<S: ActionStateSequence>(
 
     // NOTE: keep the older input values in the InputBuffer! because they might be needed when we rollback for client prediction
 }
-
 
 // /// Read the InputMessages of other clients from the server to update their InputBuffer and ActionState.
 // /// This is useful if we want to do client-prediction for remote players.
@@ -564,7 +554,6 @@ fn prepare_input_message<S: ActionStateSequence>(
 //     });
 // }
 
-
 /// Drain the messages from the buffer and send them to the server
 fn send_input_messages<S: ActionStateSequence>(
     input_config: Res<InputConfig<S::Action>>,
@@ -576,7 +565,6 @@ fn send_input_messages<S: ActionStateSequence>(
         message_buffer.0.len()
     );
     for message in message_buffer.0.drain(..) {
-
         // // if lag compensation is enabled, we send the current delay to the server
         // // (this runs here because the delay is only correct after the SyncSet has run)
         // // TODO: or should we actually use the interpolation_delay BEFORE SyncSet
@@ -591,7 +579,6 @@ fn send_input_messages<S: ActionStateSequence>(
         sender.send::<InputChannel>(message);
     }
 }
-
 
 /// In case the client tick changes suddenly, we also update the InputBuffer accordingly
 fn receive_tick_events<S: ActionStateSequence>(

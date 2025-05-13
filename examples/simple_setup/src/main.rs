@@ -32,7 +32,6 @@ pub enum Mode {
     Server,
 }
 
-
 fn main() {
     let cli = Cli::parse();
     let mut app = App::new();

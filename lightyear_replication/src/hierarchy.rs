@@ -135,10 +135,7 @@ impl<R: Relationship> RelationshipSendPlugin<R> {
     fn handle_parent_remove(
         trigger: Trigger<OnRemove, R>,
         // include filter to make sure that this is running on the send side
-        mut hierarchy: Query<
-            &mut RelationshipSync<R>,
-            Or<(With<Replicate>, With<ReplicateLike>)>,
-        >,
+        mut hierarchy: Query<&mut RelationshipSync<R>, Or<(With<Replicate>, With<ReplicateLike>)>>,
     ) {
         if let Ok(mut parent_sync) = hierarchy.get_mut(trigger.target()) {
             parent_sync.entity = None;
@@ -177,15 +174,17 @@ impl<R: Relationship + Debug> RelationshipReceivePlugin<R> {
             // We add `Without<Replicate>` to guarantee that this is running for replicated entities.
             // With<Replicated> doesn't work because PrePredicted entities on the server side removes `Replicated`
             // via an observer. Maybe `With<InitialReplicated>` would work.
-            (Changed<RelationshipSync<R>>, Without<Replicate>, Without<ReplicateLike>),
+            (
+                Changed<RelationshipSync<R>>,
+                Without<Replicate>,
+                Without<ReplicateLike>,
+            ),
         >,
     ) {
         for (entity, parent_sync, parent) in hierarchy.iter() {
             trace!(
                 "update_parent: entity: {:?}, parent_sync: {:?}, parent: {:?}",
-                entity,
-                parent_sync,
-                parent
+                entity, parent_sync, parent
             );
             if let Some(new_parent) = parent_sync.entity {
                 if parent.is_none_or(|p| p.get() != new_parent) {
@@ -213,12 +212,10 @@ impl<R: Relationship + Debug + GetTypeRegistration + TypePath> Plugin
         // when we receive a RelationshipSync update from the remote, update the hierarchy
         app.add_systems(
             PreUpdate,
-            Self::update_parent
-                .after(ReplicationSet::Receive)
-                // // we want update_parent to run in the same frame that ParentSync is propagated
-                // // to the predicted/interpolated entities
-                // .after(PredictionSet::Sync)
-                // .after(InterpolationSet::SpawnHistory),
+            Self::update_parent.after(ReplicationSet::Receive), // // we want update_parent to run in the same frame that ParentSync is propagated
+                                                                // // to the predicted/interpolated entities
+                                                                // .after(PredictionSet::Sync)
+                                                                // .after(InterpolationSet::SpawnHistory),
         );
     }
 }
@@ -230,14 +227,9 @@ impl<R: Relationship + Debug + GetTypeRegistration + TypePath> Plugin
 // TODO: should we make this immutable?
 #[derive(Component, Clone, Copy, MapEntities, Reflect, PartialEq, Debug)]
 #[relationship(relationship_target=ReplicateLikeChildren)]
-#[reflect(
-    Component,
-    MapEntities,
-    PartialEq,
-    Debug
-)]
-pub struct ReplicateLike{
-    pub root: Entity
+#[reflect(Component, MapEntities, PartialEq, Debug)]
+pub struct ReplicateLike {
+    pub root: Entity,
 }
 
 #[derive(Component, Debug, Reflect)]
@@ -267,7 +259,6 @@ pub struct ReplicateLikeChildren(Vec<Entity>);
 #[derive(Default)]
 pub struct HierarchySendPlugin;
 
-
 impl Plugin for HierarchySendPlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<RelationshipSendPlugin<ChildOf>>() {
@@ -279,7 +270,7 @@ impl Plugin for HierarchySendPlugin {
             PostUpdate,
             Self::propagate_through_hierarchy
                 // update replication components before we actually run the Buffer systems
-                .in_set(ReplicationBufferSet::BeforeBuffer)
+                .in_set(ReplicationBufferSet::BeforeBuffer),
         );
     }
 }
@@ -300,23 +291,13 @@ impl HierarchySendPlugin {
                 With<Replicate>,
                 Without<DisableReplicateHierarchy>,
                 With<Children>,
-                Or<(
-                    Changed<Children>,
-                    Added<PrePredicted>,
-                    Added<Replicate>,
-                )>,
+                Or<(Changed<Children>, Added<PrePredicted>, Added<Replicate>)>,
             ),
         >,
         children_query: Query<&Children>,
         // exclude those that have `Replicate` (as we don't want to overwrite the `ReplicateLike` component
         // for their descendants, and we don't want to add `ReplicateLike` on them)
-        child_filter: Query<
-            (),
-            (
-                Without<DisableReplicateHierarchy>,
-                Without<Replicate>,
-            ),
-        >,
+        child_filter: Query<(), (Without<DisableReplicateHierarchy>, Without<Replicate>)>,
     ) {
         root_query.iter().for_each(|(root, pre_predicted)| {
             // we go through all the descendants (instead of just the children) so that the root is added
@@ -329,7 +310,7 @@ impl HierarchySendPlugin {
                         // TODO: should we buffer those inside a SmallVec for batch insert?
                         commands
                             .entity(child)
-                            .insert((ReplicateLike{root}, ChildOfSync::from(Some(parent))));
+                            .insert((ReplicateLike { root }, ChildOfSync::from(Some(parent))));
                         if pre_predicted {
                             commands.entity(child).insert(PrePredicted::default());
                         }
@@ -384,28 +365,17 @@ impl HierarchySendPlugin {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::buffer::Replicate;
 
-
     fn setup_hierarchy() -> (App, Entity, Entity, Entity) {
         let mut app = App::default();
         app.add_plugins(HierarchySendPlugin);
-         let grandparent = app
-            .world_mut()
-            .spawn_empty()
-            .id();
-        let parent = app
-            .world_mut()
-            .spawn(ChildOf(grandparent))
-            .id();
-        let child = app
-            .world_mut()
-            .spawn(ChildOf(parent))
-            .id();
+        let grandparent = app.world_mut().spawn_empty().id();
+        let parent = app.world_mut().spawn(ChildOf(grandparent)).id();
+        let child = app.world_mut().spawn(ChildOf(parent)).id();
         (app, grandparent, parent, child)
     }
 
@@ -419,11 +389,7 @@ mod tests {
         let grandparent = app.world_mut().spawn(Replicate::manual(vec![])).id();
         // parent with no ReplicationMarker: ReplicateLike should be propagated
         let child_1 = app.world_mut().spawn_empty().id();
-        let parent_1 = app
-            .world_mut()
-            .spawn_empty()
-            .add_child(child_1)
-            .id();
+        let parent_1 = app.world_mut().spawn_empty().add_child(child_1).id();
 
         // parent with ReplicationMarker: the root ReplicateLike shouldn't be propagated
         // but the intermediary ReplicateLike should be propagated to child 2a
@@ -431,7 +397,7 @@ mod tests {
         let child_2b = app.world_mut().spawn(Replicate::manual(vec![])).id();
         let child_2c = app
             .world_mut()
-            .spawn(ReplicateLike{root: grandparent})
+            .spawn(ReplicateLike { root: grandparent })
             .id();
         let parent_2 = app
             .world_mut()
@@ -443,7 +409,7 @@ mod tests {
         let child_3a = app.world_mut().spawn_empty().id();
         let child_3b = app
             .world_mut()
-            .spawn(ReplicateLike{root: grandparent})
+            .spawn(ReplicateLike { root: grandparent })
             .id();
         let parent_3 = app
             .world_mut()
@@ -460,87 +426,47 @@ mod tests {
             .id();
 
         // add Children to the entity which already has Replicate::manual(vec![])
-        app
-            .world_mut()
+        app.world_mut()
             .entity_mut(grandparent)
             .add_children(&[parent_1, parent_2, parent_3, parent_4]);
 
         // flush commands
         app.update();
         assert_eq!(
-                app
-                .world()
-                .get::<ReplicateLike>(parent_1)
-                .unwrap()
-                .root,
+            app.world().get::<ReplicateLike>(parent_1).unwrap().root,
             grandparent
         );
         assert_eq!(
-                app
-                .world()
-                .get::<ReplicateLike>(child_1)
-                .unwrap()
-                .root,
+            app.world().get::<ReplicateLike>(child_1).unwrap().root,
             grandparent
         );
 
-        assert!(app
-            .world()
-            .get::<ReplicateLike>(parent_2)
-            .is_none());
+        assert!(app.world().get::<ReplicateLike>(parent_2).is_none());
         assert_eq!(
-                app
-                .world()
-                .get::<ReplicateLike>(child_2a)
-                .unwrap()
-                .root,
+            app.world().get::<ReplicateLike>(child_2a).unwrap().root,
             parent_2
         );
-        assert!(app
-            .world()
-            .get::<ReplicateLike>(child_2b)
-            .is_none());
+        assert!(app.world().get::<ReplicateLike>(child_2b).is_none());
         // the Parent overrides the ReplicateLike of child_2c
         assert_eq!(
-                app
-                .world()
-                .get::<ReplicateLike>(child_2c)
-                .unwrap()
-                .root,
+            app.world().get::<ReplicateLike>(child_2c).unwrap().root,
             parent_2
         );
 
-        assert!(app
-            .world()
-            .get::<ReplicateLike>(parent_3)
-            .is_none());
-        assert!(app
-            .world()
-            .get::<ReplicateLike>(child_3a)
-            .is_none());
+        assert!(app.world().get::<ReplicateLike>(parent_3).is_none());
+        assert!(app.world().get::<ReplicateLike>(child_3a).is_none());
         // the parent had DisableReplicateHierarchy so the existing ReplicateLike is not overwritten
         assert_eq!(
-                app
-                .world()
-                .get::<ReplicateLike>(child_3b)
-                .unwrap()
-                .root,
+            app.world().get::<ReplicateLike>(child_3b).unwrap().root,
             grandparent
         );
 
         // DisableReplicateHierarchy means that ReplicateLike is not propagated and is not added
         // on the entity itself either
-        assert!(app
-            .world()
-            .get::<ReplicateLike>(parent_4)
-            .is_none());
-        assert!(app
-            .world()
-            .get::<ReplicateLike>(child_4)
-            .is_none());
+        assert!(app.world().get::<ReplicateLike>(parent_4).is_none());
+        assert!(app.world().get::<ReplicateLike>(child_4).is_none());
     }
 
-    
     /// Check that ReplicateLike propagation works correctly when ReplicationMarker gets added
     /// on an entity that already has children
     #[test]
@@ -551,11 +477,7 @@ mod tests {
         let grandparent = app.world_mut().spawn_empty().id();
         // parent with no ReplicationMarker: ReplicateLike should be propagated
         let child_1 = app.world_mut().spawn_empty().id();
-        let parent_1 = app
-            .world_mut()
-            .spawn_empty()
-            .add_child(child_1)
-            .id();
+        let parent_1 = app.world_mut().spawn_empty().add_child(child_1).id();
 
         // parent with ReplicationMarker: the root ReplicateLike shouldn't be propagated
         // but the intermediary ReplicateLike should be propagated to child 2a
@@ -563,7 +485,7 @@ mod tests {
         let child_2b = app.world_mut().spawn(Replicate::manual(vec![])).id();
         let child_2c = app
             .world_mut()
-            .spawn(ReplicateLike{root: grandparent})
+            .spawn(ReplicateLike { root: grandparent })
             .id();
         let parent_2 = app
             .world_mut()
@@ -575,7 +497,7 @@ mod tests {
         let child_3a = app.world_mut().spawn_empty().id();
         let child_3b = app
             .world_mut()
-            .spawn(ReplicateLike{root: grandparent})
+            .spawn(ReplicateLike { root: grandparent })
             .id();
         let parent_3 = app
             .world_mut()
@@ -591,88 +513,48 @@ mod tests {
             .add_child(child_4)
             .id();
 
-        app
-            .world_mut()
+        app.world_mut()
             .entity_mut(grandparent)
             .add_children(&[parent_1, parent_2, parent_3, parent_4]);
         // add ReplicationMarker to an entity that already has children
-        app
-            .world_mut()
+        app.world_mut()
             .entity_mut(grandparent)
             .insert(Replicate::manual(vec![]));
 
         // flush commands
         app.update();
         assert_eq!(
-                app
-                .world()
-                .get::<ReplicateLike>(parent_1)
-                .unwrap()
-                .root,
+            app.world().get::<ReplicateLike>(parent_1).unwrap().root,
             grandparent
         );
         assert_eq!(
-                app
-                .world()
-                .get::<ReplicateLike>(child_1)
-                .unwrap()
-                .root,
+            app.world().get::<ReplicateLike>(child_1).unwrap().root,
             grandparent
         );
 
-        assert!(app
-            .world()
-            .get::<ReplicateLike>(parent_2)
-            .is_none());
+        assert!(app.world().get::<ReplicateLike>(parent_2).is_none());
         assert_eq!(
-                app
-                .world()
-                .get::<ReplicateLike>(child_2a)
-                .unwrap()
-                .root,
+            app.world().get::<ReplicateLike>(child_2a).unwrap().root,
             parent_2
         );
-        assert!(app
-            .world()
-            .get::<ReplicateLike>(child_2b)
-            .is_none());
+        assert!(app.world().get::<ReplicateLike>(child_2b).is_none());
         // the Parent overrides the ReplicateLike of child_2c
         assert_eq!(
-                app
-                .world()
-                .get::<ReplicateLike>(child_2c)
-                .unwrap()
-                .root,
+            app.world().get::<ReplicateLike>(child_2c).unwrap().root,
             parent_2
         );
 
-        assert!(app
-            .world()
-            .get::<ReplicateLike>(parent_3)
-            .is_none());
-        assert!(app
-            .world()
-            .get::<ReplicateLike>(child_3a)
-            .is_none());
+        assert!(app.world().get::<ReplicateLike>(parent_3).is_none());
+        assert!(app.world().get::<ReplicateLike>(child_3a).is_none());
         // the parent had DisableReplicateHierarchy so the existing ReplicateLike is not overwritten
         assert_eq!(
-                app
-                .world()
-                .get::<ReplicateLike>(child_3b)
-                .unwrap()
-                .root,
+            app.world().get::<ReplicateLike>(child_3b).unwrap().root,
             grandparent
         );
 
         // DisableReplicateHierarchy means that ReplicateLike is not propagated and is not added
         // on the entity itself either
-        assert!(app
-            .world()
-            .get::<ReplicateLike>(parent_4)
-            .is_none());
-        assert!(app
-            .world()
-            .get::<ReplicateLike>(child_4)
-            .is_none());
+        assert!(app.world().get::<ReplicateLike>(parent_4).is_none());
+        assert!(app.world().get::<ReplicateLike>(child_4).is_none());
     }
 }

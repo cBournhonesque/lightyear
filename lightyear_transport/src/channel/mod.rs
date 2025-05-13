@@ -7,9 +7,9 @@ pub mod builder;
 pub mod receivers;
 pub mod senders;
 
+pub mod registry;
 #[cfg(feature = "trace")]
 pub mod stats;
-pub mod registry;
 
 pub trait Channel: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> Channel for T {}

@@ -44,7 +44,9 @@
   * Optionally provide a [`ServerConfig`] - a struct that allows you to customize the server's behavior.
 
 */
-#![cfg_attr(feature = "server", doc = r##"
+#![cfg_attr(
+    feature = "server",
+    doc = r##"
 
 ```rust
 # use std::{thread, time::{Instant, Duration}, net::SocketAddr};
@@ -72,7 +74,8 @@ loop {
     thread::sleep(tick_rate);
 }
 ```
-"##)]
+"##
+)]
 /*!
  ## Client
 
@@ -86,7 +89,9 @@ loop {
   * Optionally provide a [`ClientConfig`] - a struct that allows you to customize the client's behavior.
 
 */
-#![cfg_attr(feature = "client", doc = r##"
+#![cfg_attr(
+    feature = "client",
+    doc = r##"
 ```rust
 use std::{thread, time::{Instant, Duration}, net::SocketAddr};
 use lightyear_link::Link;
@@ -122,8 +127,8 @@ loop {
     thread::sleep(tick_rate);
 }
 ```
-"##)]
-
+"##
+)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -131,7 +136,7 @@ extern crate core;
 
 #[cfg(feature = "client")]
 pub use client_plugin::NetcodeClient;
-pub use crypto::{generate_key, try_generate_key, Key};
+pub use crypto::{Key, generate_key, try_generate_key};
 pub use error::{Error, Result};
 #[cfg(feature = "server")]
 pub use server::{Callback, Server, ServerConfig};
@@ -157,9 +162,9 @@ mod utils;
 #[cfg(feature = "client")]
 pub mod client_plugin;
 
+pub mod auth;
 #[cfg(feature = "server")]
 pub mod server_plugin;
-pub mod auth;
 
 pub mod prelude {
     pub use crate::auth::Authentication;
@@ -174,7 +179,6 @@ pub mod prelude {
         pub use crate::server_plugin::{NetcodeConfig, NetcodeServer, NetcodeServerPlugin};
     }
 }
-
 
 pub(crate) const MAC_BYTES: usize = 16;
 pub(crate) const MAX_PKT_BUF_SIZE: usize = 1300;
@@ -191,6 +195,3 @@ pub const CONNECT_TOKEN_BYTES: usize = 2048;
 pub const MAX_PACKET_SIZE: usize = 1200;
 /// The version of the netcode protocol implemented by this crate.
 pub const NETCODE_VERSION: &[u8; 13] = b"NETCODE 1.02\0";
-
-
-

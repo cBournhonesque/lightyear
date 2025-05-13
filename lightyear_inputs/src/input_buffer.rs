@@ -10,7 +10,11 @@
 use crate::input_message::ActionStateSequence;
 use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::{String, ToString}, vec::Vec};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 use bevy::prelude::Component;
 use core::fmt::{Debug, Formatter};
 use lightyear_core::tick::Tick;
@@ -49,7 +53,6 @@ impl<T: Debug> core::fmt::Display for InputBuffer<T> {
     }
 }
 
-
 /// We use this structure to efficiently compress the inputs that we send to the server
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub enum InputData<T> {
@@ -60,11 +63,10 @@ pub enum InputData<T> {
 
 impl<T> From<Option<T>> for InputData<T> {
     fn from(value: Option<T>) -> Self {
-        match value { Some(value) => {
-            InputData::Input(value)
-        } _ => {
-            InputData::Absent
-        }}
+        match value {
+            Some(value) => InputData::Input(value),
+            _ => InputData::Absent,
+        }
     }
 }
 
@@ -76,7 +78,6 @@ impl<T> Default for InputBuffer<T> {
         }
     }
 }
-
 
 impl<T: Clone + PartialEq> InputBuffer<T> {
     /// Number of elements in the buffer
@@ -177,11 +178,10 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
             *self.buffer.front_mut().unwrap() = popped.clone();
         }
 
-        match popped { InputData::Input(value) => {
-            Some(value)
-        } _ => {
-            None
-        }}
+        match popped {
+            InputData::Input(value) => Some(value),
+            _ => None,
+        }
     }
 
     pub(crate) fn get_raw(&self, tick: Tick) -> &InputData<T> {
@@ -281,5 +281,3 @@ mod tests {
         assert_eq!(input_buffer.buffer.len(), 1);
     }
 }
-
-

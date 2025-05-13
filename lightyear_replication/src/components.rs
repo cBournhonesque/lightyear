@@ -10,7 +10,9 @@ use bevy::ecs::entity::EntityIndexSet;
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashSet;
-use bevy::prelude::{Component, Entity, OnAdd, Query, Reflect, RelationshipTarget, Trigger, With, World};
+use bevy::prelude::{
+    Component, Entity, OnAdd, Query, Reflect, RelationshipTarget, Trigger, With, World,
+};
 use bevy::time::{Timer, TimerMode};
 use lightyear_connection::client::Connected;
 use lightyear_connection::client::{Client, PeerMetadata};
@@ -72,10 +74,7 @@ impl<C> Default for ComponentReplicationOverrides<C> {
 
 impl<C> ComponentReplicationOverrides<C> {
     /// Get component overrides for a specific sender
-    pub(crate) fn get_overrides(
-        &self,
-        sender: Entity,
-    ) -> Option<&ComponentReplicationOverride> {
+    pub(crate) fn get_overrides(&self, sender: Entity) -> Option<&ComponentReplicationOverride> {
         if let Some(overrides) = self.per_sender.get(&sender) {
             return Some(overrides);
         }
@@ -104,7 +103,6 @@ pub struct InitialReplicated {
     pub from: PeerId,
 }
 
-
 /// Marker component that indicates that the entity is being replicated
 /// from a remote world.
 ///
@@ -118,7 +116,6 @@ pub struct Replicated {
     /// The remote peer that is actively replicating the entity
     pub from: PeerId,
 }
-
 
 /// Marker component to indicate that updates for this entity are being replicated.
 ///
@@ -137,7 +134,6 @@ pub struct Cached<C> {
 
 // TODO: we need a ReplicateConfig similar to ComponentReplicationConfig
 //  for entity-specific config, such as replicate-hierarchy
-
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Reflect)]
 pub enum ReplicationGroupIdBuilder {
@@ -250,7 +246,6 @@ impl ReplicationGroup {
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub struct ReplicationGroupId(pub u64);
 
-
 // Re-use the Entity serialization since ReplicationGroupId are often entities
 impl ToBytes for ReplicationGroupId {
     fn bytes_len(&self) -> usize {
@@ -282,7 +277,6 @@ impl ToBytes for ReplicationGroupId {
     }
 }
 
-
 /// Marks an entity that directly applies the replication updates from the remote
 ///
 /// In general, when an entity is replicated from the server to the client, multiple entities can be created on the client:
@@ -311,8 +305,6 @@ pub struct PrePredicted {
     pub(crate) confirmed_entity: Option<Entity>,
 }
 
-
-
 #[cfg(feature = "prediction")]
 /// Marker component that tells the client to spawn a Predicted entity
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
@@ -321,7 +313,6 @@ pub struct ShouldBePredicted;
 
 #[cfg(feature = "prediction")]
 pub type PredictionTarget = ReplicationTarget<ShouldBePredicted>;
-
 
 #[cfg(feature = "interpolation")]
 /// Marker component that tells the client to spawn an Interpolated entity
@@ -384,15 +375,14 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
             let mut replicate_entity_mut =
                 unsafe { unsafe_world.world_mut().entity_mut(context.entity) };
 
-            let mut replicate = replicate_entity_mut.get_mut::<ReplicationTarget<T>>().unwrap();
+            let mut replicate = replicate_entity_mut
+                .get_mut::<ReplicationTarget<T>>()
+                .unwrap();
             // enable split borrows
             let replicate = &mut *replicate;
             match &mut replicate.mode {
                 ReplicationMode::SingleSender => {
-                    let Ok(sender_entity) = world
-                        .query::<Entity>()
-                        .single_mut(world)
-                    else {
+                    let Ok(sender_entity) = world.query::<Entity>().single_mut(world) else {
                         error!("No ReplicationSender found in the world");
                         return;
                     };
@@ -421,24 +411,36 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                     let unsafe_world = world.as_unsafe_world_cell();
                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
                     let server_world = unsafe { unsafe_world.world_mut() };
-                    let Ok(server) = server_world.query_filtered::<&Server, With<Server>>().single(server_world) else {
+                    let Ok(server) = server_world
+                        .query_filtered::<&Server, With<Server>>()
+                        .single(server_world)
+                    else {
                         error!("No Server found in the world");
                         return;
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
                     let peer_metadata = unsafe { unsafe_world.world() }.resource::<PeerMetadata>();
                     let world = unsafe { unsafe_world.world_mut() };
-                    target.apply_targets(server.collection().iter().copied(), &peer_metadata.mapping, &mut |client| {
-                        trace!("Adding ReplicationTarget<{}>, entity {} to ClientOf {}", core::any::type_name::<T>(), context.entity, client);
-                        let Ok(()) = world
-                            .query_filtered::<(), (With<ClientOf>, With<ReplicationSender>)>()
-                            .get_mut(world, client)
-                        else {
-                            error!("ClientOf {client:?} not found");
-                            return;
-                        };
-                        replicate.senders.insert(client);
-                    });
+                    target.apply_targets(
+                        server.collection().iter().copied(),
+                        &peer_metadata.mapping,
+                        &mut |client| {
+                            trace!(
+                                "Adding ReplicationTarget<{}>, entity {} to ClientOf {}",
+                                core::any::type_name::<T>(),
+                                context.entity,
+                                client
+                            );
+                            let Ok(()) = world
+                                .query_filtered::<(), (With<ClientOf>, With<ReplicationSender>)>()
+                                .get_mut(world, client)
+                            else {
+                                error!("ClientOf {client:?} not found");
+                                return;
+                            };
+                            replicate.senders.insert(client);
+                        },
+                    );
                 }
                 ReplicationMode::Sender(entity) => {
                     let Ok(()) = world
@@ -454,36 +456,38 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                 ReplicationMode::Server(server, target) => {
                     let unsafe_world = world.as_unsafe_world_cell();
                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
-                    let entity_ref = unsafe { unsafe_world.world() }
-                        .entity(*server);
+                    let entity_ref = unsafe { unsafe_world.world() }.entity(*server);
                     if !entity_ref.contains::<Server>() {
                         error!("No Server found in the world");
                         return;
                     }
-                    let Some(server) = entity_ref.get::<Server>()
-                    else {
+                    let Some(server) = entity_ref.get::<Server>() else {
                         error!("No Server found in the world");
                         return;
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
                     let peer_metadata = unsafe { unsafe_world.world() }.resource::<PeerMetadata>();
                     let world = unsafe { unsafe_world.world_mut() };
-                    target.apply_targets(server.collection().iter().copied(), &peer_metadata.mapping, &mut |client| {
-                        let Ok(()) = world
-                            .query_filtered::<(), (With<ClientOf>, With<ReplicationSender>)>()
-                            .get_mut(world, client)
-                        else {
-                            error!("No Client found in the world");
-                            return;
-                        };
-                        replicate.senders.insert(client);
-                    });
+                    target.apply_targets(
+                        server.collection().iter().copied(),
+                        &peer_metadata.mapping,
+                        &mut |client| {
+                            let Ok(()) = world
+                                .query_filtered::<(), (With<ClientOf>, With<ReplicationSender>)>()
+                                .get_mut(world, client)
+                            else {
+                                error!("No Client found in the world");
+                                return;
+                            };
+                            replicate.senders.insert(client);
+                        },
+                    );
                 }
                 ReplicationMode::Target(_) => {
                     todo!(
                         "need a global mapping from remote_peer to corresponding replication_sender"
                     )
-                },
+                }
                 ReplicationMode::Manual(sender_entities) => {
                     for sender_entity in sender_entities.iter() {
                         let Ok(()) = world
@@ -505,7 +509,9 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
         // i.e. if you remove 2 clients from Replicate, than in PreBuffer, we will do the diff
         // and remove those clients from sender.replicated_entities and send the despawn
 
-        let mut replicate = world.get_mut::<ReplicationTarget<T>>(context.entity).unwrap();
+        let mut replicate = world
+            .get_mut::<ReplicationTarget<T>>(context.entity)
+            .unwrap();
         replicate.senders = EntityIndexSet::default();
     }
 
@@ -516,7 +522,9 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
         mut sender_query: Query<(Entity, &mut ReplicationSender, &Connected, Option<&LinkOf>)>,
         mut replicate_query: Query<(Entity, &mut ReplicationTarget<T>)>,
     ) {
-        if let Ok((sender_entity, mut sender, connected, link_of)) = sender_query.get_mut(trigger.target()) {
+        if let Ok((sender_entity, mut sender, connected, link_of)) =
+            sender_query.get_mut(trigger.target())
+        {
             // TODO: maybe do this in parallel?
             replicate_query.iter_mut().for_each(|(entity, mut replicate)| {
                 match &replicate.mode {

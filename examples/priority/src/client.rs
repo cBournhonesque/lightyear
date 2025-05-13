@@ -14,14 +14,9 @@ impl Plugin for ExampleClientPlugin {
         // to predicted players
         app.add_systems(Update, add_input_map);
         app.add_systems(FixedUpdate, player_movement);
-        app.add_systems(
-            Update,
-            (handle_predicted_spawn, handle_interpolated_spawn),
-        );
+        app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
     }
 }
-
-
 
 /// Add the Leafwing InputMap component to the predicted player entity
 pub(crate) fn add_input_map(
@@ -29,8 +24,9 @@ pub(crate) fn add_input_map(
     predicted_players: Query<Entity, (Added<PlayerId>, With<Predicted>)>,
 ) {
     for player_entity in predicted_players.iter() {
-        commands.entity(player_entity).insert(
-             InputMap::<Inputs>::new([
+        commands
+            .entity(player_entity)
+            .insert(InputMap::<Inputs>::new([
                 (Inputs::Right, KeyCode::ArrowRight),
                 (Inputs::Right, KeyCode::KeyD),
                 (Inputs::Left, KeyCode::ArrowLeft),
@@ -39,22 +35,18 @@ pub(crate) fn add_input_map(
                 (Inputs::Up, KeyCode::KeyW),
                 (Inputs::Down, KeyCode::ArrowDown),
                 (Inputs::Down, KeyCode::KeyS),
-            ]),
-        );
+            ]));
     }
 }
 
 /// The client input only gets applied to predicted entities that we own
-fn player_movement(
-    mut query: Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>,
-) {
+fn player_movement(mut query: Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>) {
     for (position, action_state) in query.iter_mut() {
         // NOTE: be careful to directly pass Mut<PlayerPosition>
         // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
         shared::shared_movement_behaviour(position, action_state);
     }
 }
-
 
 /// When the predicted copy of the client-owned entity is spawned
 /// - assign it a different saturation

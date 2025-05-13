@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::text::TextReader;
 use lightyear::{
     client::{
-        interpolation::{plugin::InterpolationSet, VisualInterpolateStatus},
+        interpolation::{VisualInterpolateStatus, plugin::InterpolationSet},
         prediction::plugin::PredictionSet,
     },
     prelude::client::Correction,

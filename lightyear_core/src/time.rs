@@ -29,23 +29,23 @@ pub struct Overstep {
 impl Overstep {
     pub fn new(value: f32) -> Self {
         // TODO: panic if value outside of bounds?
-        Self { 
-            value: value.clamp(0.0, 1.0)
+        Self {
+            value: value.clamp(0.0, 1.0),
         }
     }
 
     pub fn value(&self) -> f32 {
         self.value
     }
-    
+
     pub fn from_f32(value: f32) -> Self {
         Self::new(value)
     }
-    
+
     pub fn from_u8(value: u8) -> Self {
         Self::new(value as f32 / u8::MAX as f32)
     }
-    
+
     pub fn to_u8(&self) -> u8 {
         (self.value * u8::MAX as f32).round() as u8
     }
@@ -68,7 +68,9 @@ impl PartialOrd for Overstep {
 
 impl Ord for Overstep {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.value.partial_cmp(&other.value).expect("NaN overstep is invalid")
+        self.value
+            .partial_cmp(&other.value)
+            .expect("NaN overstep is invalid")
     }
 }
 
@@ -88,7 +90,6 @@ impl ToBytes for Overstep {
         Ok(Self::from_u8(buffer.read_u8()?))
     }
 }
-
 
 impl Add for Overstep {
     type Output = Self;
@@ -178,7 +179,6 @@ impl TickInstant {
     }
 }
 
-
 impl From<TickDelta> for TickInstant {
     fn from(value: TickDelta) -> Self {
         if value.is_negative() {
@@ -190,8 +190,6 @@ impl From<TickDelta> for TickInstant {
         }
     }
 }
-
-
 
 impl From<Tick> for TickInstant {
     fn from(value: Tick) -> Self {
@@ -233,7 +231,7 @@ impl From<i16> for TickDelta {
         Self {
             tick_diff: value.unsigned_abs(),
             overstep: Default::default(),
-            neg: value.is_negative()
+            neg: value.is_negative(),
         }
     }
 }
@@ -281,7 +279,10 @@ impl TickDelta {
     }
 
     pub fn from_duration(duration: Duration, tick_duration: Duration) -> Self {
-        debug_assert!(tick_duration > Duration::ZERO, "Tick duration must be positive");
+        debug_assert!(
+            tick_duration > Duration::ZERO,
+            "Tick duration must be positive"
+        );
         let total_ticks_f = duration.as_secs_f32() / tick_duration.as_secs_f32();
         let tick_diff = total_ticks_f.floor() as u16;
         let overstep_value = total_ticks_f - tick_diff as f32;
@@ -305,7 +306,7 @@ impl TickDelta {
             TimeDelta::from_duration(duration).expect("Duration should be valid")
         }
     }
-    
+
     pub fn to_f32(&self) -> f32 {
         if self.is_negative() {
             -(self.tick_diff as f32 + self.overstep.value())
@@ -385,7 +386,6 @@ impl Neg for TickDelta {
     }
 }
 
-
 impl Add for TickDelta {
     type Output = TickDelta;
 
@@ -438,7 +438,6 @@ impl Sub for TickDelta {
     }
 }
 
-
 impl Mul<f32> for TickDelta {
     type Output = Self;
 
@@ -488,7 +487,7 @@ impl ToBytes for PositiveTickDelta {
 
     fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
-        Self: Sized
+        Self: Sized,
     {
         let tick_diff = u16::from_bytes(buffer)?;
         let overstep = Overstep::from_bytes(buffer)?;
@@ -499,13 +498,12 @@ impl ToBytes for PositiveTickDelta {
     }
 }
 
-
 /// Delta between two instants
 ///
 /// This is mostly useful because it can represent a positive or a negative duration.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct TimeDelta {
-    duration: chrono::TimeDelta
+    duration: chrono::TimeDelta,
 }
 
 impl TimeDelta {
@@ -520,7 +518,7 @@ impl TimeDelta {
 
     pub fn from_duration(duration: Duration) -> Result<Self, chrono::OutOfRangeError> {
         Ok(Self {
-            duration: chrono::TimeDelta::from_std(duration)?
+            duration: chrono::TimeDelta::from_std(duration)?,
         })
     }
 }
@@ -530,7 +528,7 @@ impl Neg for TimeDelta {
 
     fn neg(self) -> Self::Output {
         Self {
-            duration: -self.duration
+            duration: -self.duration,
         }
     }
 }
@@ -548,7 +546,12 @@ impl Add<TickDelta> for TickInstant {
         let final_overstep = new_overstep_value - additional_ticks as f32;
 
         TickInstant {
-            tick: Tick(self.tick.0.wrapping_add(rhs.tick_diff).wrapping_add(additional_ticks)),
+            tick: Tick(
+                self.tick
+                    .0
+                    .wrapping_add(rhs.tick_diff)
+                    .wrapping_add(additional_ticks),
+            ),
             overstep: Overstep::from_f32(final_overstep),
         }
     }
@@ -600,7 +603,9 @@ impl Sub for TickInstant {
                 // Overstep underflow, borrow from tick
                 TickDelta {
                     tick_diff: tick_diff - 1,
-                    overstep: Overstep::from_f32(1.0 + self.overstep.value() - rhs.overstep.value()),
+                    overstep: Overstep::from_f32(
+                        1.0 + self.overstep.value() - rhs.overstep.value(),
+                    ),
                     neg: false,
                 }
             }
@@ -610,7 +615,6 @@ impl Sub for TickInstant {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -631,12 +635,20 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_tickinstant_ordering() {
-        let t1 = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.5) };
-        let t2 = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.7) };
-        let t3 = TickInstant { tick: Tick(11), overstep: Overstep::from_f32(0.2) };
+        let t1 = TickInstant {
+            tick: Tick(10),
+            overstep: Overstep::from_f32(0.5),
+        };
+        let t2 = TickInstant {
+            tick: Tick(10),
+            overstep: Overstep::from_f32(0.7),
+        };
+        let t3 = TickInstant {
+            tick: Tick(11),
+            overstep: Overstep::from_f32(0.2),
+        };
 
         assert!(t1 < t2);
         assert!(t2 < t3);
@@ -649,7 +661,10 @@ mod tests {
 
     #[test]
     fn test_tickinstant_add_positive_tickdelta() {
-        let tick_instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.3) };
+        let tick_instant = TickInstant {
+            tick: Tick(10),
+            overstep: Overstep::from_f32(0.3),
+        };
         let tick_delta = TickDelta::new(5, Overstep::from_f32(0.2), false);
 
         let result = tick_instant + tick_delta;
@@ -660,7 +675,10 @@ mod tests {
 
     #[test]
     fn test_tickinstant_add_negative_tickdelta() {
-        let tick_instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.3) };
+        let tick_instant = TickInstant {
+            tick: Tick(10),
+            overstep: Overstep::from_f32(0.3),
+        };
         let tick_delta = TickDelta::new(5, Overstep::from_f32(0.2), true); // negative delta
 
         let result = tick_instant + tick_delta;
@@ -671,7 +689,10 @@ mod tests {
 
     #[test]
     fn test_tickinstant_add_with_overstep_overflow() {
-        let tick_instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.7) };
+        let tick_instant = TickInstant {
+            tick: Tick(10),
+            overstep: Overstep::from_f32(0.7),
+        };
         let tick_delta = TickDelta::new(5, Overstep::from_f32(0.6), false);
 
         let result = tick_instant + tick_delta;
@@ -683,7 +704,10 @@ mod tests {
 
     #[test]
     fn test_tickinstant_sub_positive_tickdelta() {
-        let tick_instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.7) };
+        let tick_instant = TickInstant {
+            tick: Tick(10),
+            overstep: Overstep::from_f32(0.7),
+        };
         let tick_delta = TickDelta::new(5, Overstep::from_f32(0.2), false);
 
         let result = tick_instant - tick_delta;
@@ -694,7 +718,10 @@ mod tests {
 
     #[test]
     fn test_tickinstant_sub_negative_tickdelta() {
-        let tick_instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.3) };
+        let tick_instant = TickInstant {
+            tick: Tick(10),
+            overstep: Overstep::from_f32(0.3),
+        };
         let tick_delta = TickDelta::new(5, Overstep::from_f32(0.2), true); // negative delta
 
         let result = tick_instant - tick_delta;
@@ -705,7 +732,10 @@ mod tests {
 
     #[test]
     fn test_tickinstant_sub_with_overstep_underflow() {
-        let tick_instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.3) };
+        let tick_instant = TickInstant {
+            tick: Tick(10),
+            overstep: Overstep::from_f32(0.3),
+        };
         let tick_delta = TickDelta::new(5, Overstep::from_f32(0.7), false);
 
         let result = tick_instant - tick_delta;
@@ -717,8 +747,14 @@ mod tests {
 
     #[test]
     fn test_tickinstant_sub_tickinstant() {
-        let t1 = TickInstant { tick: Tick(15), overstep: Overstep::from_f32(0.7) };
-        let t2 = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.3) };
+        let t1 = TickInstant {
+            tick: Tick(15),
+            overstep: Overstep::from_f32(0.7),
+        };
+        let t2 = TickInstant {
+            tick: Tick(10),
+            overstep: Overstep::from_f32(0.3),
+        };
 
         // t1 - t2 (positive result)
         let delta = t1 - t2;
@@ -735,8 +771,14 @@ mod tests {
 
     #[test]
     fn test_tickinstant_sub_tickinstant_with_overstep_underflow() {
-        let t1 = TickInstant { tick: Tick(15), overstep: Overstep::from_f32(0.2) };
-        let t2 = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.7) };
+        let t1 = TickInstant {
+            tick: Tick(15),
+            overstep: Overstep::from_f32(0.2),
+        };
+        let t2 = TickInstant {
+            tick: Tick(10),
+            overstep: Overstep::from_f32(0.7),
+        };
 
         // Need to borrow from tick
         let delta = t1 - t2;
@@ -763,29 +805,38 @@ mod tests {
 
     #[test]
     fn test_tickinstant_multiplication() {
-        let instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.5) };
+        let instant = TickInstant {
+            tick: Tick(10),
+            overstep: Overstep::from_f32(0.5),
+        };
 
         // Simple multiplication
         let result = instant * 2.0;
-        assert_eq!(result.tick, Tick(21));  // 10*2 + floor(0.5*2) = 20 + 1 = 21
+        assert_eq!(result.tick, Tick(21)); // 10*2 + floor(0.5*2) = 20 + 1 = 21
         assert_relative_eq!(result.overstep.value, 0.0);
 
         // Fractional multiplication
         let result = instant * 1.5;
-        assert_eq!(result.tick, Tick(15));  // 10*1.5 = 15
+        assert_eq!(result.tick, Tick(15)); // 10*1.5 = 15
         assert_relative_eq!(result.overstep.value, 0.75); // 0.5*1.5 = 0.75
 
         // Multiplication causing overstep overflow
-        let instant = TickInstant { tick: Tick(10), overstep: Overstep::from_f32(0.8) };
+        let instant = TickInstant {
+            tick: Tick(10),
+            overstep: Overstep::from_f32(0.8),
+        };
         let result = instant * 1.5;
-        assert_eq!(result.tick, Tick(16));  // 10*1.5 + floor(0.8*1.5) = 15 + 1 = 16
+        assert_eq!(result.tick, Tick(16)); // 10*1.5 + floor(0.8*1.5) = 15 + 1 = 16
         assert_relative_eq!(result.overstep.value, 0.2); // 0.8*1.5 = 1.2, which is 1 tick + 0.2 overstep
     }
 
     #[test]
     fn test_tick_conversion_roundtrip() {
         let tick_duration = Duration::from_millis(100);
-        let original = TickInstant { tick: Tick(15), overstep: Overstep::from_f32(0.4) };
+        let original = TickInstant {
+            tick: Tick(15),
+            overstep: Overstep::from_f32(0.4),
+        };
 
         // Convert to duration and back
         let duration = original.as_duration(tick_duration);
@@ -820,4 +871,3 @@ mod tests {
         assert_eq!(roundtrip.neg, original_delta.neg);
     }
 }
-

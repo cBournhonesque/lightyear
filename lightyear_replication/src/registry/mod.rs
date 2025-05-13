@@ -6,9 +6,9 @@ use lightyear_core::network::NetId;
 use lightyear_serde::SerializationError;
 use lightyear_utils::registry::TypeKind;
 
+mod delta;
 pub mod registry;
 pub(crate) mod replication;
-mod delta;
 
 pub type ComponentNetId = NetId;
 

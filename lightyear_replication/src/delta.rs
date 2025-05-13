@@ -5,8 +5,8 @@ use bevy::prelude::{Component, Entity};
 use bevy::ptr::Ptr;
 
 use crate::components::ReplicationGroupId;
-use crate::registry::registry::ComponentRegistry;
 use crate::registry::ComponentKind;
+use crate::registry::registry::ComponentRegistry;
 use alloc::collections::BTreeMap;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;

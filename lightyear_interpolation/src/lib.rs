@@ -20,11 +20,11 @@ mod despawn;
 pub mod interpolate;
 /// Defines `ConfirmedHistory` for storing historical states of confirmed entities.
 pub mod interpolation_history;
+mod manager;
 /// Provides the `InterpolationPlugin` and related systems for Bevy integration.
 pub mod plugin;
-mod manager;
-mod spawn;
 mod registry;
+mod spawn;
 mod timeline;
 
 /// Commonly used items for client-side interpolation.
@@ -70,10 +70,15 @@ impl Component for Interpolated {
                 .confirmed_entity;
             // TODO: maybe we need InitialReplicated?
             let Some(replicated) = deferred_world.get::<Replicated>(confirmed) else {
-                error!("Could not find the receiver assocaited with the interpolated entity {:?}", interpolated);
+                error!(
+                    "Could not find the receiver assocaited with the interpolated entity {:?}",
+                    interpolated
+                );
                 return;
             };
-            if let Some(mut manager) = deferred_world.get_mut::<InterpolationManager>(replicated.receiver) {
+            if let Some(mut manager) =
+                deferred_world.get_mut::<InterpolationManager>(replicated.receiver)
+            {
                 manager
                     .interpolated_entity_map
                     .get_mut()
@@ -88,10 +93,15 @@ impl Component for Interpolated {
                 .unwrap()
                 .confirmed_entity;
             let Some(replicated) = deferred_world.get::<Replicated>(confirmed) else {
-                error!("Could not find the receiver assocaited with the interpolated entity {:?}", interpolated);
+                error!(
+                    "Could not find the receiver assocaited with the interpolated entity {:?}",
+                    interpolated
+                );
                 return;
             };
-            if let Some(mut manager) = deferred_world.get_mut::<InterpolationManager>(replicated.receiver) {
+            if let Some(mut manager) =
+                deferred_world.get_mut::<InterpolationManager>(replicated.receiver)
+            {
                 manager
                     .interpolated_entity_map
                     .get_mut()
@@ -124,11 +134,10 @@ pub enum InterpolationMode {
     None,
 }
 
-
 /// Trait for components that can be synchronized for interpolation.
 ///
 /// This is a marker trait, requiring `Component<Mutability=Mutable> + Clone + PartialEq`.
 /// Components implementing this trait can have their state managed by the interpolation systems
 /// according to the specified `InterpolationMode`.
-pub trait SyncComponent: Component<Mutability=Mutable> + Clone + PartialEq {}
-impl<T> SyncComponent for T where T: Component<Mutability=Mutable> + Clone + PartialEq {}
+pub trait SyncComponent: Component<Mutability = Mutable> + Clone + PartialEq {}
+impl<T> SyncComponent for T where T: Component<Mutability = Mutable> + Clone + PartialEq {}

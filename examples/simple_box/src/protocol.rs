@@ -45,10 +45,11 @@ pub struct PlayerPosition(pub Vec2);
 
 impl Ease for PlayerPosition {
     fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
-        FunctionCurve::new(Interval::UNIT, move |t| PlayerPosition(Vec2::lerp(start.0, end.0, t)))
+        FunctionCurve::new(Interval::UNIT, move |t| {
+            PlayerPosition(Vec2::lerp(start.0, end.0, t))
+        })
     }
 }
-
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
@@ -131,6 +132,6 @@ impl Plugin for ProtocolPlugin {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             ..default()
         })
-            .add_direction(NetworkDirection::ServerToClient);
+        .add_direction(NetworkDirection::ServerToClient);
     }
 }

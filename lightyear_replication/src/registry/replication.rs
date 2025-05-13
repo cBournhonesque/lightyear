@@ -42,7 +42,6 @@ type RawBufferInsertFn = fn(
 ) -> Result<(), ComponentError>;
 
 impl ComponentRegistry {
-
     pub(crate) fn set_replication_fns<C: Component<Mutability = Mutable> + PartialEq>(
         &mut self,
         config: ComponentReplicationConfig,
@@ -169,10 +168,7 @@ impl ComponentRegistry {
             }
         } else {
             // TODO: add safety comment
-            unsafe {
-                temp_write_buffer
-                    .buffer_insert_raw_ptrs::<C>(component, *component_id)
-            };
+            unsafe { temp_write_buffer.buffer_insert_raw_ptrs::<C>(component, *component_id) };
             // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
             #[cfg(feature = "metrics")]
             {
@@ -194,7 +190,10 @@ impl ComponentRegistry {
         entity_world_mut: &mut EntityWorldMut,
         entity_map: &mut ReceiveEntityMap,
     ) -> Result<(), ComponentError> {
-        debug!("Writing component {} to entity", core::any::type_name::<C>());
+        debug!(
+            "Writing component {} to entity",
+            core::any::type_name::<C>()
+        );
         let kind = ComponentKind::of::<C>();
         let component = self.raw_deserialize::<C>(reader, entity_map)?;
         let entity = entity_world_mut.id();

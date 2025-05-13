@@ -17,7 +17,7 @@ pub struct MultiMessageSender<'w, 's> {
     pub(crate) query: Query<'w, 's, (&'static mut MessageManager, &'static mut Transport)>,
     pub(crate) registry: Res<'w, MessageRegistry>,
     // TODO: should we let users provide their own Writer?
-    pub(crate) writer: Local<'s, Writer>
+    pub(crate) writer: Local<'s, Writer>,
 }
 
 impl<'w, 's> MultiMessageSender<'w, 's> {
@@ -25,7 +25,7 @@ impl<'w, 's> MultiMessageSender<'w, 's> {
         &mut self,
         message: &M,
         senders: impl EntitySet,
-        priority: Priority
+        priority: Priority,
     ) -> Result {
         // if the message is not map-entities, we can serialize it once and clone the bytes
         if !self.registry.is_map_entities::<M>()? {
@@ -34,34 +34,33 @@ impl<'w, 's> MultiMessageSender<'w, 's> {
             self.registry.serialize::<M>(
                 message,
                 &mut self.writer,
-                &mut SendEntityMap::default()
+                &mut SendEntityMap::default(),
             )?;
             let bytes = self.writer.split();
-            self.query.iter_many_unique_mut(senders).try_for_each(|(_, mut transport)| {
-                transport.send_with_priority::<C>(bytes.clone(), priority)
-            })?;
+            self.query
+                .iter_many_unique_mut(senders)
+                .try_for_each(|(_, mut transport)| {
+                    transport.send_with_priority::<C>(bytes.clone(), priority)
+                })?;
         } else {
-            self.query.iter_many_unique_mut(senders).try_for_each(|(mut manager, mut transport)| {
-                self.registry.serialize::<M>(
-                    message,
-                    &mut self.writer,
-                    // TODO: ideally we could do entity mapping without Mut!!!
-                    &mut manager.entity_mapper.local_to_remote,
-                )?;
-                let bytes = self.writer.split();
-                transport.send_with_priority::<C>(bytes, priority)?;
-                Ok::<(), BevyError>(())
-            })?;
+            self.query.iter_many_unique_mut(senders).try_for_each(
+                |(mut manager, mut transport)| {
+                    self.registry.serialize::<M>(
+                        message,
+                        &mut self.writer,
+                        // TODO: ideally we could do entity mapping without Mut!!!
+                        &mut manager.entity_mapper.local_to_remote,
+                    )?;
+                    let bytes = self.writer.split();
+                    transport.send_with_priority::<C>(bytes, priority)?;
+                    Ok::<(), BevyError>(())
+                },
+            )?;
         }
         Ok::<(), _>(())
     }
 
-    pub fn send<M: Message, C: Channel>(
-        &mut self,
-        message: &M,
-        senders: impl EntitySet,
-    ) -> Result {
+    pub fn send<M: Message, C: Channel>(&mut self, message: &M, senders: impl EntitySet) -> Result {
         self.send_with_priority::<M, C>(message, senders, 1.0)
     }
-
 }

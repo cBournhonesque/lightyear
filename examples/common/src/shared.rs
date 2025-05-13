@@ -9,13 +9,12 @@ pub const SERVER_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHO
 pub const SHARED_SETTINGS: SharedSettings = SharedSettings {
     protocol_id: 0,
     private_key: [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0,
     ],
 };
 
 pub const SEND_INTERVAL: Duration = Duration::from_millis(100);
-
 
 #[derive(Copy, Clone, Debug)]
 pub struct SharedSettings {

@@ -2,8 +2,8 @@
 use crate::buffer::Replicate;
 use crate::components::{ComponentReplicationConfig, ComponentReplicationOverrides, Replicating};
 use crate::hierarchy::ReplicateLike;
-use crate::registry::registry::ComponentRegistry;
 use crate::registry::ComponentKind;
+use crate::registry::registry::ComponentRegistry;
 use bevy::ecs::archetype::Archetypes;
 use bevy::ecs::component::Components;
 use bevy::ecs::entity::{EntityIndexMap, EntityIndexSet};
@@ -18,7 +18,6 @@ use bevy::{
 use core::mem;
 use lightyear_connection::direction::NetworkDirection;
 use tracing::trace;
-
 
 /// Cached information about the replicated archetypes for a given sender.
 /// This is used to iterate faster over the components that need to be replicated for a given entity.
@@ -53,7 +52,6 @@ impl FromWorld for ReplicatedArchetypes {
         }
     }
 }
-
 
 #[derive(Debug)]
 pub(crate) struct ReplicatedComponent {
@@ -94,12 +92,11 @@ impl ReplicatedArchetypes {
                         return;
                     };
 
-                    let has_replication_overrides = archetype.contains(replication_metadata.overrides_component_id);
+                    let has_replication_overrides =
+                        archetype.contains(replication_metadata.overrides_component_id);
 
                     // ignore components that are disabled by default and don't have overrides
-                    if replication_metadata.config.disable
-                        && !has_replication_overrides
-                    {
+                    if replication_metadata.config.disable && !has_replication_overrides {
                         trace!(
                             "not including {:?} because it is disabled by default",
                             info.name()
@@ -110,7 +107,7 @@ impl ReplicatedArchetypes {
                     replicated_archetype.push(ReplicatedComponent {
                         id: component,
                         kind,
-                        has_overrides: has_replication_overrides
+                        has_overrides: has_replication_overrides,
                     });
                 }
             });

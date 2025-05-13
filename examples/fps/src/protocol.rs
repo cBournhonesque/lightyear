@@ -69,11 +69,11 @@ impl Plugin for ProtocolPlugin {
         // inputs
         // Use new input plugin path and default config
         app.add_plugins(leafwing::InputPlugin::<PlayerActions> {
-              config: InputConfig::<PlayerActions> {
-              // enable lag compensation; the input messages sent to the server will include the
-              // interpolation delay of that client
-              lag_compensation: true,
-              ..default()
+            config: InputConfig::<PlayerActions> {
+                // enable lag compensation; the input messages sent to the server will include the
+                // interpolation delay of that client
+                lag_compensation: true,
+                ..default()
             },
         });
         // components

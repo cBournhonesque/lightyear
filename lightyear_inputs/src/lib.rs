@@ -11,18 +11,17 @@ extern crate core;
 #[cfg(feature = "client")]
 pub mod client;
 
-#[cfg(feature = "server")]
-pub mod server;
-pub mod input_buffer;
 pub mod config;
+pub mod input_buffer;
 pub mod input_message;
 pub mod plugin;
+#[cfg(feature = "server")]
+pub mod server;
 
 use bevy::prelude::{Component, SystemSet};
 use core::fmt::Debug;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
-
+use serde::de::DeserializeOwned;
 
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
 /// A marker struct for the default channel used to send inputs from client to server.
@@ -31,7 +30,6 @@ use serde::Serialize;
 /// suitable for sending frequent, time-sensitive input data where occasional loss
 /// is acceptable and out-of-order delivery is handled by sequencing.
 pub struct InputChannel;
-
 
 pub mod prelude {
     pub use crate::config::InputConfig;

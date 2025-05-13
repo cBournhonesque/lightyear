@@ -2,10 +2,10 @@
 
 use crate::ping::store::PingId;
 use lightyear_core::time::PositiveTickDelta;
+use lightyear_serde::ToBytes;
 use lightyear_serde::prelude::*;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
-use lightyear_serde::ToBytes;
 
 // TODO: do we need the ping ids? we could just re-use the message id ?
 /// Ping message; the remote should respond immediately with a pong

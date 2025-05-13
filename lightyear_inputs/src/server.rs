@@ -49,23 +49,29 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
         //  - server only considers `state`
         //  - but host-server broadcasting their inputs only updates `state`
         app.configure_sets(
-            PreUpdate, (MessageSet::Receive, InputSet::ReceiveInputs).chain()
+            PreUpdate,
+            (MessageSet::Receive, InputSet::ReceiveInputs).chain(),
         );
         app.configure_sets(FixedPreUpdate, InputSet::UpdateActionState);
 
         // for host server mode?
         #[cfg(feature = "client")]
-        app.configure_sets(FixedPreUpdate, InputSet::UpdateActionState.after(
-            crate::client::InputSet::BufferClientInputs
-        ));
+        app.configure_sets(
+            FixedPreUpdate,
+            InputSet::UpdateActionState.after(crate::client::InputSet::BufferClientInputs),
+        );
 
         // TODO: maybe put this in a Fixed schedule to avoid sending multiple host-server identical
         //  messages per frame if we didn't run FixedUpdate at all?
-        app.configure_sets(PostUpdate, InputSet::RebroadcastInputs.before(MessageSet::Send));
+        app.configure_sets(
+            PostUpdate,
+            InputSet::RebroadcastInputs.before(MessageSet::Send),
+        );
 
         // SYSTEMS
         app.add_systems(
-            PreUpdate, receive_input_message::<S>.in_set(InputSet::ReceiveInputs),
+            PreUpdate,
+            receive_input_message::<S>.in_set(InputSet::ReceiveInputs),
         );
         app.add_systems(
             FixedPreUpdate,
@@ -84,7 +90,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
         //             .in_set(InputSet::RebroadcastInputs),
         //     );
         // }
-
     }
 }
 

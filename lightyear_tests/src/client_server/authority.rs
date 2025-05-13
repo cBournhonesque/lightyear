@@ -10,34 +10,72 @@ use test_log::test;
 fn test_give_authority() {
     let mut stepper = ClientServerStepper::single();
 
-    let server_entity = stepper.server_app.world_mut().spawn((
-        Replicate::to_clients(NetworkTarget::All),
-    )).id();
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
     stepper.frame_step(2);
-    let client_entity = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(server_entity)
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
         .expect("entity is not present in entity map");
-    stepper.client_app().world_mut().entity_mut(client_entity).insert(
-        Replicate::to_server().without_authority()
-    );
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(Replicate::to_server().without_authority());
     stepper.server_app.world_mut().trigger(GiveAuthority {
         entity: server_entity,
-        remote_peer: PeerId::Netcode(0)
+        remote_peer: PeerId::Netcode(0),
     });
     stepper.frame_step(2);
 
     // check that the server lost authority and client gained authority
-    assert!(!stepper.client_of(0).get::<ReplicationSender>().unwrap().has_authority(server_entity));
-    assert!(stepper.client(0).get::<ReplicationSender>().unwrap().has_authority(client_entity));
+    assert!(
+        !stepper
+            .client_of(0)
+            .get::<ReplicationSender>()
+            .unwrap()
+            .has_authority(server_entity)
+    );
+    assert!(
+        stepper
+            .client(0)
+            .get::<ReplicationSender>()
+            .unwrap()
+            .has_authority(client_entity)
+    );
 
     // check that the server updates are not replicated
-    stepper.server_app.world_mut().entity_mut(server_entity).insert(CompA(1.0));
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert(CompA(1.0));
     stepper.frame_step(2);
-    assert!(stepper.client_app().world().get::<CompA>(client_entity).is_none());
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompA>(client_entity)
+            .is_none()
+    );
 
     // check that client updates are replicated
-    stepper.client_app().world_mut().entity_mut(client_entity).insert(CompA(2.0));
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(CompA(2.0));
     stepper.frame_step(2);
-    assert_eq!(stepper.server_app.world().get::<CompA>(server_entity), Some(&CompA(2.0)));
+    assert_eq!(
+        stepper.server_app.world().get::<CompA>(server_entity),
+        Some(&CompA(2.0))
+    );
 }
 
 /// Spawn on client, transfer authority to server, despawn entity on server.
@@ -47,32 +85,63 @@ fn test_give_authority() {
 fn test_transfer_authority_despawn() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(),))
+        .id();
     stepper.frame_step(1);
-    let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
         .expect("entity is not present in entity map");
-    stepper.server_app.world_mut().entity_mut(server_entity).insert(
-        Replicate::to_clients(NetworkTarget::All).without_authority()
-    );
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert(Replicate::to_clients(NetworkTarget::All).without_authority());
 
     stepper.client_app().world_mut().trigger(GiveAuthority {
         entity: client_entity,
-        remote_peer: PeerId::Server
+        remote_peer: PeerId::Server,
     });
     stepper.frame_step(2);
 
     // check that the client lost authority and server gained authority
-    assert!(!stepper.client(0).get::<ReplicationSender>().unwrap().has_authority(client_entity));
-    assert!(stepper.client_of(0).get::<ReplicationSender>().unwrap().has_authority(server_entity));
+    assert!(
+        !stepper
+            .client(0)
+            .get::<ReplicationSender>()
+            .unwrap()
+            .has_authority(client_entity)
+    );
+    assert!(
+        stepper
+            .client_of(0)
+            .get::<ReplicationSender>()
+            .unwrap()
+            .has_authority(server_entity)
+    );
 
     // server despawn the entity
-    stepper.server_app.world_mut().entity_mut(server_entity).despawn();
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .despawn();
     stepper.frame_step(2);
 
     // check that the client entity is also despawned
-    assert!(stepper.client_app().world().get_entity(client_entity).is_err());
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get_entity(client_entity)
+            .is_err()
+    );
 }
 
 /// Spawn on client, transfer authority to server
@@ -82,31 +151,56 @@ fn test_transfer_authority_despawn() {
 fn test_transfer_authority_map_entities() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(),))
+        .id();
     stepper.frame_step(1);
-    let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
         .expect("entity is not present in entity map");
-    stepper.server_app.world_mut().entity_mut(server_entity).insert((
-        Replicate::to_clients(NetworkTarget::All).without_authority(),
-        CompMap(server_entity),
-    ));
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert((
+            Replicate::to_clients(NetworkTarget::All).without_authority(),
+            CompMap(server_entity),
+        ));
 
     stepper.client_app().world_mut().trigger(GiveAuthority {
         entity: client_entity,
-        remote_peer: PeerId::Server
+        remote_peer: PeerId::Server,
     });
     stepper.frame_step(2);
 
     // check that the client lost authority and server gained authority
-    assert!(!stepper.client(0).get::<ReplicationSender>().unwrap().has_authority(client_entity));
-    assert!(stepper.client_of(0).get::<ReplicationSender>().unwrap().has_authority(server_entity));
+    assert!(
+        !stepper
+            .client(0)
+            .get::<ReplicationSender>()
+            .unwrap()
+            .has_authority(client_entity)
+    );
+    assert!(
+        stepper
+            .client_of(0)
+            .get::<ReplicationSender>()
+            .unwrap()
+            .has_authority(server_entity)
+    );
 
     // check that server sent an update and that the components were mapped correctly
-    assert_eq!(stepper.client_app().world().get::<CompMap>(client_entity), Some(&CompMap(client_entity)));
+    assert_eq!(
+        stepper.client_app().world().get::<CompMap>(client_entity),
+        Some(&CompMap(client_entity))
+    );
 }
-
 
 // /// Spawn on client, transfer authority from client 1 to client 2
 // /// Update on server, the updates from the server use entity mapping on the send side.

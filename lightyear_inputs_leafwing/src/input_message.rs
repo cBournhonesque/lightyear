@@ -6,9 +6,9 @@ use bevy::ecs::entity::MapEntities;
 use bevy::platform::time::Instant;
 use bevy::prelude::{Entity, EntityMapper, Reflect};
 use core::fmt::Write;
+use leafwing_input_manager::Actionlike;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
-use leafwing_input_manager::Actionlike;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::input_message::ActionStateSequence;
@@ -31,9 +31,9 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     type Marker = InputMap<A>;
 
     fn is_empty(&self) -> bool {
-        self.diffs.iter().all(|diffs_per_tick| {
-            diffs_per_tick.is_empty()
-        })
+        self.diffs
+            .iter()
+            .all(|diffs_per_tick| diffs_per_tick.is_empty())
     }
 
     fn len(&self) -> usize {
@@ -58,18 +58,20 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
             input_buffer.set(tick, value.clone());
             trace!(
                 "updated from input-message tick: {:?}, value: {:?}",
-                tick,
-                value
+                tick, value
             );
         }
     }
-
 
     /// Add the inputs for the `num_ticks` ticks starting from `self.end_tick - num_ticks + 1` up to `self.end_tick`
     ///
     /// If we don't have a starting `ActionState` from the `input_buffer`, we start from the first tick for which
     /// we have an `ActionState`.
-    fn build_from_input_buffer(input_buffer: &InputBuffer<Self::State>, num_ticks: u16, end_tick: Tick) -> Option<Self> {
+    fn build_from_input_buffer(
+        input_buffer: &InputBuffer<Self::State>,
+        num_ticks: u16,
+        end_tick: Tick,
+    ) -> Option<Self> {
         let mut diffs = Vec::new();
         // find the first tick for which we have an `ActionState` buffered
         let mut start_tick = end_tick - num_ticks + 1;
@@ -100,14 +102,9 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
             diffs.push(diffs_for_tick);
             tick += 1;
         }
-        Some(Self {
-            start_state,
-            diffs,
-        })
+        Some(Self { start_state, diffs })
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -192,7 +189,6 @@ mod tests {
     //     );
     // }
 }
-
 
 #[cfg(test)]
 mod tests {

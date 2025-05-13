@@ -78,7 +78,11 @@ pub(crate) fn add_component_history<C: SyncComponent>(
     interpolation_registry: Res<InterpolationRegistry>,
     component_registry: Res<ComponentRegistry>,
     // TODO: handle multiple receivers
-    query: Single<(&LocalTimeline, &InterpolationTimeline, &InterpolationManager)>,
+    query: Single<(
+        &LocalTimeline,
+        &InterpolationTimeline,
+        &InterpolationManager,
+    )>,
     mut commands: Commands,
     interpolated_entities: Query<
         Entity,
@@ -120,7 +124,10 @@ pub(crate) fn add_component_history<C: SyncComponent>(
                         ));
                     }
                     InterpolationMode::Once | InterpolationMode::Simple => {
-                        trace!("Copy interpolation component for {:?}", core::any::type_name::<C>());
+                        trace!(
+                            "Copy interpolation component for {:?}",
+                            core::any::type_name::<C>()
+                        );
                         interpolated_entity_mut.insert(new_component);
                     }
                     InterpolationMode::None => {}
@@ -144,9 +151,7 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
 ) {
     let kind = core::any::type_name::<C>();
     let (timeline, manager) = query.into_inner();
-    for (confirmed_entity, confirmed, confirmed_component) in
-        confirmed_entities.iter()
-    {
+    for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed.interpolated {
             if confirmed_component.is_changed() && !confirmed_component.is_added() {
                 if let Ok(mut history) = interpolated_entities.get_mut(p) {

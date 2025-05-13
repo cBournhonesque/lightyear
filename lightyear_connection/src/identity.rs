@@ -24,7 +24,6 @@ pub fn is_host_server(identity: Option<Res<NetworkIdentityState>>) -> bool {
     // identity.is_some_and(|i| i.get() == &NetworkIdentityState::HostServer)
 }
 
-
 /// Returns true if the peer is a client (host-server counts as a server)
 pub(crate) fn is_client_ref(identity: Option<Ref<NetworkIdentityState>>) -> bool {
     todo!();
@@ -45,7 +44,6 @@ pub(crate) fn is_host_server_ref(identity: Option<Ref<NetworkIdentityState>>) ->
 //  - if Server Started, we check if one of the connected clients is also a Client?
 //  - on every Connection event, check if the connection is a Client
 
-
 /// State that will contain the current role of the peer. This state is only active if the peer is connected
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default, Resource)]
 pub enum NetworkIdentityState {
@@ -58,7 +56,6 @@ pub enum NetworkIdentityState {
     /// The app is a host server
     HostServer,
 }
-
 
 #[derive(SystemParam)]
 pub struct NetworkIdentity<'w> {

@@ -30,9 +30,8 @@ pub struct OwnedBy {
     /// Which peer controls this entity?
     pub owner: PeerId,
     /// What happens to the entity if the controlling client disconnects?
-    pub lifetime: Lifetime
+    pub lifetime: Lifetime,
 }
-
 
 impl Relationship for OwnedBy {
     type RelationshipTarget = Owned;
@@ -90,15 +89,24 @@ impl OwnedBy {
             }
         }
         let owned_by = world.entity(entity).get::<Self>().unwrap();
-        let Some(&target_entity) = world.resource::<PeerMetadata>().mapping.get(&owned_by.owner) else {
-            warn!("The owner {:?} does not exist. Removing `OwnedBy`", owned_by.owner);
+        let Some(&target_entity) = world
+            .resource::<PeerMetadata>()
+            .mapping
+            .get(&owned_by.owner)
+        else {
+            warn!(
+                "The owner {:?} does not exist. Removing `OwnedBy`",
+                owned_by.owner
+            );
             world.commands().entity(entity).try_remove::<Self>();
             return;
         };
         if target_entity == entity {
             warn!(
                 "{}The {}({target_entity:?}) relationship on entity {entity:?} points to itself. The invalid {} relationship has been removed.",
-                caller.map(|location| format!("{location}: ")).unwrap_or_default(),
+                caller
+                    .map(|location| format!("{location}: "))
+                    .unwrap_or_default(),
                 core::any::type_name::<Self>(),
                 core::any::type_name::<Self>()
             );
@@ -106,9 +114,7 @@ impl OwnedBy {
             return;
         }
         if let Ok(mut target_entity_mut) = world.get_entity_mut(target_entity) {
-            if let Some(mut relationship_target) =
-                target_entity_mut.get_mut::<Owned>()
-            {
+            if let Some(mut relationship_target) = target_entity_mut.get_mut::<Owned>() {
                 relationship_target.collection_mut_risky().add(entity);
             } else {
                 let mut target = <Owned as RelationshipTarget>::with_capacity(1);
@@ -118,7 +124,9 @@ impl OwnedBy {
         } else {
             warn!(
                 "{}The {}({target_entity:?}) relationship on entity {entity:?} relates to an entity that does not exist. The invalid {} relationship has been removed.",
-                caller.map(|location| format!("{location}: ")).unwrap_or_default(),
+                caller
+                    .map(|location| format!("{location}: "))
+                    .unwrap_or_default(),
                 core::any::type_name::<Self>(),
                 core::any::type_name::<Self>()
             );
@@ -154,10 +162,11 @@ impl OwnedBy {
             return;
         };
         if let Ok(mut target_entity_mut) = world.get_entity_mut(target_entity) {
-            if let Some(mut relationship_target) =
-                target_entity_mut.get_mut::<Owned>()
-            {
-                RelationshipSourceCollection::remove(relationship_target.collection_mut_risky(), entity);
+            if let Some(mut relationship_target) = target_entity_mut.get_mut::<Owned>() {
+                RelationshipSourceCollection::remove(
+                    relationship_target.collection_mut_risky(),
+                    entity,
+                );
                 if relationship_target.len() == 0 {
                     if let Ok(mut entity) = world.commands().get_entity(target_entity) {
                         // this "remove" operation must check emptiness because in the event that an identical
@@ -177,8 +186,6 @@ impl OwnedBy {
         }
     }
 }
-
-
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Reflect)]
 pub enum Lifetime {

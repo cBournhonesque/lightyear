@@ -147,10 +147,7 @@ fn main() {
         .run();
 }
 
-fn ui_system(
-    mut contexts: EguiContexts,
-    mut config: ResMut<LauncherConfig>,
-) {
+fn ui_system(mut contexts: EguiContexts, mut config: ResMut<LauncherConfig>) {
     egui::CentralPanel::default().show(contexts.ctx_mut(), |ui| {
         ui.heading("Lightyear Example Launcher");
         ui.separator();
@@ -369,7 +366,6 @@ fn ui_system(
     });
 }
 
-
 fn new_launcher_gui_app(title: String) -> App {
     let mut app = App::new();
     app.add_plugins(
@@ -386,10 +382,7 @@ fn new_launcher_gui_app(title: String) -> App {
                 ..default()
             })
             .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title,
-                    ..default()
-                }),
+                primary_window: Some(Window { title, ..default() }),
                 ..default()
             }),
     );
@@ -424,18 +417,21 @@ fn build_server_app(config: LauncherConfig, _asset_path: String) -> App {
         .server_transport
         .expect("Server transport must be set for server mode");
 
-    app.add_plugins((
-        server::ServerPlugins{ tick_duration: config.tick_duration},
-    ));
+    app.add_plugins((server::ServerPlugins {
+        tick_duration: config.tick_duration,
+    },));
 
     // Add example-specific server plugins (protocol might be added here or in ServerPlugins)
     add_example_server_plugins(&mut app, config.example);
 
-    let server = app.world_mut().spawn(ExampleServer {
-        conditioner: None,
-        transport: server_transport,
-        shared: simple_box_new::SHARED_SETTINGS
-    }).id();
+    let server = app
+        .world_mut()
+        .spawn(ExampleServer {
+            conditioner: None,
+            transport: server_transport,
+            shared: simple_box_new::SHARED_SETTINGS,
+        })
+        .id();
     app.world_mut().trigger_targets(Start, server);
 
     app
@@ -447,7 +443,6 @@ fn build_client_app(config: LauncherConfig, _asset_path: String) -> App {
         "Building Client App by adding plugins... Config: {:?}",
         config
     );
-
 
     // Extract required fields from config
     let client_id = config
@@ -463,21 +458,26 @@ fn build_client_app(config: LauncherConfig, _asset_path: String) -> App {
     let mut app = new_launcher_gui_app(format!("{} Client {}", config.example, client_id));
 
     app.add_plugins((
-        client::ClientPlugins{ tick_duration: config.tick_duration},
+        client::ClientPlugins {
+            tick_duration: config.tick_duration,
+        },
         ExampleClientRendererPlugin::new(String::new()), // Assuming this is still needed
     ));
 
     // Add example-specific client plugins (protocol might be added here or in ClientPlugins)
     add_example_client_plugins(&mut app, config.example);
 
-    let client = app.world_mut().spawn(ExampleClient {
-        client_id,
-        client_port: 0,
-        server_addr,
-        conditioner: None,
-        transport: client_transport,
-        shared: simple_box_new::SHARED_SETTINGS,
-    }).id();
+    let client = app
+        .world_mut()
+        .spawn(ExampleClient {
+            client_id,
+            client_port: 0,
+            server_addr,
+            conditioner: None,
+            transport: client_transport,
+            shared: simple_box_new::SHARED_SETTINGS,
+        })
+        .id();
     app.world_mut().trigger_targets(Connect, client);
 
     app
@@ -504,9 +504,13 @@ fn build_host_server_app(config: LauncherConfig, _asset_path: String) -> App {
     ));
 
     app.add_plugins((
-        client::ClientPlugins{ tick_duration: config.tick_duration},
+        client::ClientPlugins {
+            tick_duration: config.tick_duration,
+        },
         ExampleClientRendererPlugin::new(String::new()),
-        server::ServerPlugins{ tick_duration: config.tick_duration},
+        server::ServerPlugins {
+            tick_duration: config.tick_duration,
+        },
     ));
 
     // --- Add Example Plugins (Common Protocol, Specific Client/Server Logic) ---
@@ -556,22 +560,20 @@ fn add_example_client_plugins(app: &mut App, example: Example) {
     }
 }
 
-fn launch_app(
-    config: &LauncherConfig
-) {
+fn launch_app(config: &LauncherConfig) {
     let launch_config = config.clone(); // Clone the config to pass to the new process
     info!("Handling LaunchEvent for config: {:?}", launch_config);
 
     // 1. Serialize the configuration
-    let config_data = match ron::ser::to_string_pretty(&launch_config, ron::ser::PrettyConfig::default())
-    {
-        Ok(data) => data,
-        Err(e) => {
-            error!("Failed to serialize LauncherConfig to RON: {}", e);
-            // Optionally show an error message in the UI here
-            return;
-        }
-    };
+    let config_data =
+        match ron::ser::to_string_pretty(&launch_config, ron::ser::PrettyConfig::default()) {
+            Ok(data) => data,
+            Err(e) => {
+                error!("Failed to serialize LauncherConfig to RON: {}", e);
+                // Optionally show an error message in the UI here
+                return;
+            }
+        };
 
     // 2. Create a temporary file
     let mut temp_file = match tempfile::Builder::new()

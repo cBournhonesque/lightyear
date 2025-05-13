@@ -1,14 +1,17 @@
 use super::pre_prediction::PrePredictionPlugin;
 use super::predicted_history::apply_confirmed_update;
 use super::resource_history::{
-    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
+    ResourceHistory, handle_tick_event_resource_history, update_resource_history,
 };
-use super::rollback::{prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn, prepare_rollback_resource, remove_prediction_disable, run_rollback, RollbackPlugin};
+use super::rollback::{
+    RollbackPlugin, prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn,
+    prepare_rollback_resource, remove_prediction_disable, run_rollback,
+};
 use super::spawn::spawn_predicted_entity;
 use crate::correction::{
     get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback,
 };
-use crate::despawn::{despawn_confirmed, PredictionDisable};
+use crate::despawn::{PredictionDisable, despawn_confirmed};
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
@@ -77,7 +80,6 @@ pub enum PredictionSet {
     All,
 }
 
-
 /// Returns true if we are in rollback
 pub fn is_in_rollback(query: Query<(), (With<PredictionManager>, With<Rollback>)>) -> bool {
     query.single().is_ok()
@@ -132,22 +134,38 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
         PredictionMode::Full => {
             #[cfg(feature = "metrics")]
             {
-                metrics::describe_counter!(format!(
-                    "prediction::rollbacks::causes::{}::missing_on_confirmed",
-                    core::any::type_name::<C>()
-                ), metrics::Unit::Count, "Component present in the prediction history but missing on the confirmed entity");
-                metrics::describe_counter!(format!(
-                    "prediction::rollbacks::causes::{}::value_mismatch",
-                    core::any::type_name::<C>()
-                ), metrics::Unit::Count, "Component present in the prediction history but with a different value than on the confirmed entity");
-                metrics::describe_counter!(format!(
-                    "prediction::rollbacks::causes::{}::missing_on_predicted",
-                    core::any::type_name::<C>()
-                ), metrics::Unit::Count, "Component present in the confirmed entity but missing in the prediction history");
-                metrics::describe_counter!(format!(
-                    "prediction::rollbacks::causes::{}::removed_on_predicted",
-                    core::any::type_name::<C>()
-                ), metrics::Unit::Count, "Component present in the confirmed entity but removed in the prediction history");
+                metrics::describe_counter!(
+                    format!(
+                        "prediction::rollbacks::causes::{}::missing_on_confirmed",
+                        core::any::type_name::<C>()
+                    ),
+                    metrics::Unit::Count,
+                    "Component present in the prediction history but missing on the confirmed entity"
+                );
+                metrics::describe_counter!(
+                    format!(
+                        "prediction::rollbacks::causes::{}::value_mismatch",
+                        core::any::type_name::<C>()
+                    ),
+                    metrics::Unit::Count,
+                    "Component present in the prediction history but with a different value than on the confirmed entity"
+                );
+                metrics::describe_counter!(
+                    format!(
+                        "prediction::rollbacks::causes::{}::missing_on_predicted",
+                        core::any::type_name::<C>()
+                    ),
+                    metrics::Unit::Count,
+                    "Component present in the confirmed entity but missing in the prediction history"
+                );
+                metrics::describe_counter!(
+                    format!(
+                        "prediction::rollbacks::causes::{}::removed_on_predicted",
+                        core::any::type_name::<C>()
+                    ),
+                    metrics::Unit::Count,
+                    "Component present in the confirmed entity but removed in the prediction history"
+                );
             }
             // TODO: register type if C is reflect
             // app.register_type::<HistoryState<C>>();
@@ -332,11 +350,7 @@ impl Plugin for PredictionPlugin {
         // );
 
         // PLUGINS
-        app.add_plugins((
-            PrePredictionPlugin,
-            PreSpawnedPlugin,
-            RollbackPlugin,
-        ));
+        app.add_plugins((PrePredictionPlugin, PreSpawnedPlugin, RollbackPlugin));
     }
 
     // We run this after `build` and `finish` to make sure that all components were registered before we create the observer

@@ -38,11 +38,7 @@ impl ServerAeronetPlugin {
         }
     }
 
-    fn on_closed(
-        trigger: Trigger<Closed>,
-        query: Query<&AeronetLinkOf>,
-        mut commands: Commands
-    ) {
+    fn on_closed(trigger: Trigger<Closed>, query: Query<&AeronetLinkOf>, mut commands: Commands) {
         if let Ok(child_of) = query.get(trigger.target()) {
             if let Ok(mut c) = commands.get_entity(child_of.0) {
                 let reason = match &*trigger {
@@ -53,9 +49,7 @@ impl ServerAeronetPlugin {
                         format!("Closed due to error: {:?}", err)
                     }
                 };
-                c.insert(Unlinked {
-                    reason,
-                });
+                c.insert(Unlinked { reason });
             }
         }
     }

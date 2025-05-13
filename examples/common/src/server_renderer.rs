@@ -107,7 +107,6 @@ pub(crate) fn spawn_start_button(app: &mut App) {
         });
 }
 
-
 pub(crate) fn update_button_text(
     server: Single<(Has<Started>, Has<Stopped>), With<Server>>,
     mut text: Single<&mut Text, With<Button>>,

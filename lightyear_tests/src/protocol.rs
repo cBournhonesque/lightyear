@@ -1,8 +1,11 @@
 use core::ops::{Add, Mul};
 
-
 #[cfg(not(feature = "std"))]
-use alloc::{string::{String, ToString}, vec, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
@@ -14,9 +17,9 @@ use lightyear_macros::ChannelInternal;
 use lightyear_messages::prelude::*;
 use lightyear_replication::components::ComponentReplicationConfig;
 use lightyear_replication::registry::registry::AppComponentExt;
+use lightyear_serde::SerializationError;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::{WriteInteger, Writer};
-use lightyear_serde::SerializationError;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 use serde::{Deserialize, Serialize};
 
@@ -99,7 +102,7 @@ impl Plugin for ProtocolPlugin {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
         })
-            .add_direction(NetworkDirection::Bidirectional);
+        .add_direction(NetworkDirection::Bidirectional);
         app.add_channel::<Channel2>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliableWithAcks,
             ..default()
@@ -107,8 +110,7 @@ impl Plugin for ProtocolPlugin {
         .add_direction(NetworkDirection::Bidirectional);
         // components
         app.register_component::<CompA>();
-        app.register_component::<CompMap>()
-            .add_map_entities();
+        app.register_component::<CompMap>().add_map_entities();
         app.register_component::<CompDisabled>()
             .with_replication_config(ComponentReplicationConfig {
                 disable: true,
@@ -127,5 +129,4 @@ impl Plugin for ProtocolPlugin {
             },
         });
     }
-
 }

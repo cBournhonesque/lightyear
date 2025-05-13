@@ -22,8 +22,8 @@ use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
 use crate::prelude::{Cached, ComponentReplicationOverride, ComponentReplicationOverrides};
 use crate::receive::ReplicationReceiver;
-use crate::registry::registry::ComponentRegistry;
 use crate::registry::ComponentKind;
+use crate::registry::registry::ComponentRegistry;
 use crate::send::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 
@@ -86,7 +86,7 @@ impl Replicate {
         Self {
             mode,
             senders: EntityIndexSet::default(),
-            authority: true
+            authority: true,
         }
     }
 
@@ -100,7 +100,7 @@ impl Replicate {
         Self {
             mode: ReplicationMode::SingleClient,
             senders: EntityIndexSet::default(),
-            authority: true
+            authority: true,
         }
     }
 
@@ -109,7 +109,7 @@ impl Replicate {
         Self {
             mode: ReplicationMode::SingleServer(target),
             senders: EntityIndexSet::default(),
-            authority: true
+            authority: true,
         }
     }
 
@@ -117,7 +117,7 @@ impl Replicate {
         Self {
             mode: ReplicationMode::Manual(senders),
             senders: EntityIndexSet::default(),
-            authority: true
+            authority: true,
         }
     }
 
@@ -176,26 +176,36 @@ impl Replicate {
                     let unsafe_world = world.as_unsafe_world_cell();
                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
                     let world = unsafe { unsafe_world.world_mut() };
-                    let Ok(server) = world.query_filtered::<&Server, With<Started>>().single(world) else {
+                    let Ok(server) = world
+                        .query_filtered::<&Server, With<Started>>()
+                        .single(world)
+                    else {
                         error!("No Server found in the world");
                         return;
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
                     let world = unsafe { unsafe_world.world_mut() };
-                    let peer_metadata = world.resource::<PeerMetadata>() ;
+                    let peer_metadata = world.resource::<PeerMetadata>();
                     let world = unsafe { unsafe_world.world_mut() };
-                    target.apply_targets(server.collection().iter().copied(), &peer_metadata.mapping, &mut |client| {
-                        trace!("Adding replicated entity {} to ClientOf {}", context.entity, client);
-                        let Ok(mut sender) = world
-                            .query_filtered::<&mut ReplicationSender, With<ClientOf>>()
-                            .get_mut(world, client)
-                        else {
-                            error!("ClientOf {client:?} not found");
-                            return;
-                        };
-                        sender.add_replicated_entity(context.entity, replicate.authority);
-                        replicate.senders.insert(client);
-                    });
+                    target.apply_targets(
+                        server.collection().iter().copied(),
+                        &peer_metadata.mapping,
+                        &mut |client| {
+                            trace!(
+                                "Adding replicated entity {} to ClientOf {}",
+                                context.entity, client
+                            );
+                            let Ok(mut sender) = world
+                                .query_filtered::<&mut ReplicationSender, With<ClientOf>>()
+                                .get_mut(world, client)
+                            else {
+                                error!("ClientOf {client:?} not found");
+                                return;
+                            };
+                            sender.add_replicated_entity(context.entity, replicate.authority);
+                            replicate.senders.insert(client);
+                        },
+                    );
                 }
                 ReplicationMode::Sender(entity) => {
                     let Ok(mut sender) = world
@@ -219,7 +229,10 @@ impl Replicate {
                         return;
                     }
                     let Some(server) = entity_ref.get::<Server>() else {
-                        error!("Provided entity {:?} doesn't have a Server component", *server);
+                        error!(
+                            "Provided entity {:?} doesn't have a Server component",
+                            *server
+                        );
                         return;
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
@@ -238,14 +251,14 @@ impl Replicate {
                             };
                             sender.add_replicated_entity(context.entity, replicate.authority);
                             replicate.senders.insert(client_entity);
-                        }
+                        },
                     );
                 }
                 ReplicationMode::Target(_) => {
                     todo!(
                         "need a global mapping from remote_peer to corresponding replication_sender"
                     )
-                },
+                }
                 ReplicationMode::Manual(sender_entities) => {
                     for sender_entity in sender_entities.iter() {
                         let Ok(mut sender) = world
@@ -255,13 +268,15 @@ impl Replicate {
                             error!("No ReplicationSender found in the world");
                             return;
                         };
-                        info!("Adding replicated entity {} to sender {}", context.entity, sender_entity);
+                        info!(
+                            "Adding replicated entity {} to sender {}",
+                            context.entity, sender_entity
+                        );
                         sender.add_replicated_entity(context.entity, replicate.authority);
                         replicate.senders.insert(*sender_entity);
                     }
                 }
             }
-
         });
     }
 
@@ -284,10 +299,18 @@ impl Replicate {
     /// When a new client connects, check if we need to replicate existing entities to it
     pub(crate) fn handle_connection(
         trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
-        mut sender_query: Query<(Entity, &mut ReplicationSender, &Connected, Option<&Client>, Option<&LinkOf>)>,
+        mut sender_query: Query<(
+            Entity,
+            &mut ReplicationSender,
+            &Connected,
+            Option<&Client>,
+            Option<&LinkOf>,
+        )>,
         mut replicate_query: Query<(Entity, &mut Replicate)>,
     ) {
-        if let Ok((sender_entity, mut sender, connected, client, client_of)) = sender_query.get_mut(trigger.target()) {
+        if let Ok((sender_entity, mut sender, connected, client, client_of)) =
+            sender_query.get_mut(trigger.target())
+        {
             // TODO: maybe do this in parallel?
             replicate_query.iter_mut().for_each(|(entity, mut replicate)| {
                 match &replicate.mode {
@@ -437,7 +460,6 @@ pub(crate) fn replicate(
     );
 }
 
-
 pub(crate) fn replicate_entity(
     entity: Entity,
     tick: Tick,
@@ -470,13 +492,7 @@ pub(crate) fn replicate_entity(
                     || {
                         root_entity_ref
                             .get::<ReplicationGroup>()
-                            .map(|g| {
-                                (
-                                    g.group_id(Some(*root)),
-                                    g.priority(),
-                                    g.should_send,
-                                )
-                            })
+                            .map(|g| (g.group_id(Some(*root)), g.priority(), g.should_send))
                             .unwrap()
                     },
                     // we use the entity itself if ReplicationGroup is present
@@ -498,10 +514,12 @@ pub(crate) fn replicate_entity(
                     .or_else(|| root_entity_ref.get::<OwnedBy>()),
                 child_entity_ref,
                 unsafe {
-                    sender.is_updated(child_entity_ref
-                        .get_change_ticks::<ReplicateLike>()
-                        .unwrap_unchecked()
-                        .changed)
+                    sender.is_updated(
+                        child_entity_ref
+                            .get_change_ticks::<ReplicateLike>()
+                            .unwrap_unchecked()
+                            .changed,
+                    )
                 },
             )
         }
@@ -525,10 +543,12 @@ pub(crate) fn replicate_entity(
     };
 
     #[cfg(feature = "prediction")]
-    let prediction_target= entity_ref.get::<PredictionTarget>()
+    let prediction_target = entity_ref
+        .get::<PredictionTarget>()
         .or_else(|| root_entity_ref.get::<PredictionTarget>());
     #[cfg(feature = "interpolation")]
-    let interpolation_target= entity_ref.get::<InterpolationTarget>()
+    let interpolation_target = entity_ref
+        .get::<InterpolationTarget>()
         .or_else(|| root_entity_ref.get::<InterpolationTarget>());
 
     let replicated_components = replicated_archetypes
@@ -578,14 +598,19 @@ pub(crate) fn replicate_entity(
     }
     // If we are using visibility and this sender is not visible, skip
     if visibility.is_some_and(|vis| !vis.is_visible(sender_entity)) {
-        return
+        return;
     }
 
     // d. all components that were added or changed and that are not disabled
 
     // NOTE: we pre-cache the list of components for each archetype to not iterate through
     //  all replicated components every time
-    for ReplicatedComponent { id, kind, has_overrides } in replicated_components {
+    for ReplicatedComponent {
+        id,
+        kind,
+        has_overrides,
+    } in replicated_components
+    {
         let mut replication_metadata = component_registry.replication_map.get(kind).unwrap();
         let mut disable = replication_metadata.config.disable;
         let mut replicate_once = replication_metadata.config.replicate_once;
@@ -593,7 +618,14 @@ pub(crate) fn replicate_entity(
         if *has_overrides {
             // TODO: get ComponentReplicationOverrides using root entity
             // SAFETY: we know that all overrides have the same shape
-            if let Some(overrides) = unsafe { entity_ref.get_by_id(replication_metadata.overrides_component_id).unwrap().deref::<ComponentReplicationOverrides<Replicate>>() }.get_overrides(sender_entity) {
+            if let Some(overrides) = unsafe {
+                entity_ref
+                    .get_by_id(replication_metadata.overrides_component_id)
+                    .unwrap()
+                    .deref::<ComponentReplicationOverrides<Replicate>>()
+            }
+            .get_overrides(sender_entity)
+            {
                 if disable && overrides.enable {
                     disable = false;
                 }
@@ -641,23 +673,33 @@ pub(crate) fn replicate_entity(
     }
 }
 
-
 /// Send entity despawn if Replicate was updated and the entity should not be replicated to this sender anymore
 /// This cannot be part of `replicate` because replicate iterates through the sender's replicated_entities and
 /// the entity was removed from the sender's replicated_entities list
 pub(crate) fn buffer_entity_despawn_replicate_updated(
     query: Query<(Entity, &ReplicationGroup, &Replicate, &CachedReplicate)>,
-    mut senders: Query<&mut ReplicationSender>
+    mut senders: Query<&mut ReplicationSender>,
 ) {
-    query.iter().for_each(|(entity, group, replicate, cached_replicate)| {
-        let group_id = group.group_id(Some(entity));
-        cached_replicate.senders.difference(&replicate.senders).for_each(|sender_entity| {
-            if let Ok(mut sender) = senders.get_mut(*sender_entity) {
-                trace!(?entity, ?sender_entity, ?replicate, ?cached_replicate, "Sending Despawn because replicate changed");
-                sender.prepare_entity_despawn(entity, group_id);
-            }
-        })
-    });
+    query
+        .iter()
+        .for_each(|(entity, group, replicate, cached_replicate)| {
+            let group_id = group.group_id(Some(entity));
+            cached_replicate
+                .senders
+                .difference(&replicate.senders)
+                .for_each(|sender_entity| {
+                    if let Ok(mut sender) = senders.get_mut(*sender_entity) {
+                        trace!(
+                            ?entity,
+                            ?sender_entity,
+                            ?replicate,
+                            ?cached_replicate,
+                            "Sending Despawn because replicate changed"
+                        );
+                        sender.prepare_entity_despawn(entity, group_id);
+                    }
+                })
+        });
 }
 
 /// Send entity despawn is:
@@ -672,8 +714,13 @@ pub(crate) fn replicate_entity_despawn(
 ) {
     if visibility
         .and_then(|v| v.clients.get(&sender_entity))
-        .is_some_and(|s| s == &VisibilityState::Lost) {
-        trace!(?entity, ?sender_entity, "Replicate entity despawn because visibility lost");
+        .is_some_and(|s| s == &VisibilityState::Lost)
+    {
+        trace!(
+            ?entity,
+            ?sender_entity,
+            "Replicate entity despawn because visibility lost"
+        );
         let entity = entity_map.to_remote(entity);
         sender.prepare_entity_despawn(entity, group_id);
     }
@@ -690,10 +737,8 @@ pub(crate) fn replicate_entity_spawn(
     group_id: ReplicationGroupId,
     priority: f32,
     replicate: &Ref<Replicate>,
-    #[cfg(feature = "prediction")]
-    prediction_target: Option<&PredictionTarget>,
-    #[cfg(feature = "interpolation")]
-    interpolation_target: Option<&InterpolationTarget>,
+    #[cfg(feature = "prediction")] prediction_target: Option<&PredictionTarget>,
+    #[cfg(feature = "interpolation")] interpolation_target: Option<&InterpolationTarget>,
     controlled_by: Option<&OwnedBy>,
     cached_replicate: Option<&CachedReplicate>,
     network_visibility: Option<&NetworkVisibility>,
@@ -704,41 +749,58 @@ pub(crate) fn replicate_entity_spawn(
     remote_peer_id: PeerId,
 ) {
     // 1. replicate was added/updated and the sender was not in the previous Replicate's target
-    let replicate_updated = sender.is_updated(replicate.last_changed()) && cached_replicate.is_none_or(|cached| !cached.senders.contains(&sender_entity)) && network_visibility.is_none_or(|vis| vis.is_visible(sender_entity));
+    let replicate_updated = sender.is_updated(replicate.last_changed())
+        && cached_replicate.is_none_or(|cached| !cached.senders.contains(&sender_entity))
+        && network_visibility.is_none_or(|vis| vis.is_visible(sender_entity));
     // 2. replicate was not updated but NetworkVisibility is gained for this sender
-    let network_visibility_gained = network_visibility.and_then(|v| v.clients.get(&sender_entity)).is_some_and(|v| v == &VisibilityState::Gained);
+    let network_visibility_gained = network_visibility
+        .and_then(|v| v.clients.get(&sender_entity))
+        .is_some_and(|v| v == &VisibilityState::Gained);
     // 3. replicate-like was added and the the entity is visible for this sender
-    let replicate_like_and_visible = is_replicate_like_added && network_visibility.is_none_or(|vis| vis.is_visible(sender_entity));
+    let replicate_like_and_visible = is_replicate_like_added
+        && network_visibility.is_none_or(|vis| vis.is_visible(sender_entity));
     if replicate_updated || network_visibility_gained || replicate_like_and_visible {
-        trace!(?entity, ?group_id, ?sender_entity, ?replicate, ?cached_replicate, ?network_visibility, ?replicate_updated, ?network_visibility_gained, ?replicate_like_and_visible, "Sending Spawn");
+        trace!(
+            ?entity,
+            ?group_id,
+            ?sender_entity,
+            ?replicate,
+            ?cached_replicate,
+            ?network_visibility,
+            ?replicate_updated,
+            ?network_visibility_gained,
+            ?replicate_like_and_visible,
+            "Sending Spawn"
+        );
         sender.prepare_entity_spawn(entity, group_id, priority);
 
         if controlled_by.is_some_and(|c| c.owner == remote_peer_id) {
-            sender.prepare_typed_component_insert(
-                entity,
-                group_id,
-                component_registry,
-                &Controlled,
-            ).unwrap();
+            sender
+                .prepare_typed_component_insert(entity, group_id, component_registry, &Controlled)
+                .unwrap();
         }
 
         #[cfg(feature = "prediction")]
         if prediction_target.is_some_and(|p| p.senders.contains(&sender_entity)) {
-            sender.prepare_typed_component_insert(
-                entity,
-                group_id,
-                component_registry,
-                &ShouldBePredicted,
-            ).unwrap();
+            sender
+                .prepare_typed_component_insert(
+                    entity,
+                    group_id,
+                    component_registry,
+                    &ShouldBePredicted,
+                )
+                .unwrap();
         }
         #[cfg(feature = "interpolation")]
         if interpolation_target.is_some_and(|p| p.senders.contains(&sender_entity)) {
-            sender.prepare_typed_component_insert(
-                entity,
-                group_id,
-                component_registry,
-                &ShouldBeInterpolated,
-            ).unwrap();
+            sender
+                .prepare_typed_component_insert(
+                    entity,
+                    group_id,
+                    component_registry,
+                    &ShouldBeInterpolated,
+                )
+                .unwrap();
         }
     }
 }
@@ -761,7 +823,14 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
     //  in which case we don't want to replicate the despawn.
     //  i.e. if a user wants to despawn an entity without replicating the despawn
     //  I guess we can provide a command that first removes Replicating, and then despawns the entity.
-    entity_query: Query<(&ReplicationGroup, &CachedReplicate, Option<&NetworkVisibility>), With<Replicating>>,
+    entity_query: Query<
+        (
+            &ReplicationGroup,
+            &CachedReplicate,
+            Option<&NetworkVisibility>,
+        ),
+        With<Replicating>,
+    >,
     mut query: Query<(Entity, &mut ReplicationSender, &mut MessageManager)>,
 ) {
     let mut entity = trigger.target();
@@ -782,7 +851,11 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
         .par_iter_many_unique_mut(cached_replicate.senders.as_slice())
         .for_each(|(sender_entity, mut sender, mut manager)| {
             if network_visibility.is_some_and(|v| !v.is_visible(sender_entity)) {
-                trace!(?entity, ?sender_entity, "Not sending despawn because the sender didn't have visibility of the entity");
+                trace!(
+                    ?entity,
+                    ?sender_entity,
+                    "Not sending despawn because the sender didn't have visibility of the entity"
+                );
                 return;
             }
             // convert the entity to a network entity (possibly mapped)
@@ -822,7 +895,10 @@ fn replicate_component_update(
     // TODO: ideally we would use target.is_added(), but we do the trick of setting all the
     //  ReplicateToServer components to `changed` when the client first connects so that we replicate existing entities to the server
     //  That is why `force_insert = True` if ReplicateToServer is changed.
-    if sender.is_updated(component_ticks.added) || sender.is_updated(replicate.last_changed()) || visibility.is_some_and(|v| v == &VisibilityState::Gained) {
+    if sender.is_updated(component_ticks.added)
+        || sender.is_updated(replicate.last_changed())
+        || visibility.is_some_and(|v| v == &VisibilityState::Gained)
+    {
         insert = true;
     } else {
         // do not send updates for these components, only inserts/removes
@@ -869,7 +945,9 @@ fn replicate_component_update(
             let send_tick = sender.get_send_tick(group_id);
 
             // send the update for all changes newer than the last send bevy tick for the group
-            if send_tick.map_or(true, |send_tick| component_ticks.is_changed(send_tick, sender.this_run)) {
+            if send_tick.map_or(true, |send_tick| {
+                component_ticks.is_changed(send_tick, sender.this_run)
+            }) {
                 trace!(
                     change_tick = ?component_ticks.changed,
                     ?send_tick,
@@ -948,7 +1026,13 @@ pub(crate) fn buffer_component_removed(
                 let kind = registry.component_id_to_kind.get(component_id).unwrap();
                 let metadata = registry.replication_map.get(kind).unwrap();
                 let mut disable = metadata.config.disable;
-                if let Some(overrides) = entity_ref.get_by_id(metadata.overrides_component_id).and_then(|o| unsafe { o.deref::<ComponentReplicationOverrides<Replicate>>() }.get_overrides(sender_entity)) {
+                if let Some(overrides) = entity_ref
+                    .get_by_id(metadata.overrides_component_id)
+                    .and_then(|o| {
+                        unsafe { o.deref::<ComponentReplicationOverrides<Replicate>>() }
+                            .get_overrides(sender_entity)
+                    })
+                {
                     if disable && overrides.enable {
                         disable = false;
                     }

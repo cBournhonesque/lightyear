@@ -24,7 +24,6 @@ pub(crate) mod header;
 
 pub mod message;
 
-
 // "module has the same name as its containing module" style nit.
 // clippy doesn't like this, but not much benefit to changing it now, so silence the warning.
 #[allow(clippy::module_inception)]

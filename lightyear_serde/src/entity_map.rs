@@ -4,7 +4,7 @@ use crate::reader::{ReadInteger, ReadVarInt, Reader};
 use crate::varint::varint_len;
 use crate::writer::WriteInteger;
 use crate::{SerializationError, ToBytes};
-use bevy::ecs::entity::{hash_map::EntityHashMap, EntityMapper};
+use bevy::ecs::entity::{EntityMapper, hash_map::EntityHashMap};
 use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
 use core::hash::Hasher;
@@ -46,13 +46,16 @@ impl EntityMapper for SendEntityMap {
     fn get_mapped(&mut self, entity: Entity) -> Entity {
         // if we have the entity in our mapping, map it and mark it as mapped
         // so that on the receive side we don't map it again
-        match self.0.get(&entity) { Some(mapped) => {
-            trace!("Mapping entity {entity:?} to {mapped:?} in SendEntityMap!");
-            RemoteEntityMap::mark_mapped(*mapped)
-        } _ => {
-            // otherwise just send the entity as is, and the receiver will map it
-            entity
-        }}
+        match self.0.get(&entity) {
+            Some(mapped) => {
+                trace!("Mapping entity {entity:?} to {mapped:?} in SendEntityMap!");
+                RemoteEntityMap::mark_mapped(*mapped)
+            }
+            _ => {
+                // otherwise just send the entity as is, and the receiver will map it
+                entity
+            }
+        }
     }
 
     fn set_mapped(&mut self, source: Entity, target: Entity) {
@@ -90,9 +93,6 @@ pub struct RemoteEntityMap {
     pub remote_to_local: ReceiveEntityMap,
     pub local_to_remote: SendEntityMap,
 }
-
-
-
 
 impl RemoteEntityMap {
     /// Insert a new mapping between a remote entity and a local entity
@@ -147,11 +147,10 @@ impl RemoteEntityMap {
     /// Convert a local entity to a network entity that we can send
     /// We will try to map it to a remote entity if we can
     pub fn to_remote(&self, local_entity: Entity) -> Entity {
-        match self.local_to_remote.get(&local_entity) { Some(remote_entity) => {
-            Self::mark_mapped(*remote_entity)
-        } _ => {
-            local_entity
-        }}
+        match self.local_to_remote.get(&local_entity) {
+            Some(remote_entity) => Self::mark_mapped(*remote_entity),
+            _ => local_entity,
+        }
     }
 
     /// Get the remote entity corresponding to the local entity in the entity map
@@ -179,10 +178,15 @@ impl RemoteEntityMap {
                 self.remote_to_local.remove(&remote);
             }
             return Some(local);
-        } else { match self.remote_to_local.remove(&remote_entity) { Some(local) => {
-            self.local_to_remote.remove(&local);
-            return Some(local);
-        } _ => {}}}
+        } else {
+            match self.remote_to_local.remove(&remote_entity) {
+                Some(local) => {
+                    self.local_to_remote.remove(&local);
+                    return Some(local);
+                }
+                _ => {}
+            }
+        }
         None
     }
 

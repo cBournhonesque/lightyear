@@ -6,7 +6,7 @@
 
 use proc_macro2::{Ident, Span};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, ItemEnum};
+use syn::{ItemEnum, parse_macro_input};
 
 use channel::channel_impl;
 

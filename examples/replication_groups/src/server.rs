@@ -20,20 +20,15 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-
-pub(crate) fn handle_new_client(
-    trigger: trigger<OnAdd, LinkOf>,
-    mut commands: Commands,
-) {
-    commands.entity(trigger.target()).insert(
-        ReplicationSender::new(
+pub(crate) fn handle_new_client(trigger: trigger<OnAdd, LinkOf>, mut commands: Commands) {
+    commands
+        .entity(trigger.target())
+        .insert(ReplicationSender::new(
             SEND_INTERVAL,
             SendUpdatesMode::SinceLastAck,
             false,
-        ),
-    );
+        ));
 }
-
 
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
@@ -71,12 +66,13 @@ pub(crate) fn handle_connections(
         points.push_front((tail, default_direction));
         let tail_entity = commands
             .spawn((
-            PlayerParent(player_entity),
-            TailPoints(points),
-            TailLength(tail_length),
-            ReplicateLike {
-                root: player_entity
-            }))
+                PlayerParent(player_entity),
+                TailPoints(points),
+                TailLength(tail_length),
+                ReplicateLike {
+                    root: player_entity,
+                },
+            ))
             .id();
     }
 }

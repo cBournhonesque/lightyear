@@ -145,10 +145,19 @@ fn apply_predicted_sync(world: &mut World) {
                 unsafe { unsafe_world.get_resource::<PredictionRegistry>() }.unwrap();
             let component_registry =
                 unsafe { unsafe_world.get_resource::<ComponentRegistry>() }.unwrap();
-            let link_entity = unsafe { unsafe_world
-                .get_resource::<PredictionResource>()
-                .unwrap().link_entity };
-            let temp_write_buffer = &mut unsafe { unsafe_world.world_mut().get_mut::<PredictionManager>(link_entity) }.unwrap().temp_write_buffer;
+            let link_entity = unsafe {
+                unsafe_world
+                    .get_resource::<PredictionResource>()
+                    .unwrap()
+                    .link_entity
+            };
+            let temp_write_buffer = &mut unsafe {
+                unsafe_world
+                    .world_mut()
+                    .get_mut::<PredictionManager>(link_entity)
+            }
+            .unwrap()
+            .temp_write_buffer;
 
             let world = unsafe { unsafe_world.world_mut() };
 
@@ -159,7 +168,7 @@ fn apply_predicted_sync(world: &mut World) {
                 event.confirmed,
                 event.predicted,
                 world,
-                temp_write_buffer
+                temp_write_buffer,
             );
         })
     });
@@ -300,7 +309,11 @@ pub(crate) fn add_sync_systems(app: &mut App) {
 
     // Sync components that are added on the Confirmed entity
     let mut observer = Observer::new(added_on_confirmed_sync);
-    for component in prediction_registry.prediction_map.keys().map(|k| component_registry.kind_to_component_id[k]) {
+    for component in prediction_registry
+        .prediction_map
+        .keys()
+        .map(|k| component_registry.kind_to_component_id[k])
+    {
         observer = observer.with_component(component);
     }
     app.world_mut().spawn(observer);
@@ -631,16 +644,18 @@ mod tests {
         stepper.frame_step();
 
         // check that the components were synced to the predicted entity
-        assert!(stepper
-            .client_app
-            .world_mut()
-            .query_filtered::<(), (
-                With<PredictionModeOnce>,
-                With<PredictionModeSimple>,
-                With<Predicted>
-            )>()
-            .single(stepper.client_app().world())
-            .is_ok());
+        assert!(
+            stepper
+                .client_app
+                .world_mut()
+                .query_filtered::<(), (
+                    With<PredictionModeOnce>,
+                    With<PredictionModeSimple>,
+                    With<Predicted>
+                )>()
+                .single(stepper.client_app().world())
+                .is_ok()
+        );
     }
 
     /// Test that the history gets updated correctly

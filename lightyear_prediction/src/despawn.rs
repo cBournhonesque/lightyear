@@ -1,5 +1,5 @@
-use crate::prespawn::PreSpawned;
 use crate::Predicted;
+use crate::prespawn::PreSpawned;
 use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
 use lightyear_replication::prelude::{Confirmed, ShouldBePredicted};
@@ -29,7 +29,6 @@ pub(crate) struct PredictionDisable;
 
 impl Command for PredictionDespawnCommand {
     fn apply(self, world: &mut World) {
-
         // // if we are in host server mode, there is no rollback so we can despawn the entity immediately
         // if world.is_host_server() {
         //     world.entity_mut(self.entity).despawn();
@@ -95,7 +94,7 @@ mod tests {
     use super::*;
     use crate::despawn::PredictionDisable;
     use crate::manager::PredictionManager;
-    use bevy::prelude::{default, Component};
+    use bevy::prelude::{Component, default};
 
     #[derive(Component, Debug, PartialEq)]
     struct TestComponent(usize);
@@ -172,16 +171,20 @@ mod tests {
             .prediction_despawn();
         stepper.frame_step();
         // make sure that the entity is disabled
-        assert!(stepper
-            .client_app
-            .world()
-            .get_entity(predicted_entity)
-            .is_ok());
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<PredictionDisable>(predicted_entity)
-            .is_some());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get_entity(predicted_entity)
+                .is_ok()
+        );
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<PredictionDisable>(predicted_entity)
+                .is_some()
+        );
 
         // update the server entity to trigger a rollback where the predicted entity should be 're-spawned'
         stepper
@@ -194,11 +197,13 @@ mod tests {
         stepper.frame_step();
 
         // Check that the entity was rolled back and the PredictionDisable marker was removed
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<PredictionDisable>(predicted_entity)
-            .is_none());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<PredictionDisable>(predicted_entity)
+                .is_none()
+        );
         assert_eq!(
             stepper
                 .client_app
@@ -262,24 +267,28 @@ mod tests {
         stepper.frame_step();
 
         // check that the predicted entity got despawned
-        assert!(stepper
-            .client_app
-            .world()
-            .get_entity(predicted_entity)
-            .is_err());
-        // check that the confirmed to predicted map got updated
-        unsafe {
-            assert!(stepper
+        assert!(
+            stepper
                 .client_app
                 .world()
-                .resource::<PredictionManager>()
-                .predicted_entity_map
-                .get()
-                .as_ref()
-                .unwrap()
-                .confirmed_to_predicted
-                .get(&confirmed_entity)
-                .is_none());
+                .get_entity(predicted_entity)
+                .is_err()
+        );
+        // check that the confirmed to predicted map got updated
+        unsafe {
+            assert!(
+                stepper
+                    .client_app
+                    .world()
+                    .resource::<PredictionManager>()
+                    .predicted_entity_map
+                    .get()
+                    .as_ref()
+                    .unwrap()
+                    .confirmed_to_predicted
+                    .get(&confirmed_entity)
+                    .is_none()
+            );
         }
     }
 }

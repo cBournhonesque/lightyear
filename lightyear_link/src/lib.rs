@@ -15,8 +15,8 @@
 extern crate alloc;
 mod conditioner;
 
-pub mod server;
 mod id;
+pub mod server;
 
 use alloc::collections::vec_deque::Drain;
 
@@ -34,7 +34,9 @@ use core::time::Duration;
 pub mod prelude {
     pub use crate::conditioner::LinkConditionerConfig;
     pub use crate::server::{LinkOf, Server};
-    pub use crate::{Link, LinkSet, LinkStart, LinkStats, Linked, Linking, RecvLinkConditioner, Unlinked};
+    pub use crate::{
+        Link, LinkSet, LinkStart, LinkStats, Linked, Linking, RecvLinkConditioner, Unlinked,
+    };
 
     pub mod server {
         pub use crate::server::{LinkOf, Server};
@@ -55,7 +57,6 @@ pub enum LinkState {
     /// The entity is not linked to the remote entity
     Unlinked,
 }
-
 
 /// Represents a link between two peers, allowing for sending and receiving data.
 /// This only stores the payloads to be sent and received, the actual bytes will be sent by an Io component
@@ -105,13 +106,12 @@ impl Link {
 /// It contains a buffer for payloads and an optional `LinkConditioner`
 /// to simulate network conditions on received data.
 #[derive(Default)]
-pub struct LinkReceiver{
+pub struct LinkReceiver {
     buffer: VecDeque<RecvPayload>,
     conditioner: Option<LinkConditioner<RecvPayload>>,
 }
 
 impl LinkReceiver {
-
     pub fn drain(&mut self) -> Drain<RecvPayload> {
         self.buffer.drain(..)
     }
@@ -139,9 +139,8 @@ impl LinkReceiver {
 
     #[cfg(any(test, feature = "test_utils"))]
     pub fn iter(&self) -> impl Iterator<Item = &SendPayload> {
-         self.buffer.iter()
+        self.buffer.iter()
     }
-
 }
 /// Handles buffering outgoing payloads for a `Link`.
 ///
@@ -151,7 +150,6 @@ impl LinkReceiver {
 pub struct LinkSender(VecDeque<SendPayload>);
 
 impl LinkSender {
-
     pub fn drain(&mut self) -> Drain<SendPayload> {
         self.0.drain(..)
     }
@@ -187,7 +185,6 @@ pub struct LinkStats {
     pub rtt: Duration,
     pub jitter: Duration,
 }
-
 
 // TODO: add things here that are entirely dependent on the link
 //  - packet lost stats?
@@ -225,7 +222,7 @@ pub struct LinkStart;
 /// from the remote peer.
 #[derive(Event, Clone, Debug)]
 pub struct Unlink {
-    pub reason: String
+    pub reason: String,
 }
 
 #[derive(Component, Default, Debug)]
@@ -237,7 +234,9 @@ impl Linking {
         if let Some(mut link) = world.get_mut::<Link>(context.entity) {
             link.state = LinkState::Linking;
         }
-        world.commands().entity(context.entity)
+        world
+            .commands()
+            .entity(context.entity)
             .remove::<(Linked, Unlinked)>();
     }
 }
@@ -251,7 +250,9 @@ impl Linked {
         if let Some(mut link) = world.get_mut::<Link>(context.entity) {
             link.state = LinkState::Linked;
         }
-        world.commands().entity(context.entity)
+        world
+            .commands()
+            .entity(context.entity)
             .remove::<(Linking, Unlinked)>();
     }
 }
@@ -267,11 +268,12 @@ impl Unlinked {
         if let Some(mut link) = world.get_mut::<Link>(context.entity) {
             link.state = LinkState::Unlinked;
         }
-        world.commands().entity(context.entity)
+        world
+            .commands()
+            .entity(context.entity)
             .remove::<(Linked, Linking)>();
     }
 }
-
 
 /// Bevy plugin that sets up the systems for managing `Link` components.
 ///
@@ -284,9 +286,7 @@ impl Unlinked {
 pub struct LinkPlugin;
 
 impl LinkPlugin {
-    pub fn apply_link_conditioner(
-        mut query: Query<&mut Link>,
-    ) {
+    pub fn apply_link_conditioner(mut query: Query<&mut Link>) {
         query.par_iter_mut().for_each(|mut link| {
             // enable split borrows
             let recv = &mut link.recv;
@@ -300,13 +300,10 @@ impl LinkPlugin {
     }
 
     /// If the user requested to unlink, then we insert the Unlinked component
-    fn unlink(
-        mut trigger: Trigger<Unlink>,
-        mut commands: Commands,
-    ) {
+    fn unlink(mut trigger: Trigger<Unlink>, mut commands: Commands) {
         if let Ok(mut c) = commands.get_entity(trigger.target()) {
             c.insert(Unlinked {
-                reason: core::mem::take(&mut trigger.reason)
+                reason: core::mem::take(&mut trigger.reason),
             });
         }
     }
@@ -314,8 +311,14 @@ impl LinkPlugin {
 
 impl Plugin for LinkPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreUpdate, Self::apply_link_conditioner.in_set(LinkSet::ApplyConditioner));
-        app.configure_sets(PreUpdate, (LinkSet::Receive, LinkSet::ApplyConditioner).chain());
+        app.add_systems(
+            PreUpdate,
+            Self::apply_link_conditioner.in_set(LinkSet::ApplyConditioner),
+        );
+        app.configure_sets(
+            PreUpdate,
+            (LinkSet::Receive, LinkSet::ApplyConditioner).chain(),
+        );
         app.configure_sets(PostUpdate, LinkSet::Send);
 
         app.add_observer(Self::unlink);

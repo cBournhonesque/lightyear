@@ -1,7 +1,6 @@
 /// Defines the [`Message`](message::Message) struct, which is a piece of serializable data
 use core::fmt::Debug;
 
-
 use bytes::Bytes;
 
 use lightyear_core::tick::Tick;
@@ -13,7 +12,6 @@ use lightyear_utils::wrapping_id;
 
 // Internal id that we assign to each message sent over the network
 wrapping_id!(MessageId);
-
 
 /// The index of a fragment in a fragmented message.
 ///
@@ -165,7 +163,7 @@ impl ToBytes for FragmentIndex {
 
     fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
-        Self: Sized
+        Self: Sized,
     {
         Ok(FragmentIndex(buffer.read_varint()?))
     }
@@ -174,9 +172,9 @@ impl ToBytes for FragmentIndex {
 impl ToBytes for FragmentData {
     fn bytes_len(&self) -> usize {
         self.message_id.bytes_len()
-        + self.fragment_id.bytes_len()
-        + self.num_fragments.bytes_len()
-        + self.bytes.bytes_len()
+            + self.fragment_id.bytes_len()
+            + self.num_fragments.bytes_len()
+            + self.bytes.bytes_len()
     }
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {

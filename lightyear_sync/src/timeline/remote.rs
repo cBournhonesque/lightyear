@@ -11,7 +11,6 @@ use lightyear_link::Linked;
 use lightyear_transport::plugin::PacketReceived;
 use tracing::trace;
 
-
 /// The local peer's estimate of the remote peer's timeline
 ///
 /// This component maintains the local estimate of what time it is on a remote peer
@@ -67,17 +66,13 @@ impl Default for RemoteEstimate {
     }
 }
 
-
-
-
 // We need to wrap the inner Timeline to avoid the orphan rule
 #[derive(Component, Default, Debug, Deref, DerefMut, Reflect)]
 pub struct RemoteTimeline(Timeline<RemoteEstimate>);
 
 impl TimelineContext for RemoteEstimate {}
 
-
-impl RemoteTimeline  {
+impl RemoteTimeline {
     /// Returns the most recent tick received from the remote peer.
     ///
     /// # Returns
@@ -112,12 +107,20 @@ impl RemoteTimeline  {
     ///
     /// This method will only update the estimate if the received tick is newer than
     /// the previously received tick.
-    pub(crate) fn update(&mut self, remote_tick: Tick, ping_manager: &PingManager, tick_duration: Duration) {
+    pub(crate) fn update(
+        &mut self,
+        remote_tick: Tick,
+        ping_manager: &PingManager,
+        tick_duration: Duration,
+    ) {
         if ping_manager.pongs_recv < self.handshake_pings {
-            return
+            return;
         }
-        if self.context.last_received_tick
-           .map_or(true, |previous_tick| remote_tick >= previous_tick) {
+        if self
+            .context
+            .last_received_tick
+            .map_or(true, |previous_tick| remote_tick >= previous_tick)
+        {
             // only update if the remote tick is newer than the last received tick
             self.context.received_packet = true;
             self.context.last_received_tick = Some(remote_tick);
@@ -191,7 +194,6 @@ impl RemoteTimeline  {
     }
 }
 
-
 // TODO: instead of a trigger, should this be after MessageReceivedSet?
 /// Update the timeline in FixedUpdate based on the Pings received
 /// Should we use this only in FixedUpdate::First? because we need the tick in FixedUpdate to be correct for the timeline
@@ -201,7 +203,10 @@ pub(crate) fn update_remote_timeline(
     mut query: Query<(&mut RemoteTimeline, &PingManager)>,
 ) {
     if let Ok((mut t, ping_manager)) = query.get_mut(trigger.target()) {
-        trace!("Received packet received with remote tick {:?}", trigger.remote_tick);
+        trace!(
+            "Received packet received with remote tick {:?}",
+            trigger.remote_tick
+        );
         t.update(trigger.remote_tick, ping_manager, tick_duration.0);
     }
 }
@@ -227,7 +232,6 @@ pub(crate) fn reset_received_packet_remote_timeline(
         t.context.received_packet = false;
     });
 }
-
 
 impl SyncTargetTimeline for RemoteTimeline {
     fn current_estimate(&self) -> TickInstant {

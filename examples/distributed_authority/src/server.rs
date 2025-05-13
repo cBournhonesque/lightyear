@@ -24,13 +24,9 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(Startup, setup);
         app.add_systems(FixedUpdate, movement);
         app.add_observer(handle_connected);
-        app.add_systems(
-            Update,
-            (transfer_authority, update_ball_color),
-        );
+        app.add_systems(Update, (transfer_authority, update_ball_color));
     }
 }
-
 
 fn setup(mut commands: Commands) {
     commands.spawn((
@@ -49,11 +45,7 @@ fn setup(mut commands: Commands) {
             ],
         },
         // Add ReplicationSender to send updates back to clients
-        ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ),
+        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
     ));
 }
 
@@ -64,12 +56,15 @@ pub(crate) fn handle_connected(
     query: Query<&Connected>,
 ) {
     let client_entity = trigger.target();
-    let Ok(connected) = query.get(client_entity) else { return };
+    let Ok(connected) = query.get(client_entity) else {
+        return;
+    };
     let client_id = connected.remote_peer_id;
 
     // Standard prediction: predict owner, interpolate others
     let prediction_target = PredictionTarget::to_clients(NetworkTarget::Single(client_id));
-    let interpolation_target = InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id));
+    let interpolation_target =
+        InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id));
 
     let replicate = Replicate::to_clients(NetworkTarget::All); // Replicate to all
 
@@ -79,11 +74,7 @@ pub(crate) fn handle_connected(
         prediction_target,
         interpolation_target,
         // Add ReplicationSender to send updates back to clients
-        ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ),
+        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
     ));
     info!("Create entity {:?} for client {:?}", entity.id(), client_id);
 }
@@ -142,20 +133,21 @@ pub(crate) fn transfer_authority(
 /// Everytime the ball changes authority, repaint the ball according to the new owner
 pub(crate) fn update_ball_color(
     // Query Authority component instead of AuthorityPeer
-    mut balls: Query<
-        (&mut PlayerColor, &Authority),
-        (With<BallMarker>, Changed<Authority>),
-    >,
+    mut balls: Query<(&mut PlayerColor, &Authority), (With<BallMarker>, Changed<Authority>)>,
     player_q: Query<(&PlayerId, &PlayerColor), Without<BallMarker>>, // PlayerId now contains PeerId
 ) {
     for (mut ball_color, authority) in balls.iter_mut() {
         info!("Ball authority changed to {:?}", authority.peer_id);
-        match authority.peer_id { // Check authority.peer_id
-            PeerId::Server => { // Use PeerId::Server
+        match authority.peer_id {
+            // Check authority.peer_id
+            PeerId::Server => {
+                // Use PeerId::Server
                 ball_color.0 = Color::WHITE;
             }
-            PeerId::Client(client_id) => { // Use PeerId::Client
-                let player_color_opt = player_q.iter()
+            PeerId::Client(client_id) => {
+                // Use PeerId::Client
+                let player_color_opt = player_q
+                    .iter()
                     .find(|(player_id, _)| player_id.0 == client_id)
                     .map(|(_, color)| color.0);
                 if let Some(player_color) = player_color_opt {
@@ -164,8 +156,7 @@ pub(crate) fn update_ball_color(
                     warn!("Could not find player color for client {}", client_id);
                     ball_color.0 = Color::BLACK; // Fallback color
                 }
-            }
-            // AuthorityPeer::None is not directly represented, absence of Authority component implies no authority
+            } // AuthorityPeer::None is not directly represented, absence of Authority component implies no authority
         }
     }
 }

@@ -12,7 +12,6 @@ const GRID_SIZE: f32 = 200.0;
 const NUM_CIRCLES: i32 = 1;
 const INTEREST_RADIUS: f32 = 150.0;
 
-
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
 
@@ -33,23 +32,19 @@ impl Plugin for ExampleServerPlugin {
 #[derive(Resource)]
 pub struct PlayerRoom(Entity);
 
-
 /// When a new client tries to connect to a server, an entity is created for it with the `ClientOf` component.
 /// This entity represents the connection between the server and that client.
 ///
 /// You can add additional components to update the connection. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
-pub(crate) fn handle_new_client(
-    trigger: trigger<OnAdd, LinkOf>,
-    mut commands: Commands,
-) {
-    commands.entity(trigger.target()).insert(
-        ReplicationSender::new(
+pub(crate) fn handle_new_client(trigger: trigger<OnAdd, LinkOf>, mut commands: Commands) {
+    commands
+        .entity(trigger.target())
+        .insert(ReplicationSender::new(
             SEND_INTERVAL,
             SendUpdatesMode::SinceLastAck,
             false,
-        ),
-    );
+        ));
 }
 
 /// If the new client connnects to the server, we want to spawn a new player entity for it.
@@ -82,7 +77,10 @@ pub(crate) fn handle_connected(
             NetworkVisibility::default(),
         ))
         .id();
-    info!("Create entity {:?} for client {:?}", player_entity, client_id);
+    info!(
+        "Create entity {:?} for client {:?}",
+        player_entity, client_id
+    );
 
     // we can control the player visibility in a more static manner by using rooms
     // we add all clients to a room, as well as all player entities
@@ -91,7 +89,6 @@ pub(crate) fn handle_connected(
     commands.trigger_targets(RoomEvent::AddSender(trigger.target()), room);
     commands.trigger_targets(RoomEvent::AddEntity(player_entity), room);
 }
-
 
 pub(crate) fn init(mut commands: Commands) {
     // spawn dots in a grid
@@ -108,21 +105,20 @@ pub(crate) fn init(mut commands: Commands) {
     }
 }
 
-
 /// Here we perform more "immediate" interest management: we will make a circle visible to a client
 /// depending on the distance to the client's entity
 pub(crate) fn interest_management(
     peer_metadata: Res<PeerMetadata>,
-    player_query: Query<
-        (&PlayerId, Ref<Position>),
-        (Without<CircleMarker>, With<Replicate>),
+    player_query: Query<(&PlayerId, Ref<Position>), (Without<CircleMarker>, With<Replicate>)>,
+    mut circle_query: Query<
+        (Entity, &Position, &mut NetworkVisibility),
+        (With<CircleMarker>, With<Replicate>),
     >,
-    mut circle_query: Query<(Entity, &Position, &mut NetworkVisibility), (With<CircleMarker>, With<Replicate>)>,
 ) {
     for (client_id, position) in player_query.iter() {
         let Some(sender_entity) = peer_metadata.mapping.get(&client_id.0) else {
             error!("Could not find sender entity for client: {:?}", client_id);
-            return
+            return;
         };
         if position.is_changed() {
             // in real game, you would have a spatial index (kd-tree) to only find entities within a certain radius

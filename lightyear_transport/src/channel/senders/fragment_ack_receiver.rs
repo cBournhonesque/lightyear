@@ -78,11 +78,7 @@ impl FragmentAckTracker {
     }
 
     /// Receive a fragment index ack, and return true if the entire fragment was acked.
-    pub fn receive_ack(
-        &mut self,
-        fragment_index: usize,
-        received_time: Option<Duration>,
-    ) -> bool {
+    pub fn receive_ack(&mut self, fragment_index: usize, received_time: Option<Duration>) -> bool {
         self.last_received = received_time;
 
         if !self.received[fragment_index] {
@@ -123,7 +119,11 @@ mod tests {
 
         receiver.add_new_fragment_to_wait_for(MessageId(0), 2);
 
-        assert!(!receiver.receive_fragment_ack(MessageId(0), FragmentIndex(0), Some(Duration::from_millis(150))));
+        assert!(!receiver.receive_fragment_ack(
+            MessageId(0),
+            FragmentIndex(0),
+            Some(Duration::from_millis(150))
+        ));
         receiver.cleanup(Duration::from_millis(170));
         assert!(receiver.fragment_messages.is_empty());
     }

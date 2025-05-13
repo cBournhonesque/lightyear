@@ -30,26 +30,17 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-
 /// When a new client tries to connect to a server, an entity is created for it with the `LinkOf` component.
 /// This entity represents the link between the server and that client.
 ///
 /// You can add additional components to update the link. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
-pub(crate) fn handle_new_client(
-    trigger: Trigger<OnAdd, LinkOf>,
-    mut commands: Commands,
-) {
+pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.target()).insert((
-        ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ),
-        Name::from("Client")
+        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        Name::from("Client"),
     ));
 }
-
 
 /// If the new client connnects to the server, we want to spawn a new player entity for it.
 ///
@@ -73,12 +64,14 @@ pub(crate) fn handle_connected(
             OwnedBy {
                 owner: client_id,
                 lifetime: Default::default(),
-            }
+            },
         ))
         .id();
-    info!("Create player entity {:?} for client {:?}", entity, client_id);
+    info!(
+        "Create player entity {:?} for client {:?}",
+        entity, client_id
+    );
 }
-
 
 /// Read client inputs and move players in server therefore giving a basis for other clients
 fn movement(
@@ -99,7 +92,6 @@ fn movement(
     }
 }
 
-
 /// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
 /// and cannot do input handling)
 pub(crate) fn send_message(
@@ -110,12 +102,10 @@ pub(crate) fn send_message(
     if input.is_some_and(|input| input.just_pressed(KeyCode::KeyM)) {
         let message = Message1(5);
         info!("Sending message: {:?}", message);
-        sender.send::<_, Channel1>(
-            &message,
-            server.into_inner(),
-            &NetworkTarget::All
-        ).unwrap_or_else(|e| {
-            error!("Failed to send message: {:?}", e);
-        });
+        sender
+            .send::<_, Channel1>(&message, server.into_inner(), &NetworkTarget::All)
+            .unwrap_or_else(|e| {
+                error!("Failed to send message: {:?}", e);
+            });
     }
 }

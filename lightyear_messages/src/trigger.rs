@@ -1,10 +1,10 @@
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
+use crate::Message;
 use crate::receive_trigger::receive_trigger_typed;
 use crate::registry::{MessageKind, MessageRegistry, SendTriggerMetadata};
 use crate::send_trigger::TriggerSender;
-use crate::Message;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Event};
@@ -12,7 +12,9 @@ use bevy::prelude::{Entity, EntityMapper, Event};
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::{ReadVarInt, Reader};
-use lightyear_serde::registry::{ContextDeserializeFns, ContextSerializeFns, DeserializeFn, SerializeFn, SerializeFns};
+use lightyear_serde::registry::{
+    ContextDeserializeFns, ContextSerializeFns, DeserializeFn, SerializeFn, SerializeFns,
+};
 use lightyear_serde::writer::{WriteInteger, Writer};
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::de::DeserializeOwned;
@@ -25,7 +27,6 @@ pub struct TriggerMessage<M: Message> {
     pub trigger: M,
     pub target_entities: Vec<Entity>,
 }
-
 
 // TODO: handle the case where the trigger message is not MapEntities
 impl<M: Message + MapEntities> MapEntities for TriggerMessage<M> {
@@ -41,7 +42,6 @@ pub struct TriggerRegistration<'a, M> {
 }
 
 impl<M: Event> TriggerRegistration<'_, M> {
-
     #[cfg(feature = "test_utils")]
     pub fn new(app: &mut App) -> Self {
         Self {
@@ -57,7 +57,10 @@ impl<M: Event> TriggerRegistration<'_, M> {
         M: Clone + MapEntities + 'static,
     {
         let mut registry = self.app.world_mut().resource_mut::<MessageRegistry>();
-        registry.add_map_entities::<TriggerMessage<M>, M>(trigger_serialize_mapped, trigger_deserialize_mapped);
+        registry.add_map_entities::<TriggerMessage<M>, M>(
+            trigger_serialize_mapped,
+            trigger_deserialize_mapped,
+        );
         self
     }
 
@@ -72,14 +75,18 @@ impl<M: Event> TriggerRegistration<'_, M> {
 }
 
 pub trait AppTriggerExt {
-
     /// Register a trigger type `M`.
-    fn add_trigger<M: Event + Serialize + DeserializeOwned>(&mut self) -> TriggerRegistration<'_, M> {
+    fn add_trigger<M: Event + Serialize + DeserializeOwned>(
+        &mut self,
+    ) -> TriggerRegistration<'_, M> {
         self.add_trigger_custom_serde(SerializeFns::<M>::default())
     }
 
     /// Register a trigger type `M`.
-    fn add_trigger_custom_serde<M: Event>(&mut self, serialize_fns: SerializeFns<M>) -> TriggerRegistration<'_, M>;
+    fn add_trigger_custom_serde<M: Event>(
+        &mut self,
+        serialize_fns: SerializeFns<M>,
+    ) -> TriggerRegistration<'_, M>;
 
     #[doc(hidden)]
     /// Register a trigger type `M`.
@@ -89,8 +96,15 @@ pub trait AppTriggerExt {
 }
 
 impl AppTriggerExt for App {
-    fn add_trigger_custom_serde<M: Event>(&mut self, serialize_fns: SerializeFns<M>) -> TriggerRegistration<'_, M> {
-        if self.world_mut().get_resource_mut::<MessageRegistry>().is_none() {
+    fn add_trigger_custom_serde<M: Event>(
+        &mut self,
+        serialize_fns: SerializeFns<M>,
+    ) -> TriggerRegistration<'_, M> {
+        if self
+            .world_mut()
+            .get_resource_mut::<MessageRegistry>()
+            .is_none()
+        {
             self.world_mut().init_resource::<MessageRegistry>();
         }
         let sender_id = self.world_mut().register_component::<TriggerSender<M>>();
@@ -99,21 +113,25 @@ impl AppTriggerExt for App {
         // Register TriggerMessage<M> for serialization/deserialization
         registry.register_message::<TriggerMessage<M>, M>(
             ContextSerializeFns::new(serialize_fns.serialize).with_context(trigger_serialize),
-            ContextDeserializeFns::new(serialize_fns.deserialize).with_context(trigger_deserialize)
+            ContextDeserializeFns::new(serialize_fns.deserialize).with_context(trigger_deserialize),
         );
 
-        registry.send_trigger_metadata.insert(MessageKind::of::<M>(), SendTriggerMetadata {
-            component_id: sender_id,
-            send_trigger_fn: TriggerSender::<M>::send_trigger_typed
-        });
-        registry.receive_trigger.insert(MessageKind::of::<M>(), receive_trigger_typed::<M>);
+        registry.send_trigger_metadata.insert(
+            MessageKind::of::<M>(),
+            SendTriggerMetadata {
+                component_id: sender_id,
+                send_trigger_fn: TriggerSender::<M>::send_trigger_typed,
+            },
+        );
+        registry
+            .receive_trigger
+            .insert(MessageKind::of::<M>(), receive_trigger_typed::<M>);
         TriggerRegistration {
             app: self,
             _marker: Default::default(),
         }
     }
 }
-
 
 fn trigger_serialize<M: Event>(
     mapper: &mut SendEntityMap,
@@ -125,7 +143,7 @@ fn trigger_serialize<M: Event>(
     serialize(&message.trigger, writer)?;
     // Serialize the target entities
     writer.write_varint(message.target_entities.len() as u64)?;
-    
+
     info!("serialize trigger: {:?}", core::any::type_name::<M>());
     for entity in &message.target_entities {
         info!("serialize entity before map: {entity:?}");
@@ -151,7 +169,7 @@ fn trigger_deserialize<M: Event>(
         let mut entity = Entity::from_bytes(reader)?;
         entity.map_entities(mapper);
         targets.push(entity);
-    };
+    }
     Ok(TriggerMessage {
         trigger: inner,
         target_entities: targets,
@@ -193,7 +211,7 @@ fn trigger_deserialize_mapped<M: Event + MapEntities>(
         let mut entity = Entity::from_bytes(reader)?;
         entity.map_entities(mapper);
         targets.push(entity);
-    };
+    }
     Ok(TriggerMessage {
         trigger: inner,
         target_entities: targets,

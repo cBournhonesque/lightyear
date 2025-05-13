@@ -1,6 +1,8 @@
-use aeronet_io::connection::PeerAddr;
 use aeronet_io::Session;
-use aeronet_webtransport::server::{ServerConfig, SessionRequest, SessionResponse, WebTransportServer, WebTransportServerClient};
+use aeronet_io::connection::PeerAddr;
+use aeronet_webtransport::server::{
+    ServerConfig, SessionRequest, SessionResponse, WebTransportServer, WebTransportServerClient,
+};
 use aeronet_webtransport::wtransport::Identity;
 use bevy::prelude::*;
 use core::net::SocketAddr;
@@ -66,18 +68,13 @@ impl WebTransportServerPlugin {
                     .expect("should be a valid idle timeout")
                     .build();
                 info!("Server WebTransport starting at {}", addr);
-                let child = world.spawn((
-                    AeronetLinkOf(entity),
-                    Name::from("WebTransportServer"),
-                ));
+                let child = world.spawn((AeronetLinkOf(entity), Name::from("WebTransportServer")));
                 WebTransportServer::open(config).apply(child);
             });
         }
     }
 
-    fn on_session_request(
-        mut request: Trigger<SessionRequest>
-    ) {
+    fn on_session_request(mut request: Trigger<SessionRequest>) {
         request.respond(SessionResponse::Accepted);
     }
 
@@ -90,13 +87,14 @@ impl WebTransportServerPlugin {
         if let Ok((child_of, peer_addr)) = child_query.get(trigger.target()) {
             if let Ok(server_link) = query.get(child_of.parent()) {
                 let link = Link::new(peer_addr.0, None);
-                let link_entity = commands.spawn((
-                    LinkOf {
-                        server: server_link.0,
-                    },
-                    link,
-                ))
-                .id();
+                let link_entity = commands
+                    .spawn((
+                        LinkOf {
+                            server: server_link.0,
+                        },
+                        link,
+                    ))
+                    .id();
                 commands.entity(trigger.target()).insert((
                     AeronetLinkOf(link_entity),
                     Name::from("WebTransportClientOf"),
@@ -105,5 +103,3 @@ impl WebTransportServerPlugin {
         }
     }
 }
-
-

@@ -1,12 +1,15 @@
 //! Module to handle pre-prediction logic (entities that are created on the client first),
 //! then the ownership gets transferred to the server.
 
-use crate::manager::{PredictionManager, PredictionResource};
 use crate::Predicted;
+use crate::manager::{PredictionManager, PredictionResource};
 use bevy::prelude::*;
-use lightyear_connection::identity::{is_host_server, NetworkIdentityState};
+use lightyear_connection::identity::{NetworkIdentityState, is_host_server};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_replication::prelude::{Confirmed, DisableReplicateHierarchy, Replicate, ReplicateLike, Replicating, ReplicationBufferSet, ReplicationGroup, ShouldBePredicted};
+use lightyear_replication::prelude::{
+    Confirmed, DisableReplicateHierarchy, Replicate, ReplicateLike, Replicating,
+    ReplicationBufferSet, ReplicationGroup, ShouldBePredicted,
+};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -33,11 +36,7 @@ impl Plugin for PrePredictionPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
             PostUpdate,
-            (
-                ReplicationBufferSet::Buffer,
-                PrePredictionSet::Clean
-            )
-                .chain()
+            (ReplicationBufferSet::Buffer, PrePredictionSet::Clean).chain(),
         );
         app.add_systems(
             PostUpdate,
@@ -95,7 +94,9 @@ impl PrePredictionPlugin {
         match predicted_map.confirmed_to_predicted.get(&trigger.target()) {
             Some(&predicted) => {
                 let confirmed = trigger.target();
-                debug!("Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}");
+                debug!(
+                    "Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}"
+                );
                 commands.queue(move |world: &mut World| {
                     world
                         .entity_mut(predicted)
@@ -104,7 +105,8 @@ impl PrePredictionPlugin {
                         })
                         .remove::<ShouldBePredicted>();
                 });
-            } _ => {
+            }
+            _ => {
                 let predicted_entity = trigger.target();
                 let is_host_server = false;
                 if is_host_server {
@@ -148,7 +150,8 @@ impl PrePredictionPlugin {
                             .insert(confirmed_entity, predicted_entity);
                     });
                 }
-            }}
+            }
+        }
     }
 }
 
@@ -158,7 +161,7 @@ mod tests {
     use crate::predicted_history::PredictionHistory;
     use crate::prelude::server;
     use crate::prelude::server::AuthorityPeer;
-    use crate::prelude::{client, ClientId};
+    use crate::prelude::{ClientId, client};
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{ComponentClientToServer, PredictionModeFull};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
@@ -244,11 +247,13 @@ mod tests {
         stepper.frame_step();
 
         // it would be nice if the client's confirmed entity had a Replicated component
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<HasAuthority>(confirmed_entity)
-            .is_none());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<HasAuthority>(confirmed_entity)
+                .is_none()
+        );
         stepper
             .server_app
             .world_mut()
@@ -267,11 +272,13 @@ mod tests {
                 .0,
             2.0
         );
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<PredictionHistory<PredictionModeFull>>(predicted_entity)
-            .is_some());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<PredictionHistory<PredictionModeFull>>(predicted_entity)
+                .is_some()
+        );
     }
 
     // TODO: test that pre-predicted works in host-server mode
@@ -305,11 +312,13 @@ mod tests {
         }
 
         // check that PrePredicted was also added on the child
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<PrePredicted>(child)
-            .is_some());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<PrePredicted>(child)
+                .is_some()
+        );
 
         // check that both the parent and the child were replicated
         let server_parent = stepper
@@ -345,21 +354,33 @@ mod tests {
         stepper.frame_step();
 
         // check that the client parent and child entity both have the Predicted component, and that a confirmed entity has been spawned
-        let parent_predicted = stepper.client_app().world().get::<Predicted>(parent).unwrap();
+        let parent_predicted = stepper
+            .client_app()
+            .world()
+            .get::<Predicted>(parent)
+            .unwrap();
         let confirmed_entity = parent_predicted.confirmed_entity.unwrap();
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<Confirmed>(confirmed_entity)
-            .is_some());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<Confirmed>(confirmed_entity)
+                .is_some()
+        );
 
-        let child_predicted = stepper.client_app().world().get::<Predicted>(child).unwrap();
-        let confirmed_entity = child_predicted.confirmed_entity.unwrap();
-        assert!(stepper
-            .client_app
+        let child_predicted = stepper
+            .client_app()
             .world()
-            .get::<Confirmed>(confirmed_entity)
-            .is_some());
+            .get::<Predicted>(child)
+            .unwrap();
+        let confirmed_entity = child_predicted.confirmed_entity.unwrap();
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<Confirmed>(confirmed_entity)
+                .is_some()
+        );
     }
 
     #[test]

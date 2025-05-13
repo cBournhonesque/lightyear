@@ -147,7 +147,7 @@ pub(crate) fn update_button_text(
             ClientState::Connecting => {
                 text.0 = "Connecting".to_string();
             }
-            ClientState::Connected { ..} => {
+            ClientState::Connected { .. } => {
                 text.0 = "Disconnect".to_string();
             }
         }
@@ -179,7 +179,7 @@ pub(crate) fn handle_connection(
 pub(crate) fn handle_disconnection(
     _trigger: Trigger<OnAdd, Disconnected>,
     mut commands: Commands,
-    debug_text: Query<Entity, With<ClientIdText>>
+    debug_text: Query<Entity, With<ClientIdText>>,
 ) {
     // TODO: add reason
     commands.trigger(UpdateStatusMessage(String::from("Disconnected")));

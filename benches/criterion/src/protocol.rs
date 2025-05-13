@@ -18,7 +18,9 @@ pub struct Component1(pub f32);
 
 impl Ease for Component1 {
     fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
-        FunctionCurve::new(Interval::EVERYWHERE, move |t| Self(f32::lerp(start.0, end.0, t)))
+        FunctionCurve::new(Interval::EVERYWHERE, move |t| {
+            Self(f32::lerp(start.0, end.0, t))
+        })
     }
 }
 

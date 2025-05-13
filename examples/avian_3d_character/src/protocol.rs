@@ -54,7 +54,6 @@ impl Actionlike for CharacterAction {
 #[derive(Clone)] // Added Clone
 pub(crate) struct ProtocolPlugin;
 
-
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // Use new input plugin path and default config

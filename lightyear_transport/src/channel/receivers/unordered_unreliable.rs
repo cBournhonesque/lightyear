@@ -1,6 +1,6 @@
+use crate::channel::receivers::ChannelReceive;
 use crate::channel::receivers::error::ChannelReceiveError;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
-use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 use alloc::collections::VecDeque;
 use bytes::Bytes;
@@ -54,9 +54,9 @@ impl ChannelReceive for UnorderedUnreliableReceiver {
     }
 
     fn read_message(&mut self) -> Option<(Tick, Bytes, Option<MessageId>)> {
-        self.recv_message_buffer.pop_front().map(|(tick, bytes)| {
-            (tick, bytes, None)
-        })
+        self.recv_message_buffer
+            .pop_front()
+            .map(|(tick, bytes)| (tick, bytes, None))
     }
 }
 
@@ -64,8 +64,8 @@ impl ChannelReceive for UnorderedUnreliableReceiver {
 mod tests {
     use bytes::Bytes;
 
-    use crate::channel::receivers::error::ChannelReceiveError;
     use crate::channel::receivers::ChannelReceive;
+    use crate::channel::receivers::error::ChannelReceiveError;
     use crate::packet::message::{MessageId, SingleData};
 
     use super::*;

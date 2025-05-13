@@ -1,6 +1,6 @@
+use crate::SyncComponent;
 use crate::interpolate::InterpolateStatus;
 use crate::interpolation_history::ConfirmedHistory;
-use crate::SyncComponent;
 use bevy::prelude::*;
 use lightyear_replication::prelude::Confirmed;
 

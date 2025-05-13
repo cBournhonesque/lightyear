@@ -3,7 +3,10 @@ use crate::prelude::DrivingTimeline;
 use crate::timeline::sync::{SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{default, Component, Deref, DerefMut, Fixed, Has, Query, Reflect, Res, Time, Trigger, With, Without};
+use bevy::prelude::{
+    Component, Deref, DerefMut, Fixed, Has, Query, Reflect, Res, Time, Trigger, With, Without,
+    default,
+};
 use core::ops::Deref;
 use core::ops::DerefMut;
 use core::time::Duration;
@@ -11,7 +14,9 @@ use lightyear_connection::client::Connected;
 use lightyear_core::prelude::{LocalTimeline, Rollback};
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
-use lightyear_core::timeline::{NetworkTimeline, RollbackState, SyncEvent, Timeline, TimelineContext};
+use lightyear_core::timeline::{
+    NetworkTimeline, RollbackState, SyncEvent, Timeline, TimelineContext,
+};
 use lightyear_link::{Link, LinkStats, Linked};
 use parking_lot::RwLock;
 use tracing::trace;
@@ -42,11 +47,13 @@ impl Input {
     pub(crate) fn recompute_input_delay(
         trigger: Trigger<SyncEvent<InputTimeline>>,
         tick_duration: Res<TickDuration>,
-        mut query: Query<(&Link, &mut InputTimeline)>
+        mut query: Query<(&Link, &mut InputTimeline)>,
     ) {
         if let Ok((link, mut timeline)) = query.get_mut(trigger.target()) {
             let rtt = link.stats.rtt;
-            timeline.input_delay_ticks =  timeline.input_delay_config.input_delay_ticks(rtt, tick_duration.0);
+            timeline.input_delay_ticks = timeline
+                .input_delay_config
+                .input_delay_ticks(rtt, tick_duration.0);
         }
     }
 }
@@ -130,8 +137,10 @@ impl InputDelayConfig {
 
     /// Compute the amount of input delay that should be applied, considering the current RTT
     fn input_delay_ticks(&self, rtt: Duration, tick_interval: Duration) -> u16 {
-        assert!(self.minimum_input_delay_ticks <= self.maximum_input_delay_before_prediction,
-                "The minimum amount of input_delay should be lower than the maximum_input_delay_before_prediction");
+        assert!(
+            self.minimum_input_delay_ticks <= self.maximum_input_delay_before_prediction,
+            "The minimum amount of input_delay should be lower than the maximum_input_delay_before_prediction"
+        );
         let rtt_ticks = (rtt.as_nanos() as f32 / tick_interval.as_nanos() as f32).ceil() as u16;
         // if the rtt is lower than the minimum input delay, we will apply the minimum input delay
         if rtt_ticks <= self.minimum_input_delay_ticks {
@@ -158,7 +167,6 @@ pub struct InputTimeline(Timeline<Input>);
 impl TimelineContext for Input {}
 
 impl InputTimeline {
-
     /// The InputTimeline is the driving timeline (it is used to update Time<Virtual> and LocalTimeline)
     /// so we simply apply delta as the relative_speed is already applied
     pub(crate) fn advance_timeline(
@@ -175,20 +183,35 @@ impl InputTimeline {
     }
 }
 
-
 impl SyncedTimeline for InputTimeline {
     /// We want the Predicted timeline to be:
     /// - RTT/2 ahead of the server timeline, so that inputs sent from the server arrive on time
     /// - On top of that, we will take a bit of margin based on the jitter
     /// - we can reduce the ahead-delay by the input_delay
     /// Because of the input-delay, the time we return might be in the past compared with the main timeline
-    fn sync_objective<T: SyncTargetTimeline>(&self, remote: &T, ping_manager: &PingManager, tick_duration: Duration) -> TickInstant {
+    fn sync_objective<T: SyncTargetTimeline>(
+        &self,
+        remote: &T,
+        ping_manager: &PingManager,
+        tick_duration: Duration,
+    ) -> TickInstant {
         let remote = remote.current_estimate();
         let network_delay = TickDelta::from_duration(ping_manager.rtt() / 2, tick_duration);
-        let jitter_margin = TickDelta::from_duration(ping_manager.jitter() * self.context.config.jitter_multiple as u32 + self.context.config.jitter_margin, tick_duration);
+        let jitter_margin = TickDelta::from_duration(
+            ping_manager.jitter() * self.context.config.jitter_multiple as u32
+                + self.context.config.jitter_margin,
+            tick_duration,
+        );
         let input_delay: TickDelta = Tick(self.context.input_delay_ticks).into();
         let obj = remote + network_delay + jitter_margin - input_delay;
-        trace!(?remote, ?network_delay, ?jitter_margin, ?input_delay, "InputTimeline objective: {:?}", obj);
+        trace!(
+            ?remote,
+            ?network_delay,
+            ?jitter_margin,
+            ?input_delay,
+            "InputTimeline objective: {:?}",
+            obj
+        );
         obj
     }
 
@@ -196,8 +219,8 @@ impl SyncedTimeline for InputTimeline {
         let now = self.now();
         self.now = sync_objective;
         SyncEvent {
-            tick_delta: (sync_objective-now).to_i16(),
-            marker: core::marker::PhantomData
+            tick_delta: (sync_objective - now).to_i16(),
+            marker: core::marker::PhantomData,
         }
     }
 
@@ -205,10 +228,15 @@ impl SyncedTimeline for InputTimeline {
     ///
     /// Most of the times this will just be slight nudges to modify the speed of the [`SyncedTimeline`].
     /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`MainTimeline`] by sending a SyncEvent
-    fn sync<T: SyncTargetTimeline>(&mut self, main: &T, ping_manager: &PingManager, tick_duration: Duration) -> Option<SyncEvent<Self>> {
+    fn sync<T: SyncTargetTimeline>(
+        &mut self,
+        main: &T,
+        ping_manager: &PingManager,
+        tick_duration: Duration,
+    ) -> Option<SyncEvent<Self>> {
         // skip syncing if we haven't received enough information
         if ping_manager.pongs_recv < self.config.handshake_pings as u32 {
-            return None
+            return None;
         }
         self.is_synced = true;
         let now = self.now();
@@ -229,7 +257,7 @@ impl SyncedTimeline for InputTimeline {
         match adjustment {
             SyncAdjustment::Resync => {
                 return Some(self.resync(objective));
-            },
+            }
             SyncAdjustment::SpeedAdjust(ratio) => {
                 self.set_relative_speed(ratio);
             }
@@ -244,7 +272,6 @@ impl SyncedTimeline for InputTimeline {
         }
         None
     }
-
 
     fn is_synced(&self) -> bool {
         self.is_synced

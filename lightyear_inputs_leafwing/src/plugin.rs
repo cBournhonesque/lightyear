@@ -21,13 +21,17 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
         #[cfg(feature = "client")]
         {
             app.add_plugins(InputManagerPlugin::<A>::default());
-            app.add_plugins(lightyear_inputs::client::ClientInputPlugin::<LeafwingSequence<A>>::new(self.config));
+            app.add_plugins(lightyear_inputs::client::ClientInputPlugin::<
+                LeafwingSequence<A>,
+            >::new(self.config));
         }
         #[cfg(feature = "server")]
-        app.add_plugins(lightyear_inputs::server::ServerInputPlugin::<LeafwingSequence<A>> {
-            rebroadcast_inputs: self.config.rebroadcast_inputs,
-            marker: core::marker::PhantomData,
-        });
+        app.add_plugins(
+            lightyear_inputs::server::ServerInputPlugin::<LeafwingSequence<A>> {
+                rebroadcast_inputs: self.config.rebroadcast_inputs,
+                marker: core::marker::PhantomData,
+            },
+        );
     }
 
     fn finish(&self, app: &mut App) {

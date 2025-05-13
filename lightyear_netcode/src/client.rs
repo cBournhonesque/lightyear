@@ -6,6 +6,7 @@ use core::net::SocketAddr;
 use no_std_io2::io;
 
 use super::{
+    ClientId, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
     bytes::Bytes,
     error::{Error, Result},
     packet::{
@@ -13,7 +14,7 @@ use super::{
     },
     replay::ReplayProtection,
     token::{ChallengeToken, ConnectToken},
-    utils, ClientId, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
+    utils,
 };
 use bevy::prelude::Resource;
 use lightyear_connection::client::ConnectionError;
@@ -568,7 +569,11 @@ impl<Ctx> Client<Ctx> {
     /// The fallible version of [`update`](Client::update).
     ///
     /// Returns an error if the client can't send or receive packets.
-    pub fn try_update(&mut self, delta_ms: f64, receiver: &mut LinkReceiver) -> Result<ClientState> {
+    pub fn try_update(
+        &mut self,
+        delta_ms: f64,
+        receiver: &mut LinkReceiver,
+    ) -> Result<ClientState> {
         self.time += delta_ms;
         self.recv_packets(receiver)?;
         self.send_packets()?;
@@ -633,7 +638,6 @@ impl<Ctx> Client<Ctx> {
         self.state == ClientState::Disconnected
     }
 }
-
 
 // TODO: put this test somewhere else
 

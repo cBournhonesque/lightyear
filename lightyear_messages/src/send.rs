@@ -11,17 +11,16 @@ use bevy::ecs::entity::{EntityMapper, MapEntities};
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy::prelude::{Component, Entity, Event, Query, Reflect, Res, With, Without, World};
 use lightyear_connection::client::Connected;
+use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
-use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, trace};
 
 pub type Priority = f32;
-
 
 #[derive(Component, Reflect)]
 #[component(on_add = MessageSender::<M>::on_add_hook)]
@@ -57,13 +56,9 @@ pub(crate) type SendMessageFn = unsafe fn(
     entity_map: &mut SendEntityMap,
 ) -> Result<(), MessageError>;
 
-
 impl<M: Message> MessageSender<M> {
-
     /// Buffers a message to be sent over the channel
-    pub fn send_with_priority<C: Channel>(
-        &mut self, message: M, priority: Priority
-    ) {
+    pub fn send_with_priority<C: Channel>(&mut self, message: M, priority: Priority) {
         // // TODO: how to include the sender in the metric?
         // metrics::counter!("message::send", 1,
         //     channel => core::any::type_name::<C>(),
@@ -73,9 +68,7 @@ impl<M: Message> MessageSender<M> {
     }
 
     /// Buffers a message to be sent over the channel
-    pub fn send<C: Channel>(
-        &mut self, message: M
-    ) {
+    pub fn send<C: Channel>(&mut self, message: M) {
         self.send_with_priority::<C>(message, 1.0);
     }
 
@@ -91,7 +84,7 @@ impl<M: Message> MessageSender<M> {
         entity_map: &mut SendEntityMap,
     ) -> Result<(), MessageError> {
         // SAFETY:  the `message_sender` must be of type `MessageSender<M>`
-        let mut sender = unsafe { message_sender.with_type::<Self>()};
+        let mut sender = unsafe { message_sender.with_type::<Self>() };
         // enable split borrows
         let sender = &mut *sender;
         sender.send.drain(..).try_for_each(|(message, channel_kind, priority)| {
@@ -107,24 +100,20 @@ impl<M: Message> MessageSender<M> {
 
     pub fn on_add_hook(mut world: DeferredWorld, context: HookContext) {
         world.commands().queue(move |world: &mut World| {
-            let mut entity_mut = world
-                .entity_mut(context.entity);
-            let mut message_manager = entity_mut
-                .get_mut::<MessageManager>()
-                .unwrap();
+            let mut entity_mut = world.entity_mut(context.entity);
+            let mut message_manager = entity_mut.get_mut::<MessageManager>().unwrap();
             let message_kind_present = message_manager
                 .send_messages
                 .iter()
-                .any(|(message_kind, _)| {
-                    *message_kind == MessageKind::of::<M>()
-                });
+                .any(|(message_kind, _)| *message_kind == MessageKind::of::<M>());
             if !message_kind_present {
-                message_manager.send_messages.push((MessageKind::of::<M>(), context.component_id));
+                message_manager
+                    .send_messages
+                    .push((MessageKind::of::<M>(), context.component_id));
             }
         })
     }
 }
-
 
 impl MessagePlugin {
     // TODO: how can we maximize parallelism?
@@ -146,49 +135,87 @@ impl MessagePlugin {
         // We use Arc to make the query Clone, since we know that we will only access MessageSender<M> components
         // on different entities
         let mut message_sender_query = Arc::new(message_sender_query);
-        transport_query.par_iter_mut().for_each(|(entity, transport, mut message_manager)| {
-            // SAFETY: we know that this won't lead to violating the aliasing rule
-            let mut message_sender_query = unsafe { message_sender_query.reborrow_unsafe() };
+        transport_query
+            .par_iter_mut()
+            .for_each(|(entity, transport, mut message_manager)| {
+                // SAFETY: we know that this won't lead to violating the aliasing rule
+                let mut message_sender_query = unsafe { message_sender_query.reborrow_unsafe() };
 
-            // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
-            // enable split borrows
-            let message_manager = &mut *message_manager;
-            message_manager.send_messages.iter().try_for_each(|(message_kind, sender_id)| {
-                let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
-                let message_sender = entity_mut.get_mut_by_id(*sender_id).ok_or(MessageError::MissingComponent(*sender_id))?;
-                let send_metadata = registry.send_metadata.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                let serialize_fns = registry.serialize_fns_map.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                let message_id = registry.kind_map.net_id(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
-                unsafe { (send_metadata.send_message_fn)(
-                    message_sender,
-                    *message_id,
-                    transport,
-                    serialize_fns,
-                    &mut message_manager.entity_mapper.local_to_remote,
-                )?; }
-                Ok::<_, MessageError>(())
-            }).inspect_err(|e| error!("error sending message: {e:?}")).ok();
+                // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
+                // enable split borrows
+                let message_manager = &mut *message_manager;
+                message_manager
+                    .send_messages
+                    .iter()
+                    .try_for_each(|(message_kind, sender_id)| {
+                        let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
+                        let message_sender = entity_mut
+                            .get_mut_by_id(*sender_id)
+                            .ok_or(MessageError::MissingComponent(*sender_id))?;
+                        let send_metadata = registry
+                            .send_metadata
+                            .get(message_kind)
+                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                        let serialize_fns = registry
+                            .serialize_fns_map
+                            .get(message_kind)
+                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                        let message_id = registry
+                            .kind_map
+                            .net_id(message_kind)
+                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                        // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
+                        unsafe {
+                            (send_metadata.send_message_fn)(
+                                message_sender,
+                                *message_id,
+                                transport,
+                                serialize_fns,
+                                &mut message_manager.entity_mapper.local_to_remote,
+                            )?;
+                        }
+                        Ok::<_, MessageError>(())
+                    })
+                    .inspect_err(|e| error!("error sending message: {e:?}"))
+                    .ok();
 
-            // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
-            // enable split borrows
-            let message_manager = &mut *message_manager;
-            message_manager.send_triggers.iter().try_for_each(|(message_kind, sender_id)| {
-                let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
-                let message_sender = entity_mut.get_mut_by_id(*sender_id).ok_or(MessageError::MissingComponent(*sender_id))?;
-                let send_metadata = registry.send_trigger_metadata.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                let serialize_fns = registry.serialize_fns_map.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                let message_id = registry.kind_map.net_id(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
-                unsafe { (send_metadata.send_trigger_fn)(
-                    message_sender,
-                    *message_id,
-                    transport,
-                    serialize_fns,
-                    &mut message_manager.entity_mapper.local_to_remote,
-                )?; }
-                Ok::<_, MessageError>(())
-            }).inspect_err(|e| error!("error sending trigger: {e:?}")).ok();
-        })
+                // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
+                // enable split borrows
+                let message_manager = &mut *message_manager;
+                message_manager
+                    .send_triggers
+                    .iter()
+                    .try_for_each(|(message_kind, sender_id)| {
+                        let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
+                        let message_sender = entity_mut
+                            .get_mut_by_id(*sender_id)
+                            .ok_or(MessageError::MissingComponent(*sender_id))?;
+                        let send_metadata = registry
+                            .send_trigger_metadata
+                            .get(message_kind)
+                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                        let serialize_fns = registry
+                            .serialize_fns_map
+                            .get(message_kind)
+                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                        let message_id = registry
+                            .kind_map
+                            .net_id(message_kind)
+                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                        // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
+                        unsafe {
+                            (send_metadata.send_trigger_fn)(
+                                message_sender,
+                                *message_id,
+                                transport,
+                                serialize_fns,
+                                &mut message_manager.entity_mapper.local_to_remote,
+                            )?;
+                        }
+                        Ok::<_, MessageError>(())
+                    })
+                    .inspect_err(|e| error!("error sending trigger: {e:?}"))
+                    .ok();
+            })
     }
 }

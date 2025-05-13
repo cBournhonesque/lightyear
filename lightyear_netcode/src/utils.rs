@@ -4,8 +4,10 @@ use web_time::SystemTime;
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 use std::time::SystemTime;
 
-use core::{iter, slice, option};
-use core::net::{SocketAddr, IpAddr, Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6, AddrParseError};
+use core::net::{
+    AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6,
+};
+use core::{iter, option, slice};
 
 /// Return the number of seconds since unix epoch
 #[cfg(feature = "std")]
@@ -13,7 +15,7 @@ pub(crate) fn now() -> Result<u64, super::Error> {
     // number of seconds since unix epoch
     Ok(SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)?
-           .as_secs())
+        .as_secs())
 }
 
 #[cfg(not(feature = "std"))]
@@ -21,7 +23,6 @@ pub(crate) fn now() -> Result<u64, super::Error> {
     // TODO: test if this works
     Ok(0)
 }
-
 
 pub trait ToSocketAddrs {
     /// Returned iterator over socket addresses which this type may correspond
@@ -37,8 +38,6 @@ pub trait ToSocketAddrs {
     /// performed.
     fn to_socket_addrs(&self) -> Result<Self::Iter, AddrParseError>;
 }
-
-
 
 impl ToSocketAddrs for SocketAddr {
     type Iter = option::IntoIter<SocketAddr>;

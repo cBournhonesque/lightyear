@@ -2,9 +2,7 @@ use super::interpolation_history::{
     add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,
 };
 use crate::despawn::{despawn_interpolated, removed_components};
-use crate::interpolate::{
-    insert_interpolated_component, interpolate, update_interpolate_status,
-};
+use crate::interpolate::{insert_interpolated_component, interpolate, update_interpolate_status};
 use crate::manager::InterpolationManager;
 use crate::registry::InterpolationRegistry;
 use crate::spawn::spawn_interpolated_entity;
@@ -147,8 +145,7 @@ pub fn add_prepare_interpolation_systems<C: SyncComponent>(
         InterpolationMode::Simple => {
             app.add_systems(
                 Update,
-                apply_confirmed_update_mode_simple::<C>
-                    .in_set(InterpolationSet::Prepare),
+                apply_confirmed_update_mode_simple::<C>.in_set(InterpolationSet::Prepare),
             );
         }
         _ => {}
@@ -188,10 +185,7 @@ impl Plugin for InterpolationPlugin {
                 .in_set(InterpolationSet::All)
                 .chain(),
         );
-        app.configure_sets(
-            Update,
-            InterpolationSet::All
-        );
+        app.configure_sets(Update, InterpolationSet::All);
         // SYSTEMS
         app.add_systems(
             Update,

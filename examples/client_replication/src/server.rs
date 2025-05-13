@@ -8,7 +8,6 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
-
 pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
@@ -20,28 +19,18 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-
 /// When a new client tries to connect to a server, an entity is created for it with the `ClientOf` component.
 /// This entity represents the connection between the server and that client.
 ///
 /// You can add additional components to update the connection. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
-pub(crate) fn stepper.client_app()
-    trigger: Trigger<OnAdd, ClientOf>,
-    mut commands: Commands,
-) {
+pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.target()).insert((
         ReplicationReceiver::default(),
-        ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ),
+        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
         Name::from("ClientOf"),
     ));
 }
-
-
 
 /// Read client inputs and move players
 pub(crate) fn movement(
@@ -104,10 +93,13 @@ pub(crate) fn replicate_players(
             disable: true,
             ..default()
         });
-        overrides.override_for_sender(ComponentReplicationOverride {
-            enable: true,
-            ..default()
-        }, client_entity);
+        overrides.override_for_sender(
+            ComponentReplicationOverride {
+                enable: true,
+                ..default()
+            },
+            client_entity,
+        );
 
         e.insert((
             // we want to replicate back to the original client, since they are using a pre-spawned entity
@@ -117,7 +109,7 @@ pub(crate) fn replicate_players(
             InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             OwnedBy {
                 sender: client_entity,
-                lifetime: Lifetime::SessionBased
+                lifetime: Lifetime::SessionBased,
             },
             // TODO: ControlledBy
             overrides,

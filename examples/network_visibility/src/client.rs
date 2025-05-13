@@ -16,16 +16,9 @@ impl Plugin for ExampleClientPlugin {
             buffer_input.in_set(InputSet::WriteClientInputs),
         );
         app.add_systems(FixedUpdate, movement);
-        app.add_systems(
-            Update,
-            (
-                handle_predicted_spawn,
-                handle_interpolated_spawn,
-            ),
-        );
+        app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
     }
 }
-
 
 /// System that reads from peripherals and adds inputs to the buffer
 /// This system must be run in the `InputSystemSet::BufferInputs` set in the `FixedPreUpdate` schedule
@@ -59,7 +52,6 @@ pub(crate) fn buffer_input(
     }
 }
 
-
 pub(crate) fn movement(
     // TODO: maybe make prediction mode a separate component!!!
     mut position_query: Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>,
@@ -70,7 +62,6 @@ pub(crate) fn movement(
         }
     }
 }
-
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation
@@ -88,9 +79,7 @@ pub(crate) fn handle_predicted_spawn(
         warn!("Add InputMarker to entity: {:?}", entity);
         commands
             .entity(entity)
-            .insert((
-                InputMarker::<Inputs>::default(),
-            ));
+            .insert((InputMarker::<Inputs>::default(),));
     }
 }
 

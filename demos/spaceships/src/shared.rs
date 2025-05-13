@@ -11,9 +11,9 @@ use leafwing_input_manager::prelude::ActionState;
 use lightyear::shared::replication::components::Controlled;
 use tracing::Level;
 
+use lightyear::prelude::TickManager;
 use lightyear::prelude::client::*;
 use lightyear::prelude::server::{DespawnReplicationCommandExt, ReplicateToClient};
-use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
 use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
 use lightyear::transport::io::IoDiagnosticsPlugin;

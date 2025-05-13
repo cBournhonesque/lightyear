@@ -5,8 +5,8 @@ use crate::{SerializationError, ToBytes};
 use bevy::ecs::entity::MapEntities;
 use bevy::ptr::{Ptr, PtrMut};
 use core::any::TypeId;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 // TODO: this should be in lightyear_serde? it's not strictly related to messages?
 /// Stores function pointers related to serialization and deserialization
@@ -30,7 +30,7 @@ pub struct ContextSerializeFns<C, M, I = M> {
     pub context_serialize: ContextSerializeFn<C, M, I>,
 }
 
-impl <C, M> ContextSerializeFns<C, M, M> {
+impl<C, M> ContextSerializeFns<C, M, M> {
     pub fn new(serialize: SerializeFn<M>) -> Self {
         Self {
             serialize,
@@ -39,8 +39,7 @@ impl <C, M> ContextSerializeFns<C, M, M> {
     }
 }
 
-impl <C, M, I> ContextSerializeFns<C, M, I> {
-
+impl<C, M, I> ContextSerializeFns<C, M, I> {
     pub fn with_context<M2>(
         self,
         context_serialize: ContextSerializeFn<C, M2, I>,
@@ -66,7 +65,7 @@ pub struct ContextDeserializeFns<C, M, I = M> {
     pub context_deserialize: ContextDeserializeFn<C, M, I>,
 }
 
-impl <C, M> ContextDeserializeFns<C, M, M> {
+impl<C, M> ContextDeserializeFns<C, M, M> {
     pub fn new(deserialize: DeserializeFn<M>) -> Self {
         Self {
             deserialize,
@@ -75,8 +74,7 @@ impl <C, M> ContextDeserializeFns<C, M, M> {
     }
 }
 
-
-impl <C, M, I> ContextDeserializeFns<C, M, I> {
+impl<C, M, I> ContextDeserializeFns<C, M, I> {
     pub fn with_context<M2>(
         self,
         context_deserialize: ContextDeserializeFn<C, M2, I>,
@@ -94,7 +92,6 @@ impl <C, M, I> ContextDeserializeFns<C, M, I> {
         (self.context_deserialize)(context, reader, self.deserialize)
     }
 }
-
 
 /// Controls how a type (resources/components/messages) is serialized and deserialized
 pub struct SerializeFns<M> {
@@ -137,11 +134,13 @@ pub type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<M, SerializationEr
 
 #[doc(hidden)]
 /// Type of the serialize function without entity mapping
-pub type ContextSerializeFn<C, M, I> = fn(&mut C, message: &M, writer: &mut Writer, SerializeFn<I>) -> Result<(), SerializationError>;
+pub type ContextSerializeFn<C, M, I> =
+    fn(&mut C, message: &M, writer: &mut Writer, SerializeFn<I>) -> Result<(), SerializationError>;
 
 #[doc(hidden)]
 /// Type of the deserialize function without entity mapping
-pub type ContextDeserializeFn<C, M, I> = fn(&mut C, reader: &mut Reader, DeserializeFn<I>) -> Result<M, SerializationError>;
+pub type ContextDeserializeFn<C, M, I> =
+    fn(&mut C, reader: &mut Reader, DeserializeFn<I>) -> Result<M, SerializationError>;
 
 type CloneFn<M> = fn(&M) -> M;
 
@@ -166,7 +165,6 @@ fn default_context_deserialize<C, M>(
     deserialize_fn(reader)
 }
 
-
 #[cfg(feature = "std")]
 /// Default serialize function using bincode
 fn default_serialize<M: Serialize>(
@@ -176,7 +174,6 @@ fn default_serialize<M: Serialize>(
     let _ = bincode::serde::encode_into_std_write(message, buffer, bincode::config::standard())?;
     Ok(())
 }
-
 
 #[cfg(not(feature = "std"))]
 /// Default serialize function using bincode
@@ -190,18 +187,14 @@ fn default_serialize<M: Serialize>(
 
 #[cfg(feature = "std")]
 /// Default deserialize function using bincode
-fn default_deserialize<M: DeserializeOwned>(
-    buffer: &mut Reader,
-) -> Result<M, SerializationError> {
+fn default_deserialize<M: DeserializeOwned>(buffer: &mut Reader) -> Result<M, SerializationError> {
     let data = bincode::serde::decode_from_std_read(buffer, bincode::config::standard())?;
     Ok(data)
 }
 
 #[cfg(not(feature = "std"))]
 /// Default deserialize function using bincode
-fn default_deserialize<M: DeserializeOwned>(
-    buffer: &mut Reader,
-) -> Result<M, SerializationError> {
+fn default_deserialize<M: DeserializeOwned>(buffer: &mut Reader) -> Result<M, SerializationError> {
     let data = bincode::serde::decode_from_reader(buffer, bincode::config::standard())?;
     Ok(data)
 }
@@ -245,14 +238,15 @@ unsafe fn erased_serialize_fn<M: 'static>(
     message: Ptr,
     writer: &mut Writer,
     entity_map: &mut SendEntityMap,
-) -> Result<(), SerializationError> { unsafe {
-    // SAFETY: the Ptr was created for the message of type M
-    let message = unsafe { message.deref::<M>() };
-    erased_serialize_fn.serialize::<_, M, M>(message, writer, entity_map)
-}}
+) -> Result<(), SerializationError> {
+    unsafe {
+        // SAFETY: the Ptr was created for the message of type M
+        let message = unsafe { message.deref::<M>() };
+        erased_serialize_fn.serialize::<_, M, M>(message, writer, entity_map)
+    }
+}
 
 impl ErasedSerializeFns {
-
     pub fn new<SerContext, DeContext, M: 'static, I: 'static>(
         serialize: ContextSerializeFns<SerContext, M, I>,
         deserialize: ContextDeserializeFns<DeContext, M, I>,
@@ -303,7 +297,8 @@ impl ErasedSerializeFns {
         context: &mut C,
     ) -> Result<(), SerializationError> {
         let serialize: SerializeFn<I> = unsafe { core::mem::transmute(self.serialize) };
-        let context_serialize: ContextSerializeFn<C, M, I> = unsafe { core::mem::transmute(self.context_serialize) };
+        let context_serialize: ContextSerializeFn<C, M, I> =
+            unsafe { core::mem::transmute(self.context_serialize) };
         context_serialize(context, message, writer, serialize)
     }
 
@@ -316,12 +311,11 @@ impl ErasedSerializeFns {
         context: &mut C,
     ) -> Result<M, SerializationError> {
         let deserialize: DeserializeFn<I> = unsafe { core::mem::transmute(self.deserialize) };
-        let context_deserialize: ContextDeserializeFn<C, M, I> = unsafe { core::mem::transmute(self.context_deserialize) };
+        let context_deserialize: ContextDeserializeFn<C, M, I> =
+            unsafe { core::mem::transmute(self.context_deserialize) };
         context_deserialize(context, reader, deserialize)
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -360,10 +354,7 @@ mod tests {
         }
         .unwrap();
         // we deserialize the entity as a placeholder when we don't find it in the ReceiveEntityMap
-        assert_eq!(
-            new_message,
-            EntityMessage(Entity::PLACEHOLDER)
-        );
+        assert_eq!(new_message, EntityMessage(Entity::PLACEHOLDER));
     }
 
     /// Test serializing/deserializing using the ErasedSerializeFns and applying entity mapping
@@ -392,9 +383,6 @@ mod tests {
             registry.deserialize::<EntityMessage>(&mut reader, &mut ReceiveEntityMap::default())
         }
         .unwrap();
-        assert_eq!(
-            new_message,
-            EntityMessage(Entity::from_raw(2))
-        );
+        assert_eq!(new_message, EntityMessage(Entity::from_raw(2)));
     }
 }

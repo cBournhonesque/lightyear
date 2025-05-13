@@ -9,9 +9,9 @@ use std::str::FromStr;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 
+use bevy::DefaultPlugins;
 use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::state::app::StatesPlugin;
-use bevy::DefaultPlugins;
 use clap::{Parser, Subcommand};
 
 #[cfg(all(feature = "gui", feature = "client"))]
@@ -49,10 +49,8 @@ impl Cli {
             Some(Mode::Client { client_id }) => {
                 let mut app = new_gui_app(add_inspector);
                 app.add_plugins((
-                    lightyear::prelude::client::ClientPlugins {
-                        tick_duration,
-                    },
-                    ExampleClientRendererPlugin::new(format!("Client {client_id:?}"))
+                    lightyear::prelude::client::ClientPlugins { tick_duration },
+                    ExampleClientRendererPlugin::new(format!("Client {client_id:?}")),
                 ));
                 app
             }
@@ -66,9 +64,7 @@ impl Cli {
                     }
                 }
                 app.add_plugins((
-                    lightyear::prelude::server::ServerPlugins {
-                        tick_duration,
-                    },
+                    lightyear::prelude::server::ServerPlugins { tick_duration },
                     ExampleServerRendererPlugin::new("Server".to_string()),
                 ));
                 app
@@ -159,7 +155,6 @@ pub fn cli() -> Cli {
     }
 }
 
-
 #[cfg(feature = "gui")]
 pub fn window_plugin() -> WindowPlugin {
     WindowPlugin {
@@ -198,7 +193,9 @@ pub fn new_gui_app(add_inspector: bool) -> App {
             .set(window_plugin()),
     );
     if add_inspector {
-        app.add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin { enable_multipass_for_primary_context: true });
+        app.add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin {
+            enable_multipass_for_primary_context: true,
+        });
         app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
     }
     app

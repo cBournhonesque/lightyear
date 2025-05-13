@@ -7,8 +7,8 @@ use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
-use lightyear_sync::prelude::client::IsSynced;
 use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::client::IsSynced;
 use test_log::test;
 use tracing::info;
 
@@ -17,7 +17,12 @@ use tracing::info;
 fn test_remote_client_replicated_input() {
     let mut stepper = ClientServerStepper::single();
 
-    stepper.client_app().world_mut().query::<&IsSynced<InputTimeline>>().single(stepper.client_app().world()).unwrap();
+    stepper
+        .client_app()
+        .world_mut()
+        .query::<&IsSynced<InputTimeline>>()
+        .single(stepper.client_app().world())
+        .unwrap();
 
     // SETUP
     // entity controlled by the remote client
@@ -26,10 +31,15 @@ fn test_remote_client_replicated_input() {
         .world_mut()
         .spawn(Replicate::to_clients(NetworkTarget::All))
         .id();
-    
+
     stepper.frame_step(2);
 
-    let client_entity = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(server_entity)
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
         .expect("entity was not replicated to client");
 
     // TEST
@@ -44,7 +54,7 @@ fn test_remote_client_replicated_input() {
         .get_mut::<ActionState<MyInput>>(client_entity)
         .unwrap()
         .value = Some(MyInput(1));
-    
+
     stepper.frame_step(1);
     let server_tick = stepper.server_tick();
     let client_tick = stepper.client_tick(0);
@@ -89,13 +99,18 @@ fn test_remote_client_predicted_input() {
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::to_clients(NetworkTarget::All)
+            PredictionTarget::to_clients(NetworkTarget::All),
         ))
         .id();
 
     stepper.frame_step(2);
 
-    let client_confirmed = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(server_entity)
+    let client_confirmed = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
         .expect("entity was not replicated to client");
 
     let client_predicted = stepper
@@ -164,13 +179,18 @@ fn test_remote_client_confirmed_input() {
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::to_clients(NetworkTarget::All)
+            PredictionTarget::to_clients(NetworkTarget::All),
         ))
         .id();
 
     stepper.frame_step(2);
 
-    let client_confirmed = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(server_entity)
+    let client_confirmed = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
         .expect("entity was not replicated to client");
 
     // TEST
@@ -203,7 +223,6 @@ fn test_remote_client_confirmed_input() {
             value: Some(MyInput(3))
         }
     );
-
 
     // Advance to client tick to verify server applies the input
     stepper.frame_step((client_tick.0 - server_tick.0) as usize);

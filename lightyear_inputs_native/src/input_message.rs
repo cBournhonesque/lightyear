@@ -14,11 +14,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub struct NativeStateSequence<A> {
-    states: Vec<InputData<A>>
+    states: Vec<InputData<A>>,
 }
 
-impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static> ActionStateSequence for NativeStateSequence<A> {
-
+impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static>
+    ActionStateSequence for NativeStateSequence<A>
+{
     type Action = A;
     type State = ActionState<A>;
 
@@ -26,11 +27,10 @@ impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug +
 
     fn is_empty(&self) -> bool {
         self.states.is_empty()
-                || self
-                    .states
-                    .iter()
-                    .all(|s| matches!(s, InputData::Absent | InputData::SameAsPrecedent))
-
+            || self
+                .states
+                .iter()
+                .all(|s| matches!(s, InputData::Absent | InputData::SameAsPrecedent))
     }
 
     fn len(&self) -> usize {
@@ -57,9 +57,12 @@ impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug +
                         continue;
                     }
 
-                    input_buffer.set(tick, ActionState::<A> {
-                        value: Some(input.clone()),
-                    });
+                    input_buffer.set(
+                        tick,
+                        ActionState::<A> {
+                            value: Some(input.clone()),
+                        },
+                    );
                 }
             }
         }
@@ -97,11 +100,8 @@ impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug +
                     });
             states.push(state);
         }
-        Some(Self{
-            states
-        })
+        Some(Self { states })
     }
-
 }
 
 impl<A: MapEntities> MapEntities for NativeStateSequence<A> {
@@ -113,7 +113,6 @@ impl<A: MapEntities> MapEntities for NativeStateSequence<A> {
         });
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -158,7 +157,9 @@ mod tests {
     #[test]
     fn test_update_from_message() {
         let mut input_buffer = InputBuffer::default();
-        input_buffer.update_from_message(Tick(20),  &vec![
+        input_buffer.update_from_message(
+            Tick(20),
+            &vec![
                 InputData::Absent,
                 InputData::Input(0),
                 InputData::SameAsPrecedent,
@@ -167,7 +168,8 @@ mod tests {
                 InputData::Absent,
                 InputData::SameAsPrecedent,
                 InputData::SameAsPrecedent,
-            ]);
+            ],
+        );
         assert_eq!(
             input_buffer.get(Tick(20)),
             Some(&ActionState::<i32> { value: None })

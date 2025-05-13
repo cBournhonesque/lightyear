@@ -1,4 +1,4 @@
-use alloc::collections::{btree_map, BTreeMap};
+use alloc::collections::{BTreeMap, btree_map};
 use bevy::platform::collections::HashSet;
 use core::time::Duration;
 
@@ -7,8 +7,8 @@ use bytes::Bytes;
 use lightyear_core::tick::Tick;
 use tracing::{info, trace};
 
-use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
+use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 
 /// Unordered Reliable receiver: make sure that all messages are received,
@@ -52,7 +52,10 @@ impl ChannelReceive for UnorderedReliableReceiver {
         // we have already received the message if it's older than the oldest pending message
         // (since we are reliable, we should have received all messages prior to that one)
         if message_id < self.pending_recv_message_id {
-            trace!("ignore message {message_id:?} since its older than pending {:?}", self.pending_recv_message_id);
+            trace!(
+                "ignore message {message_id:?} since its older than pending {:?}",
+                self.pending_recv_message_id
+            );
             return Ok(());
         }
 

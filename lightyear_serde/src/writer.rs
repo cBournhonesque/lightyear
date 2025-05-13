@@ -6,8 +6,8 @@
 //! The idea is that we have one allocation under the [`BytesMut`], when we finish writing a message,
 //! we can split the message of as a separate [`Bytes`], but
 
-use crate::varint::varint_len;
 use crate::SerializationError;
+use crate::varint::varint_len;
 use bytes::{BufMut, Bytes, BytesMut};
 use no_std_io2::io;
 use no_std_io2::io::{Result, Write};
@@ -47,9 +47,7 @@ pub(crate) mod std {
         }
     }
 
-
     impl Writer {
-
         pub fn with_capacity(capacity: usize) -> Self {
             let mut buf = BytesMut::with_capacity(capacity);
             Self(buf.writer())
@@ -58,7 +56,6 @@ pub(crate) mod std {
         pub fn capacity(&self) -> usize {
             self.0.get_ref().capacity()
         }
-
 
         pub fn len(&self) -> usize {
             self.0.get_ref().len()
@@ -119,7 +116,6 @@ pub(crate) mod std {
             self.0.into_inner().into()
         }
     }
-
 }
 #[cfg(not(feature = "std"))]
 pub(crate) mod no_std {
@@ -163,7 +159,6 @@ pub(crate) mod no_std {
     }
 
     impl Writer {
-
         pub fn with_capacity(capacity: usize) -> Self {
             let buf = BytesMut::with_capacity(capacity);
             Self(buf)
@@ -177,7 +172,6 @@ pub(crate) mod no_std {
             self.0.as_ref().len()
         }
 
-
         pub fn position(&self) -> usize {
             self.len()
         }
@@ -185,7 +179,6 @@ pub(crate) mod no_std {
         pub fn as_mut(&mut self) -> &mut [u8] {
             self.0.as_mut()
         }
-
 
         // TODO: how do reduce capacity over time?
         /// Split the current bytes written as a separate [`Bytes`].
@@ -243,7 +236,6 @@ impl Default for Writer {
         Self::with_capacity(10)
     }
 }
-
 
 pub trait WriteInteger: Write {
     #[inline]

@@ -10,10 +10,10 @@ use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy::prelude::{Commands, Component, Entity, Event, Query, Res, World};
+use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
-use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
 use tracing::{error, info, trace};
@@ -36,8 +36,7 @@ impl<M: Event> Default for TriggerSender<M> {
     }
 }
 
-impl <M: Event> TriggerSender<M> {
-
+impl<M: Event> TriggerSender<M> {
     /// Take all messages from the TriggerSender<M>, serialize them, and buffer them
     /// on the appropriate ChannelSender<C>
     ///
@@ -50,7 +49,7 @@ impl <M: Event> TriggerSender<M> {
         entity_map: &mut SendEntityMap,
     ) -> Result<(), MessageError> {
         // SAFETY:  the `trigger_sender` must be of type `TriggerSender<M>`
-        let mut sender = unsafe { trigger_sender.with_type::<Self>()};
+        let mut sender = unsafe { trigger_sender.with_type::<Self>() };
         // enable split borrows
         let sender = &mut *sender;
         sender.send.drain(..).try_for_each(|(message, channel_kind, priority)| {
@@ -66,24 +65,20 @@ impl <M: Event> TriggerSender<M> {
 
     pub fn on_add_hook(mut world: DeferredWorld, context: HookContext) {
         world.commands().queue(move |world: &mut World| {
-            let mut entity_mut = world
-                .entity_mut(context.entity);
-            let mut message_manager = entity_mut
-                .get_mut::<MessageManager>()
-                .unwrap();
+            let mut entity_mut = world.entity_mut(context.entity);
+            let mut message_manager = entity_mut.get_mut::<MessageManager>().unwrap();
             let message_kind_present = message_manager
                 .send_triggers
                 .iter()
-                .any(|(message_kind, _)| {
-                    *message_kind == MessageKind::of::<M>()
-                });
+                .any(|(message_kind, _)| *message_kind == MessageKind::of::<M>());
             if !message_kind_present {
-                message_manager.send_triggers.push((MessageKind::of::<M>(), context.component_id));
+                message_manager
+                    .send_triggers
+                    .push((MessageKind::of::<M>(), context.component_id));
             }
         })
     }
 }
-
 
 // SAFETY: the sender must correspond to the correct `TriggerSender<M>` type
 pub(crate) type SendTriggerFn = unsafe fn(
@@ -94,13 +89,9 @@ pub(crate) type SendTriggerFn = unsafe fn(
     entity_map: &mut SendEntityMap,
 ) -> Result<(), MessageError>;
 
-
 impl<M: Event> TriggerSender<M> {
     /// Buffers a trigger `M` to be sent over the specified channel to the target entities.
-    pub fn trigger<C: Channel>(
-        &mut self,
-        trigger: M,
-    ) {
+    pub fn trigger<C: Channel>(&mut self, trigger: M) {
         self.trigger_targets::<C>(trigger, vec![]);
     }
 

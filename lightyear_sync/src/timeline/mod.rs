@@ -2,8 +2,6 @@ use bevy::prelude::Component;
 
 pub mod input;
 pub mod remote;
-#[cfg(feature = "interpolation")]
-pub mod interpolation;
 pub mod sync;
 
 /// Marker component to identity the timeline that will update the bevy app.
@@ -11,5 +9,5 @@ pub mod sync;
 /// Time<Virtual> will be updated according to the driving timeline's relative_speed.
 #[derive(Component, Default)]
 pub struct DrivingTimeline<T> {
-    pub marker: core::marker::PhantomData<T>
+    pub marker: core::marker::PhantomData<T>,
 }

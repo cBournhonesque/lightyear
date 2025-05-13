@@ -2,14 +2,17 @@
 
 use crate::protocol::{CompA, CompDisabled, CompReplicateOnce};
 use crate::stepper::ClientServerStepper;
-use bevy::prelude::{default, ResMut, Resource, Single};
+use bevy::prelude::{ResMut, Resource, Single, default};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
 use lightyear_replication::control::{Owned, OwnedBy};
 use lightyear_replication::message::ActionsChannel;
-use lightyear_replication::prelude::{ComponentReplicationOverride, ComponentReplicationOverrides, Replicate, ReplicationGroupId, ReplicationSender};
+use lightyear_replication::prelude::{
+    ComponentReplicationOverride, ComponentReplicationOverrides, Replicate, ReplicationGroupId,
+    ReplicationSender,
+};
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::Transport;
@@ -19,12 +22,19 @@ use test_log::test;
 fn test_spawn() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(),))
+        .id();
     // TODO: might need to step more when syncing to avoid receiving updates from the past?
     stepper.frame_step(1);
-    stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+    stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
         .expect("entity is not present in entity map");
 }
 
@@ -32,17 +42,36 @@ fn test_spawn() {
 fn test_spawn_from_replicate_change() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::manual(vec![]),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::manual(vec![]),))
+        .id();
     stepper.frame_step(1);
-    assert!(stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).is_none());
+    assert!(
+        stepper
+            .client_of(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(client_entity)
+            .is_none()
+    );
 
     // update replicate to include a new sender
-    stepper.client_app().world_mut().entity_mut(client_entity).insert(Replicate::to_server());
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(Replicate::to_server());
     stepper.frame_step(1);
 
-    stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+    stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
         .expect("entity is not present in entity map");
 }
 
@@ -52,18 +81,31 @@ fn test_spawn_from_replicate_change() {
 fn test_spawn_new_connection() {
     let mut stepper = ClientServerStepper::single();
 
-    let server_entity = stepper.server_app.world_mut().spawn((
-        Replicate::to_clients(NetworkTarget::All),
-    )).id();
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
     stepper.frame_step(2);
-    stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(server_entity).unwrap();
+    stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .unwrap();
 
     // second client connects
     stepper.new_client();
     stepper.init();
 
     // make sure the entity is also replicated to the newly connected client
-    stepper.client(1).get::<MessageManager>().unwrap().entity_mapper.get_local(server_entity)
+    stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
         .expect("entity is not present in entity map");
 }
 
@@ -71,11 +113,18 @@ fn test_spawn_new_connection() {
 fn test_entity_despawn() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(),))
+        .id();
     stepper.frame_step(1);
-     let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
         .expect("entity is not present in entity map");
 
     // despawn
@@ -83,49 +132,74 @@ fn test_entity_despawn() {
     stepper.frame_step(1);
 
     // check that the entity was despawned
-    assert!(stepper
-        .server_app
-        .world()
-        .get_entity(server_entity)
-        .is_err());
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .get_entity(server_entity)
+            .is_err()
+    );
 }
 
 #[test]
 fn test_despawn_from_replicate_change() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(),))
+        .id();
     stepper.frame_step(1);
-     let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
         .expect("entity is not present in entity map");
 
     // update replicate to exclude the previous sender
-    stepper.client_app().world_mut().entity_mut(client_entity).insert(Replicate::manual(vec![]));
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(Replicate::manual(vec![]));
     stepper.frame_step(1);
 
     // check that the entity was despawned on the previous sender
-    assert!(stepper
-        .server_app
-        .world()
-        .get_entity(server_entity)
-        .is_err());
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .get_entity(server_entity)
+            .is_err()
+    );
 }
-
-
 
 #[test]
 fn test_component_insert() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(),))
+        .id();
     stepper.frame_step(1);
-    let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
+        .unwrap();
 
-    stepper.client_app().world_mut().entity_mut(client_entity).insert(CompA(1.0));
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(CompA(1.0));
     stepper.frame_step(1);
     assert_eq!(
         stepper
@@ -142,13 +216,20 @@ fn test_component_insert() {
 fn test_component_update() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-        CompA(1.0),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(), CompA(1.0)))
+        .id();
     stepper.frame_step(1);
-    let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
-     assert_eq!(
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
+        .unwrap();
+    assert_eq!(
         stepper
             .server_app
             .world()
@@ -158,7 +239,13 @@ fn test_component_update() {
         &CompA(1.0)
     );
 
-    stepper.client_app().world_mut().entity_mut(client_entity).get_mut::<CompA>().unwrap().0 = 2.0;
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .get_mut::<CompA>()
+        .unwrap()
+        .0 = 2.0;
     stepper.frame_step(1);
     assert_eq!(
         stepper
@@ -178,26 +265,55 @@ fn test_component_update_after_tick_wrap() {
     // remove InputTimeline otherwise it will try to resync
     stepper.client_mut(0).remove::<InputTimeline>();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-        CompA(1.0),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(), CompA(1.0)))
+        .id();
 
     stepper.frame_step(1);
-    let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
+        .unwrap();
 
     let tick_duration = stepper.tick_duration;
     // we increase the ticks in 2 steps (otherwise we would directly go over tick wrapping and the tick cleanup
     // systems would not run)
-    stepper.client_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32), tick_duration);
-    stepper.client_of_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32), tick_duration);
+    stepper
+        .client_mut(0)
+        .get_mut::<LocalTimeline>()
+        .unwrap()
+        .apply_duration(tick_duration * ((u16::MAX / 3 + 10) as u32), tick_duration);
+    stepper
+        .client_of_mut(0)
+        .get_mut::<LocalTimeline>()
+        .unwrap()
+        .apply_duration(tick_duration * ((u16::MAX / 3 + 10) as u32), tick_duration);
     stepper.frame_step(1);
 
-    stepper.client_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32), tick_duration);
-    stepper.client_of_mut(0).get_mut::<LocalTimeline>().unwrap().apply_duration(tick_duration * ((u16::MAX / 3  + 10) as u32), tick_duration);
+    stepper
+        .client_mut(0)
+        .get_mut::<LocalTimeline>()
+        .unwrap()
+        .apply_duration(tick_duration * ((u16::MAX / 3 + 10) as u32), tick_duration);
+    stepper
+        .client_of_mut(0)
+        .get_mut::<LocalTimeline>()
+        .unwrap()
+        .apply_duration(tick_duration * ((u16::MAX / 3 + 10) as u32), tick_duration);
     stepper.frame_step(1);
 
-    stepper.client_app().world_mut().entity_mut(client_entity).get_mut::<CompA>().unwrap().0 = 2.0;
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .get_mut::<CompA>()
+        .unwrap()
+        .0 = 2.0;
     stepper.frame_step(1);
     assert_eq!(
         stepper
@@ -210,18 +326,24 @@ fn test_component_update_after_tick_wrap() {
     );
 }
 
-
 #[test]
 fn test_component_remove() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-        CompA(1.0),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(), CompA(1.0)))
+        .id();
     stepper.frame_step(1);
-    let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
-     assert_eq!(
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
+        .unwrap();
+    assert_eq!(
         stepper
             .server_app
             .world()
@@ -231,7 +353,11 @@ fn test_component_remove() {
         &CompA(1.0)
     );
 
-    stepper.client_app().world_mut().entity_mut(client_entity).remove::<CompA>();
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .remove::<CompA>();
     stepper.frame_step(1);
     assert!(
         stepper
@@ -239,7 +365,8 @@ fn test_component_remove() {
             .world()
             .entity(server_entity)
             .get::<CompA>()
-            .is_none());
+            .is_none()
+    );
 }
 
 /// Test that a component removal is not replicated if the component is marked as disabled
@@ -247,13 +374,20 @@ fn test_component_remove() {
 fn test_component_remove_disabled() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-        CompA(1.0),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(), CompA(1.0)))
+        .id();
     stepper.frame_step(1);
-    let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
-     assert_eq!(
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
+        .unwrap();
+    assert_eq!(
         stepper
             .server_app
             .world()
@@ -268,8 +402,16 @@ fn test_component_remove_disabled() {
         disable: true,
         ..default()
     });
-    stepper.client_app().world_mut().entity_mut(client_entity).insert(overrides);
-    stepper.client_app().world_mut().entity_mut(client_entity).remove::<CompA>();
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(overrides);
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .remove::<CompA>();
     stepper.frame_step(1);
     // the removal was not replicated since the component replication was disabled
     assert_eq!(
@@ -287,19 +429,27 @@ fn test_component_remove_disabled() {
 fn test_component_disabled() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-        CompDisabled(1.0),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(), CompDisabled(1.0)))
+        .id();
     stepper.frame_step(1);
 
-    let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
+        .unwrap();
     assert!(
         stepper
             .server_app
             .world()
             .entity(server_entity)
-            .get::<CompDisabled>().is_none()
+            .get::<CompDisabled>()
+            .is_none()
     );
 }
 
@@ -307,13 +457,20 @@ fn test_component_disabled() {
 fn test_component_replicate_once() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-        CompReplicateOnce(1.0),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(), CompReplicateOnce(1.0)))
+        .id();
     stepper.frame_step(1);
-    let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
-     assert_eq!(
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
+        .unwrap();
+    assert_eq!(
         stepper
             .server_app
             .world()
@@ -323,7 +480,13 @@ fn test_component_replicate_once() {
         &CompReplicateOnce(1.0)
     );
 
-    stepper.client_app().world_mut().entity_mut(client_entity).get_mut::<CompReplicateOnce>().unwrap().0 = 2.0;
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .get_mut::<CompReplicateOnce>()
+        .unwrap()
+        .0 = 2.0;
     stepper.frame_step(1);
     assert_eq!(
         stepper
@@ -343,13 +506,20 @@ fn test_component_replicate_once() {
 fn test_component_replicate_once_overrides() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-        CompReplicateOnce(1.0),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(), CompReplicateOnce(1.0)))
+        .id();
     stepper.frame_step(1);
-    let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
-     assert_eq!(
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
+        .unwrap();
+    assert_eq!(
         stepper
             .server_app
             .world()
@@ -364,8 +534,18 @@ fn test_component_replicate_once_overrides() {
         replicate_always: true,
         ..default()
     });
-    stepper.client_app().world_mut().entity_mut(client_entity).insert(overrides);
-    stepper.client_app().world_mut().entity_mut(client_entity).get_mut::<CompReplicateOnce>().unwrap().0 = 2.0;
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(overrides);
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .get_mut::<CompReplicateOnce>()
+        .unwrap()
+        .0 = 2.0;
     stepper.frame_step(1);
     assert_eq!(
         stepper
@@ -377,9 +557,25 @@ fn test_component_replicate_once_overrides() {
         &CompReplicateOnce(2.0)
     );
 
-    stepper.client_apps[0].world_mut().entity_mut(client_entity).get_mut::<ComponentReplicationOverrides<CompReplicateOnce>>()
-        .unwrap().override_for_sender(ComponentReplicationOverride { replicate_once: true, ..default() }, stepper.client_entities[0]);
-    stepper.client_app().world_mut().entity_mut(client_entity).get_mut::<CompReplicateOnce>().unwrap().0 = 3.0;
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(client_entity)
+        .get_mut::<ComponentReplicationOverrides<CompReplicateOnce>>()
+        .unwrap()
+        .override_for_sender(
+            ComponentReplicationOverride {
+                replicate_once: true,
+                ..default()
+            },
+            stepper.client_entities[0],
+        );
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .get_mut::<CompReplicateOnce>()
+        .unwrap()
+        .0 = 3.0;
     stepper.frame_step(1);
     assert_eq!(
         stepper
@@ -399,18 +595,26 @@ fn test_component_replicate_once_overrides() {
 fn test_component_disabled_overrides() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-        CompDisabled(1.0),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(), CompDisabled(1.0)))
+        .id();
     stepper.frame_step(1);
-    let server_entity = stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity).unwrap();
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
+        .unwrap();
     assert!(
         stepper
             .server_app
             .world()
             .entity(server_entity)
-            .get::<CompDisabled>().is_none()
+            .get::<CompDisabled>()
+            .is_none()
     );
 
     let mut overrides = ComponentReplicationOverrides::<CompDisabled>::default();
@@ -418,8 +622,18 @@ fn test_component_disabled_overrides() {
         enable: true,
         ..default()
     });
-    stepper.client_app().world_mut().entity_mut(client_entity).insert(overrides);
-    stepper.client_app().world_mut().entity_mut(client_entity).get_mut::<CompDisabled>().unwrap().0 = 2.0;
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(overrides);
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .get_mut::<CompDisabled>()
+        .unwrap()
+        .0 = 2.0;
     stepper.frame_step(1);
     assert_eq!(
         stepper
@@ -431,9 +645,25 @@ fn test_component_disabled_overrides() {
         &CompDisabled(2.0)
     );
 
-    stepper.client_apps[0].world_mut().entity_mut(client_entity).get_mut::<ComponentReplicationOverrides<CompDisabled>>()
-        .unwrap().override_for_sender(ComponentReplicationOverride { disable: true, ..default() }, stepper.client_entities[0]);
-    stepper.client_app().world_mut().entity_mut(client_entity).get_mut::<CompDisabled>().unwrap().0 = 3.0;
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(client_entity)
+        .get_mut::<ComponentReplicationOverrides<CompDisabled>>()
+        .unwrap()
+        .override_for_sender(
+            ComponentReplicationOverride {
+                disable: true,
+                ..default()
+            },
+            stepper.client_entities[0],
+        );
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .get_mut::<CompDisabled>()
+        .unwrap()
+        .0 = 3.0;
     stepper.frame_step(1);
     assert_eq!(
         stepper
@@ -446,23 +676,31 @@ fn test_component_disabled_overrides() {
     );
 }
 
-
 #[test]
 fn test_owned_by() {
     let mut stepper = ClientServerStepper::with_clients(2);
 
-    let server_entity = stepper.server_app.world_mut().spawn((
-        Replicate::to_clients(NetworkTarget::All),
-        OwnedBy {
-            owner: PeerId::Netcode(1),
-            lifetime: Default::default(),
-        }
-    )).id();
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            OwnedBy {
+                owner: PeerId::Netcode(1),
+                lifetime: Default::default(),
+            },
+        ))
+        .id();
     assert!(stepper.client_of(1).get::<Owned>().is_some());
 
     // the server entity is replicated to both clients
     stepper.frame_step(2);
-    let client_entity = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(server_entity)
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
         .expect("entity is not present in entity map");
 
     // client 1 disconnects
@@ -470,25 +708,26 @@ fn test_owned_by() {
     stepper.frame_step(2);
 
     // the entity should get despawned on client 0, because it was owned by the client 1
-    assert!(stepper
-        .client_app()
-        .world()
-        .get_entity(client_entity)
-        .is_err());
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get_entity(client_entity)
+            .is_err()
+    );
 }
-
-
 
 #[derive(Resource)]
 struct ActionsCount(usize);
 
-fn intercept_message(
-    transport: Single<&mut Transport>,
-    mut actions_count: ResMut<ActionsCount>,
-) {
-    actions_count.0 += transport.senders.get(&ChannelKind::of::<ActionsChannel>()).unwrap().messages_sent.len();
+fn intercept_message(transport: Single<&mut Transport>, mut actions_count: ResMut<ActionsCount>) {
+    actions_count.0 += transport
+        .senders
+        .get(&ChannelKind::of::<ActionsChannel>())
+        .unwrap()
+        .messages_sent
+        .len();
 }
-
 
 /// Test that ReplicationMode::SinceLastAck is respected
 /// - we keep sending replication packets until we receive an Ack
@@ -499,13 +738,22 @@ fn test_since_last_ack() {
 
     // TODO: how to confirm that a message has been sent?
     let actions_sent = |stepper: &ClientServerStepper| {
-        stepper.client(0).get::<Transport>().unwrap().senders.get(&ChannelKind::of::<ActionsChannel>()).unwrap().messages_sent.len()
+        stepper
+            .client(0)
+            .get::<Transport>()
+            .unwrap()
+            .senders
+            .get(&ChannelKind::of::<ActionsChannel>())
+            .unwrap()
+            .messages_sent
+            .len()
     };
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-        CompA(1.0)
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(), CompA(1.0)))
+        .id();
 
     let tick_duration = stepper.tick_duration;
     stepper.advance_time(tick_duration);
@@ -531,7 +779,13 @@ fn test_since_last_ack() {
     // check that this time we don't send an EntityActions message since our last message has been acked.
     assert_eq!(actions_sent(&stepper), 0);
     let group_id = ReplicationGroupId(client_entity.to_bits());
-    let group_channel = stepper.client(0).get::<ReplicationSender>().unwrap().group_channels.get(&group_id).unwrap();
+    let group_channel = stepper
+        .client(0)
+        .get::<ReplicationSender>()
+        .unwrap()
+        .group_channels
+        .get(&group_id)
+        .unwrap();
     assert_ne!(group_channel.ack_bevy_tick, None);
     //
 }

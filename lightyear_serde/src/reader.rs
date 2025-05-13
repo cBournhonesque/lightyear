@@ -1,5 +1,5 @@
-use crate::varint::varint_parse_len;
 use crate::SerializationError;
+use crate::varint::varint_parse_len;
 use bytes::Bytes;
 use no_std_io2::io::{Cursor, Error, Read, Result, Seek, SeekFrom};
 
@@ -15,7 +15,6 @@ pub(crate) mod std {
 
     #[derive(Clone)]
     pub struct Reader(Cursor<Bytes>);
-
 
     impl From<Bytes> for Reader {
         fn from(value: Bytes) -> Self {
@@ -185,7 +184,6 @@ pub(crate) mod no_std {
     }
 }
 
-
 pub trait ReadInteger: Read {
     #[inline]
     fn read_u8(&mut self) -> Result<u8> {
@@ -272,9 +270,8 @@ pub trait ReadVarInt: ReadInteger + Seek {
     }
 }
 
-impl<T: Read>  ReadInteger for T {}
-impl<T: Read + Seek>  ReadVarInt for T {}
-
+impl<T: Read> ReadInteger for T {}
+impl<T: Read + Seek> ReadVarInt for T {}
 
 #[cfg(test)]
 mod tests {
@@ -308,5 +305,4 @@ mod tests {
         assert_eq!(reader.read_i32().unwrap(), -3);
         assert_eq!(reader.read_i64().unwrap(), -4);
     }
-
 }

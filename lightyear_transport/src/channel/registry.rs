@@ -1,5 +1,5 @@
-use crate::channel::builder::{AuthorityChannel, ChannelSettings, InputChannel};
 use crate::channel::Channel;
+use crate::channel::builder::{AuthorityChannel, ChannelSettings, InputChannel};
 use bevy::app::App;
 use bevy::ecs::component::ComponentId;
 use bevy::platform::collections::HashMap;
@@ -92,7 +92,10 @@ impl ChannelRegistry {
     }
 
     /// Register a new type
-    pub fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> (ChannelKind, ChannelId) {
+    pub fn add_channel<C: Channel>(
+        &mut self,
+        settings: ChannelSettings,
+    ) -> (ChannelKind, ChannelId) {
         let kind = ChannelKind::of::<C>();
         if let Some(net_id) = self.kind_map.net_id(&kind) {
             return (kind, *net_id);
@@ -114,9 +117,8 @@ impl ChannelRegistry {
 
 pub struct ChannelRegistration<'a, C> {
     pub app: &'a mut App,
-    _marker: core::marker::PhantomData<C>
+    _marker: core::marker::PhantomData<C>,
 }
-
 
 impl<'a, C: Channel> ChannelRegistration<'a, C> {
     #[cfg(feature = "test_utils")]
@@ -138,7 +140,6 @@ impl<'a, C: Channel> ChannelRegistration<'a, C> {
     }
 }
 
-
 /// Add a message to the list of messages that can be sent
 pub trait AppChannelExt {
     fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> ChannelRegistration<'_, C>;
@@ -153,7 +154,7 @@ impl AppChannelExt for App {
         registry.add_channel::<C>(settings);
         ChannelRegistration {
             app: self,
-            _marker: core::marker::PhantomData
+            _marker: core::marker::PhantomData,
         }
     }
 }

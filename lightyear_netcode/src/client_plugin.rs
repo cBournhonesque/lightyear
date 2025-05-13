@@ -1,12 +1,17 @@
+use crate::Error;
 use crate::auth::Authentication;
 use crate::client::{ClientConfig, ClientState};
-use crate::Error;
-use bevy::ecs::component::{ComponentHook, ComponentId, ComponentsRegistrator, HookContext, Mutable, RequiredComponents, StorageType};
+use bevy::ecs::component::{
+    ComponentHook, ComponentId, ComponentsRegistrator, HookContext, Mutable, RequiredComponents,
+    StorageType,
+};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use core::net::SocketAddr;
-use lightyear_connection::client::{Client, Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected};
 use lightyear_connection::ConnectionSet;
+use lightyear_connection::client::{
+    Client, Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected,
+};
 use lightyear_core::id::PeerId;
 use lightyear_link::{Link, LinkSet, LinkStart, Linked, SendPayload, Unlinked};
 use lightyear_transport::plugin::TransportSet;
@@ -27,7 +32,9 @@ pub struct NetcodeClient {
 }
 
 fn on_client_add(mut world: DeferredWorld, context: HookContext) {
-    let server_addr = world.get::<NetcodeClient>(context.entity).map(|client| client.inner.server_addr());
+    let server_addr = world
+        .get::<NetcodeClient>(context.entity)
+        .map(|client| client.inner.server_addr());
     if let Some(mut link) = world.get_mut::<Link>(context.entity) {
         link.as_mut().remote_addr = server_addr;
     }
@@ -69,8 +76,7 @@ impl NetcodeConfig {
 
 impl NetcodeClient {
     pub fn new(auth: Authentication, config: NetcodeConfig) -> Result<Self, Error> {
-        let token = auth
-                    .get_token(config.client_timeout_secs, config.token_expire_secs)?;
+        let token = auth.get_token(config.client_timeout_secs, config.token_expire_secs)?;
         let token_bytes = token.try_into_bytes()?;
         Ok(Self {
             inner: crate::client::Client::with_config(&token_bytes, config.build())?,
@@ -92,16 +98,18 @@ impl NetcodeClient {
 impl NetcodeClientPlugin {
     /// Takes packets from the Link, process them through netcode
     /// and buffer them back into the link to be sent by the IO
-    fn send(
-        mut query: Query<(&mut Link, &mut NetcodeClient), With<Linked>>,
-    ) {
+    fn send(mut query: Query<(&mut Link, &mut NetcodeClient), With<Linked>>) {
         query.par_iter_mut().for_each(|(mut link, mut client)| {
             // send user packets
             for _ in 0..link.send.len() {
                 if let Some(payload) = link.send.pop() {
-                    client.inner.send(payload, &mut link.send).inspect_err(|e| {
-                        error!("Error sending packet: {:?}", e);
-                    }).ok();
+                    client
+                        .inner
+                        .send(payload, &mut link.send)
+                        .inspect_err(|e| {
+                            error!("Error sending packet: {:?}", e);
+                        })
+                        .ok();
                 }
             }
 
@@ -117,41 +125,61 @@ impl NetcodeClientPlugin {
     /// then buffer them back into the Link
     fn receive(
         real_time: Res<Time<Real>>,
-        mut query: Query<(Entity, &mut Link, &mut NetcodeClient, Has<Connecting>, Has<Disconnected>), With<Linked>>,
-        parallel_commands: ParallelCommands
+        mut query: Query<
+            (
+                Entity,
+                &mut Link,
+                &mut NetcodeClient,
+                Has<Connecting>,
+                Has<Disconnected>,
+            ),
+            With<Linked>,
+        >,
+        parallel_commands: ParallelCommands,
     ) {
         let delta = real_time.delta();
-        query.par_iter_mut().for_each(|(entity, mut link, mut client, connecting, disconnected )| {
-            // #[cfg(feature = "test_utils")]
-            // trace!("CLIENT: length of each packet in receive: {:?}", link.recv.iter().map(|p| p.len()).collect::<Vec<_>>());
+        query
+            .par_iter_mut()
+            .for_each(|(entity, mut link, mut client, connecting, disconnected)| {
+                // #[cfg(feature = "test_utils")]
+                // trace!("CLIENT: length of each packet in receive: {:?}", link.recv.iter().map(|p| p.len()).collect::<Vec<_>>());
 
-            // Buffer the packets received from the link into the Connection
-            // don't short-circuit on error
-            if let Some(state) = client.inner.try_update(delta.as_secs_f64(), &mut link.recv)
-                .inspect_err(|e| {
-                    error!("Error receiving packet: {:?}", e);
-                })
-                .ok() {
-
-                if state == ClientState::Connected && connecting {
-                    info!("Client {} connected", client.id());
-                    parallel_commands.command_scope(|mut commands| {
-                        commands.entity(entity).insert(Connected {
-                            local_peer_id: client.id(),
-                            remote_peer_id: PeerId::Server
+                // Buffer the packets received from the link into the Connection
+                // don't short-circuit on error
+                if let Some(state) = client
+                    .inner
+                    .try_update(delta.as_secs_f64(), &mut link.recv)
+                    .inspect_err(|e| {
+                        error!("Error receiving packet: {:?}", e);
+                    })
+                    .ok()
+                {
+                    if state == ClientState::Connected && connecting {
+                        info!("Client {} connected", client.id());
+                        parallel_commands.command_scope(|mut commands| {
+                            commands.entity(entity).insert(Connected {
+                                local_peer_id: client.id(),
+                                remote_peer_id: PeerId::Server,
+                            });
                         });
-                    });
-                }
-                if !disconnected && !matches!(state, ClientState::Connected | ClientState::SendingConnectionRequest | ClientState::SendingChallengeResponse) {
-                    info!("Client {} disconnected. State: {state:?}", client.id());
-                    parallel_commands.command_scope(|mut commands| {
-                        commands.entity(entity).insert(Disconnected {
-                            reason: Some(format!("Client disconnected: {:?}", state))
+                    }
+                    if !disconnected
+                        && !matches!(
+                            state,
+                            ClientState::Connected
+                                | ClientState::SendingConnectionRequest
+                                | ClientState::SendingChallengeResponse
+                        )
+                    {
+                        info!("Client {} disconnected. State: {state:?}", client.id());
+                        parallel_commands.command_scope(|mut commands| {
+                            commands.entity(entity).insert(Disconnected {
+                                reason: Some(format!("Client disconnected: {:?}", state)),
+                            });
                         });
-                    });
+                    }
                 }
-            }
-        })
+            })
     }
 
     fn connect(
@@ -162,11 +190,10 @@ impl NetcodeClientPlugin {
         if let Ok(mut client) = query.get_mut(trigger.target()) {
             debug!("Starting netcode connection process");
             client.inner.connect();
-            commands.entity(trigger.target())
-                .insert(Connecting);
+            commands.entity(trigger.target()).insert(Connecting);
         }
     }
-    
+
     fn disconnect(
         trigger: Trigger<Disconnect>,
         mut commands: Commands,
@@ -174,8 +201,7 @@ impl NetcodeClientPlugin {
     ) -> Result {
         if let Ok(mut client) = query.get_mut(trigger.target()) {
             client.inner.disconnect()?;
-            commands.entity(trigger.target())
-                .insert(Disconnected {
+            commands.entity(trigger.target()).insert(Disconnected {
                 reason: Some("Client trigger".to_string()),
             });
         }
@@ -183,14 +209,24 @@ impl NetcodeClientPlugin {
     }
 }
 
-
 impl Plugin for NetcodeClientPlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<ConnectionPlugin>() {
             app.add_plugins(ConnectionPlugin);
         }
-        app.configure_sets(PreUpdate, (LinkSet::ApplyConditioner, ConnectionSet::Receive, TransportSet::Receive).chain());
-        app.configure_sets(PostUpdate, (TransportSet::Send, ConnectionSet::Send, LinkSet::Send).chain());
+        app.configure_sets(
+            PreUpdate,
+            (
+                LinkSet::ApplyConditioner,
+                ConnectionSet::Receive,
+                TransportSet::Receive,
+            )
+                .chain(),
+        );
+        app.configure_sets(
+            PostUpdate,
+            (TransportSet::Send, ConnectionSet::Send, LinkSet::Send).chain(),
+        );
 
         app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSet::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(ConnectionSet::Send));

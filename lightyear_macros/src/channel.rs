@@ -1,8 +1,8 @@
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, DeriveInput, LitStr};
+use syn::{DeriveInput, LitStr, parse_macro_input};
 
-use super::shared::{get_struct_type, StructType};
+use super::shared::{StructType, get_struct_type};
 
 pub fn channel_impl(
     input: proc_macro::TokenStream,

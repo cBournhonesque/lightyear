@@ -65,13 +65,10 @@ pub enum Error {
     // AddressTransport(SocketAddr, crate::transport::error::Error),
 }
 
-
 impl Error {
     pub(crate) fn log(self) {
         let suppress_error = match &self {
-            Error::Ignored(_) => {
-                true
-            }
+            Error::Ignored(_) => true,
             _ => false,
         };
         if suppress_error {
@@ -81,4 +78,3 @@ impl Error {
         }
     }
 }
-

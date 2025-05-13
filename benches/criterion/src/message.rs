@@ -2,7 +2,7 @@
 #![allow(unused_imports)]
 use lightyear_benches::protocol::*;
 
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use lightyear::prelude::MessageSender;
 use lightyear_tests::stepper::ClientServerStepper;
 
@@ -26,7 +26,11 @@ fn send_receive_simple_messages_to_one_client(criterion: &mut Criterion) {
                     || ClientServerStepper::single(),
                     |stepper| {
                         for _ in 0..*n {
-                            stepper.client_of_mut(0).get_mut::<MessageSender<Message2>>().unwrap().send::<Channel1>(Message2(1));
+                            stepper
+                                .client_of_mut(0)
+                                .get_mut::<MessageSender<Message2>>()
+                                .unwrap()
+                                .send::<Channel1>(Message2(1));
                         }
                         stepper.frame_step(1);
                     },

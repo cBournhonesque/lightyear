@@ -12,9 +12,10 @@ use aeronet_io::{IoSet, Session, SessionEndpoint};
 use bevy::app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy::ecs::relationship::Relationship;
 use bevy::log::{info, trace};
-use bevy::prelude::{Commands, Component, Entity, Has, IntoScheduleConfigs, OnAdd, Query, Reflect, Trigger, With};
+use bevy::prelude::{
+    Commands, Component, Entity, Has, IntoScheduleConfigs, OnAdd, Query, Reflect, Trigger, With,
+};
 use lightyear_link::{Link, LinkPlugin, LinkSet, Linked, Linking, Unlink, Unlinked};
-
 
 #[derive(Component, Reflect)]
 #[relationship_target(relationship = AeronetLinkOf, linked_spawn)]
@@ -54,7 +55,7 @@ impl AeronetPlugin {
     fn on_disconnected(
         trigger: Trigger<Disconnected>,
         query: Query<&AeronetLinkOf>,
-        mut commands: Commands
+        mut commands: Commands,
     ) {
         if let Ok(aeronet_io) = query.get(trigger.target()) {
             if let Ok(mut c) = commands.get_entity(aeronet_io.0) {
@@ -69,9 +70,7 @@ impl AeronetPlugin {
                         format!("Disconnected due to error: {:?}", err)
                     }
                 };
-                c.insert(Unlinked {
-                    reason,
-                });
+                c.insert(Unlinked { reason });
             }
         }
     }
@@ -80,7 +79,7 @@ impl AeronetPlugin {
         mut trigger: Trigger<Unlink>,
         query: Query<&AeronetLink>,
         aeronet_query: Query<Has<Server>>,
-        mut commands: Commands
+        mut commands: Commands,
     ) {
         if let Ok(aeronet_link) = query.get(trigger.target()) {
             // get the aeronet session entity
@@ -89,7 +88,9 @@ impl AeronetPlugin {
                 if is_server {
                     commands.entity(aeronet_link.0).trigger(Close::new(reason));
                 } else {
-                    commands.entity(aeronet_link.0).trigger(Disconnect::new(reason));
+                    commands
+                        .entity(aeronet_link.0)
+                        .trigger(Disconnect::new(reason));
                 }
             }
         }
@@ -97,7 +98,7 @@ impl AeronetPlugin {
 
     fn receive(
         mut session_query: Query<(&mut Session, &AeronetLinkOf)>,
-        mut link_query: Query<&mut Link, With<Linked>>
+        mut link_query: Query<&mut Link, With<Linked>>,
     ) {
         session_query.iter_mut().for_each(|(mut session, parent)| {
             if let Ok(mut link) = link_query.get_mut(parent.get()) {
@@ -111,7 +112,7 @@ impl AeronetPlugin {
 
     fn send(
         mut session_query: Query<(&mut Session, &AeronetLinkOf)>,
-        mut link_query: Query<&mut Link, With<Linked>>
+        mut link_query: Query<&mut Link, With<Linked>>,
     ) {
         session_query.iter_mut().for_each(|(mut session, parent)| {
             if let Ok(mut link) = link_query.get_mut(parent.get()) {
@@ -129,7 +130,7 @@ impl Plugin for AeronetPlugin {
         if !app.is_plugin_added::<LinkPlugin>() {
             app.add_plugins(LinkPlugin);
         }
-        
+
         app.register_type::<AeronetLinkOf>()
             .register_type::<AeronetLink>();
 

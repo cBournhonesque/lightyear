@@ -6,8 +6,7 @@ extern crate alloc;
 
 // re-exports
 #[doc(hidden)]
-pub(crate) mod _internal {
-}
+pub(crate) mod _internal {}
 
 pub mod free_list;
 
@@ -29,7 +28,6 @@ pub mod captures;
 pub mod collections;
 // pub(crate) mod pool;
 
-
-pub mod wrapping_id;
-pub mod registry;
 pub mod easings;
+pub mod registry;
+pub mod wrapping_id;

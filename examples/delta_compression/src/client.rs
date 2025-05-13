@@ -92,21 +92,34 @@ pub(crate) fn buffer_input(
 fn player_movement(mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>) {
     for (position, input) in position_query.iter_mut() {
         // Use the pressed() method to check if an input is active
-        if input.pressed(&Inputs::Direction(Direction { // Check for any direction input
-            up: true, down: false, left: false, right: false
+        if input.pressed(&Inputs::Direction(Direction {
+            // Check for any direction input
+            up: true,
+            down: false,
+            left: false,
+            right: false,
         })) || input.pressed(&Inputs::Direction(Direction {
-            up: false, down: true, left: false, right: false
+            up: false,
+            down: true,
+            left: false,
+            right: false,
         })) || input.pressed(&Inputs::Direction(Direction {
-            up: false, down: false, left: true, right: false
+            up: false,
+            down: false,
+            left: true,
+            right: false,
         })) || input.pressed(&Inputs::Direction(Direction {
-            up: false, down: false, left: false, right: true
-        }))
-        {
-             // Retrieve the actual input value if needed for the behavior function
-             // Assuming shared_movement_behaviour needs the specific direction
-             if let Some(inputs) = input.current_value() { // Use current_value() to get the Option<Inputs>
+            up: false,
+            down: false,
+            left: false,
+            right: true,
+        })) {
+            // Retrieve the actual input value if needed for the behavior function
+            // Assuming shared_movement_behaviour needs the specific direction
+            if let Some(inputs) = input.current_value() {
+                // Use current_value() to get the Option<Inputs>
                 shared::shared_movement_behaviour(position, inputs);
-             }
+            }
         }
         // if let Some(inputs) = &input.value { // Old check using private field
         //     shared::shared_movement_behaviour(position, inputs);

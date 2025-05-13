@@ -40,7 +40,6 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-
 // System that reads from peripherals and adds inputs to the buffer
 pub(crate) fn buffer_input(
     mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
@@ -227,7 +226,10 @@ pub(crate) fn interpolate(
                             debug!("ADD POINT");
                         }
                         // the path is straight! just move the head and adjust the tail
-                        *parent_position = Ease::interpolating_curve_unbounded(*pos_start, *pos_end).sample_unchecked(t).clone();
+                        *parent_position =
+                            Ease::interpolating_curve_unbounded(*pos_start, *pos_end)
+                                .sample_unchecked(t)
+                                .clone();
                         tail.shorten_back(parent_position.0, tail_length.0);
                         debug!(
                             ?tail,

@@ -10,23 +10,33 @@ use no_std_io2::io;
 use no_std_io2::io::Seek;
 use tracing::{debug, error, info, trace, warn};
 
-use super::{bytes::Bytes, crypto::{self, Key}, error::{Error, Result}, packet::{
-    ChallengePacket, DeniedPacket, DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket,
-    RequestPacket, ResponsePacket,
-}, replay::ReplayProtection, token::{ChallengeToken, ConnectToken, ConnectTokenBuilder, ConnectTokenPrivate}, ClientId, MAC_BYTES, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC};
+use super::{
+    ClientId, MAC_BYTES, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
+    bytes::Bytes,
+    crypto::{self, Key},
+    error::{Error, Result},
+    packet::{
+        ChallengePacket, DeniedPacket, DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket,
+        RequestPacket, ResponsePacket,
+    },
+    replay::ReplayProtection,
+    token::{ChallengeToken, ConnectToken, ConnectTokenBuilder, ConnectTokenPrivate},
+};
 use crate::token::TOKEN_EXPIRE_SEC;
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::prelude::Connecting;
 use lightyear_connection::server::ConnectionError;
-use lightyear_connection::shared::{ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason};
+use lightyear_connection::shared::{
+    ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason,
+};
 use lightyear_core::id;
 use lightyear_core::id::PeerId;
 use lightyear_link::{Link, LinkReceiver, LinkSender, RecvPayload, SendPayload};
 use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::writer::Writer;
 #[cfg(feature = "trace")]
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 pub const MAX_CLIENTS: usize = 256;
 
@@ -36,13 +46,12 @@ const CLIENT_TIMEOUT_SECS: i32 = 10;
 struct TokenEntry {
     time: f64,
     mac: [u8; 16],
-    entity: Entity
+    entity: Entity,
 }
 
 struct TokenEntries {
     inner: Vec<TokenEntry>,
 }
-
 
 impl TokenEntries {
     fn new() -> Self {
@@ -94,7 +103,6 @@ struct Connection {
     sequence: u64,
 }
 
-
 impl Connection {
     fn confirm(&mut self) {
         self.confirmed = true;
@@ -109,8 +117,6 @@ impl Connection {
         self.connected
     }
 }
-
-
 
 struct ConnectionCache {
     // this somewhat mimics the original C implementation,
@@ -198,14 +204,14 @@ impl ConnectionCache {
             .get(entity)
             .and_then(|id| self.clients.get_mut(id))
     }
-    
+
     fn find_by_id(&self, client_id: ClientId) -> Option<&Connection> {
         self.clients.get(&client_id)
     }
     fn mut_by_id(&mut self, client_id: ClientId) -> Option<&mut Connection> {
         self.clients.get_mut(&client_id)
     }
-    
+
     fn update(&mut self, delta_ms: f64) {
         self.time += delta_ms;
     }
@@ -435,7 +441,6 @@ impl<Ctx> Server<Ctx> {
     }
 }
 
-
 impl<Ctx> Server<Ctx> {
     const ALLOWED_PACKETS: u8 = 1 << Packet::REQUEST
         | 1 << Packet::RESPONSE
@@ -467,26 +472,30 @@ impl<Ctx> Server<Ctx> {
     fn process_packet(
         &mut self,
         packet: Packet,
-        mut entity_mut: &mut EntityCommands
+        mut entity_mut: &mut EntityCommands,
     ) -> Result<Option<RecvPayload>> {
         let entity = entity_mut.id();
         match packet {
             Packet::Request(packet) => {
                 self.process_connection_request(packet, entity_mut)?;
                 Ok(None)
-            },
+            }
             Packet::Response(packet) => {
                 self.process_connection_response(packet, entity)?;
                 Ok(None)
-            },
+            }
             Packet::KeepAlive(_) => {
-                if let Some(client_id) = self.conn_cache.find_by_entity(&entity).map(|c| c.client_id) {
+                if let Some(client_id) =
+                    self.conn_cache.find_by_entity(&entity).map(|c| c.client_id)
+                {
                     self.touch_client(client_id);
                 }
                 Ok(None)
             }
             Packet::Payload(packet) => {
-                if let Some(client_id) = self.conn_cache.find_by_entity(&entity).map(|c| c.client_id) {
+                if let Some(client_id) =
+                    self.conn_cache.find_by_entity(&entity).map(|c| c.client_id)
+                {
                     self.touch_client(client_id);
                     Ok(Some(packet.buf))
                 } else {
@@ -504,25 +513,18 @@ impl<Ctx> Server<Ctx> {
             _ => unreachable!("packet should have been filtered out by `ALLOWED_PACKETS`"),
         }
     }
-    fn send_netcode_packet(
-        &mut self,
-        packet: Packet,
-        key: Key,
-        entity: Entity,
-    ) -> Result<()> {
+    fn send_netcode_packet(&mut self, packet: Packet, key: Key, entity: Entity) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, self.sequence, &key, self.protocol_id)?;
         self.writer.extend_from_slice(&buf[..size]);
-        self.send_queue.entry(entity).or_default().push(self.writer.split());
+        self.send_queue
+            .entry(entity)
+            .or_default()
+            .push(self.writer.split());
         self.sequence += 1;
         Ok(())
     }
-    fn send_to_addr(
-        &mut self,
-        packet: Packet,
-        key: Key,
-        sender: &mut LinkSender,
-    ) -> Result<()> {
+    fn send_to_addr(&mut self, packet: Packet, key: Key, sender: &mut LinkSender) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, self.sequence, &key, self.protocol_id)?;
         self.writer.extend_from_slice(&buf[..size]);
@@ -557,7 +559,7 @@ impl<Ctx> Server<Ctx> {
         &mut self,
         packet: Packet,
         id: ClientId,
-        entity: Entity
+        entity: Entity,
     ) -> Result<()> {
         let conn = &mut self
             .conn_cache
@@ -568,7 +570,10 @@ impl<Ctx> Server<Ctx> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
         self.writer.extend_from_slice(&buf[..size]);
-        self.send_queue.entry(entity).or_default().push(self.writer.split());
+        self.send_queue
+            .entry(entity)
+            .or_default()
+            .push(self.writer.split());
 
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;
@@ -579,7 +584,7 @@ impl<Ctx> Server<Ctx> {
     fn process_connection_request(
         &mut self,
         mut packet: RequestPacket,
-        entity_mut: &mut EntityCommands
+        entity_mut: &mut EntityCommands,
     ) -> Result<()> {
         trace!("Server received connection request packet");
         let mut reader = io::Cursor::new(&mut packet.token_data[..]);
@@ -657,7 +662,6 @@ impl<Ctx> Server<Ctx> {
             )));
         };
 
-
         self.send_netcode_packet(
             ChallengePacket::create(self.challenge_sequence, challenge_token_encrypted),
             token.server_to_client_key,
@@ -710,7 +714,7 @@ impl<Ctx> Server<Ctx> {
             )?;
             return Err(Error::ServerIsFull(id::PeerId::Netcode(id)));
         }
-        
+
         let client = self.conn_cache.clients.get_mut(&id).unwrap();
 
         client.connect();
@@ -742,7 +746,7 @@ impl<Ctx> Server<Ctx> {
             }
         }
     }
-    
+
     // fn send_keepalives(&mut self, sender: &mut LinkSender) -> Result<()> {
     //     for id in self.conn_cache.ids() {
     //         let Some(client) = self.conn_cache.clients.get_mut(&id) else {
@@ -765,7 +769,7 @@ impl<Ctx> Server<Ctx> {
     /// Send keep-alives to a given client
     pub(crate) fn send_keepalives(&mut self, id: ClientId, sender: &mut LinkSender) -> Result<()> {
         let Some(client) = self.conn_cache.clients.get_mut(&id) else {
-            return Err(Error::ClientNotFound(id::PeerId::Netcode(id)))
+            return Err(Error::ClientNotFound(id::PeerId::Netcode(id)));
         };
         if !client.is_connected() {
             return Ok(());
@@ -786,7 +790,6 @@ impl<Ctx> Server<Ctx> {
             });
         });
     }
-
 
     fn recv_packet(
         &mut self,
@@ -817,7 +820,7 @@ impl<Ctx> Server<Ctx> {
                         .receive_key,
                     self.conn_cache.replay_protection.get_mut(&client_id),
                 )
-            },
+            }
             None => {
                 // Not a connection request packet, and not a known client, so ignore
                 return Err(Error::Ignored(entity));
@@ -839,7 +842,7 @@ impl<Ctx> Server<Ctx> {
     fn recv_packets(
         &mut self,
         receiver: &mut LinkReceiver,
-        entity_mut: &mut EntityCommands
+        entity_mut: &mut EntityCommands,
     ) -> Result<()> {
         let now = super::utils::now()?;
 
@@ -867,7 +870,11 @@ impl<Ctx> Server<Ctx> {
 
     /// Receive packets from the links, process them.
     /// We might buffer some packets to the link as well (for Timeouts or ConnectionRequests, etc.)
-    pub fn receive(&mut self, link: &mut Link, entity_mut: &mut EntityCommands) -> Result<Vec<Error>> {
+    pub fn receive(
+        &mut self,
+        link: &mut Link,
+        entity_mut: &mut EntityCommands,
+    ) -> Result<Vec<Error>> {
         self.recv_packets(&mut link.recv, entity_mut)?;
         Ok(self.client_errors.drain(..).collect())
     }
@@ -876,7 +883,12 @@ impl<Ctx> Server<Ctx> {
     ///
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`].
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub fn send(&mut self, buf: SendPayload, client_id: ClientId, sender: &mut LinkSender) -> Result<()> {
+    pub fn send(
+        &mut self,
+        buf: SendPayload,
+        client_id: ClientId,
+        sender: &mut LinkSender,
+    ) -> Result<()> {
         if buf.len() > MAX_PACKET_SIZE {
             return Err(Error::SizeMismatch(MAX_PACKET_SIZE, buf.len()));
         }
@@ -904,7 +916,7 @@ impl<Ctx> Server<Ctx> {
         for id in self.conn_cache.ids() {
             match self.send(buf.clone(), id, sender) {
                 Ok(_) | Err(Error::ClientNotConnected(_)) | Err(Error::ClientNotFound(_)) => {
-                    continue
+                    continue;
                 }
                 Err(e) => return Err(e),
             }
@@ -977,7 +989,11 @@ impl<Ctx> Server<Ctx> {
     /// Disconnects a client.
     ///
     /// The server will send a number of redundant disconnect packets to the client, and then remove its connection info.
-    pub(crate) fn disconnect_by_entity(&mut self, entity: Entity, sender: &mut LinkSender) -> Result<()> {
+    pub(crate) fn disconnect_by_entity(
+        &mut self,
+        entity: Entity,
+        sender: &mut LinkSender,
+    ) -> Result<()> {
         let Some(client_id) = self.conn_cache.client_id_map.get(&entity) else {
             return Err(Error::EntityNotFound(entity));
         };

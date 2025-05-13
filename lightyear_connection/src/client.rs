@@ -6,8 +6,8 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear_core::id::PeerId;
-use lightyear_link::prelude::{Server, Unlinked};
 use lightyear_link::LinkStart;
+use lightyear_link::prelude::{Server, Unlinked};
 use tracing::trace;
 
 /// Errors related to the client connection
@@ -36,7 +36,7 @@ pub enum ClientState {
 /// Marker component to identify this entity as a Client
 #[derive(Component, Default, Reflect)]
 pub struct Client {
-    pub state: ClientState
+    pub state: ClientState,
 }
 
 impl Client {
@@ -48,7 +48,6 @@ impl Client {
     }
 }
 
-
 /// Trigger to connect the client
 #[derive(Event)]
 pub struct Connect;
@@ -56,7 +55,6 @@ pub struct Connect;
 /// Trigger to disconnect the client
 #[derive(Event)]
 pub struct Disconnect;
-
 
 // TODO: it looks like in some cases, we want Connected.peer_id to return the local peer_id (when client connects to server)
 //  and in some cases we want it to return the remote peer_id (when server's ClientOf gets connected)
@@ -73,13 +71,19 @@ pub struct Connected {
 
 impl Connected {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
-        let peer_id = world.get::<Connected>(context.entity).unwrap().remote_peer_id;
+        let peer_id = world
+            .get::<Connected>(context.entity)
+            .unwrap()
+            .remote_peer_id;
         if let Some(mut client) = world.get_mut::<Client>(context.entity) {
             client.state = ClientState::Connected(peer_id);
         };
-        world.commands().entity(context.entity)
+        world
+            .commands()
+            .entity(context.entity)
             .remove::<(Connecting, Disconnected)>();
-        world.resource_mut::<PeerMetadata>()
+        world
+            .resource_mut::<PeerMetadata>()
             .mapping
             .insert(peer_id, context.entity);
     }
@@ -95,7 +99,9 @@ impl Connecting {
         if let Some(mut client) = world.get_mut::<Client>(context.entity) {
             client.state = ClientState::Connecting;
         }
-        world.commands().entity(context.entity)
+        world
+            .commands()
+            .entity(context.entity)
             .remove::<(Connected, Disconnecting, Disconnected)>();
     }
 }
@@ -111,12 +117,18 @@ impl Disconnected {
         if let Some(mut client) = world.get_mut::<Client>(context.entity) {
             client.state = ClientState::Disconnected;
         }
-        if let Some(peer_id) = world.get::<Connected>(context.entity).map(|c| c.remote_peer_id) {
-            world.resource_mut::<PeerMetadata>()
+        if let Some(peer_id) = world
+            .get::<Connected>(context.entity)
+            .map(|c| c.remote_peer_id)
+        {
+            world
+                .resource_mut::<PeerMetadata>()
                 .mapping
                 .remove(&peer_id);
         }
-        world.commands().entity(context.entity)
+        world
+            .commands()
+            .entity(context.entity)
             .remove::<(Connecting, Disconnecting, Connected)>();
     }
 }
@@ -130,11 +142,12 @@ impl Disconnecting {
         if let Some(mut client) = world.get_mut::<Client>(context.entity) {
             client.state = ClientState::Disconnecting;
         }
-        world.commands().entity(context.entity)
+        world
+            .commands()
+            .entity(context.entity)
             .remove::<(Connected, Connecting, Disconnected)>();
     }
 }
-
 
 /// Resource that maintains a mapping from a remote PeerId to the corresponding local Entity
 /// that is connected to that peer
@@ -157,14 +170,13 @@ impl ConnectionPlugin {
     fn disconnect_if_link_fails(
         trigger: Trigger<OnAdd, Unlinked>,
         query: Query<&Unlinked, (Without<Disconnected>, Without<Server>)>,
-        mut commands: Commands
+        mut commands: Commands,
     ) {
         if let Ok(unlinked) = query.get(trigger.target()) {
             trace!("Adding Disconnected because the link got Unlinked");
-            commands.entity(trigger.target())
-                .insert(Disconnected {
-                    reason: Some(format!("Link failed: {:?}", unlinked.reason))
-                });
+            commands.entity(trigger.target()).insert(Disconnected {
+                reason: Some(format!("Link failed: {:?}", unlinked.reason)),
+            });
         }
     }
 }
@@ -175,15 +187,11 @@ impl Plugin for ConnectionPlugin {
         app.register_type::<PeerMetadata>();
         app.add_observer(Self::connect);
         app.add_observer(Self::disconnect_if_link_fails);
-
     }
 }
-
 
 #[cfg(test)]
 mod tests {
     #[test]
-    fn test_connection() {
-
-    }
+    fn test_connection() {}
 }

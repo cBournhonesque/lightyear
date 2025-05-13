@@ -26,8 +26,7 @@ impl Plugin for ExampleClientPlugin {
             // In host-server mode, the server portion is already applying the
             // character actions and so we don't want to apply the character
             // actions twice.
-            handle_character_actions
-                // .run_if(not(is_host_server)),
+            handle_character_actions, // .run_if(not(is_host_server)),
         );
         app.add_systems(
             Update,
@@ -70,7 +69,6 @@ fn handle_character_actions(
         }
     }
 }
-
 
 /// Add physics to characters that are newly predicted. If the client controls
 /// the character then add an input component.

@@ -4,7 +4,6 @@ use bevy::prelude::*;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
 use lightyear_link::{Link, LinkStart, Linked, Linking};
 
-
 pub struct WebTransportClientPlugin;
 
 impl Plugin for WebTransportClientPlugin {
@@ -59,10 +58,8 @@ impl WebTransportClientPlugin {
                         server_url.into_options()
                     }
                 };
-                let entity_mut = world.spawn((
-                    AeronetLinkOf(entity),
-                    Name::from("WebTransportClient"),
-                ));
+                let entity_mut =
+                    world.spawn((AeronetLinkOf(entity), Name::from("WebTransportClient")));
                 WebTransportClient::connect(config, target).apply(entity_mut);
                 Ok(())
             });
@@ -81,9 +78,9 @@ impl WebTransportClientPlugin {
                     algorithm: HashAlgorithm::Sha256,
                     value: Vec::from(hash),
                 }],
-                Err(err) => {
-                    WebTransportError::Certificate("Failed to read certificate hash from string: {err:?}".to_string())?
-                }
+                Err(err) => WebTransportError::Certificate(
+                    "Failed to read certificate hash from string: {err:?}".to_string(),
+                )?,
             }
         };
 

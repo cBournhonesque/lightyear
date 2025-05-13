@@ -12,8 +12,12 @@ fn test_disconnection() {
     stepper.disconnect_client();
 
     // check that the client is not present in the server world
-    assert!(stepper.server_app.world_mut().
-        query_filtered::<Entity, With<ClientOf>>()
-        .single(stepper.server_app.world())
-        .is_err());
+    assert!(
+        stepper
+            .server_app
+            .world_mut()
+            .query_filtered::<Entity, With<ClientOf>>()
+            .single(stepper.server_app.world())
+            .is_err()
+    );
 }

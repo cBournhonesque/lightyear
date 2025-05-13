@@ -33,7 +33,14 @@ pub struct PredictionMetadata {
     pub check_rollback: CheckRollbackFn,
 }
 
-type SyncFn = fn(&PredictionRegistry, &ComponentRegistry, confirmed: Entity, predicted: Entity, &World, &mut TempWriteBuffer);
+type SyncFn = fn(
+    &PredictionRegistry,
+    &ComponentRegistry,
+    confirmed: Entity,
+    predicted: Entity,
+    &World,
+    &mut TempWriteBuffer,
+);
 
 type CheckRollbackFn = fn(
     &PredictionRegistry,
@@ -67,14 +74,12 @@ impl PredictionMetadata {
 /// Defaults to PartialEq::ne
 pub type ShouldRollbackFn<C> = fn(this: &C, that: &C) -> bool;
 
-
 #[derive(Resource, Default, Debug)]
 pub struct PredictionRegistry {
     pub prediction_map: HashMap<ComponentKind, PredictionMetadata>,
 }
 
 impl PredictionRegistry {
-
     pub fn set_prediction_mode<C: SyncComponent>(
         &mut self,
         history_id: Option<ComponentId>,
@@ -118,7 +123,7 @@ impl PredictionRegistry {
     pub fn get_prediction_mode(
         &self,
         id: ComponentId,
-        component_registry: &ComponentRegistry
+        component_registry: &ComponentRegistry,
     ) -> Result<PredictionMode, ComponentError> {
         let kind = component_registry
             .component_id_to_kind
@@ -180,12 +185,22 @@ impl PredictionRegistry {
     ) {
         // clone each component to be synced into a temporary buffer
         component_ids.iter().for_each(|component_id| {
-            let kind = component_registry.component_id_to_kind.get(component_id).unwrap();
+            let kind = component_registry
+                .component_id_to_kind
+                .get(component_id)
+                .unwrap();
             let prediction_metadata = self
                 .prediction_map
                 .get(kind)
                 .expect("the component is not part of the protocol");
-            (prediction_metadata.buffer_sync)(self, component_registry, confirmed, predicted, world, temp_write_buffer);
+            (prediction_metadata.buffer_sync)(
+                self,
+                component_registry,
+                confirmed,
+                predicted,
+                world,
+                temp_write_buffer,
+            );
         });
         // insert all the components in the predicted entity
         if let Ok(mut entity_world_mut) = world.get_entity_mut(predicted) {
@@ -247,8 +262,7 @@ impl PredictionRegistry {
                 .map_entities(&mut clone, component_registry)
                 .unwrap();
             unsafe {
-                temp_write_buffer
-                    .buffer_insert_raw_ptrs(clone, world.component_id::<C>().unwrap())
+                temp_write_buffer.buffer_insert_raw_ptrs(clone, world.component_id::<C>().unwrap())
             };
         }
     }
@@ -331,27 +345,38 @@ impl PredictionRegistry {
     }
 }
 
-
-
 pub trait PredictionRegistrationExt<C> {
     fn add_prediction(self, prediction_mode: PredictionMode) -> Self
-        where C: SyncComponent;
+    where
+        C: SyncComponent;
     fn add_linear_correction_fn(self) -> Self
-        where C: SyncComponent + Ease;
-    fn add_correction_fn(self, correction_fn: LerpFn<C>) -> Self where C: SyncComponent;
-    fn add_should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self where C: SyncComponent;
+    where
+        C: SyncComponent + Ease;
+    fn add_correction_fn(self, correction_fn: LerpFn<C>) -> Self
+    where
+        C: SyncComponent;
+    fn add_should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self
+    where
+        C: SyncComponent;
 }
 
 impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
     fn add_prediction(self, prediction_mode: PredictionMode) -> Self
-    where C: SyncComponent {
+    where
+        C: SyncComponent,
+    {
         let history_id = (prediction_mode == PredictionMode::Full).then(|| {
-            self.app.world_mut()
+            self.app
+                .world_mut()
                 .register_component::<PredictionHistory<C>>()
         });
         // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
-        let Some(mut registry) = self.app.world_mut().get_resource_mut::<PredictionRegistry>() else {
-            return self
+        let Some(mut registry) = self
+            .app
+            .world_mut()
+            .get_resource_mut::<PredictionRegistry>()
+        else {
+            return self;
         };
         registry.set_prediction_mode::<C>(history_id, prediction_mode);
         add_prediction_systems::<C>(self.app, prediction_mode);
@@ -359,30 +384,48 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
     }
 
     fn add_linear_correction_fn(self) -> Self
-    where C: SyncComponent + Ease {
+    where
+        C: SyncComponent + Ease,
+    {
         // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
-        let Some(mut registry) = self.app.world_mut().get_resource_mut::<PredictionRegistry>() else {
-            return self
+        let Some(mut registry) = self
+            .app
+            .world_mut()
+            .get_resource_mut::<PredictionRegistry>()
+        else {
+            return self;
         };
         registry.set_linear_correction::<C>();
         self
     }
 
     fn add_correction_fn(self, correction_fn: LerpFn<C>) -> Self
-    where C: SyncComponent{
+    where
+        C: SyncComponent,
+    {
         // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
-        let Some(mut registry) = self.app.world_mut().get_resource_mut::<PredictionRegistry>() else {
-            return self
+        let Some(mut registry) = self
+            .app
+            .world_mut()
+            .get_resource_mut::<PredictionRegistry>()
+        else {
+            return self;
         };
         registry.set_correction::<C>(correction_fn);
         self
     }
 
     fn add_should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self
-    where C: SyncComponent{
+    where
+        C: SyncComponent,
+    {
         // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
-        let Some(mut registry) = self.app.world_mut().get_resource_mut::<PredictionRegistry>() else {
-            return self
+        let Some(mut registry) = self
+            .app
+            .world_mut()
+            .get_resource_mut::<PredictionRegistry>()
+        else {
+            return self;
         };
         registry.set_should_rollback::<C>(should_rollback);
         self

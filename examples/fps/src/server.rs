@@ -36,7 +36,6 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-
 // Replicate the pre-spawned entities back to the client
 // We have to use `InitialReplicated` instead of `Replicated`, because
 // the server has already assumed authority over the entity so the `Replicated` component
@@ -62,7 +61,7 @@ pub(crate) fn spawn_player(
             owner: client_id,
             lifetime: Default::default(),
         },
-           // make sure that all predicted entities (i.e. all entities for a given client) are part of the same replication group
+        // make sure that all predicted entities (i.e. all entities for a given client) are part of the same replication group
         ReplicationGroup::new_id(client_id.to_bits()),
         Score(0),
         PlayerId(client_id),

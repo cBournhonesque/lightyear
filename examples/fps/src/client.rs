@@ -30,7 +30,6 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-
 /// Compute the world-position of the cursor and set it in the DualAxis input
 fn update_cursor_state_from_window(
     window_query: Query<&Window>,
@@ -77,18 +76,13 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        commands
-            .entity(trigger.target())
-            .insert((
-            InputMap::new([
-                    (PlayerActions::Up, KeyCode::KeyW),
-                    (PlayerActions::Down, KeyCode::KeyS),
-                    (PlayerActions::Left, KeyCode::KeyA),
-                    (PlayerActions::Right, KeyCode::KeyD),
-                    (PlayerActions::Shoot, KeyCode::Space),
-                
-            ]),
-        ));
+        commands.entity(trigger.target()).insert((InputMap::new([
+            (PlayerActions::Up, KeyCode::KeyW),
+            (PlayerActions::Down, KeyCode::KeyS),
+            (PlayerActions::Left, KeyCode::KeyA),
+            (PlayerActions::Right, KeyCode::KeyD),
+            (PlayerActions::Shoot, KeyCode::Space),
+        ]),));
     }
 }
 

@@ -36,16 +36,13 @@ use lightyear_messages::{MessageManager, MessageNetId};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::{ChannelRegistry, Transport};
 #[cfg(feature = "trace")]
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
-
 pub struct ReplicationReceivePlugin;
 
-
 impl ReplicationReceivePlugin {
-
     /// On disconnect:
     /// - Despawn any entities that were spawned from replication when the client despawns.
     /// - Reset the ReplicationReceiver to its original state
@@ -71,69 +68,101 @@ impl ReplicationReceivePlugin {
     }
 
     pub(crate) fn receive_messages(
-        mut query: Query<(&mut MessageReceiver<ActionsMessage>, &mut MessageReceiver<UpdatesMessage>, &mut ReplicationReceiver), With<Connected>>,
+        mut query: Query<
+            (
+                &mut MessageReceiver<ActionsMessage>,
+                &mut MessageReceiver<UpdatesMessage>,
+                &mut ReplicationReceiver,
+            ),
+            With<Connected>,
+        >,
     ) {
-        query.par_iter_mut().for_each(|(mut actions, mut updates, mut receiver)| {
-            receiver.received_this_frame = false;
-            for message in actions.receive_with_tick() {
-                receiver.recv_actions(message.data, message.remote_tick);
-            }
-            for message in updates.receive_with_tick() {
-                receiver.recv_updates(message.data, message.remote_tick);
-            }
-        });
+        query
+            .par_iter_mut()
+            .for_each(|(mut actions, mut updates, mut receiver)| {
+                receiver.received_this_frame = false;
+                for message in actions.receive_with_tick() {
+                    receiver.recv_actions(message.data, message.remote_tick);
+                }
+                for message in updates.receive_with_tick() {
+                    receiver.recv_updates(message.data, message.remote_tick);
+                }
+            });
     }
 
     pub(crate) fn apply_world(
         world: &mut World,
         // TODO: have some logic to get the remote peer independently from ClientOf or client-server
-            //  Maybe the link contains the remoteLinkId?
+        //  Maybe the link contains the remoteLinkId?
         query: &mut QueryState<
             (Entity, &Connected),
-            (With<ReplicationReceiver>, With<MessageManager>, With<LocalTimeline>)
+            (
+                With<ReplicationReceiver>,
+                With<MessageManager>,
+                With<LocalTimeline>,
+            ),
         >,
         // buffer to avoid allocations
-        mut receiver_entities: Local<Vec<(Entity, PeerId)>>
+        mut receiver_entities: Local<Vec<(Entity, PeerId)>>,
     ) {
         // we first collect the entities we need into a buffer
         // We cannot use query.iter() and &mut World at the same time as this would be UB because they both access Archetypes
         // See https://discord.com/channels/691052431525675048/1358658786851684393/1358793406679355593
-        receiver_entities.extend(query.iter(world).map(|(e, connected)| {
-            (e, connected.remote_peer_id)
-        }));
+        receiver_entities.extend(
+            query
+                .iter(world)
+                .map(|(e, connected)| (e, connected.remote_peer_id)),
+        );
 
         // SAFETY: the other uses of `world` won't access the ComponentRegistry
         let unsafe_world = world.as_unsafe_world_cell();
-        let component_registry = unsafe { unsafe_world.get_resource::<ComponentRegistry>() }.unwrap();
+        let component_registry =
+            unsafe { unsafe_world.get_resource::<ComponentRegistry>() }.unwrap();
         let world = unsafe { unsafe_world.world_mut() };
 
-        receiver_entities.drain(..).for_each(|(entity, remote_peer)| {
-            let span = trace_span!("ReplicationReceiver", entity = ?entity);
-            let _guard = span.enter();
-            let unsafe_world = world.as_unsafe_world_cell();
-            // Get the list of entities which we might have authority over
-            // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
-            let authority_map = unsafe { unsafe_world.world_mut() }.get::<ReplicationSender>(entity)
-                .as_ref()
-                .map(|s| &s.replicated_entities);
-            
-            // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
-            let mut receiver = unsafe { unsafe_world.world_mut() }.get_mut::<ReplicationReceiver>(entity).unwrap();
-            // let client_of = unsafe { unsafe_world.world_mut() }.get::<ClientOf>(entity);
-            let mut manager = unsafe { unsafe_world.world_mut() }.get_mut::<MessageManager>(entity).unwrap();
-            let local_timeline = unsafe { unsafe_world.world_mut() }.get::<LocalTimeline>(entity).unwrap();
-            // SAFETY: the world will only be used to apply replication updates, which doesn't conflict with other accesses
-            let world = unsafe { unsafe_world.world_mut() };
+        receiver_entities
+            .drain(..)
+            .for_each(|(entity, remote_peer)| {
+                let span = trace_span!("ReplicationReceiver", entity = ?entity);
+                let _guard = span.enter();
+                let unsafe_world = world.as_unsafe_world_cell();
+                // Get the list of entities which we might have authority over
+                // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
+                let authority_map = unsafe { unsafe_world.world_mut() }
+                    .get::<ReplicationSender>(entity)
+                    .as_ref()
+                    .map(|s| &s.replicated_entities);
 
-            let tick = local_timeline.tick();
-            receiver.apply_world(world, entity, remote_peer, &mut manager.entity_mapper, authority_map, component_registry, tick);
-            receiver.tick_cleanup(tick);
-        });
+                // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
+                let mut receiver = unsafe { unsafe_world.world_mut() }
+                    .get_mut::<ReplicationReceiver>(entity)
+                    .unwrap();
+                // let client_of = unsafe { unsafe_world.world_mut() }.get::<ClientOf>(entity);
+                let mut manager = unsafe { unsafe_world.world_mut() }
+                    .get_mut::<MessageManager>(entity)
+                    .unwrap();
+                let local_timeline = unsafe { unsafe_world.world_mut() }
+                    .get::<LocalTimeline>(entity)
+                    .unwrap();
+                // SAFETY: the world will only be used to apply replication updates, which doesn't conflict with other accesses
+                let world = unsafe { unsafe_world.world_mut() };
+
+                let tick = local_timeline.tick();
+                receiver.apply_world(
+                    world,
+                    entity,
+                    remote_peer,
+                    &mut manager.entity_mapper,
+                    authority_map,
+                    component_registry,
+                    tick,
+                );
+                receiver.tick_cleanup(tick);
+            });
     }
 }
 
 impl Plugin for ReplicationReceivePlugin {
-
     fn build(&self, app: &mut App) {
         // PLUGINS
         if !app.is_plugin_added::<plugin::SharedPlugin>() {
@@ -141,13 +170,15 @@ impl Plugin for ReplicationReceivePlugin {
         }
 
         // SYSTEMS
-        app.configure_sets(PreUpdate, ReplicationSet::Receive.after(MessageSet::Receive));
-        app.add_systems(PreUpdate,
-            (
-                Self::receive_messages,
-                Self::apply_world,
-            ).chain()
-                .in_set(ReplicationSet::Receive)
+        app.configure_sets(
+            PreUpdate,
+            ReplicationSet::Receive.after(MessageSet::Receive),
+        );
+        app.add_systems(
+            PreUpdate,
+            (Self::receive_messages, Self::apply_world)
+                .chain()
+                .in_set(ReplicationSet::Receive),
         );
         app.add_observer(Self::handle_disconnection);
     }
@@ -226,8 +257,9 @@ impl TempWriteBuffer {
         core::mem::forget(component);
         let count = layout.size();
         self.raw_bytes.reserve(count);
-        let space = unsafe { NonNull::new_unchecked(self.raw_bytes.spare_capacity_mut()).cast::<u8>() };
-        unsafe { space.copy_from_nonoverlapping(ptr, count) } ;
+        let space =
+            unsafe { NonNull::new_unchecked(self.raw_bytes.spare_capacity_mut()).cast::<u8>() };
+        unsafe { space.copy_from_nonoverlapping(ptr, count) };
         let length = self.raw_bytes.len();
         // SAFETY: we are using the spare capacity of the Vec, so we know that the length is correct
         unsafe { self.raw_bytes.set_len(length + count) };
@@ -235,7 +267,6 @@ impl TempWriteBuffer {
         self.component_ids.push(component_id);
     }
 }
-
 
 #[derive(Debug, Component)]
 #[require(Transport)]
@@ -317,7 +348,10 @@ impl ReplicationReceiver {
         // NOTE: this is valid even after tick wrapping because we keep clamping the latest_tick values for each channel
         // if we have already applied a more recent update for this group, no need to keep this one (or should we keep it for history?)
         if channel.latest_tick.is_some_and(|t| remote_tick <= t) {
-            trace!("discard because the update's tick {remote_tick:?} is older than the latest tick {:?}", channel.latest_tick);
+            trace!(
+                "discard because the update's tick {remote_tick:?} is older than the latest tick {:?}",
+                channel.latest_tick
+            );
             return;
         }
 
@@ -370,7 +404,10 @@ impl ReplicationReceiver {
     /// We handle this by periodically updating the latest_tick for the group
     pub(crate) fn tick_cleanup(&mut self, tick: Tick) {
         // skip cleanup if we did one recently
-        if self.last_cleanup_tick.is_some_and(|last| tick < last + (i16::MAX / 3) ) {
+        if self
+            .last_cleanup_tick
+            .is_some_and(|last| tick < last + (i16::MAX / 3))
+        {
             return;
         }
         self.last_cleanup_tick = Some(tick);
@@ -379,8 +416,9 @@ impl ReplicationReceiver {
             if let Some(latest_tick) = group_channel.latest_tick {
                 if tick - latest_tick > (i16::MAX / 2) {
                     debug!(
-                    ?group_channel,
-                    "Setting the latest_tick {latest_tick:?} to tick {tick:?} because there hasn't been any new updates in a while");
+                        ?group_channel,
+                        "Setting the latest_tick {latest_tick:?} to tick {tick:?} because there hasn't been any new updates in a while"
+                    );
                     group_channel.latest_tick = Some(tick);
                 }
             }
@@ -487,7 +525,10 @@ impl ReplicationReceiver {
                     // (older than the latest_tick applied from any Actions message above!)
                     //
                     // Note that the channel.latest tick could still be None in case of authority-transfer!
-                    if channel.latest_tick.is_some_and(|latest_tick| remote_tick <= latest_tick) {
+                    if channel
+                        .latest_tick
+                        .is_some_and(|latest_tick| remote_tick <= latest_tick)
+                    {
                         // TODO: those ticks could be history and could be interesting. They are older than the latest_tick though
                         continue;
                     }
@@ -654,11 +695,7 @@ impl UpdatesBuffer {
             };
             last_action_tick > latest_tick
         });
-        if idx == self.len() {
-            None
-        } else {
-            Some(idx)
-        }
+        if idx == self.len() { None } else { Some(idx) }
     }
     /// Pop the oldest tick from the buffer
     fn pop_oldest(&mut self) -> Option<(Tick, UpdatesMessage)> {
@@ -752,7 +789,7 @@ impl GroupChannel {
         remote_entity_map: &mut RemoteEntityMap,
         authority_map: Option<&EntityIndexMap<bool>>,
         local_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
-        temp_write_buffer: &mut TempWriteBuffer
+        temp_write_buffer: &mut TempWriteBuffer,
     ) {
         let group_id = message.group_id;
         debug!(
@@ -782,7 +819,9 @@ impl GroupChannel {
                             continue;
                         }
                         local_entity_to_group.insert(local_entity, group_id);
-                        warn!("Received spawn for an entity that is already in our entity mapping! Not spawning");
+                        warn!(
+                            "Received spawn for an entity that is already in our entity mapping! Not spawning"
+                        );
                         continue;
                     }
                     // TODO: optimization: spawn the bundle of insert components
@@ -805,14 +844,20 @@ impl GroupChannel {
 
                     // TODO: maybe use command-batching?
                     let mut local_entity = world.spawn((
-                        Replicated { receiver: receiver_entity, from: remote },
+                        Replicated {
+                            receiver: receiver_entity,
+                            from: remote,
+                        },
                         InitialReplicated { from: remote },
                     ));
                     self.local_entities.insert(local_entity.id());
                     local_entity_to_group.insert(local_entity.id(), group_id);
                     remote_entity_map.insert(*remote_entity, local_entity.id());
                     trace!("Updated remote entity map: {:?}", remote_entity_map);
-                    debug!("Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}", local_entity.id());
+                    debug!(
+                        "Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}",
+                        local_entity.id()
+                    );
                 }
                 _ => {}
             }
@@ -840,11 +885,16 @@ impl GroupChannel {
                 continue;
             };
             // the local Sender has authority over the entity, so we don't want to accept the updates
-            if authority_map.is_some_and(|a| a.get(&local_entity_mut.id()).is_some_and(|authority| *authority)) {
-                trace!("Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}", remote, entity);
+            if authority_map.is_some_and(|a| {
+                a.get(&local_entity_mut.id())
+                    .is_some_and(|authority| *authority)
+            }) {
+                trace!(
+                    "Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}",
+                    remote, entity
+                );
                 continue;
             }
-
 
             // inserts
             // TODO: remove updates that are duplicate for the same component
@@ -941,8 +991,14 @@ impl GroupChannel {
                 continue;
             };
             // the local Sender has authority over the entity, so we don't want to accept the updates
-            if authority_map.is_some_and(|a| a.get(&local_entity_mut.id()).is_some_and(|authority| *authority)) {
-                trace!("Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}", remote, entity);
+            if authority_map.is_some_and(|a| {
+                a.get(&local_entity_mut.id())
+                    .is_some_and(|authority| *authority)
+            }) {
+                trace!(
+                    "Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}",
+                    remote, entity
+                );
                 continue;
             }
 

@@ -48,9 +48,9 @@ pub(crate) fn update_resource_history<R: Resource + Clone>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::client::RollbackState;
     use crate::prelude::AppComponentExt;
     use crate::prelude::Tick;
+    use crate::prelude::client::RollbackState;
     use crate::tests::stepper::BevyStepper;
     use bevy::ecs::system::RunSystemOnce;
     use tracing::info;
@@ -215,10 +215,12 @@ mod tests {
         stepper.frame_step();
 
         // Check that the resource still exists
-        assert!(stepper
-            .client_app
-            .world_mut()
-            .get_resource::<TestResource>()
-            .is_some());
+        assert!(
+            stepper
+                .client_app
+                .world_mut()
+                .get_resource::<TestResource>()
+                .is_some()
+        );
     }
 }

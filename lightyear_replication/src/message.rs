@@ -38,7 +38,10 @@ pub struct EntityActions {
 
 impl ToBytes for EntityActions {
     fn bytes_len(&self) -> usize {
-        self.spawn.bytes_len() + self.insert.bytes_len() + self.remove.bytes_len() + self.updates.bytes_len()
+        self.spawn.bytes_len()
+            + self.insert.bytes_len()
+            + self.remove.bytes_len()
+            + self.updates.bytes_len()
     }
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
@@ -117,7 +120,6 @@ pub(crate) struct SendEntityActionsMessage {
     pub(crate) group_id: ReplicationGroupId,
     pub(crate) actions: HashMap<Entity, EntityActions, EntityHash>,
 }
-
 
 impl ToBytes for SendEntityActionsMessage {
     fn bytes_len(&self) -> usize {
@@ -261,17 +263,18 @@ impl ToBytes for SenderMetadata {
         self.send_interval.bytes_len()
     }
 
-    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> bevy::prelude::Result<(), SerializationError> {
+    fn to_bytes(
+        &self,
+        buffer: &mut impl WriteInteger,
+    ) -> bevy::prelude::Result<(), SerializationError> {
         self.send_interval.to_bytes(buffer)
     }
 
     fn from_bytes(buffer: &mut Reader) -> bevy::prelude::Result<Self, SerializationError>
     where
-        Self: Sized
+        Self: Sized,
     {
         let send_interval = PositiveTickDelta::from_bytes(buffer)?;
-        Ok(Self {
-            send_interval,
-        })
+        Ok(Self { send_interval })
     }
 }

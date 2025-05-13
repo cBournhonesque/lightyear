@@ -5,8 +5,8 @@ use bevy::platform::collections::HashSet;
 use bevy::prelude::{Real, Time, Timer, TimerMode};
 
 use crate::channel::builder::ReliableSettings;
-use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
+use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SendMessage, SingleData};
 use bytes::Bytes;
 use core::time::Duration;
@@ -105,19 +105,14 @@ impl ChannelSend for ReliableSender {
                 timer.duration().as_nanos() as f32 / real_time.delta().as_nanos() as f32;
             trace!(
                 ?timer,
-                "Priority multiplier for reliable sender channel: {:?}",
-                self.priority_multiplier
+                "Priority multiplier for reliable sender channel: {:?}", self.priority_multiplier
             );
         }
     }
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(
-        &mut self,
-        message: Bytes,
-        priority: f32,
-    ) -> Option<MessageId> {
+    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         let unacked_message = if message.len() > self.fragment_sender.fragment_size {
             let fragments = self
@@ -188,10 +183,7 @@ impl ChannelSend for ReliableSender {
             );
 
             match &mut unacked_message_with_priority.unacked_message {
-                UnackedMessage::Single {
-                    bytes,
-                    last_sent,
-                } => {
+                UnackedMessage::Single { bytes, last_sent } => {
                     if should_send(last_sent) {
                         trace!("Should send message {:?}", message_id);
                         let message_info = MessageAck {
@@ -281,7 +273,9 @@ impl ChannelSend for ReliableSender {
                 }
                 UnackedMessage::Fragmented(fragment_acks) => {
                     let Some(fragment_id) = message_ack.fragment_id else {
-                        panic!("Received a message ack for a single message but message is a fragmented message")
+                        panic!(
+                            "Received a message ack for a single message but message is a fragmented message"
+                        )
                     };
                     if !fragment_acks[fragment_id.0 as usize].acked {
                         fragment_acks[fragment_id.0 as usize].acked = true;

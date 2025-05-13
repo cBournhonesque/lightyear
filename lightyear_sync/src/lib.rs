@@ -12,12 +12,11 @@
 
 extern crate alloc;
 
-
-/// Manages pinging and RTT estimation between peers.
-pub mod ping;
 #[cfg(feature = "client")]
 /// Client-specific synchronization logic.
 pub mod client;
+/// Manages pinging and RTT estimation between peers.
+pub mod ping;
 
 // TODO: server: we might want each ClientOf to use the timeline of the parent
 
@@ -25,20 +24,19 @@ pub mod client;
 /// Server-specific synchronization logic.
 pub mod server;
 
-
-/// Defines timelines and their synchronization mechanisms.
-pub mod timeline;
 /// Provides the `SyncPlugin` for integrating synchronization into a Bevy app.
 pub mod plugin;
+/// Defines timelines and their synchronization mechanisms.
+pub mod timeline;
 
 /// Commonly used items from the `lightyear_sync` crate.
 pub mod prelude {
+    pub use crate::ping::PingChannel;
     pub use crate::ping::manager::{PingConfig, PingManager};
     pub use crate::ping::message::{Ping, Pong};
-    pub use crate::ping::PingChannel;
     pub use crate::plugin::SyncPlugin;
     pub use crate::timeline::sync::{IsSynced, SyncConfig};
-    pub use crate::timeline::{input::InputTimeline, DrivingTimeline};
+    pub use crate::timeline::{DrivingTimeline, input::InputTimeline};
 
     #[cfg(feature = "client")]
     pub mod client {

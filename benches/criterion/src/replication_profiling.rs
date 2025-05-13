@@ -10,13 +10,8 @@ const NUM_ENTITIES: usize = 1000;
 fn main() {
     for _ in 0..N {
         let mut stepper = ClientServerStepper::single();
-        let entities = vec![
-            (
-                Component1(0.0),
-                Replicate::to_clients(NetworkTarget::All)
-            );
-            NUM_ENTITIES
-        ];
+        let entities =
+            vec![(Component1(0.0), Replicate::to_clients(NetworkTarget::All)); NUM_ENTITIES];
         stepper.server_app.world_mut().spawn_batch(entities);
 
         // advance time by one frame

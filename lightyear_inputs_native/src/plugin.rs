@@ -4,8 +4,8 @@ use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use core::fmt::Debug;
 use lightyear_inputs::config::InputConfig;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 pub struct InputPlugin<A> {
     pub config: InputConfig<A>,
@@ -19,10 +19,13 @@ impl<A> Default for InputPlugin<A> {
     }
 }
 
-impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static + MapEntities> Plugin for InputPlugin<A> {
+impl<
+    A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static + MapEntities,
+> Plugin for InputPlugin<A>
+{
     fn build(&self, app: &mut App) {
         // TODO: for simplicity, we currently register both client and server input plugins
-        #[cfg(feature="client")]
+        #[cfg(feature = "client")]
         {
             use lightyear_inputs::client::ClientInputPlugin;
             app.add_plugins(ClientInputPlugin::<NativeStateSequence<A>>::new(
@@ -30,7 +33,7 @@ impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug +
             ));
         }
 
-        #[cfg(feature="server")]
+        #[cfg(feature = "server")]
         {
             use lightyear_inputs::server::ServerInputPlugin;
             app.add_plugins(ServerInputPlugin::<NativeStateSequence<A>> {

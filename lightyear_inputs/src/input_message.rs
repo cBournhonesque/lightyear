@@ -35,7 +35,9 @@ pub struct PerTargetData<S> {
     pub(crate) states: S,
 }
 
-pub trait ActionStateSequence: Serialize + DeserializeOwned + Clone + Debug + Send + Sync + 'static {
+pub trait ActionStateSequence:
+    Serialize + DeserializeOwned + Clone + Debug + Send + Sync + 'static
+{
     type Action: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static;
     type State: Component<Mutability = Mutable> + Default + Debug + Clone + PartialEq;
 
@@ -52,9 +54,10 @@ pub trait ActionStateSequence: Serialize + DeserializeOwned + Clone + Debug + Se
         input_buffer: &InputBuffer<Self::State>,
         num_ticks: u16,
         end_tick: Tick,
-    ) -> Option<Self> where Self: Sized;
+    ) -> Option<Self>
+    where
+        Self: Sized;
 }
-
 
 /// Message used to send client inputs to the server.
 /// Stores the last N inputs starting from `end_tick - N + 1`.
@@ -95,7 +98,11 @@ impl<S: ActionStateSequence + core::fmt::Display> core::fmt::Display for InputMe
             })
             .collect::<Vec<String>>()
             .join("\n");
-        write!(f, "InputMessage<{:?}> (End Tick: {:?}):\n{}", ty, self.end_tick, buffer_str)
+        write!(
+            f,
+            "InputMessage<{:?}> (End Tick: {:?}):\n{}",
+            ty, self.end_tick, buffer_str
+        )
     }
 }
 
@@ -112,7 +119,6 @@ impl<S: ActionStateSequence> InputMessage<S> {
         self.inputs.iter().all(|data| data.states.is_empty())
     }
 }
-
 
 // TODO: Define traits `InputMessageBuilder<A>` and `InputBufferUpdater<A>` here
 //       and implement them in the respective native/leafwing crates.
@@ -131,7 +137,6 @@ mod tests {
     impl MapEntities for MyTestAction {
         fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
     }
-
 
     #[test]
     fn test_input_message_empty() {

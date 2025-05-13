@@ -36,13 +36,13 @@ pub(crate) struct PacketHeader {
 
 impl ToBytes for PacketHeader {
     fn bytes_len(&self) -> usize {
-        1 + self.packet_id.bytes_len() + self.last_ack_packet_id.bytes_len() + 4 + self.tick.bytes_len()
+        1 + self.packet_id.bytes_len()
+            + self.last_ack_packet_id.bytes_len()
+            + 4
+            + self.tick.bytes_len()
     }
 
-    fn to_bytes(
-        &self,
-        buffer: &mut impl WriteInteger,
-    ) -> Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         buffer.write_u8(self.packet_type as u8)?;
         buffer.write_u16(self.packet_id.0)?;
         buffer.write_u16(self.last_ack_packet_id.0)?;
@@ -136,14 +136,11 @@ impl PacketHeaderManager {
     }
 
     /// Internal bookkeeping. Updates the list of packets that are NACKed (acknowledged as losts)
-    pub(crate) fn update(
-        &mut self,
-        real: Duration,
-        link_stats: &LinkStats,
-    ) {
+    pub(crate) fn update(&mut self, real: Duration, link_stats: &LinkStats) {
         self.stats_manager.update(real);
         let rtt = link_stats.rtt;
-        let nack_duration = rtt.mul_f32(self.nack_rtt_multiple)
+        let nack_duration = rtt
+            .mul_f32(self.nack_rtt_multiple)
             .min(Duration::from_secs(MAX_NACK_SECONDS))
             .max(Duration::from_millis(MIN_NACK_MILLIS));
         // clear sent packets that haven't received any ack for a while
@@ -211,10 +208,17 @@ impl PacketHeaderManager {
     }
 
     /// Prepare the header of the next packet to send
-    pub(crate) fn prepare_send_packet_header(&mut self, packet_type: PacketType, real: Duration) -> PacketHeader {
+    pub(crate) fn prepare_send_packet_header(
+        &mut self,
+        packet_type: PacketType,
+        real: Duration,
+    ) -> PacketHeader {
         // if we didn't have a last packet id, start with the maximum value
         // (so that receiving 0 counts as an update)
-        let last_ack_packet_id = self.recv_buffer.last_recv_packet_id.unwrap_or_else(|| PacketId(u16::MAX));
+        let last_ack_packet_id = self
+            .recv_buffer
+            .last_recv_packet_id
+            .unwrap_or_else(|| PacketId(u16::MAX));
         let outgoing_header = PacketHeader {
             packet_type,
             packet_id: self.next_packet_id,

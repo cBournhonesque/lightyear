@@ -51,8 +51,6 @@ impl Default for ChannelSettings {
     }
 }
 
-
-
 /// Holds information about all the channels present on the entity.
 #[derive(Component)]
 #[require(LocalTimeline)]
@@ -103,22 +101,26 @@ impl Default for Transport {
 
 /// Function that flushes all messages out of the ChannelSender
 /// and buffers them in the PriorityManager
-type FlushMessagesFn = fn(
-    &mut PriorityManager,
-    MutUntyped,
-);
+type FlushMessagesFn = fn(&mut PriorityManager, MutUntyped);
 
 impl Transport {
-
     pub fn has_sender<C: Channel>(&self) -> bool {
         self.senders.contains_key(&ChannelKind::of::<C>())
     }
 
     pub fn has_receiver<C: Channel>(&self) -> bool {
-        self.receivers.values().find(|m| m.channel_kind == ChannelKind::of::<C>()).is_some()
+        self.receivers
+            .values()
+            .find(|m| m.channel_kind == ChannelKind::of::<C>())
+            .is_some()
     }
 
-    pub fn add_sender<C: Channel>(&mut self, sender: ChannelSenderEnum, mode: ChannelMode, channel_id: ChannelId) {
+    pub fn add_sender<C: Channel>(
+        &mut self,
+        sender: ChannelSenderEnum,
+        mode: ChannelMode,
+        channel_id: ChannelId,
+    ) {
         self.senders.insert(
             ChannelKind::of::<C>(),
             SenderMetadata {
@@ -136,31 +138,47 @@ impl Transport {
     // TODO: make this available via observer by triggering AddSender<C> on the Transport entity.
     pub fn add_sender_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
         let Some(settings) = registry.settings(ChannelKind::of::<C>()) else {
-            panic!("ChannelSettings not found for channel {}", core::any::type_name::<C>());
+            panic!(
+                "ChannelSettings not found for channel {}",
+                core::any::type_name::<C>()
+            );
         };
         let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
         let sender = settings.into();
         self.add_sender::<C>(sender, settings.mode, channel_id);
     }
 
-    pub fn add_receiver<C: Channel>(&mut self, receiver: ChannelReceiverEnum, channel_id: ChannelId) {
-        self.receivers.insert(channel_id, ReceiverMetadata {
-            receiver,
-            channel_kind: ChannelKind::of::<C>(),
-        });
+    pub fn add_receiver<C: Channel>(
+        &mut self,
+        receiver: ChannelReceiverEnum,
+        channel_id: ChannelId,
+    ) {
+        self.receivers.insert(
+            channel_id,
+            ReceiverMetadata {
+                receiver,
+                channel_kind: ChannelKind::of::<C>(),
+            },
+        );
     }
 
     pub fn add_receiver_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
         let Some(settings) = registry.settings(ChannelKind::of::<C>()) else {
-            panic!("ChannelSettings not found for channel {}", core::any::type_name::<C>());
+            panic!(
+                "ChannelSettings not found for channel {}",
+                core::any::type_name::<C>()
+            );
         };
         let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
         let receiver = settings.into();
         self.add_receiver::<C>(receiver, channel_id);
     }
 
-
-    pub fn send_with_priority<C: Channel>(&self, bytes: SendPayload, priority: f32) -> Result<(), TransportError> {
+    pub fn send_with_priority<C: Channel>(
+        &self,
+        bytes: SendPayload,
+        priority: f32,
+    ) -> Result<(), TransportError> {
         self.send_erased(ChannelKind::of::<C>(), bytes, priority)
     }
 
@@ -168,21 +186,41 @@ impl Transport {
         self.send_with_priority::<C>(bytes, 1.0)
     }
 
-    pub fn send_erased(&self, kind: ChannelKind, bytes: SendPayload, priority: f32) -> Result<(), TransportError> {
+    pub fn send_erased(
+        &self,
+        kind: ChannelKind,
+        bytes: SendPayload,
+        priority: f32,
+    ) -> Result<(), TransportError> {
         self.send_channel.try_send((kind, bytes, priority))?;
         Ok(())
     }
 
-    pub fn send_mut<C: Channel>(&mut self, bytes: SendPayload) -> Result<Option<MessageId>, TransportError> {
+    pub fn send_mut<C: Channel>(
+        &mut self,
+        bytes: SendPayload,
+    ) -> Result<Option<MessageId>, TransportError> {
         self.send_mut_with_priority::<C>(bytes, 1.0)
     }
 
-    pub fn send_mut_with_priority<C: Channel>(&mut self, bytes: SendPayload, priority: f32) -> Result<Option<MessageId>, TransportError> {
+    pub fn send_mut_with_priority<C: Channel>(
+        &mut self,
+        bytes: SendPayload,
+        priority: f32,
+    ) -> Result<Option<MessageId>, TransportError> {
         self.send_mut_erased(ChannelKind::of::<C>(), bytes, priority)
     }
 
-    pub fn send_mut_erased(&mut self, kind: ChannelKind, bytes: SendPayload, priority: f32) -> Result<Option<MessageId>, TransportError> {
-        let sender_metadata = self.senders.get_mut(&kind).ok_or(TransportError::ChannelNotFound(kind))?;
+    pub fn send_mut_erased(
+        &mut self,
+        kind: ChannelKind,
+        bytes: SendPayload,
+        priority: f32,
+    ) -> Result<Option<MessageId>, TransportError> {
+        let sender_metadata = self
+            .senders
+            .get_mut(&kind)
+            .ok_or(TransportError::ChannelNotFound(kind))?;
         let message_id = sender_metadata.sender.buffer_send(bytes, priority);
         Ok(message_id)
     }
@@ -193,7 +231,7 @@ impl Transport {
             let settings = registry.settings_from_net_id(*channel_id).unwrap();
             *r = ReceiverMetadata {
                 receiver: settings.into(),
-                channel_kind: r.channel_kind
+                channel_kind: r.channel_kind,
             };
         });
         self.senders.iter_mut().for_each(|(channel_kind, s)| {
@@ -205,7 +243,7 @@ impl Transport {
                 messages_sent: vec![],
                 channel_id: s.channel_id,
                 mode: s.mode,
-                name: s.name
+                name: s.name,
             };
         });
         self.priority_manager = Default::default();
@@ -219,12 +257,10 @@ impl Transport {
     }
 }
 
-
 pub struct ReceiverMetadata {
     pub receiver: ChannelReceiverEnum,
     pub channel_kind: ChannelKind,
 }
-
 
 #[doc(hidden)]
 pub struct SenderMetadata {
@@ -242,8 +278,6 @@ pub struct SenderMetadata {
     pub(crate) mode: ChannelMode,
     pub(crate) name: &'static str,
 }
-
-
 
 // fn on_add<C: Channel>(mut world: DeferredWorld, context: HookContext) {
 //     let entity = context.entity;
@@ -292,7 +326,6 @@ pub struct SenderMetadata {
 //     transport.receivers.insert(channel_id, receiver);
 // }
 
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// ChannelMode specifies how messages are sent and received
 /// See more information [here](http://www.jenkinssoftware.com/raknet/manual/reliabilitytypes.html)
@@ -339,8 +372,6 @@ impl ChannelMode {
     }
 }
 
-
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReliableSettings {
     /// Multiplier of the current RTT estimate, used for delay to wait before resending a packet if it has not been acked.
@@ -364,7 +395,6 @@ impl ReliableSettings {
         core::cmp::max(delay, self.rtt_resend_min_delay)
     }
 }
-
 
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
 pub struct InputChannel;

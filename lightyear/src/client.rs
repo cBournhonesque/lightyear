@@ -21,16 +21,15 @@ pub struct ClientPlugins {
     pub tick_duration: Duration,
 }
 
-
 impl PluginGroup for ClientPlugins {
     #[allow(clippy::let_and_return)]
     fn build(self) -> PluginGroupBuilder {
         let builder = PluginGroupBuilder::start::<Self>();
         let builder = builder.add(lightyear_sync::client::ClientPlugin);
         let builder = builder.add_group(SharedPlugins {
-            tick_duration: self.tick_duration
+            tick_duration: self.tick_duration,
         });
-        
+
         // IO
         #[cfg(feature = "webtransport")]
         let builder = builder.add(lightyear_webtransport::client::WebTransportClientPlugin);

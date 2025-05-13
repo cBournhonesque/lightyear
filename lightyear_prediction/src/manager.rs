@@ -13,8 +13,8 @@ use lightyear_core::prelude::{RollbackState, Tick};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::timeline::SyncEvent;
 use lightyear_replication::receive::TempWriteBuffer;
-use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_replication::registry::ComponentError;
+use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_serde::entity_map::EntityMap;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_utils::ready_buffer::ReadyBuffer;
@@ -103,7 +103,6 @@ unsafe impl Send for PredictionManager {}
 unsafe impl Sync for PredictionManager {}
 
 impl PredictionManager {
-
     /// Call MapEntities on the given component.
     ///
     /// Using this function only requires `&self` instead of `&mut self` (on the MapEntities trait), which is useful for parallelism
@@ -134,7 +133,6 @@ impl PredictionManager {
             RollbackState::Default => None,
         }
     }
-
 
     /// Set the rollback state back to non-rollback
     pub fn set_non_rollback(&self) {

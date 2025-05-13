@@ -15,8 +15,6 @@ pub const PLAYER_SIZE: f32 = 40.0;
 // will always be consistent (= on the same tick)
 pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
-
-
 #[derive(Bundle)]
 pub(crate) struct PhysicsBundle {
     pub(crate) collider: Collider,
@@ -46,14 +44,11 @@ impl PhysicsBundle {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerId(pub PeerId);
 
-
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct ColorComponent(pub(crate) Color);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
-
-
 
 // Inputs
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
@@ -64,17 +59,15 @@ pub enum PlayerActions {
     Right,
 }
 
-
 // Protocol
 #[derive(Clone)]
 pub(crate) struct ProtocolPlugin;
-
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // inputs
         app.add_plugins(leafwing::InputPlugin::<PlayerActions>::default());
-        
+
         // components
         app.register_component::<PlayerId>()
             .add_prediction(PredictionMode::Once)

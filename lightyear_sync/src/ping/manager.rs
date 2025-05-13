@@ -82,7 +82,6 @@ impl Default for PingManager {
 }
 
 impl PingManager {
-
     pub(crate) fn reset(&mut self) {
         self.ping_timer.reset();
         self.ping_store.reset();
@@ -152,8 +151,9 @@ impl PingManager {
         self.ping_timer.tick(time.delta());
 
         // clear stats that are older than a threshold, such as 2 seconds
-        let Some(oldest_time) = Instant::now().checked_sub(self.config.stats_buffer_duration) else {
-            return
+        let Some(oldest_time) = Instant::now().checked_sub(self.config.stats_buffer_duration)
+        else {
+            return;
         };
         let old_len = self.sync_stats.len();
         self.sync_stats.pop_until(&oldest_time);
@@ -292,10 +292,13 @@ impl PingManager {
     /// However we cannot send it immediately because we send packets at a regular interval
     /// Keep track of the pongs we need to send
     pub(crate) fn buffer_pending_pong(&mut self, ping: &Ping, now: Instant) {
-        self.pongs_to_send.push((Pong {
-            ping_id: ping.id,
-            frame_time: Default::default(),
-        }, now))
+        self.pongs_to_send.push((
+            Pong {
+                ping_id: ping.id,
+                frame_time: Default::default(),
+            },
+            now,
+        ))
     }
     pub(crate) fn take_pending_pongs(&mut self) -> Vec<(Pong, Instant)> {
         core::mem::take(&mut self.pongs_to_send)

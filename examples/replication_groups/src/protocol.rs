@@ -1,7 +1,10 @@
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::math::Curve;
-use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Ease, Entity, EntityMapper, FunctionCurve, Interval, Reflect, Vec2};
+use bevy::prelude::{
+    default, Bundle, Color, Component, Deref, DerefMut, Ease, Entity, EntityMapper, FunctionCurve,
+    Interval, Reflect, Vec2,
+};
 use core::ops::{Add, Mul};
 use lightyear::input::native::plugin::InputPlugin;
 use lightyear::prelude::*;
@@ -9,18 +12,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use tracing::{debug, info, trace};
 
-
 // Components
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerId(pub PeerId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Deref, DerefMut, Reflect)]
+#[derive(
+    Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Deref, DerefMut, Reflect,
+)]
 pub struct PlayerPosition(pub(crate) Vec2);
 
 impl Ease for PlayerPosition {
     fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
-        FunctionCurve::new(Interval::UNIT, move |t| PlayerPosition(Vec2::lerp(start.0, end.0, t)))
+        FunctionCurve::new(Interval::UNIT, move |t| {
+            PlayerPosition(Vec2::lerp(start.0, end.0, t))
+        })
     }
 }
 

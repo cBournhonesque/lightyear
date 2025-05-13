@@ -16,28 +16,30 @@ type HS<K> = HashSet<K, FixedHasher>;
 pub type NetworkTarget = Target<PeerId>;
 pub type EntityTarget = Target<Entity>;
 
-
 impl NetworkTarget {
     /// Calls func on each client entity that matches the provided `target`
     pub fn apply_targets(
         &self,
-        clients: impl Iterator<Item=Entity>,
+        clients: impl Iterator<Item = Entity>,
         mapping: &HashMap<PeerId, Entity>,
-        func: &mut impl FnMut(Entity)
+        func: &mut impl FnMut(Entity),
     ) {
         match self {
             NetworkTarget::All => clients.into_iter().for_each(|e| func(e)),
             NetworkTarget::AllExceptSingle(client_id) => {
                 let except_entity = mapping.get(client_id).unwrap_or(&Entity::PLACEHOLDER);
-                clients.into_iter()
+                clients
+                    .into_iter()
                     .filter(|e| e != except_entity)
                     .for_each(|e| func(e))
             }
             NetworkTarget::AllExcept(client_ids) => {
-                let entity_ids = client_ids.iter()
+                let entity_ids = client_ids
+                    .iter()
                     .map(|p| *mapping.get(p).unwrap_or(&Entity::PLACEHOLDER))
                     .collect::<SmallVec<[Entity; 4]>>();
-                clients.into_iter()
+                clients
+                    .into_iter()
                     .filter(|e| !entity_ids.contains(e))
                     .for_each(|e| func(e))
             }
@@ -46,21 +48,21 @@ impl NetworkTarget {
                 if let Some(e) = clients.into_iter().find(|e| e == entity) {
                     func(e)
                 }
-            },
+            }
             NetworkTarget::Only(client_ids) => {
-                let entity_ids = client_ids.iter()
+                let entity_ids = client_ids
+                    .iter()
                     .map(|p| *mapping.get(p).unwrap_or(&Entity::PLACEHOLDER))
                     .collect::<SmallVec<[Entity; 4]>>();
-                clients.into_iter()
+                clients
+                    .into_iter()
                     .filter(|e| entity_ids.contains(e))
                     .for_each(|e| func(e))
             }
             NetworkTarget::None => {}
         }
     }
-        
 }
-
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Reflect)]
 /// Target indicated which clients should receive some message
@@ -132,12 +134,8 @@ impl ToBytes for Target<PeerId> {
     {
         match buffer.read_u8()? {
             0 => Ok(Target::None),
-            1 => Ok(Target::AllExceptSingle(PeerId::from_bytes(
-                buffer,
-            )?)),
-            2 => Ok(Target::AllExcept(Vec::<PeerId>::from_bytes(
-                buffer,
-            )?)),
+            1 => Ok(Target::AllExceptSingle(PeerId::from_bytes(buffer)?)),
+            2 => Ok(Target::AllExcept(Vec::<PeerId>::from_bytes(buffer)?)),
             3 => Ok(Target::All),
             4 => Ok(Target::Only(Vec::<PeerId>::from_bytes(buffer)?)),
             5 => Ok(Target::Single(PeerId::from_bytes(buffer)?)),
@@ -147,13 +145,13 @@ impl ToBytes for Target<PeerId> {
 }
 
 impl<T: PartialEq + Eq + Hash + Clone + Copy> Extend<T> for Target<T> {
-    fn extend<I: IntoIterator<Item=T>>(&mut self, iter: I) {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         self.union(&iter.into_iter().collect::<Target<T>>());
     }
 }
 
 impl<T> FromIterator<T> for Target<T> {
-    fn from_iter<I: IntoIterator<Item=T>>(iter: I) -> Self {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let clients: Vec<T> = iter.into_iter().collect();
         Target::from(clients)
     }
@@ -179,7 +177,7 @@ impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
         }
     }
 
-    pub fn from_exclude(client_ids: impl IntoIterator<Item=T>) -> Self {
+    pub fn from_exclude(client_ids: impl IntoIterator<Item = T>) -> Self {
         let mut client_ids = client_ids.into_iter().collect::<Vec<_>>();
         match client_ids.len() {
             0 => Target::All,

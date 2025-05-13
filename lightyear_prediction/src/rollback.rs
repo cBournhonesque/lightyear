@@ -8,7 +8,7 @@ use crate::correction::Correction;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
 use crate::manager::PredictionManager;
-use crate::plugin::{is_in_rollback, PredictionSet};
+use crate::plugin::{PredictionSet, is_in_rollback};
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
 use bevy::app::FixedMain;
@@ -51,11 +51,11 @@ impl Plugin for RollbackPlugin {
                 builder.data::<&Confirmed>();
                 builder.optional(|b| {
                     // include access to &C for all PredictionMode=Full components
-                    prediction_registry.prediction_map
+                    prediction_registry
+                        .prediction_map
                         .iter()
                         .filter(|(_, m)| m.sync_mode == PredictionMode::Full)
                         .map(|(kind, _)| component_registry.kind_to_component_id[kind])
-
                         .for_each(|id| {
                             b.ref_id(id);
                         });
@@ -70,7 +70,8 @@ impl Plugin for RollbackPlugin {
                     // but we keep them around for rollback check)
                     b.data::<&PredictionDisable>();
                     // include access to &mut PredictionHistory<C> for all PredictionMode=Full components
-                    prediction_registry.prediction_map
+                    prediction_registry
+                        .prediction_map
                         .values()
                         .filter(|m| m.sync_mode == PredictionMode::Full)
                         .for_each(|m| {
@@ -104,7 +105,6 @@ impl Plugin for RollbackPlugin {
 ///   past value from the PredictionHistory instead of the confirmed value
 pub struct DisableRollback;
 
-
 /// Check if we need to do a rollback.
 /// We do this separately from `prepare_rollback` because even we stop the `check_rollback` function
 /// early as soon as we find a mismatch, but we need to rollback all components to the original state.
@@ -114,7 +114,12 @@ fn check_rollback(
     // we want Query<&mut PredictionHistory<C>, With<Predicted>>
     // make sure to include disabled entities
     mut predicted_entities: Query<FilteredEntityMut>,
-    receiver_query: Single<(Entity, &ReplicationReceiver, &PredictionManager, &LocalTimeline)>,
+    receiver_query: Single<(
+        Entity,
+        &ReplicationReceiver,
+        &PredictionManager,
+        &LocalTimeline,
+    )>,
     prediction_registry: Res<PredictionRegistry>,
     component_registry: Res<ComponentRegistry>,
     system_ticks: SystemChangeTick,
@@ -125,11 +130,12 @@ fn check_rollback(
     // TODO: maybe have a sparse-set component with ConfirmedUpdated to quickly query only through predicted entities
     //  that received a confirmed update? Would the iteration even be faster? since entities with or without sparse-set
     //  would still be in the same table
-    let (manager_entity, replication_receiver, prediction_manager, local_timeline) = receiver_query.into_inner();
+    let (manager_entity, replication_receiver, prediction_manager, local_timeline) =
+        receiver_query.into_inner();
     let tick = local_timeline.tick();
     // no need to check for rollback if we didn't receive any packet
     if !replication_receiver.has_received_this_frame() {
-            return;
+        return;
     }
     predicted_entities.par_iter_mut().for_each(|mut predicted_mut| {
         let Some(confirmed) = predicted_mut.get::<Predicted>().and_then(|p| p.confirmed_entity) else {
@@ -430,7 +436,11 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
         match predicted_history.pop_until_tick(rollback_tick) {
             None | Some(HistoryState::Removed) => {
                 if predicted_component.is_some() {
-                    debug!(?prespawned_entity, ?kind, "Component for prespawned entity didn't exist at time of rollback, removing it");
+                    debug!(
+                        ?prespawned_entity,
+                        ?kind,
+                        "Component for prespawned entity didn't exist at time of rollback, removing it"
+                    );
                     // the component didn't exist at the time, remove it!
                     commands.entity(prespawned_entity).remove::<C>();
                 }
@@ -484,7 +494,9 @@ pub(crate) fn prepare_rollback_non_networked<
     let _span = trace_span!("client prepare rollback for non networked component", ?kind);
 
     let Some(rollback_tick) = prediction_manager.get_rollback_start_tick() else {
-        error!("prepare_rollback_non_networked_components should only be called when we are in rollback");
+        error!(
+            "prepare_rollback_non_networked_components should only be called when we are in rollback"
+        );
         return;
     };
 
@@ -495,7 +507,11 @@ pub(crate) fn prepare_rollback_non_networked<
         match history.pop_until_tick(rollback_tick) {
             None | Some(HistoryState::Removed) => {
                 if component.is_some() {
-                    debug!(?entity, ?kind, "Non-networked component for predicted entity didn't exist at time of rollback, removing it");
+                    debug!(
+                        ?entity,
+                        ?kind,
+                        "Non-networked component for predicted entity didn't exist at time of rollback, removing it"
+                    );
                     // the component didn't exist at the time, remove it!
                     commands.entity(entity).remove::<C>();
                 }
@@ -591,8 +607,11 @@ fn rollback_fixed_time(current_fixed_time: &Time<Fixed>, num_rollback_ticks: i16
     // the rollback.
     let rollback_time_offset = (num_rollback_ticks - 1) as u32 * rollback_fixed_time.timestep();
 
-    let rollback_elapsed_time = current_fixed_time.elapsed().saturating_sub(rollback_time_offset);
-    rollback_fixed_time.advance_to(rollback_elapsed_time.saturating_sub(rollback_fixed_time.timestep()));
+    let rollback_elapsed_time = current_fixed_time
+        .elapsed()
+        .saturating_sub(rollback_time_offset);
+    rollback_fixed_time
+        .advance_to(rollback_elapsed_time.saturating_sub(rollback_fixed_time.timestep()));
     // Time<Fixed>::delta is set to the value provided in `advance_by` (or
     // `advance_to`), so we want to call
     // `advance_by(rollback_fixed_time.timestep())` at the end to set the delta
@@ -603,7 +622,10 @@ fn rollback_fixed_time(current_fixed_time: &Time<Fixed>, num_rollback_ticks: i16
 }
 
 pub(crate) fn run_rollback(world: &mut World) {
-    let (entity, mut local_timeline, prediction_manager) = world.query::<(Entity, &mut LocalTimeline, &PredictionManager)>().single_mut(world).unwrap();
+    let (entity, mut local_timeline, prediction_manager) = world
+        .query::<(Entity, &mut LocalTimeline, &PredictionManager)>()
+        .single_mut(world)
+        .unwrap();
 
     // NOTE: all predicted entities should be on the same tick!
     // TODO: might not need to check the state, because we only run this system if we are in rollback
@@ -616,7 +638,10 @@ pub(crate) fn run_rollback(world: &mut World) {
     let num_rollback_ticks = current_tick - rollback_start_tick;
     // reset the local timeline to be at the end of rollback_start_tick and we want to reach the end of current_tick
     local_timeline.apply_delta((-num_rollback_ticks).into());
-    debug!("Rollback between {:?} and {:?}", rollback_start_tick, current_tick);
+    debug!(
+        "Rollback between {:?} and {:?}",
+        rollback_start_tick, current_tick
+    );
     #[cfg(feature = "metrics")]
     {
         metrics::counter!("prediction::rollbacks::count").increment(1);
@@ -675,7 +700,10 @@ pub(crate) fn run_rollback(world: &mut World) {
     metrics.rollback_ticks += num_rollback_ticks as u32;
 
     // revert the state of Rollback for the next frame
-    let prediction_manager = world.query::<&mut PredictionManager>().single_mut(world).unwrap();
+    let prediction_manager = world
+        .query::<&mut PredictionManager>()
+        .single_mut(world)
+        .unwrap();
     prediction_manager.set_non_rollback();
     world.entity_mut(entity).remove::<Rollback>();
 }
@@ -685,7 +713,6 @@ pub(crate) fn no_rollback() {
     metrics::gauge!("prediction::rollbacks::event").set(0);
     metrics::gauge!("prediction::rollbacks::ticks").set(0);
 }
-
 
 #[cfg(test)]
 pub(crate) mod test_utils {
@@ -1199,11 +1226,13 @@ mod unit_tests {
         }
 
         // check that the networked component got removed on predicted
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<PredictionModeFull>(predicted)
-            .is_none());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<PredictionModeFull>(predicted)
+                .is_none()
+        );
         // also remove the non-networked component
         stepper
             .client_app
@@ -1282,17 +1311,21 @@ mod unit_tests {
 
         // check that rollback happened:
         // the registered component got removed from predicted since it was not present on confirmed
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<PredictionModeFull>(predicted)
-            .is_none());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<PredictionModeFull>(predicted)
+                .is_none()
+        );
         // the non-networked component got removed from predicted as it wasn't present in the history
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<ComponentRollback>(predicted)
-            .is_none());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<ComponentRollback>(predicted)
+                .is_none()
+        );
     }
 
     /// Test that:
@@ -1337,11 +1370,13 @@ mod unit_tests {
 
         // check that rollback happened
         // predicted got the component removed
-        assert!(stepper
-            .client_app
-            .world_mut()
-            .get_mut::<PredictionModeFull>(predicted)
-            .is_none());
+        assert!(
+            stepper
+                .client_app
+                .world_mut()
+                .get_mut::<PredictionModeFull>(predicted)
+                .is_none()
+        );
     }
 
     /// Test that:
@@ -1352,11 +1387,13 @@ mod unit_tests {
         let (mut stepper, confirmed, predicted) = setup(true);
 
         // check that predicted does not have the component
-        assert!(stepper
-            .client_app
-            .world_mut()
-            .get_mut::<PredictionModeFull>(predicted)
-            .is_none());
+        assert!(
+            stepper
+                .client_app
+                .world_mut()
+                .get_mut::<PredictionModeFull>(predicted)
+                .is_none()
+        );
 
         // create a rollback situation (confirmed doesn't have a component that predicted has)
         stepper

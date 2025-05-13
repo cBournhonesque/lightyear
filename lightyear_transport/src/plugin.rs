@@ -41,7 +41,6 @@ pub struct PacketReceived {
 pub struct TransportPlugin;
 
 impl TransportPlugin {
-
     /// Receives packets from the [`Link`],
     /// Depending on the [`ChannelId`], buffer the messages in the packet
     /// in the appropriate [`ChannelReceiver`]
@@ -50,108 +49,148 @@ impl TransportPlugin {
         par_commands: ParallelCommands,
         mut query: Query<(Entity, &mut Link, &mut Transport), With<Linked>>,
     ) {
-        query.par_iter_mut().for_each(|(entity, mut link, mut transport)| {
-            // enable split borrows
-            let mut transport = &mut *transport;
-            // update with the latest time
-            transport.senders.values_mut().for_each(|sender_metadata| {
-                sender_metadata.sender.update(&time, &link.stats);
-                sender_metadata.message_acks.clear();
-                sender_metadata.message_nacks.clear();
-                sender_metadata.messages_sent.clear();
-            });
-            transport.receivers.values_mut().for_each(|receiver_metadata| {
-                receiver_metadata.receiver.update(time.elapsed());
-            });
-            // check which packets were lost
-            transport.packet_manager.header_manager.update(time.delta(), &link.stats);
-            transport.packet_manager.header_manager.lost_packets.drain(..).try_for_each(|lost_packet| {
-                if let Some(message_map) = transport.packet_to_message_ack_map.remove(&lost_packet) {
-                    for (channel_kind, message_ack) in message_map {
-                        let sender_metadata = transport.senders.get_mut(&channel_kind).ok_or(PacketError::ChannelNotFound)?;
-                        // TODO: batch the messages?
-                        trace!(
-                            ?lost_packet,
-                            ?channel_kind,
-                            "message lost: {:?}",
-                            message_ack.message_id
-                        );
-                        sender_metadata.message_nacks.push(message_ack.message_id);
-                    }
-                }
-                Ok::<(), TransportError>(())
-            });
-
-            link.recv.drain().try_for_each(|packet| {
-                let mut cursor = Reader::from(packet);
-
-                // Parse the packet
-                let header = PacketHeader::from_bytes(&mut cursor)?;
-                let tick = header.tick;
-
-                // TODO: maybe switch to event buffer instead of triggers?
-                par_commands.command_scope(|mut commands| {
-                    commands.trigger_targets(PacketReceived { remote_tick: tick }, entity);
+        query
+            .par_iter_mut()
+            .for_each(|(entity, mut link, mut transport)| {
+                // enable split borrows
+                let mut transport = &mut *transport;
+                // update with the latest time
+                transport.senders.values_mut().for_each(|sender_metadata| {
+                    sender_metadata.sender.update(&time, &link.stats);
+                    sender_metadata.message_acks.clear();
+                    sender_metadata.message_nacks.clear();
+                    sender_metadata.messages_sent.clear();
                 });
-
-                // Update the packet acks
+                transport
+                    .receivers
+                    .values_mut()
+                    .for_each(|receiver_metadata| {
+                        receiver_metadata.receiver.update(time.elapsed());
+                    });
+                // check which packets were lost
                 transport
                     .packet_manager
                     .header_manager
-                    .process_recv_packet_header(&header);
+                    .update(time.delta(), &link.stats);
+                transport
+                    .packet_manager
+                    .header_manager
+                    .lost_packets
+                    .drain(..)
+                    .try_for_each(|lost_packet| {
+                        if let Some(message_map) =
+                            transport.packet_to_message_ack_map.remove(&lost_packet)
+                        {
+                            for (channel_kind, message_ack) in message_map {
+                                let sender_metadata = transport
+                                    .senders
+                                    .get_mut(&channel_kind)
+                                    .ok_or(PacketError::ChannelNotFound)?;
+                                // TODO: batch the messages?
+                                trace!(
+                                    ?lost_packet,
+                                    ?channel_kind,
+                                    "message lost: {:?}",
+                                    message_ack.message_id
+                                );
+                                sender_metadata.message_nacks.push(message_ack.message_id);
+                            }
+                        }
+                        Ok::<(), TransportError>(())
+                    });
 
-                // Parse the payload into messages, put them in the internal buffers for each channel
-                // we read directly from the packet and don't create intermediary datastructures to avoid allocations
-                // TODO: maybe do this in a helper function?
-                if header.get_packet_type() == crate::packet::packet_type::PacketType::DataFragment {
-                    // read the fragment data
-                    let channel_id = ChannelId::from_bytes(&mut cursor)?;
-                    let fragment_data = FragmentData::from_bytes(&mut cursor)?;
-                    transport.receivers.get_mut(&channel_id).ok_or(PacketError::ChannelNotFound)?
-                        .receiver
-                        .buffer_recv(ReceiveMessage {
-                            data: fragment_data.into(),
-                            remote_sent_tick: tick,
-                        })?;
-                }
-                // read single message data
-                while cursor.has_remaining() {
-                    let channel_id = ChannelId::from_bytes(&mut cursor)?;
-                    let num_messages = cursor.read_u8().map_err(SerializationError::from)?;
-                    trace!(?channel_id, ?num_messages);
-                    for _ in 0..num_messages {
-                        let single_data = SingleData::from_bytes(&mut cursor)?;
-                        transport.receivers.get_mut(&channel_id).ok_or(PacketError::ChannelNotFound)?
-                            .receiver
-                            .buffer_recv(ReceiveMessage {
-                                data: single_data.into(),
-                                remote_sent_tick: tick,
-                            })?;
-                    }
-                }
-                Ok::<(), TransportError>(())
-            }).inspect_err(|e| {
-                error!("Error processing packet: {e:?}");
-            }).ok();
+                link.recv
+                    .drain()
+                    .try_for_each(|packet| {
+                        let mut cursor = Reader::from(packet);
 
-            // Update the list of messages that have been acked
-            transport.packet_manager.header_manager.newly_acked_packets.drain(..).try_for_each(|acked_packet| {
-                trace!("Acked packet {:?}", acked_packet);
-                if let Some(message_acks) = transport.packet_to_message_ack_map.remove(&acked_packet) {
-                    for (channel_kind, message_ack) in message_acks {
-                        let sender_metadata = transport.senders.get_mut(&channel_kind).ok_or(PacketError::ChannelNotFound)?;
-                        trace!(
-                            "Acked message in packet: channel={:?},message_ack={:?}",
-                            sender_metadata.name,
-                            message_ack
-                        );
-                        sender_metadata.message_acks.push(message_ack.message_id);
-                        sender_metadata.sender.receive_ack(&message_ack);
-                    }
-                }
-                Ok::<(), TransportError>(())
-            });
-        })
+                        // Parse the packet
+                        let header = PacketHeader::from_bytes(&mut cursor)?;
+                        let tick = header.tick;
+
+                        // TODO: maybe switch to event buffer instead of triggers?
+                        par_commands.command_scope(|mut commands| {
+                            commands.trigger_targets(PacketReceived { remote_tick: tick }, entity);
+                        });
+
+                        // Update the packet acks
+                        transport
+                            .packet_manager
+                            .header_manager
+                            .process_recv_packet_header(&header);
+
+                        // Parse the payload into messages, put them in the internal buffers for each channel
+                        // we read directly from the packet and don't create intermediary datastructures to avoid allocations
+                        // TODO: maybe do this in a helper function?
+                        if header.get_packet_type()
+                            == crate::packet::packet_type::PacketType::DataFragment
+                        {
+                            // read the fragment data
+                            let channel_id = ChannelId::from_bytes(&mut cursor)?;
+                            let fragment_data = FragmentData::from_bytes(&mut cursor)?;
+                            transport
+                                .receivers
+                                .get_mut(&channel_id)
+                                .ok_or(PacketError::ChannelNotFound)?
+                                .receiver
+                                .buffer_recv(ReceiveMessage {
+                                    data: fragment_data.into(),
+                                    remote_sent_tick: tick,
+                                })?;
+                        }
+                        // read single message data
+                        while cursor.has_remaining() {
+                            let channel_id = ChannelId::from_bytes(&mut cursor)?;
+                            let num_messages =
+                                cursor.read_u8().map_err(SerializationError::from)?;
+                            trace!(?channel_id, ?num_messages);
+                            for _ in 0..num_messages {
+                                let single_data = SingleData::from_bytes(&mut cursor)?;
+                                transport
+                                    .receivers
+                                    .get_mut(&channel_id)
+                                    .ok_or(PacketError::ChannelNotFound)?
+                                    .receiver
+                                    .buffer_recv(ReceiveMessage {
+                                        data: single_data.into(),
+                                        remote_sent_tick: tick,
+                                    })?;
+                            }
+                        }
+                        Ok::<(), TransportError>(())
+                    })
+                    .inspect_err(|e| {
+                        error!("Error processing packet: {e:?}");
+                    })
+                    .ok();
+
+                // Update the list of messages that have been acked
+                transport
+                    .packet_manager
+                    .header_manager
+                    .newly_acked_packets
+                    .drain(..)
+                    .try_for_each(|acked_packet| {
+                        trace!("Acked packet {:?}", acked_packet);
+                        if let Some(message_acks) =
+                            transport.packet_to_message_ack_map.remove(&acked_packet)
+                        {
+                            for (channel_kind, message_ack) in message_acks {
+                                let sender_metadata = transport
+                                    .senders
+                                    .get_mut(&channel_kind)
+                                    .ok_or(PacketError::ChannelNotFound)?;
+                                trace!(
+                                    "Acked message in packet: channel={:?},message_ack={:?}",
+                                    sender_metadata.name, message_ack
+                                );
+                                sender_metadata.message_acks.push(message_ack.message_id);
+                                sender_metadata.sender.receive_ack(&message_ack);
+                            }
+                        }
+                        Ok::<(), TransportError>(())
+                    });
+            })
     }
 
     // TODO: users will mostly interact only via the lightyear_message
@@ -270,7 +309,6 @@ impl TransportPlugin {
     }
 }
 
-
 impl Plugin for TransportPlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<LinkPlugin>() {
@@ -286,15 +324,15 @@ impl Plugin for TransportPlugin {
         }
         app.configure_sets(PreUpdate, TransportSet::Receive.after(LinkSet::Receive));
         app.configure_sets(PostUpdate, TransportSet::Send.before(LinkSet::Send));
-        app.add_systems(PreUpdate, Self::buffer_receive.in_set(TransportSet::Receive));
+        app.add_systems(
+            PreUpdate,
+            Self::buffer_receive.in_set(TransportSet::Receive),
+        );
         app.add_systems(PostUpdate, Self::buffer_send.in_set(TransportSet::Send));
     }
 }
 
-
-
-
-#[cfg(any(test, feature="test_utils"))]
+#[cfg(any(test, feature = "test_utils"))]
 pub mod tests {
     use super::*;
     use crate::channel::registry::{AppChannelExt, ChannelKind};
@@ -337,14 +375,37 @@ pub mod tests {
 
         // send bytes
         let send_bytes = Bytes::from(vec![1, 2, 3]);
-        entity_mut.get::<Transport>().unwrap().send::<C>(send_bytes.clone());
+        entity_mut
+            .get::<Transport>()
+            .unwrap()
+            .send::<C>(send_bytes.clone());
         app.update();
         // check that the send-payload was added to the link
-        assert_eq!(&app.world_mut().entity(entity).get::<Link>().unwrap().send.len(), &1);
+        assert_eq!(
+            &app.world_mut()
+                .entity(entity)
+                .get::<Link>()
+                .unwrap()
+                .send
+                .len(),
+            &1
+        );
 
         // transfer that payload to the recv side of the link
-        let payload = app.world_mut().entity_mut(entity).get_mut::<Link>().unwrap().send.pop().unwrap();
-        app.world_mut().entity_mut(entity).get_mut::<Link>().unwrap().recv.push_raw(payload);
+        let payload = app
+            .world_mut()
+            .entity_mut(entity)
+            .get_mut::<Link>()
+            .unwrap()
+            .send
+            .pop()
+            .unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<Link>()
+            .unwrap()
+            .recv
+            .push_raw(payload);
 
         app.update();
         // check that the bytes are received in the channel
@@ -361,5 +422,4 @@ pub mod tests {
             .expect("expected to receive message");
         assert_eq!(recv_bytes, send_bytes);
     }
-
 }

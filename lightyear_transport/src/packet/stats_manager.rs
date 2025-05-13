@@ -79,8 +79,7 @@ pub(crate) mod packet {
             // add the current stats to the rolling stats
             let current_stats = core::mem::take(&mut self.current_stats);
             self.rolling_stats += current_stats;
-            self.stats_buffer
-                .push(real, current_stats);
+            self.stats_buffer.push(real, current_stats);
 
             // compute stats
             self.compute_stats();

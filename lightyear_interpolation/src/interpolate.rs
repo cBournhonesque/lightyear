@@ -1,7 +1,7 @@
+use crate::SyncComponent;
 use crate::interpolation_history::ConfirmedHistory;
 use crate::registry::InterpolationRegistry;
 use crate::timeline::InterpolationTimeline;
-use crate::SyncComponent;
 use bevy::ecs::component::Mutable;
 use bevy::prelude::*;
 use core::time::Duration;
@@ -68,7 +68,10 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
     let timeline = interpolation.into_inner();
 
     // how many ticks between each interpolation
-    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR * timeline.remote_send_interval.as_secs_f32() / tick_duration.as_secs_f32()).ceil() as i16;
+    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
+        * timeline.remote_send_interval.as_secs_f32()
+        / tick_duration.as_secs_f32())
+    .ceil() as i16;
 
     let current_interpolate_tick = timeline.now().tick;
     let current_interpolate_overstep = timeline.now().overstep;
@@ -135,8 +138,12 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
                 if current_interpolate_tick - start_tick < send_interval_delta_tick {
                     start = temp_start;
                 } else {
-                    trace!(?current_interpolate_tick, ?start_tick, ?send_interval_delta_tick,
-                        "Reset the start_tick because it's been too long since we received an update");
+                    trace!(
+                        ?current_interpolate_tick,
+                        ?start_tick,
+                        ?send_interval_delta_tick,
+                        "Reset the start_tick because it's been too long since we received an update"
+                    );
                 }
                 // else (if it's been too long), reset the server tick to None
             }
@@ -186,7 +193,10 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent>(
     let tick = local_timeline.tick();
     // how many ticks between each interpolation update (add 1 to roughly take the ceil)
     // TODO: use something more precise, with the interpolation overstep?
-    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR * interpolation_timeline.remote_send_interval.as_secs_f32() / tick_duration.as_secs_f32()) as i16 + 1;
+    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
+        * interpolation_timeline.remote_send_interval.as_secs_f32()
+        / tick_duration.as_secs_f32()) as i16
+        + 1;
     for (entity, status) in query.iter_mut() {
         trace!("checking if we need to insert the component on the Interpolated entity");
         let mut entity_commands = commands.entity(entity);
@@ -194,20 +204,24 @@ pub(crate) fn insert_interpolated_component<C: SyncComponent>(
         if let Some((start_tick, start_value)) = &status.start {
             trace!(is_end = ?status.end.is_some(), "start tick exists, checking if we need to insert the component");
             // we have two updates!, add the component
-            match &status.end { Some((end_tick, end_value)) => {
-                assert!(status.current_tick < *end_tick);
-                assert_ne!(start_tick, end_tick);
-                trace!("insert interpolated comp value because we have 2 updates");
-                let t = status.interpolation_fraction().unwrap();
-                let value = component_registry.interpolate(start_value.clone(), end_value.clone(), t);
-                entity_commands.insert(value.clone());
-            } _ => {
-                // we only have one update, but enough time has passed that we should add the component anyway
-                if tick - *start_tick >= send_interval_delta_tick {
-                    trace!("insert interpolated comp value because enough time has passed");
-                    entity_commands.insert(start_value.clone());
+            match &status.end {
+                Some((end_tick, end_value)) => {
+                    assert!(status.current_tick < *end_tick);
+                    assert_ne!(start_tick, end_tick);
+                    trace!("insert interpolated comp value because we have 2 updates");
+                    let t = status.interpolation_fraction().unwrap();
+                    let value =
+                        component_registry.interpolate(start_value.clone(), end_value.clone(), t);
+                    entity_commands.insert(value.clone());
                 }
-            }}
+                _ => {
+                    // we only have one update, but enough time has passed that we should add the component anyway
+                    if tick - *start_tick >= send_interval_delta_tick {
+                        trace!("insert interpolated comp value because enough time has passed");
+                        entity_commands.insert(start_value.clone());
+                    }
+                }
+            }
         }
     }
 }
@@ -225,7 +239,8 @@ pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
                 assert!(status.current_tick < *end_tick);
                 if start_tick != end_tick {
                     let t = status.interpolation_fraction().unwrap();
-                    let value = component_registry.interpolate(start_value.clone(), end_value.clone(), t);
+                    let value =
+                        component_registry.interpolate(start_value.clone(), end_value.clone(), t);
                     *component = value.clone();
                 } else {
                     *component = start_value.clone();

@@ -67,10 +67,7 @@ pub mod position {
         let res = Position::new(start.0 * (1.0 - u) + other.0 * u);
         trace!(
             "position lerp: start: {:?} end: {:?} t: {} res: {:?}",
-            start,
-            other,
-            t,
-            res
+            start, other, t, res
         );
         res
     }
@@ -109,10 +106,7 @@ pub mod linear_velocity {
         let res = LinearVelocity(start.0 * (1.0 - u) + other.0 * u);
         trace!(
             "linear velocity lerp: start: {:?} end: {:?} t: {} res: {:?}",
-            start,
-            other,
-            t,
-            res
+            start, other, t, res
         );
         res
     }
@@ -126,10 +120,7 @@ pub mod angular_velocity {
         let res = AngularVelocity(start.0 * (1.0 - u) + other.0 * u);
         trace!(
             "angular velocity lerp: start: {:?} end: {:?} t: {} res: {:?}",
-            start,
-            other,
-            t,
-            res
+            start, other, t, res
         );
         res
     }

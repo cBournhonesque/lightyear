@@ -2,7 +2,9 @@
 use crate::Predicted;
 use bevy::prelude::{Added, Commands, Entity, Query, Res};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_replication::prelude::{Confirmed, Replicated, ReplicationReceiver, ShouldBePredicted};
+use lightyear_replication::prelude::{
+    Confirmed, Replicated, ReplicationReceiver, ShouldBePredicted,
+};
 use tracing::debug;
 
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
@@ -22,7 +24,10 @@ pub(crate) fn spawn_predicted_entity(
 
     // only handle predicted that have ShouldBePredicted
     // (if the entity was handled by prespawn or prepredicted before, ShouldBePredicted gets removed)
-    mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>, &Replicated), Added<ShouldBePredicted>>,
+    mut confirmed_entities: Query<
+        (Entity, Option<&mut Confirmed>, &Replicated),
+        Added<ShouldBePredicted>,
+    >,
     receiver: Query<(&ReplicationReceiver, &LocalTimeline)>,
 ) {
     for (confirmed_entity, confirmed, replicated) in confirmed_entities.iter_mut() {
@@ -76,12 +81,11 @@ pub(crate) fn spawn_predicted_entity(
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::client::components::Confirmed;
     use crate::prelude::server::SyncTarget;
-    use crate::prelude::{client, server, ClientId, NetworkTarget};
+    use crate::prelude::{ClientId, NetworkTarget, client, server};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
     use bevy::ecs::hierarchy::ChildOf;
     use bevy::ecs::relationship::Relationship;

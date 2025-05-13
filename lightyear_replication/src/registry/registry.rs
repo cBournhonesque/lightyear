@@ -16,7 +16,10 @@ use lightyear_core::network::NetId;
 use lightyear_messages::registry::MessageRegistry;
 use lightyear_serde::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
-use lightyear_serde::registry::{ContextDeserializeFn, ContextDeserializeFns, ContextSerializeFn, ContextSerializeFns, DeserializeFn, ErasedSerializeFns, SerializeFn, SerializeFns};
+use lightyear_serde::registry::{
+    ContextDeserializeFn, ContextDeserializeFns, ContextSerializeFn, ContextSerializeFns,
+    DeserializeFn, ErasedSerializeFns, SerializeFn, SerializeFns,
+};
 use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::registry::TypeMapper;
@@ -131,7 +134,12 @@ impl ComponentRegistry {
         self.kind_map
             .net_id(&ComponentKind::of::<C>())
             .copied()
-            .unwrap_or_else(|| panic!("Component {} is not registered", core::any::type_name::<C>()))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Component {} is not registered",
+                    core::any::type_name::<C>()
+                )
+            })
     }
     pub fn get_net_id<C: 'static>(&self) -> Option<ComponentNetId> {
         self.kind_map.net_id(&ComponentKind::of::<C>()).copied()
@@ -193,7 +201,7 @@ impl ComponentRegistry {
             component_kind,
             ErasedSerializeFns::new::<SendEntityMap, ReceiveEntityMap, C, C>(
                 ContextSerializeFns::new(serialize_fns.serialize),
-                ContextDeserializeFns::new(serialize_fns.deserialize)
+                ContextDeserializeFns::new(serialize_fns.deserialize),
             ),
         );
     }
@@ -239,8 +247,10 @@ impl ComponentRegistry {
             )
         });
         erased_fns.add_map_entities::<C>();
-        let context_serialize: ContextSerializeFn<SendEntityMap, C, C> = mapped_context_serialize::<C>;
-        let context_deserialize: ContextDeserializeFn<ReceiveEntityMap, C, C> = mapped_context_deserialize::<C>;
+        let context_serialize: ContextSerializeFn<SendEntityMap, C, C> =
+            mapped_context_serialize::<C>;
+        let context_deserialize: ContextDeserializeFn<ReceiveEntityMap, C, C> =
+            mapped_context_deserialize::<C>;
         erased_fns.context_serialize = unsafe { core::mem::transmute(context_serialize) };
         erased_fns.context_deserialize = unsafe { core::mem::transmute(context_deserialize) };
     }
@@ -325,12 +335,14 @@ pub trait AppComponentExt {
     /// This component can now be sent over the network.
     fn register_component<
         C: Component<Mutability = Mutable> + Serialize + DeserializeOwned + PartialEq,
-    >(&mut self) -> ComponentRegistration<'_, C>;
+    >(
+        &mut self,
+    ) -> ComponentRegistration<'_, C>;
 
     /// Registers the component in the Registry: this component can now be sent over the network.
     ///
     /// You need to provide your own [`SerializeFns`]
-    fn register_component_custom_serde<C: Component<Mutability = Mutable>  + PartialEq>(
+    fn register_component_custom_serde<C: Component<Mutability = Mutable> + PartialEq>(
         &mut self,
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C>;
@@ -345,11 +357,15 @@ impl AppComponentExt for App {
         self.register_component_custom_serde(SerializeFns::<C>::default())
     }
 
-    fn register_component_custom_serde<C: Component<Mutability = Mutable> +  PartialEq>(
+    fn register_component_custom_serde<C: Component<Mutability = Mutable> + PartialEq>(
         &mut self,
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C> {
-        if self.world_mut().get_resource_mut::<ComponentRegistry>().is_none() {
+        if self
+            .world_mut()
+            .get_resource_mut::<ComponentRegistry>()
+            .is_none()
+        {
             self.world_mut().init_resource::<ComponentRegistry>();
         }
         self.world_mut()
@@ -362,7 +378,8 @@ impl AppComponentExt for App {
         ComponentRegistration {
             app: self,
             _phantom: core::marker::PhantomData,
-        }.with_replication_config(ComponentReplicationConfig::default())
+        }
+        .with_replication_config(ComponentReplicationConfig::default())
     }
 }
 
@@ -384,9 +401,13 @@ impl<C> ComponentRegistration<'_, C> {
     }
 
     pub fn with_replication_config(self, config: ComponentReplicationConfig) -> Self
-        where C: Component<Mutability=Mutable> + PartialEq
+    where
+        C: Component<Mutability = Mutable> + PartialEq,
     {
-        let overrides_component_id = self.app.world_mut().register_component::<ComponentReplicationOverrides<C>>();
+        let overrides_component_id = self
+            .app
+            .world_mut()
+            .register_component::<ComponentReplicationOverrides<C>>();
         let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
         registry.set_replication_fns::<C>(config, overrides_component_id);
         self
@@ -398,14 +419,14 @@ impl<C> ComponentRegistration<'_, C> {
         C: Component<Mutability = Mutable> + PartialEq + Diffable,
         C::Delta: Serialize + DeserializeOwned,
     {
-        self.app.world_mut()
+        self.app
+            .world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
                 registry.set_delta_compression::<C>(world);
             });
         self
     }
 }
-
 
 #[cfg(test)]
 mod tests {

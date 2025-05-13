@@ -2,7 +2,10 @@ use crate::ping::manager::PingManager;
 use crate::plugin::SyncSet;
 use crate::prelude::DrivingTimeline;
 use bevy::app::{App, Last, Plugin, PostUpdate};
-use bevy::prelude::{Commands, Component, Entity, Event, Has, IntoScheduleConfigs, OnAdd, Query, Reflect, Res, ResMut, Time, Trigger, Virtual, With};
+use bevy::prelude::{
+    Commands, Component, Entity, Event, Has, IntoScheduleConfigs, OnAdd, Query, Reflect, Res,
+    ResMut, Time, Trigger, Virtual, With,
+};
 use core::time::Duration;
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimelinePlugin, Tick};
@@ -28,15 +31,29 @@ impl<T> Default for IsSynced<T> {
 /// Timeline that is synced to another timeline
 pub trait SyncedTimeline: NetworkTimeline {
     /// Get the ideal [`TickInstant`] that this timeline should be at
-    fn sync_objective<Remote: SyncTargetTimeline>(&self, other: &Remote, ping_manager: &PingManager, tick_duration: Duration) -> TickInstant;
+    fn sync_objective<Remote: SyncTargetTimeline>(
+        &self,
+        other: &Remote,
+        ping_manager: &PingManager,
+        tick_duration: Duration,
+    ) -> TickInstant;
 
-    fn resync(&mut self, sync_objective: TickInstant) -> SyncEvent<Self> where Self: Sized;
+    fn resync(&mut self, sync_objective: TickInstant) -> SyncEvent<Self>
+    where
+        Self: Sized;
 
     /// Sync the current timeline to the other timeline T.
     /// Usually this is achieved by slightly speeding up or slowing down the current timeline.
     /// If there is a big discrepancy we can do a `resync` instead.
     // TODO: should we use LinkStats instead of PingManager? and PingManager is a way to update the LinkStats?
-    fn sync<Remote: SyncTargetTimeline>(&mut self, main: &Remote, ping_manager: &PingManager, tick_duration: Duration) -> Option<SyncEvent<Self>> where Self: Sized;
+    fn sync<Remote: SyncTargetTimeline>(
+        &mut self,
+        main: &Remote,
+        ping_manager: &PingManager,
+        tick_duration: Duration,
+    ) -> Option<SyncEvent<Self>>
+    where
+        Self: Sized;
 
     fn is_synced(&self) -> bool;
 
@@ -52,13 +69,11 @@ pub trait SyncedTimeline: NetworkTimeline {
 }
 
 pub trait SyncTargetTimeline: NetworkTimeline + Default {
-
     fn current_estimate(&self) -> TickInstant;
 
     /// Returns true if the SyncTimelines are allowed to use this timeline as a sync target this frame
     fn received_packet(&self) -> bool;
 }
-
 
 /// Configuration for the sync manager, which is in charge of syncing the client's tick/time with the server's tick/time
 ///
@@ -129,13 +144,14 @@ impl SyncConfig {
         } else if offset.abs() > self.error_margin {
             self.consecutive_errors = self.consecutive_errors.saturating_add(1);
             // skip if we haven't seen enough consecutive errors in the same direction
-            if (current_error_sign ^ previous_error_sign) || self.consecutive_errors < self.consecutive_errors_threshold {
+            if (current_error_sign ^ previous_error_sign)
+                || self.consecutive_errors < self.consecutive_errors_threshold
+            {
                 self.previous_error_sign = current_error_sign;
-                return SyncAdjustment::DoNothing
+                return SyncAdjustment::DoNothing;
             }
             let base_factor = self.speedup_factor - 1.0;
-            let error_ratio = (offset.abs() / self.max_error_margin)
-                .clamp(0.0, 1.0);
+            let error_ratio = (offset.abs() / self.max_error_margin).clamp(0.0, 1.0);
 
             // Apply progressively stronger adjustment as error increases
             let adjustment = 1.0 + (base_factor * error_ratio * 2.0);
@@ -151,19 +167,19 @@ impl SyncConfig {
             self.consecutive_errors = 0;
             SyncAdjustment::DoNothing
         }
-
     }
 }
-
 
 /// Plugin to sync the Synced timeline to the Remote timeline
 ///
 /// The const generic is used to indicate if the timeline is driving/updating the Time<Virtual> and LocalTimeline.
-pub struct SyncedTimelinePlugin<Synced, Remote, const DRIVING: bool = false>{
+pub struct SyncedTimelinePlugin<Synced, Remote, const DRIVING: bool = false> {
     pub(crate) _marker: core::marker::PhantomData<(Synced, Remote)>,
 }
 
-impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> SyncedTimelinePlugin<Synced, Remote, DRIVING> {
+impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
+    SyncedTimelinePlugin<Synced, Remote, DRIVING>
+{
     /// On connection, reset the Synced timeline.
     pub(crate) fn handle_connect(
         trigger: Trigger<OnAdd, Connected>,
@@ -178,22 +194,23 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Sy
         }
     }
 
-
     /// On disconnection, remove IsSynced.
-    pub(crate) fn handle_disconnect(
-        trigger: Trigger<OnAdd, Disconnected>,
-        mut commands: Commands
-    ) {
-        commands.entity(trigger.target()).remove::<IsSynced<Synced>>();
+    pub(crate) fn handle_disconnect(trigger: Trigger<OnAdd, Disconnected>, mut commands: Commands) {
+        commands
+            .entity(trigger.target())
+            .remove::<IsSynced<Synced>>();
     }
-
 
     pub(crate) fn update_virtual_time(
         mut virtual_time: ResMut<Time<Virtual>>,
-        query: Query<&Synced, (With<IsSynced<Synced>>, With<Connected>)>)
-    {
+        query: Query<&Synced, (With<IsSynced<Synced>>, With<Connected>)>,
+    ) {
         if let Ok(timeline) = query.single() {
-            trace!("Timeline {} sets the virtual time relative speed to {}", core::any::type_name::<Synced>(), timeline.relative_speed());
+            trace!(
+                "Timeline {} sets the virtual time relative speed to {}",
+                core::any::type_name::<Synced>(),
+                timeline.relative_speed()
+            );
             // TODO: be able to apply the speed_ratio on top of any speed ratio already applied by the user.
             virtual_time.set_relative_speed(timeline.relative_speed());
         }
@@ -205,7 +222,17 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Sy
     pub(crate) fn sync_timelines(
         tick_duration: Res<TickDuration>,
         mut commands: Commands,
-        mut query: Query<(Entity, &mut Synced, &Remote, &mut LocalTimeline, &PingManager, Has<IsSynced<Synced>>), With<Connected>>,
+        mut query: Query<
+            (
+                Entity,
+                &mut Synced,
+                &Remote,
+                &mut LocalTimeline,
+                &PingManager,
+                Has<IsSynced<Synced>>,
+            ),
+            With<Connected>,
+        >,
     ) {
         // TODO: return early if we haven't received any remote packets? (nothing to sync to)
 
@@ -233,10 +260,11 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Sy
             }
         })
     }
-
 }
 
-impl<Synced, Remote, const DRIVING: bool> Default for SyncedTimelinePlugin<Synced, Remote, DRIVING> {
+impl<Synced, Remote, const DRIVING: bool> Default
+    for SyncedTimelinePlugin<Synced, Remote, DRIVING>
+{
     fn default() -> Self {
         Self {
             _marker: core::marker::PhantomData,
@@ -245,7 +273,7 @@ impl<Synced, Remote, const DRIVING: bool> Default for SyncedTimelinePlugin<Synce
 }
 
 impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Plugin
-for SyncedTimelinePlugin<Synced, Remote, DRIVING>
+    for SyncedTimelinePlugin<Synced, Remote, DRIVING>
 {
     fn build(&self, app: &mut App) {
         app.add_plugins(NetworkTimelinePlugin::<Synced>::default());

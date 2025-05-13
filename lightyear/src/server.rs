@@ -13,7 +13,6 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use core::time::Duration;
 
-
 /// A plugin group containing all the server plugins.
 ///
 /// By default, the following plugins will be added:
@@ -33,7 +32,6 @@ pub struct ServerPlugins {
     pub tick_duration: Duration,
 }
 
-
 impl PluginGroup for ServerPlugins {
     fn build(self) -> PluginGroupBuilder {
         let builder = PluginGroupBuilder::start::<Self>();
@@ -41,9 +39,8 @@ impl PluginGroup for ServerPlugins {
             .add(lightyear_sync::server::ServerPlugin)
             .add(lightyear_link::server::ServerLinkPlugin);
 
-
         let builder = builder.add_group(SharedPlugins {
-            tick_duration: self.tick_duration
+            tick_duration: self.tick_duration,
         });
 
         // IO
@@ -51,7 +48,6 @@ impl PluginGroup for ServerPlugins {
         let builder = builder.add(lightyear_udp::server::ServerUdpPlugin);
         #[cfg(feature = "webtransport")]
         let builder = builder.add(lightyear_webtransport::server::WebTransportServerPlugin);
-
 
         // CONNECTION
         #[cfg(feature = "netcode")]

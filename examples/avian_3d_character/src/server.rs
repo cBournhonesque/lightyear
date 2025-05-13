@@ -71,7 +71,15 @@ fn despawn_system(
 fn player_shoot(
     mut commands: Commands,
     timeline: Single<&LocalTimeline, With<Server>>,
-    query: Query<(&ActionState<CharacterAction>, &Position, &Replicated, Has<Controlled>), Without<Predicted>>,
+    query: Query<
+        (
+            &ActionState<CharacterAction>,
+            &Position,
+            &Replicated,
+            Has<Controlled>,
+        ),
+        Without<Predicted>,
+    >,
     time: Res<Time<Fixed>>,
 ) {
     for (action_state, position, replicated, is_controlled) in &query {
@@ -130,19 +138,15 @@ fn setup(mut commands: Commands) {
 }
 
 /// Add the ReplicationSender component to new clients
-pub(crate) fn handle_new_client(
-    trigger: trigger<OnAdd, LinkOf>,
-    mut commands: Commands,
-) {
-    commands.entity(trigger.target()).insert(
-        ReplicationSender::new(
+pub(crate) fn handle_new_client(trigger: trigger<OnAdd, LinkOf>, mut commands: Commands) {
+    commands
+        .entity(trigger.target())
+        .insert(ReplicationSender::new(
             SEND_INTERVAL,
             SendUpdatesMode::SinceLastAck,
             false,
-        ),
-    );
+        ));
 }
-
 
 /// Spawn the player entity when a client connects
 pub(crate) fn handle_connected(
@@ -160,12 +164,23 @@ pub(crate) fn handle_connected(
 
     // Default prediction/interpolation: predict owner, interpolate others
     let prediction_target = PredictionTarget::to_clients(NetworkTarget::Single(client_id));
-    let interpolation_target = InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id));
+    let interpolation_target =
+        InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id));
 
     // Pick color and position for player.
     let available_colors = [
-        css::LIMEGREEN, css::PINK, css::YELLOW, css::AQUA, css::CRIMSON, css::GOLD,
-        css::ORANGE_RED, css::SILVER, css::SALMON, css::YELLOW_GREEN, css::WHITE, css::RED,
+        css::LIMEGREEN,
+        css::PINK,
+        css::YELLOW,
+        css::AQUA,
+        css::CRIMSON,
+        css::GOLD,
+        css::ORANGE_RED,
+        css::SILVER,
+        css::SALMON,
+        css::YELLOW_GREEN,
+        css::WHITE,
+        css::RED,
     ];
     let color = available_colors[num_characters % available_colors.len()];
     let angle: f32 = num_characters as f32 * 5.0;

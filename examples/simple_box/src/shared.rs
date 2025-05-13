@@ -10,7 +10,6 @@ use lightyear::input::native::prelude::ActionState;
 use lightyear::interpolation::{ConfirmedHistory, InterpolateStatus, Interpolated};
 use lightyear::prelude::{Client, Confirmed, LocalTimeline, NetworkTimeline, Rollback};
 
-
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
@@ -42,35 +41,29 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 
 pub(crate) fn confirmed_log(
     timeline: Single<&LocalTimeline, With<Client>>,
-    players: Query<
-        (Entity, &PlayerPosition),
-        Changed<Confirmed>
-    >,
+    players: Query<(Entity, &PlayerPosition), Changed<Confirmed>>,
 ) {
     let tick = timeline.tick();
     for status in players.iter() {
-        info!(
-            ?tick,
-            ?status,
-            "Confirmed Updated"
-        );
+        info!(?tick, ?status, "Confirmed Updated");
     }
 }
 
 pub(crate) fn interpolate_log(
     timeline: Single<&LocalTimeline, Or<(With<Client>, Without<ClientOf>)>>,
     players: Query<
-        (Entity, &PlayerPosition, &InterpolateStatus<PlayerPosition>, &ConfirmedHistory<PlayerPosition>),
+        (
+            Entity,
+            &PlayerPosition,
+            &InterpolateStatus<PlayerPosition>,
+            &ConfirmedHistory<PlayerPosition>,
+        ),
         With<Interpolated>,
     >,
 ) {
     let tick = timeline.tick();
     for status in players.iter() {
-        trace!(
-            ?tick,
-            ?status,
-            "Interpolation"
-        );
+        trace!(?tick, ?status, "Interpolation");
     }
 }
 
@@ -78,7 +71,7 @@ pub(crate) fn fixed_post_log(
     timeline: Single<
         (&LocalTimeline, Has<Rollback>),
         // Without<Client>
-        Or<(With<Client>, Without<ClientOf>)>
+        Or<(With<Client>, Without<ClientOf>)>,
     >,
     players: Query<
         (Entity, &PlayerPosition),

@@ -4,18 +4,18 @@ use alloc::{vec, vec::Vec};
 use core::num::NonZeroU32;
 use lightyear_utils::collections::HashMap;
 
+use crate::channel::ChannelKind;
 use crate::channel::builder::SenderMetadata;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
-use crate::channel::ChannelKind;
 use crate::packet::message::{FragmentData, MessageData, MessageId, SendMessage, SingleData};
 use crossbeam_channel::{Receiver, Sender};
 use governor::{DefaultDirectRateLimiter, Quota};
 use lightyear_core::network::NetId;
 use lightyear_core::tick::Tick;
 use nonzero_ext::*;
-use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
+use tracing::{debug, error, trace};
 
 const BYPASS_QUOTA_PRIORITY: f32 = 100000.0;
 
@@ -91,9 +91,7 @@ impl PriorityManager {
         single: VecDeque<SendMessage>,
         fragment: VecDeque<SendMessage>,
     ) {
-        self.data_to_send.push(
-            (net_id, (single, fragment))
-        );
+        self.data_to_send.push((net_id, (single, fragment)));
     }
 
     // TODO: maybe accumulate the used_bytes in the priority_manager instead of returning here?
@@ -104,7 +102,7 @@ impl PriorityManager {
     pub(crate) fn priority_filter(
         &mut self,
         channel_registry: &ChannelRegistry,
-        senders: &mut HashMap<ChannelKind, SenderMetadata>
+        senders: &mut HashMap<ChannelKind, SenderMetadata>,
     ) -> (
         Vec<(ChannelId, VecDeque<SingleData>)>,
         Vec<(ChannelId, VecDeque<FragmentData>)>,
@@ -145,7 +143,9 @@ impl PriorityManager {
         }
 
         // compute the priority of each new message
-        let mut all_messages = self.data_to_send.drain(..)
+        let mut all_messages = self
+            .data_to_send
+            .drain(..)
             .flat_map(|(net_id, (single, fragment))| {
                 let channel_priority = channel_registry
                     .settings_from_net_id(net_id)
@@ -209,7 +209,11 @@ impl PriorityManager {
                 let channel_kind = channel_registry
                     .get_kind_from_net_id(buffered_message.channel_net_id)
                     .unwrap();
-                senders.get_mut(channel_kind).unwrap().messages_sent.push(message_id);
+                senders
+                    .get_mut(channel_kind)
+                    .unwrap()
+                    .messages_sent
+                    .push(message_id);
             }
 
             // the message is allowed, add it to the list of messages to send

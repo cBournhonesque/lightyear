@@ -1,4 +1,3 @@
-
 // Current design:
 // - you call `Events<ToServer<SendMessage<M>>>` to send a message
 // - we have a type-erased system that reads from all these events, serializes and stores them
@@ -7,7 +6,6 @@
 // Each Link/Transport entity.
 // - You can call `ChannelSender::<C>::send_message::<M>()`
 // - We
-
 
 // Should the EntityMap be stored on the Link? or on the Transport?
 // Or a different component?
@@ -86,13 +84,10 @@
 //
 //   So we always want to receive on components, not events.
 
-
 // For performance I was splitting up Sender<M> and Sender<C> but maybe that's not needed?
 // - instead: MessageManager has a type-erased crossbeam Sender<(M, ChannelKind, Priority)>
 //      that users can write to in parallel
 //   - we have a type-erased fn that reads from the Receiver<M>, serializes it, and writes to the Transports Sender<(C, Bytes)>
-
-
 
 // If you specify that rebroadcast is allowed, we will also register RebroadcastMessage<M> in the registry!
 //   - For rebroadcasting we will let the server deserialize the message to inspect the contents and do validation?
@@ -120,11 +115,13 @@
 //     }
 // }
 
-use crate::registry::MessageRegistry;
 use crate::MessageManager;
+use crate::registry::MessageRegistry;
 use bevy::app::{App, Last, PostUpdate, PreUpdate};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
-use bevy::prelude::{IntoScheduleConfigs, OnAdd, Plugin, Query, SystemParamBuilder, SystemSet, Trigger};
+use bevy::prelude::{
+    IntoScheduleConfigs, OnAdd, Plugin, Query, SystemParamBuilder, SystemSet, Trigger,
+};
 use lightyear_connection::client::Disconnected;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::plugin::{TransportPlugin, TransportSet};
@@ -163,7 +160,6 @@ impl MessagePlugin {
 }
 
 impl Plugin for MessagePlugin {
-
     fn build(&self, app: &mut App) {
         app.register_type::<MessageManager>();
 
@@ -183,8 +179,10 @@ impl Plugin for MessagePlugin {
     // NOTE: this should only be called once all messages are registered, because we use the list of registered
     //  messags to provide the dynamic access
     fn finish(&self, app: &mut App) {
-
-        let mut registry = app.world_mut().remove_resource::<MessageRegistry>().unwrap();
+        let mut registry = app
+            .world_mut()
+            .remove_resource::<MessageRegistry>()
+            .unwrap();
 
         let recv = (
             ParamBuilder,
@@ -196,7 +194,7 @@ impl Plugin for MessagePlugin {
                 });
             }),
             ParamBuilder,
-            ParamBuilder
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(Self::recv);
@@ -222,12 +220,15 @@ impl Plugin for MessagePlugin {
                     registry.send_metadata.values().for_each(|metadata| {
                         b.mut_id(metadata.component_id);
                     });
-                    registry.send_trigger_metadata.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
-                    });
+                    registry
+                        .send_trigger_metadata
+                        .values()
+                        .for_each(|metadata| {
+                            b.mut_id(metadata.component_id);
+                        });
                 });
             }),
-            ParamBuilder
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(Self::send);
@@ -252,8 +253,8 @@ mod tests {
     use lightyear_core::prelude::Tick;
     use lightyear_link::Link;
     use lightyear_transport::channel::ChannelKind;
-    use lightyear_transport::plugin::tests::TestTransportPlugin;
     use lightyear_transport::plugin::tests::C;
+    use lightyear_transport::plugin::tests::TestTransportPlugin;
     use serde::{Deserialize, Serialize};
     use test_log::test;
 
@@ -268,7 +269,7 @@ mod tests {
     fn test_send_receive() {
         let mut app = App::new();
         app.add_plugins(CorePlugins {
-            tick_duration: core::time::Duration::from_millis(10)
+            tick_duration: core::time::Duration::from_millis(10),
         });
         app.add_plugins(TestTransportPlugin);
 
@@ -286,19 +287,22 @@ mod tests {
             Link::default(),
             transport,
             MessageReceiver::<M>::default(),
-            MessageSender::<M>::default()
+            MessageSender::<M>::default(),
         ));
 
         let entity = entity_mut.id();
 
         // send message
         let message = M(2);
-        entity_mut.get_mut::<MessageSender<M>>().unwrap().send::<C>(message.clone());
+        entity_mut
+            .get_mut::<MessageSender<M>>()
+            .unwrap()
+            .send::<C>(message.clone());
         app.update();
 
         // check that the send-payload was added to the Transport
         let mut entity_mut = app.world_mut().entity_mut(entity);
-        let mut link =  entity_mut.get_mut::<Link>().unwrap();
+        let mut link = entity_mut.get_mut::<Link>().unwrap();
         assert_eq!(link.send.len(), 1);
 
         // transfer that payload to the recv side of the link
@@ -308,13 +312,27 @@ mod tests {
         app.world_mut().run_schedule(PreUpdate);
 
         // check that the message has been received
-        let received_message = app.world_mut().entity_mut(entity).get_mut::<MessageReceiver<M>>().unwrap().receive().next().expect("expected to receive message");
+        let received_message = app
+            .world_mut()
+            .entity_mut(entity)
+            .get_mut::<MessageReceiver<M>>()
+            .unwrap()
+            .receive()
+            .next()
+            .expect("expected to receive message");
         assert_eq!(message, received_message);
 
         app.update();
 
         // check that the message has been dropped
-        assert!(app.world_mut().entity_mut(entity).get_mut::<MessageReceiver<M>>().unwrap().recv.is_empty());
+        assert!(
+            app.world_mut()
+                .entity_mut(entity)
+                .get_mut::<MessageReceiver<M>>()
+                .unwrap()
+                .recv
+                .is_empty()
+        );
     }
 
     /// Check that messages are cleared even if not read
@@ -322,27 +340,37 @@ mod tests {
     fn test_clear() {
         let mut app = App::new();
         app.add_plugins(CorePlugins {
-            tick_duration: core::time::Duration::from_millis(10)
+            tick_duration: core::time::Duration::from_millis(10),
         });
         app.add_message::<M>();
         app.add_plugins(MessagePlugin);
         app.finish();
 
-        let mut entity_mut = app.world_mut().spawn((
-            MessageReceiver::<M>::default(),
-        ));
+        let mut entity_mut = app.world_mut().spawn((MessageReceiver::<M>::default(),));
 
         let entity = entity_mut.id();
 
-        app.world_mut().entity_mut(entity).get_mut::<MessageReceiver<M>>().unwrap().recv.push(ReceivedMessage {
-            data: M(2),
-            remote_tick: Tick::default(),
-            channel_kind: ChannelKind::of::<C>(),
-            message_id: None,
-        });
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<MessageReceiver<M>>()
+            .unwrap()
+            .recv
+            .push(ReceivedMessage {
+                data: M(2),
+                remote_tick: Tick::default(),
+                channel_kind: ChannelKind::of::<C>(),
+                message_id: None,
+            });
         app.update();
 
         // check that the message has been dropped
-        assert!(app.world_mut().entity_mut(entity).get_mut::<MessageReceiver<M>>().unwrap().recv.is_empty());
+        assert!(
+            app.world_mut()
+                .entity_mut(entity)
+                .get_mut::<MessageReceiver<M>>()
+                .unwrap()
+                .recv
+                .is_empty()
+        );
     }
 }

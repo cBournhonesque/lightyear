@@ -1,5 +1,5 @@
-use crate::channel::registry::ChannelRegistration;
 use crate::channel::Channel;
+use crate::channel::registry::ChannelRegistration;
 use crate::prelude::{ChannelRegistry, Transport};
 use bevy::prelude::{OnInsert, Query, Res, Trigger, With};
 use lightyear_connection::client::Client;
@@ -8,9 +8,9 @@ use lightyear_connection::direction::NetworkDirection;
 pub(crate) fn add_sender_channel<C: Channel>(
     trigger: Trigger<OnInsert, (Transport, Client)>,
     mut query: Query<&mut Transport, With<Client>>,
-    registry: Res<ChannelRegistry>) {
+    registry: Res<ChannelRegistry>,
+) {
     if let Ok(mut transport) = query.get_mut(trigger.target()) {
-
         transport.add_sender_from_registry::<C>(&registry)
     }
 }
@@ -18,7 +18,7 @@ pub(crate) fn add_sender_channel<C: Channel>(
 pub(crate) fn add_receiver_channel<C: Channel>(
     trigger: Trigger<OnInsert, (Transport, Client)>,
     mut query: Query<&mut Transport, With<Client>>,
-    registry: Res<ChannelRegistry>
+    registry: Res<ChannelRegistry>,
 ) {
     if let Ok(mut transport) = query.get_mut(trigger.target()) {
         transport.add_receiver_from_registry::<C>(&registry)
@@ -27,7 +27,7 @@ pub(crate) fn add_receiver_channel<C: Channel>(
 
 impl<C: Channel> ChannelRegistration<'_, C> {
     pub(crate) fn add_client_direction(&mut self, direction: NetworkDirection) {
-         match direction {
+        match direction {
             NetworkDirection::ClientToServer => {
                 self.app.add_observer(add_sender_channel::<C>);
             }

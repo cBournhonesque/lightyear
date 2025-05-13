@@ -45,7 +45,6 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-
 /// System that reads from peripherals and adds inputs to the buffer
 /// This system must be run in the `InputSystemSet::BufferInputs` set in the `FixedPreUpdate` schedule
 /// to work correctly.
@@ -101,16 +100,12 @@ fn player_movement(
     }
 }
 
-
 /// System to receive messages on the client
-pub(crate) fn receive_message1(
-    mut receiver: Single<&mut MessageReceiver<Message1>>
-) {
+pub(crate) fn receive_message1(mut receiver: Single<&mut MessageReceiver<Message1>>) {
     for message in receiver.receive() {
         info!("Received message: {:?}", message);
     }
 }
-
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation
@@ -128,9 +123,7 @@ pub(crate) fn handle_predicted_spawn(
         warn!("Add InputMarker to entity: {:?}", entity);
         commands
             .entity(entity)
-            .insert((
-                InputMarker::<Inputs>::default(),
-            ));
+            .insert((InputMarker::<Inputs>::default(),));
     }
 }
 

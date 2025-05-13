@@ -26,12 +26,12 @@ use no_std_io2::io;
 pub mod entity_map;
 /// Provides the `Reader` struct and traits for deserializing data from a byte stream.
 pub mod reader;
+/// Defines traits and structures for registering serializable types.
+pub mod registry;
 /// Utilities for variable-length integer encoding and decoding.
 pub mod varint;
 /// Provides the `Writer` struct and traits for serializing data into a byte stream.
 pub mod writer;
-/// Defines traits and structures for registering serializable types.
-pub mod registry;
 
 /// Commonly used items from the `lightyear_serde` crate.
 pub mod prelude {
@@ -71,10 +71,7 @@ pub enum SerializationError {
 #[allow(clippy::len_without_is_empty)]
 pub trait ToBytes {
     fn bytes_len(&self) -> usize;
-    fn to_bytes(
-        &self,
-        buffer: &mut impl WriteInteger,
-    ) -> Result<(), SerializationError>;
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError>;
 
     fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
@@ -229,7 +226,11 @@ impl<M: ToBytes> ToBytes for Vec<M> {
 
 impl<K: ToBytes + Eq + Hash, V: ToBytes, S: Default + BuildHasher> ToBytes for HashMap<K, V, S> {
     fn bytes_len(&self) -> usize {
-        varint_len(self.len() as u64) + self.iter().map(|(k, v)| k.bytes_len() + v.bytes_len()).sum::<usize>()
+        varint_len(self.len() as u64)
+            + self
+                .iter()
+                .map(|(k, v)| k.bytes_len() + v.bytes_len())
+                .sum::<usize>()
     }
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
@@ -279,12 +280,11 @@ mod tests {
 
     #[test]
     fn test_serialize_vec() {
-        let a  = [5; 10].to_vec();
+        let a = [5; 10].to_vec();
         let mut writer = Writer::with_capacity(5);
         a.to_bytes(&mut writer).unwrap();
-        let b: Vec<u8>  = vec![];
+        let b: Vec<u8> = vec![];
         b.to_bytes(&mut writer).unwrap();
-
 
         let mut reader = Reader::from(writer.to_bytes());
         let a_read = Vec::<u8>::from_bytes(&mut reader).unwrap();
@@ -295,7 +295,7 @@ mod tests {
 
     #[test]
     fn test_serialize_map() {
-        let mut a  = HashMap::default();
+        let mut a = HashMap::default();
         a.insert(1, 2);
         a.insert(3, 4);
         let mut writer = Writer::with_capacity(5);
@@ -308,9 +308,9 @@ mod tests {
 
     #[test]
     fn test_serialize_entity() {
-        let a  = Entity::from_raw(0);
-        let b  = Entity::from_raw(23);
-        let c  = Entity::from_raw(u32::MAX);
+        let a = Entity::from_raw(0);
+        let b = Entity::from_raw(23);
+        let c = Entity::from_raw(u32::MAX);
         let mut writer = Writer::with_capacity(5);
         a.to_bytes(&mut writer).unwrap();
         b.to_bytes(&mut writer).unwrap();
@@ -325,4 +325,3 @@ mod tests {
         assert_eq!(c, read_c);
     }
 }
-

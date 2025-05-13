@@ -1,8 +1,8 @@
 use crate::connection::client::{ConnectionError, ConnectionState, NetClient};
 use crate::connection::id::ClientId;
 use crate::packet::packet_builder::RecvPayload;
-use crate::prelude::client::Io;
 use crate::prelude::LinkConditionerConfig;
+use crate::prelude::client::Io;
 use crate::transport::LOCAL_SOCKET;
 use parking_lot::RwLock;
 use std::collections::VecDeque;

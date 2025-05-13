@@ -22,8 +22,8 @@
 //!   - if there is a rollback, restart correction from the current corrected value
 //! - FixedUpdate: run the simulation to compute C(T+2).
 //! - FixedPostUpdate: set the component value to the interpolation between PT (predicted value at rollback start T) and C(T+2)
-use crate::registry::PredictionRegistry;
 use crate::SyncComponent;
+use crate::registry::PredictionRegistry;
 use bevy::prelude::{Added, Commands, Component, DetectChangesMut, Entity, Query, Res};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
@@ -64,7 +64,7 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
     prediction_registry: Res<PredictionRegistry>,
     mut commands: Commands,
     mut query: Query<(Entity, &mut C, &mut Correction<C>, &Replicated)>,
-    sender_query: Query<&LocalTimeline>
+    sender_query: Query<&LocalTimeline>,
 ) {
     let kind = core::any::type_name::<C>();
     for (entity, mut component, mut correction, replicated) in query.iter_mut() {
@@ -81,8 +81,7 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
         if t == 1.0 {
             trace!(
                 ?t,
-                "Correction is over. Removing Correction for: {:?}",
-                kind
+                "Correction is over. Removing Correction for: {:?}", kind
             );
             commands.entity(entity).remove::<Correction<C>>();
         } else {
@@ -91,8 +90,11 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
             correction.current_correction = Some(component.clone());
             // TODO: avoid all these clones
             // visually update the component
-            let visual =
-                prediction_registry.correct(correction.original_prediction.clone(), component.clone(), t);
+            let visual = prediction_registry.correct(
+                correction.original_prediction.clone(),
+                component.clone(),
+                t,
+            );
             // store the current visual value
             correction.current_visual = Some(visual.clone());
             // set the component value to the visual value
@@ -134,21 +136,25 @@ pub(crate) fn restore_corrected_state<C: SyncComponent>(
 ) {
     let kind = core::any::type_name::<C>();
     for (mut component, mut correction) in query.iter_mut() {
-        match core::mem::take(&mut correction.current_correction) { Some(correction) => {
-            debug!("restoring corrected component: {:?}", kind);
-            *component.bypass_change_detection() = correction;
-        } _ => {
-            debug!(
-                "Corrected component was None so couldn't restore: {:?}",
-                kind
-            );
-        }}
+        match core::mem::take(&mut correction.current_correction) {
+            Some(correction) => {
+                debug!("restoring corrected component: {:?}", kind);
+                *component.bypass_change_detection() = correction;
+            }
+            _ => {
+                debug!(
+                    "Corrected component was None so couldn't restore: {:?}",
+                    kind
+                );
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Predicted;
     use crate::client::components::Confirmed;
     use crate::client::config::ClientConfig;
     use crate::predicted_history::PredictionHistory;
@@ -157,7 +163,6 @@ mod tests {
     use crate::rollback::test_utils::received_confirmed_update;
     use crate::tests::protocol::ComponentCorrection;
     use crate::tests::stepper::BevyStepper;
-    use crate::Predicted;
     use approx::assert_relative_eq;
     use bevy::app::FixedUpdate;
     use bevy::prelude::default;
@@ -408,11 +413,13 @@ mod tests {
             }
         );
         // check that no correction is applied for entities that are correctly predicted
-        assert!(stepper
-            .client_app
-            .world()
-            .get::<Correction<ComponentCorrection>>(predicted_b)
-            .is_none());
+        assert!(
+            stepper
+                .client_app
+                .world()
+                .get::<Correction<ComponentCorrection>>(predicted_b)
+                .is_none()
+        );
     }
 
     /// Check that correction still works even if Update runs twice in a row (i.e. we don't have a FixedUpdate on the frame of the rollback)

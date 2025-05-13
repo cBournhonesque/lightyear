@@ -20,7 +20,6 @@ pub struct LinkConditionerConfig {
     pub incoming_loss: f32,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct LinkConditioner<P: Eq> {
     config: LinkConditionerConfig,
@@ -59,12 +58,9 @@ impl<P: Eq> LinkConditioner<P> {
 
     /// Check if a packet is ready to be returned
     pub(crate) fn pop_packet(&mut self, instant: Instant) -> Option<P> {
-        self.time_queue
-            .pop_item(&instant)
-            .map(|(_, packet)| packet)
+        self.time_queue.pop_item(&instant).map(|(_, packet)| packet)
     }
 }
-
 
 impl LinkConditionerConfig {
     /// Creates a new LinkConditionerConfig

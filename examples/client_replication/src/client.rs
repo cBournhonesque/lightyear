@@ -34,8 +34,6 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-
-
 /// Spawn a cursor that is replicated to the server when the client connects
 pub(crate) fn spawn_local_cursor(
     trigger: Trigger<OnAdd, Connected>,
@@ -120,7 +118,10 @@ fn spawn_player(
                 return;
             }
         }
-        info!("Spawning client-owned player entity for client: {}", client_id);
+        info!(
+            "Spawning client-owned player entity for client: {}",
+            client_id
+        );
         commands.spawn((
             PlayerId(client_id),
             PlayerPosition(Vec2::ZERO),
@@ -197,8 +198,6 @@ fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
         (cursor_pos.y - (window.height() / 2.0)) * -1.0,
     ))
 }
-
-
 
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation

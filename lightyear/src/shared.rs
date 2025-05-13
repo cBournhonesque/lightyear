@@ -4,27 +4,28 @@ use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_core::plugin::CorePlugins;
 
-pub struct SharedPlugins{
-    pub tick_duration: Duration
+pub struct SharedPlugins {
+    pub tick_duration: Duration,
 }
 
-
 impl PluginGroup for SharedPlugins {
-
     fn build(self) -> PluginGroupBuilder {
         let builder = PluginGroupBuilder::start::<Self>();
-        let builder = builder.add(
-            CorePlugins {
+        let builder = builder
+            .add(CorePlugins {
                 tick_duration: self.tick_duration,
-            }
-        )
+            })
             .add(lightyear_transport::plugin::TransportPlugin)
             .add(lightyear_messages::plugin::MessagePlugin)
             .add(lightyear_connection::ConnectionPlugin)
             .add(lightyear_replication::prelude::ReplicationSendPlugin)
             .add(lightyear_replication::prelude::NetworkVisibilityPlugin)
-            .add(lightyear_replication::prelude::RelationshipSendPlugin::<ChildOf>::default())
-            .add(lightyear_replication::prelude::RelationshipReceivePlugin::<ChildOf>::default())
+            .add(lightyear_replication::prelude::RelationshipSendPlugin::<
+                ChildOf,
+            >::default())
+            .add(lightyear_replication::prelude::RelationshipReceivePlugin::<
+                ChildOf,
+            >::default())
             .add(lightyear_replication::prelude::HierarchySendPlugin)
             .add(lightyear_replication::prelude::AuthorityPlugin)
             .add(lightyear_replication::prelude::ReplicationReceivePlugin);
@@ -38,7 +39,9 @@ impl PluginGroup for SharedPlugins {
         // Note: the server can also do interpolation
         // TODO: move the config to the InterpolationManager
         #[cfg(feature = "interpolation")]
-        let builder = builder.add(lightyear_interpolation::plugin::InterpolationPlugin::new(lightyear_interpolation::plugin::InterpolationConfig::default()));
+        let builder = builder.add(lightyear_interpolation::plugin::InterpolationPlugin::new(
+            lightyear_interpolation::plugin::InterpolationConfig::default(),
+        ));
 
         builder
     }

@@ -1,5 +1,7 @@
-use crate::client::{Client, ClientState, Connect, Connected, Connecting, Disconnected, Disconnecting};
-use crate::client_of::{ClientOf};
+use crate::client::{
+    Client, ClientState, Connect, Connected, Connecting, Disconnected, Disconnecting,
+};
+use crate::client_of::ClientOf;
 use crate::direction::NetworkDirection;
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
@@ -13,7 +15,6 @@ use core::fmt::Debug;
 use lightyear_link::prelude::Server;
 use lightyear_link::{LinkStart, Unlinked};
 use tracing::{info, trace};
-
 
 /// Errors related to the server connection
 #[derive(thiserror::Error, Debug)]
@@ -41,7 +42,9 @@ pub struct Starting;
 impl Starting {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         trace!("Starting added: removing Started/Stopped");
-        world.commands().entity(context.entity)
+        world
+            .commands()
+            .entity(context.entity)
             .remove::<(Started, Stopped, Stopping)>();
     }
 }
@@ -53,7 +56,9 @@ pub struct Started;
 impl Started {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         trace!("Started added: removing Starting/Stopped");
-        world.commands().entity(context.entity)
+        world
+            .commands()
+            .entity(context.entity)
             .remove::<(Starting, Stopped, Stopping)>();
     }
 }
@@ -65,7 +70,9 @@ pub struct Stopping;
 impl Stopping {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         trace!("Stopping added: removing Started/Starting");
-        world.commands().entity(context.entity)
+        world
+            .commands()
+            .entity(context.entity)
             .remove::<(Started, Starting, Stopped)>();
     }
 }
@@ -77,21 +84,19 @@ pub struct Stopped;
 impl Stopped {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         trace!("Stopped added: removing Started/Starting");
-        world.commands().entity(context.entity)
+        world
+            .commands()
+            .entity(context.entity)
             .remove::<(Started, Starting, Stopping)>();
     }
 }
-
 
 pub struct ConnectionPlugin;
 
 impl ConnectionPlugin {
     /// When the start request to Start, we also start the ServerLink.
     /// We also despawn any existing ClientOf.
-    fn start(
-        trigger: Trigger<Start>,
-        mut commands: Commands
-    ) {
+    fn start(trigger: Trigger<Start>, mut commands: Commands) {
         trace!("Triggering LinkStart because Start was triggered");
         commands.trigger_targets(LinkStart, trigger.target());
 
@@ -104,7 +109,7 @@ impl ConnectionPlugin {
         trigger: Trigger<OnAdd, Unlinked>,
         // TODO: is Start/Stop reserved for the `Server` and not the `ServerLink`?
         query: Query<(), (With<Server>, With<Started>)>,
-        mut commands: Commands
+        mut commands: Commands,
     ) {
         if let Ok(()) = query.get(trigger.target()) {
             trace!("Triggering Stopped because Unlinked was triggered");
@@ -119,11 +124,15 @@ impl ConnectionPlugin {
         mut commands: Commands,
     ) {
         for entity in query.iter() {
-            trace!("Set ClientOf entity {:?} to Disconnected and despawn", entity);
+            trace!(
+                "Set ClientOf entity {:?} to Disconnected and despawn",
+                entity
+            );
             // Set to Disconnected before despawning to trigger observers
-            commands.entity(entity).insert(Disconnected {
-                reason: None
-            }).despawn();
+            commands
+                .entity(entity)
+                .insert(Disconnected { reason: None })
+                .despawn();
         }
     }
 }
@@ -135,7 +144,6 @@ impl Plugin for ConnectionPlugin {
         app.add_systems(Last, Self::disconnect);
     }
 }
-
 
 // #[cfg(test)]
 // mod tests {

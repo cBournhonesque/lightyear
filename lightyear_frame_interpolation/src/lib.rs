@@ -38,7 +38,7 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystem::TransformPropagate;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_prediction::correction::Correction;
-use lightyear_prediction::plugin::{is_in_rollback, PredictionSet};
+use lightyear_prediction::plugin::{PredictionSet, is_in_rollback};
 use lightyear_prediction::prelude::PredictionManager;
 use lightyear_replication::prelude::ReplicationSet;
 use lightyear_replication::registry::registry::ComponentRegistry;
@@ -107,8 +107,7 @@ impl<C> Default for FrameInterpolationPlugin<C> {
     }
 }
 
-
-impl<C: Component<Mutability=Mutable> + Clone + Ease> Plugin for FrameInterpolationPlugin<C> {
+impl<C: Component<Mutability = Mutable> + Clone + Ease> Plugin for FrameInterpolationPlugin<C> {
     fn build(&self, app: &mut App) {
         // SETS
         app.configure_sets(
@@ -141,13 +140,11 @@ impl<C: Component<Mutability=Mutable> + Clone + Ease> Plugin for FrameInterpolat
         // SYSTEMS
         app.add_systems(
             PreUpdate,
-            restore_from_visual_interpolation::<C>
-                .in_set(FrameInterpolationSet::Restore),
+            restore_from_visual_interpolation::<C>.in_set(FrameInterpolationSet::Restore),
         );
         app.add_systems(
             FixedLast,
-            update_visual_interpolation_status::<C>
-                .in_set(FrameInterpolationSet::Update),
+            update_visual_interpolation_status::<C>.in_set(FrameInterpolationSet::Update),
         );
         app.add_systems(
             PostUpdate,
@@ -190,7 +187,7 @@ impl<C: Component> Default for FrameInterpolate<C> {
 // TODO: explore how we could allow this for non-marker components, user would need to specify the interpolation function?
 //  (to avoid orphan rule)
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
-pub(crate) fn visual_interpolation<C: Component<Mutability=Mutable> + Clone + Ease>(
+pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + Ease>(
     // TODO: handle multiple timelines
     timeline: Single<&LocalTimeline, With<PredictionManager>>,
     mut query: Query<(&mut C, &FrameInterpolate<C>)>,
@@ -213,7 +210,11 @@ pub(crate) fn visual_interpolation<C: Component<Mutability=Mutable> + Clone + Ea
             ?overstep,
             "Frame interpolation of fixed-update component!"
         );
-        let curve = EasingCurve::new(previous_value.clone(), current_value.clone(), EaseFunction::Linear);
+        let curve = EasingCurve::new(
+            previous_value.clone(),
+            current_value.clone(),
+            EaseFunction::Linear,
+        );
         let interpolated = curve.sample_unchecked(overstep.value());
         if !interpolate_status.trigger_change_detection {
             *component.bypass_change_detection() = interpolated;
@@ -225,7 +226,7 @@ pub(crate) fn visual_interpolation<C: Component<Mutability=Mutable> + Clone + Ea
 
 /// Update the previous and current tick values.
 /// Runs in FixedUpdate after FixedUpdate::Main (where the component values are updated)
-pub(crate) fn update_visual_interpolation_status<C: Component<Mutability=Mutable> + Clone>(
+pub(crate) fn update_visual_interpolation_status<C: Component<Mutability = Mutable> + Clone>(
     mut query: Query<(Ref<C>, &mut FrameInterpolate<C>)>,
 ) {
     for (component, mut interpolate_status) in query.iter_mut() {
@@ -244,7 +245,7 @@ pub(crate) fn update_visual_interpolation_status<C: Component<Mutability=Mutable
 }
 
 /// Restore the component value to the non-interpolated value
-pub(crate) fn restore_from_visual_interpolation<C: Component<Mutability=Mutable> + Clone>(
+pub(crate) fn restore_from_visual_interpolation<C: Component<Mutability = Mutable> + Clone>(
     // if correction is enabled, we will restore the value from the Correction component
     mut query: Query<(&mut C, &mut FrameInterpolate<C>), Without<Correction<C>>>,
 ) {
@@ -263,8 +264,8 @@ mod tests {
     use crate::client::components::Confirmed;
     use crate::client::config::ClientConfig;
     use crate::client::easings::ease_out_quad;
-    use crate::client::prediction::rollback::test_utils::received_confirmed_update;
     use crate::client::prediction::Predicted;
+    use crate::client::prediction::rollback::test_utils::received_confirmed_update;
     use crate::prelude::client::PredictionConfig;
     use crate::prelude::{SharedConfig, TickConfig};
     use crate::tests::protocol::*;
@@ -286,7 +287,10 @@ mod tests {
         stepper
             .client_app
             .add_systems(FixedUpdate, fixed_update_increment);
-        stepper.client_app().world_mut().insert_resource(Toggle(true));
+        stepper
+            .client_app()
+            .world_mut()
+            .insert_resource(Toggle(true));
         stepper
             .client_app
             .add_plugins(FrameInterpolationPlugin::<InterpolationModeFull>::default());
@@ -1055,7 +1059,10 @@ mod tests {
         };
         // we create the stepper manually to not run init()
         let mut stepper = BevyStepper::new(shared_config, client_config, frame_duration);
-        stepper.client_app().world_mut().insert_resource(Toggle(true));
+        stepper
+            .client_app()
+            .world_mut()
+            .insert_resource(Toggle(true));
         stepper
             .client_app
             .add_systems(FixedUpdate, fixed_update_increment);

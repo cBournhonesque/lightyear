@@ -84,7 +84,6 @@ pub enum ServerTransports {
     },
 }
 
-
 #[derive(Component, Debug)]
 #[component(on_add = ExampleServer::on_add)]
 pub struct ExampleServer {
@@ -101,9 +100,7 @@ impl ExampleServer {
         world.commands().queue(move |world: &mut World| -> Result {
             let mut entity_mut = world.entity_mut(entity);
             let settings = entity_mut.take::<ExampleServer>().unwrap();
-            entity_mut.insert((
-                Name::from("Server"),
-            ));
+            entity_mut.insert((Name::from("Server"),));
 
             if cfg!(feature = "netcode") {
                 // Use private key from environment variable, if set. Otherwise from settings file.
@@ -123,20 +120,17 @@ impl ExampleServer {
             match settings.transport {
                 #[cfg(feature = "udp")]
                 ServerTransports::Udp { local_port } => {
-                    let server_addr = SocketAddr::new(
-                        Ipv4Addr::UNSPECIFIED.into(),
-                        local_port,
-                    );
+                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
                     entity_mut.insert(ServerUdpIo::new(server_addr));
                 }
-                ServerTransports::WebTransport { local_port, certificate} => {
-                    let server_addr = SocketAddr::new(
-                        Ipv4Addr::UNSPECIFIED.into(),
-                        local_port,
-                    );
+                ServerTransports::WebTransport {
+                    local_port,
+                    certificate,
+                } => {
+                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
                     entity_mut.insert(WebTransportServerIo {
                         server_addr,
-                        certificate: (&certificate).into()
+                        certificate: (&certificate).into(),
                     });
                 }
                 _ => {}
@@ -144,9 +138,7 @@ impl ExampleServer {
             Ok(())
         });
     }
-
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum WebTransportCertificateSettings {
@@ -227,8 +219,6 @@ impl From<&WebTransportCertificateSettings> for Identity {
     }
 }
 
-
-
 /// Reads and parses the LIGHTYEAR_PRIVATE_KEY environment variable into a private key.
 pub fn parse_private_key_from_env() -> Option<[u8; PRIVATE_KEY_BYTES]> {
     let Ok(key_str) = std::env::var("LIGHTYEAR_PRIVATE_KEY") else {
@@ -256,4 +246,3 @@ pub fn parse_private_key_from_env() -> Option<[u8; PRIVATE_KEY_BYTES]> {
     bytes.copy_from_slice(&private_key);
     Some(bytes)
 }
-

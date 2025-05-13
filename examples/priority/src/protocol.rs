@@ -16,7 +16,9 @@ pub struct Position(pub(crate) Vec2);
 
 impl Ease for Position {
     fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
-        FunctionCurve::new(Interval::UNIT, move |t| Position(Vec2::lerp(start.0, end.0, t)))
+        FunctionCurve::new(Interval::UNIT, move |t| {
+            Position(Vec2::lerp(start.0, end.0, t))
+        })
     }
 }
 
@@ -59,8 +61,8 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Inputs>();
-        app.register_type::<InputMap::<Inputs>>();
-        app.register_type::<ActionState::<Inputs>>();
+        app.register_type::<InputMap<Inputs>>();
+        app.register_type::<ActionState<Inputs>>();
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components

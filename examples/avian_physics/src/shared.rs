@@ -60,7 +60,6 @@ pub(crate) fn init(mut commands: Commands) {
     ));
 }
 
-
 // Generate pseudo-random color from id
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
@@ -68,7 +67,6 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     let l = 0.5;
     Color::hsl(h, s, l)
 }
-
 
 // This system defines how we update the player's positions when we receive an input
 pub(crate) fn shared_movement_behaviour(
@@ -118,7 +116,6 @@ pub(crate) fn after_physics_log(
     //     info!(?tick, ?position, ?rotation, "Ball after physics update");
     // }
 }
-
 
 // Wall
 #[derive(Bundle)]

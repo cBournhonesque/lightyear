@@ -100,23 +100,19 @@ impl UdpPlugin {
         Ok(())
     }
 
-    fn unlink(
-        trigger: Trigger<Unlink>,
-        mut query: Query<&mut UdpIo, Without<Unlinked>>,
-    ) {
+    fn unlink(trigger: Trigger<Unlink>, mut query: Query<&mut UdpIo, Without<Unlinked>>) {
         if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
             info!("UDP socket closed");
             udp_io.socket = None;
         }
     }
 
-    fn send(
-        mut query: Query<(&mut Link, &mut UdpIo), With<Linked>>
-    ) {
+    fn send(mut query: Query<(&mut Link, &mut UdpIo), With<Linked>>) {
         query.par_iter_mut().for_each(|(mut link, mut udp_io)| {
             if let Some(remote_addr) = link.remote_addr {
                 link.send.drain().for_each(|payload| {
-                    udp_io.socket
+                    udp_io
+                        .socket
                         .as_mut()
                         .unwrap()
                         .send_to(payload.as_ref(), remote_addr)
@@ -127,9 +123,7 @@ impl UdpPlugin {
         })
     }
 
-    fn receive(
-        mut query: Query<(&mut Link, &mut UdpIo), With<Linked>>
-    ) {
+    fn receive(mut query: Query<(&mut Link, &mut UdpIo), With<Linked>>) {
         query.par_iter_mut().for_each(|(mut link, mut udp_io)| {
             // enable split borrows
             let udp_io = &mut *udp_io;
@@ -168,13 +162,11 @@ impl UdpPlugin {
                         let payload = udp_io.buffer.split_to(recv_len);
                         link.recv.push(payload.freeze(), Instant::now());
                     }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        return
-                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => return,
                     Err(e) => {
                         error!("Error receiving UDP packet: {}", e);
-                        return
-                    },
+                        return;
+                    }
                 }
             }
         })
@@ -192,6 +184,3 @@ impl Plugin for UdpPlugin {
         app.add_systems(PreUpdate, Self::send.in_set(LinkSet::Send));
     }
 }
-
-
-

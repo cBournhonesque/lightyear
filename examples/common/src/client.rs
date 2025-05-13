@@ -30,7 +30,9 @@ pub enum ClientTransports {
     #[cfg(feature = "websocket")]
     WebSocket,
     #[cfg(feature = "steam")]
-    Steam { app_id: u32 },
+    Steam {
+        app_id: u32,
+    },
 }
 
 /// Event that examples can trigger to spawn a client.
@@ -46,7 +48,7 @@ pub struct ExampleClient {
     pub conditioner: Option<RecvLinkConditioner>,
     /// Which transport to use
     pub transport: ClientTransports,
-    pub shared: SharedSettings
+    pub shared: SharedSettings,
 }
 
 impl ExampleClient {
@@ -108,10 +110,7 @@ impl ExampleClient {
             Ok(())
         });
     }
-    
 }
-
-
 
 /// Read certificate digest from alternate sources, for WASM builds.
 #[cfg(target_family = "wasm")]
@@ -154,7 +153,6 @@ pub fn get_digest_on_wasm() -> Option<String> {
 
     None
 }
-
 
 /// This is the path to the websocket endpoint on `bevygap_matchmaker_httpd``
 ///

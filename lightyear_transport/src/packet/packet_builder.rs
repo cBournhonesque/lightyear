@@ -2,7 +2,7 @@
 use crate::channel::registry::ChannelId;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{FragmentData, MessageAck, SingleData};
-use crate::packet::packet::{Packet, FRAGMENT_SIZE};
+use crate::packet::packet::{FRAGMENT_SIZE, Packet};
 use crate::packet::packet_type::PacketType;
 use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
@@ -11,10 +11,10 @@ use bytes::Bytes;
 use core::time::Duration;
 use lightyear_core::network::NetId;
 use lightyear_core::tick::Tick;
-use lightyear_serde::{varint::varint_len, writer::WriteInteger, SerializationError, ToBytes};
+use lightyear_serde::{SerializationError, ToBytes, varint::varint_len, writer::WriteInteger};
 use tracing::trace;
 #[cfg(feature = "trace")]
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 pub const MAX_PACKET_SIZE: usize = 1200;
 
@@ -433,7 +433,7 @@ mod tests {
     use crate::channel::senders::fragment_sender::FragmentSender;
     use crate::packet::error::PacketError;
     use crate::packet::message::{FragmentIndex, MessageId};
-    use bevy::prelude::{default, App, TypePath};
+    use bevy::prelude::{App, TypePath, default};
     use bytes::Bytes;
 
     use super::*;
@@ -458,7 +458,9 @@ mod tests {
         app.add_channel::<Channel1>(settings.clone());
         app.add_channel::<Channel2>(settings.clone());
         app.add_channel::<Channel3>(settings.clone());
-        app.world_mut().remove_resource::<ChannelRegistry>().unwrap()
+        app.world_mut()
+            .remove_resource::<ChannelRegistry>()
+            .unwrap()
     }
 
     /// A bunch of small messages that all fit in the same packet
@@ -485,7 +487,8 @@ mod tests {
             (*channel_id3, VecDeque::from(vec![small_message.clone()])),
         ];
         let fragment_data = vec![];
-        let mut packets = manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
+        let mut packets =
+            manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
         assert_eq!(packets.len(), 1);
         let packet = packets.pop().unwrap();
         assert_eq!(packet.message_acks, vec![]);
@@ -528,7 +531,8 @@ mod tests {
                 VecDeque::from(vec![small_message.clone(), small_message.clone()]),
             )];
             let fragment_data = vec![];
-            let packets = manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
+            let packets =
+                manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
             assert_eq!(packets.len(), 2);
         }
         {
@@ -537,7 +541,8 @@ mod tests {
                 (*channel_id2, VecDeque::from(vec![small_message.clone()])),
             ];
             let fragment_data = vec![];
-            let packets = manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
+            let packets =
+                manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
             assert_eq!(packets.len(), 2);
         }
         Ok(())
@@ -573,7 +578,8 @@ mod tests {
             ),
         ];
         let fragment_data = vec![];
-        let packets = manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
+        let packets =
+            manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
         assert_eq!(packets.len(), 7);
         Ok(())
     }
@@ -602,7 +608,8 @@ mod tests {
             (*channel_id3, VecDeque::from(vec![small_message.clone()])),
         ];
         let fragment_data = vec![];
-        let packets = manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
+        let packets =
+            manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
         assert_eq!(packets.len(), 2);
         Ok(())
     }
@@ -626,8 +633,7 @@ mod tests {
         let num_big_bytes = (1.5 * FRAGMENT_SIZE as f32) as usize;
         let big_bytes = Bytes::from(vec![1u8; num_big_bytes]);
         let fragmenter = FragmentSender::new();
-        let fragments = fragmenter
-            .build_fragments(MessageId(3), None, big_bytes.clone());
+        let fragments = fragmenter.build_fragments(MessageId(3), None, big_bytes.clone());
 
         let small_bytes = Bytes::from(vec![7u8; 10]);
         let small_message = SingleData::new(None, small_bytes.clone());
@@ -641,7 +647,8 @@ mod tests {
             (*channel_id3, VecDeque::from(vec![small_message.clone()])),
         ];
         let fragment_data = vec![(*channel_id2, fragments.clone().into())];
-        let packets = manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
+        let packets =
+            manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
         assert_eq!(packets.len(), 2);
 
         let mut packets_queue: VecDeque<_> = packets.into();

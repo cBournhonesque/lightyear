@@ -19,18 +19,18 @@ use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::prelude::Transport;
 
-pub mod plugin;
-pub mod receive;
-pub mod send;
-mod trigger;
-pub mod registry;
-mod send_trigger;
-mod receive_trigger;
 #[cfg(feature = "client")]
 mod client;
+pub mod multi;
+pub mod plugin;
+pub mod receive;
+mod receive_trigger;
+pub mod registry;
+pub mod send;
+mod send_trigger;
 #[cfg(feature = "server")]
 pub mod server;
-pub mod multi;
+mod trigger;
 
 pub mod prelude {
     pub use crate::plugin::MessageSet;
@@ -62,7 +62,6 @@ impl<T: Send + Sync + 'static> Message for T {}
 // TODO: this conflicts with the MessageId from lightyear_transport! find a different name
 pub type MessageNetId = NetId;
 
-
 /// Manages sending and receiving messages for an entity.
 ///
 /// This component is added to entities that need to send or receive messages.
@@ -71,7 +70,7 @@ pub type MessageNetId = NetId;
 /// It also holds a `RemoteEntityMap` for mapping entities between client and server.
 #[derive(Component, Default, Reflect)]
 #[require(Transport)]
-pub struct MessageManager{
+pub struct MessageManager {
     /// List of component ids of the MessageSender<M> present on this entity
     pub(crate) send_messages: Vec<(MessageKind, ComponentId)>,
     /// List of component ids of the TriggerSender<M> present on this entity

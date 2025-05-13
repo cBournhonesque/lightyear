@@ -6,7 +6,7 @@ use crate::manager::InterpolationManager;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
-use bevy::prelude::{default, Component, Deref, DerefMut, Reflect};
+use bevy::prelude::{Component, Deref, DerefMut, Reflect, default};
 use core::time::Duration;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::direction::NetworkDirection;
@@ -22,7 +22,9 @@ use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_sync::prelude::client::RemoteTimeline;
 use lightyear_sync::prelude::{DrivingTimeline, PingManager};
-use lightyear_sync::timeline::sync::{SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline, SyncedTimelinePlugin};
+use lightyear_sync::timeline::sync::{
+    SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline, SyncedTimelinePlugin,
+};
 use tracing::trace;
 
 /// Config to specify how the snapshot interpolation should behave
@@ -77,15 +79,17 @@ pub struct Interpolation {
     is_synced: bool,
 }
 
-
 #[derive(Component, Deref, DerefMut, Default, Reflect)]
 pub struct InterpolationTimeline(Timeline<Interpolation>);
 
 impl TimelineContext for Interpolation {}
 
 impl InterpolationTimeline {
-
-    fn new(tick_duration: Duration, interpolation_config: InterpolationConfig, sync_config: SyncConfig) -> Self {
+    fn new(
+        tick_duration: Duration,
+        interpolation_config: InterpolationConfig,
+        sync_config: SyncConfig,
+    ) -> Self {
         let mut interpolation = Interpolation {
             tick_duration,
             interpolation_config,
@@ -97,10 +101,23 @@ impl InterpolationTimeline {
 }
 
 impl SyncedTimeline for InterpolationTimeline {
-    fn sync_objective<T: SyncTargetTimeline>(&self, remote: &T, ping_manager: &PingManager, tick_duration: Duration) -> TickInstant {
-        let delay = TickDelta::from_duration(self.interpolation_config.to_duration(self.remote_send_interval), tick_duration);
+    fn sync_objective<T: SyncTargetTimeline>(
+        &self,
+        remote: &T,
+        ping_manager: &PingManager,
+        tick_duration: Duration,
+    ) -> TickInstant {
+        let delay = TickDelta::from_duration(
+            self.interpolation_config
+                .to_duration(self.remote_send_interval),
+            tick_duration,
+        );
         // take extra margin if there is jitter
-        let jitter_margin = TickDelta::from_duration(ping_manager.jitter() * self.sync_config.jitter_multiple as u32 + self.sync_config.jitter_margin, tick_duration);
+        let jitter_margin = TickDelta::from_duration(
+            ping_manager.jitter() * self.sync_config.jitter_multiple as u32
+                + self.sync_config.jitter_margin,
+            tick_duration,
+        );
         let target = remote.current_estimate();
         let obj = target - (delay + jitter_margin);
         trace!(
@@ -130,10 +147,15 @@ impl SyncedTimeline for InterpolationTimeline {
     ///
     /// Most of the times this will just be slight nudges to modify the speed of the [`SyncedTimeline`].
     /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`MainTimeline`] by sending a SyncEvent
-    fn sync<T: SyncTargetTimeline>(&mut self, remote: &T, ping_manager: &PingManager, tick_duration: Duration) -> Option<SyncEvent<Self>> {
+    fn sync<T: SyncTargetTimeline>(
+        &mut self,
+        remote: &T,
+        ping_manager: &PingManager,
+        tick_duration: Duration,
+    ) -> Option<SyncEvent<Self>> {
         // skip syncing if we haven't received enough information
         if ping_manager.pongs_recv < self.sync_config.handshake_pings as u32 {
-            return None
+            return None;
         }
         self.is_synced = true;
         // TODO: should we call current_estimate()? now() should basically return the same thing
@@ -154,7 +176,7 @@ impl SyncedTimeline for InterpolationTimeline {
         match adjustment {
             SyncAdjustment::Resync => {
                 return Some(self.resync(objective));
-            },
+            }
             SyncAdjustment::SpeedAdjust(ratio) => {
                 self.set_relative_speed(ratio);
             }
@@ -190,10 +212,7 @@ impl SyncedTimeline for InterpolationTimeline {
     }
 }
 
-
 pub struct TimelinePlugin;
-
-
 
 impl TimelinePlugin {
     fn receive_sender_metadata(
@@ -218,7 +237,7 @@ impl TimelinePlugin {
     ) {
         let delta = time.delta();
         query.iter_mut().for_each(|mut t| {
-            // make sure to account for the fact that Time<Virtual> is already updated from the Driving timeline 
+            // make sure to account for the fact that Time<Virtual> is already updated from the Driving timeline
             let new_delta = delta
                 .div_f32(time.relative_speed())
                 .mul_f32(t.relative_speed());
@@ -227,7 +246,6 @@ impl TimelinePlugin {
         })
     }
 }
-
 
 impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {

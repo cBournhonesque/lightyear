@@ -21,10 +21,26 @@ fn test_setup_client_server() {
     assert!(stepper.client(0).contains::<Transport>());
     assert!(stepper.client(0).contains::<MessageManager>());
     assert!(stepper.client(0).contains::<MessageSender<StringMessage>>());
-    assert!(stepper.client(0).contains::<MessageReceiver<StringMessage>>());
-    assert!(stepper.client(0).contains::<TriggerSender<SenderMetadata>>());
-    assert!(stepper.client(0).contains::<TriggerSender<AuthorityTransferRequest>>());
-    assert!(stepper.client(0).contains::<TriggerSender<AuthorityTransferResponse>>());
+    assert!(
+        stepper
+            .client(0)
+            .contains::<MessageReceiver<StringMessage>>()
+    );
+    assert!(
+        stepper
+            .client(0)
+            .contains::<TriggerSender<SenderMetadata>>()
+    );
+    assert!(
+        stepper
+            .client(0)
+            .contains::<TriggerSender<AuthorityTransferRequest>>()
+    );
+    assert!(
+        stepper
+            .client(0)
+            .contains::<TriggerSender<AuthorityTransferResponse>>()
+    );
     assert!(stepper.client(0).contains::<ReplicationSender>());
     assert!(stepper.client(0).contains::<ReplicationReceiver>());
     assert!(stepper.client(0).contains::<CrossbeamIo>());
@@ -36,11 +52,31 @@ fn test_setup_client_server() {
     assert!(stepper.client_of(0).contains::<LocalTimeline>());
     assert!(stepper.client_of(0).contains::<Transport>());
     assert!(stepper.client_of(0).contains::<MessageManager>());
-    assert!(stepper.client_of(0).contains::<MessageSender<StringMessage>>());
-    assert!(stepper.client_of(0).contains::<MessageReceiver<StringMessage>>());
-    assert!(stepper.client_of(0).contains::<TriggerSender<SenderMetadata>>());
-    assert!(stepper.client_of(0).contains::<TriggerSender<AuthorityTransferRequest>>());
-    assert!(stepper.client_of(0).contains::<TriggerSender<AuthorityTransferResponse>>());
+    assert!(
+        stepper
+            .client_of(0)
+            .contains::<MessageSender<StringMessage>>()
+    );
+    assert!(
+        stepper
+            .client_of(0)
+            .contains::<MessageReceiver<StringMessage>>()
+    );
+    assert!(
+        stepper
+            .client_of(0)
+            .contains::<TriggerSender<SenderMetadata>>()
+    );
+    assert!(
+        stepper
+            .client_of(0)
+            .contains::<TriggerSender<AuthorityTransferRequest>>()
+    );
+    assert!(
+        stepper
+            .client_of(0)
+            .contains::<TriggerSender<AuthorityTransferResponse>>()
+    );
     assert!(stepper.client_of(0).contains::<CrossbeamIo>());
     assert!(stepper.client_of(0).contains::<Connected>());
 }

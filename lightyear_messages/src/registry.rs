@@ -13,15 +13,18 @@ use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::{ReceiveEntityMap, RemoteEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
-use lightyear_serde::registry::{ContextDeserializeFn, ContextDeserializeFns, ContextSerializeFn, ContextSerializeFns, DeserializeFn, ErasedSerializeFns, SerializeFn, SerializeFns};
+use lightyear_serde::registry::{
+    ContextDeserializeFn, ContextDeserializeFns, ContextSerializeFn, ContextSerializeFns,
+    DeserializeFn, ErasedSerializeFns, SerializeFn, SerializeFns,
+};
 use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::senders::ChannelSenderEnum;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::{ChannelMode, ChannelRegistry, ChannelSettings};
 use lightyear_utils::registry::{TypeKind, TypeMapper};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tracing::debug;
 
 #[derive(thiserror::Error, Debug)]
@@ -70,7 +73,6 @@ impl From<TypeId> for MessageKind {
 use crate::receive_trigger::ReceiveTriggerFn;
 use crate::send_trigger::{SendTriggerFn, TriggerSender};
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceiveMessageMetadata {
     /// ComponentId of the MessageReceiver<M> component (used if not a trigger)
@@ -78,7 +80,6 @@ pub struct ReceiveMessageMetadata {
     pub(crate) receive_message_fn: ReceiveMessageFn,
     pub(crate) message_clear_fn: ClearMessageFn,
 }
-
 
 #[derive(Debug, Clone, PartialEq, TypePath)]
 pub(crate) struct SendMessageMetadata {
@@ -194,23 +195,29 @@ impl MessageRegistry {
             ErasedSerializeFns::new::<SendEntityMap, ReceiveEntityMap, M, I>(
                 serialize,
                 deserialize,
-            )
+            ),
         );
     }
 
     pub(crate) fn register_sender<M: Message>(&mut self, component_id: ComponentId) {
-        self.send_metadata.insert(MessageKind::of::<M>(), SendMessageMetadata {
-            component_id,
-            send_message_fn: MessageSender::<M>::send_message_typed
-        });
+        self.send_metadata.insert(
+            MessageKind::of::<M>(),
+            SendMessageMetadata {
+                component_id,
+                send_message_fn: MessageSender::<M>::send_message_typed,
+            },
+        );
     }
 
     pub(crate) fn register_receiver<M: Message>(&mut self, component_id: ComponentId) {
-        self.receive_metadata.insert(MessageKind::of::<M>(), ReceiveMessageMetadata {
-            component_id,
-            receive_message_fn: MessageReceiver::<M>::receive_message_typed,
-            message_clear_fn: MessageReceiver::<M>::clear_typed,
-        });
+        self.receive_metadata.insert(
+            MessageKind::of::<M>(),
+            ReceiveMessageMetadata {
+                component_id,
+                receive_message_fn: MessageReceiver::<M>::receive_message_typed,
+                message_clear_fn: MessageReceiver::<M>::clear_typed,
+            },
+        );
     }
 
     pub(crate) fn is_map_entities<M: 'static>(&self) -> Result<bool> {
@@ -222,7 +229,10 @@ impl MessageRegistry {
         Ok(erased_fns.map_entities.is_some())
     }
 
-    pub(crate) fn add_map_entities<M: Clone + MapEntities + 'static, I: Clone + MapEntities + 'static>(
+    pub(crate) fn add_map_entities<
+        M: Clone + MapEntities + 'static,
+        I: Clone + MapEntities + 'static,
+    >(
         &mut self,
         context_serialize: ContextSerializeFn<SendEntityMap, M, I>,
         context_deserialize: ContextDeserializeFn<ReceiveEntityMap, M, I>,
@@ -250,7 +260,9 @@ impl MessageRegistry {
             .ok_or(MessageError::MissingSerializationFns)?;
         let net_id = self.kind_map.net_id(&kind).unwrap();
         net_id.to_bytes(writer)?;
-        unsafe { erased_fns.serialize::<SendEntityMap, M, M>(message, writer, entity_map)?; }
+        unsafe {
+            erased_fns.serialize::<SendEntityMap, M, M>(message, writer, entity_map)?;
+        }
         Ok(())
     }
 
@@ -269,7 +281,11 @@ impl MessageRegistry {
             .get(kind)
             .ok_or(MessageError::MissingSerializationFns)?;
         // SAFETY: the ErasedSerializeFns was created for the type M
-        unsafe { erased_fns.deserialize::<ReceiveEntityMap, M, M>(reader, entity_map).map_err(Into::into) }
+        unsafe {
+            erased_fns
+                .deserialize::<ReceiveEntityMap, M, M>(reader, entity_map)
+                .map_err(Into::into)
+        }
     }
 }
 
@@ -279,7 +295,6 @@ pub struct MessageRegistration<'a, M> {
 }
 
 impl<M: Message> MessageRegistration<'_, M> {
-
     #[cfg(feature = "test_utils")]
     pub fn new(app: &mut App) -> Self {
         Self {
@@ -313,24 +328,37 @@ impl<M: Message> MessageRegistration<'_, M> {
 pub trait AppMessageExt {
     /// Register a regular message type `M`.
     /// This adds `MessageSender<M>` and `MessageReceiver<M>` components.
-    fn add_message<M: Message + Serialize + DeserializeOwned>(&mut self) -> MessageRegistration<'_, M>;
+    fn add_message<M: Message + Serialize + DeserializeOwned>(
+        &mut self,
+    ) -> MessageRegistration<'_, M>;
 
     /// Register a regular message type `M` with custom serialization functions.
-    fn add_message_custom_serde<M: Message>(&mut self, serialize_fns: SerializeFns<M>) -> MessageRegistration<'_, M>;
+    fn add_message_custom_serde<M: Message>(
+        &mut self,
+        serialize_fns: SerializeFns<M>,
+    ) -> MessageRegistration<'_, M>;
 
     #[doc(hidden)]
     /// Register a regular message type `M` that uses `ToBytes` for serialization.
     fn add_message_to_bytes<M: Message + ToBytes>(&mut self) -> MessageRegistration<'_, M>;
 }
 
-
 impl AppMessageExt for App {
-    fn add_message<M: Message + Serialize + DeserializeOwned>(&mut self) -> MessageRegistration<'_, M> {
+    fn add_message<M: Message + Serialize + DeserializeOwned>(
+        &mut self,
+    ) -> MessageRegistration<'_, M> {
         self.add_message_custom_serde::<M>(SerializeFns::<M>::default())
     }
 
-    fn add_message_custom_serde<M: Message>(&mut self, serialize_fns: SerializeFns<M>) -> MessageRegistration<'_, M> {
-        if self.world_mut().get_resource_mut::<MessageRegistry>().is_none() {
+    fn add_message_custom_serde<M: Message>(
+        &mut self,
+        serialize_fns: SerializeFns<M>,
+    ) -> MessageRegistration<'_, M> {
+        if self
+            .world_mut()
+            .get_resource_mut::<MessageRegistry>()
+            .is_none()
+        {
             self.world_mut().init_resource::<MessageRegistry>();
         }
         // Register components for sending/receiving M
@@ -341,7 +369,7 @@ impl AppMessageExt for App {
         // Register M for serialization/deserialization
         registry.register_message::<M, M>(
             ContextSerializeFns::new(serialize_fns.serialize),
-            ContextDeserializeFns::new(serialize_fns.deserialize)
+            ContextDeserializeFns::new(serialize_fns.deserialize),
         );
         // Register sender/receiver metadata for M, ensuring trigger_fn is None
         registry.register_sender::<M>(sender_id);
@@ -361,9 +389,9 @@ impl AppMessageExt for App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lightyear_serde::SerializationError;
     use lightyear_serde::reader::ReadInteger;
     use lightyear_serde::writer::WriteInteger;
-    use lightyear_serde::SerializationError;
     use serde::Deserialize;
 
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
@@ -381,7 +409,9 @@ mod tests {
         Ok(())
     }
 
-    pub(crate) fn deserialize_message2(reader: &mut Reader) -> std::result::Result<Message2, SerializationError> {
+    pub(crate) fn deserialize_message2(
+        reader: &mut Reader,
+    ) -> std::result::Result<Message2, SerializationError> {
         let data = f32::from_bits(reader.read_u32()?);
         Ok(Message2(data))
     }
@@ -404,7 +434,9 @@ mod tests {
             MessageKind::of::<Message1>(),
             ErasedSerializeFns::new(
                 ContextSerializeFns::<(), _>::new(SerializeFns::<Message1>::default().serialize),
-                ContextDeserializeFns::<(), _>::new(SerializeFns::<Message1>::default().deserialize)
+                ContextDeserializeFns::<(), _>::new(
+                    SerializeFns::<Message1>::default().deserialize,
+                ),
             ),
         );
 
@@ -451,8 +483,12 @@ mod tests {
         registry.serialize_fns_map.insert(
             MessageKind::of::<Message3>(),
             ErasedSerializeFns::new(
-                ContextSerializeFns::<SendEntityMap, _>::new(SerializeFns::<Message3>::default().serialize),
-                ContextDeserializeFns::<ReceiveEntityMap, _>::new(SerializeFns::<Message3>::default().deserialize)
+                ContextSerializeFns::<SendEntityMap, _>::new(
+                    SerializeFns::<Message3>::default().serialize,
+                ),
+                ContextDeserializeFns::<ReceiveEntityMap, _>::new(
+                    SerializeFns::<Message3>::default().deserialize,
+                ),
             ),
         );
         registry.add_map_entities(

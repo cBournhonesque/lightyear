@@ -69,10 +69,7 @@ impl ServerUdpPlugin {
         Ok(())
     }
 
-    fn unlink(
-        trigger: Trigger<Unlink>,
-        mut query: Query<&mut ServerUdpIo, Without<Unlinked>>,
-    ) {
+    fn unlink(trigger: Trigger<Unlink>, mut query: Query<&mut ServerUdpIo, Without<Unlinked>>) {
         if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
             info!("Server UDP socket closed");
             udp_io.socket = None;

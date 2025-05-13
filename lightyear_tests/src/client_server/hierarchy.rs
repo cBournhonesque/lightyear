@@ -3,7 +3,9 @@
 use crate::stepper::ClientServerStepper;
 use bevy::prelude::*;
 use lightyear_messages::MessageManager;
-use lightyear_replication::prelude::{ChildOfSync, DisableReplicateHierarchy, Replicate, ReplicateLike};
+use lightyear_replication::prelude::{
+    ChildOfSync, DisableReplicateHierarchy, Replicate, ReplicateLike,
+};
 use test_log::test;
 
 // TODO:
@@ -15,44 +17,48 @@ use test_log::test;
 fn test_spawn_with_child() {
     let mut stepper = ClientServerStepper::single();
 
-    let client_entity = stepper.client_app().world_mut().spawn((
-        Replicate::to_server(),
-    )).id();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(),))
+        .id();
     stepper.frame_step(1);
-    stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_entity)
+    stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
         .expect("entity is not present in entity map");
 
-    let client_child = stepper.client_app().world_mut().spawn((
-        ChildOf(client_entity),
-    )).id();
+    let client_child = stepper
+        .client_app()
+        .world_mut()
+        .spawn((ChildOf(client_entity),))
+        .id();
     stepper.frame_step(1);
-    stepper.client_of(0).get::<MessageManager>().unwrap().entity_mapper.get_local(client_child)
+    stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_child)
         .expect("entity is not present in entity map");
 }
 
 ///
 #[test]
-fn test_despawn_with_child() {
-
-}
+fn test_despawn_with_child() {}
 
 fn setup_hierarchy() -> (ClientServerStepper, Entity, Entity, Entity) {
     let mut stepper = ClientServerStepper::single();
-     let grandparent = stepper
-        .server_app
-        .world_mut()
-        .spawn_empty()
-        .id();
+    let grandparent = stepper.server_app.world_mut().spawn_empty().id();
     let parent = stepper
         .server_app
         .world_mut()
         .spawn(ChildOf(grandparent))
         .id();
-    let child = stepper
-        .server_app
-        .world_mut()
-        .spawn(ChildOf(parent))
-        .id();
+    let child = stepper.server_app.world_mut().spawn(ChildOf(parent)).id();
     (stepper, grandparent, parent, child)
 }
 
@@ -76,9 +82,19 @@ fn test_hierarchy_replication() {
     stepper.frame_step(2);
 
     // check that the parent got replicated, along with the hierarchy information
-    let client_grandparent = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(grandparent)
+    let client_grandparent = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(grandparent)
         .expect("entity is not present in entity map");
-    let client_parent = stepper.client(0).get::<MessageManager>().unwrap().entity_mapper.get_local(parent)
+    let client_parent = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(parent)
         .expect("entity is not present in entity map");
 
     let (client_parent, client_parent_sync, client_parent_component) = stepper
@@ -94,16 +110,20 @@ fn test_hierarchy_replication() {
     // TODO: check that the parent/grandparent have the same ReplicationGroupId
 
     // check that the child did not get replicated
-    assert!(stepper
-        .server_app
-        .world()
-        .get::<ChildOfSync>(child)
-        .is_none());
-    assert!(stepper
-        .server_app
-        .world()
-        .get::<ReplicateLike>(child)
-        .is_none());
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .get::<ChildOfSync>(child)
+            .is_none()
+    );
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .get::<ReplicateLike>(child)
+            .is_none()
+    );
 
     // remove the hierarchy on the sender side
     stepper
@@ -141,14 +161,15 @@ fn test_hierarchy_replication() {
             .get::<ChildOf>(),
         None,
     );
-    assert!(stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(client_grandparent)
-        .get::<Children>()
-        .is_none());
+    assert!(
+        stepper
+            .client_app()
+            .world_mut()
+            .entity_mut(client_grandparent)
+            .get::<Children>()
+            .is_none()
+    );
 }
-
 
 /// https://github.com/cBournhonesque/lightyear/issues/649
 /// P1 with child C1
@@ -156,14 +177,10 @@ fn test_hierarchy_replication() {
 /// P1 and C1 should be replicated to the new client.
 /// (the issue says that only P1 was replicated)
 #[test]
-fn test_new_client_is_added_to_parent() {
-
-}
+fn test_new_client_is_added_to_parent() {}
 
 /// https://github.com/cBournhonesque/lightyear/issues/547
 /// Test that when a new child is added to a parent
 /// the child is also replicated to the remote
 #[test]
-fn test_propagate_hierarchy_new_child() {
-}
-
+fn test_propagate_hierarchy_new_child() {}

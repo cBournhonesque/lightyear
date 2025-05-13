@@ -1,5 +1,3 @@
-
-
 /// Returns how many bytes it would take to encode `v` as a variable-length
 /// integer.
 ///
@@ -30,16 +28,13 @@ pub const fn varint_parse_len(first: u8) -> usize {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use crate::reader::{ReadVarInt};
+    use crate::reader::ReadVarInt;
     use crate::writer::WriteInteger;
-    use no_std_io2::io;
     #[cfg(not(feature = "std"))]
-    use {
-        alloc::vec,
-    };
+    use alloc::vec;
+    use no_std_io2::io;
 
     #[test]
     fn test_varint_len_1() {

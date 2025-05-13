@@ -21,10 +21,12 @@ impl Server {
         let entity_ref = world.entity(context.entity);
         if !entity_ref.contains::<Unlinked>()
             && !entity_ref.contains::<Linked>()
-             && !entity_ref.contains::<Linking>() {
+            && !entity_ref.contains::<Linking>()
+        {
             trace!("Inserting Unlinked because ServerLink was added");
-            world.commands().entity(context.entity)
-                .insert(Unlinked { reason: String::new()});
+            world.commands().entity(context.entity).insert(Unlinked {
+                reason: String::new(),
+            });
         };
     }
 
@@ -38,20 +40,19 @@ impl Server {
                 if let Ok(mut c) = commands.get_entity(*link_of) {
                     // cannot simply insert Unlinked because then we wouldn't close aeronet sessions...
                     c.trigger(Unlink {
-                        reason: unlinked.reason.clone()
+                        reason: unlinked.reason.clone(),
                     });
                     c.despawn();
                 }
-            };
+            }
         }
     }
 }
 
-
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug, Reflect)]
 #[relationship(relationship_target = Server)]
 pub struct LinkOf {
-    pub server: Entity
+    pub server: Entity,
 }
 
 impl LinkOf {
@@ -79,5 +80,3 @@ impl Plugin for ServerLinkPlugin {
         app.add_observer(LinkOf::on_insert);
     }
 }
-
-

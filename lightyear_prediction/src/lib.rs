@@ -13,16 +13,15 @@ pub(crate) mod archetypes;
 pub mod correction;
 pub mod despawn;
 pub mod diagnostics;
+pub(crate) mod manager;
 pub mod plugin;
 pub mod pre_prediction;
 pub mod predicted_history;
 pub mod prespawn;
-pub(crate) mod manager;
+mod registry;
 pub mod resource_history;
 pub mod rollback;
 pub mod spawn;
-mod registry;
-
 
 pub mod prelude {
     pub use crate::despawn::PredictionDespawnCommandsExt;
@@ -61,16 +60,17 @@ impl Component for Predicted {
                 let Some(confirmed) = deferred_world
                     .get::<Predicted>(predicted)
                     .unwrap()
-                    .confirmed_entity else {
-                    return
+                    .confirmed_entity
+                else {
+                    return;
                 };
-                let Some(mut resource) =
-                        deferred_world.get_resource::<PredictionResource>() else {
-                    return
+                let Some(mut resource) = deferred_world.get_resource::<PredictionResource>() else {
+                    return;
                 };
                 let Some(mut manager) =
-                    deferred_world.get_mut::<PredictionManager>(resource.link_entity) else {
-                    return
+                    deferred_world.get_mut::<PredictionManager>(resource.link_entity)
+                else {
+                    return;
                 };
                 manager
                     .predicted_entity_map
@@ -85,23 +85,23 @@ impl Component for Predicted {
                 let Some(confirmed) = deferred_world
                     .get::<Predicted>(predicted)
                     .unwrap()
-                    .confirmed_entity else {
-                    return
+                    .confirmed_entity
+                else {
+                    return;
                 };
-                let Some(mut resource) =
-                        deferred_world.get_resource::<PredictionResource>() else {
-                    return
+                let Some(mut resource) = deferred_world.get_resource::<PredictionResource>() else {
+                    return;
                 };
                 let Some(mut manager) =
-                    deferred_world.get_mut::<PredictionManager>(resource.link_entity) else {
-                    return
+                    deferred_world.get_mut::<PredictionManager>(resource.link_entity)
+                else {
+                    return;
                 };
                 manager
                     .predicted_entity_map
                     .get_mut()
                     .confirmed_to_predicted
                     .remove(&confirmed);
-
             },
         );
     }
@@ -137,5 +137,5 @@ pub enum PredictionMode {
 /// This is a marker trait, requiring `Component<Mutability=Mutable> + Clone + PartialEq`.
 /// Components implementing this trait can have their state managed by the prediction and interpolation systems
 /// according to the specified `PredictionMode`.
-pub trait SyncComponent: Component<Mutability=Mutable> + Clone + PartialEq {}
-impl<T> SyncComponent for T where T: Component<Mutability=Mutable> + Clone + PartialEq {}
+pub trait SyncComponent: Component<Mutability = Mutable> + Clone + PartialEq {}
+impl<T> SyncComponent for T where T: Component<Mutability = Mutable> + Clone + PartialEq {}

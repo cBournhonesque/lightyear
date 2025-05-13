@@ -1,8 +1,8 @@
 /*! Handles syncing the time between the client and the server
 */
 use crate::plugin::SyncPlugin;
-use crate::prelude::client::RemoteTimeline;
 use crate::prelude::InputTimeline;
+use crate::prelude::client::RemoteTimeline;
 use crate::timeline::input::Input;
 #[cfg(feature = "interpolation")]
 use crate::timeline::interpolation::InterpolationTimeline;
@@ -56,13 +56,8 @@ impl ClientPlugin {
 //    - in PostUpdate too
 //    - in PreUpdate the Time<Virtual> has been updated but not the timelines! Maybe we could just store a PreUpdate now()?
 
-
-
-
 impl Plugin for ClientPlugin {
-
     fn build(&self, app: &mut App) {
-
         app.register_type::<(InputTimeline, RemoteTimeline)>();
 
         if !app.is_plugin_added::<SyncPlugin>() {
@@ -88,7 +83,6 @@ impl Plugin for ClientPlugin {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,30 +98,33 @@ mod tests {
     fn test_advance_remote() {
         let mut app = App::new();
         let now = Instant::now();
-        app.world_mut().insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(10)));
-        app.world_mut().insert_resource(TickDuration(Duration::from_millis(10)));
-        app.add_plugins((
-            TimePlugin,
-            ClientPlugin
-        ));
+        app.world_mut()
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+                10,
+            )));
+        app.world_mut()
+            .insert_resource(TickDuration(Duration::from_millis(10)));
+        app.add_plugins((TimePlugin, ClientPlugin));
         app.update();
 
         let e = app.world_mut().spawn(RemoteTimeline::default()).id();
-        assert_eq!(app.world().get::<RemoteTimeline>(e).unwrap().now, TickInstant {
-            tick: Tick(0),
-            overstep: Overstep::new(0.0),
-        });
+        assert_eq!(
+            app.world().get::<RemoteTimeline>(e).unwrap().now,
+            TickInstant {
+                tick: Tick(0),
+                overstep: Overstep::new(0.0),
+            }
+        );
         app.update();
-        assert_eq!(app.world().get::<RemoteTimeline>(e).unwrap().now, TickInstant {
-            tick: Tick(1),
-            overstep: Overstep::new(0.0),
-        });
-
-
+        assert_eq!(
+            app.world().get::<RemoteTimeline>(e).unwrap().now,
+            TickInstant {
+                tick: Tick(1),
+                overstep: Overstep::new(0.0),
+            }
+        );
     }
 }
-
-
 
 // #[cfg(test)]
 // mod tests {

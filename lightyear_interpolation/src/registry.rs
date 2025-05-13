@@ -1,10 +1,12 @@
-use crate::{add_interpolation_systems, add_prepare_interpolation_systems, InterpolationMode, SyncComponent};
+use crate::{
+    InterpolationMode, SyncComponent, add_interpolation_systems, add_prepare_interpolation_systems,
+};
 use bevy::math::Curve;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::{Component, Ease, EaseFunction, EasingCurve, Resource};
 use lightyear_replication::prelude::ComponentRegistration;
-use lightyear_replication::registry::registry::LerpFn;
 use lightyear_replication::registry::ComponentKind;
+use lightyear_replication::registry::registry::LerpFn;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -17,7 +19,6 @@ pub struct InterpolationMetadata {
     pub interpolation: Option<unsafe fn()>,
     pub custom_interpolation: bool,
 }
-
 
 #[derive(Resource, Debug, Default)]
 pub struct InterpolationRegistry {
@@ -67,29 +68,27 @@ impl InterpolationRegistry {
             .interpolation_map
             .get(&kind)
             .expect("the component is not part of the protocol");
-        let interpolation_fn: LerpFn<C> = unsafe { core::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
+        let interpolation_fn: LerpFn<C> =
+            unsafe { core::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
         interpolation_fn(start, end, t)
     }
 }
 
 pub trait InterpolationRegistrationExt<C> {
     /// Enable interpolation systems for this component.
-   /// You can specify the interpolation [`ComponentSyncMode`]
+    /// You can specify the interpolation [`ComponentSyncMode`]
     fn add_interpolation(self, interpolation_mode: InterpolationMode) -> Self
-   where
-       C: SyncComponent,
-    ;
+    where
+        C: SyncComponent;
     /// Register helper systems to perform interpolation for the component; but the user has to define the interpolation logic
     /// themselves (the interpolation_fn will not be used)
     fn add_custom_interpolation(self, interpolation_mode: InterpolationMode) -> Self
     where
-        C: SyncComponent,
-    ;
+        C: SyncComponent;
     /// Add a `Interpolation` behaviour to this component by using a linear interpolation function.
     fn add_linear_interpolation_fn(self) -> Self
     where
-        C: SyncComponent + Ease,
-    ;
+        C: SyncComponent + Ease;
 
     /// Add a `Interpolation` behaviour to this component.
     fn add_interpolation_fn(self, interpolation_fn: LerpFn<C>) -> Self
@@ -98,14 +97,18 @@ pub trait InterpolationRegistrationExt<C> {
 }
 
 impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
-     /// Enable interpolation systems for this component.
+    /// Enable interpolation systems for this component.
     /// You can specify the interpolation [`ComponentSyncMode`]
     fn add_interpolation(self, interpolation_mode: InterpolationMode) -> Self
     where
         C: SyncComponent,
     {
-        let Some(mut registry) = self.app.world_mut().get_resource_mut::<InterpolationRegistry>() else {
-            return self
+        let Some(mut registry) = self
+            .app
+            .world_mut()
+            .get_resource_mut::<InterpolationRegistry>()
+        else {
+            return self;
         };
         registry.set_interpolation_mode::<C>(interpolation_mode);
         add_prepare_interpolation_systems::<C>(self.app, interpolation_mode);
@@ -121,8 +124,12 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent,
     {
-        let Some(mut registry) = self.app.world_mut().get_resource_mut::<InterpolationRegistry>() else {
-            return self
+        let Some(mut registry) = self
+            .app
+            .world_mut()
+            .get_resource_mut::<InterpolationRegistry>()
+        else {
+            return self;
         };
         registry.set_interpolation_mode::<C>(interpolation_mode);
         add_prepare_interpolation_systems::<C>(self.app, interpolation_mode);
@@ -134,8 +141,12 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent + Ease,
     {
-        let Some(mut registry) = self.app.world_mut().get_resource_mut::<InterpolationRegistry>() else {
-            return self
+        let Some(mut registry) = self
+            .app
+            .world_mut()
+            .get_resource_mut::<InterpolationRegistry>()
+        else {
+            return self;
         };
         registry.set_linear_interpolation::<C>();
         self
@@ -146,8 +157,12 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent,
     {
-        let Some(mut registry) = self.app.world_mut().get_resource_mut::<InterpolationRegistry>() else {
-            return self
+        let Some(mut registry) = self
+            .app
+            .world_mut()
+            .get_resource_mut::<InterpolationRegistry>()
+        else {
+            return self;
         };
         registry.set_interpolation::<C>(interpolation_fn);
         self

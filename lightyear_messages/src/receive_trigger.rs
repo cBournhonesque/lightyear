@@ -1,11 +1,10 @@
-use crate::registry::MessageError;
 use crate::Message;
+use crate::registry::MessageError;
 use bevy::prelude::ParallelCommands;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_transport::channel::ChannelKind;
-
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -25,7 +24,6 @@ pub struct RemoteTrigger<M: Message> {
     pub from: PeerId,
 }
 
-
 pub(crate) type ReceiveTriggerFn = unsafe fn(
     commands: &ParallelCommands,
     reader: &mut Reader,
@@ -36,8 +34,6 @@ pub(crate) type ReceiveTriggerFn = unsafe fn(
     entity_map: &mut ReceiveEntityMap,
     from: PeerId, // Add sender PeerId
 ) -> Result<(), MessageError>;
-
-
 
 /// Receive a `TriggerMessage<M>`, deserialize it, and emit a `RemoteTrigger<M>` event.
 ///
@@ -54,8 +50,13 @@ pub(crate) unsafe fn receive_trigger_typed<M: Message + Event>(
     from: PeerId,
 ) -> Result<(), MessageError> {
     // we deserialize the message and send a MessageEvent
-    let message = unsafe { serialize_metadata.deserialize::<_, TriggerMessage<M>, M>(reader, entity_map)? };
-    trace!("Received trigger message: {:?} from: {from:?}. Target: {:?}", core::any::type_name::<M>(), message.target_entities);
+    let message =
+        unsafe { serialize_metadata.deserialize::<_, TriggerMessage<M>, M>(reader, entity_map)? };
+    trace!(
+        "Received trigger message: {:?} from: {from:?}. Target: {:?}",
+        core::any::type_name::<M>(),
+        message.target_entities
+    );
     let trigger = RemoteTrigger {
         trigger: message.trigger,
         from,

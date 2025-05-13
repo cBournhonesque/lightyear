@@ -23,19 +23,15 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-pub(crate) fn handle_new_client(
-    trigger: trigger<OnAdd, LinkOf>,
-    mut commands: Commands,
-) {
-    commands.entity(trigger.target()).insert(
-        ReplicationSender::new(
+pub(crate) fn handle_new_client(trigger: trigger<OnAdd, LinkOf>, mut commands: Commands) {
+    commands
+        .entity(trigger.target())
+        .insert(ReplicationSender::new(
             SEND_INTERVAL,
             SendUpdatesMode::SinceLastAck,
             false,
-        ),
-    );
+        ));
 }
-
 
 // Renamed from init, removed Global resource, assume ball is always predicted
 fn setup(mut commands: Commands) {

@@ -12,7 +12,6 @@ pub const SERVER_REPLICATION_INTERVAL: Duration = Duration::from_millis(100);
 
 pub const SERVER_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 5000);
 
-
 #[derive(Clone)]
 pub struct SharedPlugin;
 

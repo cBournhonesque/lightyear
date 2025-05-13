@@ -16,8 +16,8 @@ use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::Writer;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tracing::trace;
 
 impl ComponentRegistry {
@@ -98,7 +98,12 @@ impl ComponentRegistry {
             .ok_or(ComponentError::MissingDeltaFns)?;
 
         let delta = unsafe { (delta_fns.diff)(start_tick, start, new) };
-        self.erased_serialize( unsafe { Ptr::new(delta) }, writer, delta_fns.delta_kind, entity_map)?;
+        self.erased_serialize(
+            unsafe { Ptr::new(delta) },
+            writer,
+            delta_fns.delta_kind,
+            entity_map,
+        )?;
         // drop the delta message
         unsafe { (delta_fns.drop_delta_message)(delta) };
         Ok(())
@@ -118,9 +123,14 @@ impl ComponentRegistry {
             .delta_fns_map
             .get(&kind)
             .ok_or(ComponentError::MissingDeltaFns)?;
-        let delta = unsafe { (delta_fns.diff_from_base)(component_data)};
+        let delta = unsafe { (delta_fns.diff_from_base)(component_data) };
         // SAFETY: the delta is a valid pointer to a DeltaMessage<C::Delta>
-        self.erased_serialize(unsafe { Ptr::new(delta) }, writer, delta_fns.delta_kind, entity_map)?;
+        self.erased_serialize(
+            unsafe { Ptr::new(delta) },
+            writer,
+            delta_fns.delta_kind,
+            entity_map,
+        )?;
         // drop the delta message
         unsafe { (delta_fns.drop_delta_message)(delta) };
         Ok(())
@@ -146,16 +156,16 @@ impl ComponentRegistry {
             DeltaType::Normal { previous_tick } => {
                 let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
                 else {
-                    return Err(ComponentError::DeltaCompressionError(
-                        format!("Entity {entity:?} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression",
-                                core::any::type_name::<C>())
-                    ));
+                    return Err(ComponentError::DeltaCompressionError(format!(
+                        "Entity {entity:?} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression",
+                        core::any::type_name::<C>()
+                    )));
                 };
                 let Some(past_value) = history.buffer.get(&previous_tick) else {
-                    return Err(ComponentError::DeltaCompressionError(
-                        format!("Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
-                                core::any::type_name::<C>())
-                    ));
+                    return Err(ComponentError::DeltaCompressionError(format!(
+                        "Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
+                        core::any::type_name::<C>()
+                    )));
                 };
                 // TODO: is it possible to have one clone instead of 2?
                 let mut new_value = past_value.clone();
@@ -167,10 +177,10 @@ impl ComponentRegistry {
                 // store the new value in the history
                 history.buffer.insert(tick, new_value.clone());
                 let Some(mut c) = entity_world_mut.get_mut::<C>() else {
-                    return Err(ComponentError::DeltaCompressionError(
-                        format!("Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
-                        core::any::type_name::<C>())
-                    ));
+                    return Err(ComponentError::DeltaCompressionError(format!(
+                        "Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
+                        core::any::type_name::<C>()
+                    )));
                 };
                 *c = new_value;
             }
@@ -227,7 +237,9 @@ impl ComponentRegistry {
         let entity = entity_world_mut.id();
         match delta.delta_type {
             DeltaType::Normal { previous_tick } => {
-                unreachable!("buffer_insert_delta should only be called for FromBase deltas since the component is being inserted");
+                unreachable!(
+                    "buffer_insert_delta should only be called for FromBase deltas since the component is being inserted"
+                );
             }
             DeltaType::FromBase => {
                 let mut new_value = C::base_value();
@@ -245,8 +257,7 @@ impl ComponentRegistry {
                     // TODO: add safety comment
                     // use the component id of C, not DeltaMessage<C>
                     unsafe {
-                        temp_write_buffer
-                            .buffer_insert_raw_ptrs::<C>(new_value, *component_id)
+                        temp_write_buffer.buffer_insert_raw_ptrs::<C>(new_value, *component_id)
                     };
                 }
                 // store the component value in the delta component history, so that we can compute
@@ -272,11 +283,13 @@ type ErasedApplyDiffFn = unsafe fn(data: PtrMut, delta: Ptr);
 type ErasedDropFn = unsafe fn(data: NonNull<u8>);
 
 /// SAFETY: the Ptr must be a valid pointer to a value of type C
-unsafe fn erased_clone<C: Clone>(data: Ptr) -> NonNull<u8> { unsafe {
-    let cloned: C = data.deref::<C>().clone();
-    let leaked_data = Box::leak(Box::new(cloned));
-    NonNull::from(leaked_data).cast()
-}}
+unsafe fn erased_clone<C: Clone>(data: Ptr) -> NonNull<u8> {
+    unsafe {
+        let cloned: C = data.deref::<C>().clone();
+        let leaked_data = Box::leak(Box::new(cloned));
+        NonNull::from(leaked_data).cast()
+    }
+}
 
 /// Get two Ptrs to a component C and compute the diff between them.
 ///
@@ -313,13 +326,13 @@ unsafe fn erased_base_diff<C: Diffable>(other: Ptr) -> NonNull<u8> {
 /// - the data PtrMut must be a valid pointer to a value of type C
 /// - the delta Ptr must be a valid pointer to a value of type C::Delta
 unsafe fn erased_apply_diff<C: Diffable>(data: PtrMut, delta: Ptr) {
-    unsafe { C::apply_diff(data.deref_mut::<C>(), delta.deref::<C::Delta>()) } ;
+    unsafe { C::apply_diff(data.deref_mut::<C>(), delta.deref::<C::Delta>()) };
 }
 
 unsafe fn erased_drop<C>(data: NonNull<u8>) {
     // reclaim the memory inside the box
     // the box's destructor will then free the memory and run drop
-    let _ = unsafe { Box::from_raw(data.cast::<C>().as_ptr()) } ;
+    let _ = unsafe { Box::from_raw(data.cast::<C>().as_ptr()) };
 }
 
 #[derive(Debug, Clone, PartialEq)]

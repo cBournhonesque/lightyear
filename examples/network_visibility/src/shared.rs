@@ -29,7 +29,6 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, direction: 
     }
 }
 
-
 /// Generate a color from the `ClientId`
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;

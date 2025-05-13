@@ -55,7 +55,6 @@ impl<R> PartialEq for HistoryBuffer<R> {
 }
 
 impl<R> HistoryBuffer<R> {
-
     /// Oldest value in the buffer
     pub fn front(&self) -> Option<&(Tick, HistoryState<R>)> {
         self.buffer.front()
@@ -104,7 +103,10 @@ impl<R> HistoryBuffer<R> {
             //     "Tick must be more recent than the last update in the buffer"
             // );
             if *last_tick == tick {
-                debug!("Adding update to history buffer for tick: {:?} but it already had a value for that tick!", tick);
+                debug!(
+                    "Adding update to history buffer for tick: {:?} but it already had a value for that tick!",
+                    tick
+                );
                 // in this case, let's pop back the update to replace it with the new value
                 self.buffer.pop_back();
             }

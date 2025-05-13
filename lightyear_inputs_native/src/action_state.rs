@@ -22,7 +22,6 @@ impl<A: MapEntities> MapEntities for ActionState<A> {
     }
 }
 
-
 impl<A: Clone> From<&ActionState<A>> for InputData<A> {
     fn from(value: &ActionState<A>) -> Self {
         value

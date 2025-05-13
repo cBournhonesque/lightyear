@@ -7,9 +7,6 @@ use alloc::vec::Vec;
 use lightyear_serde::ToBytes;
 use lightyear_utils::wrapping_id;
 
-
-
-
 // Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);
 
@@ -68,7 +65,7 @@ mod tests {
     use crate::packet::message::{FragmentData, SingleData};
     use crate::packet::packet_type::PacketType;
     use bevy::app::App;
-    use bevy::prelude::{default, Reflect};
+    use bevy::prelude::{Reflect, default};
     use bytes::Bytes;
     use lightyear_utils::collections::HashMap;
 
@@ -76,8 +73,8 @@ mod tests {
     use crate::channel::builder::{ChannelMode, ChannelSettings};
     use crate::channel::registry::{AppChannelExt, ChannelRegistry};
     use crate::packet::error::PacketError;
-    use lightyear_serde::reader::ReadVarInt;
     use lightyear_serde::ToBytes;
+    use lightyear_serde::reader::ReadVarInt;
 
     impl Packet {
         /// For tests, parse the packet so that we can inspect the contents
@@ -116,7 +113,6 @@ mod tests {
     #[derive(Reflect)]
     struct Channel2;
 
-
     fn get_channel_registry() -> ChannelRegistry {
         let mut app = App::new();
 
@@ -127,7 +123,9 @@ mod tests {
         app.init_resource::<ChannelRegistry>();
         app.add_channel::<Channel1>(settings.clone());
         app.add_channel::<Channel2>(settings.clone());
-        app.world_mut().remove_resource::<ChannelRegistry>().unwrap()
+        app.world_mut()
+            .remove_resource::<ChannelRegistry>()
+            .unwrap()
     }
 
     // #[test]

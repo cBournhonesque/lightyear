@@ -22,8 +22,6 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-
-
 /// Blueprint pattern: when the ball gets replicated from the server, add all the components
 /// that we need that are not replicated.
 /// (for example physical properties that are constant, so they don't need to be networked)
@@ -39,10 +37,11 @@ fn add_ball_physics(
     mut ball_query: Query<(), With<Predicted>>,
 ) {
     if let Ok(()) = ball_query.get(trigger.target()) {
-        commands.entity(trigger.target()).insert(PhysicsBundle::ball());
+        commands
+            .entity(trigger.target())
+            .insert(PhysicsBundle::ball());
     }
 }
-
 
 // The client input only gets applied to predicted entities that we own
 // This works because we only predict the user's controlled entity.
@@ -72,7 +71,6 @@ fn player_movement(
     }
 }
 
-
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation
 // - add physics components so that its movement can be predicted
@@ -87,9 +85,7 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        commands
-            .entity(trigger.target())
-            .insert((
+        commands.entity(trigger.target()).insert((
             PhysicsBundle::player(),
             InputMap::new([
                 (PlayerActions::Up, KeyCode::KeyW),

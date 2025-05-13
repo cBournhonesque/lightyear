@@ -4,9 +4,9 @@ use alloc::vec::Vec;
 use bevy::prelude::{Real, Time, Timer, TimerMode};
 use core::time::Duration;
 
+use crate::channel::senders::ChannelSend;
 use crate::channel::senders::fragment_ack_receiver::FragmentAckReceiver;
 use crate::channel::senders::fragment_sender::FragmentSender;
-use crate::channel::senders::ChannelSend;
 use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
 use bytes::Bytes;
 use crossbeam_channel::Sender;
@@ -71,11 +71,7 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(
-        &mut self,
-        message: Bytes,
-        priority: f32,
-    ) -> Option<MessageId> {
+    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         if message.len() > self.fragment_sender.fragment_size {
             let fragments = self
@@ -118,11 +114,8 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
     /// Notify any subscribers that a message was acked
     fn receive_ack(&mut self, ack: &MessageAck) {
         if let Some(fragment_index) = ack.fragment_id {
-            self.fragment_ack_receiver.receive_fragment_ack(
-                ack.message_id,
-                fragment_index,
-                None,
-            );
+            self.fragment_ack_receiver
+                .receive_fragment_ack(ack.message_id, fragment_index, None);
         }
     }
 }
@@ -143,9 +136,7 @@ mod tests {
         let receiver = sender.subscribe_acks();
 
         // single message
-        let message_id = sender
-            .buffer_send(Bytes::from("hello"), 1.0)
-            .unwrap();
+        let message_id = sender.buffer_send(Bytes::from("hello"), 1.0).unwrap();
         assert_eq!(message_id, MessageId(0));
         assert_eq!(sender.next_send_message_id, MessageId(1));
 

@@ -52,19 +52,12 @@ pub(crate) fn setup(mut commands: Commands) {
 }
 
 /// Add the ReplicationSender component to new clients
-pub(crate) fn handle_new_client(
-    trigger: trigger<OnAdd, LinkOf>,
-    mut commands: Commands,
-) {
+pub(crate) fn handle_new_client(trigger: trigger<OnAdd, LinkOf>, mut commands: Commands) {
     info!("New client connected: {:?}", trigger.target());
     commands.entity(trigger.target()).insert((
-        ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ),
+        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
         // limit to 3KB/s
-        Transport::new(PriorityConfig::new(3000))
+        Transport::new(PriorityConfig::new(3000)),
     ));
 }
 
@@ -94,7 +87,6 @@ pub(crate) fn handle_connected(
     info!("Create entity {:?} for client {:?}", entity, client_id);
 }
 
-
 /// Read client inputs and move players
 fn movement(
     mut query: Query<
@@ -108,7 +100,6 @@ fn movement(
         shared::shared_movement_behaviour(position, action_state);
     }
 }
-
 
 pub(crate) fn tick_timers(mut timers: Query<&mut ShapeChangeTimer>, time: Res<Time>) {
     for mut timer in timers.iter_mut() {

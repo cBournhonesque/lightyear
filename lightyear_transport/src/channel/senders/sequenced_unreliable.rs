@@ -1,5 +1,5 @@
-use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
+use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
 use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
@@ -53,11 +53,7 @@ impl ChannelSend for SequencedUnreliableSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(
-        &mut self,
-        message: Bytes,
-        priority: f32,
-    ) -> Option<MessageId> {
+    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         if message.len() > self.fragment_sender.fragment_size {
             for fragment in self
@@ -117,10 +113,7 @@ mod tests {
         let mut real = Time::<Real>::default();
         real.advance_by(Duration::from_secs(1));
         let link_stats = LinkStats::default();
-        sender.update(
-            &real,
-            &link_stats
-        );
+        sender.update(&real, &link_stats);
 
         // this time, we send the packet
         let (single, _) = sender.send_packet();

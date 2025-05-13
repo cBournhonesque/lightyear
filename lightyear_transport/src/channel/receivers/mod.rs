@@ -56,28 +56,15 @@ pub enum ChannelReceiverEnum {
     UnorderedReliable(UnorderedReliableReceiver),
 }
 
-
 impl From<&ChannelSettings> for ChannelReceiverEnum {
     fn from(settings: &ChannelSettings) -> Self {
         match settings.mode {
-            ChannelMode::UnorderedUnreliableWithAcks => {
-                UnorderedUnreliableReceiver::new().into()
-            }
-            ChannelMode::UnorderedUnreliable => {
-                UnorderedUnreliableReceiver::new().into()
-            }
-            ChannelMode::SequencedUnreliable => {
-                SequencedUnreliableReceiver::new().into()
-            }
-            ChannelMode::UnorderedReliable(_) => {
-                UnorderedReliableReceiver::new().into()
-            }
-            ChannelMode::SequencedReliable(_) => {
-                SequencedReliableReceiver::new().into()
-            }
-            ChannelMode::OrderedReliable(_) => {
-                OrderedReliableReceiver::new().into()
-            }
+            ChannelMode::UnorderedUnreliableWithAcks => UnorderedUnreliableReceiver::new().into(),
+            ChannelMode::UnorderedUnreliable => UnorderedUnreliableReceiver::new().into(),
+            ChannelMode::SequencedUnreliable => SequencedUnreliableReceiver::new().into(),
+            ChannelMode::UnorderedReliable(_) => UnorderedReliableReceiver::new().into(),
+            ChannelMode::SequencedReliable(_) => SequencedReliableReceiver::new().into(),
+            ChannelMode::OrderedReliable(_) => OrderedReliableReceiver::new().into(),
         }
     }
 }

@@ -13,7 +13,6 @@ use lightyear::prelude::*;
 
 pub struct ExampleServerPlugin;
 
-
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, startup);
@@ -27,26 +26,24 @@ impl Plugin for ExampleServerPlugin {
 /// You can add more components to customize how this connection, for example by adding a
 /// `ReplicationSender` (so that the server can send replication updates to that client)
 /// or a `MessageSender`.
-fn handle_new_client(
-    trigger: Trigger<OnAdd, Connected>,
-    mut commands: Commands,
-) {
-    commands.entity(trigger.target())
-        .insert(
-            ReplicationSender::new(
-                SERVER_REPLICATION_INTERVAL,
-                SendUpdatesMode::SinceLastAck,
-                false
-            )
-        );
+fn handle_new_client(trigger: Trigger<OnAdd, Connected>, mut commands: Commands) {
+    commands
+        .entity(trigger.target())
+        .insert(ReplicationSender::new(
+            SERVER_REPLICATION_INTERVAL,
+            SendUpdatesMode::SinceLastAck,
+            false,
+        ));
 }
 
 /// Start the server
 fn startup(mut commands: Commands) -> Result {
-    let server = commands.spawn((
-        NetcodeServer::new(NetcodeConfig::default()),
-        ServerUdpIo::new(SERVER_ADDR)
-    )).id();
+    let server = commands
+        .spawn((
+            NetcodeServer::new(NetcodeConfig::default()),
+            ServerUdpIo::new(SERVER_ADDR),
+        ))
+        .id();
     commands.trigger_targets(Start, server);
     Ok(())
 }

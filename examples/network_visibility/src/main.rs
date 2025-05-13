@@ -20,7 +20,9 @@ use bevy::prelude::*;
 use core::time::Duration;
 use lightyear::prelude::RoomPlugin;
 use lightyear_examples_common::cli::{Cli, Mode};
-use lightyear_examples_common::shared::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
+use lightyear_examples_common::shared::{
+    CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS,
+};
 
 #[cfg(feature = "client")]
 mod client;
@@ -32,7 +34,6 @@ mod server;
 
 mod shared;
 
-
 /// When running the example as a binary, we only support Client or Server mode.
 fn main() {
     let cli = Cli::default();
@@ -40,10 +41,7 @@ fn main() {
     #[cfg(target_family = "wasm")]
     lightyear_examples_common::settings::modify_digest_on_wasm(&mut settings.client);
 
-    let mut app = cli.build_app(
-        Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
-        true
-    );
+    let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
 
     app.add_plugins(ProtocolPlugin);
 
@@ -53,33 +51,41 @@ fn main() {
         if matches!(cli.mode, Some(Mode::Client { .. })) {
             use lightyear::prelude::Connect;
             use lightyear_examples_common::client::{ClientTransports, ExampleClient};
-            let client = app.world_mut().spawn(ExampleClient {
-                client_id: cli.client_id().expect("You need to specify a client_id via `-c ID`"),
-                client_port: CLIENT_PORT,
-                server_addr: SERVER_ADDR,
-                conditioner: None,
-                transport: ClientTransports::Udp,
-                shared: SHARED_SETTINGS,
-            }).id();
+            let client = app
+                .world_mut()
+                .spawn(ExampleClient {
+                    client_id: cli
+                        .client_id()
+                        .expect("You need to specify a client_id via `-c ID`"),
+                    client_port: CLIENT_PORT,
+                    server_addr: SERVER_ADDR,
+                    conditioner: None,
+                    transport: ClientTransports::Udp,
+                    shared: SHARED_SETTINGS,
+                })
+                .id();
             app.world_mut().trigger_targets(Connect, client)
         }
     }
 
     #[cfg(feature = "server")]
     {
-        use lightyear_examples_common::server::{ExampleServer, ServerTransports};
         use lightyear::connection::server::Start;
+        use lightyear_examples_common::server::{ExampleServer, ServerTransports};
 
         app.add_plugins(ExampleServerPlugin);
         app.add_plugins(RoomPlugin);
         if matches!(cli.mode, Some(Mode::Server)) {
-            let server = app.world_mut().spawn(ExampleServer {
-                conditioner: None,
-                transport: ServerTransports::Udp {
-                    local_port: SERVER_PORT
-                },
-                shared: SHARED_SETTINGS
-            }).id();
+            let server = app
+                .world_mut()
+                .spawn(ExampleServer {
+                    conditioner: None,
+                    transport: ServerTransports::Udp {
+                        local_port: SERVER_PORT,
+                    },
+                    shared: SHARED_SETTINGS,
+                })
+                .id();
             app.world_mut().trigger_targets(Start, server);
         }
     }

@@ -10,8 +10,8 @@ use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Reflect, Vec2,
 };
 use bevy::prelude::{App, Plugin};
-use serde::{Deserialize, Serialize};
 use core::ops::{Add, Mul};
+use serde::{Deserialize, Serialize};
 
 // Use preludes
 use lightyear::prelude::client::*;

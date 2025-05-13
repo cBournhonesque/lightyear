@@ -19,7 +19,6 @@ use alloc::vec::Vec;
 /// Handles the registration of components for replication.
 pub mod registry;
 
-
 pub(crate) mod archetypes;
 /// Defines components related to replication, such as `Replicate` and `ParentSync`.
 pub mod components;
@@ -34,29 +33,36 @@ pub mod receive;
 
 pub(crate) mod send;
 
-/// Defines the structure of messages used for replication.
-pub mod message;
 pub(crate) mod buffer;
 pub(crate) mod delta;
+/// Defines the structure of messages used for replication.
+pub mod message;
 
-/// Manages entity visibility for replication (e.g., interest management, rooms).
-pub mod visibility;
 /// Manages entity control and ownership.
 pub mod control;
+/// Manages entity visibility for replication (e.g., interest management, rooms).
+pub mod visibility;
 
 /// Commonly used items for replication.
 pub mod prelude {
-    pub use crate::authority::{AuthorityPlugin, AuthorityTransfer, AuthorityTransferRequest, AuthorityTransferResponse, GiveAuthority, RequestAuthority};
+    pub use crate::authority::{
+        AuthorityPlugin, AuthorityTransfer, AuthorityTransferRequest, AuthorityTransferResponse,
+        GiveAuthority, RequestAuthority,
+    };
     pub use crate::buffer::Replicate;
     pub use crate::components::*;
     pub use crate::control::{Controlled, Lifetime, Owned, OwnedBy};
-    pub use crate::hierarchy::{ChildOfSync, DisableReplicateHierarchy, HierarchySendPlugin, RelationshipReceivePlugin, RelationshipSendPlugin, RelationshipSync, ReplicateLike, ReplicateLikeChildren};
+    pub use crate::hierarchy::{
+        ChildOfSync, DisableReplicateHierarchy, HierarchySendPlugin, RelationshipReceivePlugin,
+        RelationshipSendPlugin, RelationshipSync, ReplicateLike, ReplicateLikeChildren,
+    };
     pub use crate::message::*;
     pub use crate::plugin::ReplicationSet;
     pub use crate::receive::{ReplicationReceivePlugin, ReplicationReceiver};
     pub use crate::registry::registry::{AppComponentExt, ComponentRegistration};
-    pub use crate::send::{ReplicationBufferSet, ReplicationSendPlugin, ReplicationSender, SendUpdatesMode};
+    pub use crate::send::{
+        ReplicationBufferSet, ReplicationSendPlugin, ReplicationSender, SendUpdatesMode,
+    };
     pub use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin};
     pub use crate::visibility::room::{Room, RoomEvent, RoomPlugin};
 }
-

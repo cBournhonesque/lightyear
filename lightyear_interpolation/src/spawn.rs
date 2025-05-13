@@ -1,5 +1,5 @@
-use crate::manager::InterpolationManager;
 use crate::Interpolated;
+use crate::manager::InterpolationManager;
 use bevy::prelude::*;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::components::ShouldBeInterpolated;
@@ -46,8 +46,7 @@ pub(crate) fn spawn_interpolated_entity(
         }
         trace!(
             "Spawn interpolated entity {:?} for confirmed: {:?}",
-            interpolated,
-            confirmed_entity
+            interpolated, confirmed_entity
         );
         #[cfg(feature = "metrics")]
         {
