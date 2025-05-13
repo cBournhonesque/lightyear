@@ -6,10 +6,9 @@ extern crate alloc;
 use bevy::ecs::component::{HookContext, Mutable, StorageType};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
-use core::ops::{Add, Mul};
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
-use lightyear_replication::prelude::{InitialReplicated, Replicated};
+use lightyear_replication::prelude::Replicated;
 pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 use tracing::error;
 

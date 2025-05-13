@@ -1,24 +1,16 @@
 use crate::ping::manager::PingManager;
-use crate::prelude::DrivingTimeline;
 use crate::timeline::sync::{SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline};
-use bevy::ecs::component::HookContext;
-use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{
-    Component, Deref, DerefMut, Fixed, Has, Query, Reflect, Res, Time, Trigger, With, Without,
-    default,
+    Component, Deref, DerefMut, Query, Reflect, Res, Time, Trigger, With, Without,
 };
-use core::ops::Deref;
-use core::ops::DerefMut;
 use core::time::Duration;
-use lightyear_connection::client::Connected;
-use lightyear_core::prelude::{LocalTimeline, Rollback};
+use lightyear_core::prelude::Rollback;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{
-    NetworkTimeline, RollbackState, SyncEvent, Timeline, TimelineContext,
+    NetworkTimeline, SyncEvent, Timeline, TimelineContext,
 };
-use lightyear_link::{Link, LinkStats, Linked};
-use parking_lot::RwLock;
+use lightyear_link::{Link, Linked};
 use tracing::trace;
 
 /// Timeline that is used to make sure that Inputs from this peer will arrive on time

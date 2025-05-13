@@ -7,6 +7,13 @@
 #[cfg(feature = "lag_compensation")]
 pub mod lag_compensation;
 
+
+#[cfg(feature = "2d")]
+pub mod avian2d;
+
+#[cfg(feature = "3d")]
+pub mod avian3d;
+
 /// Commonly used items for Lightyear Avian integration.
 pub mod prelude {
     #[cfg(feature = "lag_compensation")]

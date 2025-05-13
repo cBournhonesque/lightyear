@@ -3,7 +3,6 @@ use crate::plugin::add_prediction_systems;
 use crate::predicted_history::PredictionHistory;
 use crate::{PredictionMode, SyncComponent};
 use bevy::ecs::component::ComponentId;
-use bevy::ecs::entity::MapEntities;
 use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;

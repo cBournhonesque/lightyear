@@ -27,6 +27,8 @@ std = [
 client = ["lightyear_connection/client"]
 server = ["lightyear_connection/server"]
 test_utils = ["lightyear_link/test_utils"]
+trace = []
+metrics = []
 
 [dependencies]
 # local crates

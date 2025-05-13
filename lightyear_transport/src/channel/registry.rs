@@ -1,5 +1,5 @@
-use crate::channel::Channel;
 use crate::channel::builder::ChannelSettings;
+use crate::channel::Channel;
 use bevy::app::App;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::{Resource, TypePath};
@@ -61,20 +61,6 @@ pub struct ChannelRegistry {
 }
 
 impl ChannelRegistry {
-    pub(crate) fn new() -> Self {
-        let registry = Self {
-            settings_map: HashMap::default(),
-            kind_map: TypeMapper::new(),
-            built: false,
-        };
-        // registry.add_channel::<EntityUpdatesChannel>();
-        // registry.add_channel::<EntityActionsChannel>();
-        // registry.add_channel::<PingChannel>();
-        // registry.add_channel::<PongChannel>();
-        // registry.add_channel::<InputChannel>();
-        // registry.add_channel::<AuthorityChannel>();
-        registry
-    }
 
     pub(crate) fn settings(&self, kind: ChannelKind) -> Option<&ChannelSettings> {
         self.settings_map.get(&kind)
@@ -127,8 +113,8 @@ impl<'a, C: Channel> ChannelRegistration<'a, C> {
         }
     }
 
-    #[cfg(any(feature = "client", feature = "server"))]
     /// Add a new [`NetworkDirection`] to the registry
+    #[cfg(any(feature = "client", feature = "server"))]
     pub fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self {
         #[cfg(feature = "client")]
         self.add_client_direction(direction);

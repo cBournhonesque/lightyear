@@ -1,18 +1,14 @@
-use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig};
-use alloc::rc::Rc;
+use crate::{ClientId, Key, ServerConfig, PRIVATE_KEY_BYTES};
 use alloc::sync::Arc;
 use bevy::ecs::entity::unique_slice::UniqueEntitySlice;
 use bevy::prelude::*;
-use bevy::tasks::futures_lite::StreamExt;
-use core::net::SocketAddr;
-use lightyear_connection::client::{Connected, Connecting, Disconnected, Disconnecting};
+use lightyear_connection::client::{Connected, Disconnected, Disconnecting};
 use lightyear_connection::prelude::{server::*, *};
 use lightyear_connection::server::Stopping;
 use lightyear_core::id::PeerId;
 use lightyear_link::prelude::{LinkOf, Server};
-use lightyear_link::{Link, LinkSet, LinkStart, Unlink, Unlinked};
+use lightyear_link::{Link, LinkSet};
 use lightyear_transport::plugin::TransportSet;
-use lightyear_transport::prelude::Transport;
 use tracing::{error, info, trace};
 
 pub struct NetcodeServerPlugin;
@@ -26,7 +22,7 @@ pub(crate) struct NetcodeServerContext {
 #[derive(Component)]
 #[require(Server)]
 pub struct NetcodeServer {
-    pub inner: crate::server::Server<NetcodeServerContext>,
+    pub(crate) inner: crate::server::Server<NetcodeServerContext>,
 }
 
 // TODO: should be part of the NetcodeServer component
@@ -192,7 +188,7 @@ impl NetcodeServerPlugin {
         // we use Arc to tell the compiler that we know that the queries won't be used to access
         // the same clients (because each Link is uniquely associated with a single server)
         // This allow us to iterate in parallel over all servers
-        let mut link_query = Arc::new(link_query);
+        let link_query = Arc::new(link_query);
 
         // receive packets from the link and process them through the server
         server_query.par_iter_mut().for_each(
@@ -319,7 +315,7 @@ impl NetcodeServerPlugin {
                     commands.entity(entity).insert(Disconnecting);
                     Ok(())
                 },
-            );
+            )?;
         }
         Ok(())
     }

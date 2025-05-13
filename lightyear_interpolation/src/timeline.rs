@@ -2,26 +2,18 @@
 //! a trigger to inform the receiver of its SendInterval. This interval is used
 //! by the receiver to determine how the InterpolationTime should be configured
 
-use crate::manager::InterpolationManager;
-use bevy::ecs::component::HookContext;
-use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bevy::prelude::{Component, Deref, DerefMut, Reflect, default};
 use core::time::Duration;
 use lightyear_connection::client::{Client, Connected};
-use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::prelude::Rollback;
-use lightyear_core::tick::{Tick, TickDuration};
-use lightyear_core::time::{Overstep, PositiveTickDelta, TickDelta, TickInstant, TimeDelta};
+use lightyear_core::tick::TickDuration;
+use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineContext};
-use lightyear_messages::prelude::{AppTriggerExt, RemoteTrigger};
+use lightyear_messages::prelude::RemoteTrigger;
 use lightyear_replication::message::SenderMetadata;
-use lightyear_replication::prelude::ReplicationSender;
-use lightyear_serde::reader::Reader;
-use lightyear_serde::writer::WriteInteger;
-use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_sync::prelude::client::RemoteTimeline;
-use lightyear_sync::prelude::{DrivingTimeline, PingManager};
+use lightyear_sync::prelude::PingManager;
 use lightyear_sync::timeline::sync::{
     SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline, SyncedTimelinePlugin,
 };
@@ -90,7 +82,7 @@ impl InterpolationTimeline {
         interpolation_config: InterpolationConfig,
         sync_config: SyncConfig,
     ) -> Self {
-        let mut interpolation = Interpolation {
+        let interpolation = Interpolation {
             tick_duration,
             interpolation_config,
             sync_config,

@@ -1,17 +1,16 @@
 use crate::ping::manager::PingManager;
 use crate::plugin::SyncSet;
-use crate::prelude::DrivingTimeline;
 use bevy::app::{App, Last, Plugin, PostUpdate};
 use bevy::prelude::{
-    Commands, Component, Entity, Event, Has, IntoScheduleConfigs, OnAdd, Query, Reflect, Res,
+    Commands, Component, Entity, Has, IntoScheduleConfigs, OnAdd, Query, Reflect, Res,
     ResMut, Time, Trigger, Virtual, With,
 };
 use core::time::Duration;
 use lightyear_connection::client::{Connected, Disconnected};
-use lightyear_core::prelude::{LocalTimeline, NetworkTimelinePlugin, Tick};
+use lightyear_core::prelude::{LocalTimeline, NetworkTimelinePlugin};
 use lightyear_core::tick::TickDuration;
-use lightyear_core::time::{TickDelta, TickInstant, TimeDelta};
-use lightyear_core::timeline::{NetworkTimeline, SyncEvent, TimelineContext};
+use lightyear_core::time::{TickDelta, TickInstant};
+use lightyear_core::timeline::{NetworkTimeline, SyncEvent};
 use tracing::{debug, trace};
 
 /// Marker component to indicate that the timeline has been synced

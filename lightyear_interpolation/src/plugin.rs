@@ -3,7 +3,6 @@ use super::interpolation_history::{
 };
 use crate::despawn::{despawn_interpolated, removed_components};
 use crate::interpolate::{insert_interpolated_component, interpolate, update_interpolate_status};
-use crate::manager::InterpolationManager;
 use crate::registry::InterpolationRegistry;
 use crate::spawn::spawn_interpolated_entity;
 use crate::timeline::TimelinePlugin;

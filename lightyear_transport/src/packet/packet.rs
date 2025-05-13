@@ -7,6 +7,8 @@ use alloc::vec::Vec;
 use lightyear_serde::ToBytes;
 use lightyear_utils::wrapping_id;
 
+
+
 // Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);
 
@@ -54,6 +56,7 @@ impl Packet {
         self.message_acks.len()
     }
 
+    #[allow(unused)]
     pub(crate) fn is_empty(&self) -> bool {
         self.message_acks.is_empty()
     }
@@ -65,7 +68,7 @@ mod tests {
     use crate::packet::message::{FragmentData, SingleData};
     use crate::packet::packet_type::PacketType;
     use bevy::app::App;
-    use bevy::prelude::{Reflect, default};
+    use bevy::prelude::{default, Reflect};
     use bytes::Bytes;
     use lightyear_utils::collections::HashMap;
 
@@ -73,8 +76,8 @@ mod tests {
     use crate::channel::builder::{ChannelMode, ChannelSettings};
     use crate::channel::registry::{AppChannelExt, ChannelRegistry};
     use crate::packet::error::PacketError;
-    use lightyear_serde::ToBytes;
     use lightyear_serde::reader::ReadVarInt;
+    use lightyear_serde::ToBytes;
 
     impl Packet {
         /// For tests, parse the packet so that we can inspect the contents
@@ -98,7 +101,7 @@ mod tests {
             while cursor.has_remaining() {
                 let channel_id = ChannelId::from_bytes(&mut cursor)?;
                 let num_messages = cursor.read_varint()?;
-                for i in 0..num_messages {
+                for _ in 0..num_messages {
                     let single_data = SingleData::from_bytes(&mut cursor)?;
                     res.entry(channel_id).or_default().push(single_data.bytes);
                 }

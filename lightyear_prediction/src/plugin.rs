@@ -25,8 +25,6 @@ use crate::{Predicted, PredictionMode, SyncComponent};
 use bevy::ecs::component::Mutable;
 use bevy::ecs::entity_disabling::DefaultQueryFilters;
 use bevy::prelude::*;
-use bevy::reflect::Reflect;
-use core::time::Duration;
 use lightyear_core::timeline::Rollback;
 use lightyear_replication::prelude::ReplicationSet;
 

@@ -2,7 +2,7 @@
 use crate::channel::registry::ChannelId;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{FragmentData, MessageAck, SingleData};
-use crate::packet::packet::{FRAGMENT_SIZE, Packet};
+use crate::packet::packet::{Packet, FRAGMENT_SIZE};
 use crate::packet::packet_type::PacketType;
 use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
@@ -11,10 +11,10 @@ use bytes::Bytes;
 use core::time::Duration;
 use lightyear_core::network::NetId;
 use lightyear_core::tick::Tick;
-use lightyear_serde::{SerializationError, ToBytes, varint::varint_len, writer::WriteInteger};
+use lightyear_serde::{varint::varint_len, writer::WriteInteger, SerializationError, ToBytes};
 use tracing::trace;
 #[cfg(feature = "trace")]
-use tracing::{Level, instrument};
+use tracing::{instrument, Level};
 
 pub const MAX_PACKET_SIZE: usize = 1200;
 
@@ -29,7 +29,7 @@ pub type RecvPayload = Bytes;
 
 /// `PacketBuilder` handles the process of creating a packet (writing the header and packing the
 /// messages into packets)
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct PacketBuilder {
     pub(crate) header_manager: PacketHeaderManager,
     current_packet: Option<Packet>,
@@ -42,6 +42,12 @@ pub(crate) struct PacketBuilder {
     // How many bytes we know we are going to have to write in the packet, but haven't written yet
     // prewritten_size: usize,
     // mid_packet: bool,
+}
+
+impl Default for PacketBuilder {
+    fn default() -> Self {
+        Self::new(1.5)
+    }
 }
 
 impl PacketBuilder {
@@ -433,7 +439,7 @@ mod tests {
     use crate::channel::senders::fragment_sender::FragmentSender;
     use crate::packet::error::PacketError;
     use crate::packet::message::{FragmentIndex, MessageId};
-    use bevy::prelude::{App, TypePath, default};
+    use bevy::prelude::{default, App, TypePath};
     use bytes::Bytes;
 
     use super::*;
@@ -633,7 +639,7 @@ mod tests {
         let num_big_bytes = (1.5 * FRAGMENT_SIZE as f32) as usize;
         let big_bytes = Bytes::from(vec![1u8; num_big_bytes]);
         let fragmenter = FragmentSender::new();
-        let fragments = fragmenter.build_fragments(MessageId(3), None, big_bytes.clone());
+        let fragments = fragmenter.build_fragments(MessageId(3), big_bytes.clone());
 
         let small_bytes = Bytes::from(vec![7u8; 10]);
         let small_message = SingleData::new(None, small_bytes.clone());

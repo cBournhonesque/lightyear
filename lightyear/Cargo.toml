@@ -75,6 +75,13 @@ metrics = [
   "dep:metrics-util",
   "dep:metrics-tracing-context",
   "dep:metrics-exporter-prometheus",
+  "lightyear_interpolation?/metrics",
+  "lightyear_replication?/metrics",
+  "lightyear_sync/metrics",
+  "lightyear_transport/metrics",
+  "lightyear_prediction?/metrics",
+  "lightyear_inputs?/metrics",
+  "lightyear_netcode?/metrics"
 ]
 netcode = [
   "dep:lightyear_netcode",
@@ -202,19 +209,14 @@ lz4_flex = { workspace = true, optional = true }
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
 lightyear_udp = { workspace = true, optional = true }
 steamworks = { workspace = true, optional = true }
-tokio-tungstenite = { workspace = true, optional = true }
 zstd = { workspace = true, optional = true }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook.workspace = true
-web-sys = { workspace = true, optional = true }
 bevy_web_keepalive.workspace = true
 futures-lite = { workspace = true, optional = true }
 getrandom.workspace = true
-xwt-core = { workspace = true, optional = true }
-xwt-web = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
-wasm-bindgen-futures = { workspace = true, optional = true }
 zstd = { workspace = true, optional = true, features = ["wasm"] }
 
 

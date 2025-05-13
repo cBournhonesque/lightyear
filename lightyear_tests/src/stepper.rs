@@ -170,7 +170,7 @@ impl ClientServerStepper {
     pub(crate) fn default_no_init() -> Self {
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
-        let mut stepper = Self::new(tick_duration, frame_duration);
+        let stepper = Self::new(tick_duration, frame_duration);
         stepper
     }
 

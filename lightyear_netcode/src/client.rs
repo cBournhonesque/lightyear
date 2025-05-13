@@ -1,25 +1,20 @@
-use alloc::collections::VecDeque;
-use alloc::vec::Drain;
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 use core::net::SocketAddr;
 use no_std_io2::io;
 
 use super::{
-    ClientId, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
-    bytes::Bytes,
-    error::{Error, Result},
-    packet::{
+    bytes::Bytes, error::{Error, Result}, packet::{
         DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket, RequestPacket, ResponsePacket,
-    },
-    replay::ReplayProtection,
+    }, replay::ReplayProtection,
     token::{ChallengeToken, ConnectToken},
     utils,
+    ClientId,
+    MAX_PACKET_SIZE,
+    MAX_PKT_BUF_SIZE,
+    PACKET_SEND_RATE_SEC,
 };
-use bevy::prelude::Resource;
-use lightyear_connection::client::ConnectionError;
-use lightyear_core::id;
-use lightyear_link::{Link, LinkReceiver, LinkSender, RecvPayload, SendPayload};
+use lightyear_link::{LinkReceiver, LinkSender, RecvPayload, SendPayload};
 use lightyear_serde::writer::Writer;
 use tracing::{debug, error, info, trace};
 

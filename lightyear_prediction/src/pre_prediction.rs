@@ -4,7 +4,6 @@
 use crate::Predicted;
 use crate::manager::{PredictionManager, PredictionResource};
 use bevy::prelude::*;
-use lightyear_connection::identity::{NetworkIdentityState, is_host_server};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::prelude::{
     Confirmed, DisableReplicateHierarchy, Replicate, ReplicateLike, Replicating,

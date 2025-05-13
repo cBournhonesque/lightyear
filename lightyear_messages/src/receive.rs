@@ -4,8 +4,7 @@ use crate::registry::{MessageError, MessageKind, MessageRegistry};
 use crate::{Message, MessageNetId};
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
-use bevy::prelude::{Commands, Component, Entity, ParallelCommands, Query, Res, With, World};
-use bytes::Bytes;
+use bevy::prelude::{Component, Entity, ParallelCommands, Query, Res, With, World};
 use lightyear_core::tick::Tick;
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
@@ -13,7 +12,7 @@ use lightyear_serde::reader::Reader;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::prelude::Transport;
-use tracing::{error, info, trace};
+use tracing::{error, trace};
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;

@@ -1,6 +1,5 @@
 use bevy::prelude::Entity;
 use core::array::TryFromSliceError;
-use core::net::SocketAddr;
 use lightyear_core::id::PeerId;
 use thiserror::Error;
 use tracing::{debug, warn};

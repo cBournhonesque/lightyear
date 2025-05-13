@@ -1,7 +1,6 @@
-use crate::ping::PingChannel;
 use crate::ping::manager::PingManager;
 use crate::ping::message::{Ping, Pong};
-use crate::timeline::sync::SyncedTimeline;
+use crate::ping::PingChannel;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use core::time::Duration;
@@ -9,7 +8,6 @@ use lightyear_connection::client::Connected;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::TickDelta;
-use lightyear_core::timeline::SetTickDuration;
 use lightyear_link::Link;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::AppMessageExt;

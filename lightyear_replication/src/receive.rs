@@ -10,8 +10,6 @@ use alloc::vec::Vec;
 use bevy::app::{App, Plugin, PreUpdate};
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::{EntityHash, EntityIndexMap};
-use bevy::ecs::system::SystemState;
-use bevy::ecs::world::WorldEntityFetch;
 use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use bevy::ptr::OwningPtr;
@@ -26,17 +24,15 @@ use crate::plugin;
 use crate::plugin::ReplicationSet;
 use crate::prelude::ReplicationSender;
 use lightyear_connection::client::{Connected, Disconnected};
-use lightyear_connection::client_of::ClientOf;
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
-use lightyear_messages::{MessageManager, MessageNetId};
-use lightyear_transport::channel::ChannelKind;
-use lightyear_transport::prelude::{ChannelRegistry, Transport};
+use lightyear_messages::MessageManager;
+use lightyear_transport::prelude::Transport;
 #[cfg(feature = "trace")]
-use tracing::{Level, instrument};
+use tracing::{instrument, Level};
 
 type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
@@ -843,7 +839,7 @@ impl GroupChannel {
                     // NOTE: at this point we know that the remote entity was not mapped!
 
                     // TODO: maybe use command-batching?
-                    let mut local_entity = world.spawn((
+                    let local_entity = world.spawn((
                         Replicated {
                             receiver: receiver_entity,
                             from: remote,

@@ -1,15 +1,13 @@
 use crate::plugin::MessagePlugin;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
-pub(crate) use crate::trigger::TriggerMessage;
 use crate::{Message, MessageManager, MessageNetId};
 use alloc::sync::Arc;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::HookContext;
-use bevy::ecs::entity::{EntityMapper, MapEntities};
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
-use bevy::prelude::{Component, Entity, Event, Query, Reflect, Res, With, Without, World};
+use bevy::prelude::{Component, Entity, Query, Reflect, Res, With, World};
 use lightyear_connection::client::Connected;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
@@ -17,8 +15,7 @@ use lightyear_serde::writer::Writer;
 use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
-use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, trace};
+use tracing::{error, trace};
 
 pub type Priority = f32;
 

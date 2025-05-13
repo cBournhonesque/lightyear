@@ -16,14 +16,6 @@ pub mod sequence_buffer;
 
 // pub mod bevy;
 
-#[cfg_attr(docsrs, doc(cfg(feature = "avian2d")))]
-#[cfg(feature = "avian2d")]
-pub mod avian2d;
-
-#[cfg_attr(docsrs, doc(cfg(feature = "avian3d")))]
-#[cfg(feature = "avian3d")]
-pub mod avian3d;
-
 pub mod captures;
 pub mod collections;
 // pub(crate) mod pool;

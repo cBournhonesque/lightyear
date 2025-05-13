@@ -2,31 +2,30 @@
 
 use crate::buffer::{Replicate, ReplicationMode};
 use crate::prelude::ReplicationSender;
-use crate::registry::ComponentKind;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::entity::EntityIndexSet;
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::ecs::world::DeferredWorld;
-use bevy::platform::collections::HashSet;
 use bevy::prelude::{
     Component, Entity, OnAdd, Query, Reflect, RelationshipTarget, Trigger, With, World,
 };
 use bevy::time::{Timer, TimerMode};
-use lightyear_connection::client::Connected;
-use lightyear_connection::client::{Client, PeerMetadata};
+use lightyear_connection::client::{Connected, PeerMetadata};
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::id::PeerId;
 use lightyear_core::tick::Tick;
-use lightyear_link::prelude::{LinkOf, Server};
+use lightyear_link::prelude::LinkOf;
+#[cfg(feature = "server")]
+use lightyear_link::server::Server;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::collections::EntityHashMap;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
 // TODO: how to define which subset of components a sender iterates through?
 //  if a sender is only interested in a few components it might be expensive
 //  maybe we can have a 'direction' in ComponentReplicationConfig and Client/ClientOf peers can precompute
@@ -386,13 +385,11 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                         error!("No ReplicationSender found in the world");
                         return;
                     };
-                    // SAFETY: the senders are guaranteed to be unique because OnAdd recreates the component from scratch
-                    unsafe {
-                        replicate.senders.insert(sender_entity);
-                    }
+                    replicate.senders.insert(sender_entity);
                 }
                 #[cfg(feature = "client")]
                 ReplicationMode::SingleClient => {
+                    use lightyear_connection::client::Client;
                     let Ok(sender_entity) = world
                         .query_filtered::<Entity, With<Client>>()
                         .single_mut(world)

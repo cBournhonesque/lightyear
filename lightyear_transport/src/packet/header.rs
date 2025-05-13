@@ -85,8 +85,6 @@ impl PacketHeader {
 
 // we can only send acks for the last 32 packets ids before the last received packet
 const ACK_BITFIELD_SIZE: u8 = 32;
-// we can only buffer up to `MAX_SEND_PACKET_QUEUE_SIZE` packets for sending
-const MAX_SEND_PACKET_QUEUE_SIZE: u8 = 255;
 
 /// minimum number of milliseconds after which we can consider a packet lost
 /// (to avoid edge case behaviour)
@@ -97,7 +95,7 @@ const MAX_NACK_SECONDS: u64 = 3;
 
 /// Keeps track of sent and received packets to be able to write the packet headers correctly
 /// For more information: [GafferOnGames](https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/)
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct PacketHeaderManager {
     // Local packet id which we'll bump each time we send a new packet over the network.
     // (we always increment the packet_id, even when we resend a lost packet)
@@ -118,6 +116,12 @@ pub struct PacketHeaderManager {
     /// The default is 1.5; i.e. after 1.5 times the round trip time, we consider a packet lost if
     /// we haven't received an ACK for it.
     nack_rtt_multiple: f32,
+}
+
+impl Default for PacketHeaderManager {
+    fn default() -> Self {
+        Self::new(1.5)
+    }
 }
 
 impl PacketHeaderManager {
@@ -151,11 +155,6 @@ impl PacketHeaderManager {
             }
             true
         });
-    }
-
-    /// Return the packet id of the next packet to be sent
-    pub fn next_packet_id(&self) -> PacketId {
-        self.next_packet_id
     }
 
     /// Increment the packet id of the next packet to be sent

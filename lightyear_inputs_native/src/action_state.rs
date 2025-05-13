@@ -1,11 +1,9 @@
-use bevy::ecs::component::Mutable;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Component, EntityMapper, Reflect};
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use lightyear_inputs::input_buffer::{InputBuffer, InputData};
+use lightyear_inputs::input_buffer::InputData;
 
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 /// The component that will store the current status of the action for the entity

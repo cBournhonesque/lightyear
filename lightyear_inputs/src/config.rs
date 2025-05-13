@@ -1,4 +1,4 @@
-use bevy::prelude::{Component, Reflect, Resource};
+use bevy::prelude::{Reflect, Resource};
 use core::marker::PhantomData;
 use core::time::Duration;
 

@@ -1,6 +1,7 @@
 /// Defines the [`Message`](message::Message) struct, which is a piece of serializable data
 use core::fmt::Debug;
 
+
 use bytes::Bytes;
 
 use lightyear_core::tick::Tick;
@@ -23,7 +24,8 @@ pub(crate) struct FragmentIndex(pub(crate) u64);
 
 /// Struct to keep track of which messages/slices have been received by the remote
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
-pub(crate) struct MessageAck {
+#[doc(hidden)]
+pub struct MessageAck {
     pub(crate) message_id: MessageId,
     pub(crate) fragment_id: Option<FragmentIndex>,
 }
@@ -39,13 +41,15 @@ pub(crate) struct MessageAck {
 /// In the message container, we already store the serialized representation of the message.
 /// The main reason is so that we can avoid copies, by directly serializing references into raw bits
 #[derive(Debug, PartialEq)]
-pub(crate) struct SendMessage {
+#[doc(hidden)]
+pub struct SendMessage {
     pub(crate) data: MessageData,
     pub(crate) priority: f32,
 }
 
 #[derive(Debug, PartialEq)]
-pub(crate) struct ReceiveMessage {
+#[doc(hidden)]
+pub struct ReceiveMessage {
     pub(crate) data: MessageData,
     // keep track on the receiver side of the sender tick when the message was actually sent
     pub(crate) remote_sent_tick: Tick,
@@ -66,6 +70,7 @@ impl MessageData {
         }
     }
 
+    #[allow(unused)]
     pub fn set_id(&mut self, id: MessageId) {
         match self {
             MessageData::Single(data) => data.id = Some(id),
@@ -80,6 +85,7 @@ impl MessageData {
         }
     }
 
+    #[allow(unused)]
     pub fn bytes(&self) -> Bytes {
         match self {
             MessageData::Single(data) => data.bytes.clone(),

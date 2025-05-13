@@ -3,11 +3,10 @@ use alloc::collections::VecDeque;
 use super::error::{ChannelReceiveError, Result};
 use bytes::Bytes;
 use core::time::Duration;
-use governor::clock::Reference;
 use lightyear_core::tick::Tick;
 
-use crate::channel::receivers::ChannelReceive;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
+use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 
 const DISCARD_AFTER: Duration = Duration::from_millis(3000);
@@ -89,8 +88,8 @@ impl ChannelReceive for SequencedUnreliableReceiver {
 
 #[cfg(test)]
 mod tests {
-    use crate::channel::receivers::ChannelReceive;
     use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
+    use crate::channel::receivers::ChannelReceive;
     use crate::packet::error::PacketError;
     use crate::packet::message::{MessageId, ReceiveMessage, SingleData};
     use bytes::Bytes;
@@ -125,7 +124,7 @@ mod tests {
         assert_eq!(receiver.most_recent_message_id, MessageId(1));
         assert_eq!(
             receiver.read_message(),
-            Some((Tick(2), single2.bytes.clone()))
+            Some((Tick(2), single2.bytes.clone(), Some(MessageId(1))))
         );
         assert_eq!(receiver.recv_message_buffer.len(), 0);
 
@@ -150,7 +149,7 @@ mod tests {
         assert_eq!(receiver.most_recent_message_id, MessageId(2));
         assert_eq!(
             receiver.read_message(),
-            Some((Tick(4), single3.bytes.clone()))
+            Some((Tick(4), single3.bytes.clone(), Some(MessageId(2))))
         );
         assert_eq!(receiver.recv_message_buffer.len(), 0);
         Ok(())

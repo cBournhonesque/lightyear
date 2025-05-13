@@ -1,6 +1,6 @@
 //! Logic to handle spawning Predicted entities
 use crate::Predicted;
-use bevy::prelude::{Added, Commands, Entity, Query, Res};
+use bevy::prelude::{Added, Commands, Entity, Query};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::prelude::{
     Confirmed, Replicated, ReplicationReceiver, ShouldBePredicted,

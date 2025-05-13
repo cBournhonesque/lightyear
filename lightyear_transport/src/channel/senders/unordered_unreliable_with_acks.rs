@@ -1,15 +1,12 @@
 use alloc::collections::VecDeque;
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
 use bevy::prelude::{Real, Time, Timer, TimerMode};
 use core::time::Duration;
 
-use crate::channel::senders::ChannelSend;
 use crate::channel::senders::fragment_ack_receiver::FragmentAckReceiver;
 use crate::channel::senders::fragment_sender::FragmentSender;
+use crate::channel::senders::ChannelSend;
 use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
 use bytes::Bytes;
-use crossbeam_channel::Sender;
 use lightyear_link::LinkStats;
 
 const DISCARD_AFTER: Duration = Duration::from_millis(3000);
@@ -27,12 +24,6 @@ pub struct UnorderedUnreliableWithAcksSender {
     next_send_message_id: MessageId,
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
-
-    // TODO: use a crate to broadcast to all subscribers?
-    /// List of senders that want to be notified when a message is acked
-    ack_senders: Vec<Sender<MessageId>>,
-    /// List of senders that want to be notified when a message is lost
-    nack_senders: Vec<Sender<MessageId>>,
     /// Keep track of which fragments were acked, so we can know when the entire fragment message
     /// was acked
     fragment_ack_receiver: FragmentAckReceiver,
@@ -52,8 +43,6 @@ impl UnorderedUnreliableWithAcksSender {
             fragmented_messages_to_send: VecDeque::new(),
             next_send_message_id: MessageId::default(),
             fragment_sender: FragmentSender::new(),
-            ack_senders: Vec::new(),
-            nack_senders: Vec::new(),
             fragment_ack_receiver: FragmentAckReceiver::new(),
             timer,
         }
@@ -76,7 +65,7 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
         if message.len() > self.fragment_sender.fragment_size {
             let fragments = self
                 .fragment_sender
-                .build_fragments(message_id, None, message);
+                .build_fragments(message_id, message);
             self.fragment_ack_receiver
                 .add_new_fragment_to_wait_for(message_id, fragments.len());
             for fragment in fragments {
@@ -117,54 +106,5 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
             self.fragment_ack_receiver
                 .receive_fragment_ack(ack.message_id, fragment_index, None);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::packet::message::FragmentIndex;
-    use crate::packet::packet::FRAGMENT_SIZE;
-    #[cfg(not(feature = "std"))]
-    use alloc::vec;
-
-    #[test]
-    fn test_receive_ack() {
-        let mut sender = UnorderedUnreliableWithAcksSender::new(Duration::default());
-
-        // create subscriber
-        let receiver = sender.subscribe_acks();
-
-        // single message
-        let message_id = sender.buffer_send(Bytes::from("hello"), 1.0).unwrap();
-        assert_eq!(message_id, MessageId(0));
-        assert_eq!(sender.next_send_message_id, MessageId(1));
-
-        // ack it
-        sender.receive_ack(&MessageAck {
-            message_id,
-            fragment_id: None,
-        });
-        assert_eq!(receiver.try_recv().unwrap(), message_id);
-
-        // fragment message
-        const NUM_BYTES: usize = (FRAGMENT_SIZE as f32 * 1.5) as usize;
-        let bytes = Bytes::from(vec![0; NUM_BYTES]);
-        let message_id = sender.buffer_send(bytes, 1.0).unwrap();
-        assert_eq!(message_id, MessageId(1));
-        let mut expected = FragmentAckReceiver::new();
-        expected.add_new_fragment_to_wait_for(message_id, 2);
-        assert_eq!(&sender.fragment_ack_receiver, &expected);
-
-        sender.receive_ack(&MessageAck {
-            message_id,
-            fragment_id: Some(FragmentIndex(0)),
-        });
-        assert!(receiver.try_recv().unwrap_err().is_empty());
-        sender.receive_ack(&MessageAck {
-            message_id,
-            fragment_id: Some(FragmentIndex(1)),
-        });
-        assert_eq!(receiver.try_recv().unwrap(), message_id);
     }
 }

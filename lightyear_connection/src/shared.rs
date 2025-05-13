@@ -29,7 +29,7 @@ pub trait ConnectionRequestHandler: Debug + Send + Sync {
 pub struct DefaultConnectionRequestHandler;
 
 impl ConnectionRequestHandler for DefaultConnectionRequestHandler {
-    fn handle_request(&self, client_id: PeerId) -> Option<DeniedReason> {
+    fn handle_request(&self, _client_id: PeerId) -> Option<DeniedReason> {
         None
     }
 }

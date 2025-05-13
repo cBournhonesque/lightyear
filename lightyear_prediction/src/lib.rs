@@ -9,6 +9,7 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
 use core::fmt::Debug;
 
+#[allow(unused)]
 pub(crate) mod archetypes;
 pub mod correction;
 pub mod despawn;
@@ -64,7 +65,7 @@ impl Component for Predicted {
                 else {
                     return;
                 };
-                let Some(mut resource) = deferred_world.get_resource::<PredictionResource>() else {
+                let Some(resource) = deferred_world.get_resource::<PredictionResource>() else {
                     return;
                 };
                 let Some(mut manager) =
@@ -89,7 +90,7 @@ impl Component for Predicted {
                 else {
                     return;
                 };
-                let Some(mut resource) = deferred_world.get_resource::<PredictionResource>() else {
+                let Some(resource) = deferred_world.get_resource::<PredictionResource>() else {
                     return;
                 };
                 let Some(mut manager) =

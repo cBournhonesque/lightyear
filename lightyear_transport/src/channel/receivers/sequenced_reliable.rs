@@ -1,12 +1,12 @@
-use alloc::collections::{BTreeMap, btree_map};
+use alloc::collections::{btree_map, BTreeMap};
 
 use super::error::{ChannelReceiveError, Result};
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_core::tick::Tick;
 
-use crate::channel::receivers::ChannelReceive;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
+use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 
 /// Sequenced Reliable receiver: make sure that all messages are received,
@@ -120,7 +120,7 @@ mod tests {
         assert!(receiver.recv_message_buffer.contains_key(&MessageId(1)));
         assert_eq!(
             receiver.read_message(),
-            Some((Tick(2), single2.bytes.clone()))
+            Some((Tick(2), single2.bytes.clone(), Some(MessageId(1))))
         );
         assert_eq!(receiver.most_recent_message_id, MessageId(1));
 

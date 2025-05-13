@@ -4,11 +4,7 @@ use crate::registry::registry::ComponentRegistry;
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 use bevy::ecs::component::{Component, ComponentId, Mutable};
 use bevy::prelude::*;
-use bevy::ptr::OwningPtr;
 use bytes::Bytes;
-use core::alloc::Layout;
-use core::ptr::NonNull;
-use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::prelude::Tick;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
@@ -136,7 +132,7 @@ impl ComponentRegistry {
     pub fn buffer_insert<C: Component<Mutability = Mutable> + PartialEq>(
         &self,
         reader: &mut Reader,
-        tick: Tick,
+        _tick: Tick,
         entity_world_mut: &mut EntityWorldMut,
         entity_map: &mut ReceiveEntityMap,
         temp_write_buffer: &mut TempWriteBuffer,
@@ -148,7 +144,7 @@ impl ComponentRegistry {
             .ok_or(ComponentError::NotRegistered)?;
         let component = self.raw_deserialize::<C>(reader, entity_map)?;
         let entity = entity_world_mut.id();
-        debug!("Insert component {} to entity", core::any::type_name::<C>());
+        debug!("Insert component {} to entity {entity:?}", core::any::type_name::<C>());
 
         // if the component is already on the entity, no need to insert
         if let Some(mut c) = entity_world_mut.get_mut::<C>() {
@@ -169,7 +165,6 @@ impl ComponentRegistry {
         } else {
             // TODO: add safety comment
             unsafe { temp_write_buffer.buffer_insert_raw_ptrs::<C>(component, *component_id) };
-            // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
             #[cfg(feature = "metrics")]
             {
                 metrics::counter!("replication::receive::component::insert").increment(1);
@@ -186,7 +181,7 @@ impl ComponentRegistry {
     pub fn write<C: Component<Mutability = Mutable> + PartialEq>(
         &self,
         reader: &mut Reader,
-        tick: Tick,
+        _tick: Tick,
         entity_world_mut: &mut EntityWorldMut,
         entity_map: &mut ReceiveEntityMap,
     ) -> Result<(), ComponentError> {
@@ -194,10 +189,7 @@ impl ComponentRegistry {
             "Writing component {} to entity",
             core::any::type_name::<C>()
         );
-        let kind = ComponentKind::of::<C>();
         let component = self.raw_deserialize::<C>(reader, entity_map)?;
-        let entity = entity_world_mut.id();
-        // TODO: should we send the event based on on the message type (Insert/Update) or based on whether the component was actually inserted?
         if let Some(mut c) = entity_world_mut.get_mut::<C>() {
             // only apply the update if the component is different, to not trigger change detection
             if c.as_ref() != &component {

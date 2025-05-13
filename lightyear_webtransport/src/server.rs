@@ -9,11 +9,9 @@ use core::net::SocketAddr;
 use core::time::Duration;
 use lightyear_aeronet::server::ServerAeronetPlugin;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
-use lightyear_connection::client::Connected;
-use lightyear_connection::client_of::ClientOf;
 use lightyear_link::prelude::LinkOf;
 use lightyear_link::server::Server;
-use lightyear_link::{Link, LinkStart, Linked, Linking, Unlinked};
+use lightyear_link::{Link, LinkStart, Linked, Linking};
 
 /// Allows using [`WebTransportServer`].
 pub struct WebTransportServerPlugin;

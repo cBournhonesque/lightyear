@@ -11,9 +11,7 @@ use bevy::ecs::entity::MapEntities;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::{Resource, TypePath, World};
 use bevy::ptr::Ptr;
-use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
-use lightyear_messages::registry::MessageRegistry;
 use lightyear_serde::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{

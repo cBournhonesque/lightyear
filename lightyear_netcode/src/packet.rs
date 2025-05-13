@@ -1,5 +1,3 @@
-use bevy::asset::AsyncWriteExt;
-use bevy::ecs::error::trace;
 use bytes::BytesMut;
 use core::mem::size_of;
 #[cfg(feature = "std")]
@@ -14,19 +12,19 @@ use {
 };
 
 use super::{
-    ClientId, MAC_BYTES, MAX_PKT_BUF_SIZE, NETCODE_VERSION,
-    bytes::Bytes,
-    crypto::{self, Key},
-    error::Error as NetcodeError,
-    replay::ReplayProtection,
+    bytes::Bytes, crypto::{self, Key}, error::Error as NetcodeError, replay::ReplayProtection,
     token::{ChallengeToken, ConnectTokenPrivate},
+    ClientId,
+    MAC_BYTES,
+    MAX_PKT_BUF_SIZE,
+    NETCODE_VERSION,
 };
 use chacha20poly1305::XNonce;
 use lightyear_link::{RecvPayload, SendPayload};
 use lightyear_serde::reader::{ReadInteger, Reader};
-use lightyear_serde::writer::{WriteInteger, Writer};
+use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
-use tracing::{debug, trace};
+use tracing::debug;
 
 use lightyear_connection::shared::DeniedReason;
 
@@ -498,7 +496,7 @@ impl Packet {
         Ok(encryption_end)
     }
     pub fn read(
-        mut buf: RecvPayload, // buffer needs to be mutable to perform decryption in-place
+        buf: RecvPayload, // buffer needs to be mutable to perform decryption in-place
         protocol_id: u64,
         timestamp: u64,
         key: Key,
@@ -583,9 +581,9 @@ pub fn sequence_len(sequence: u64) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use chacha20poly1305::{AeadCore, XChaCha20Poly1305, aead::OsRng};
+    use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305};
 
-    use crate::{MAX_PACKET_SIZE, USER_DATA_BYTES, crypto::generate_key, token::AddressList};
+    use crate::{crypto::generate_key, token::AddressList, MAX_PACKET_SIZE, USER_DATA_BYTES};
 
     use super::*;
     #[cfg(not(feature = "std"))]

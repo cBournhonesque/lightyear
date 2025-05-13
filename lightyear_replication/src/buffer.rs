@@ -1,14 +1,12 @@
 //! Client replication plugins
 use bevy::prelude::*;
-use core::time::Duration;
 
 use super::*;
 use bevy::ecs::archetype::Archetypes;
-use bevy::ecs::component::{ComponentId, ComponentTicks, Components, HookContext};
-use bevy::ecs::entity::{EntityIndexSet, UniqueEntitySlice, UniqueEntityVec};
-use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
+use bevy::ecs::component::{ComponentTicks, Components, HookContext};
+use bevy::ecs::entity::EntityIndexSet;
+use bevy::ecs::system::SystemChangeTick;
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut, FilteredEntityRef};
-use bevy::platform::collections::HashSet;
 use bevy::ptr::Ptr;
 
 use crate::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
@@ -20,26 +18,26 @@ use crate::components::{Replicating, ReplicationGroup, ReplicationGroupId};
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
-use crate::prelude::{Cached, ComponentReplicationOverride, ComponentReplicationOverrides};
-use crate::receive::ReplicationReceiver;
-use crate::registry::ComponentKind;
+use crate::prelude::ComponentReplicationOverrides;
 use crate::registry::registry::ComponentRegistry;
+use crate::registry::ComponentKind;
 use crate::send::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 
 use crate::control::{Controlled, OwnedBy};
 use lightyear_connection::client::Connected;
 use lightyear_connection::client::{Client, PeerMetadata};
-use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::prelude::NetworkTarget;
 
+use lightyear_connection::client_of::ClientOf;
 use lightyear_core::id::PeerId;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
-use lightyear_link::prelude::{LinkOf, Server};
+use lightyear_link::prelude::LinkOf;
+#[cfg(feature = "server")]
+use lightyear_link::prelude::Server;
 use lightyear_messages::MessageManager;
-use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
-use lightyear_transport::prelude::Transport;
+use lightyear_serde::entity_map::RemoteEntityMap;
 use tracing::{info, trace};
 
 #[derive(Clone, Default, Debug, PartialEq, Reflect)]
@@ -149,10 +147,7 @@ impl Replicate {
                         return;
                     };
                     sender.add_replicated_entity(context.entity, replicate.authority);
-                    // SAFETY: the senders are guaranteed to be unique because OnAdd recreates the component from scratch
-                    unsafe {
-                        replicate.senders.insert(sender_entity);
-                    }
+                    replicate.senders.insert(sender_entity);
                 }
                 #[cfg(feature = "client")]
                 ReplicationMode::SingleClient => {
@@ -308,7 +303,7 @@ impl Replicate {
         )>,
         mut replicate_query: Query<(Entity, &mut Replicate)>,
     ) {
-        if let Ok((sender_entity, mut sender, connected, client, client_of)) =
+        if let Ok((sender_entity, mut sender, connected, _client, client_of)) =
             sender_query.get_mut(trigger.target())
         {
             // TODO: maybe do this in parallel?
@@ -372,7 +367,7 @@ pub(crate) fn update_cached_replicate_post_buffer(
 
 pub(crate) fn replicate(
     // query &C + various replication components
-    mut entity_query: Query<FilteredEntityMut>,
+    entity_query: Query<FilteredEntityMut>,
     // TODO: should we put the DeltaManager in the same component?
     mut manager_query: Query<(
         Entity,
@@ -396,7 +391,7 @@ pub(crate) fn replicate(
             let tick = timeline.tick();
 
             // enable split borrows
-            let mut sender = &mut *sender;
+            let sender = &mut *sender;
             if !sender.send_timer.finished() {
                 return;
             }
@@ -611,10 +606,10 @@ pub(crate) fn replicate_entity(
         has_overrides,
     } in replicated_components
     {
-        let mut replication_metadata = component_registry.replication_map.get(kind).unwrap();
+        let replication_metadata = component_registry.replication_map.get(kind).unwrap();
         let mut disable = replication_metadata.config.disable;
         let mut replicate_once = replication_metadata.config.replicate_once;
-        let mut delta_compression = replication_metadata.config.delta_compression;
+        let delta_compression = replication_metadata.config.delta_compression;
         if *has_overrides {
             // TODO: get ComponentReplicationOverrides using root entity
             // SAFETY: we know that all overrides have the same shape
@@ -833,7 +828,7 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
     >,
     mut query: Query<(Entity, &mut ReplicationSender, &mut MessageManager)>,
 ) {
-    let mut entity = trigger.target();
+    let entity = trigger.target();
     let root = root_query.get(entity).map_or(entity, |r| r.root);
     // TODO: use the child's ReplicationGroup if there is one that overrides the root's
     let Ok((group, cached_replicate, network_visibility)) = entity_query.get(root) else {
@@ -849,7 +844,7 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
 
     query
         .par_iter_many_unique_mut(cached_replicate.senders.as_slice())
-        .for_each(|(sender_entity, mut sender, mut manager)| {
+        .for_each(|(sender_entity, mut sender, manager)| {
             if network_visibility.is_some_and(|v| !v.is_visible(sender_entity)) {
                 trace!(
                     ?entity,
@@ -1018,7 +1013,7 @@ pub(crate) fn buffer_component_removed(
     };
     manager_query
         .par_iter_many_unique_mut(replicate.senders.as_slice())
-        .for_each(|(sender_entity, mut sender, mut manager)| {
+        .for_each(|(sender_entity, mut sender, manager)| {
             // convert the entity to a network entity (possibly mapped)
             let entity = manager.entity_mapper.to_remote(entity);
             for component_id in trigger.components() {

@@ -9,7 +9,6 @@ use crate::packet::message::{MessageAck, MessageId};
 use crate::packet::packet::PacketId;
 use crate::packet::packet_builder::{PacketBuilder, RecvPayload};
 use crate::packet::priority_manager::PriorityManager;
-use bevy::ecs::change_detection::MutUntyped;
 use bevy::prelude::Component;
 use bytes::Bytes;
 use core::time::Duration;
@@ -98,9 +97,6 @@ impl Default for Transport {
     }
 }
 
-/// Function that flushes all messages out of the ChannelSender
-/// and buffers them in the PriorityManager
-type FlushMessagesFn = fn(&mut PriorityManager, MutUntyped);
 
 impl Transport {
     pub fn has_sender<C: Channel>(&self) -> bool {

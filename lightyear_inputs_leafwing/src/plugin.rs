@@ -1,7 +1,7 @@
 use crate::action_state::LeafwingUserAction;
 use crate::input_message::LeafwingSequence;
 use bevy::app::{App, Plugin};
-use leafwing_input_manager::plugin::InputManagerPlugin;
+use leafwing_input_manager::prelude::InputManagerPlugin;
 use lightyear_inputs::config::InputConfig;
 
 pub struct InputPlugin<A> {

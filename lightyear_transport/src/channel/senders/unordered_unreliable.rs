@@ -3,8 +3,8 @@ use bevy::prelude::{Real, Time, Timer};
 use bevy::time::TimerMode;
 use core::time::Duration;
 
-use crate::channel::senders::ChannelSend;
 use crate::channel::senders::fragment_sender::FragmentSender;
+use crate::channel::senders::ChannelSend;
 use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
 use bytes::Bytes;
 use lightyear_link::LinkStats;
@@ -56,7 +56,6 @@ impl ChannelSend for UnorderedUnreliableSender {
         if message.len() > self.fragment_sender.fragment_size {
             for fragment in self.fragment_sender.build_fragments(
                 self.next_send_fragmented_message_id,
-                None,
                 message,
             ) {
                 self.fragmented_messages_to_send.push_back(SendMessage {

@@ -13,8 +13,6 @@
 
 extern crate alloc;
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
 
 /// Handles the registration of components for replication.
 pub mod registry;

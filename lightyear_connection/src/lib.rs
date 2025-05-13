@@ -37,6 +37,7 @@ pub mod direction;
 pub mod network_target;
 
 pub mod client_of;
+#[allow(unused)]
 pub mod identity;
 pub mod shared;
 

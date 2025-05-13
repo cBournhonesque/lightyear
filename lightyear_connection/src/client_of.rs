@@ -1,4 +1,3 @@
-use bevy::ecs::relationship::RelationshipSourceCollection;
 use bevy::prelude::*;
 
 /// Marker component to identify this link as a LinkOf

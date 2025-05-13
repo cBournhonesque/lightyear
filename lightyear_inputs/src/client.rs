@@ -52,27 +52,26 @@
 //! NOTE: I would advise to activate the `leafwing` feature to handle inputs via the `input_leafwing` module, instead.
 //! That module is more up-to-date and has more features.
 //! This module is kept for simplicity but might get removed in the future.
-use crate::InputChannel;
 use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
+use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
-use core::marker::PhantomData;
 use core::time::Duration;
 use lightyear_core::prelude::{NetworkTimeline, Rollback};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::timeline::LocalTimeline;
 use lightyear_core::timeline::SyncEvent;
-use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageSender;
-use lightyear_prediction::Predicted;
+use lightyear_messages::MessageManager;
 use lightyear_prediction::pre_prediction::PrePredicted;
+use lightyear_prediction::Predicted;
 use lightyear_sync::plugin::SyncSet;
+use lightyear_sync::prelude::client::IsSynced;
 use lightyear_sync::prelude::InputTimeline;
-use lightyear_sync::prelude::client::{Input, IsSynced};
 use tracing::trace;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -215,7 +214,7 @@ fn buffer_action_state<S: ActionStateSequence>(
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
-    sender: Single<(&InputTimeline, &LocalTimeline), (Without<Rollback>)>,
+    sender: Single<(&InputTimeline, &LocalTimeline), Without<Rollback>>,
     mut action_state_query: Query<(Entity, &S::State, &mut InputBuffer<S::State>), With<S::Marker>>,
 ) {
     let (input_timeline, local_timeline) = sender.into_inner();
@@ -369,7 +368,7 @@ fn prepare_input_message<S: ActionStateSequence>(
         With<S::Marker>,
     >,
 ) {
-    let ((local_timeline, input_timeline, message_manager)) = sender.into_inner();
+    let (local_timeline, input_timeline, message_manager) = sender.into_inner();
 
     // we send a message from the latest tick that we have available, which is the delayed tick
     let current_tick = local_timeline.tick();

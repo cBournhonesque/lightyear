@@ -1,6 +1,4 @@
-use crate::plugin::MessagePlugin;
-use crate::prelude::MessageSender;
-use crate::registry::{MessageError, MessageKind, MessageRegistry};
+use crate::registry::{MessageError, MessageKind};
 use crate::send::Priority;
 pub(crate) use crate::trigger::TriggerMessage;
 use crate::{MessageManager, MessageNetId};
@@ -8,15 +6,15 @@ use crate::{MessageManager, MessageNetId};
 use alloc::{vec, vec::Vec};
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::component::HookContext;
-use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
-use bevy::prelude::{Commands, Component, Entity, Event, Query, Res, World};
+use bevy::ecs::world::DeferredWorld;
+use bevy::prelude::{Component, Entity, Event, World};
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
 use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
-use tracing::{error, info, trace};
+use tracing::trace;
 
 /// Component used to send triggers of type `M` remotely.
 #[derive(Component)]

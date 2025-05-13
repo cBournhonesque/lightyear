@@ -13,6 +13,9 @@ default = [
     "std",
     "lightyear/interpolation"
 ]
+leafwing = [
+    "lightyear/leafwing"
+]
 std = [
     "bevy/std",
     "bytes/std",

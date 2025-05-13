@@ -5,8 +5,8 @@ use bevy::platform::collections::HashSet;
 use bevy::prelude::{Real, Time, Timer, TimerMode};
 
 use crate::channel::builder::ReliableSettings;
-use crate::channel::senders::ChannelSend;
 use crate::channel::senders::fragment_sender::FragmentSender;
+use crate::channel::senders::ChannelSend;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SendMessage, SingleData};
 use bytes::Bytes;
 use core::time::Duration;
@@ -115,7 +115,7 @@ impl ChannelSend for ReliableSender {
         let unacked_message = if message.len() > self.fragment_sender.fragment_size {
             let fragments = self
                 .fragment_sender
-                .build_fragments(message_id, None, message);
+                .build_fragments(message_id, message);
             UnackedMessage::Fragmented(
                 fragments
                     .into_iter()

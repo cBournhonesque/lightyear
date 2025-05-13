@@ -7,8 +7,6 @@
 //!
 
 use crate::send::ReplicationSender;
-use bevy::ecs::entity::MapEntities;
-use bevy::ecs::system::{SystemId, SystemParam};
 use bevy::prelude::*;
 use lightyear_connection::client::PeerMetadata;
 use lightyear_connection::prelude::NetworkDirection;
@@ -104,7 +102,7 @@ impl AuthorityPlugin {
             &mut ReplicationSender,
             &mut TriggerSender<AuthorityTransferResponse>,
         )>,
-        mut query: Query<&AuthorityTransfer>,
+        query: Query<&AuthorityTransfer>,
     ) {
         if let Some(&sender_entity) = metadata.mapping.get(&trigger.from) {
             let entity = trigger.target();

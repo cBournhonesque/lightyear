@@ -1,6 +1,3 @@
-use core::fmt::Debug;
-use core::ops::{Deref, DerefMut};
-
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
 use super::{Predicted, PredictionMode, SyncComponent};
@@ -8,26 +5,21 @@ use crate::correction::Correction;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
 use crate::manager::PredictionManager;
-use crate::plugin::{PredictionSet, is_in_rollback};
+use crate::plugin::PredictionSet;
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
 use bevy::app::FixedMain;
 use bevy::ecs::component::Mutable;
 use bevy::ecs::entity::hash_set::EntityHashSet;
-use bevy::ecs::reflect::ReflectResource;
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
 use bevy::prelude::*;
-use bevy::reflect::Reflect;
 use bevy::time::{Fixed, Time};
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_core::tick::Tick;
 use lightyear_core::timeline::Rollback;
-use lightyear_replication::prelude::{Confirmed, Replicated, ReplicationReceiver};
+use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::registry::registry::ComponentRegistry;
-use parking_lot::RwLock;
-use tracing::*;
 
 pub struct RollbackPlugin;
 
@@ -392,7 +384,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
     // TODO: have a way to make these systems run in parallel
     //  - either by using RwLock in PredictionManager
     //  - or by using a system that iterates through archetypes, a la replicon?
-    mut prediction_manager: Single<(&mut PredictionManager), With<Rollback>>,
+    mut prediction_manager: Single<&mut PredictionManager, With<Rollback>>,
 ) {
     let kind = core::any::type_name::<C>();
     let _span = trace_span!("client prepare rollback for pre-spawned entities");
@@ -540,7 +532,7 @@ pub(crate) fn prepare_rollback_non_networked<
 // Revert `resource` to its value at the tick that the incoming rollback will rollback to.
 pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
     mut commands: Commands,
-    prediction_manager: Single<(&PredictionManager), With<Rollback>>,
+    prediction_manager: Single<&PredictionManager, With<Rollback>>,
     resource: Option<ResMut<R>>,
     mut history: ResMut<ResourceHistory<R>>,
 ) {

@@ -20,6 +20,8 @@ client = [
 server = [
     "lightyear_connection/server"
 ]
+metrics = []
+trace = []
 
 test_utils = []
 

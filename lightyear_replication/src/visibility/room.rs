@@ -39,18 +39,16 @@ it just caches the room metadata to keep track of the relevance of entities.
 */
 
 use bevy::app::App;
-use bevy::ecs::entity::{EntityIndexMap, hash_map::EntityHashMap, hash_set::EntityHashSet};
-use bevy::platform::collections::{HashMap, HashSet, hash_map::Entry};
+use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet, EntityIndexMap};
+use bevy::platform::collections::hash_map::Entry;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 
 use crate::send::ReplicationBufferSet;
 use crate::visibility::error::NetworkVisibilityError;
 use crate::visibility::immediate::{
-    NetworkVisibility, NetworkVisibilityPlugin, VisibilitySet, VisibilityState,
+    NetworkVisibility, NetworkVisibilityPlugin, VisibilityState,
 };
-use serde::{Deserialize, Serialize};
-use tracing::*;
 
 /// A [`Room`] is a data structure that is used to perform interest management.
 ///
@@ -202,7 +200,7 @@ pub struct RoomVisibility {
 impl RoomVisibility {
     fn gain_visibility(&mut self, sender: Entity) {
         match self.clients.entry(sender) {
-            Entry::Occupied(mut e) => {
+            Entry::Occupied(e) => {
                 if *e.get() == VisibilityState::Lost {
                     e.remove();
                 }
@@ -215,7 +213,7 @@ impl RoomVisibility {
 
     fn lose_visibility(&mut self, sender: Entity) {
         match self.clients.entry(sender) {
-            Entry::Occupied(mut e) => {
+            Entry::Occupied(e) => {
                 if *e.get() == VisibilityState::Gained {
                     e.remove();
                 }
@@ -230,7 +228,7 @@ impl RoomVisibility {
 impl From<RoomVisibility> for NetworkVisibility {
     fn from(value: RoomVisibility) -> Self {
         Self {
-            clients: Default::default(),
+            clients: value.clients
         }
     }
 }

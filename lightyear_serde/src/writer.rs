@@ -49,7 +49,7 @@ pub(crate) mod std {
 
     impl Writer {
         pub fn with_capacity(capacity: usize) -> Self {
-            let mut buf = BytesMut::with_capacity(capacity);
+            let buf = BytesMut::with_capacity(capacity);
             Self(buf.writer())
         }
 

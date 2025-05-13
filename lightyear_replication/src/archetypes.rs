@@ -1,13 +1,12 @@
 //! Keep track of the archetypes that should be replicated
 use crate::buffer::Replicate;
-use crate::components::{ComponentReplicationConfig, ComponentReplicationOverrides, Replicating};
+use crate::components::Replicating;
 use crate::hierarchy::ReplicateLike;
 use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
 use bevy::ecs::archetype::Archetypes;
 use bevy::ecs::component::Components;
-use bevy::ecs::entity::{EntityIndexMap, EntityIndexSet};
-use bevy::platform::collections::{HashMap, HashSet};
+use bevy::platform::collections::HashMap;
 use bevy::{
     ecs::{
         archetype::{ArchetypeGeneration, ArchetypeId},
@@ -16,7 +15,6 @@ use bevy::{
     prelude::*,
 };
 use core::mem;
-use lightyear_connection::direction::NetworkDirection;
 use tracing::trace;
 
 /// Cached information about the replicated archetypes for a given sender.

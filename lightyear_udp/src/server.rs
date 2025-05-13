@@ -10,20 +10,14 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-use crate::UdpIo;
-use bevy::ecs::query::QueryEntityError;
 use bevy::platform::collections::hash_map::Entry;
-use bevy::platform::collections::{HashMap, HashSet};
+use bevy::platform::collections::HashMap;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::{BufMut, BytesMut};
 use core::net::SocketAddr;
-use lightyear_connection::client::Disconnected;
-use lightyear_connection::client_of::ClientOf;
-use lightyear_core::id::PeerId;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Linking, Unlink, Unlinked};
-use smallvec::SmallVec;
 
 /// Maximum transmission units; maximum size in bytes of a UDP packet
 /// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>
@@ -61,7 +55,7 @@ impl ServerUdpPlugin {
     ) -> Result {
         if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
             info!("Server UDP socket bound to {}", udp_io.local_addr);
-            let mut socket = std::net::UdpSocket::bind(udp_io.local_addr)?;
+            let socket = std::net::UdpSocket::bind(udp_io.local_addr)?;
             socket.set_nonblocking(true)?;
             udp_io.socket = Some(socket);
             commands.entity(trigger.target()).insert(Linked);
@@ -119,7 +113,7 @@ impl ServerUdpPlugin {
         // TODO: we want to have With<Linked> here, but that would mean that if a client sends 2 packets in a row
         //  for the first one we spawn them, and for the second one the query will return False.
         //  maybe have a separate Vec for new addresses, and for these we don't require Linked?
-        mut link_query: Query<(&mut Link)>,
+        link_query: Query<&mut Link>,
     ) {
         server_query
             .par_iter_mut()

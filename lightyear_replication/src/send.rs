@@ -23,39 +23,34 @@ use crate::registry::registry::ComponentRegistry;
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 #[cfg(not(feature = "std"))]
 use alloc::{string::ToString, vec::Vec};
-use bevy::app::{App, Last, Plugin, PostUpdate, PreUpdate};
-use bevy::ecs::component::{ComponentId, ComponentTicks, Tick as BevyTick};
-use bevy::ecs::entity::{EntityHash, EntityIndexMap, EntityIndexSet, UniqueEntityVec};
+use bevy::app::{App, Plugin, PostUpdate};
+use bevy::ecs::component::Tick as BevyTick;
+use bevy::ecs::entity::{EntityHash, EntityIndexMap};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy::ptr::{OwningPtr, Ptr};
-use bevy::time::common_conditions::on_timer;
+use bevy::ptr::Ptr;
 use bytes::Bytes;
 use core::time::Duration;
-use crossbeam_channel::Receiver;
 use lightyear_connection::client::{Connected, Disconnected};
-use lightyear_connection::prelude::NetworkDirection;
-use lightyear_core::prelude::{LocalTimeline, Timeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::{Tick, TickDuration};
-use lightyear_core::time::{PositiveTickDelta, TickDelta};
-use lightyear_core::timeline::{NetworkTimeline, SetTickDuration};
-use lightyear_messages::MessageNetId;
+use lightyear_core::time::TickDelta;
+use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::plugin::MessageSet;
-use lightyear_messages::prelude::{MessageManager, MessageReceiver, MessageSender, TriggerSender};
-use lightyear_messages::registry::{MessageError, MessageKind, MessageRegistry};
+use lightyear_messages::prelude::TriggerSender;
+use lightyear_messages::registry::{MessageKind, MessageRegistry};
+use lightyear_messages::MessageNetId;
 use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
-use lightyear_serde::reader::Reader;
-use lightyear_serde::writer::{WriteInteger, Writer};
+use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::ChannelKind;
-use lightyear_transport::packet::error::PacketError;
 use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::plugin::TransportSet;
-use lightyear_transport::prelude::{ChannelRegistry, Transport};
+use lightyear_transport::prelude::Transport;
+use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
-use tracing::{Level, instrument};
-use tracing::{debug, error, info, trace};
+use tracing::{instrument, Level};
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = bevy::platform::collections::HashSet<K, EntityHash>;
@@ -124,14 +119,13 @@ impl ReplicationSendPlugin {
                 &mut ReplicationSender,
                 &mut DeltaManager,
                 &mut Transport,
-                &LocalTimeline,
             ),
             With<Connected>,
         >,
     ) {
         query
             .par_iter_mut()
-            .for_each(|(mut sender, mut delta, mut transport, timeline)| {
+            .for_each(|(mut sender, mut delta, mut transport)| {
                 let bevy_tick = change_tick.this_run();
                 sender.send_timer.tick(time.delta());
                 let update_nacks = &mut transport
@@ -863,7 +857,7 @@ impl ReplicationSender {
         component_data: Ptr,
         registry: &ComponentRegistry,
         delta_manager: &mut DeltaManager,
-        tick: Tick,
+        _tick: Tick,
         remote_entity_map: &mut RemoteEntityMap,
     ) -> Result<(), ReplicationError> {
         #[cfg(feature = "metrics")]
@@ -889,8 +883,8 @@ impl ReplicationSender {
                         error!(
                             ?entity,
                             name = ?registry.name(kind),
-                            "Could not find old component value from tick {:?} to compute delta",
-                            ack_tick
+                            "Could not find old component value from tick {:?} to compute delta: {e:?}",
+                            ack_tick,
                         );
                         error!("DeltaManager data: {:?}", delta_manager.data);
                     })?;

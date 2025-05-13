@@ -6,12 +6,10 @@ use alloc::vec::Vec;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::entity::EntityHash;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Entity, Query, Reflect, Res, Resource, Trigger, World};
+use bevy::prelude::{Component, Entity, Reflect, Resource, World};
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::{RollbackState, Tick};
-use lightyear_core::tick::TickDuration;
-use lightyear_core::timeline::SyncEvent;
 use lightyear_replication::receive::TempWriteBuffer;
 use lightyear_replication::registry::ComponentError;
 use lightyear_replication::registry::registry::ComponentRegistry;
@@ -19,7 +17,6 @@ use lightyear_serde::entity_map::EntityMap;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_utils::ready_buffer::ReadyBuffer;
 use parking_lot::RwLock;
-use tracing::info;
 
 #[derive(Resource)]
 pub struct PredictionResource {

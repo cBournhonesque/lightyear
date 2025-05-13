@@ -13,7 +13,7 @@ use bevy::reflect::GetTypeRegistration;
 use core::fmt::{Debug, Formatter};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use tracing::{info, trace};
+use tracing::trace;
 
 /// Marker component that defines how the hierarchy of an entity (parent/children) should be replicated.
 ///

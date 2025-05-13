@@ -31,18 +31,16 @@ pub mod timeline;
 
 /// Commonly used items from the `lightyear_sync` crate.
 pub mod prelude {
-    pub use crate::ping::PingChannel;
     pub use crate::ping::manager::{PingConfig, PingManager};
     pub use crate::ping::message::{Ping, Pong};
+    pub use crate::ping::PingChannel;
     pub use crate::plugin::SyncPlugin;
     pub use crate::timeline::sync::{IsSynced, SyncConfig};
-    pub use crate::timeline::{DrivingTimeline, input::InputTimeline};
+    pub use crate::timeline::{input::InputTimeline, DrivingTimeline};
 
     #[cfg(feature = "client")]
     pub mod client {
         pub use crate::timeline::input::{Input, InputTimeline};
-        #[cfg(feature = "interpolation")]
-        pub use crate::timeline::interpolation::{Interpolation, InterpolationTimeline};
         pub use crate::timeline::remote::{RemoteEstimate, RemoteTimeline};
         pub use crate::timeline::sync::IsSynced;
     }

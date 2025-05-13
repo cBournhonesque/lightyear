@@ -6,8 +6,6 @@ use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_transport::channel::ChannelKind;
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
 
 use crate::trigger::TriggerMessage;
 use bevy::prelude::Event;

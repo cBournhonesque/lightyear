@@ -28,8 +28,6 @@ use bevy::prelude::{Added, Commands, Component, DetectChangesMut, Entity, Query,
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_replication::components::Replicated;
-use lightyear_replication::prelude::Replicate;
-use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_utils::easings::ease_out_quad;
 use tracing::{debug, trace};
 

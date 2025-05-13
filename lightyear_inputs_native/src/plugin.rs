@@ -4,8 +4,8 @@ use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use core::fmt::Debug;
 use lightyear_inputs::config::InputConfig;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 pub struct InputPlugin<A> {
     pub config: InputConfig<A>,

@@ -1,11 +1,9 @@
 use bevy::ecs::component::HookContext;
-use bevy::ecs::entity::EntityIndexSet;
 use bevy::ecs::relationship::{Relationship, RelationshipHookMode, RelationshipSourceCollection};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use lightyear_connection::client::{Disconnected, PeerMetadata};
 use lightyear_core::id::PeerId;
-use lightyear_core::prelude::LocalTimeline;
 use serde::{Deserialize, Serialize};
 
 /// Marker component on the receiver side to indicate that the entity is under the
@@ -40,7 +38,7 @@ impl Relationship for OwnedBy {
         panic!("this should not be used");
     }
 
-    fn from(entity: Entity) -> Self {
+    fn from(_: Entity) -> Self {
         panic!("this should not be used");
     }
 }

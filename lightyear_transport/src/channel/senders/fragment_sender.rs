@@ -3,7 +3,6 @@ use crate::packet::packet::FRAGMENT_SIZE;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bytes::Bytes;
-use lightyear_core::tick::Tick;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
 #[derive(Debug)]
@@ -21,7 +20,6 @@ impl FragmentSender {
     pub fn build_fragments(
         &self,
         fragment_message_id: MessageId,
-        tick: Option<Tick>,
         fragment_bytes: Bytes,
     ) -> Vec<FragmentData> {
         if fragment_bytes.len() <= FRAGMENT_SIZE {
@@ -37,7 +35,6 @@ impl FragmentSender {
             // TODO: ideally we don't clone here but we take ownership of the output of writer
             .map(|(fragment_index, chunk)| FragmentData {
                 message_id: fragment_message_id,
-                // tick,
                 fragment_id: FragmentIndex(fragment_index as u64),
                 num_fragments: FragmentIndex(num_fragments as u64),
                 bytes: fragment_bytes.slice_ref(chunk),
@@ -65,7 +62,7 @@ mod tests {
 
         let sender = FragmentSender::new();
 
-        let fragments = sender.build_fragments(message_id, None, bytes.clone());
+        let fragments = sender.build_fragments(message_id, bytes.clone());
         let expected_num_fragments = 3;
         assert_eq!(fragments.len(), expected_num_fragments);
         assert_eq!(

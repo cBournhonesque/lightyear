@@ -1,5 +1,3 @@
-use core::ops::{Add, Mul};
-
 #[cfg(not(feature = "std"))]
 use alloc::{
     string::{String, ToString},
@@ -13,13 +11,9 @@ use cfg_if::cfg_if;
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::input::*;
 use lightyear_connection::direction::NetworkDirection;
-use lightyear_macros::ChannelInternal;
 use lightyear_messages::prelude::*;
 use lightyear_replication::components::ComponentReplicationConfig;
 use lightyear_replication::registry::registry::AppComponentExt;
-use lightyear_serde::SerializationError;
-use lightyear_serde::reader::{ReadInteger, Reader};
-use lightyear_serde::writer::{WriteInteger, Writer};
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 use serde::{Deserialize, Serialize};
 

@@ -10,7 +10,7 @@ use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_utils::ready_buffer::ReadyBuffer;
-use tracing::{debug, trace};
+use tracing::trace;
 
 /// To know if we need to do rollback, we need to compare the interpolated entity's history with the server's state updates
 #[derive(Component, Debug)]

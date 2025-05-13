@@ -124,7 +124,6 @@ use bevy::prelude::{
 };
 use lightyear_connection::client::Disconnected;
 use lightyear_transport::plugin::{TransportPlugin, TransportSet};
-use lightyear_transport::prelude::{ChannelRegistry, Transport};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum MessageSet {
@@ -178,7 +177,7 @@ impl Plugin for MessagePlugin {
     // NOTE: this should only be called once all messages are registered, because we use the list of registered
     //  messags to provide the dynamic access
     fn finish(&self, app: &mut App) {
-        let mut registry = app
+        let registry = app
             .world_mut()
             .remove_resource::<MessageRegistry>()
             .unwrap();

@@ -1,11 +1,13 @@
 //! Implement lightyear traits for some common bevy types
 
-use bevy::prelude::{Quat, Transform};
+use bevy::prelude::{Ease, EaseFunction, Quat, Transform};
 use tracing::trace;
 
 use crate::client::components::LerpFn;
 
 pub struct TransformLinearInterpolation;
+
+
 
 impl LerpFn<Transform> for TransformLinearInterpolation {
     fn lerp(start: &Transform, other: &Transform, t: f32) -> Transform {

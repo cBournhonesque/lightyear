@@ -39,12 +39,12 @@ impl<'w, 's> MultiMessageSender<'w, 's> {
             let bytes = self.writer.split();
             self.query
                 .iter_many_unique_mut(senders)
-                .try_for_each(|(_, mut transport)| {
+                .try_for_each(|(_, transport)| {
                     transport.send_with_priority::<C>(bytes.clone(), priority)
                 })?;
         } else {
             self.query.iter_many_unique_mut(senders).try_for_each(
-                |(mut manager, mut transport)| {
+                |(mut manager, transport)| {
                     self.registry.serialize::<M>(
                         message,
                         &mut self.writer,

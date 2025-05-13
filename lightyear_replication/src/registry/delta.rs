@@ -11,7 +11,6 @@ use bevy::prelude::{Component, EntityWorldMut, World};
 use bevy::ptr::{Ptr, PtrMut};
 use core::any::TypeId;
 use core::ptr::NonNull;
-use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;

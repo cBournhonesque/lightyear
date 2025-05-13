@@ -30,6 +30,7 @@ server = [
     "lightyear_sync/server",
     "lightyear_transport/server",
 ]
+metrics = []
 
 
 [dependencies]

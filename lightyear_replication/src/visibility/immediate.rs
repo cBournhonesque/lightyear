@@ -26,13 +26,9 @@ fn my_system(
 
 use crate::prelude::{ReplicateLikeChildren, ReplicationSender};
 use crate::send::ReplicationBufferSet;
-use bevy::ecs::entity::EntityIndexSet;
 use bevy::ecs::entity::hash_map::EntityHashMap;
-use bevy::ecs::entity::hash_set::EntityHashSet;
 use bevy::platform::collections::hash_map::Entry;
-use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
-use tracing::*;
 
 /// Event related to [`Entities`](Entity) which are relevant to a client
 #[derive(Debug, PartialEq, Clone, Copy, Reflect)]

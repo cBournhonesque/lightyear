@@ -9,6 +9,7 @@ use crate::packet::message::{FragmentData, ReceiveMessage, SingleData};
 use bevy::app::App;
 use bevy::prelude::*;
 use bytes::Bytes;
+#[cfg(any(feature = "client", feature = "server"))]
 use lightyear_connection::prelude::Disconnected;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
@@ -92,7 +93,7 @@ impl TransportPlugin {
                             }
                         }
                         Ok::<(), TransportError>(())
-                    });
+                    }).ok();
 
                 link.recv
                     .drain()
@@ -184,7 +185,7 @@ impl TransportPlugin {
                             }
                         }
                         Ok::<(), TransportError>(())
-                    });
+                    }).ok();
             })
     }
 
@@ -200,10 +201,10 @@ impl TransportPlugin {
     /// Upload the packets to the [`Link`]
     fn buffer_send(
         real_time: Res<Time<Real>>,
-        mut query: Query<(Entity, &mut Link, &mut Transport, &LocalTimeline), With<Linked>>,
+        mut query: Query<(&mut Link, &mut Transport, &LocalTimeline), With<Linked>>,
         channel_registry: Res<ChannelRegistry>,
     ) {
-        query.par_iter_mut().for_each(|(entity, mut link, mut transport, timeline)| {
+        query.par_iter_mut().for_each(|(mut link, mut transport, timeline)| {
             let tick = timeline.tick();
             // allow split borrows
             let transport = &mut *transport;
@@ -293,6 +294,7 @@ impl TransportPlugin {
     }
 
     /// On disconnection, reset the Transport to its original state.
+    #[cfg(any(feature = "client", feature = "server"))]
     fn handle_disconnection(
         trigger: Trigger<OnAdd, Disconnected>,
         mut query: Query<&mut Transport>,
@@ -309,6 +311,7 @@ impl Plugin for TransportPlugin {
         if !app.is_plugin_added::<LinkPlugin>() {
             app.add_plugins(LinkPlugin);
         }
+        #[cfg(any(feature = "client", feature = "server"))]
         app.add_observer(Self::handle_disconnection);
     }
 
@@ -331,6 +334,7 @@ impl Plugin for TransportPlugin {
 pub mod tests {
     use super::*;
     use crate::channel::registry::AppChannelExt;
+    use crate::channel::ChannelKind;
     use crate::prelude::{ChannelMode, ChannelSettings};
 
     pub struct C;
@@ -365,7 +369,7 @@ pub mod tests {
         let mut transport = Transport::default();
         transport.add_sender_from_registry::<C>(registry);
         transport.add_receiver_from_registry::<C>(registry);
-        let mut entity_mut = app.world_mut().spawn((Link::default(), transport));
+        let entity_mut = app.world_mut().spawn((Link::default(), transport));
         let entity = entity_mut.id();
 
         // send bytes
@@ -373,7 +377,8 @@ pub mod tests {
         entity_mut
             .get::<Transport>()
             .unwrap()
-            .send::<C>(send_bytes.clone());
+            .send::<C>(send_bytes.clone())
+            .unwrap();
         app.update();
         // check that the send-payload was added to the link
         assert_eq!(

@@ -1,4 +1,4 @@
-use alloc::collections::{BTreeMap, btree_map};
+use alloc::collections::{btree_map, BTreeMap};
 use bevy::platform::collections::HashSet;
 use core::time::Duration;
 
@@ -7,8 +7,8 @@ use bytes::Bytes;
 use lightyear_core::tick::Tick;
 use tracing::trace;
 
-use crate::channel::receivers::ChannelReceive;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
+use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 
 /// Unordered Reliable receiver: make sure that all messages are received,
@@ -146,7 +146,7 @@ mod tests {
         assert!(receiver.recv_message_buffer.contains_key(&MessageId(1)));
         assert_eq!(
             receiver.read_message(),
-            Some((Tick(3), single2.bytes.clone()))
+            Some((Tick(3), single2.bytes.clone(), None))
         );
 
         // we are still expecting message id 0
@@ -164,7 +164,7 @@ mod tests {
         assert!(receiver.recv_message_buffer.contains_key(&MessageId(0)));
         assert_eq!(
             receiver.read_message(),
-            Some((Tick(5), single1.bytes.clone()))
+            Some((Tick(5), single1.bytes.clone(), None))
         );
         assert_eq!(receiver.pending_recv_message_id, MessageId(2));
         Ok(())

@@ -1,13 +1,11 @@
 /*! Handles syncing the time between the client and the server
 */
 use crate::plugin::SyncPlugin;
-use crate::prelude::InputTimeline;
 use crate::prelude::client::RemoteTimeline;
+use crate::prelude::InputTimeline;
 use crate::timeline::input::Input;
-#[cfg(feature = "interpolation")]
-use crate::timeline::interpolation::InterpolationTimeline;
 use crate::timeline::remote;
-use crate::timeline::sync::{SyncedTimeline, SyncedTimelinePlugin};
+use crate::timeline::sync::SyncedTimelinePlugin;
 use bevy::prelude::*;
 use lightyear_connection::client::Client;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin};

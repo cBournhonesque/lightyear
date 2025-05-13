@@ -1,14 +1,12 @@
-use crate::SyncComponent;
 use crate::interpolation_history::ConfirmedHistory;
 use crate::registry::InterpolationRegistry;
 use crate::timeline::InterpolationTimeline;
+use crate::SyncComponent;
 use bevy::ecs::component::Mutable;
 use bevy::prelude::*;
-use core::time::Duration;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
 use lightyear_core::tick::TickDuration;
-use lightyear_sync::prelude::client::{Input, IsSynced};
-use tracing::*;
+use lightyear_sync::prelude::client::IsSynced;
 
 // if we haven't received updates since UPDATE_INTERPOLATION_START_TICK_FACTOR * send_interval
 // then we update the start_tick so that the interpolation looks good when we receive a new update
@@ -55,7 +53,7 @@ impl<C: Component> InterpolateStatus<C> {
 pub(crate) fn update_interpolate_status<C: SyncComponent>(
     // TODO: handle multiple interpolation timelines
     // TODO: exclude host-server
-    interpolation: Single<(&InterpolationTimeline), With<IsSynced<InterpolationTimeline>>>,
+    interpolation: Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>,
     tick_duration: Res<TickDuration>,
     mut query: Query<(
         Entity,

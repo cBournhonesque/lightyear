@@ -1,22 +1,17 @@
 use crate::Error;
 use crate::auth::Authentication;
 use crate::client::{ClientConfig, ClientState};
-use bevy::ecs::component::{
-    ComponentHook, ComponentId, ComponentsRegistrator, HookContext, Mutable, RequiredComponents,
-    StorageType,
-};
+use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
-use core::net::SocketAddr;
 use lightyear_connection::ConnectionSet;
 use lightyear_connection::client::{
-    Client, Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected,
+    Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected,
 };
 use lightyear_core::id::PeerId;
-use lightyear_link::{Link, LinkSet, LinkStart, Linked, SendPayload, Unlinked};
+use lightyear_link::{Link, LinkSet, Linked};
 use lightyear_transport::plugin::TransportSet;
-use lightyear_transport::prelude::Transport;
-use tracing::{debug, error, trace};
+use tracing::{debug, error};
 
 pub struct NetcodeClientPlugin;
 

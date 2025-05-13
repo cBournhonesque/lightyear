@@ -1,3 +1,4 @@
+#![allow(unused_must_use)]
 /*! # Lightyear IO
 
 Low-level IO primitives for the lightyear networking library.

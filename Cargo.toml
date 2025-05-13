@@ -94,11 +94,9 @@ lightyear_examples_common = { path = "./examples/common", version = "0.19.0", de
 
 # utils
 anyhow = { version = "1.0.75", features = [] }
-base64 = "0.22.1"
 clap = { version = "4.5.4", features = ["derive"] }
 chrono = "0.4.38"
 cfg-if = "1.0"
-derive_more = "2.0.1"
 enum_dispatch = "0.3"
 governor = "0.10"
 hashbrown = "0.15"
@@ -123,12 +121,10 @@ spin = { version = "0.9.8", default-features = false }
 
 bincode = { version = "2.0.0-rc.3", default-features = false, features = ["serde", "alloc"] }
 bytes = { version = "1.8", default-features = false, features = ["serde"] }
-self_cell = "1.0"
 serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
 
 # netcode
 chacha20poly1305 = { version = "0.10" }
-
 
 
 # tracing
@@ -155,9 +151,6 @@ metrics-exporter-prometheus = { version = "0.17", default-features = false, feat
 # compression
 lz4_flex = { version = "0.11", default-features = false, features = ["std"] }
 
-# WebSocket
-futures-util = "0.3.30"
-
 # transport
 aeronet_webtransport = "0.14.0"
 aeronet_io = "0.14.0"
@@ -168,19 +161,12 @@ tokio = { version = "1.44", features = [
 ], default-features = false }
 futures = "0.3.30"
 async-compat = "0.2.3"
-async-channel = "2.2.0"
 
 # Non-WASM things
 steamworks = "0.11"
-spki                 = { version = "0.7.3" }
-xwt-wtransport       = { version = "0.13.2" }
-wtransport = { version = "0.6.1" }
-tokio-tungstenite = { version = "0.23.0", features = ["connect", "handshake"] }
-x509-cert            = { version = "0.2.5" }
 
 
 # WASM things
-gloo-timers          = { version = "0.3.0" }
 console_error_panic_hook = "0.1.7"
 js-sys               = { version = "0.3.70" }
 web-sys = { version = "0.3", features = [
@@ -207,13 +193,9 @@ futures-lite = "2.1.0"
 getrandom = { version = "0.3.0", features = [
   "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
 ] }
-xwt-core = "0.6"
-xwt-web = "0.15.0"
 wasm-bindgen = "0.2.90"
-wasm-bindgen-futures = "0.4.42"
 
 # dev deps
-wasm-bindgen-test = "0.3.39"
 mock_instant = "0.5"
 bitvec = "1.0"
 approx = "0.5.1"
@@ -230,12 +212,6 @@ bevy = { version = "0.16", default-features = false, features = [
   "multi_threaded",
   "sysinfo_plugin",
 ] }
-bevy_app      = { version = "0.16.0", default-features = false }
-bevy_ecs      = { version = "0.16.0", default-features = false }
-bevy_platform = { version = "0.16.0", default-features = false }
-bevy_reflect  = { version = "0.16.0", default-features = false }
-bevy_time     = { version = "0.16.0", default-features = false }
-bevy_winit    = { version = "0.16.0", default-features = false }
 
 # input
 leafwing-input-manager = { version = "0.17", default-features = false, features = [
@@ -245,7 +221,6 @@ leafwing-input-manager = { version = "0.17", default-features = false, features 
 # physics
 avian2d = { version = "0.3", default-features = false }
 avian3d = { version = "0.3", default-features = false }
-
 
 # gui debug ui
 bevy-inspector-egui = { version = "0.31", default-features = false, features = [
@@ -264,6 +239,10 @@ egui_extras = "0.31"
 
 # documentation
 document-features    = { version = "0.2.11" }
+
+[workspace.lints.rust]
+dead_code = "allow"
+unused_variables = "allow"
 
 [workspace.lints.clippy]
 type_complexity = "allow"

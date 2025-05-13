@@ -1,5 +1,4 @@
 use crate::ping::plugin::PingPlugin;
-use crate::timeline::sync::SyncedTimeline;
 use bevy::app::{App, Plugin};
 use bevy::prelude::*;
 

@@ -1,8 +1,8 @@
-use alloc::collections::{BTreeMap, btree_map};
+use alloc::collections::{btree_map, BTreeMap};
 
 use super::error::{ChannelReceiveError, Result};
-use crate::channel::receivers::ChannelReceive;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
+use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 use bytes::Bytes;
 use core::time::Duration;
@@ -85,8 +85,8 @@ impl ChannelReceive for OrderedReliableReceiver {
 
 #[cfg(test)]
 mod tests {
-    use crate::channel::receivers::ChannelReceive;
     use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
+    use crate::channel::receivers::ChannelReceive;
     use crate::packet::error::PacketError;
     use crate::packet::message::{MessageId, ReceiveMessage, SingleData};
     use bytes::Bytes;
@@ -132,12 +132,12 @@ mod tests {
         // now we can read the messages in order
         assert_eq!(
             receiver.read_message(),
-            Some((Tick(3), single1.bytes.clone()))
+            Some((Tick(3), single1.bytes.clone(), Some(MessageId(0))))
         );
         assert_eq!(receiver.pending_recv_message_id, MessageId(1));
         assert_eq!(
             receiver.read_message(),
-            Some((Tick(2), single2.bytes.clone()))
+            Some((Tick(2), single2.bytes.clone(), Some(MessageId(1))))
         );
         Ok(())
     }

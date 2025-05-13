@@ -1,17 +1,15 @@
 // lightyear_inputs/src/input_message.rs
 #![allow(clippy::module_inception)]
-use crate::input_buffer::{InputBuffer, InputData};
+use crate::input_buffer::InputBuffer;
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec, vec::Vec};
 use bevy::ecs::component::Mutable;
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Component, Entity, EntityMapper, Reflect, Resource};
-use core::cmp::max;
+use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
 use core::fmt::{Debug, Formatter, Write};
 use lightyear_core::prelude::Tick;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tracing::trace;
 
 /// Enum indicating the target entity for the input.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
