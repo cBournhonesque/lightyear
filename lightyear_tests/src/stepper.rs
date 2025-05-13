@@ -58,13 +58,13 @@ impl ClientServerStepper {
         server_app.add_plugins(server::ServerPlugins {
             tick_duration
         });
-        let server_entity = server_app.world_mut().spawn((
+        let server_entity = server_app.world_mut().spawn(
             NetcodeServer::new(lightyear_netcode::server_plugin::NetcodeConfig {
                 protocol_id: PROTOCOL_ID,
                 private_key: KEY,
                 ..Default::default()
             })
-        )).id();
+        ).id();
         server_app.finish();
         server_app.cleanup();
 
@@ -112,7 +112,7 @@ impl ClientServerStepper {
             PredictionManager::default(),
         )).id());
         self.client_of_entities.push(self.server_app.world_mut().spawn((
-            ClientOf {
+            LinkOf {
                 server: self.server_entity,
             },
             // Send pings every frame, so that the Acks are sent every frame

@@ -2,6 +2,7 @@ use crate::{Link, LinkPlugin, LinkSet, Linked, Linking, Unlink, Unlinked};
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::ecs::component::HookContext;
+use bevy::ecs::relationship::Relationship;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use lightyear_core::prelude::LocalTimeline;
@@ -53,6 +54,20 @@ pub struct LinkOf {
     pub server: Entity
 }
 
+impl LinkOf {
+    pub(crate) fn on_insert(
+        trigger: Trigger<OnInsert, LinkOf>,
+        server: Query<&LocalTimeline, (Without<LinkOf>, With<Server>)>,
+        mut query: Query<(&mut LocalTimeline, &LinkOf)>,
+    ) {
+        if let Ok((mut timeline, link_of)) = query.get_mut(trigger.target()) {
+            if let Ok(server_timeline) = server.get(link_of.get()) {
+                *timeline = server_timeline.clone();
+            }
+        }
+    }
+}
+
 pub struct ServerLinkPlugin;
 impl Plugin for ServerLinkPlugin {
     fn build(&self, app: &mut App) {
@@ -61,5 +76,8 @@ impl Plugin for ServerLinkPlugin {
         }
         app.register_required_components::<Server, LocalTimeline>();
         app.add_observer(Server::unlinked);
+        app.add_observer(LinkOf::on_insert);
     }
 }
+
+

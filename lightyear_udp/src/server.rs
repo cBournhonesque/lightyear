@@ -36,7 +36,7 @@ pub struct ServerUdpIo {
     // TODO: add possibility to set the remote addr
     socket: Option<std::net::UdpSocket>,
     buffer: BytesMut,
-    connected_addresses: HashMap<SocketAddr, Entity>,
+    connected_addresses: HashMap<SocketAddr, Option<Entity>>,
 }
 
 impl ServerUdpIo {
@@ -161,26 +161,33 @@ impl ServerUdpPlugin {
                             match server_udp_io.connected_addresses.entry(address) {
                                 Entry::Occupied(entry) => {
                                     let entity = *entry.get();
-                                    match link_query.get_mut(entity) {
-                                        Ok(mut link) => {
-                                            link.recv.push(payload, Instant::now());
+                                    if let Some(entity) = entity {
+                                        match link_query.get_mut(entity) {
+                                            Ok(mut link) => {
+                                                link.recv.push(payload, Instant::now());
+                                            }
+                                            Err(_) => {
+                                                error!(
+                                                    "Received UDP packet for unknown entity: {}",
+                                                    entity
+                                                );
+                                                // this might because the remote entity has disconnected and is trying to reconnect.
+                                                // Remove the entry so that the next packet can be processed
+                                                entry.remove();
+                                                continue;
+                                            }
                                         }
-                                        Err(_) => {
-                                            error!(
-                                                "Received UDP packet for unknown entity: {}",
-                                                entity
-                                            );
-                                            // this might because the remote entity has disconnected and is trying to reconnect.
-                                            // Remove the entry so that the next packet can be processed
-                                            entry.remove();
-                                            continue;
-                                        }
+                                    } else {
+                                        // this means that we have received multiple packets from the same address
+                                        // before we had time to spawn the entity! These extra packets will be dropped
                                     }
                                 }
                                 Entry::Vacant(vacant) => {
+                                    // we are spawning a new entity but the initial packets will be dropped
                                     let mut link = Link::new(address, None);
                                     info!("Received UDP packet from new address: {}", address);
                                     link.recv.push(payload, Instant::now());
+                                    let vacant = vacant.insert(None);
                                     commands.command_scope(|mut c| {
                                         let entity = c
                                             .spawn((
@@ -192,7 +199,7 @@ impl ServerUdpPlugin {
                                             ))
                                             .id();
                                         info!(?entity, ?server_entity, "Spawn new LinkOf");
-                                        vacant.insert(entity);
+                                        *vacant = Some(entity);
                                     });
                                     continue;
                                 }

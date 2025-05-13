@@ -10,6 +10,7 @@ pub(crate) fn add_sender_channel<C: Channel>(
     mut query: Query<&mut Transport, With<Client>>,
     registry: Res<ChannelRegistry>) {
     if let Ok(mut transport) = query.get_mut(trigger.target()) {
+
         transport.add_sender_from_registry::<C>(&registry)
     }
 }

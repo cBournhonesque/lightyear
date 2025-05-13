@@ -1,4 +1,4 @@
-use crate::client_of::{ClientOf};
+use crate::client_of::ClientOf;
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String};
 use bevy::app::{App, Plugin};
@@ -176,7 +176,7 @@ impl Plugin for ConnectionPlugin {
         app.register_type::<PeerMetadata>();
         app.add_observer(Self::connect);
         app.add_observer(Self::disconnect_if_link_fails);
-        app.add_observer(ClientOf::on_insert);
+
     }
 }
 

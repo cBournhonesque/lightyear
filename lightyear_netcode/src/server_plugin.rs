@@ -24,6 +24,7 @@ pub(crate) struct NetcodeServerContext {
 }
 
 #[derive(Component)]
+#[require(Server)]
 pub struct NetcodeServer {
     pub inner: crate::server::Server<NetcodeServerContext>
 }

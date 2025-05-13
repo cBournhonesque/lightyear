@@ -67,8 +67,10 @@ impl TokenEntries {
             return true;
         };
         if let Some(matching) = matching {
-            // Allow reusing tokens only if the entity matches
-            self.inner[matching].entity == entry.entity
+            // TODO: how do we do this if we don't have access to the remote addr?
+            // // Allow reusing tokens only if the entity matches
+            // self.inner[matching].entity == entry.entity
+            true
         } else {
             // If there is no matching entry, replace the oldest one
             self.inner[oldest] = entry;
