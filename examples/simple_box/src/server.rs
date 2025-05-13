@@ -8,9 +8,6 @@
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
 use crate::protocol::*;
 use crate::shared;
-use bevy::app::PluginGroupBuilder;
-use bevy::asset::ron::Error::Message;
-use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear::connection::client::Connected;
 use lightyear::prelude::input::native::*;

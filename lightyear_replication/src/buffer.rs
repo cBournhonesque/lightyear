@@ -263,7 +263,7 @@ impl Replicate {
                             error!("No ReplicationSender found in the world");
                             return;
                         };
-                        info!(
+                        debug!(
                             "Adding replicated entity {} to sender {}",
                             context.entity, sender_entity
                         );
@@ -315,7 +315,7 @@ impl Replicate {
                     #[cfg(feature = "server")]
                     ReplicationMode::SingleServer(target) => {
                         if client_of.is_some() && target.targets(&connected.remote_peer_id) {
-                            info!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
+                            debug!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
                             sender.add_replicated_entity(entity, replicate.authority);
                             replicate.senders.insert(sender_entity);
                         }

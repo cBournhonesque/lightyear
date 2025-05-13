@@ -52,7 +52,7 @@ pub(crate) fn setup(mut commands: Commands) {
 }
 
 /// Add the ReplicationSender component to new clients
-pub(crate) fn handle_new_client(trigger: trigger<OnAdd, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
     info!("New client connected: {:?}", trigger.target());
     commands.entity(trigger.target()).insert((
         ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),

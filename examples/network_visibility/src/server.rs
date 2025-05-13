@@ -37,7 +37,7 @@ pub struct PlayerRoom(Entity);
 ///
 /// You can add additional components to update the connection. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
-pub(crate) fn handle_new_client(trigger: trigger<OnAdd, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
     commands
         .entity(trigger.target())
         .insert(ReplicationSender::new(
@@ -125,10 +125,10 @@ pub(crate) fn interest_management(
             for (circle, circle_position, mut visibility) in circle_query.iter_mut() {
                 let distance = position.distance(**circle_position);
                 if distance < INTEREST_RADIUS {
-                    info!("Gain visibility with {circle:?}");
+                    debug!("Gain visibility with {circle:?}");
                     visibility.gain_visibility(*sender_entity);
                 } else {
-                    info!("Lose visibility with {circle:?}");
+                    debug!("Lose visibility with {circle:?}");
                     visibility.lose_visibility(*sender_entity);
                 }
             }

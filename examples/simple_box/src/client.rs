@@ -133,7 +133,7 @@ pub(crate) fn handle_interpolated_spawn(
 ) {
     if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
         let hsva = Hsva {
-            saturation: 0.4,
+            saturation: 0.1,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);

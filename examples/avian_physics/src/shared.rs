@@ -4,7 +4,6 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::input::input_buffer::InputBuffer;
-use lightyear::prediction::rollback::Rollback;
 use lightyear::prelude::*;
 use std::hash::{Hash, Hasher};
 

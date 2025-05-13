@@ -57,7 +57,7 @@ pub struct LinkOf {
 
 impl LinkOf {
     pub(crate) fn on_insert(
-        trigger: Trigger<OnInsert, LinkOf>,
+        trigger: Trigger<OnInsert, (LinkOf, LocalTimeline)>,
         server: Query<&LocalTimeline, (Without<LinkOf>, With<Server>)>,
         mut query: Query<(&mut LocalTimeline, &LinkOf)>,
     ) {

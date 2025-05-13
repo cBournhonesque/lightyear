@@ -30,7 +30,7 @@ pub struct CircleMarker;
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq, Clone, Reflect)]
 pub struct Inputs {
     pub(crate) up: bool,
     pub(crate) down: bool,
@@ -53,6 +53,7 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<Inputs>();
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components

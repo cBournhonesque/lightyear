@@ -16,7 +16,8 @@ impl Plugin for ExampleClientPlugin {
             buffer_input.in_set(InputSet::WriteClientInputs),
         );
         app.add_systems(FixedUpdate, movement);
-        app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
+        app.add_observer(handle_interpolated_spawn);
+        app.add_observer(handle_predicted_spawn);
     }
 }
 
@@ -67,10 +68,12 @@ pub(crate) fn movement(
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(
-    mut predicted: Query<(Entity, &mut PlayerColor), Added<Predicted>>,
+    trigger: Trigger<OnAdd, PlayerId>,
+    mut predicted: Query<&mut PlayerColor, With<Predicted>>,
     mut commands: Commands,
 ) {
-    for (entity, mut color) in predicted.iter_mut() {
+    let entity = trigger.target();
+    if let Ok(mut color) = predicted.get_mut(entity) {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
@@ -79,16 +82,18 @@ pub(crate) fn handle_predicted_spawn(
         warn!("Add InputMarker to entity: {:?}", entity);
         commands
             .entity(entity)
-            .insert((InputMarker::<Inputs>::default(),));
+            .insert(InputMarker::<Inputs>::default());
     }
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
+/// When the predicted copy of the client-owned entity is spawned, do stuff
+/// - assign it a different saturation
+/// - keep track of it in the Global resource
 pub(crate) fn handle_interpolated_spawn(
-    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
+    trigger: Trigger<OnAdd, PlayerColor>,
+    mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
 ) {
-    for mut color in interpolated.iter_mut() {
+    if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
         let hsva = Hsva {
             saturation: 0.1,
             ..Hsva::from(color.0)

@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
-
 use lightyear::prelude::*;
 
 use crate::protocol::*;
@@ -14,7 +13,8 @@ impl Plugin for ExampleClientPlugin {
         // to predicted players
         app.add_systems(Update, add_input_map);
         app.add_systems(FixedUpdate, player_movement);
-        app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
+        app.add_observer(handle_interpolated_spawn);
+        app.add_observer(handle_predicted_spawn);
     }
 }
 
@@ -48,24 +48,32 @@ fn player_movement(mut query: Query<(&mut Position, &ActionState<Inputs>), With<
     }
 }
 
-/// When the predicted copy of the client-owned entity is spawned
+/// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation
-pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
-    for mut color in predicted.iter_mut() {
+/// - keep track of it in the Global resource
+pub(crate) fn handle_predicted_spawn(
+    trigger: Trigger<OnAdd, PlayerId>,
+    mut predicted: Query<&mut PlayerColor, With<Predicted>>,
+    mut commands: Commands,
+) {
+    let entity = trigger.target();
+    if let Ok(mut color) = predicted.get_mut(entity) {
         let hsva = Hsva {
-            saturation: 0.4, // TODO: use component?
+            saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
     }
 }
 
-/// When the interpolated copy of the client-owned entity is spawned
+/// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation
+/// - keep track of it in the Global resource
 pub(crate) fn handle_interpolated_spawn(
-    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
+    trigger: Trigger<OnAdd, PlayerColor>,
+    mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
 ) {
-    for mut color in interpolated.iter_mut() {
+    if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
         let hsva = Hsva {
             saturation: 0.1,
             ..Hsva::from(color.0)

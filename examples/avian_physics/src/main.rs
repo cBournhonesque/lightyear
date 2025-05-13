@@ -12,7 +12,6 @@ use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::{
     CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS,
 };
-use lightyear_examples_common_new::cli::Cli;
 
 #[cfg(feature = "client")]
 mod client;
