@@ -5,7 +5,8 @@ use crate::input_buffer::InputBuffer;
 use alloc::{format, string::String, vec, vec::Vec};
 use bevy::ecs::component::Mutable;
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
+use bevy::prelude::{Component, Entity, EntityMapper, FromReflect, Reflect};
+use bevy::reflect::Reflectable;
 use core::fmt::{Debug, Formatter, Write};
 use lightyear_core::prelude::Tick;
 use serde::de::DeserializeOwned;
@@ -36,8 +37,8 @@ pub struct PerTargetData<S> {
 pub trait ActionStateSequence:
     Serialize + DeserializeOwned + Clone + Debug + Send + Sync + 'static
 {
-    type Action: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static;
-    type State: Component<Mutability = Mutable> + Default + Debug + Clone + PartialEq;
+    type Action: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + Reflectable + 'static;
+    type State: Component<Mutability = Mutable> + Default + Debug + Clone + PartialEq + Reflectable + FromReflect;
 
     /// Marker component to identify the ActionState that the player is actively updating
     /// (as opposed to the ActionState of other players, for instance)

@@ -2,7 +2,8 @@ use crate::action_state::{ActionState, InputMarker};
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{EntityMapper, Reflect};
+use bevy::prelude::{EntityMapper, FromReflect, Reflect};
+use bevy::reflect::Reflectable;
 use core::cmp::max;
 use core::fmt::Debug;
 use lightyear_core::prelude::Tick;
@@ -16,7 +17,7 @@ pub struct NativeStateSequence<A> {
     states: Vec<InputData<A>>,
 }
 
-impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static>
+impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + Reflectable + FromReflect + 'static>
     ActionStateSequence for NativeStateSequence<A>
 {
     type Action = A;

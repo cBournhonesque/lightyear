@@ -2,6 +2,8 @@
 use crate::input_message::NativeStateSequence;
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
+use bevy::prelude::FromReflect;
+use bevy::reflect::Reflectable;
 use core::fmt::Debug;
 use lightyear_inputs::config::InputConfig;
 use serde::de::DeserializeOwned;
@@ -20,7 +22,7 @@ impl<A> Default for InputPlugin<A> {
 }
 
 impl<
-    A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static + MapEntities,
+    A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static + MapEntities + Reflectable + FromReflect,
 > Plugin for InputPlugin<A>
 {
     fn build(&self, app: &mut App) {

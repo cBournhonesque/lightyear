@@ -24,21 +24,7 @@ impl Plugin for ExampleClientRendererPlugin {
         app.insert_resource(GameName(self.name.clone()));
         app.insert_resource(ClearColor::default());
         // TODO common shortcuts for enabling the egui world inspector etc.
-        // TODO handle bevygap ui things.
         app.add_systems(Startup, set_window_title);
-
-        #[cfg(feature = "bevygap_client")]
-        {
-            let bevygap_client_config = BevygapClientConfig {
-                matchmaker_url: crate::settings::get_matchmaker_url(),
-                game_name: self.name.clone(),
-                game_version: "1".to_string(),
-                ..default()
-            };
-            info!("{bevygap_client_config:?}");
-            app.insert_resource(bevygap_client_config);
-        }
-
         spawn_connect_button(app);
         app.add_systems(Update, update_button_text);
         app.add_observer(on_update_status_message);
@@ -133,7 +119,7 @@ pub(crate) fn update_button_text(
     query: Query<&Client>,
     mut text_query: Query<&mut Text, With<Button>>,
 ) {
-    let Ok(client) = query.get_single() else {
+    let Ok(client) = query.single() else {
         return;
     };
     if let Ok(mut text) = text_query.single_mut() {

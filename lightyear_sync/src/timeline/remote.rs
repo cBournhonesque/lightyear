@@ -59,7 +59,7 @@ impl Default for RemoteEstimate {
             last_received_tick: None,
             offset: TickDelta::from(0),
             min_ema_alpha: 0.02,
-            max_ema_alpha: 0.15,
+            max_ema_alpha: 0.10,
             handshake_pings: 3,
             first_estimate: true,
         }
@@ -163,9 +163,9 @@ impl RemoteTimeline {
     /// Calculates a dynamic EMA smoothing factor (alpha) based on network jitter.
     ///
     /// The alpha value is determined as follows:
-    /// - If jitter is 1ms or lower, alpha is 0.2.
+    /// - If jitter is 1ms or lower, alpha is 0.1.
     /// - If jitter is 5ms or higher, alpha is 0.03.
-    /// - Between 1ms and 5ms jitter, alpha decreases linearly from 0.2 to 0.03.
+    /// - Between 1ms and 5ms jitter, alpha decreases linearly from 0.1 to 0.03.
     ///
     /// # Arguments
     ///
@@ -177,7 +177,7 @@ impl RemoteTimeline {
     /// The calculated dynamic alpha value (f32).
     fn ema_alpha(&self, current_jitter_ms: f32) -> f32 {
         const JITTER_THRESHOLD_LOW_MS: f32 = 1.0;
-        const JITTER_THRESHOLD_HIGH_MS: f32 = 5.0;
+        const JITTER_THRESHOLD_HIGH_MS: f32 = 10.0;
 
         let jitter_range = JITTER_THRESHOLD_HIGH_MS - JITTER_THRESHOLD_LOW_MS;
         let alpha_range = self.max_ema_alpha - self.min_ema_alpha;

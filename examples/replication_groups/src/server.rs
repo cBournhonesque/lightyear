@@ -20,24 +20,27 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-pub(crate) fn handle_new_client(trigger: trigger<OnAdd, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
     commands
         .entity(trigger.target())
-        .insert(ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
+        .insert((
+            ReplicationSender::new(
+                SEND_INTERVAL,
+                SendUpdatesMode::SinceLastAck,
+                false,
+            ),
+            Name::from("Client"),
         ));
-}
+    }
 
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
-    mut trigger: Trigger<OnAdd, Connected>,
+    trigger: Trigger<OnAdd, Connected>,
     query: Query<&Connected, With<ClientOf>>,
     mut commands: Commands,
 ) {
     if let Ok(connected) = query.get(trigger.target()) {
-        let client_id = connected.peer_id;
+        let client_id = connected.remote_peer_id;
         // Generate pseudo random color from client id.
         let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
@@ -53,7 +56,7 @@ pub(crate) fn handle_connections(
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
                 OwnedBy {
-                    sender: trigger.target(),
+                    owner: client_id,
                     lifetime: Lifetime::default(),
                 },
             ))
@@ -88,6 +91,7 @@ pub(crate) fn movement(
 ) {
     for (position, inputs) in position_query.iter_mut() {
         if let Some(input) = &inputs.value {
+            info!("SERVER INPUTS: {input:?}");
             // NOTE: be careful to directly pass Mut<PlayerPosition>
             // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
             shared_movement_behaviour(position, input);

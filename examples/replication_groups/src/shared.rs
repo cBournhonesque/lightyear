@@ -1,6 +1,4 @@
 use bevy::prelude::*;
-use core::time::Duration;
-use tracing::Level;
 
 use crate::protocol::Direction;
 use crate::protocol::*;
@@ -45,11 +43,6 @@ pub(crate) fn shared_tail_behaviour(
         (&mut TailPoints, &PlayerParent, &TailLength),
         (Without<Interpolated>, Without<Confirmed>),
     >,
-    // player_position: Query<Ref<PlayerPosition>, Or<(With<Predicted>, With<ReplicateToClient>)>>,
-    // mut tails: Query<
-    //     (&mut TailPoints, &PlayerParent, &TailLength),
-    //     Or<(With<Predicted>, With<ReplicateToClient>)>,
-    // >,
 ) {
     for (mut points, parent, length) in tails.iter_mut() {
         let Ok(parent_position) = player_position.get(parent.0) else {

@@ -2,9 +2,7 @@ use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
 use bevy::prelude::*;
-use core::time::Duration;
 use lightyear::interpolation::{ConfirmedHistory, InterpolateStatus};
-use lightyear::prelude::client::*;
 use lightyear::prelude::input::client::*;
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::*;
@@ -29,7 +27,8 @@ impl Plugin for ExampleClientPlugin {
             buffer_input.in_set(InputSet::WriteClientInputs),
         );
         app.add_systems(FixedUpdate, (movement, shared_tail_behaviour).chain());
-        app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
+        app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_interpolated_spawn);
 
         // add visual interpolation for the predicted snake (which gets updated in the FixedUpdate schedule)
         // (updating it only during FixedUpdate might cause visual artifacts, see:
@@ -45,7 +44,7 @@ pub(crate) fn buffer_input(
     mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
-    if let Ok(mut action_state) = query.get_single_mut() {
+    if let Ok(mut action_state) = query.single_mut() {
         if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
             action_state.value = Some(Inputs::Direction(Direction::Up));
         } else if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
@@ -75,45 +74,52 @@ fn movement(
     }
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - keep track of it in the Global resource
+
+/// When the predicted copy of the client-owned entity is spawned, do stuff
+/// - assign it a different saturation
+/// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(
+    trigger: Trigger<OnAdd, PlayerId>,
+    mut predicted: Query<&mut PlayerColor, With<Predicted>>,
     mut commands: Commands,
-    mut predicted_heads: Query<(Entity, &mut PlayerColor), Added<Predicted>>,
-    predicted_tails: Query<Entity, (With<PlayerParent>, Added<Predicted>)>,
 ) {
-    for (entity, mut color) in predicted_heads.iter_mut() {
+    let entity = trigger.target();
+    if let Ok(mut color) = predicted.get_mut(entity) {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
+        warn!("Add InputMarker to entity: {:?}", entity);
         // add visual interpolation for the head position of the predicted entity
         // so that the position gets updated smoothly every frame
         // (updating it only during FixedUpdate might cause visual artifacts, see:
         //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
-        commands.entity(entity).insert((
-            FrameInterpolate::<PlayerPosition>::default(),
-            InputMarker::<Inputs>::default(),
-        ));
+        commands
+            .entity(entity)
+            .insert((
+                FrameInterpolate::<PlayerPosition>::default(),
+                InputMarker::<Inputs>::default()
+            ));
     }
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - keep track of it in the Global resource
+/// When the predicted copy of the client-owned entity is spawned, do stuff
+/// - assign it a different saturation
+/// - keep track of it in the Global resource
 pub(crate) fn handle_interpolated_spawn(
-    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
+    trigger: Trigger<OnAdd, PlayerColor>,
+    mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
 ) {
-    for mut color in interpolated.iter_mut() {
+    if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
         let hsva = Hsva {
-            saturation: 0.1,
+            saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
     }
 }
+
 
 pub(crate) fn debug_pre_visual_interpolation(
     timeline: Single<&LocalTimeline>,

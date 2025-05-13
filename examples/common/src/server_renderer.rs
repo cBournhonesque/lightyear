@@ -21,7 +21,6 @@ impl Plugin for ExampleServerRendererPlugin {
         app.insert_resource(GameName(self.name.clone()));
         app.insert_resource(ClearColor::default());
         // TODO common shortcuts for enabling the egui world inspector etc.
-        // TODO handle bevygap ui things.
         app.add_systems(Startup, set_window_title);
         app.add_systems(Startup, spawn_server_text);
 

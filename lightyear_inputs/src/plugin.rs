@@ -1,8 +1,8 @@
 //! Plugin to register and handle user inputs.
 
-use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage};
+use crate::InputChannel;
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use core::time::Duration;
@@ -25,6 +25,9 @@ impl<S> Default for InputPlugin<S> {
 
 impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
     fn build(&self, app: &mut App) {
+        app.register_type::<InputBuffer<S::State>>();
+        app.register_type::<S::State>();
+
         app.add_channel::<InputChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             // we send inputs every frame

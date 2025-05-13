@@ -14,13 +14,13 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use bevy::prelude::Component;
+use bevy::prelude::{Component, Reflect};
 use core::fmt::{Debug, Formatter};
 use lightyear_core::tick::Tick;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Reflect)]
 pub struct InputBuffer<T> {
     pub start_tick: Option<Tick>,
     pub buffer: VecDeque<InputData<T>>,
@@ -53,7 +53,7 @@ impl<T: Debug> core::fmt::Display for InputBuffer<T> {
 }
 
 /// We use this structure to efficiently compress the inputs that we send to the server
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Reflect)]
 pub enum InputData<T> {
     Absent,
     SameAsPrecedent,

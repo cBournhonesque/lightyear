@@ -1,6 +1,5 @@
 use crate::protocol::*;
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
 use lightyear::prelude::Confirmed;
 
 #[derive(Clone)]

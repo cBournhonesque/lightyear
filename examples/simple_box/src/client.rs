@@ -34,14 +34,9 @@ impl Plugin for ExampleClientPlugin {
         );
         app.add_systems(FixedUpdate, player_movement);
 
-        app.add_systems(
-            Update,
-            (
-                receive_message1,
-                handle_predicted_spawn,
-                handle_interpolated_spawn,
-            ),
-        );
+        app.add_systems(Update, receive_message1);
+        app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_interpolated_spawn);
     }
 }
 
@@ -111,10 +106,12 @@ pub(crate) fn receive_message1(mut receiver: Single<&mut MessageReceiver<Message
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(
-    mut predicted: Query<(Entity, &mut PlayerColor), Added<Predicted>>,
+    trigger: Trigger<OnAdd, PlayerId>,
+    mut predicted: Query<&mut PlayerColor, With<Predicted>>,
     mut commands: Commands,
 ) {
-    for (entity, mut color) in predicted.iter_mut() {
+    let entity = trigger.target();
+    if let Ok(mut color) = predicted.get_mut(entity) {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
@@ -123,7 +120,7 @@ pub(crate) fn handle_predicted_spawn(
         warn!("Add InputMarker to entity: {:?}", entity);
         commands
             .entity(entity)
-            .insert((InputMarker::<Inputs>::default(),));
+            .insert(InputMarker::<Inputs>::default());
     }
 }
 
@@ -131,11 +128,12 @@ pub(crate) fn handle_predicted_spawn(
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_interpolated_spawn(
-    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
+    trigger: Trigger<OnAdd, PlayerColor>,
+    mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
 ) {
-    for mut color in interpolated.iter_mut() {
+    if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
         let hsva = Hsva {
-            saturation: 0.1,
+            saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);

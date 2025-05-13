@@ -105,7 +105,7 @@ fn test_hierarchy_replication() {
         .unwrap();
 
     assert_eq!(client_parent_sync.entity, Some(client_grandparent));
-    assert_eq!(client_parent_component.get(), client_grandparent);
+    assert_eq!(client_parent_component.parent(), client_grandparent);
 
     // TODO: check that the parent/grandparent have the same ReplicationGroupId
 

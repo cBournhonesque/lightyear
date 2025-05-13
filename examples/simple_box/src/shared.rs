@@ -5,8 +5,6 @@
 use crate::protocol::*;
 use bevy::prelude::*;
 use lightyear::connection::client_of::ClientOf;
-use lightyear::input::input_buffer::InputBuffer;
-use lightyear::input::native::prelude::ActionState;
 use lightyear::interpolation::{ConfirmedHistory, InterpolateStatus, Interpolated};
 use lightyear::prelude::{Client, Confirmed, LocalTimeline, NetworkTimeline, Rollback};
 

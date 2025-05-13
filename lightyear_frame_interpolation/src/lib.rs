@@ -38,10 +38,9 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystem::TransformPropagate;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_prediction::correction::Correction;
-use lightyear_prediction::plugin::{PredictionSet, is_in_rollback};
+use lightyear_prediction::plugin::{is_in_rollback, PredictionSet};
 use lightyear_prediction::prelude::PredictionManager;
 use lightyear_replication::prelude::ReplicationSet;
-use lightyear_replication::registry::registry::ComponentRegistry;
 use tracing::trace;
 
 /// System sets used by the `FrameInterpolationPlugin`.
@@ -264,8 +263,8 @@ mod tests {
     use crate::client::components::Confirmed;
     use crate::client::config::ClientConfig;
     use crate::client::easings::ease_out_quad;
-    use crate::client::prediction::Predicted;
     use crate::client::prediction::rollback::test_utils::received_confirmed_update;
+    use crate::client::prediction::Predicted;
     use crate::prelude::client::PredictionConfig;
     use crate::prelude::{SharedConfig, TickConfig};
     use crate::tests::protocol::*;

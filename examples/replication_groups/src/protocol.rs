@@ -2,7 +2,7 @@ use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::math::Curve;
 use bevy::prelude::{
-    default, Bundle, Color, Component, Deref, DerefMut, Ease, Entity, EntityMapper, FunctionCurve,
+    default, Color, Component, Deref, DerefMut, Ease, Entity, EntityMapper, FunctionCurve,
     Interval, Reflect, Vec2,
 };
 use core::ops::{Add, Mul};
@@ -10,7 +10,7 @@ use lightyear::input::native::plugin::InputPlugin;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use tracing::{debug, info, trace};
+use tracing::trace;
 
 // Components
 
@@ -158,15 +158,6 @@ impl MapEntities for PlayerParent {
     }
 }
 
-// Channels
-
-pub struct Channel1;
-
-// Messages
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Message1(pub usize);
-
 // Inputs
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
@@ -215,7 +206,7 @@ impl Direction {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub enum Inputs {
     Direction(Direction),
     Delete,
@@ -231,9 +222,8 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        // messages
-        app.add_message::<Message1>()
-            .add_direction(NetworkDirection::Bidirectional);
+        app.register_type::<Inputs>();
+        
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
@@ -270,10 +260,5 @@ impl Plugin for ProtocolPlugin {
             .add_map_entities()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
-        // channels
-        app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        });
     }
 }

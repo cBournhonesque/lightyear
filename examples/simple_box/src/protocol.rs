@@ -78,7 +78,7 @@ pub struct Message1(pub usize);
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Reflect)]
 pub struct Direction {
     pub(crate) up: bool,
     pub(crate) down: bool,
@@ -92,7 +92,7 @@ impl Direction {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub enum Inputs {
     Direction(Direction),
 }
@@ -107,6 +107,7 @@ pub struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<Inputs>();
         // messages
         app.add_message::<Message1>()
             .add_direction(NetworkDirection::ServerToClient);

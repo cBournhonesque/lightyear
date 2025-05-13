@@ -8,9 +8,7 @@ use bevy::ecs::component::HookContext;
 use bevy::ecs::entity::EntityIndexSet;
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{
-    Component, Entity, OnAdd, Query, Reflect, RelationshipTarget, Trigger, With, World,
-};
+use bevy::prelude::*;
 use bevy::time::{Timer, TimerMode};
 use lightyear_connection::client::{Connected, PeerMetadata};
 use lightyear_connection::client_of::ClientOf;
@@ -25,7 +23,6 @@ use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::collections::EntityHashMap;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, trace};
 // TODO: how to define which subset of components a sender iterates through?
 //  if a sender is only interested in a few components it might be expensive
 //  maybe we can have a 'direction' in ComponentReplicationConfig and Client/ClientOf peers can precompute
