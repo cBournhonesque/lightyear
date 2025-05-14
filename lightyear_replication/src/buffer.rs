@@ -575,6 +575,7 @@ pub(crate) fn replicate_entity(
         owned_by,
         cached_replicate,
         visibility,
+        entity_mapper,
         component_registry,
         sender,
         sender_entity,
@@ -731,11 +732,23 @@ pub(crate) fn replicate_entity_spawn(
     controlled_by: Option<&ControlledBy>,
     cached_replicate: Option<&CachedReplicate>,
     network_visibility: Option<&NetworkVisibility>,
+    entity_map: &mut RemoteEntityMap,
     component_registry: &ComponentRegistry,
     sender: &mut ReplicationSender,
     sender_entity: Entity,
     is_replicate_like_added: bool,
 ) {
+    // if the local entity is already mapped (for example because of authority transfer or PrePrediction), then
+    // there is no need to send a Spawn
+    if entity_map.get_remote(entity).is_some() {
+        trace!(
+            ?entity,
+            ?group_id,
+            "Not sending Spawn because entity is already mapped"
+        );
+        return;
+    }
+
     // 1. replicate was added/updated and the sender was not in the previous Replicate's target
     let replicate_updated = sender.is_updated(replicate.last_changed())
         && cached_replicate.is_none_or(|cached| !cached.senders.contains(&sender_entity))
@@ -751,7 +764,6 @@ pub(crate) fn replicate_entity_spawn(
         trace!(
             ?entity,
             ?group_id,
-            ?sender_entity,
             ?replicate,
             ?cached_replicate,
             ?network_visibility,
@@ -848,13 +860,8 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
             }
             // convert the entity to a network entity (possibly mapped)
             let entity = manager.entity_mapper.to_remote(entity);
-            if sender.replicated_entities.swap_remove(&entity).is_some() {
-                // do not send the despawn if the entity was already removed from the sender
-                // this is a hack for when we want to remove Replicate from PrePredicted entities.
-                // If we start from the PrePredicted child, the parent will still have Replicating when we remove
-                // the child's Replicate so a despawn will get sent.
-                sender.prepare_entity_despawn(entity, group.group_id(Some(entity)));
-            }
+            sender.replicated_entities.swap_remove(&entity);
+            sender.prepare_entity_despawn(entity, group.group_id(Some(entity)));
             trace!("preparing despawn to sender");
         });
 }
@@ -1016,8 +1023,13 @@ pub(crate) fn buffer_component_removed(
             // convert the entity to a network entity (possibly mapped)
             let entity = manager.entity_mapper.to_remote(entity);
             for component_id in trigger.components() {
+                // TODO: there is a bug in bevy where trigger.components() returns all the componnets that triggered
+                //  OnRemove, not only the components that the observer is watching. This means that this could contain
+                //  non replicated components, that we need to filter out
                 // check if the component is disabled
-                let kind = registry.component_id_to_kind.get(component_id).unwrap();
+                let Some(kind) = registry.component_id_to_kind.get(component_id) else {
+                    continue
+                };
                 let metadata = registry.replication_map.get(kind).unwrap();
                 let mut disable = metadata.config.disable;
                 if let Some(overrides) = entity_ref

@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum ClientTransports {
     #[cfg(not(target_family = "wasm"))]
     Udp,

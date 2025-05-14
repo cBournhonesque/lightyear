@@ -466,7 +466,7 @@ pub struct ReplicationSender {
     pub group_with_updates: EntityHashSet<ReplicationGroupId>,
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
-    pub(crate) send_timer: Timer,
+    pub send_timer: Timer,
     /// ChangeTicks when we last sent replication messages for this Sender.
     /// We will compare this to component change ticks to determine if the change should be included.
     /// We cannot simply use the SystemTicks because the system runs every frame.

@@ -119,7 +119,7 @@ impl ReplicationReceivePlugin {
         receiver_entities
             .drain(..)
             .for_each(|(entity, remote_peer)| {
-                let span = trace_span!("ReplicationReceiver", entity = ?entity);
+                let span = trace_span!("receive", entity = ?entity);
                 let _guard = span.enter();
                 let unsafe_world = world.as_unsafe_world_cell();
                 // Get the list of entities which we might have authority over
@@ -182,7 +182,7 @@ impl Plugin for ReplicationReceivePlugin {
 
 /// Temporary buffer to store component data that we want to insert
 /// using `entity_world_mut.insert_by_ids`
-#[derive(Debug, Default, Clone, PartialEq, TypePath)]
+#[derive(Debug, Default, PartialEq, TypePath)]
 pub struct TempWriteBuffer {
     // temporary buffers to store the deserialized data to batch write
     // Raw storage where we can store the deserialized data bytes
@@ -447,6 +447,9 @@ impl ReplicationReceiver {
         current_tick: Tick,
     ) {
         // apply all actions first
+        // TODO: it's extremely strange, but it seems like the value of TempWriteBuffer can linger from previous
+        //  frames. Let's clear it manually for now
+        self.temp_write_buffer = TempWriteBuffer::default();
         self.group_channels
             .iter_mut()
             .for_each(|(group_id, channel)| {
@@ -891,7 +894,6 @@ impl GroupChannel {
                 );
                 continue;
             }
-
             // inserts
             // TODO: remove updates that are duplicate for the same component
             let _ = component_registry

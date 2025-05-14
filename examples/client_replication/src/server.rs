@@ -135,7 +135,7 @@ pub(crate) fn replicate_cursors(
             Replicate::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             ControlledBy {
-                owner: entity,
+                owner: replicated.receiver,
                 lifetime: Lifetime::SessionBased,
             },
         ));

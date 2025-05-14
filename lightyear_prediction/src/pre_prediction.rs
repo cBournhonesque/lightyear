@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use lightyear_connection::client::Connected;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::components::PrePredicted;
-use lightyear_replication::prelude::{Confirmed, DisableReplicateHierarchy, Replicate, ReplicateLike, Replicating, ReplicationBufferSet, ReplicationGroup, ReplicationSender, ShouldBePredicted};
+use lightyear_replication::prelude::{Confirmed, DisableReplicateHierarchy, Replicate, ReplicateLike, ReplicateLikeChildren, Replicating, ReplicationBufferSet, ReplicationGroup, ReplicationSender, ShouldBePredicted};
 use tracing::debug;
 
 #[derive(Default)]
@@ -24,7 +24,7 @@ impl Plugin for PrePredictionPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
             PostUpdate,
-            (ReplicationBufferSet::Buffer, PrePredictionSet::Clean).chain(),
+            (ReplicationBufferSet::Buffer, PrePredictionSet::Clean, ReplicationBufferSet::Flush).chain(),
         );
         app.add_systems(
             PostUpdate,
@@ -51,12 +51,15 @@ impl PrePredictionPlugin {
     pub(crate) fn clean_pre_predicted_entity(
         mut commands: Commands,
         mut sender: Single<&mut ReplicationSender, (With<PredictionManager>, With<Connected>)>,
-        pre_predicted_entities: Query<Entity, (Added<PrePredicted>, Or<(With<Replicating>, With<ReplicateLike>)>)>,
+        pre_predicted_entities: Query<Entity, (Added<PrePredicted>, With<Replicating>)>,
+        replicate_like_query: Query<&ReplicateLikeChildren>,
     ) {
+        // wait until we've sent the initial replication message
+        if !sender.send_timer.finished() {
+            return;
+        }
         for entity in pre_predicted_entities.iter() {
             debug!(?entity, "removing replicate from pre-predicted entity");
-            // remove the entity from the list of entities to replicate.
-            // We do this first to avoid sending a despawn message
             sender.replicated_entities.swap_remove(&entity);
             // remove Replicating first so that we don't replicate a despawn
             commands.entity(entity).remove::<Replicating>();
@@ -66,7 +69,18 @@ impl PrePredictionPlugin {
                 DisableReplicateHierarchy,
                 ReplicateLike,
             )>();
-
+            for child in replicate_like_query.iter_descendants::<ReplicateLikeChildren>(entity) {
+                debug!(?entity, "removing replicate from pre-predicted entity");
+                sender.replicated_entities.swap_remove(&child);
+                // remove Replicating first so that we don't replicate a despawn
+                commands.entity(child).remove::<Replicating>();
+                commands.entity(child).remove::<(
+                    Replicate,
+                    ReplicationGroup,
+                    DisableReplicateHierarchy,
+                    ReplicateLike,
+                )>();
+            }
         }
     }
 

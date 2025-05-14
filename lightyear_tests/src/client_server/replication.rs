@@ -2,7 +2,7 @@
 
 use crate::protocol::{CompA, CompDisabled, CompReplicateOnce};
 use crate::stepper::ClientServerStepper;
-use bevy::prelude::{default, ResMut, Resource, Single};
+use bevy::prelude::{default, Name, ResMut, Resource, Single};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
@@ -365,6 +365,51 @@ fn test_component_remove() {
             .entity(server_entity)
             .get::<CompA>()
             .is_none()
+    );
+}
+
+
+/// Check that if we remove a non-replicated component, the replicate component does not get removed
+#[test]
+fn test_component_remove_non_replicated() {
+    let mut stepper = ClientServerStepper::single();
+
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(), CompA(1.0), Name::from("a")))
+        .id();
+    stepper.frame_step(1);
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
+        .unwrap();
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompA>()
+            .expect("component missing"),
+        &CompA(1.0)
+    );
+
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .remove::<Name>();
+    stepper.frame_step(1);
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompA>()
+            .is_some()
     );
 }
 

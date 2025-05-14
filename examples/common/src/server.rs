@@ -63,6 +63,7 @@ pub fn get_digest_on_wasm() -> Option<String> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum ServerTransports {
     Udp {
         local_port: u16,

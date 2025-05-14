@@ -24,6 +24,7 @@ impl ServerPlugin {
     /// The entity mapping is done on the client.
     pub(crate) fn handle_pre_predicted_server(
         trigger: Trigger<OnAdd, PrePredicted>,
+        mut commands: Commands,
         mut link: Query<&mut MessageManager, (With<ReplicationSender>, With<LinkOf>, With<Linked>)>,
         q: Query<(Entity, &PrePredicted, &Replicated)>,
     ) {
@@ -35,6 +36,8 @@ impl ServerPlugin {
                 return;
             }
             if let Ok(mut message_manager) = link.get_mut(replicated.receiver) {
+                // we remove Replicated but we keep InitialReplicated
+                commands.entity(local_entity).remove::<Replicated>();
                 let confirmed_entity = pre_predicted.confirmed_entity.unwrap();
                 // update the mapping so that when we send updates, the server entity gets mapped
                 // to the client's confirmed entity

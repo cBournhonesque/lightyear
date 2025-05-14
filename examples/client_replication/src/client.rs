@@ -202,8 +202,8 @@ fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(
-    trigger: Trigger<OnAdd, PlayerId>,
-    mut predicted: Query<&mut PlayerColor, With<Predicted>>,
+    trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
+    mut predicted: Query<&mut PlayerColor, (With<Predicted>, With<PlayerId>)>,
     mut commands: Commands,
 ) {
     let entity = trigger.target();

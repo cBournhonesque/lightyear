@@ -24,6 +24,7 @@ TODO:
 - update docstrings
 - update book
 - run benchmarks, and update how we write replication packets?
+- input rebroadcasting
 - add unit test for replicating entities between the ServerSendInterval (i.e. with ServerSendInterval which is not every tick)
 - on the server, we get cases where the input buffer just contains [SameAsPrecedent]. Normally
   the first value should never be just SameAsPrecedent! That's due to `update_buffer` using `set_raw`. But maybe that's ok? if there's only SameAsPrecedent, we don't do anything (i.e. we re-use the existing inputs)
@@ -48,6 +49,8 @@ NEEDS UNIT TEST:
     -> ALTERNATIVE: the udp can keep working even if disconnected?
 
 BUGS:
+- It looks like when we batch insert component values in replication, we insert some duplicate component ids!
+  - the temp_write_buffer doesn't seem to get fully erased between frames?
 - things break down with no conditioner because the client seems to sometimes be slightly ahead of server?
   - actually it's deeper than that! What is going on ??
   - the RemoteTimeline offset keeps increasing infinitely!

@@ -102,7 +102,7 @@ fn receive_input_message<S: ActionStateSequence>(
     // TODO: use par_iter_mut
     receivers.iter_mut().for_each(|(client_entity, client_of, mut receiver, connected)| {
         // TODO: this drains the messages... but the user might want to re-broadcast them?
-        //  should we just read insteaD?
+        //  should we just read instead?
         let client_id = connected.remote_peer_id;
         receiver.receive().for_each(|message| {
             // ignore input messages from the local client (if running in host-server mode)
@@ -139,7 +139,7 @@ fn receive_input_message<S: ActionStateSequence>(
                                     message
                                 );
                             } else {
-                                trace!("Adding InputBuffer and ActionState which are missing on the entity");
+                                debug!("Adding InputBuffer and ActionState which are missing on the entity");
                                 let mut buffer = InputBuffer::<S::State>::default();
                                 data.states.update_buffer(&mut buffer, message.end_tick);
                                 commands.entity(entity).insert((
