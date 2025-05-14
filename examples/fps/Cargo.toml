@@ -24,7 +24,6 @@ netcode = [
 ]
 udp = [
   "lightyear_examples_common/udp",
-  # udp requires std
   "lightyear/std",
   "lightyear/udp",
 ]
@@ -44,7 +43,6 @@ lightyear = { workspace = true, features = [
   "replication",
   "avian2d",
   "leafwing",
-  "input_native", # Added based on simple_box_new
 ] }
 lightyear_examples_common.workspace = true
 lightyear_frame_interpolation.workspace = true
@@ -52,7 +50,6 @@ lightyear_avian = { workspace = true, features = ["2d", "lag_compensation"] }
 
 leafwing-input-manager.workspace = true
 serde.workspace = true
-tracing.workspace = true
 bevy.workspace = true
 
 [lints]

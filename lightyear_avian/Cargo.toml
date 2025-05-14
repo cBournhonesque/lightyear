@@ -20,8 +20,8 @@ std = [
     "lightyear_prediction/std",
     "lightyear_replication/std"
 ]
-2d = ["dep:avian2d", "avian2d/2d"]
-3d = ["dep:avian3d", "avian3d/3d"]
+2d = ["avian2d/2d"]
+3d = ["avian3d/3d"]
 lag_compensation = [
     "dep:lightyear_link",
     "dep:lightyear_interpolation",

@@ -45,6 +45,9 @@ impl PluginGroup for SharedPlugins {
         let builder = builder.add(lightyear_interpolation::plugin::InterpolationPlugin::new(
             lightyear_interpolation::plugin::InterpolationConfig::default(),
         ));
+        
+        #[cfg(feature = "avian")]
+        let builder = builder.add(lightyear_avian::LightyearAvianPlugin);
 
         builder
     }

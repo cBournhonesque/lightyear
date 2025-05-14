@@ -108,19 +108,14 @@ leafwing = [
   "dep:leafwing-input-manager",
   "dep:lightyear_inputs_leafwing",
 ]
+
 # NOTE: because lightyear doesn't enable any features of avian by default, your crate must
 #       enable essential features (like f32 or f64).
-avian2d = [
-  "dep:avian2d",
-#  "dep:lightyear_avian",
-#  "lightyear_avian/2d",
+avian = [
+  "dep:lightyear_avian"
 ]
-avian3d = [
-  "dep:avian3d",
-  "avian3d/3d",
-#  "dep:lightyear_avian",
-#  "lightyear_avian/3d",
-]
+avian2d = ["lightyear_avian/2d", "avian"]
+avian3d = ["lightyear_avian/3d", "avian"]
 
 # IO LAYERS
 udp = [
@@ -152,6 +147,7 @@ zstd = ["dep:zstd"]
 
 [dependencies]
 # local crates
+lightyear_avian = { workspace = true, optional = true }
 lightyear_macros.workspace = true
 lightyear_connection.workspace = true
 lightyear_core.workspace = true
@@ -166,7 +162,6 @@ lightyear_sync.workspace = true
 lightyear_transport.workspace = true
 lightyear_serde.workspace = true
 lightyear_utils.workspace = true
-#lightyear_avian = {workspace = true, optional = true}
 lightyear_inputs = {workspace = true, optional = true}
 lightyear_inputs_leafwing = {workspace = true, optional = true}
 lightyear_inputs_native = {workspace = true, optional = true}
@@ -181,8 +176,8 @@ no_std_io2.workspace = true
 leafwing-input-manager = { workspace = true, optional = true }
 
 # physics
-avian2d = { workspace = true, optional = true }
-avian3d = { workspace = true, optional = true }
+#avian2d = { workspace = true, optional = true }
+#avian3d = { workspace = true, optional = true }
 
 # serialization
 bincode.workspace = true

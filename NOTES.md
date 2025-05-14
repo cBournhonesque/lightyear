@@ -12,6 +12,19 @@ STATUS:
 - ReplicationGorups:
   - runs ok in client/server
   - host-server not tested
+- ClientReplication
+  - runs ok in client/server
+  - host-server not tested
+  - the delete input doesn't get received by the server because the entity is deleted immediately. Is that just because of no link conditioner?
+- avian_physics:
+  - broken. Somethign is weird happening where on the client the physics values are the same two ticks in a row! Are we doubly incrementing the LocalTimeline
+    for some reason?
+  - Othertimes it seems to work. Maybe it's a sync issue?
+  - We should provide pre-computed functions for avian to check rollbacks with a certain tolerance.
+- fps:
+  - seems to mostly work?
+  - double bullet spawn issue -> prespawn errors
+  - 
 
 
 

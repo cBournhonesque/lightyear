@@ -90,7 +90,7 @@ impl PredictionRegistry {
             .or_insert_with(|| PredictionMetadata::default_from::<C>(history_id, mode));
     }
 
-    pub fn set_should_rollback<C: SyncComponent + PartialEq>(
+    pub fn set_should_rollback<C: SyncComponent>(
         &mut self,
         should_rollback: ShouldRollbackFn<C>,
     ) {
@@ -273,6 +273,16 @@ impl PredictionRegistry {
         confirmed_ref: &FilteredEntityRef,
         predicted_mut: &mut FilteredEntityMut,
     ) -> bool {
+        let predicted_entity = predicted_mut.entity();
+        let confirmed_entity = confirmed_ref.entity();
+        let name = core::any::type_name::<C>();
+        let _span = debug_span!(
+            "check_rollback",
+            ?name,
+            %predicted_entity,
+            %confirmed_entity,
+            ?confirmed_tick
+        ).entered();
         let confirmed_component = confirmed_ref.get::<C>();
         let Some(mut predicted_history) = predicted_mut.get_mut::<PredictionHistory<C>>() else {
             // if the history is not present on the entity, but the confirmed component is present, we need to rollback
@@ -287,6 +297,7 @@ impl PredictionRegistry {
         .set(predicted_history.buffer.len() as f64);
 
         let history_value = predicted_history.pop_until_tick(confirmed_tick);
+        debug!(?history_value, ?confirmed_component, "check");
         let predicted_exist = history_value.is_some();
         let confirmed_exist = confirmed_component.is_some();
         match confirmed_component {
@@ -295,7 +306,11 @@ impl PredictionRegistry {
             None => {
                 let should = history_value
                     .is_some_and(|history_value| history_value != HistoryState::Removed);
+
                 if should {
+                    debug!(
+                        "Should Rollback! Confirmed component does not exist, but history value exists",
+                    );
                     #[cfg(feature = "metrics")]
                     metrics::counter!(format!(
                         "prediction::rollbacks::causes::{}::missing_on_confirmed",
@@ -308,6 +323,9 @@ impl PredictionRegistry {
             // confirm exist. rollback if history value is different
             Some(c) => history_value.map_or_else(
                 || {
+                    debug!(
+                        "Should Rollback! Confirmed component exists, but history value does not exists",
+                    );
                     #[cfg(feature = "metrics")]
                     metrics::counter!(format!(
                         "prediction::rollbacks::causes::{}::missing_on_predicted",
@@ -320,6 +338,9 @@ impl PredictionRegistry {
                     HistoryState::Updated(history_value) => {
                         let should = self.should_rollback(&history_value, c);
                         if should {
+                            debug!(
+                                "Should Rollback! Confirmed value is different from history value",
+                            );
                             #[cfg(feature = "metrics")]
                             metrics::counter!(format!(
                                 "prediction::rollbacks::causes::{}::value_mismatch",
@@ -330,6 +351,9 @@ impl PredictionRegistry {
                         should
                     }
                     HistoryState::Removed => {
+                        debug!(
+                            "Should Rollback! Confirmed component exists, but history value does not exists",
+                        );
                         #[cfg(feature = "metrics")]
                         metrics::counter!(format!(
                             "prediction::rollbacks::causes::{}::removed_on_predicted",
@@ -384,6 +408,8 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             prediction_mode
         );
         registry.set_prediction_mode::<C>(history_id, prediction_mode);
+        // TODO: how do we avoid the server adding the prediction systems?
+        //   do we need to make sure that the Protocol runs after the client/server plugins are added?
         add_prediction_systems::<C>(self.app, prediction_mode);
         self
     }

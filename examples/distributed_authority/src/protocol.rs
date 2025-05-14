@@ -93,21 +93,6 @@ pub struct PlayerColor(pub(crate) Color);
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
-// Channels
-
-#[derive(Channel)]
-pub struct Channel1;
-
-impl Channel for Channel1 {
-    fn name(&self) -> &'static str {
-        "Channel1"
-    }
-}
-
-// Messages
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Message1(pub usize);
 
 // Inputs
 
@@ -139,11 +124,6 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        // messages
-        app.register_message::<Message1>(ChannelDirection::Bidirectional);
-        // Removed AuthorityPeer message registration
-        // app.register_message::<AuthorityPeer>(ChannelDirection::ServerToClient);
-
         // inputs
         // Use new input plugin path
         app.add_plugins(input::InputPlugin::<Inputs>::default());

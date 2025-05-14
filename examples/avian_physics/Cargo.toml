@@ -24,7 +24,6 @@ netcode = [
 ]
 udp = [
   "lightyear_examples_common/udp",
-  # udp requires std
   "lightyear/std",
   "lightyear/udp",
 ]

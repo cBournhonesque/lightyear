@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 use bevy::prelude::*;
 use core::time::Duration;
+use lightyear::prelude::{LinkConditionerConfig, RecvLinkConditioner};
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::{
     CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS,
@@ -30,6 +31,7 @@ fn main() {
 
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
 
+    app.add_plugins(SharedPlugin);
 
     #[cfg(feature = "client")]
     {
@@ -45,7 +47,9 @@ fn main() {
                         .expect("You need to specify a client_id via `-c ID`"),
                     client_port: CLIENT_PORT,
                     server_addr: SERVER_ADDR,
-                    conditioner: None,
+                     conditioner: Some(RecvLinkConditioner::new(
+                        LinkConditionerConfig::average_condition(),
+                    )),
                     transport: ClientTransports::Udp, // Assuming UDP
                     shared: SHARED_SETTINGS,
                 })
@@ -76,8 +80,7 @@ fn main() {
         }
     }
 
-        // NOTE: the ProtocolPlugin must be added AFTER the Client/Server plugins
-    app.add_plugins(SharedPlugin);
+
 
     #[cfg(feature = "gui")]
     app.add_plugins(renderer::ExampleRendererPlugin);

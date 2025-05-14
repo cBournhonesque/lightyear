@@ -26,6 +26,7 @@ impl ClientPlugin {
         mut query: Query<&mut LocalTimeline>,
     ) {
         if let Ok(mut timeline) = query.get_mut(trigger.target()) {
+            info!("TickDelta: {:?} applied to local timeline", trigger.tick_delta);
             timeline.apply_delta(TickDelta::from_i16(trigger.tick_delta));
         }
     }

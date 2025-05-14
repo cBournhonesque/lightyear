@@ -42,6 +42,7 @@ fn main() {
         false, // No physics loop needed
     );
 
+    app.add_plugins(SharedPlugin);
 
     #[cfg(feature = "client")]
     {
@@ -88,8 +89,7 @@ fn main() {
         }
     }
     
-        // NOTE: the ProtocolPlugin must be added AFTER the Client/Server plugins
-    app.add_plugins(SharedPlugin);
+    
 
     #[cfg(feature = "gui")]
     app.add_plugins(crate::renderer::ExampleRendererPlugin);

@@ -28,6 +28,8 @@ fn main() {
     let cli = Cli::default();
 
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
+    
+    app.add_plugins(SharedPlugin { predict_all: true });
 
     #[cfg(feature = "client")]
     {
@@ -73,19 +75,19 @@ fn main() {
         }
     }
     
-    app.add_plugins(SharedPlugin { predict_all: true });
+    
 
     #[cfg(feature = "gui")]
     {
         app.add_plugins(renderer::ExampleRendererPlugin {
             show_confirmed: true,
         });
-        app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default())
-            .add_plugins(bevy_metrics_dashboard::DashboardPlugin);
-        app.world_mut()
-            .spawn(bevy_metrics_dashboard::DashboardWindow::new(
-                "Metrics Dashboard",
-            ));
+        // app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default())
+        //     .add_plugins(bevy_metrics_dashboard::DashboardPlugin);
+        // app.world_mut()
+        //     .spawn(bevy_metrics_dashboard::DashboardWindow::new(
+        //         "Metrics Dashboard",
+        //     ));
     }
 
     // run the app

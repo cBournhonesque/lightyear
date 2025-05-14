@@ -122,7 +122,7 @@ pub struct ComponentRegistry {
     pub component_id_to_kind: HashMap<ComponentId, ComponentKind>,
     pub kind_to_component_id: HashMap<ComponentKind, ComponentId>,
     pub replication_map: HashMap<ComponentKind, ReplicationMetadata>,
-    pub(crate) serialize_fns_map: HashMap<ComponentKind, ErasedSerializeFns>,
+    pub serialize_fns_map: HashMap<ComponentKind, ErasedSerializeFns>,
     pub(crate) delta_fns_map: HashMap<ComponentKind, ErasedDeltaFns>,
     pub kind_map: TypeMapper<ComponentKind>,
 }

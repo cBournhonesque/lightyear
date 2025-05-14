@@ -30,6 +30,8 @@ fn main() {
     lightyear_examples_common::settings::modify_digest_on_wasm(&mut settings.client);
 
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
+    
+    app.add_plugins(SharedPlugin);
 
     #[cfg(feature = "client")]
     {
@@ -74,8 +76,7 @@ fn main() {
             app.world_mut().trigger_targets(Start, server);
         }
     }
-        // NOTE: the ProtocolPlugin must be added AFTER the Client/Server plugins
-    app.add_plugins(SharedPlugin);
+
 
     #[cfg(feature = "gui")]
     app.add_plugins(renderer::ExampleRendererPlugin);

@@ -22,12 +22,8 @@ impl Plugin for SharedPlugin {
         app.add_systems(Startup, init);
 
         // physics
-        app.add_plugins(
-            PhysicsPlugins::default()
-                .build()
-                .disable::<ColliderHierarchyPlugin>(),
-        )
-        .insert_resource(Gravity(Vec2::ZERO));
+        app.add_plugins(PhysicsPlugins::default())
+            .insert_resource(Gravity(Vec2::ZERO));
 
         app.add_systems(FixedLast, after_physics_log);
 

@@ -148,7 +148,7 @@ pub enum PredictionMode {
 /// This is a marker trait, requiring `Component<Mutability=Mutable> + Clone + PartialEq`.
 /// Components implementing this trait can have their state managed by the prediction and interpolation systems
 /// according to the specified `PredictionMode`.
-pub trait SyncComponent: Component<Mutability = Mutable> + Clone + PartialEq {}
-impl<T> SyncComponent for T where T: Component<Mutability = Mutable> + Clone + PartialEq {}
+pub trait SyncComponent: Component<Mutability = Mutable> + Clone + PartialEq + Debug {}
+impl<T> SyncComponent for T where T: Component<Mutability = Mutable> + Clone + PartialEq + Debug {}
 
 
