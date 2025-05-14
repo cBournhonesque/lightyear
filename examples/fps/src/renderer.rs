@@ -7,7 +7,8 @@ use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use lightyear::interpolation::Interpolated;
 use lightyear::prediction::prespawn::PreSpawned;
-use lightyear::prelude::{Predicted, Replicate, Replicated};
+use lightyear::prelude::{Client, Predicted, Replicate, Replicated};
+use lightyear_avian::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]
@@ -25,7 +26,7 @@ impl Plugin for ExampleRendererPlugin {
 
         #[cfg(feature = "client")]
         {
-            app.add_systems(Startup, spawn_score_text);
+            app.add_observer(spawn_score_text);
             app.add_systems(Update, display_score);
         }
 
@@ -44,19 +45,20 @@ fn init(mut commands: Commands) {
 struct ScoreText;
 
 #[cfg(feature = "client")]
-fn spawn_score_text(mut commands: Commands, identity: NetworkIdentity) {
-    if identity.is_client() {
-        commands.spawn((
-            Text::new("Score: 0"),
-            TextFont::from_font_size(30.0),
-            TextColor(Color::WHITE.with_alpha(0.5)),
-            Node {
-                align_self: AlignSelf::End,
-                ..default()
-            },
-            ScoreText,
-        ));
-    }
+fn spawn_score_text(
+    trigger: Trigger<OnAdd, Client>,
+    mut commands: Commands
+) {
+    commands.spawn((
+        Text::new("Score: 0"),
+        TextFont::from_font_size(30.0),
+        TextColor(Color::WHITE.with_alpha(0.5)),
+        Node {
+            align_self: AlignSelf::End,
+            ..default()
+        },
+        ScoreText,
+    ));
 }
 
 #[cfg(feature = "client")]

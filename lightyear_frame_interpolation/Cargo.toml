@@ -20,6 +20,7 @@ std = [
 lightyear_core.workspace = true
 lightyear_replication = {workspace = true, features = ["interpolation"]}
 lightyear_prediction.workspace = true
+lightyear_interpolation.workspace = true
 
 # utils
 tracing.workspace = true

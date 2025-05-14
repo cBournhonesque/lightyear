@@ -107,8 +107,8 @@ pub(crate) fn replicate_players(
             // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
             PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
             InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-            OwnedBy {
-                sender: client_entity,
+            ControlledBy {
+                owner: client_entity,
                 lifetime: Lifetime::SessionBased,
             },
             // TODO: ControlledBy

@@ -9,6 +9,8 @@ use bevy::prelude::{Component, Entity, EntityMapper, FromReflect, Reflect};
 use bevy::reflect::Reflectable;
 use core::fmt::{Debug, Formatter, Write};
 use lightyear_core::prelude::Tick;
+#[cfg(feature = "interpolation")]
+use lightyear_interpolation::plugin::InterpolationDelay;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -62,7 +64,11 @@ pub trait ActionStateSequence:
 /// Stores the last N inputs starting from `end_tick - N + 1`.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub struct InputMessage<S> {
-    // TODO: add interpolation delay
+    #[cfg(feature = "interpolation")]
+    /// Interpolation delay of the client at the time the message is sent
+    ///
+    /// We don't need any extra redundancy for the InterpolationDelay so we'll just send the value at `end_tick`.
+    pub(crate) interpolation_delay: Option<InterpolationDelay>,
     pub(crate) end_tick: Tick,
     // Map from target entity to the input data for that entity
     pub(crate) inputs: Vec<PerTargetData<S>>,
@@ -108,6 +114,8 @@ impl<S: ActionStateSequence + core::fmt::Display> core::fmt::Display for InputMe
 impl<S: ActionStateSequence> InputMessage<S> {
     pub fn new(end_tick: Tick) -> Self {
         Self {
+            #[cfg(feature = "interpolation")]
+            interpolation_delay: None,
             end_tick,
             inputs: vec![],
         }
@@ -116,48 +124,5 @@ impl<S: ActionStateSequence> InputMessage<S> {
     /// Checks if the message contains any actual input data.
     pub fn is_empty(&self) -> bool {
         self.inputs.iter().all(|data| data.states.is_empty())
-    }
-}
-
-// TODO: Define traits `InputMessageBuilder<A>` and `InputBufferUpdater<A>` here
-//       and implement them in the respective native/leafwing crates.
-
-#[cfg(test)]
-mod tests {
-    // Tests for InputMessage construction and basic properties can remain here,
-    // but tests involving `add_inputs` or `update_from_message` need to be
-    // moved or adapted in the native/leafwing crates.
-    use super::*;
-    use crate::input_buffer::InputData;
-    use lightyear_core::prelude::Tick;
-
-    #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
-    struct MyTestAction(u32);
-    impl MapEntities for MyTestAction {
-        fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
-    }
-
-    #[test]
-    fn test_input_message_empty() {
-        let msg_empty: InputMessage<MyTestAction> = InputMessage::new(Tick(10));
-        assert!(msg_empty.is_empty());
-
-        let msg_absent = InputMessage {
-            end_tick: Tick(10),
-            inputs: vec![PerTargetData {
-                target: InputTarget::Entity(Entity::PLACEHOLDER),
-                states: vec![InputData::Absent, InputData::SameAsPrecedent],
-            }],
-        };
-        assert!(msg_absent.is_empty());
-
-        let msg_present = InputMessage {
-            end_tick: Tick(10),
-            inputs: vec![PerTargetData {
-                target: InputTarget::Entity(Entity::PLACEHOLDER),
-                states: vec![InputData::Absent, InputData::Input(MyTestAction(1))],
-            }],
-        };
-        assert!(!msg_present.is_empty());
     }
 }

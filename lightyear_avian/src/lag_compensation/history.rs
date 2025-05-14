@@ -1,12 +1,15 @@
 /// This plugin maintains a history buffer of the Position, Rotation and ColliderAabb of server entities
 /// so that they can be used for lag compensation.
 use bevy::prelude::*;
-use lightyear::prelude::{HistoryBuffer, TickManager};
+
 
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use avian2d::{math::Vector, prelude::*};
 #[cfg(all(feature = "3d", not(feature = "2d")))]
 use avian3d::{math::Vector, prelude::*};
+use lightyear_core::history_buffer::HistoryBuffer;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_link::prelude::Server;
 
 /// Add this plugin to enable lag compensation on the server
 #[derive(Resource)]
@@ -77,10 +80,11 @@ impl Plugin for LagCompensationPlugin {
             (
                 PhysicsStepSet::Solver,
                 // the history must be updated before the SpatialQuery is updated
-                LagCompensationSet::UpdateHistory.ambiguous_with(PhysicsStepSet::ReportContacts),
+                LagCompensationSet::UpdateHistory.ambiguous_with(PhysicsStepSet::Sleeping),
                 PhysicsStepSet::SpatialQuery,
                 // collisions must run after the SpatialQuery has been updated
-                LagCompensationSet::Collisions,
+                // NOTE: we set it as ambiguous with Finalize, but maybe we should run before?
+                LagCompensationSet::Collisions.ambiguous_with(PhysicsStepSet::Finalize),
             )
                 .chain(),
         );
@@ -126,7 +130,7 @@ fn update_collision_layers(
     parent_query.iter_mut().for_each(|(layers, children)| {
         if layers.is_changed() || !layers.is_added() {
             for child in children.iter() {
-                if let Ok(mut child_layers) = child_query.get_mut(*child) {
+                if let Ok(mut child_layers) = child_query.get_mut(child) {
                     *child_layers = *layers;
                 }
             }
@@ -140,7 +144,8 @@ fn update_collision_layers(
 /// The ColliderAabb is used to compute the broad-phase aabb envelope in the broad-phase.
 /// The Position and Rotation will be used to compute an interpolated collider in the narrow-phase.
 fn update_collider_history(
-    tick_manager: Res<TickManager>,
+    // TODO: check the Replicate component to only affect entities that are replicated on a Server
+    timeline: Single<&LocalTimeline, With<Server>>,
     config: Res<LagCompensationConfig>,
     mut parent_query: Query<
         (
@@ -151,14 +156,14 @@ fn update_collider_history(
         ),
         Without<AabbEnvelopeHolder>,
     >,
-    mut children_query: Query<(&Parent, &mut Collider, &mut Position), With<AabbEnvelopeHolder>>,
+    mut children_query: Query<(&ChildOf, &mut Collider, &mut Position), With<AabbEnvelopeHolder>>,
 ) {
-    let tick = tick_manager.tick();
+    let tick = timeline.tick();
     children_query
         .iter_mut()
-        .for_each(|(parent, mut collider, mut position)| {
+        .for_each(|(child_of, mut collider, mut position)| {
             let (parent_position, parent_rotation, parent_aabb, mut history) =
-                parent_query.get_mut(parent.get()).unwrap();
+                parent_query.get_mut(child_of.parent()).unwrap();
 
             // step 1. update the history buffer of the parent
             history.add_update(

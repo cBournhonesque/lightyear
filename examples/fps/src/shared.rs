@@ -1,4 +1,3 @@
-use avian2d::collision::ColliderHierarchyPlugin;
 use avian2d::prelude::*;
 use avian2d::PhysicsPlugins;
 use bevy::diagnostic::LogDiagnosticsPlugin;
@@ -7,14 +6,9 @@ use bevy::time::Stopwatch;
 use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::ActionState;
-use server::ControlledBy;
-
-use lightyear::client::prediction::plugin::is_in_rollback;
-use lightyear::prelude::client::*;
-use lightyear::prelude::server::{Replicate, ReplicateToClient, SyncTarget};
-use lightyear::prelude::TickManager;
+use lightyear::connection::client_of::ClientOf;
+use lightyear::prediction::prespawn::PreSpawned;
 use lightyear::prelude::*;
-use lightyear::transport::io::IoDiagnosticsPlugin;
 
 use crate::protocol::*;
 
@@ -29,6 +23,7 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(lightyear_avian::LightyearAvianPlugin);
         app.add_plugins(ProtocolPlugin);
         // registry types for reflection
         app.register_type::<PlayerId>();
@@ -54,7 +49,7 @@ impl Plugin for SharedPlugin {
 }
 
 // Generate pseudo-random color from id
-pub(crate) fn color_from_id(client_id: ClientId) -> Color {
+pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     let h = (((client_id.to_bits().wrapping_mul(90)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
@@ -97,24 +92,24 @@ pub(crate) fn shared_player_movement(
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
-    tick_manager: Res<TickManager>,
+    timeline: Single<&LocalTimeline, Without<ClientOf>>,
     mut player_query: Query<
         (&mut Transform, &ActionState<PlayerActions>, &PlayerId),
-        Or<(With<Predicted>, With<ReplicateToClient>)>,
+        Or<(With<Predicted>, With<Replicate>)>,
     >,
 ) {
     for (transform, action_state, player_id) in player_query.iter_mut() {
-        trace!(tick = ?tick_manager.tick(), action = ?action_state.dual_axis_data(&PlayerActions::MoveCursor), "Data in Movement (FixedUpdate)");
+        trace!(tick = ?timeline.tick(), action = ?action_state.dual_axis_data(&PlayerActions::MoveCursor), "Data in Movement (FixedUpdate)");
         shared_player_movement(transform, action_state);
         // info!(tick = ?tick_manager.tick(), ?transform, actions = ?action_state.get_pressed(), "applying movement to predicted player");
     }
 }
 
 fn predicted_bot_movement(
-    tick_manager: Res<TickManager>,
+    timeline: Single<&LocalTimeline, Without<ClientOf>>,
     mut query: Query<&mut Position, (With<PredictedBot>, Or<(With<Predicted>, With<Replicating>)>)>,
 ) {
-    let tick = tick_manager.tick();
+    let tick = timeline.tick();
     query.iter_mut().for_each(|mut position| {
         let direction = if (tick.0 / 200) % 2 == 0 { 1.0 } else { -1.0 };
         position.x += BOT_MOVE_SPEED * direction;
@@ -122,32 +117,27 @@ fn predicted_bot_movement(
 }
 
 fn log_predicted_bot_transform(
-    tick_manager: Res<TickManager>,
-    rollback: Option<Res<Rollback>>,
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
     query: Query<
         (&Position, &Transform),
         (With<PredictedBot>, Or<(With<Predicted>, With<Replicating>)>),
     >,
 ) {
-    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
-        tick_manager.tick_or_rollback_tick(r.as_ref())
-    });
-    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
+    let (timeline, is_rollback) = timeline.into_inner();
+    let tick = timeline.tick();
     query.iter().for_each(|(pos, transform)| {
         info!(?tick, ?pos, ?transform, "PredictedBot FixedLast");
     })
 }
 
 pub(crate) fn fixed_update_log(
-    tick_manager: Res<TickManager>,
-    rollback: Option<Res<Rollback>>,
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
     player: Query<(Entity, &Transform), (With<PlayerId>, Without<Confirmed>)>,
     ball: Query<(Entity, &Transform), (With<BulletMarker>, Without<Confirmed>)>,
     interpolated_ball: Query<(Entity, &Transform), (With<BulletMarker>, With<Interpolated>)>,
 ) {
-    let tick = rollback.map_or(tick_manager.tick(), |r| {
-        tick_manager.tick_or_rollback_tick(r.as_ref())
-    });
+    let (timeline, is_rollback) = timeline.into_inner();
+    let tick = timeline.tick();
     for (entity, transform) in player.iter() {
         trace!(
         ?tick,
@@ -180,24 +170,24 @@ pub(crate) fn fixed_update_log(
 /// as its `Predicted` entity
 pub(crate) fn shoot_bullet(
     mut commands: Commands,
-    tick_manager: Res<TickManager>,
-    identity: NetworkIdentity,
+    timeline: Single<&LocalTimeline, Without<ClientOf>>,
     mut query: Query<
         (
             &PlayerId,
             &Transform,
             &ColorComponent,
             &mut ActionState<PlayerActions>,
+            Option<&ControlledBy>,
         ),
-        Or<(With<Predicted>, With<ReplicateToClient>)>,
+        Or<(With<Predicted>, With<Replicate>)>,
     >,
 ) {
-    let tick = tick_manager.tick();
-    for (id, transform, color, action) in query.iter_mut() {
+    let tick = timeline.tick();
+    for (id, transform, color, action, controlled_by) in query.iter_mut() {
+        let is_server = controlled_by.is_some();
         // NOTE: pressed lets you shoot many bullets, which can be cool
         if action.just_pressed(&PlayerActions::Shoot) {
             error!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
-
             for delta in [-0.2, 0.2] {
                 let salt: u64 = if delta < 0.0 { 0 } else { 1 };
                 // shoot from the position of the player, towards the cursor, with an angle of delta
@@ -215,7 +205,8 @@ pub(crate) fn shoot_bullet(
                 );
 
                 // on the server, replicate the bullet
-                if identity.is_server() {
+                if is_server {
+                    #[cfg(feature = "server")]
                     commands.spawn((
                         bullet_bundle,
                         // NOTE: the PreSpawned component indicates that the entity will be spawned on both client and server
@@ -229,21 +220,12 @@ pub(crate) fn shoot_bullet(
                         // NOTE: if you don't add the salt, the 'left' bullet on the server might get matched with the
                         // 'right' bullet on the client, and vice versa. This is not critical, but it will cause a rollback
                         PreSpawned::default_with_salt(salt),
-                        Replicate {
-                            sync: SyncTarget {
-                                // the bullet is predicted for the client who shot it
-                                prediction: NetworkTarget::Single(id.0),
-                                // the bullet is interpolated for other clients
-                                interpolation: NetworkTarget::AllExceptSingle(id.0),
-                            },
-                            controlled_by: ControlledBy {
-                                target: NetworkTarget::Single(id.0),
-                                ..default()
-                            },
-                            // NOTE: all predicted entities need to have the same replication group
-                            group: ReplicationGroup::new_id(id.0.to_bits()),
-                            ..default()
-                        },
+                        Replicate::to_clients(NetworkTarget::All),
+                        PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
+                        InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                        controlled_by.unwrap().clone(),
+                        // NOTE: all predicted entities need to have the same replication group
+                        ReplicationGroup::new_id(id.0.to_bits()),
                     ));
                 } else {
                     // on the client, just spawn the ball

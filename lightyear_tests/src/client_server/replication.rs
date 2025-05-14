@@ -2,12 +2,12 @@
 
 use crate::protocol::{CompA, CompDisabled, CompReplicateOnce};
 use crate::stepper::ClientServerStepper;
-use bevy::prelude::{ResMut, Resource, Single, default};
+use bevy::prelude::{default, ResMut, Resource, Single};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
-use lightyear_replication::control::{Owned, OwnedBy};
+use lightyear_replication::control::{ControlledBy, ControlledByRemote};
 use lightyear_replication::message::ActionsChannel;
 use lightyear_replication::prelude::{
     ComponentReplicationOverride, ComponentReplicationOverrides, Replicate, ReplicationGroupId,
@@ -685,13 +685,13 @@ fn test_owned_by() {
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
-            OwnedBy {
+            ControlledBy {
                 owner: PeerId::Netcode(1),
                 lifetime: Default::default(),
             },
         ))
         .id();
-    assert!(stepper.client_of(1).get::<Owned>().is_some());
+    assert!(stepper.client_of(1).get::<ControlledByRemote>().is_some());
 
     // the server entity is replicated to both clients
     stepper.frame_step(2);

@@ -2,9 +2,7 @@ use avian2d::prelude::RigidBody;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::prelude::InputConfig;
-use lightyear::prelude::client::*;
 use lightyear::prelude::input::leafwing;
-use lightyear::prelude::server::*;
 use lightyear::prelude::Channel;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -27,7 +25,7 @@ pub struct InterpolatedBot;
 
 // Components
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
-pub struct PlayerId(pub PeerId); // Use PeerId
+pub struct PlayerId(pub PeerId);
 
 /// Number of bullet hits
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
@@ -66,6 +64,7 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<PlayerActions>();
         // inputs
         // Use new input plugin path and default config
         app.add_plugins(leafwing::InputPlugin::<PlayerActions> {
@@ -87,7 +86,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Transform>()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn(TransformLinearInterpolation::lerp);
+            .add_interpolation_fn(TransformLinearInterpolation::lerp);
 
         app.register_component::<ColorComponent>()
             .add_prediction(PredictionMode::Once)

@@ -129,8 +129,8 @@ pub(crate) fn replicate_players(
             // Predict to all players
             PredictionTarget::to_clients(NetworkTarget::All),
             REPLICATION_GROUP,
-            OwnedBy {
-                owner: client_id,
+            ControlledBy {
+                owner: entity,
                 lifetime: Default::default(),
             },
             PhysicsBundle::player(),

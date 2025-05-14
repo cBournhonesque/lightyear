@@ -14,6 +14,7 @@ use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
+use serde::{Deserialize, Serialize};
 
 // TODO: maybe let the user choose between u8 or u16 for quantization?
 // quantization error for u8 is about 0.2%, for u16 is 0.0008%
@@ -21,7 +22,7 @@ use lightyear_serde::{SerializationError, ToBytes};
 ///
 /// Represents a value between 0.0 and 1.0 that indicates progress towards the next tick
 /// Serializes to a u8 value for network transmission
-#[derive(Debug, Copy, Clone, Default, Reflect)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Default, Reflect)]
 pub struct Overstep {
     value: f32,
 }
@@ -457,10 +458,10 @@ impl Mul<f32> for TickDelta {
         }
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 pub struct PositiveTickDelta {
-    tick_diff: u16,
-    overstep: Overstep,
+    pub tick_diff: u16,
+    pub overstep: Overstep,
 }
 
 impl From<TickDelta> for PositiveTickDelta {
@@ -480,6 +481,7 @@ impl ToBytes for PositiveTickDelta {
         self.tick_diff.bytes_len() + self.overstep.bytes_len()
     }
 
+    // TODO: use varint for the tick_diff since it's probably small
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         self.tick_diff.to_bytes(buffer)?;
         self.overstep.to_bytes(buffer)

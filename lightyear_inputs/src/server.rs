@@ -95,12 +95,12 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
 
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<S: ActionStateSequence>(
-    mut receivers: Query<(&ClientOf, &mut MessageReceiver<InputMessage<S>>, &Connected)>,
+    mut receivers: Query<(Entity, &ClientOf, &mut MessageReceiver<InputMessage<S>>, &Connected)>,
     mut query: Query<Option<&mut InputBuffer<S::State>>>,
     mut commands: Commands,
 ) {
     // TODO: use par_iter_mut
-    receivers.iter_mut().for_each(|(client_of, mut receiver, connected)| {
+    receivers.iter_mut().for_each(|(client_entity, client_of, mut receiver, connected)| {
         // TODO: this drains the messages... but the user might want to re-broadcast them?
         //  should we just read insteaD?
         let client_id = connected.remote_peer_id;
@@ -111,14 +111,13 @@ fn receive_input_message<S: ActionStateSequence>(
             }
             trace!(?client_id, action = ?core::any::type_name::<S::Action>(), ?message.end_tick, ?message.inputs, "received input message");
 
-            // // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
-            // //  that the message was intended for?
-            // if let Some(interpolation_delay) = message.interpolation_delay {
-            //     // update the interpolation delay estimate for the client
-            //     if let Ok(client_entity) = connection_manager.client_entity(client_id) {
-            //         commands.entity(client_entity).insert(interpolation_delay);
-            //     }
-            // }
+            // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
+            //  that the message was intended for?
+            #[cfg(feature = "interpolation")]
+            if let Some(interpolation_delay) = message.interpolation_delay {
+                // update the interpolation delay estimate for the client
+                commands.entity(client_entity).insert(interpolation_delay);
+            }
 
             for data in &message.inputs {
                 match data.target {

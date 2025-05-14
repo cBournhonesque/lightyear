@@ -1,6 +1,6 @@
 use crate::action_state::LeafwingUserAction;
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 use bevy::math::{Vec2, Vec3};
 use bevy::prelude::Reflect;
 use leafwing_input_manager::action_state::{ActionKindData, ActionState};
@@ -179,7 +179,7 @@ mod tests {
         math::{Vec2, Vec3},
         prelude::Reflect,
     };
-    use leafwing_input_manager::{Actionlike, action_state::ActionState};
+    use leafwing_input_manager::{action_state::ActionState, Actionlike};
 
     #[derive(
         Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash, Reflect, Actionlike,

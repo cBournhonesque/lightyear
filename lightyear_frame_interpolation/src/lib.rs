@@ -37,6 +37,7 @@ use bevy::ecs::component::Mutable;
 use bevy::prelude::*;
 use bevy::transform::TransformSystem::TransformPropagate;
 use lightyear_core::prelude::LocalTimeline;
+use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::correction::Correction;
 use lightyear_prediction::plugin::{is_in_rollback, PredictionSet};
 use lightyear_prediction::prelude::PredictionManager;
@@ -106,7 +107,7 @@ impl<C> Default for FrameInterpolationPlugin<C> {
     }
 }
 
-impl<C: Component<Mutability = Mutable> + Clone + Ease> Plugin for FrameInterpolationPlugin<C> {
+impl<C: Component<Mutability = Mutable> + Clone> Plugin for FrameInterpolationPlugin<C> {
     fn build(&self, app: &mut App) {
         // SETS
         app.configure_sets(
@@ -186,8 +187,12 @@ impl<C: Component> Default for FrameInterpolate<C> {
 // TODO: explore how we could allow this for non-marker components, user would need to specify the interpolation function?
 //  (to avoid orphan rule)
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
-pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + Ease>(
+pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone>(
     // TODO: handle multiple timelines
+
+    // TODO: maybe get rid of this and only handle types that are Ease? the issue is that Transform
+    //  doesn't implement Ease. It's not great that we require InterpolationRegistry
+    registry: Res<InterpolationRegistry>,
     timeline: Single<&LocalTimeline, With<PredictionManager>>,
     mut query: Query<(&mut C, &FrameInterpolate<C>)>,
 ) {
@@ -209,12 +214,17 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
             ?overstep,
             "Frame interpolation of fixed-update component!"
         );
-        let curve = EasingCurve::new(
+        let interpolated = registry.interpolate(
             previous_value.clone(),
             current_value.clone(),
-            EaseFunction::Linear,
+            overstep.value()
         );
-        let interpolated = curve.sample_unchecked(overstep.value());
+        // let curve = EasingCurve::new(
+        //     previous_value.clone(),
+        //     current_value.clone(),
+        //     EaseFunction::Linear,
+        // );
+        // let interpolated = curve.sample_unchecked(overstep.value());
         if !interpolate_status.trigger_change_detection {
             *component.bypass_change_detection() = interpolated;
         } else {

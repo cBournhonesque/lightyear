@@ -1,9 +1,9 @@
 //! Handles spawning entities that are predicted
 
-use crate::Predicted;
 use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::PredictionSet;
 use crate::pre_prediction::PrePredicted;
+use crate::Predicted;
 use bevy::ecs::archetype::Archetype;
 use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
 use bevy::ecs::world::DeferredWorld;
@@ -11,13 +11,14 @@ use bevy::prelude::*;
 use core::any::TypeId;
 use core::hash::{Hash, Hasher};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
+use lightyear_link::prelude::Server;
 use lightyear_replication::components::{Replicated, ShouldBeInterpolated};
 use lightyear_replication::control::Controlled;
 use lightyear_replication::prelude::{
     Confirmed, ReplicateLike, ReplicationReceiver, ShouldBePredicted,
 };
-use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::registry::ComponentKind;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, trace, warn};
 
@@ -315,35 +316,67 @@ impl Component for PreSpawned {
             if prespawned_obj.hash.is_some() {
                 return;
             }
+            let salt = prespawned_obj.user_salt;
+            
             // Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
             // ignore replicated entities, we only want to iterate through entities spawned on the client directly
-            let components = deferred_world.components();
-            let link_entity = deferred_world.resource::<PredictionResource>().link_entity;
-            let tick = deferred_world
-                .get::<LocalTimeline>(link_entity)
-                .unwrap()
-                .tick();
-            let component_registry = deferred_world.resource::<ComponentRegistry>();
-            let entity_ref = deferred_world.entity(entity);
-            let hash = compute_default_hash(
-                component_registry,
-                components,
-                entity_ref.archetype(),
-                tick,
-                prespawned_obj.user_salt,
-            );
-            // update component with the computed hash
-            debug!(
-                ?entity,
-                ?tick,
-                hash = ?hash,
-                "PreSpawned hook, setting the hash on the component"
-            );
-            deferred_world
-                .entity_mut(entity)
-                .get_mut::<PreSpawned>()
-                .unwrap()
-                .hash = Some(hash);
+            if let Some(prediction_resource) = deferred_world.get_resource::<PredictionResource>() {
+                let tick = deferred_world.get::<LocalTimeline>(prediction_resource.link_entity).unwrap().tick();
+                let components = deferred_world.components();
+                let component_registry = deferred_world.resource::<ComponentRegistry>();
+                let entity_ref = deferred_world.entity(entity);
+                let hash = compute_default_hash(
+                    component_registry,
+                    components,
+                    entity_ref.archetype(),
+                    tick,
+                    salt,
+                );
+                // update component with the computed hash
+                debug!(
+                    ?entity,
+                    ?tick,
+                    hash = ?hash,
+                    "PreSpawned hook, setting the hash on the component"
+                );
+                deferred_world
+                    .entity_mut(entity)
+                    .get_mut::<PreSpawned>()
+                    .unwrap()
+                    .hash = Some(hash);
+                
+            } else {
+                // we cannot use PredictionResource because it does not exist on the server!
+                // we need to run a query to get the Server entity.
+                deferred_world.commands().queue(move |world: &mut World| {
+                    let tick = world.query_filtered::<&LocalTimeline, Or<(With<Server>, With<PredictionManager>)>>()
+                        .single(world)
+                        .expect("No Server or Client with PredictionManager was found")
+                        .tick();
+                    let components = world.components();
+                    let component_registry = world.resource::<ComponentRegistry>();
+                    let entity_ref = world.entity(entity);
+                    let hash = compute_default_hash(
+                        component_registry,
+                        components,
+                        entity_ref.archetype(),
+                        tick,
+                        salt,
+                    );
+                    // update component with the computed hash
+                    debug!(
+                        ?entity,
+                        ?tick,
+                        hash = ?hash,
+                        "PreSpawned hook, setting the hash on the component"
+                    );
+                    world
+                        .entity_mut(entity)
+                        .get_mut::<PreSpawned>()
+                        .unwrap()
+                        .hash = Some(hash);
+                });
+            }
         });
     }
 }
@@ -418,7 +451,7 @@ mod tests {
     use crate::manager::PredictionManager;
     use crate::predicted_history::PredictionHistory;
     use bevy::app::PreUpdate;
-    use bevy::prelude::{Entity, IntoScheduleConfigs, With, default};
+    use bevy::prelude::{default, Entity, IntoScheduleConfigs, With};
 
     #[test]
     fn test_compute_hash() {

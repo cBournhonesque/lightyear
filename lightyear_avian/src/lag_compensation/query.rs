@@ -2,8 +2,9 @@
 use super::history::{AabbEnvelopeHolder, LagCompensationConfig, LagCompensationHistory};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use lightyear::prelude::TickManager;
-use lightyear::prelude::client::InterpolationDelay;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_interpolation::plugin::InterpolationDelay;
+use lightyear_link::prelude::Server;
 use std::cell::RefCell;
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use {
@@ -22,11 +23,11 @@ use {
 /// Systems using this parameter should run after the [`LagCompensationSet::UpdateHistory`] set.
 #[derive(SystemParam)]
 pub struct LagCompensationSpatialQuery<'w, 's> {
-    pub tick_manager: Res<'w, TickManager>,
+    pub timeline: Single<'w, &'static LocalTimeline, With<Server>>,
     pub config: Res<'w, LagCompensationConfig>,
     spatial_query: SpatialQuery<'w, 's>,
     parent_query: Query<'w, 's, (&'static Collider, &'static LagCompensationHistory)>,
-    child_query: Query<'w, 's, &'static Parent, With<AabbEnvelopeHolder>>,
+    child_query: Query<'w, 's, &'static ChildOf, With<AabbEnvelopeHolder>>,
 }
 
 impl LagCompensationSpatialQuery<'_, '_> {
@@ -65,8 +66,7 @@ impl LagCompensationSpatialQuery<'_, '_> {
         filter: &mut SpatialQueryFilter,
     ) -> Option<RayHitData> {
         // 1): check if the ray hits the aabb envelope
-        let tick = self.tick_manager.tick();
-        let tick_duration = self.tick_manager.config.tick_duration;
+        let tick = self.timeline.tick();
         // we use interior mutability because the predicate must be a `dyn Fn`
         let exact_hit_data: RefCell<Option<RayHitData>> = RefCell::new(None);
         self.spatial_query.cast_ray_predicate(
@@ -83,14 +83,14 @@ impl LagCompensationSpatialQuery<'_, '_> {
                 let Ok(parent_component) = self.child_query.get(child) else {
                     return false;
                 };
-                let parent = parent_component.get();
+                let parent = parent_component.parent();
                 debug!("Broadphase hit with {child:?}");
                 let (collider, history) = self
                     .parent_query
                     .get(parent)
                     .expect("the parent must have a history");
                 let (interpolation_tick, interpolation_overstep) =
-                    interpolation_delay.tick_and_overstep(tick, tick_duration);
+                    interpolation_delay.tick_and_overstep(tick);
 
                 // find the collider position at that time in history
                 // the start corresponds to tick `interpolation_tick` (we interpolate between `interpolation_tick` and `interpolation_tick + 1`)

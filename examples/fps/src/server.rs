@@ -1,15 +1,17 @@
+use crate::protocol::*;
+use crate::shared;
+use crate::shared::{color_from_id, shared_player_movement, BOT_RADIUS};
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
-
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, shared_player_movement, BOT_RADIUS};
+use lightyear::interpolation::plugin::InterpolationDelay;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+use lightyear_avian::prelude::{LagCompensationHistory, LagCompensationPlugin, LagCompensationSet, LagCompensationSpatialQuery};
+use lightyear_examples_common::shared::SEND_INTERVAL;
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
@@ -20,13 +22,14 @@ impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(LagCompensationPlugin);
         app.add_systems(Startup, spawn_bots);
-        app.add_systems(Update, spawn_player);
+        app.add_observer(handle_new_client);
+        app.add_observer(spawn_player);
         // the lag compensation systems need to run after LagCompensationSet::UpdateHistory
         app.add_systems(FixedUpdate, interpolated_bot_movement);
         app.add_systems(
             PhysicsSchedule,
             // lag compensation collisions must run after the SpatialQuery has been updated
-            compute_hit_lag_compensation.after(PhysicsStepSet::SpatialQuery),
+            compute_hit_lag_compensation.in_set(LagCompensationSet::Collisions),
         );
         app.add_systems(
             FixedPostUpdate,
@@ -34,6 +37,16 @@ impl Plugin for ExampleServerPlugin {
             compute_hit_prediction.after(PhysicsSet::Sync),
         );
     }
+}
+
+pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+    commands
+        .entity(trigger.target())
+        .insert(ReplicationSender::new(
+            SEND_INTERVAL,
+            SendUpdatesMode::SinceLastAck,
+            false,
+        ));
 }
 
 // Replicate the pre-spawned entities back to the client
@@ -57,8 +70,8 @@ pub(crate) fn spawn_player(
         Replicate::to_clients(NetworkTarget::All),
         PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-        OwnedBy {
-            owner: client_id,
+        ControlledBy {
+            owner: trigger.target(),
             lifetime: Default::default(),
         },
         // make sure that all predicted entities (i.e. all entities for a given client) are part of the same replication group
@@ -109,20 +122,16 @@ pub(crate) fn compute_hit_lag_compensation(
     mut commands: Commands,
     timeline: Single<&LocalTimeline, With<Server>>,
     query: LagCompensationSpatialQuery,
-    bullets: Query<(Entity, &PlayerId, &Position, &LinearVelocity), With<BulletMarker>>,
-    manager: Res<ConnectionManager>,
+    bullets: Query<(Entity, &PlayerId, &Position, &LinearVelocity, &ControlledBy), With<BulletMarker>>,
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
     // metadata)
-    client_query: Query<&InterpolationDelay>,
+    client_query: Query<&InterpolationDelay, With<ClientOf>>,
     mut player_query: Query<(&mut Score, &PlayerId)>,
 ) {
     let tick = timeline.tick();
-    bullets.iter().for_each(|(entity, id, position, velocity)| {
-        let Ok(delay) = manager
-            .client_entity(id.0)
-            .map(|client_entity| client_query.get(client_entity).unwrap())
-        else {
+    bullets.iter().for_each(|(entity, id, position, velocity, controlled_by)| {
+        let Ok(delay) = client_query.get(controlled_by.owner) else {
             error!("Could not retrieve InterpolationDelay for client {id:?}");
             return;
         };

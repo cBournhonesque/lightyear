@@ -68,6 +68,7 @@ interpolation = [
   "dep:lightyear_interpolation",
   "dep:lightyear_replication",
   "lightyear_replication?/interpolation",
+  "lightyear_inputs?/interpolation",
 ]
 trace = []
 metrics = [

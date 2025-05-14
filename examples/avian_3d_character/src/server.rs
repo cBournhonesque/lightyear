@@ -99,7 +99,7 @@ fn player_shoot(
                 Replicate::to_clients(NetworkTarget::All),
                 REPLICATION_GROUP,
                 PredictionTarget::to_clients(NetworkTarget::All),
-                OwnedBy {
+                ControlledBy {
                     owner: PeerId::Server,
                     lifetime: Default::default(),
                 },
@@ -196,8 +196,8 @@ pub(crate) fn handle_connected(
             Replicate::to_clients(NetworkTarget::All),
             REPLICATION_GROUP,
             PredictionTarget::to_clients(NetworkTarget::All),
-            OwnedBy {
-                owner: client_id,
+            ControlledBy {
+                owner: trigger.target(),
                 lifetime: Default::default(),
             },
             CharacterPhysicsBundle::default(),

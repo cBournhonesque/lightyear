@@ -5,6 +5,7 @@ use core::time::Duration;
 // TODO: make this a component
 #[derive(Debug, Clone, Copy, Reflect, Resource)]
 pub struct InputConfig<A> {
+    #[cfg(feature = "interpolation")]
     /// If enabled, the client will send the interpolation_delay to the server so that the server
     /// can apply lag compensation when the predicted client is shooting at interpolated enemies.
     ///
@@ -29,6 +30,7 @@ pub struct InputConfig<A> {
 impl<A> Default for InputConfig<A> {
     fn default() -> Self {
         InputConfig {
+            #[cfg(feature = "interpolation")]
             lag_compensation: false,
             packet_redundancy: 10,
             send_interval: Duration::default(),

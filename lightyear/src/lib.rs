@@ -43,6 +43,10 @@ pub mod connection {
     pub use lightyear_connection::*;
 }
 
+pub mod utils {
+    pub use lightyear_utils::*;
+}
+
 pub mod prelude {
     pub use lightyear_connection::prelude::*;
     pub use lightyear_core::prelude::*;

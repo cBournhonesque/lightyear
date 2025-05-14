@@ -9,40 +9,54 @@ use crate::timeline::TimelinePlugin;
 use crate::{Interpolated, InterpolationMode, SyncComponent};
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear_core::prelude::Tick;
+use lightyear_core::time::PositiveTickDelta;
+use lightyear_serde::reader::Reader;
+use lightyear_serde::writer::WriteInteger;
+use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_sync::plugin::SyncSet;
 use serde::{Deserialize, Serialize};
+use lightyear_core::prelude::Tick;
 
 /// Interpolation delay of the client at the time the message is sent
 ///
 /// This component will be stored on the Client entities on the server
 /// as an estimate of the interpolation delay of the client, for lag compensation.
-#[derive(Component, Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
+#[derive(Serialize, Deserialize, Component, Clone, Copy, PartialEq, Debug, Reflect)]
 pub struct InterpolationDelay {
-    /// Delay in milliseconds between the prediction time and the interpolation time
-    pub delay_ms: u16,
-    // /// Interpolation tick
-    // pub tick: Tick,
-    // /// Interpolation overstep. The exact interpolation value is
-    // /// `interpolation_tick + interpolation_overstep * tick_duration`
-    // // TODO: switch to f16 when available
-    // pub overstep: f32,
+    /// Delay between the prediction time and the interpolation time
+    pub delay: PositiveTickDelta,
 }
 
 impl InterpolationDelay {
-    /// What Tick the interpolation delay corresponds to, knowing the current tick
-    pub fn tick_and_overstep(&self, current_tick: Tick, tick_duration: Duration) -> (Tick, f32) {
-        todo!()
-    }
-
-    /// What overstep the interpolation delay corresponds to
-    ///
-    /// The exact interpolation value is
-    /// `interpolation_tick + interpolation_overstep * tick_duration`
-    fn overstep(&self, current_tick: Tick, tick_duration: Duration) -> f32 {
-        todo!()
+    /// Get the tick and the overstep of the interpolation time by removing the delay
+    /// from the current tick
+    pub fn tick_and_overstep(&self, tick: Tick) -> (Tick, f32) {
+        if self.delay.overstep.value() == 0.0 {
+            (tick - self.delay.tick_diff, 0.0)
+        } else {
+            (tick - self.delay.tick_diff - 1, 1.0 - self.delay.overstep.value())
+        }
     }
 }
+
+impl ToBytes for InterpolationDelay {
+    fn bytes_len(&self) -> usize {
+        self.delay.bytes_len()
+    }
+
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> core::result::Result<(), SerializationError> {
+        self.delay.to_bytes(buffer)
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> core::result::Result<Self, SerializationError>
+    where
+        Self: Sized
+    {
+        let delay = PositiveTickDelta::from_bytes(buffer)?;
+        Ok(Self { delay })
+    }
+}
+
 
 /// Config to specify how the snapshot interpolation should behave
 #[derive(Clone, Copy, Reflect)]
@@ -166,6 +180,7 @@ impl Plugin for InterpolationPlugin {
 
         // REFLECT
         app.register_type::<InterpolationConfig>()
+            .register_type::<InterpolationDelay>()
             .register_type::<Interpolated>();
 
         // RESOURCES
@@ -196,20 +211,27 @@ impl Plugin for InterpolationPlugin {
 
 #[cfg(test)]
 mod tests {
+    use lightyear_core::time::Overstep;
     use super::*;
 
     #[test]
     fn test_interpolation_delay() {
-        let delay = InterpolationDelay { delay_ms: 12 };
+        let delay = InterpolationDelay { delay: PositiveTickDelta {
+            tick_diff: 2,
+            overstep: Default::default(),
+        } };
         assert_eq!(
-            delay.tick_and_overstep(Tick(3), Duration::from_millis(10)),
-            (Tick(1), 0.8)
+            delay.tick_and_overstep(Tick(3)),
+            (Tick(1), 0.0)
         );
 
-        let delay = InterpolationDelay { delay_ms: 10 };
+            let delay = InterpolationDelay { delay: PositiveTickDelta {
+            tick_diff: 2,
+            overstep: Overstep::new(0.4),
+        } };
         assert_eq!(
-            delay.tick_and_overstep(Tick(3), Duration::from_millis(10)),
-            (Tick(2), 0.0)
+            delay.tick_and_overstep(Tick(3)),
+            (Tick(0), 0.6)
         );
     }
 }

@@ -13,7 +13,7 @@ use crate::components::InterpolationTarget;
 #[cfg(feature = "prediction")]
 use crate::components::PredictionTarget;
 use crate::components::{Replicating, ReplicationGroup, ReplicationGroupId};
-use crate::control::OwnedBy;
+use crate::control::ControlledBy;
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
@@ -305,7 +305,7 @@ impl Plugin for ReplicationSendPlugin {
         app.add_observer(InterpolationTarget::handle_connection);
         app.add_observer(Self::handle_disconnection);
 
-        app.add_observer(OwnedBy::handle_disconnection);
+        app.add_observer(ControlledBy::handle_disconnection);
 
         app.add_systems(
             PostUpdate,
@@ -366,7 +366,7 @@ impl Plugin for ReplicationSendPlugin {
                         &NetworkVisibility,
                         &ReplicateLikeChildren,
                         &ReplicateLike,
-                        &OwnedBy,
+                        &ControlledBy,
                     )>();
                     #[cfg(feature = "prediction")]
                     b.data::<&PredictionTarget>();

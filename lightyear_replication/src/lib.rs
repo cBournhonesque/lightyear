@@ -32,7 +32,7 @@ pub mod receive;
 pub(crate) mod send;
 
 pub(crate) mod buffer;
-pub(crate) mod delta;
+pub mod delta;
 /// Defines the structure of messages used for replication.
 pub mod message;
 
@@ -49,7 +49,7 @@ pub mod prelude {
     };
     pub use crate::buffer::Replicate;
     pub use crate::components::*;
-    pub use crate::control::{Controlled, Lifetime, Owned, OwnedBy};
+    pub use crate::control::{Controlled, ControlledBy, ControlledByRemote, Lifetime};
     pub use crate::hierarchy::{
         ChildOfSync, DisableReplicateHierarchy, HierarchySendPlugin, RelationshipReceivePlugin,
         RelationshipSendPlugin, RelationshipSync, ReplicateLike, ReplicateLikeChildren,
@@ -57,7 +57,7 @@ pub mod prelude {
     pub use crate::message::*;
     pub use crate::plugin::ReplicationSet;
     pub use crate::receive::{ReplicationReceivePlugin, ReplicationReceiver};
-    pub use crate::registry::registry::{AppComponentExt, ComponentRegistration};
+    pub use crate::registry::registry::{AppComponentExt, ComponentRegistration, TransformLinearInterpolation};
     pub use crate::send::{
         ReplicationBufferSet, ReplicationSendPlugin, ReplicationSender, SendUpdatesMode,
     };

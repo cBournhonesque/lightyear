@@ -9,7 +9,7 @@ use bevy::ecs::change_detection::Mut;
 use bevy::ecs::component::{Component, ComponentId, Mutable};
 use bevy::ecs::entity::MapEntities;
 use bevy::platform::collections::HashMap;
-use bevy::prelude::{Resource, TypePath, World};
+use bevy::prelude::{Resource, Transform, TypePath, World};
 use bevy::ptr::Ptr;
 use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
@@ -23,7 +23,7 @@ use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::registry::TypeMapper;
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
-use tracing::debug;
+use tracing::{debug, trace};
 
 /// Function used to interpolate from one component state (`start`) to another (`other`)
 /// t goes from 0.0 (`start`) to 1.0 (`other`)
@@ -425,6 +425,32 @@ impl<C> ComponentRegistration<'_, C> {
         self
     }
 }
+
+
+pub struct TransformLinearInterpolation;
+
+impl TransformLinearInterpolation {
+    pub fn lerp(start: Transform, other: Transform, t: f32) -> Transform {
+        let translation = start.translation * (1.0 - t) + other.translation * t;
+        let rotation = start.rotation.slerp(other.rotation, t);
+        let scale = start.scale * (1.0 - t) + other.scale * t;
+        let res = Transform {
+            translation,
+            rotation,
+            scale,
+        };
+        trace!(
+            "position lerp: start: {:?} end: {:?} t: {} res: {:?}",
+            start,
+            other,
+            t,
+            res
+        );
+        res
+    }
+}
+
+
 
 #[cfg(test)]
 mod tests {

@@ -61,7 +61,6 @@ BUGS:
 
 # Status:
 
-- WebTransport: ai-generated, to be verified
 - WebSocket/Steam: TODO
 - Replication:
   - ReplicationGroup timer + priority

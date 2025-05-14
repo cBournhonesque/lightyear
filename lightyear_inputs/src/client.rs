@@ -64,6 +64,8 @@ use lightyear_core::prelude::{NetworkTimeline, Rollback};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::timeline::LocalTimeline;
 use lightyear_core::timeline::SyncEvent;
+use lightyear_interpolation::plugin::InterpolationDelay;
+use lightyear_interpolation::prelude::InterpolationTimeline;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageSender;
 use lightyear_messages::MessageManager;
@@ -221,7 +223,7 @@ fn buffer_action_state<S: ActionStateSequence>(
     let current_tick = local_timeline.tick();
     let tick = current_tick + input_timeline.input_delay() as i16;
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
-        input_buffer.set(tick, action_state.clone());
+        InputBuffer::set(&mut input_buffer, tick, action_state.clone());
         trace!(
             ?entity,
             action_state = ?action_state.clone(),
@@ -558,23 +560,33 @@ fn send_input_messages<S: ActionStateSequence>(
     input_config: Res<InputConfig<S::Action>>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
     mut sender: Single<&mut MessageSender<InputMessage<S>>, With<IsSynced<InputTimeline>>>,
+    #[cfg(feature = "interpolation")]
+    interpolation_query: Single<(&InputTimeline, &InterpolationTimeline), (With<IsSynced<InterpolationTimeline>>, With<IsSynced<InputTimeline>>)>,
 ) {
     trace!(
         "Number of input messages to send: {:?}",
         message_buffer.0.len()
     );
-    for message in message_buffer.0.drain(..) {
-        // // if lag compensation is enabled, we send the current delay to the server
-        // // (this runs here because the delay is only correct after the SyncSet has run)
-        // // TODO: or should we actually use the interpolation_delay BEFORE SyncSet
-        // //  because the user is reacting to stuff from the previous frame?
-        // if input_config.lag_compensation {
-        //     message.interpolation_delay = Some(
-        //         connection
-        //             .sync_manager
-        //             .interpolation_delay(tick_manager.as_ref(), time_manager.as_ref()),
-        //     );
-        // }
+
+    #[cfg(feature = "interpolation")]
+    let interpolation_delay = {
+        let (input_timeline, interpolation_timeline) = interpolation_query.into_inner();
+
+        let delay = input_timeline.now() - interpolation_timeline.now();
+        InterpolationDelay {
+            delay: delay.into()
+        }
+    };
+
+    for mut message in message_buffer.0.drain(..) {
+        // if lag compensation is enabled, we send the current delay to the server
+        // (this runs here because the delay is only correct after the SyncSet has run)
+        // TODO: or should we actually use the interpolation_delay BEFORE SyncSet
+        //  because the user is reacting to stuff from the previous frame?
+        #[cfg(feature = "interpolation")]
+        if input_config.lag_compensation {
+            message.interpolation_delay = Some(interpolation_delay);
+        }
         sender.send::<InputChannel>(message);
     }
 }

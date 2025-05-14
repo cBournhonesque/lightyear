@@ -24,13 +24,12 @@ use crate::registry::ComponentKind;
 use crate::send::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 
-use crate::control::{Controlled, OwnedBy};
+use crate::control::{Controlled, ControlledBy};
 use lightyear_connection::client::Connected;
 use lightyear_connection::client::{Client, PeerMetadata};
 use lightyear_connection::prelude::NetworkTarget;
 
 use lightyear_connection::client_of::ClientOf;
-use lightyear_core::id::PeerId;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
 use lightyear_link::prelude::LinkOf;
@@ -38,7 +37,6 @@ use lightyear_link::prelude::LinkOf;
 use lightyear_link::prelude::Server;
 use lightyear_messages::MessageManager;
 use lightyear_serde::entity_map::RemoteEntityMap;
-use tracing::{info, trace};
 
 #[derive(Clone, Default, Debug, PartialEq, Reflect)]
 pub enum ReplicationMode {
@@ -375,8 +373,7 @@ pub(crate) fn replicate(
         &mut DeltaManager,
         &mut MessageManager,
         &LocalTimeline,
-        &Connected,
-    )>,
+    ), With<Connected>>,
     component_registry: Res<ComponentRegistry>,
     system_ticks: SystemChangeTick,
     archetypes: &Archetypes,
@@ -387,7 +384,7 @@ pub(crate) fn replicate(
 
     // TODO: iterate per entity first, and then per sender (using UniqueSlice)
     manager_query.par_iter_mut().for_each(
-        |(sender_entity, mut sender, mut delta_manager, mut message_manager, timeline, connected)| {
+        |(sender_entity, mut sender, mut delta_manager, mut message_manager, timeline)| {
             let tick = timeline.tick();
 
             // enable split borrows
@@ -426,7 +423,6 @@ pub(crate) fn replicate(
                     component_registry.as_ref(),
                     &replicated_archetypes,
                     &mut delta_manager,
-                    connected.remote_peer_id,
                 );
                 if let Some(children) = root_entity_ref.get::<ReplicateLikeChildren>() {
                     for child in children.collection() {
@@ -442,7 +438,6 @@ pub(crate) fn replicate(
                             component_registry.as_ref(),
                             &replicated_archetypes,
                             &mut delta_manager,
-                            connected.remote_peer_id
                         );
                     }
                 }
@@ -466,7 +461,6 @@ pub(crate) fn replicate_entity(
     component_registry: &ComponentRegistry,
     replicated_archetypes: &ReplicatedArchetypes,
     delta_manager: &mut DeltaManager,
-    remote_peer_id: PeerId,
 ) {
     // get the value of the replication components
     let (
@@ -505,8 +499,8 @@ pub(crate) fn replicate_entity(
                     .get::<NetworkVisibility>()
                     .or_else(|| root_entity_ref.get::<NetworkVisibility>()),
                 child_entity_ref
-                    .get::<OwnedBy>()
-                    .or_else(|| root_entity_ref.get::<OwnedBy>()),
+                    .get::<ControlledBy>()
+                    .or_else(|| root_entity_ref.get::<ControlledBy>()),
                 child_entity_ref,
                 unsafe {
                     sender.is_updated(
@@ -530,7 +524,7 @@ pub(crate) fn replicate_entity(
                 root_entity_ref.get_ref::<Replicate>().unwrap(),
                 root_entity_ref.get::<CachedReplicate>(),
                 root_entity_ref.get::<NetworkVisibility>(),
-                root_entity_ref.get::<OwnedBy>(),
+                root_entity_ref.get::<ControlledBy>(),
                 root_entity_ref,
                 false,
             )
@@ -584,7 +578,6 @@ pub(crate) fn replicate_entity(
         sender,
         sender_entity,
         is_replicate_like_added,
-        remote_peer_id,
     );
 
     // If the group is not set to send, skip this entity
@@ -734,14 +727,13 @@ pub(crate) fn replicate_entity_spawn(
     replicate: &Ref<Replicate>,
     #[cfg(feature = "prediction")] prediction_target: Option<&PredictionTarget>,
     #[cfg(feature = "interpolation")] interpolation_target: Option<&InterpolationTarget>,
-    controlled_by: Option<&OwnedBy>,
+    controlled_by: Option<&ControlledBy>,
     cached_replicate: Option<&CachedReplicate>,
     network_visibility: Option<&NetworkVisibility>,
     component_registry: &ComponentRegistry,
     sender: &mut ReplicationSender,
     sender_entity: Entity,
     is_replicate_like_added: bool,
-    remote_peer_id: PeerId,
 ) {
     // 1. replicate was added/updated and the sender was not in the previous Replicate's target
     let replicate_updated = sender.is_updated(replicate.last_changed())
@@ -769,7 +761,7 @@ pub(crate) fn replicate_entity_spawn(
         );
         sender.prepare_entity_spawn(entity, group_id, priority);
 
-        if controlled_by.is_some_and(|c| c.owner == remote_peer_id) {
+        if controlled_by.is_some_and(|c| c.owner == sender_entity) {
             sender
                 .prepare_typed_component_insert(entity, group_id, component_registry, &Controlled)
                 .unwrap();
