@@ -1,4 +1,3 @@
-use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear::input::native::plugin::InputPlugin;
@@ -35,7 +34,7 @@ impl Ease for CursorPosition {
 }
 
 // Inputs
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Reflect)]
 pub struct Direction {
     pub(crate) up: bool,
     pub(crate) down: bool,
@@ -49,7 +48,7 @@ impl Direction {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub enum Inputs {
     Direction(Direction),
     Delete,
@@ -60,17 +59,20 @@ impl MapEntities for Inputs {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
 }
 
-// Protocol
 pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<Inputs>();
         // inputs
-        // Use new input plugin path
         app.add_plugins(InputPlugin::<Inputs>::default());
+        
         // components
-        // Use PredictionMode and InterpolationMode
         app.register_component::<PlayerId>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
+        
+        app.register_component::<Name>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
 

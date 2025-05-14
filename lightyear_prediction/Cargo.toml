@@ -15,6 +15,9 @@ std = [
     "bytes/std",
     "serde/std",
 ]
+server = [
+    "dep:lightyear_messages"
+]
 metrics = []
 
 [dependencies]
@@ -22,8 +25,10 @@ lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_link.workspace = true
 lightyear_core.workspace = true
+lightyear_connection = {workspace = true, features = ["client"]}
 lightyear_replication = {workspace = true, features = ["prediction", "interpolation"]}
 lightyear_sync = {workspace = true, features = ["client"]}
+lightyear_messages = {workspace = true, optional = true}
 
 # utils
 seahash.workspace = true

@@ -455,7 +455,7 @@ impl Plugin for ReplicationSendPlugin {
 #[require(LocalTimeline)]
 #[require(DeltaManager)]
 pub struct ReplicationSender {
-    pub(crate) replicated_entities: EntityIndexMap<bool>,
+    pub replicated_entities: EntityIndexMap<bool>,
     pub(crate) writer: Writer,
     /// Map from message-id to the corresponding group-id that sent this update message, as well as the `send_tick` BevyTick
     /// when we buffered the message. (so that when it's acked, we know we only need to include updates that happened after that tick,

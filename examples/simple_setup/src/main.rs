@@ -39,22 +39,22 @@ fn main() {
     match cli.mode {
         Mode::Client => {
             app.add_plugins(DefaultPlugins);
-            // add shared protocol
-            app.add_plugins(SharedPlugin);
             // add lightyear plugins
             app.add_plugins(ClientPlugins {
                 tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
             });
+            // NOTE: the ProtocolPlugin must be added AFTER the Client/Server plugins
+            app.add_plugins(SharedPlugin);
             // add client-specific plugins
             app.add_plugins(client::ExampleClientPlugin);
         }
         Mode::Server => {
             app.add_plugins(DefaultPlugins);
-            // add shared protocol
-            app.add_plugins(SharedPlugin);
             app.add_plugins(ServerPlugins {
                 tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
             });
+            // NOTE: the ProtocolPlugin must be added AFTER the Client/Server plugins
+            app.add_plugins(SharedPlugin);
             app.add_plugins(server::ExampleServerPlugin);
         }
     }

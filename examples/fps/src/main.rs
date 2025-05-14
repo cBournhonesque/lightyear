@@ -7,7 +7,6 @@ use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::{
     CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS,
 };
-use protocol::ProtocolPlugin;
 
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
@@ -31,7 +30,6 @@ fn main() {
 
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
 
-    app.add_plugins(SharedPlugin);
 
     #[cfg(feature = "client")]
     {
@@ -77,6 +75,9 @@ fn main() {
             app.world_mut().trigger_targets(Start, server);
         }
     }
+
+        // NOTE: the ProtocolPlugin must be added AFTER the Client/Server plugins
+    app.add_plugins(SharedPlugin);
 
     #[cfg(feature = "gui")]
     app.add_plugins(renderer::ExampleRendererPlugin);

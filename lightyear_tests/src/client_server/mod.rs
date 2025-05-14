@@ -7,3 +7,4 @@ mod input;
 mod messages;
 mod replication;
 mod visibility;
+mod prediction;

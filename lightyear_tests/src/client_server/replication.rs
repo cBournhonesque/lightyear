@@ -4,7 +4,6 @@ use crate::protocol::{CompA, CompDisabled, CompReplicateOnce};
 use crate::stepper::ClientServerStepper;
 use bevy::prelude::{default, ResMut, Resource, Single};
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_core::id::PeerId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
 use lightyear_replication::control::{ControlledBy, ControlledByRemote};
@@ -680,13 +679,14 @@ fn test_component_disabled_overrides() {
 fn test_owned_by() {
     let mut stepper = ClientServerStepper::with_clients(2);
 
+    let client_of_1 = stepper.client_of(1).id();
     let server_entity = stepper
         .server_app
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
             ControlledBy {
-                owner: PeerId::Netcode(1),
+                owner: client_of_1,
                 lifetime: Default::default(),
             },
         ))

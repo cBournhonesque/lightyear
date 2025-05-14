@@ -24,12 +24,22 @@ pub mod resource_history;
 pub mod rollback;
 pub mod spawn;
 
+#[cfg(feature = "server")]
+pub mod server;
+mod shared;
+
 pub mod prelude {
     pub use crate::despawn::PredictionDespawnCommandsExt;
     pub use crate::manager::PredictionManager;
     pub use crate::plugin::PredictionPlugin;
+    pub use crate::prespawn::PreSpawned;
     pub use crate::registry::PredictionRegistrationExt;
     pub use crate::{Predicted, PredictionMode};
+
+    #[cfg(feature = "server")]
+    pub mod server {
+        pub use crate::server::ServerPlugin;
+    }
 }
 
 /// Component added to client-side entities that are predicted.
@@ -140,3 +150,5 @@ pub enum PredictionMode {
 /// according to the specified `PredictionMode`.
 pub trait SyncComponent: Component<Mutability = Mutable> + Clone + PartialEq {}
 impl<T> SyncComponent for T where T: Component<Mutability = Mutable> + Clone + PartialEq {}
+
+

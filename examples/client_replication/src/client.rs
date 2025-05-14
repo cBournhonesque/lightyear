@@ -13,13 +13,11 @@ pub struct ExampleClientPlugin;
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(spawn_local_cursor);
-
         // Inputs need to be buffered in the `FixedPreUpdate` schedule
         app.add_systems(
             FixedPreUpdate,
             write_inputs.in_set(InputSet::WriteClientInputs),
         );
-
         // all actions related-system that can be rolled back should be in the `FixedUpdate` schedule
         app.add_systems(FixedUpdate, (player_movement, delete_player));
         app.add_systems(
@@ -27,10 +25,10 @@ impl Plugin for ExampleClientPlugin {
             (
                 cursor_movement,
                 spawn_player,
-                handle_predicted_spawn,
-                handle_interpolated_spawn,
             ),
         );
+        app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_interpolated_spawn);
     }
 }
 
@@ -48,6 +46,7 @@ pub(crate) fn spawn_local_cursor(
         CursorPosition(Vec2::ZERO),
         PlayerColor(color_from_id(client_id)),
         Replicate::to_server(),
+        Name::from("Cursor"),
         // TODO: maybe add Interpolation so that the server interpolates the cursor updates?
     ));
 }
@@ -57,7 +56,7 @@ pub(crate) fn write_inputs(
     mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
-    if let Ok(mut action_state) = query.get_single_mut() {
+    if let Ok(mut action_state) = query.single_mut() {
         let mut input = None;
         let mut direction = Direction {
             up: false,
@@ -106,7 +105,6 @@ fn player_movement(
 fn spawn_player(
     mut commands: Commands,
     keypress: Res<ButtonInput<KeyCode>>,
-    // Use LocalPlayerId resource
     client: Single<&Client>,
     players: Query<&PlayerId, With<PlayerPosition>>,
 ) {
@@ -123,11 +121,10 @@ fn spawn_player(
             client_id
         );
         commands.spawn((
+            Name::from("Player"),
             PlayerId(client_id),
             PlayerPosition(Vec2::ZERO),
             PlayerColor(color_from_id(client_id)),
-            // add InputMarker so we can attach inputs to this entity
-            InputMarker::<Inputs>::default(),
             Replicate::to_server(),
             // IMPORTANT: this lets the server know that the entity is pre-predicted
             // when the server replicates this entity; we will get a Confirmed entity
@@ -199,26 +196,38 @@ fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
     ))
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - keep track of it in the Global resource
-pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
-    for mut color in predicted.iter_mut() {
+
+
+/// When the predicted copy of the client-owned entity is spawned, do stuff
+/// - assign it a different saturation
+/// - keep track of it in the Global resource
+pub(crate) fn handle_predicted_spawn(
+    trigger: Trigger<OnAdd, PlayerId>,
+    mut predicted: Query<&mut PlayerColor, With<Predicted>>,
+    mut commands: Commands,
+) {
+    let entity = trigger.target();
+    if let Ok(mut color) = predicted.get_mut(entity) {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
+        warn!("Add InputMarker to entity: {:?}", entity);
+        commands
+            .entity(entity)
+            .insert(InputMarker::<Inputs>::default());
     }
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - keep track of it in the Global resource
+/// When the predicted copy of the client-owned entity is spawned, do stuff
+/// - assign it a different saturation
+/// - keep track of it in the Global resource
 pub(crate) fn handle_interpolated_spawn(
-    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
+    trigger: Trigger<OnAdd, PlayerColor>,
+    mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
 ) {
-    for mut color in interpolated.iter_mut() {
+    if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
         let hsva = Hsva {
             saturation: 0.1,
             ..Hsva::from(color.0)

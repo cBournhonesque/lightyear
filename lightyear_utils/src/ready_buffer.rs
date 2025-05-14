@@ -198,57 +198,30 @@ impl<K: Ord, T> Ord for ItemWithReadyKey<K, T> {
 
 #[cfg(test)]
 mod tests {
-    use core::time::Duration;
-    use mock_instant::global::Instant;
-    use mock_instant::global::MockClock;
-
-    use crate::shared::tick_manager::Tick;
-
     use super::*;
 
     #[test]
     fn test_peek_max_item() {
-        let mut heap = ReadyBuffer::<Tick, u64>::new();
+        let mut heap = ReadyBuffer::<u16, u64>::new();
 
         // no item in the heap means no max item
         assert_eq!(heap.peek_max_item(), None);
 
         // heap with one item should return that item
-        heap.push(Tick(1), 38);
-        matches!(heap.peek_max_item(), Some((Tick(1), 38)));
+        heap.push(1, 38);
+        matches!(heap.peek_max_item(), Some((1, 38)));
 
         // heap's max item should change to new item since it is greater than the current items
-        heap.push(Tick(3), 24);
-        matches!(heap.peek_max_item(), Some((Tick(3), 24)));
+        heap.push(3, 24);
+        matches!(heap.peek_max_item(), Some((3, 24)));
 
         // the heap's max item is still Tick(3) after inserting a smaller item
-        heap.push(Tick(2), 64);
-        matches!(heap.peek_max_item(), Some((Tick(3), 24)));
+        heap.push(2, 64);
+        matches!(heap.peek_max_item(), Some((3, 24)));
 
         // remove the old max item and confirm the second max item is now the max item
-        heap.pop_item(&Tick(3));
-        matches!(heap.peek_max_item(), Some((Tick(2), 64)));
-    }
-
-    #[test]
-    fn test_time_heap() {
-        let mut heap = ReadyBuffer::<Instant, u64>::new();
-        let now = Instant::now();
-
-        // can insert items in any order of time
-        heap.push(now + Duration::from_secs(2), 2);
-        heap.push(now + Duration::from_secs(1), 1);
-        heap.push(now + Duration::from_secs(3), 3);
-
-        // no items are visible
-        assert!(!heap.has_item(&Instant::now()));
-
-        // we move the clock to 2, 2 items should be visible, in order of insertion
-        MockClock::advance(Duration::from_secs(2));
-        matches!(heap.pop_item(&Instant::now()), Some((_, 1)));
-        matches!(heap.pop_item(&Instant::now()), Some((_, 2)));
-        assert_eq!(heap.pop_item(&Instant::now()), None);
-        assert_eq!(heap.len(), 1);
+        heap.pop_item(&3);
+        matches!(heap.peek_max_item(), Some((2, 64)));
     }
 
     #[test]
@@ -256,26 +229,26 @@ mod tests {
         let mut buffer = ReadyBuffer::new();
 
         // check when we try to access a value when the buffer is empty
-        assert_eq!(buffer.pop_until(&Tick(0)), None);
+        assert_eq!(buffer.pop_until(&0), None);
 
         // check when we try to access an exact tick
-        buffer.push(Tick(1), 1);
-        buffer.push(Tick(2), 2);
-        assert_eq!(buffer.pop_until(&Tick(2)), Some((Tick(2), 2)));
+        buffer.push(1, 1);
+        buffer.push(2, 2);
+        assert_eq!(buffer.pop_until(&2), Some((2, 2)));
         // check that we cleared older ticks
         assert!(buffer.is_empty());
 
         // check when we try to access a value in-between ticks
-        buffer.push(Tick(1), 1);
-        buffer.push(Tick(3), 3);
-        assert_eq!(buffer.pop_until(&Tick(2)), Some((Tick(1), 1)));
+        buffer.push(1, 1);
+        buffer.push(3, 3);
+        assert_eq!(buffer.pop_until(&2), Some((1, 1)));
         assert_eq!(buffer.len(), 1);
-        assert_eq!(buffer.pop_until(&Tick(4)), Some((Tick(3), 3)));
+        assert_eq!(buffer.pop_until(&4), Some((3, 3)));
         assert!(buffer.is_empty());
 
         // check when we try to access a value before any ticks
-        buffer.push(Tick(1), 1);
-        assert_eq!(buffer.pop_until(&Tick(0)), None);
+        buffer.push(1, 1);
+        assert_eq!(buffer.pop_until(&0), None);
         assert_eq!(buffer.len(), 1);
     }
 
@@ -283,20 +256,20 @@ mod tests {
     fn test_drain_until() {
         let mut buffer = ReadyBuffer::new();
 
-        buffer.push(Tick(1), 1);
-        buffer.push(Tick(2), 2);
-        buffer.push(Tick(3), 3);
-        buffer.push(Tick(4), 4);
+        buffer.push(1, 1);
+        buffer.push(2, 2);
+        buffer.push(3, 3);
+        buffer.push(4, 4);
 
         assert_eq!(
-            buffer.drain_until(&Tick(2)),
-            vec![(Tick(1), 1), (Tick(2), 2),]
+            buffer.drain_until(&2),
+            vec![(1, 1), (2, 2),]
         );
         assert_eq!(buffer.len(), 2);
         assert_eq!(
             buffer.heap.peek(),
             Some(&ItemWithReadyKey {
-                key: Tick(3),
+                key: 3,
                 item: 3
             })
         );
@@ -306,21 +279,21 @@ mod tests {
     fn test_drain_after() {
         let mut buffer = ReadyBuffer::new();
 
-        buffer.push(Tick(1), 1);
-        buffer.push(Tick(2), 2);
-        buffer.push(Tick(3), 3);
-        buffer.push(Tick(4), 4);
+        buffer.push(1, 1);
+        buffer.push(2, 2);
+        buffer.push(3, 3);
+        buffer.push(4, 4);
 
         assert_eq!(
-            buffer.drain_after(&Tick(3)),
+            buffer.drain_after(&3),
             // TODO: actually there is no order guarantee
-            vec![(Tick(3), 3), (Tick(4), 4),]
+            vec![(3, 3), (4, 4),]
         );
         assert_eq!(buffer.len(), 2);
         assert_eq!(
             buffer.heap.peek(),
             Some(&ItemWithReadyKey {
-                key: Tick(1),
+                key: 1,
                 item: 1
             })
         );

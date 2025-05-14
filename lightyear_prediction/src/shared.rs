@@ -1,0 +1,23 @@
+use crate::prelude::{PreSpawned, PredictionRegistrationExt};
+use crate::PredictionMode;
+use bevy::app::{App, Plugin};
+use lightyear_replication::components::PrePredicted;
+use lightyear_replication::control::Controlled;
+use lightyear_replication::prelude::{AppComponentExt, ChildOfSync};
+
+pub struct SharedPlugin;
+
+impl Plugin for SharedPlugin {
+    fn build(&self, app: &mut App) {
+        // we register every component in a shared plugin to help ensure that they are inserted at the same time on the client and server
+        // (which is necessary to ensure that they have the same network_id)
+        // TODO: This is still super brittle and dangeous because client and server must
+        //  insert this plugin at the same time! All the component registration must be in a single spot
+        app.register_component::<Controlled>()
+            .add_prediction(PredictionMode::Once);
+        app.register_component::<ChildOfSync>()
+            .add_prediction(PredictionMode::Once);
+        app.register_component::<PreSpawned>();
+        app.register_component::<PrePredicted>();
+    }
+}

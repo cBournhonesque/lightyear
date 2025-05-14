@@ -19,10 +19,10 @@ STATUS:
 
 
 TODO:
+- SUPER dangerous that if you disable some plugins, some components might not be registered at the same time on 2 peers. Need a protocol check at the beginning to make sure that the protocols are the same!
 - update examples
 - update docstrings
 - update book
-- add dedicated pre-predicted + inputs example
 - run benchmarks, and update how we write replication packets?
 - add unit test for replicating entities between the ServerSendInterval (i.e. with ServerSendInterval which is not every tick)
 - on the server, we get cases where the input buffer just contains [SameAsPrecedent]. Normally

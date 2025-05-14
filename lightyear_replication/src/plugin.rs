@@ -56,7 +56,6 @@ impl Plugin for SharedPlugin {
         {
             app.register_type::<(ShouldBePredicted, PrePredicted, PredictionTarget)>();
             app.register_component::<ShouldBePredicted>();
-            app.register_component::<PrePredicted>();
         }
 
         app.add_channel::<MetadataChannel>(ChannelSettings {

@@ -47,9 +47,6 @@ lightyear_transport.workspace = true
 
 # utils
 metrics.workspace = true
-bevy_metrics_dashboard.workspace = true
-crossbeam-channel.workspace = true
-hashbrown.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

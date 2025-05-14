@@ -1,17 +1,17 @@
 use super::pre_prediction::PrePredictionPlugin;
 use super::predicted_history::apply_confirmed_update;
 use super::resource_history::{
-    ResourceHistory, handle_tick_event_resource_history, update_resource_history,
+    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
 };
 use super::rollback::{
-    RollbackPlugin, prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn,
-    prepare_rollback_resource, remove_prediction_disable, run_rollback,
+    prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn, prepare_rollback_resource,
+    remove_prediction_disable, run_rollback, RollbackPlugin,
 };
 use super::spawn::spawn_predicted_entity;
 use crate::correction::{
     get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback,
 };
-use crate::despawn::{PredictionDisable, despawn_confirmed};
+use crate::despawn::{despawn_confirmed, PredictionDisable};
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
@@ -243,6 +243,7 @@ impl Plugin for PredictionPlugin {
         // let should_prediction_run = not(is_host_server).and(is_connected);
 
         // PLUGINS
+        app.add_plugins(crate::shared::SharedPlugin);
         app.add_plugins(PredictionDiagnosticsPlugin::default());
 
         // REFLECTION
@@ -360,8 +361,6 @@ impl Plugin for PredictionPlugin {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_input_delay_config() {
         let config_1 = PredictionConfig {

@@ -3,7 +3,6 @@
 use crate::correction::Correction;
 use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::PredictionSet;
-use crate::pre_prediction::PrePredicted;
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
 use crate::{Predicted, PredictionMode, SyncComponent};
@@ -16,11 +15,12 @@ use core::ops::Deref;
 use lightyear_core::history_buffer::HistoryBuffer;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::timeline::SyncEvent;
+use lightyear_replication::components::PrePredicted;
 use lightyear_replication::prelude::Confirmed;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::InputTimeline;
 
-pub(crate) type PredictionHistory<C> = HistoryBuffer<C>;
+pub type PredictionHistory<C> = HistoryBuffer<C>;
 
 /// If PredictionMode::Full, we store every update on the predicted entity in the PredictionHistory
 ///

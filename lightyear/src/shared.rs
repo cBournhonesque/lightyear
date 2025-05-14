@@ -20,6 +20,9 @@ impl PluginGroup for SharedPlugins {
             .add(lightyear_connection::ConnectionPlugin)
             .add(lightyear_replication::prelude::ReplicationSendPlugin)
             .add(lightyear_replication::prelude::NetworkVisibilityPlugin)
+            // TODO: this is dangerous because every registered message/component/etc.
+            //  needs to be registered at the same time on client/server to guarantee that
+            //  they shared the same network_id!
             .add(lightyear_replication::prelude::RelationshipSendPlugin::<
                 ChildOf,
             >::default())

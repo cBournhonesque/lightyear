@@ -10,9 +10,9 @@ use lightyear_examples_common::shared::{
 
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
-use crate::protocol::ProtocolPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
+use crate::shared::SharedPlugin;
 
 #[cfg(feature = "client")]
 mod client;
@@ -31,7 +31,7 @@ fn main() {
 
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
 
-    app.add_plugins(ProtocolPlugin);
+
 
     #[cfg(feature = "client")]
     {
@@ -76,6 +76,8 @@ fn main() {
             app.world_mut().trigger_targets(Start, server);
         }
     }
+
+    app.add_plugins(SharedPlugin);
 
     #[cfg(feature = "gui")]
     app.add_plugins(renderer::ExampleRendererPlugin);

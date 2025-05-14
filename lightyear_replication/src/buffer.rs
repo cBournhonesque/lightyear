@@ -385,6 +385,7 @@ pub(crate) fn replicate(
     // TODO: iterate per entity first, and then per sender (using UniqueSlice)
     manager_query.par_iter_mut().for_each(
         |(sender_entity, mut sender, mut delta_manager, mut message_manager, timeline)| {
+            let _span = trace_span!("replicate", sender = ?sender_entity).entered();
             let tick = timeline.tick();
 
             // enable split borrows
@@ -847,7 +848,13 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
             }
             // convert the entity to a network entity (possibly mapped)
             let entity = manager.entity_mapper.to_remote(entity);
-            sender.prepare_entity_despawn(entity, group.group_id(Some(entity)));
+            if sender.replicated_entities.swap_remove(&entity).is_some() {
+                // do not send the despawn if the entity was already removed from the sender
+                // this is a hack for when we want to remove Replicate from PrePredicted entities.
+                // If we start from the PrePredicted child, the parent will still have Replicating when we remove
+                // the child's Replicate so a despawn will get sent.
+                sender.prepare_entity_despawn(entity, group.group_id(Some(entity)));
+            }
             trace!("preparing despawn to sender");
         });
 }

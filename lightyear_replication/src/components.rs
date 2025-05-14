@@ -298,7 +298,7 @@ pub struct Confirmed {
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct PrePredicted {
-    pub(crate) confirmed_entity: Option<Entity>,
+    pub confirmed_entity: Option<Entity>,
 }
 
 #[cfg(feature = "prediction")]

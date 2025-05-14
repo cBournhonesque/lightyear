@@ -13,6 +13,7 @@ use test_log::test;
 // -
 
 /// Add a child to a replicated Entity: the child should be replicated
+/// and the ChildOf component should be present on the replicated entity
 #[test]
 fn test_spawn_with_child() {
     let mut stepper = ClientServerStepper::single();
@@ -23,7 +24,7 @@ fn test_spawn_with_child() {
         .spawn((Replicate::to_server(),))
         .id();
     stepper.frame_step(1);
-    stepper
+    let server_entity = stepper
         .client_of(0)
         .get::<MessageManager>()
         .unwrap()
@@ -37,13 +38,19 @@ fn test_spawn_with_child() {
         .spawn((ChildOf(client_entity),))
         .id();
     stepper.frame_step(1);
-    stepper
+    let server_child = stepper
         .client_of(0)
         .get::<MessageManager>()
         .unwrap()
         .entity_mapper
         .get_local(client_child)
         .expect("entity is not present in entity map");
+    assert_eq!(stepper
+        .server_app
+        .world()
+        .get::<ChildOf>(server_child)
+        .unwrap()
+        .parent(), server_entity);
 }
 
 ///

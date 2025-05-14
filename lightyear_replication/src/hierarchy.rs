@@ -124,7 +124,8 @@ impl<R: Relationship> RelationshipSendPlugin<R> {
         if let Ok((parent, mut parent_sync)) = query.get_mut(trigger.target()) {
             parent_sync.set_if_neq(Some(parent.get()).into());
             trace!(
-                "handle_parent_insert: entity: {:?}, parent_sync: {:?}",
+                "Update RelationshipSync<{:?}>: entity: {:?}, parent_sync: {:?}",
+                core::any::type_name::<R>(),
                 trigger.target(),
                 parent_sync,
             );
@@ -188,9 +189,11 @@ impl<R: Relationship + Debug> RelationshipReceivePlugin<R> {
             );
             if let Some(new_parent) = parent_sync.entity {
                 if parent.is_none_or(|p| p.get() != new_parent) {
+                    trace!("Inserting {:?}({new_parent:?}) on child {entity:?}", core::any::type_name::<R>());
                     commands.entity(entity).insert(R::from(new_parent));
                 }
             } else if parent.is_some() {
+                trace!("Removing {:?}", core::any::type_name::<R>());
                 commands.entity(entity).remove::<R>();
             }
         }
@@ -212,10 +215,11 @@ impl<R: Relationship + Debug + GetTypeRegistration + TypePath> Plugin
         // when we receive a RelationshipSync update from the remote, update the hierarchy
         app.add_systems(
             PreUpdate,
-            Self::update_parent.after(ReplicationSet::Receive), // // we want update_parent to run in the same frame that ParentSync is propagated
-                                                                // // to the predicted/interpolated entities
-                                                                // .after(PredictionSet::Sync)
-                                                                // .after(InterpolationSet::SpawnHistory),
+            Self::update_parent.after(ReplicationSet::Receive),
+            // // we want update_parent to run in the same frame that ParentSync is propagated
+            // // to the predicted/interpolated entities
+            // .after(PredictionSet::Sync)
+            // .after(InterpolationSet::SpawnHistory),
         );
     }
 }
@@ -308,10 +312,12 @@ impl HierarchySendPlugin {
                 for child in children_query.relationship_sources(parent) {
                     if let Ok(()) = child_filter.get(child) {
                         // TODO: should we buffer those inside a SmallVec for batch insert?
+                        trace!("Adding ReplicateLike to child {child:?} with root {root:?}. PrePredicted: {pre_predicted:?}");
                         commands
                             .entity(child)
                             .insert((ReplicateLike { root }, ChildOfSync::from(Some(parent))));
                         if pre_predicted {
+                            trace!("Adding PrePredicted to child {child:?} with root {root:?}");
                             commands.entity(child).insert(PrePredicted::default());
                         }
                         stack.push(child);

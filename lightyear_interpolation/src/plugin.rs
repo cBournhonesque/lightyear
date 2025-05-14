@@ -3,19 +3,22 @@ use super::interpolation_history::{
 };
 use crate::despawn::{despawn_interpolated, removed_components};
 use crate::interpolate::{insert_interpolated_component, interpolate, update_interpolate_status};
+use crate::prelude::InterpolationRegistrationExt;
 use crate::registry::InterpolationRegistry;
 use crate::spawn::spawn_interpolated_entity;
 use crate::timeline::TimelinePlugin;
 use crate::{Interpolated, InterpolationMode, SyncComponent};
 use bevy::prelude::*;
 use core::time::Duration;
+use lightyear_core::prelude::Tick;
 use lightyear_core::time::PositiveTickDelta;
+use lightyear_replication::control::Controlled;
+use lightyear_replication::prelude::{AppComponentExt, ChildOfSync};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_sync::plugin::SyncSet;
 use serde::{Deserialize, Serialize};
-use lightyear_core::prelude::Tick;
 
 /// Interpolation delay of the client at the time the message is sent
 ///
@@ -178,6 +181,12 @@ impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TimelinePlugin);
 
+        // PROTOCOL
+        app.register_component::<Controlled>()
+            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<ChildOfSync>()
+            .add_interpolation(InterpolationMode::Once);
+
         // REFLECT
         app.register_type::<InterpolationConfig>()
             .register_type::<InterpolationDelay>()
@@ -211,8 +220,8 @@ impl Plugin for InterpolationPlugin {
 
 #[cfg(test)]
 mod tests {
-    use lightyear_core::time::Overstep;
     use super::*;
+    use lightyear_core::time::Overstep;
 
     #[test]
     fn test_interpolation_delay() {

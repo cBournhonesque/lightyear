@@ -29,8 +29,6 @@ fn main() {
 
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
 
-    app.add_plugins(SharedPlugin { predict_all: true });
-
     #[cfg(feature = "client")]
     {
         app.add_plugins(ExampleClientPlugin);
@@ -74,6 +72,8 @@ fn main() {
             app.world_mut().trigger_targets(Start, server);
         }
     }
+    
+    app.add_plugins(SharedPlugin { predict_all: true });
 
     #[cfg(feature = "gui")]
     {

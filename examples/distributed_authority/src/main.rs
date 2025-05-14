@@ -21,6 +21,7 @@ use lightyear_examples_common::shared::{
 use crate::client::ExampleClientPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
+use crate::shared::SharedPlugin;
 
 #[cfg(feature = "client")]
 mod client;
@@ -41,7 +42,6 @@ fn main() {
         false, // No physics loop needed
     );
 
-    app.add_plugins(SharedPlugin);
 
     #[cfg(feature = "client")]
     {
@@ -87,6 +87,9 @@ fn main() {
             app.world_mut().trigger_targets(Start, server);
         }
     }
+    
+        // NOTE: the ProtocolPlugin must be added AFTER the Client/Server plugins
+    app.add_plugins(SharedPlugin);
 
     #[cfg(feature = "gui")]
     app.add_plugins(crate::renderer::ExampleRendererPlugin);

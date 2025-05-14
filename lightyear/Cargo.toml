@@ -55,6 +55,7 @@ server = [
   "lightyear_inputs_native?/server",
   "lightyear_udp?/server",
   "lightyear_webtransport?/server",
+  "lightyear_prediction?/server"
 ]
 replication = [
   "dep:lightyear_replication"

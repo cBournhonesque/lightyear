@@ -806,30 +806,42 @@ mod tests {
     }
 
     #[test]
-    fn test_tickinstant_multiplication() {
-        let instant = TickInstant {
-            tick: Tick(10),
+    fn test_tickdelta_multiplication() {
+        let delta = TickDelta {
+            tick_diff: 10,
             overstep: Overstep::from_f32(0.5),
+            neg: false
         };
 
         // Simple multiplication
-        let result = instant * 2.0;
-        assert_eq!(result.tick, Tick(21)); // 10*2 + floor(0.5*2) = 20 + 1 = 21
+        let result = delta * 2.0;
+        assert_eq!(result, TickDelta {
+            tick_diff: 21,
+            overstep: Overstep::default(),
+            neg: false,
+        });
         assert_relative_eq!(result.overstep.value, 0.0);
 
         // Fractional multiplication
-        let result = instant * 1.5;
-        assert_eq!(result.tick, Tick(15)); // 10*1.5 = 15
-        assert_relative_eq!(result.overstep.value, 0.75); // 0.5*1.5 = 0.75
+        let result = delta * 1.5;
+        assert_eq!(result, TickDelta {
+            tick_diff: 15,
+            overstep: Overstep::from(0.75),
+            neg: false,
+        });
 
         // Multiplication causing overstep overflow
-        let instant = TickInstant {
-            tick: Tick(10),
+        let delta = TickDelta {
+            tick_diff: 10,
             overstep: Overstep::from_f32(0.8),
+            neg: false
         };
-        let result = instant * 1.5;
-        assert_eq!(result.tick, Tick(16)); // 10*1.5 + floor(0.8*1.5) = 15 + 1 = 16
-        assert_relative_eq!(result.overstep.value, 0.2); // 0.8*1.5 = 1.2, which is 1 tick + 0.2 overstep
+        let result = delta * 1.5;
+        assert_eq!(result, TickDelta {
+            tick_diff: 16,
+            overstep: Overstep::from(0.2),
+            neg: false,
+        });
     }
 
     #[test]

@@ -2,7 +2,6 @@
 
 use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::PredictionSet;
-use crate::pre_prediction::PrePredicted;
 use crate::Predicted;
 use bevy::ecs::archetype::Archetype;
 use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
@@ -12,11 +11,9 @@ use core::any::TypeId;
 use core::hash::{Hash, Hasher};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
 use lightyear_link::prelude::Server;
-use lightyear_replication::components::{Replicated, ShouldBeInterpolated};
+use lightyear_replication::components::{PrePredicted, Replicated, ShouldBeInterpolated};
 use lightyear_replication::control::Controlled;
-use lightyear_replication::prelude::{
-    Confirmed, ReplicateLike, ReplicationReceiver, ShouldBePredicted,
-};
+use lightyear_replication::prelude::{Confirmed, ReplicateLike, ReplicationReceiver, ShouldBePredicted};
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_replication::registry::ComponentKind;
 use serde::{Deserialize, Serialize};

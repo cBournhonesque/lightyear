@@ -60,8 +60,6 @@ impl<K: WrappedId, T, const N: usize> SequenceBuffer<K, T, N> {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::message::MessageId;
-
     use super::*;
 
     #[test]

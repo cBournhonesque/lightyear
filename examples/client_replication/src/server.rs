@@ -82,7 +82,7 @@ pub(crate) fn replicate_players(
         return;
     };
     let client_entity = replicated.receiver;
-    let client_id = replicated.from.unwrap();
+    let client_id = replicated.from;
     debug!("received player spawn event from {client_id:?}");
 
     if let Ok(mut e) = commands.get_entity(entity) {
@@ -111,7 +111,6 @@ pub(crate) fn replicate_players(
                 owner: client_entity,
                 lifetime: Lifetime::SessionBased,
             },
-            // TODO: ControlledBy
             overrides,
         ));
     }
@@ -127,7 +126,7 @@ pub(crate) fn replicate_cursors(
     let Ok(replicated) = cursor_query.get(entity) else {
         return;
     };
-    let client_id = replicated.from.unwrap();
+    let client_id = replicated.from;
     info!("received cursor spawn event from client: {client_id:?}");
     if let Ok(mut e) = commands.get_entity(entity) {
         // Cursor: replicate to others, interpolate for others
@@ -135,7 +134,10 @@ pub(crate) fn replicate_cursors(
             // do not replicate back to the client that owns the cursor!
             Replicate::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-            // TODO: OwnedBy
+            ControlledBy {
+                owner: entity,
+                lifetime: Lifetime::SessionBased,
+            },
         ));
     }
 }
