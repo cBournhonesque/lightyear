@@ -1,17 +1,12 @@
 use bevy::ecs::query::QueryData;
 use bevy::math::VectorSpace;
 use bevy::prelude::*;
-use core::time::Duration;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 use avian3d::prelude::*;
-use avian3d::sync::{position_to_transform, SyncSet};
-use bevy::prelude::TransformSystem::TransformPropagate;
+use avian3d::sync::position_to_transform;
 use leafwing_input_manager::prelude::ActionState;
-use lightyear::prelude::Controlled;
-use tracing::Level;
 
-use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
@@ -135,10 +130,7 @@ impl Plugin for SharedPlugin {
 /// Generate pseudo-random color based on `client_id`.
 // Updated to use PeerId
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    client_id.hash(&mut hasher);
-    let h = hasher.finish() % 360;
-    // let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0; // Old way
+    let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)

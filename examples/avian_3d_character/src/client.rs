@@ -4,15 +4,10 @@ use bevy::input::keyboard::Key;
 use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
-// Updated InputBuffer path
-use lightyear::prelude::client::InputBuffer;
 use lightyear::prelude::client::*;
 use lightyear::prelude::input::InputBuffer;
-// Updated Controlled path
 use lightyear::prelude::Controlled;
 use lightyear::prelude::*;
-// Removed unused import
-// use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
 use crate::shared::*;
@@ -52,13 +47,13 @@ fn handle_character_actions(
 ) {
     let tick = timeline.tick();
     for (action_state, input_buffer, mut character) in &mut query {
-        // Use the current character action if it is.
+        // Use the current character action if it is present.
         if input_buffer.get(tick).is_some() {
             apply_character_action(&time, &spatial_query, action_state, &mut character);
             continue;
         }
 
-        // If the current character action is not real then use the last real
+        // If the current character action is not present then use the last real
         // character action.
         if let Some((_, prev_action_state)) = input_buffer.get_last_with_tick() {
             apply_character_action(&time, &spatial_query, prev_action_state, &mut character);

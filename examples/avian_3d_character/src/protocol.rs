@@ -4,9 +4,7 @@ use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::prelude::InputConfig;
-use lightyear::prelude::client::*;
 use lightyear::prelude::input::leafwing;
-use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -127,9 +125,9 @@ impl Plugin for ProtocolPlugin {
         // do not replicate Transform but make sure to register an interpolation function
         // for it so that we can do visual interpolation
         // (another option would be to replicate transform and not use Position/Rotation at all)
-        // NOTE: TransformLinearInterpolation might be in a different path or handled differently now.
-        // Assuming it's still needed and available via prelude or bevy::prelude.
-        // app.add_interpolation::<Transform>(); // Removed ComponentSyncMode::None
-        // app.add_interpolation_fn::<Transform>(bevy::transform::TransformInterpolation::lerp); // Assuming path
+        app.world_mut().resource_mut::<InterpolationRegistry>()
+            .set_interpolation::<Transform>(TransformLinearInterpolation::lerp);
+        app.world_mut().resource_mut::<InterpolationRegistry>()
+            .set_interpolation_mode::<Transform>(InterpolationMode::None);
     }
 }

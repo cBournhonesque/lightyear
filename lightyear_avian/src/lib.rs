@@ -4,7 +4,6 @@
 //!
 //! It currently includes utilities for lag compensation.
 
-use ::avian2d::prelude::PhysicsSet;
 use bevy::prelude::TransformSystem::TransformPropagate;
 use bevy::prelude::*;
 use lightyear_frame_interpolation::FrameInterpolationSet;
@@ -16,9 +15,13 @@ pub mod lag_compensation;
 
 #[cfg(feature = "2d")]
 pub mod avian2d;
+#[cfg(all(feature = "2d", not(feature = "3d")))]
+use ::avian2d::prelude::PhysicsSet;
 
 #[cfg(feature = "3d")]
 pub mod avian3d;
+#[cfg(all(feature = "3d", not(feature = "2d")))]
+use ::avian3d::prelude::PhysicsSet;
 
 /// Commonly used items for Lightyear Avian integration.
 pub mod prelude {

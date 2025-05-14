@@ -242,9 +242,7 @@ impl Plugin for PredictionPlugin {
         // //  is done.
         // let should_prediction_run = not(is_host_server).and(is_connected);
 
-        // PLUGINS
-        app.add_plugins(crate::shared::SharedPlugin);
-        app.add_plugins(PredictionDiagnosticsPlugin::default());
+        
 
         // REFLECTION
         app.register_type::<Predicted>()
@@ -349,7 +347,13 @@ impl Plugin for PredictionPlugin {
         // );
 
         // PLUGINS
-        app.add_plugins((PrePredictionPlugin, PreSpawnedPlugin, RollbackPlugin));
+        app.add_plugins((
+            crate::shared::SharedPlugin,
+            PredictionDiagnosticsPlugin::default(),
+            PrePredictionPlugin,
+            PreSpawnedPlugin,
+            RollbackPlugin
+        ));
     }
 
     // We run this after `build` and `finish` to make sure that all components were registered before we create the observer

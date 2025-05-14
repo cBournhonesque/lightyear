@@ -84,6 +84,42 @@ fn player_shoot(
 ) {
     for (action_state, position, replicated, is_controlled) in &query {
         let peer_id = replicated.from;
+        let mut position_override = ComponentReplicationOverrides::<Position>::default();
+        position_override.global_override(ComponentReplicationOverride {
+            replicate_once: true,
+            ..default()
+        });
+        let mut rotation_override = ComponentReplicationOverrides::<Rotation>::default();
+        rotation_override.global_override(ComponentReplicationOverride {
+            replicate_once: true,
+            ..default()
+        });
+        let mut linear_velocity_override = ComponentReplicationOverrides::<LinearVelocity>::default();
+        linear_velocity_override.global_override(ComponentReplicationOverride {
+            replicate_once: true,
+            ..default()
+        });
+        let mut angular_velocity_override = ComponentReplicationOverrides::<AngularVelocity>::default();
+        angular_velocity_override.global_override(ComponentReplicationOverride {
+            replicate_once: true,
+            ..default()
+        });
+        let mut computed_mass_override = ComponentReplicationOverrides::<ComputedMass>::default();
+        computed_mass_override.global_override(ComponentReplicationOverride {
+            replicate_once: true,
+            ..default()
+        });
+        let mut external_force_override = ComponentReplicationOverrides::<ExternalForce>::default();
+        external_force_override.global_override(ComponentReplicationOverride {
+            replicate_once: true,
+            ..default()
+        });
+        let mut external_impulse_override = ComponentReplicationOverrides::<ExternalImpulse>::default();
+        external_impulse_override.global_override(ComponentReplicationOverride {
+            replicate_once: true,
+            ..default()
+        });
+
         if action_state.just_pressed(&CharacterAction::Shoot) {
             commands.spawn((
                 Name::new("Projectile"),
@@ -100,17 +136,19 @@ fn player_shoot(
                 REPLICATION_GROUP,
                 PredictionTarget::to_clients(NetworkTarget::All),
                 ControlledBy {
-                    owner: PeerId::Server,
+                    owner: replicated.receiver,
                     lifetime: Default::default(),
                 },
                 // we don't want clients to receive any replication updates after the initial spawn
-                ReplicateOnceComponent::<Position>::default(),
-                ReplicateOnceComponent::<Rotation>::default(),
-                ReplicateOnceComponent::<LinearVelocity>::default(),
-                ReplicateOnceComponent::<AngularVelocity>::default(),
-                ReplicateOnceComponent::<ComputedMass>::default(),
-                ReplicateOnceComponent::<ExternalForce>::default(),
-                ReplicateOnceComponent::<ExternalImpulse>::default(),
+                (
+                    position_override,
+                    rotation_override,
+                    linear_velocity_override,
+                    angular_velocity_override,
+                    computed_mass_override,
+                    external_force_override,
+                    external_impulse_override,
+                )
             ));
         }
     }
@@ -138,7 +176,7 @@ fn setup(mut commands: Commands) {
 }
 
 /// Add the ReplicationSender component to new clients
-pub(crate) fn handle_new_client(trigger: trigger<OnAdd, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
     commands
         .entity(trigger.target())
         .insert(ReplicationSender::new(
@@ -151,7 +189,7 @@ pub(crate) fn handle_new_client(trigger: trigger<OnAdd, LinkOf>, mut commands: C
 /// Spawn the player entity when a client connects
 pub(crate) fn handle_connected(
     trigger: Trigger<OnAdd, Connected>,
-    mut query: Query<&Connected, With<ClientOf>>,
+    query: Query<&Connected, With<ClientOf>>,
     mut commands: Commands,
     character_query: Query<Entity, With<CharacterMarker>>, // Query existing characters
 ) {
@@ -207,5 +245,4 @@ pub(crate) fn handle_connected(
         .id();
 
     info!("Created entity {character:?} for client {client_id:?}");
-    num_characters += 1; // Increment character count
 }

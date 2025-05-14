@@ -1,6 +1,7 @@
 //! Implement lightyear traits for some common bevy types
+use avian3d::math::Scalar;
 use avian3d::prelude::*;
-use bevy::app::*;
+use bevy::prelude::*;
 
 pub mod position {
     use super::*;
@@ -15,24 +16,25 @@ pub mod position {
         res
     }
 
-    impl Diffable for Position {
-        type Delta = Self;
-
-        fn base_value() -> Self {
-            Position::default()
-        }
-
-        fn diff(&self, new: &Self) -> Self::Delta {
-            Position(new.0 - self.0)
-        }
-
-        fn apply_diff(&mut self, delta: &Self::Delta) {
-            self.0 += delta.0;
-        }
-    }
+    // impl Diffable for Position {
+    //     type Delta = Self;
+    // 
+    //     fn base_value() -> Self {
+    //         Position::default()
+    //     }
+    // 
+    //     fn diff(&self, new: &Self) -> Self::Delta {
+    //         Position(new.0 - self.0)
+    //     }
+    // 
+    //     fn apply_diff(&mut self, delta: &Self::Delta) {
+    //         self.0 += delta.0;
+    //     }
+    // }
 }
 
 pub mod rotation {
+    use super::*;
     /// We want to smoothly interpolate between the two quaternions by default,
     /// rather than using a quicker but less correct linear interpolation.
     pub fn lerp(start: &Rotation, other: &Rotation, t: f32) -> Rotation {

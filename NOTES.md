@@ -24,7 +24,9 @@ STATUS:
 - fps:
   - seems to mostly work?
   - double bullet spawn issue -> prespawn errors
-  - 
+- avian 3d:
+  - single client seems to work, but no bullets get shot!
+  - need to add multiple clients (input rebroadcasting)
 
 
 
