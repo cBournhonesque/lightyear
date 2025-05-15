@@ -20,7 +20,11 @@ STATUS:
   - broken. Somethign is weird happening where on the client the physics values are the same two ticks in a row! Are we doubly incrementing the LocalTimeline
     for some reason?
   - Othertimes it seems to work. Maybe it's a sync issue?
+  - Why are there duplicate walls spawned on server?
+  - With no frame interpolate, visually it works fine, but there are rollbacks on LinearVelocity!
+  - With frame interpolate, the rollbacks are all messed up visually! This is with correction enabled.
   - We should provide pre-computed functions for avian to check rollbacks with a certain tolerance.
+  - 
 - fps:
   - seems to mostly work?
   - double bullet spawn issue -> prespawn errors

@@ -1,8 +1,8 @@
 use crate::manager::{PredictionManager, PredictionResource};
-use crate::plugin::add_prediction_systems;
+use crate::plugin::{add_non_networked_rollback_systems, add_prediction_systems};
 use crate::predicted_history::PredictionHistory;
 use crate::{PredictionMode, SyncComponent};
-use bevy::ecs::component::ComponentId;
+use bevy::ecs::component::{ComponentId, Mutable};
 use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -460,5 +460,19 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         };
         registry.set_should_rollback::<C>(should_rollback);
         self
+    }
+}
+
+pub trait PredictionAppRegistrationExt {
+    /// Enable rollbacks for a component even if the component is not networked
+    fn add_rollback<C: Component<Mutability = Mutable> + PartialEq + Clone>(&mut self);
+}
+
+impl PredictionAppRegistrationExt for App {
+    fn add_rollback<C: Component<Mutability = Mutable> + PartialEq + Clone>(&mut self) {
+        let is_client = self.world().get_resource::<PredictionRegistry>().is_some();
+        if is_client {
+            add_non_networked_rollback_systems::<C>(self);
+        }
     }
 }

@@ -38,10 +38,11 @@ lightyear_transport = { workspace = true, features = ["client", "server"] }
 lightyear_core.workspace = true
 lightyear_netcode = { workspace = true, features = ["client", "server", "test_utils"] }
 lightyear_messages = { workspace = true, features = ["client", "server"] }
-lightyear_replication =  { workspace = true, features = ["client", "server"]}
+lightyear_replication =  { workspace = true, features = ["client", "server", "test_utils"]}
 lightyear_crossbeam.workspace = true
 lightyear_connection = { workspace = true, features = ["client", "server"]}
 lightyear_sync = { workspace = true, features = ["client", "server"] }
+lightyear_prediction = { workspace = true, features = ["test_utils"] }
 
 # utils
 cfg-if.workspace = true

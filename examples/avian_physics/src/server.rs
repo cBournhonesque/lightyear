@@ -33,6 +33,8 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
         ));
 }
 
+
+
 // Renamed from init, removed Global resource, assume ball is always predicted
 fn setup(mut commands: Commands) {
     // Spawn server-authoritative entities (ball and walls)

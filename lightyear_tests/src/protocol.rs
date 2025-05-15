@@ -4,20 +4,13 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use cfg_if::cfg_if;
-use lightyear::interpolation::InterpolationMode;
-use lightyear::prediction::PredictionMode;
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::input::*;
-use lightyear::prelude::{InterpolationRegistrationExt, PredictionRegistrationExt};
+use lightyear::prelude::*;
 use lightyear_connection::direction::NetworkDirection;
-use lightyear_messages::prelude::*;
-use lightyear_replication::components::ComponentReplicationConfig;
-use lightyear_replication::registry::registry::AppComponentExt;
-use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 use serde::{Deserialize, Serialize};
 
 // Messages
@@ -73,6 +66,9 @@ pub struct CompMap(#[entities] pub Entity);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompFull(pub f32);
 
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompNotNetworked(pub f32);
+
 // Inputs
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
 pub struct NativeInput(pub i16);
@@ -113,7 +109,10 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<CompFull>()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full);
-        app.register_component::<CompMap>().add_map_entities();
+        app.register_component::<CompMap>()
+            .add_prediction(PredictionMode::Full)
+            .add_map_entities();
+        app.add_rollback::<CompNotNetworked>();
         app.register_component::<CompDisabled>()
             .with_replication_config(ComponentReplicationConfig {
                 disable: true,

@@ -35,6 +35,7 @@ prediction = []
 interpolation = []
 trace = []
 metrics = []
+test_utils = []
 
 [dependencies]
 lightyear_link.workspace = true

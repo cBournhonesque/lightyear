@@ -29,6 +29,8 @@ impl Plugin for SharedPlugin {
 
         // registry types for reflection
         app.register_type::<PlayerId>();
+
+        app.add_systems(RunFixedMainLoop, debug.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop));
     }
 }
 
@@ -83,6 +85,10 @@ pub(crate) fn shared_movement_behaviour(
         velocity.x += MOVE_SPEED;
     }
     *velocity = LinearVelocity(velocity.clamp_length_max(MAX_VELOCITY));
+}
+
+fn debug() {
+    info!("Fixed Start");
 }
 
 pub(crate) fn after_physics_log(

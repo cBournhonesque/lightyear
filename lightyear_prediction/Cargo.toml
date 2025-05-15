@@ -19,6 +19,7 @@ server = [
     "dep:lightyear_messages"
 ]
 metrics = []
+test_utils = []
 
 [dependencies]
 lightyear_utils.workspace = true

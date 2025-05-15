@@ -11,8 +11,8 @@ use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::{RollbackState, Tick};
 use lightyear_replication::receive::TempWriteBuffer;
-use lightyear_replication::registry::ComponentError;
 use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::registry::ComponentError;
 use lightyear_serde::entity_map::EntityMap;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_utils::ready_buffer::ReadyBuffer;
@@ -52,7 +52,7 @@ pub struct PredictionManager {
     /// but in our case calling map_entities will not mutate the map itself; by doing so we can improve the parallelism
     /// by avoiding a `ResMut<PredictionManager>` in our systems.
     #[reflect(ignore)]
-    pub(crate) predicted_entity_map: UnsafeCell<PredictedEntityMap>,
+    pub predicted_entity_map: UnsafeCell<PredictedEntityMap>,
     /// Map from the hash of a PrespawnedPlayerObject to the corresponding local entity
     /// NOTE: multiple entities could share the same hash. In which case, upon receiving a server prespawned entity,
     /// we will randomly select a random entity in the set to be its predicted counterpart

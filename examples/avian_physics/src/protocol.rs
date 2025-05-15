@@ -100,5 +100,12 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<AngularVelocity>()
             .add_prediction(PredictionMode::Full);
+        
+        app.register_component::<ExternalImpulse>()
+            .add_prediction(PredictionMode::Full);
+        app.register_component::<ExternalTorque>()
+            .add_prediction(PredictionMode::Full);
+        app.register_component::<ExternalForce>()
+            .add_prediction(PredictionMode::Full);
     }
 }

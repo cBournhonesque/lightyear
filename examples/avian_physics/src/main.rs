@@ -80,7 +80,7 @@ fn main() {
     #[cfg(feature = "gui")]
     {
         app.add_plugins(renderer::ExampleRendererPlugin {
-            show_confirmed: true,
+            show_confirmed: false,
         });
         // app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default())
         //     .add_plugins(bevy_metrics_dashboard::DashboardPlugin);

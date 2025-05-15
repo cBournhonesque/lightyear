@@ -306,6 +306,11 @@ impl ReplicationReceiver {
         self.received_this_frame
     }
 
+    #[cfg(feature = "test_utils")]
+    pub fn set_received_this_frame(&mut self) {
+        self.received_this_frame = true;
+    }
+
     /// Buffer a received [`ActionsMessage`].
     ///
     /// The remote_tick is the tick at which the message was buffered and sent by the remote client.

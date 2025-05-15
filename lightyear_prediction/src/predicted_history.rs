@@ -249,7 +249,7 @@ fn confirmed_added_sync(
 /// Sync any components that were added to the Confirmed entity onto the Predicted entity
 /// and potentially add a PredictedHistory component
 ///
-/// We use a global observer which will listen to the Insertion of **any** component on any Confirmed entity.
+/// We use a global observer which will listen to the Insertion of **any** predicted component on any Confirmed entity.
 /// (using observers to react on insertion is more efficient than using the `Added` filter which iterates
 /// through all confirmed archetypes)
 ///
@@ -272,9 +272,11 @@ fn added_on_confirmed_sync(
     let Ok(confirmed_component) = confirmed_query.get(trigger.target()) else {
         return;
     };
+    info!("B");
     let Some(predicted) = confirmed_component.predicted else {
         return;
     };
+    info!("SY");
     let confirmed = trigger.target();
 
     // TODO: how do we avoid this allocation?

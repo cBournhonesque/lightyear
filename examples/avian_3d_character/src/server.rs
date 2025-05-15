@@ -126,7 +126,7 @@ fn player_shoot(
                 ProjectileMarker,
                 DespawnAfter {
                     spawned_at: time.elapsed_secs(),
-                    lifetime: Duration::from_millis(10000),
+                    lifetime: Duration::from_millis(5000),
                 },
                 RigidBody::Dynamic,
                 position.clone(), // Use current position
