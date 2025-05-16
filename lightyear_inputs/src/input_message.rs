@@ -28,12 +28,12 @@ pub enum InputTarget {
 /// Contains the input data for a specific target entity over a range of ticks.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub struct PerTargetData<S> {
-    pub(crate) target: InputTarget,
+    pub target: InputTarget,
     /// Input data from ticks `end_tick - N + 1` to `end_tick` (inclusive).
     /// The format depends on the specific input system (e.g., full states or diffs).
     /// For simplicity in the base crate, we'll store it as `Vec<InputData<A>>`.
     /// Specific implementations (native, leafwing) will handle conversion.
-    pub(crate) states: S,
+    pub states: S,
 }
 
 pub trait ActionStateSequence:
@@ -68,10 +68,10 @@ pub struct InputMessage<S> {
     /// Interpolation delay of the client at the time the message is sent
     ///
     /// We don't need any extra redundancy for the InterpolationDelay so we'll just send the value at `end_tick`.
-    pub(crate) interpolation_delay: Option<InterpolationDelay>,
-    pub(crate) end_tick: Tick,
+    pub interpolation_delay: Option<InterpolationDelay>,
+    pub end_tick: Tick,
     // Map from target entity to the input data for that entity
-    pub(crate) inputs: Vec<PerTargetData<S>>,
+    pub inputs: Vec<PerTargetData<S>>,
 }
 
 impl<S: ActionStateSequence + MapEntities> MapEntities for InputMessage<S> {

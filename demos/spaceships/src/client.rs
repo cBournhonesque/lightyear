@@ -3,11 +3,9 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
-use lightyear::inputs::leafwing::input_buffer::InputBuffer;
+use lightyear::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use lightyear::shared::replication::components::Controlled;
-use lightyear::shared::tick_manager;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
@@ -21,9 +19,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             FixedUpdate,
             (
-                // in host-server, we don't want to run the movement logic twice
-                // disable this because we also run the movement logic in the server
-                player_movement.run_if(not(is_host_server)),
+                player_movement,
                 // we don't spawn bullets during rollback.
                 // if we have the inputs early (so not in rb) then we spawn,
                 // otherwise we rely on normal server replication to spawn them
@@ -31,14 +27,10 @@ impl Plugin for ExampleClientPlugin {
             )
                 .chain(),
         );
-        app.add_systems(
-            Update,
-            (
-                add_ball_physics,
-                add_bullet_physics, // TODO better to scheduled right after replicated entities get spawned?
-                handle_new_player,
-            ),
-        );
+        app.add_observer(add_ball_physics);
+        app.add_observer(add_bullet_physics);
+        app.add_observer(handle_new_player);
+        
         app.add_systems(
             FixedUpdate,
             handle_hit_event
@@ -48,19 +40,20 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-/// Blueprint pattern: when the ball gets replicated from the server, add all the components
+/// When the ball gets replicated from the server, add all the components
 /// that we need that are not replicated.
 /// (for example physical properties that are constant, so they don't need to be networked)
 ///
 /// We only add the physical properties on the ball that is displayed on screen (i.e the Predicted ball)
 /// We want the ball to be rigid so that when players collide with it, they bounce off.
 fn add_ball_physics(
+    trigger: Trigger<OnAdd, BallMarker>,
+    mut ball_query: Query<&BallMarker, With<Predicted>>, 
     mut commands: Commands,
-    mut ball_query: Query<(Entity, &BallMarker), Added<Predicted>>,
 ) {
-    for (entity, ball) in ball_query.iter_mut() {
+    if let Ok(ball) = ball_query.get(trigger.target()) {
         info!("Adding physics to a replicated ball {entity:?}");
-        commands.entity(entity).insert(ball.physics_bundle());
+        commands.entity(trigger.target()).insert(ball.physics_bundle());
     }
 }
 
@@ -68,23 +61,25 @@ fn add_ball_physics(
 /// replication, which means they will already have the physics components.
 /// So, we filter the query using `Without<Collider>`.
 fn add_bullet_physics(
+    trigger: Trigger<OnAdd, BulletMarker>,
     mut commands: Commands,
-    mut bullet_query: Query<Entity, (With<BulletMarker>, Added<Predicted>, Without<Collider>)>,
+    mut bullet_query: Query<(), (Added<Predicted>, Without<Collider>)>,
 ) {
-    for entity in bullet_query.iter_mut() {
+    if let Ok(()) = bullet_query.get(trigger.target()) {
         info!("Adding physics to a replicated bullet:  {entity:?}");
-        commands.entity(entity).insert(PhysicsBundle::bullet());
+        commands.entity(trigger.target()).insert(PhysicsBundle::bullet());
     }
 }
 
 /// Decorate newly connecting players with physics components
 /// ..and if it's our own player, set up input stuff
 fn handle_new_player(
-    connection: Res<ClientConnection>,
+    trigger: Trigger<OnAdd, Player>,
     mut commands: Commands,
-    mut player_query: Query<(Entity, &Player, Has<Controlled>), Added<Predicted>>,
+    mut player_query: Query<(&Player, &Replicated, Has<Controlled>), Added<Predicted>>,
 ) {
-    for (entity, player, is_controlled) in player_query.iter_mut() {
+    let entity = trigger.target();
+    if let Ok((player, replicated, is_controlled))  = player_query.get(entity) {
         info!("handle_new_player, entity = {entity:?} is_controlled = {is_controlled}");
         // is this our own entity?
         if is_controlled {
@@ -103,8 +98,6 @@ fn handle_new_player(
         } else {
             info!("Remote player replicated to us: {entity:?} {player:?}");
         }
-        let client_id = connection.id();
-        info!(?entity, ?client_id, "adding physics to predicted player");
         commands.entity(entity).insert(PhysicsBundle::player_ship());
     }
 }

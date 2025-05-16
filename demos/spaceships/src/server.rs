@@ -38,7 +38,7 @@ impl Plugin for ExampleServerPlugin {
         app.insert_resource(Global {
             predict_all: self.predict_all,
         });
-        app.add_systems(Startup, (start_server, init));
+        app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(
             FixedUpdate,
@@ -74,10 +74,6 @@ fn update_player_metrics(
     }
 }
 
-/// System to start the server at Startup
-fn start_server(mut commands: Commands) {
-    commands.start_server();
-}
 
 fn init(mut commands: Commands) {
     // the balls are server-authoritative

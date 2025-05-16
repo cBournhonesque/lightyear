@@ -428,7 +428,6 @@ pub(crate) fn compute_default_hash(
         .collect::<Vec<_>>();
     kinds_to_hash.sort();
     kinds_to_hash.into_iter().for_each(|kind| {
-        trace!(?kind, "using kind for hash");
         kind.hash(&mut hasher)
     });
 

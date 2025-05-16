@@ -2,26 +2,19 @@ use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::inputs::leafwing::input_buffer::InputBuffer;
-use server::ControlledEntities;
 use std::hash::{Hash, Hasher};
 
 use avian2d::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
-use lightyear::shared::replication::components::Controlled;
-use tracing::Level;
-
-use lightyear::prelude::TickManager;
+use lightyear::connection::client_of::ClientOf;
 use lightyear::prelude::client::*;
-use lightyear::prelude::server::{DespawnReplicationCommandExt, ReplicateToClient};
 use lightyear::prelude::*;
-use lightyear::shared::ping::diagnostics::PingDiagnosticsPlugin;
-use lightyear::transport::io::IoDiagnosticsPlugin;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
+use tracing::Level;
 
 use crate::protocol::*;
 #[cfg(feature = "gui")]
-use crate::renderer::SpaceshipsRendererPlugin;
+use crate::renderer::ExampleRendererPlugin;
 
 pub(crate) const MAX_VELOCITY: f32 = 200.0;
 pub(crate) const WALL_SIZE: f32 = 350.0;
@@ -70,7 +63,7 @@ impl Plugin for SharedPlugin {
 // this is especially helpful if you are accelerating forwards while shooting, as otherwise you
 // might overtake / collide on spawn with your own bullets that spawn in front of you.
 fn filter_own_bullet_collisions(
-    mut collisions: ResMut<Collisions>,
+    mut collisions: Collisions,
     q_bullets: Query<&BulletMarker>,
     q_players: Query<&Player>,
 ) {
@@ -93,8 +86,7 @@ fn filter_own_bullet_collisions(
     });
 }
 
-// Generate pseudo-random color from id
-pub(crate) fn color_from_id(client_id: ClientId) -> Color {
+pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
@@ -196,17 +188,17 @@ pub fn shared_player_firing(
             Has<Controlled>,
             &Player,
         ),
-        Or<(With<Predicted>, With<ReplicateToClient>)>,
+        Or<(With<Predicted>, With<Replicate>)>,
     >,
     mut commands: Commands,
-    tick_manager: Res<TickManager>,
-    identity: NetworkIdentity,
+    timeline: Single<(&LocalTimeline, Has<Server>), Without<ClientOf>>,
 ) {
     if q.is_empty() {
         return;
     }
 
-    let current_tick = tick_manager.tick();
+    let (timeline, is_server) = timeline.into_inner();
+    let current_tick = timeline.tick();
     for (
         player_position,
         player_rotation,
@@ -265,17 +257,13 @@ pub fn shared_player_firing(
             weapon.last_fire_tick.0, player.client_id
         );
 
-        if identity.is_server() {
-            let replicate = server::Replicate {
-                sync: server::SyncTarget {
-                    prediction: NetworkTarget::All,
-                    ..Default::default()
-                },
+        if is_server {
+            commands.entity(bullet_entity).insert((
+                Replicate::to_clients(NetworkTarget::All),
+                PredictionTarget::to_clients(NetworkTarget::All),
                 // make sure that all entities that are predicted are part of the same replication group
-                group: REPLICATION_GROUP,
-                ..default()
-            };
-            commands.entity(bullet_entity).insert(replicate);
+                REPLICATION_GROUP,
+            ));
         }
     }
 }
@@ -283,15 +271,15 @@ pub fn shared_player_firing(
 // we want clients to predict the despawn due to TTL expiry, so this system runs on both client and server.
 // servers despawn without replicating that fact.
 pub(crate) fn lifetime_despawner(
-    q: Query<(Entity, &Lifetime)>,
+    q: Query<(Entity, &BulletLifetime)>,
     mut commands: Commands,
-    tick_manager: Res<TickManager>,
-    identity: NetworkIdentity,
+    timeline: Single<(&LocalTimeline, Has<Server>), Without<ClientOf>>,
 ) {
+    let (timeline, is_server) = timeline.into_inner();
     for (e, ttl) in q.iter() {
-        if (tick_manager.tick() - ttl.origin_tick) > ttl.lifetime {
+        if (timeline.tick() - ttl.origin_tick) > ttl.lifetime {
             // if ttl.origin_tick.wrapping_add(ttl.lifetime) > *tick_manager.tick() {
-            if identity.is_server() {
+            if is_server {
                 // info!("Despawning {e:?} without replication");
                 commands.entity(e).despawn();
             } else {
@@ -333,6 +321,7 @@ impl WallBundle {
     }
 }
 
+
 // Despawn bullets that collide with something.
 //
 // Generate a BulletHitEvent so we can modify scores, show visual effects, etc.
@@ -341,10 +330,10 @@ pub(crate) fn process_collisions(
     bullet_q: Query<(&BulletMarker, &ColorComponent, &Position)>,
     player_q: Query<&Player>,
     mut commands: Commands,
-    tick_manager: Res<TickManager>,
-    identity: NetworkIdentity,
+    timeline: Single<(&LocalTimeline, Has<Server>), Without<ClientOf>>,
     mut hit_ev_writer: EventWriter<BulletHitEvent>,
 ) {
+    let (timeline, is_server) = timeline.into_inner();
     // when A and B collide, it can be reported as one of:
     // * A collides with B
     // * B collides with A
@@ -352,7 +341,7 @@ pub(crate) fn process_collisions(
     for Collision(contacts) in collision_event_reader.read() {
         if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.entity1) {
             // despawn the bullet
-            if identity.is_server() {
+            if is_server {
                 commands.entity(contacts.entity1).despawn();
             } else {
                 commands.entity(contacts.entity1).prediction_despawn();
@@ -370,7 +359,7 @@ pub(crate) fn process_collisions(
             hit_ev_writer.send(ev);
         }
         if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.entity2) {
-            if identity.is_server() {
+            if is_server {
                 commands.entity(contacts.entity2).despawn();
             } else {
                 commands.entity(contacts.entity2).prediction_despawn();

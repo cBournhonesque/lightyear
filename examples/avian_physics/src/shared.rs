@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::input::input_buffer::InputBuffer;
+use lightyear::prediction::correction::Correction;
 use lightyear::prelude::*;
 use std::hash::{Hash, Hasher};
 
@@ -11,9 +12,7 @@ pub(crate) const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
 
 #[derive(Clone)]
-pub struct SharedPlugin {
-    pub predict_all: bool,
-}
+pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
@@ -22,10 +21,16 @@ impl Plugin for SharedPlugin {
         app.add_systems(Startup, init);
 
         // physics
-        app.add_plugins(PhysicsPlugins::default())
+        app.add_plugins(
+            PhysicsPlugins::default()
+            .build()
+            // disable Sync as it is handled by lightyear_avian
+            .disable::<TimelineSyncPlugin>()
+        )
             .insert_resource(Gravity(Vec2::ZERO));
 
-        app.add_systems(FixedLast, after_physics_log);
+        app.add_systems(FixedLast, fixed_last_log);
+        app.add_systems(Last, last_log);
 
         // registry types for reflection
         app.register_type::<PlayerId>();
@@ -70,7 +75,7 @@ pub(crate) fn shared_movement_behaviour(
     mut velocity: Mut<LinearVelocity>,
     action: &ActionState<PlayerActions>,
 ) {
-    info!(pressed = ?action.get_pressed(), "shared movement");
+    trace!(pressed = ?action.get_pressed(), "shared movement");
     const MOVE_SPEED: f32 = 10.0;
     if action.pressed(&PlayerActions::Up) {
         velocity.y += MOVE_SPEED;
@@ -88,33 +93,66 @@ pub(crate) fn shared_movement_behaviour(
 }
 
 fn debug() {
-    info!("Fixed Start");
+    trace!("Fixed Start");
 }
 
-pub(crate) fn after_physics_log(
+pub(crate) fn fixed_last_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
     players: Query<
-        (Entity, &Position, &Rotation, &ActionState<PlayerActions>),
+        (Entity, &Position, Option<&Correction<Position>>, Option<&ActionState<PlayerActions>>, Option<&InputBuffer<ActionState<PlayerActions>>>),
         (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
     >,
-    ball: Query<(&Position, &Rotation), (With<BallMarker>, Without<Confirmed>)>,
+    ball: Query<(&Position, Option<&Correction<Position>>), (With<BallMarker>, Without<Confirmed>)>,
 ) {
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
 
-    for (entity, position, rotation, action_state) in players.iter() {
-        info!(
+    for (entity, position, correction, action_state, input_buffer) in players.iter() {
+        let pressed = action_state.map(|a| a.get_pressed());
+        let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
+        trace!(
             ?rollback,
             ?tick,
             ?entity,
             ?position,
-            rotation = ?rotation.as_degrees(),
-            actions = ?action_state.get_pressed(),
+            ?correction,
+            ?pressed,
+            ?last_buffer_tick,
             "Player after physics update"
         );
     }
-    // for (position, rotation) in ball.iter() {
-    //     info!(?tick, ?position, ?rotation, "Ball after physics update");
+    // for (position, correction) in ball.iter() {
+    //     info!(?tick, ?position, ?correction, "Ball after physics update");
+    // }
+}
+
+pub(crate) fn last_log(
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
+    players: Query<
+        (Entity, &Position, Option<&Correction<Position>>, Option<&ActionState<PlayerActions>>, Option<&InputBuffer<ActionState<PlayerActions>>>),
+        (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
+    >,
+    ball: Query<(&Position, Option<&Correction<Position>>), (With<BallMarker>, Without<Confirmed>)>,
+) {
+    let (timeline, rollback) = timeline.into_inner();
+    let tick = timeline.tick();
+
+    for (entity, position, correction, action_state, input_buffer) in players.iter() {
+        let pressed = action_state.map(|a| a.get_pressed());
+        let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
+        trace!(
+            ?rollback,
+            ?tick,
+            ?entity,
+            ?position,
+            ?correction,
+            ?pressed,
+            ?last_buffer_tick,
+            "Player after physics update"
+        );
+    }
+    // for (position, correction) in ball.iter() {
+    //     info!(?tick, ?position, ?correction, "Ball after physics update");
     // }
 }
 
@@ -143,7 +181,7 @@ impl WallBundle {
                 rigid_body: RigidBody::Static,
             },
             wall: Wall { start, end },
-            name: Name::from("wall"),
+            name: Name::from("Wall"),
         }
     }
 }

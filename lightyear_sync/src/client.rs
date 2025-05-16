@@ -1,6 +1,6 @@
 /*! Handles syncing the time between the client and the server
 */
-use crate::plugin::SyncPlugin;
+use crate::plugin::TimelineSyncPlugin;
 use crate::prelude::client::RemoteTimeline;
 use crate::prelude::InputTimeline;
 use crate::timeline::input::Input;
@@ -59,8 +59,8 @@ impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<(InputTimeline, RemoteTimeline)>();
 
-        if !app.is_plugin_added::<SyncPlugin>() {
-            app.add_plugins(SyncPlugin);
+        if !app.is_plugin_added::<TimelineSyncPlugin>() {
+            app.add_plugins(TimelineSyncPlugin);
         }
 
         app.register_required_components::<Client, InputTimeline>();

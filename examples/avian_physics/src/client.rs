@@ -77,23 +77,28 @@ fn player_movement(
 pub(crate) fn handle_predicted_spawn(
     trigger: Trigger<OnAdd, PlayerId>,
     mut commands: Commands,
-    mut player_query: Query<&mut ColorComponent, With<Predicted>>,
+    mut player_query: Query<(&mut ColorComponent, Has<Controlled>), With<Predicted>>,
 ) {
-    if let Ok(mut color) = player_query.get_mut(trigger.target()) {
+    if let Ok((mut color, controlled)) = player_query.get_mut(trigger.target()) {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        commands.entity(trigger.target()).insert((
+        let mut entity_mut = commands.entity(trigger.target());
+        entity_mut.insert(
             PhysicsBundle::player(),
-            InputMap::new([
-                (PlayerActions::Up, KeyCode::KeyW),
-                (PlayerActions::Down, KeyCode::KeyS),
-                (PlayerActions::Left, KeyCode::KeyA),
-                (PlayerActions::Right, KeyCode::KeyD),
-            ]),
-        ));
+        );
+        if controlled {
+            entity_mut.insert(
+                InputMap::new([
+                    (PlayerActions::Up, KeyCode::KeyW),
+                    (PlayerActions::Down, KeyCode::KeyS),
+                    (PlayerActions::Left, KeyCode::KeyA),
+                    (PlayerActions::Right, KeyCode::KeyD),
+                ]),
+            );
+        }
     }
 }
 

@@ -11,14 +11,9 @@ use crate::shared;
 use bevy::app::PluginGroupBuilder;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-// Use server ActionState, new connection types, replication components
-use lightyear::prelude::server::{
-    ActionState, ClientOf, Connected, Replicate, ReplicationSender, ServerConnectionManager,
-    ServerPlugin,
-};
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
-use std::sync::Arc; // Import SEND_INTERVAL
+use std::sync::Arc;
 
 #[derive(Clone)] // Added Clone
 pub struct ExampleServerPlugin;
@@ -142,31 +137,11 @@ pub(crate) fn handle_disconnected(
     // }
 }
 
-/// Read client inputs and move players in server therefore giving a basis for other clients
 fn movement(mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>) {
     for (position, inputs) in position_query.iter_mut() {
         // Use current_value() for server::ActionState
         if let Some(inputs) = inputs.current_value() {
             shared::shared_movement_behaviour(position, inputs);
         }
-    }
-}
-
-/// Send messages from server to clients (only in non-headless mode, because otherwise we run with minimal plugins
-/// and cannot do input handling)
-pub(crate) fn send_message(
-    // Use ServerConnectionManager
-    mut server: ResMut<ServerConnectionManager>,
-    input: Option<Res<ButtonInput<KeyCode>>>,
-) {
-    if input.is_some_and(|input| input.pressed(KeyCode::KeyM)) {
-        let message = Message1(5);
-        info!("Send message: {:?}", message);
-        // Use send_message_to_target and pass message by value
-        server
-            .send_message_to_target::<Channel1, Message1>(message, NetworkTarget::All)
-            .unwrap_or_else(|e| {
-                error!("Failed to send message: {:?}", e);
-            });
     }
 }

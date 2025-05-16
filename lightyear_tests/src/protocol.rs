@@ -7,7 +7,7 @@ use alloc::{
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use cfg_if::cfg_if;
-use lightyear::prelude::input::native::*;
+use leafwing_input_manager::Actionlike;
 use lightyear::prelude::input::*;
 use lightyear::prelude::*;
 use lightyear_connection::direction::NetworkDirection;
@@ -28,19 +28,14 @@ pub struct StringTrigger(pub String);
 pub struct EntityTrigger(#[entities] pub Entity);
 
 // Protocol
-cfg_if! {
-    if #[cfg(feature = "leafwing")] {
-        use leafwing_input_manager::Actionlike;
-        #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
-        pub enum LeafwingInput1 {
-            Jump,
-        }
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
+pub enum LeafwingInput1 {
+    Jump,
+}
 
-        #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
-        pub enum LeafwingInput2 {
-            Crouch,
-        }
-    }
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
+pub enum LeafwingInput2 {
+    Crouch,
 }
 
 // Channels
@@ -151,8 +146,14 @@ impl Plugin for ProtocolPlugin {
                 ..default()
             });
         // inputs
-        app.add_plugins(InputPlugin::<NativeInput> {
+        app.add_plugins(native::InputPlugin::<NativeInput> {
             config: InputConfig::<NativeInput> {
+                rebroadcast_inputs: false,
+                ..default()
+            },
+        });
+        app.add_plugins(leafwing::InputPlugin::<LeafwingInput1> {
+            config: InputConfig::<LeafwingInput1> {
                 rebroadcast_inputs: false,
                 ..default()
             },

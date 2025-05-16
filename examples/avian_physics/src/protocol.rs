@@ -1,11 +1,11 @@
+use crate::shared::color_from_id;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
-use serde::{Deserialize, Serialize};
-
-use crate::shared::color_from_id;
+use lightyear::input::config::InputConfig;
 use lightyear::prelude::input::leafwing;
 use lightyear::prelude::*;
+use serde::{Deserialize, Serialize};
 
 pub const BALL_SIZE: f32 = 15.0;
 pub const PLAYER_SIZE: f32 = 40.0;
@@ -66,7 +66,12 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // inputs
-        app.add_plugins(leafwing::InputPlugin::<PlayerActions>::default());
+        app.add_plugins(leafwing::InputPlugin::<PlayerActions> {
+            config: InputConfig {
+                rebroadcast_inputs: true,
+                ..default()
+            }
+        });
 
         // components
         app.register_component::<PlayerId>()
@@ -99,13 +104,6 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(PredictionMode::Full);
 
         app.register_component::<AngularVelocity>()
-            .add_prediction(PredictionMode::Full);
-        
-        app.register_component::<ExternalImpulse>()
-            .add_prediction(PredictionMode::Full);
-        app.register_component::<ExternalTorque>()
-            .add_prediction(PredictionMode::Full);
-        app.register_component::<ExternalForce>()
             .add_prediction(PredictionMode::Full);
     }
 }

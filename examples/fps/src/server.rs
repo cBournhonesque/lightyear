@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, shared_player_movement, BOT_RADIUS};
+use crate::shared::{color_from_id, shared_player_movement, BOT_RADIUS, PREDICTION_GROUP};
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
@@ -13,8 +13,9 @@ use lightyear::prelude::*;
 use lightyear_avian::prelude::{LagCompensationHistory, LagCompensationPlugin, LagCompensationSet, LagCompensationSpatialQuery};
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
-// Plugin for server-specific logic
+
 pub struct ExampleServerPlugin;
+
 
 const BULLET_COLLISION_DISTANCE_CHECK: f32 = 4.0;
 
@@ -74,10 +75,10 @@ pub(crate) fn spawn_player(
             owner: trigger.target(),
             lifetime: Default::default(),
         },
-        // make sure that all predicted entities (i.e. all entities for a given client) are part of the same replication group
-        ReplicationGroup::new_id(client_id.to_bits()),
+        PREDICTION_GROUP,
         Score(0),
         PlayerId(client_id),
+        RigidBody::Kinematic,
         Transform::from_xyz(0.0, y, 0.0),
         ColorComponent(color),
         ActionState::<PlayerActions>::default(),
@@ -105,6 +106,7 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
         Name::new("PredictedBot"),
         Replicate::to_clients(NetworkTarget::All),
         PredictionTarget::to_clients(NetworkTarget::All),
+        PREDICTION_GROUP,
         // NOTE: all predicted entities must be part of the same replication group!
         // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
         DisableReplicateHierarchy,
@@ -146,7 +148,7 @@ pub(crate) fn compute_hit_lag_compensation(
             false,
             &mut SpatialQueryFilter::default(),
         ) {
-            info!(?tick, ?hit_data, ?entity, "Despawn bullet");
+            info!(?tick, ?hit_data, ?entity, "Collision with interpolated bot! Despawning bullet");
             // if there is a hit, increment the score
             player_query
                 .iter_mut()
@@ -184,7 +186,7 @@ pub(crate) fn compute_hit_prediction(
                 bot_query.get(entity).is_ok()
             },
         ) {
-            info!(?tick, ?hit_data, ?entity, "Despawn bullet");
+            info!(?tick, ?hit_data, ?entity, "Collision with predicted bot! Despawn bullet");
             // if there is a hit, increment the score
             player_query
                 .iter_mut()

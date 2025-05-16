@@ -234,16 +234,6 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
 
 impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
-        // // we only run prediction:
-        // // - if we're not in host-server mode
-        // // - after the client is connected
-        // // NOTE: we need to run the prediction systems even if we're not synced, because we want
-        // //  our HistoryBuffer to contain values for components/resources that were updated before syncing
-        // //  is done.
-        // let should_prediction_run = not(is_host_server).and(is_connected);
-
-        
-
         // REFLECTION
         app.register_type::<Predicted>()
             .register_type::<PreSpawned>()

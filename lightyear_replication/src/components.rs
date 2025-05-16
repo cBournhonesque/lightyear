@@ -10,9 +10,10 @@ use bevy::ecs::reflect::ReflectComponent;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bevy::time::{Timer, TimerMode};
-use lightyear_connection::client::{Connected, PeerMetadata};
-use lightyear_connection::client_of::ClientOf;
+use lightyear_connection::client::Connected;
 use lightyear_connection::network_target::NetworkTarget;
+#[cfg(feature = "server")]
+use lightyear_connection::{client::PeerMetadata, client_of::ClientOf};
 use lightyear_core::id::PeerId;
 use lightyear_core::tick::Tick;
 use lightyear_link::prelude::LinkOf;

@@ -2,9 +2,23 @@ https://excalidraw.com/#room=6556b82e2cc953b853cd,eIOMjgsfWiA7iaFzjk1blA
 
 # Examples
 
+TODO:
+- add button on server to add a new local client, or add a new client in a separate app
+- should we automatically add PREDICTION_GROUP when PredictionTarget is added?
+- sometimes the sync keeps increasing all the time! or there is a huge sync bug.
+  - it seems to be that suddenly our jitter estimate goes haywire (from 3ms to 133ms) which totally changes
+    the InputTimeline objective.
+- the confirmed.tick is not the same than the rollback_start_tick sometimes.. It looks like the confirmed.tick
+  for some entities is still at an OLD rollback tick, meaning that the confirmed tick did not get updated.
+- we have temporary ChannelNotFound error in avian_3d example when a client connects?
+
+- interpolation:
+  - sync all components at the same time from confirmed to interpolated. We sync them all at once, but we make the entity
+    visible only after a certain period of time has passed! (we have 2 updates to interpolate between)
+
 STATUS:
 - SimpleBox:
-  - runs ok in client/server. Confirmed updates are far behind
+  - runs ok in client/server.
   - host-server not tested
 - Priority:
   - runs ok in client/server
@@ -17,20 +31,20 @@ STATUS:
   - host-server not tested
   - the delete input doesn't get received by the server because the entity is deleted immediately. Is that just because of no link conditioner?
 - avian_physics:
-  - broken. Somethign is weird happening where on the client the physics values are the same two ticks in a row! Are we doubly incrementing the LocalTimeline
-    for some reason?
-  - Othertimes it seems to work. Maybe it's a sync issue?
+  - runs ok in client/server
   - Why are there duplicate walls spawned on server?
-  - With no frame interpolate, visually it works fine, but there are rollbacks on LinearVelocity!
-  - With frame interpolate, the rollbacks are all messed up visually! This is with correction enabled.
   - We should provide pre-computed functions for avian to check rollbacks with a certain tolerance.
-  - 
+  - Collisions still provide constant rollbacks! Might just get fixed by adding some tolerance?
+  - Collisions with wall causes rollbacks, but otherwise its fine!
 - fps:
-  - seems to mostly work?
-  - double bullet spawn issue -> prespawn errors
+  - runs ok in client/server
+  - sometimes interpolated is frozen and predicted bot causes constant rollbacks, sync issue?
 - avian 3d:
-  - single client seems to work, but no bullets get shot!
-  - need to add multiple clients (input rebroadcasting)
+  - runs ok in client/server
+  - still constant rollbacks because of contacts
+  - ITS POSSIBLE TO GET COMPLETELY DESYNCED FOR SOME REASON, AND ITS NOT ROLLBACKED!
+  - STILL HAVE DOUBLE BULLET SPAWN even though we use JUST_PRESSED! It looks like the leafwing ActionState is always JustPressed
+  - possible for the client to get 'stuck'
 
 
 

@@ -29,7 +29,7 @@ std = [
 
 [dependencies]
 lightyear = { workspace = true, features = [
-    "client", "server", "crossbeam", "netcode", "input_native", "interpolation", "prediction", "replication"
+    "client", "server", "crossbeam", "netcode", "input_native", "leafwing", "interpolation", "prediction", "replication"
 ]}
 lightyear_macros.workspace = true
 lightyear_utils.workspace = true
@@ -44,6 +44,9 @@ lightyear_connection = { workspace = true, features = ["client", "server"]}
 lightyear_sync = { workspace = true, features = ["client", "server"] }
 lightyear_prediction = { workspace = true, features = ["test_utils"] }
 lightyear_link = { workspace = true, features = ["test_utils"]}
+
+# inputs
+leafwing-input-manager.workspace = true
 
 # utils
 cfg-if.workspace = true

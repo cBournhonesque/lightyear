@@ -5,7 +5,6 @@ use leafwing_input_manager::buttonlike::ButtonState::Pressed;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::client::InputSet;
-use lightyear::input::native::prelude::InputMarker;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -51,14 +50,6 @@ fn update_cursor_state_from_window(
     }
 }
 
-// Get the cursor position relative to the window
-fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
-    let cursor_pos = window.cursor_position()?;
-    Some(Vec2::new(
-        cursor_pos.x - (window.width() / 2.0),
-        (cursor_pos.y - (window.height() / 2.0)) * -1.0,
-    ))
-}
 
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation

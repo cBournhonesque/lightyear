@@ -47,8 +47,8 @@ fn main() {
                         .expect("You need to specify a client_id via `-c ID`"),
                     client_port: CLIENT_PORT,
                     server_addr: SERVER_ADDR,
-                     conditioner: Some(RecvLinkConditioner::new(
-                        LinkConditionerConfig::average_condition(),
+                    conditioner: Some(RecvLinkConditioner::new(
+                        LinkConditionerConfig::good_condition(),
                     )),
                     transport: ClientTransports::Udp, // Assuming UDP
                     shared: SHARED_SETTINGS,
@@ -68,7 +68,9 @@ fn main() {
             let server = app
                 .world_mut()
                 .spawn(ExampleServer {
-                    conditioner: None,
+                    conditioner: Some(RecvLinkConditioner::new(
+                        LinkConditionerConfig::good_condition(),
+                    )),
                     transport: ServerTransports::Udp {
                         // Assuming UDP
                         local_port: SERVER_PORT,

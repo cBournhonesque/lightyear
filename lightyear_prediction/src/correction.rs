@@ -25,11 +25,10 @@
 use crate::manager::PredictionManager;
 use crate::registry::PredictionRegistry;
 use crate::SyncComponent;
-use bevy::prelude::{Added, Commands, Component, DetectChangesMut, Entity, Query, Res, Single, With};
+use bevy::prelude::*;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_utils::easings::ease_out_quad;
-use tracing::{debug, trace};
 
 #[derive(Component, Debug, PartialEq)]
 pub struct Correction<C: Component> {
@@ -111,7 +110,7 @@ pub(crate) fn set_original_prediction_post_rollback<C: SyncComponent>(
     for (entity, mut component, mut correction) in query.iter_mut() {
         // correction has not started (even if a correction happens while a previous correction was going on, current_visual is None)
         if correction.current_visual.is_none() {
-            trace!(component = ?core::any::type_name::<C>(), "reset value post-rollback, before first correction");
+            trace!(component = ?core::any::type_name::<C>(), "Set component to original non-corrected prediction");
             // TODO: this is very inefficient.
             //  1. we only do the clone() once but if there's multiple frames before a FixedUpdate, we clone multiple times (mitigated by Added filter)
             //        although Added probably  doesn't work if we have nested Corrections..
@@ -133,15 +132,10 @@ pub(crate) fn restore_corrected_state<C: SyncComponent>(
     for (mut component, mut correction) in query.iter_mut() {
         match core::mem::take(&mut correction.current_correction) {
             Some(correction) => {
-                debug!("restoring corrected component: {:?}", kind);
+                trace!("Restoring corrected component before FixedUpdate: {:?}", kind);
                 *component.bypass_change_detection() = correction;
             }
-            _ => {
-                debug!(
-                    "Corrected component was None so couldn't restore: {:?}",
-                    kind
-                );
-            }
+            _ => {}
         }
     }
 }

@@ -1,7 +1,8 @@
 # General architecture
 
-`Lightyear` essentially provides 2 plugins that will handle every networking-related concern for you: a `ClientPlugin`
-and a `ServerPlugin`.
+`lightyear` is split up into multiple crates that each provide a facet of networking.
+There is also a helper crate that impor
+`Lightyear` essentially provides 2 PluginGroups that will handle every networking-related concern for you: `ClientPlugins` and a `ServerPlugin`.
 
 The plugins will define various resources and systems that will handle the connection to the server.
 Some of the notable resources are:

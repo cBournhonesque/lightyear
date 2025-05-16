@@ -1,17 +1,8 @@
-use avian2d::prelude::{Position, Rotation};
 use bevy::prelude::TransformSystem::TransformPropagate;
 /// Utility plugin to display a text label next to an entity.
 ///
 /// Label will track parent position, ignoring rotation.
 use bevy::prelude::*;
-use bevy::text::TextReader;
-use lightyear::{
-    client::{
-        interpolation::{VisualInterpolateStatus, plugin::InterpolationSet},
-        prediction::plugin::PredictionSet,
-    },
-    prelude::client::Correction,
-};
 
 pub struct EntityLabelPlugin;
 
@@ -92,7 +83,7 @@ fn label_changed(
     mut q_children: Query<&mut Transform, (With<EntityLabelChild>, Without<EntityLabel>)>,
 ) {
     for (label, children) in q_parents.iter() {
-        for &child in children.iter() {
+        for child in children.iter() {
             if let Ok(mut transform) = q_children.get_mut(child) {
                 if text_writer.text(child, 0).as_str() != label.text {
                     *text_writer.text(child, 0) = label.text.clone();

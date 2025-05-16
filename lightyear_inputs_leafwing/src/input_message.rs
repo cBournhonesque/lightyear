@@ -108,8 +108,9 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::prelude::{Entity, Reflect};
     use leafwing_input_manager::Actionlike;
-    use lightyear_inputs::input_message::{InputMessage, InputTarget};
+    use lightyear_inputs::input_message::{InputMessage, InputTarget, PerTargetData};
     use serde::{Deserialize, Serialize};
 
     #[derive(
@@ -120,122 +121,47 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_input_message_no_start_input() {
-        let input_buffer = InputBuffer::default();
-        let mut input_message = InputMessage::<Action>::new(Tick(10));
-        input_message.add_inputs(5, InputTarget::Entity(Entity::PLACEHOLDER), &input_buffer);
+    fn test_create_message() {
+
+        let mut input_buffer = InputBuffer::default();
+        let mut action_state = ActionState::<Action>::default();
+        input_buffer.set(Tick(2), &ActionState::default());
+        action_state.press(&Action::Jump);
+        input_buffer.set(Tick(3), &action_state);
+        action_state.release(&Action::Jump);
+        input_buffer.set(Tick(7), &action_state);
+
+        let message = ActionStateSequence::build_from_input_buffer(
+            &input_buffer,
+            9,
+            Tick(10)
+        ).unwrap();
         assert_eq!(
-            input_message,
+            message,
             InputMessage {
                 interpolation_delay: None,
                 end_tick: Tick(10),
-                diffs: vec![],
+                inputs: vec![PerTargetData::<LeafwingSequence<Action>> {
+                    target: InputTarget::Entity(Entity::PLACEHOLDER),
+                    states: LeafwingSequence::<Action> {
+                        start_state: ActionState::default(),
+                        diffs: vec![
+                            vec![],
+                            // tick 3
+                            vec![ActionDiff::Pressed {
+                                action: Action::Jump,
+                            }],
+                            vec![],
+                            vec![],
+                            vec![],
+                            // tick 7
+                            vec![ActionDiff::Released {
+                                action: Action::Jump,
+                            }]
+                        ]
+                    }
+                }],
             }
         );
-        assert!(input_message.is_empty());
-    }
-
-    // #[test]
-    // fn test_create_message() {
-    //     let mut input_buffer = InputBuffer::default();
-    //     let mut action_state = ActionState::default();
-    //     input_buffer.set(Tick(2), &ActionState::default());
-    //     action_state.press(&Action::Jump);
-    //     input_buffer.set(Tick(3), &action_state);
-    //     action_state.release(&Action::Jump);
-    //
-    //     diff_buffer.set(
-    //         Tick(3),
-    //         &vec![ActionDiff::Pressed {
-    //             action: Action::Jump,
-    //         }],
-    //     );
-    //     diff_buffer.set(
-    //         Tick(7),
-    //         &vec![ActionDiff::Released {
-    //             action: Action::Jump,
-    //         }],
-    //     );
-    //
-    //     let entity = Entity::from_raw(0);
-    //     let end_tick = Tick(10);
-    //     let mut message = InputMessage::<Action>::new(end_tick);
-    //
-    //     message.add_inputs(9, InputTarget::Entity(entity), &diff_buffer, &input_buffer);
-    //     assert_eq!(
-    //         message,
-    //         InputMessage {
-    //             end_tick: Tick(10),
-    //             diffs: vec![(
-    //                 InputTarget::Entity(entity),
-    //                 ActionState::default(),
-    //                 vec![
-    //                     vec![ActionDiff::Pressed {
-    //                         action: Action::Jump
-    //                     }],
-    //                     vec![],
-    //                     vec![],
-    //                     vec![],
-    //                     vec![ActionDiff::Released {
-    //                         action: Action::Jump
-    //                     }],
-    //                     vec![],
-    //                     vec![],
-    //                     vec![],
-    //                 ]
-    //             )],
-    //         }
-    //     );
-    // }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::inputs::native::input_buffer::InputData;
-    use bevy::prelude::Reflect;
-    use leafwing_input_manager::Actionlike;
-    use serde::{Deserialize, Serialize};
-
-    #[derive(
-        Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash, Reflect, Actionlike,
-    )]
-    enum Action {
-        Jump,
-    }
-
-    #[test]
-    fn test_get_set_pop() {
-        let mut input_buffer = InputBuffer::default();
-
-        let mut a1 = ActionState::default();
-        a1.press(&Action::Jump);
-        let mut a2 = ActionState::default();
-        a2.press(&Action::Jump);
-        input_buffer.set(Tick(3), a1.clone());
-        input_buffer.set(Tick(6), a2.clone());
-        input_buffer.set(Tick(7), a2.clone());
-
-        assert_eq!(input_buffer.start_tick, Some(Tick(3)));
-        assert_eq!(input_buffer.buffer.len(), 5);
-
-        assert_eq!(input_buffer.get(Tick(3)), Some(&a1));
-        assert_eq!(input_buffer.get(Tick(4)), Some(&a1));
-        assert_eq!(input_buffer.get(Tick(5)), Some(&a1));
-        assert_eq!(input_buffer.get(Tick(6)), Some(&a2));
-        assert_eq!(input_buffer.get(Tick(8)), None);
-
-        assert_eq!(input_buffer.pop(Tick(4)), Some(a1.clone()));
-        assert_eq!(input_buffer.start_tick, Some(Tick(5)));
-        assert_eq!(input_buffer.buffer.len(), 3);
-
-        // the oldest element has been updated from `SameAsPrecedent` to `Data`
-        assert_eq!(
-            input_buffer.buffer.front().unwrap(),
-            &InputData::Input(a1.clone())
-        );
-        assert_eq!(input_buffer.pop(Tick(7)), Some(a2.clone()));
-        assert_eq!(input_buffer.start_tick, Some(Tick(8)));
-        assert_eq!(input_buffer.buffer.len(), 0);
     }
 }

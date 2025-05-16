@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 use crate::shared::color_from_id;
 use lightyear::client::components::{ComponentSyncMode, LerpFn};
 use lightyear::client::interpolation::LinearInterpolator;
+use lightyear::input::config::InputConfig;
 use lightyear::prelude::client::{self};
+use lightyear::prelude::input::leafwing;
 use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
 use lightyear::shared::input::InputConfig;
@@ -32,7 +34,7 @@ pub(crate) struct BulletBundle {
     velocity: LinearVelocity,
     color: ColorComponent,
     marker: BulletMarker,
-    lifetime: Lifetime,
+    lifetime: BulletLifetime,
 }
 
 impl BulletBundle {
@@ -47,7 +49,7 @@ impl BulletBundle {
             position: Position(position),
             velocity: LinearVelocity(velocity),
             color: ColorComponent(color),
-            lifetime: Lifetime {
+            lifetime: BulletLifetime {
                 origin_tick: current_tick,
                 lifetime: FIXED_TIMESTEP_HZ as i16 * 2,
             },
@@ -218,7 +220,7 @@ pub struct Score(pub i32);
 
 // despawns `lifetime` ticks after `origin_tick`
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub(crate) struct Lifetime {
+pub(crate) struct BulletLifetime {
     pub(crate) origin_tick: Tick,
     /// number of ticks to live for
     pub(crate) lifetime: i16,
@@ -238,7 +240,7 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(LeafwingInputPlugin::<PlayerActions> {
+        app.add_plugins(leafwing::InputPlugin::<PlayerActions> {
             config: InputConfig::<PlayerActions> {
                 rebroadcast_inputs: true,
                 ..default()
@@ -246,52 +248,52 @@ impl Plugin for ProtocolPlugin {
         });
 
         // Player is synced as Simple, because we periodically update rtt ping stats
-        app.register_component::<Player>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Simple);
+        app.register_component::<Player>()
+            .add_prediction(PredictionMode::Simple);
 
-        app.register_component::<ColorComponent>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once);
+        app.register_component::<ColorComponent>()
+            .add_prediction(PredictionMode::Once);
 
-        app.register_component::<Name>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once);
+        app.register_component::<Name>()
+            .add_prediction(PredictionMode::Once);
 
-        app.register_component::<BallMarker>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once);
+        app.register_component::<BallMarker>()
+            .add_prediction(PredictionMode::Once);
 
-        app.register_component::<BulletMarker>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once);
+        app.register_component::<BulletMarker>()
+            .add_prediction(PredictionMode::Once);
 
-        app.register_component::<Lifetime>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once);
+        app.register_component::<BulletLifetime>()
+            .add_prediction(PredictionMode::Once);
 
-        app.register_component::<Score>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Simple);
+        app.register_component::<Score>()
+            .add_prediction(PredictionMode::Simple);
 
         // Fully replicated, but not visual, so no need for lerp/corrections:
 
-        app.register_component::<LinearVelocity>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full);
+        app.register_component::<LinearVelocity>()
+            .add_prediction(PredictionMode::Full);
 
-        app.register_component::<AngularVelocity>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full);
+        app.register_component::<AngularVelocity>()
+            .add_prediction(PredictionMode::Full);
 
-        app.register_component::<Weapon>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full);
+        app.register_component::<Weapon>()
+            .add_prediction(PredictionMode::Full);
 
         // Position and Rotation have a `correction_fn` set, which is used to smear rollback errors
         // over a few frames, just for the rendering part in postudpate.
         //
         // They also set `interpolation_fn` which is used by the VisualInterpolationPlugin to smooth
         // out rendering between fixedupdate ticks.
-        app.register_component::<Position>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation_fn(position::lerp)
-            .add_correction_fn(position::lerp);
+        app.register_component::<Position>()
+            .add_prediction(PredictionMode::Full)
+            .add_linear_interpolation_fn()
+            .add_linear_correction_fn();
 
-        app.register_component::<Rotation>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation_fn(rotation::lerp)
-            .add_correction_fn(rotation::lerp);
+        app.register_component::<Rotation>()
+            .add_prediction(PredictionMode::Full)
+            .add_linear_interpolation_fn()
+            .add_linear_correction_fn();
 
         // do not replicate Transform but make sure to register an interpolation function
         // for it so that we can do visual interpolation

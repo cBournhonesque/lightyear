@@ -7,7 +7,7 @@ use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use lightyear::interpolation::Interpolated;
 use lightyear::prediction::prespawn::PreSpawned;
-use lightyear::prelude::{Client, Predicted, Replicate, Replicated};
+use lightyear::prelude::{Predicted, Replicate, Replicated};
 use lightyear_avian::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -26,7 +26,6 @@ impl Plugin for ExampleRendererPlugin {
 
         #[cfg(feature = "client")]
         {
-            app.add_observer(spawn_score_text);
             app.add_systems(Update, display_score);
         }
 
@@ -39,16 +38,7 @@ impl Plugin for ExampleRendererPlugin {
 
 fn init(mut commands: Commands) {
     commands.spawn(Camera2d);
-}
-
-#[derive(Component)]
-struct ScoreText;
-
-#[cfg(feature = "client")]
-fn spawn_score_text(
-    trigger: Trigger<OnAdd, Client>,
-    mut commands: Commands
-) {
+    #[cfg(feature = "client")]
     commands.spawn((
         Text::new("Score: 0"),
         TextFont::from_font_size(30.0),
@@ -58,8 +48,11 @@ fn spawn_score_text(
             ..default()
         },
         ScoreText,
-    ));
+   ));
 }
+
+#[derive(Component)]
+struct ScoreText;
 
 #[cfg(feature = "client")]
 fn display_score(
@@ -93,12 +86,14 @@ pub struct VisibleFilter {
         // to show prespawned entities
         With<PreSpawned>,
         With<Interpolated>,
+        // to show entities on the server
         With<Replicate>,
     )>,
     // we don't show any replicated (confirmed) entities
     b: Without<Replicated>,
 }
 
+// TODO: interpolated players are not visible because components are not inserted at the same time?
 /// Add visuals to newly spawned players
 fn add_player_visuals(
     trigger: Trigger<OnAdd, PlayerId>,
@@ -127,12 +122,12 @@ fn add_player_visuals(
 /// Add visuals to newly spawned bullets
 fn add_bullet_visuals(
     trigger: Trigger<OnAdd, BulletMarker>,
-    query: Query<&ColorComponent, VisibleFilter>,
+    query: Query<(&ColorComponent, Has<Interpolated>), VisibleFilter>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok(color) = query.get(trigger.target()) {
+    if let Ok((color, interpolated)) = query.get(trigger.target()) {
         commands.entity(trigger.target()).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
@@ -142,8 +137,10 @@ fn add_bullet_visuals(
                 color: color.0,
                 ..Default::default()
             })),
-            FrameInterpolate::<Transform>::default(),
         ));
+        if interpolated {
+            commands.entity(trigger.target()).insert(FrameInterpolate::<Transform>::default());
+        }
     }
 }
 

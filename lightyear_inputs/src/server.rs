@@ -3,14 +3,18 @@
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
+use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
+use lightyear_connection::prelude::NetworkTarget;
 use lightyear_connection::server::Started;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
+use lightyear_messages::server::ServerMultiMessageSender;
 use tracing::trace;
 
 pub struct ServerInputPlugin<S> {
@@ -27,14 +31,19 @@ impl<S> Default for ServerInputPlugin<S> {
     }
 }
 
+#[derive(Resource)]
+struct ServerInputConfig<S> {
+    rebroadcast_inputs: bool,
+    pub marker: core::marker::PhantomData<S>,
+}
+
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSet {
     /// Receive the latest ActionDiffs from the client
     ReceiveInputs,
     /// Use the ActionDiff received from the client to update the [`ActionState`]
     UpdateActionState,
-    /// Rebroadcast inputs to other clients
-    RebroadcastInputs,
 }
 
 impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
@@ -42,6 +51,11 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
         if !app.is_plugin_added::<InputPlugin<S>>() {
             app.add_plugins(InputPlugin::<S>::default());
         }
+        app.insert_resource::<ServerInputConfig<S>>(ServerInputConfig::<S> {
+            // TODO: make this changeable dynamically by putting this in a resource?
+            rebroadcast_inputs: self.rebroadcast_inputs,
+            marker: core::marker::PhantomData
+        });
 
         // SETS
         // TODO:
@@ -61,13 +75,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
             InputSet::UpdateActionState.after(crate::client::InputSet::BufferClientInputs),
         );
 
-        // TODO: maybe put this in a Fixed schedule to avoid sending multiple host-server identical
-        //  messages per frame if we didn't run FixedUpdate at all?
-        app.configure_sets(
-            PostUpdate,
-            InputSet::RebroadcastInputs.before(MessageSet::Send),
-        );
-
         // SYSTEMS
         app.add_systems(
             PreUpdate,
@@ -78,13 +85,14 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
             update_action_state::<S>.in_set(InputSet::UpdateActionState),
         );
 
+        // // TODO: maybe merge this with receive_input_message?
         // // TODO: make this changeable dynamically by putting this in a resource?
         // if self.rebroadcast_inputs {
         //     app.add_systems(
         //         PostUpdate,
         //         (
-        //             send_host_server_input_message::<A>.run_if(is_host_server),
-        //             rebroadcast_inputs::<A>,
+        //             // send_host_server_input_message::<A>.run_if(is_host_server),
+        //             rebroadcast_inputs::<S>,
         //         )
         //             .chain()
         //             .in_set(InputSet::RebroadcastInputs),
@@ -95,19 +103,23 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
 
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<S: ActionStateSequence>(
-    mut receivers: Query<(Entity, &ClientOf, &mut MessageReceiver<InputMessage<S>>, &Connected)>,
+    config: Res<ServerInputConfig<S>>,
+    server: Query<&Server>,
+    mut sender: ServerMultiMessageSender,
+    mut receivers: Query<(Entity, &LinkOf, &ClientOf, &mut MessageReceiver<InputMessage<S>>, &Connected)>,
     mut query: Query<Option<&mut InputBuffer<S::State>>>,
     mut commands: Commands,
-) {
+) -> Result {
     // TODO: use par_iter_mut
-    receivers.iter_mut().for_each(|(client_entity, client_of, mut receiver, connected)| {
+    receivers.iter_mut().try_for_each(|(client_entity, link_of, client_of, mut receiver, connected)| {
         // TODO: this drains the messages... but the user might want to re-broadcast them?
         //  should we just read instead?
         let client_id = connected.remote_peer_id;
-        receiver.receive().for_each(|message| {
+        let server_entity = link_of.server;
+        receiver.receive().try_for_each(|message| {
             // ignore input messages from the local client (if running in host-server mode)
             if client_id.is_local() {
-                return
+                return Ok(())
             }
             trace!(?client_id, action = ?core::any::type_name::<S::Action>(), ?message.end_tick, ?message.inputs, "received input message");
 
@@ -159,8 +171,20 @@ fn receive_input_message<S: ActionStateSequence>(
                     }
                 }
             }
+
+            if config.rebroadcast_inputs {
+                trace!("Rebroad message {message:?} to other clients");
+                if let Ok(server) = server.get(server_entity) {
+                    sender.send::<_, InputChannel>(
+                        &message,
+                        server,
+                        &NetworkTarget::AllExceptSingle(client_id)
+                    )?;
+                }
+            }
+            Ok(())
         })
-    });
+    })
 }
 
 /// Read the InputState for the current tick from the buffer, and use them to update the ActionState
@@ -268,17 +292,24 @@ fn update_action_state<S: ActionStateSequence>(
 //     events.send(ServerReceiveMessage::new(message, netclient.id()));
 // }
 
-// pub(crate) fn rebroadcast_inputs<A: UserAction>(
-//     mut receive_inputs: ResMut<Events<ServerReceiveMessage<InputMessage<A>>>>,
-//     mut send_inputs: EventWriter<ServerSendMessage<InputMessage<A>>>,
-// ) {
-//     // rebroadcast the input to other clients
-//     // we are calling drain() here so make sure that this system runs after the `ReceiveInputs` set,
-//     // so that the server had the time to process the inputs
-//     send_inputs.write_batch(receive_inputs.drain().map(|ev| {
-//         ServerSendMessage::new_with_target::<InputChannel>(
-//             ev.message,
-//             NetworkTarget::AllExceptSingle(ev.from),
-//         )
-//     }));
+// pub(crate) fn rebroadcast_inputs<S: ActionStateSequence>(
+//     server: Single<&Server>,
+//     mut sender: ServerMultiMessageSender,
+//     mut receivers: Query<(&mut MessageReceiver<InputMessage<S>>, &Connected)>,
+// ) -> Result {
+//     let server = server.into_inner();
+//     receivers.iter_mut().try_for_each(|(mut receiver, connected)| {
+//         let peer = connected.remote_peer_id;
+//         info!("received client message, will rebroadcast");
+//         // we already read the message in Receive so it's ok to drain the messages
+//         receiver.receive().try_for_each(|message| {
+//             info!("Rebroad message {message:?} to other clients");
+//             sender.send::<_, InputChannel>(
+//                 &message,
+//                 server,
+//                 &NetworkTarget::AllExceptSingle(peer)
+//             )
+//         })
+//     })?;
+//     Ok(())
 // }

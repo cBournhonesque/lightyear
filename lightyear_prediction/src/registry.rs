@@ -276,7 +276,7 @@ impl PredictionRegistry {
         let predicted_entity = predicted_mut.entity();
         let confirmed_entity = confirmed_ref.entity();
         let name = core::any::type_name::<C>();
-        let _span = debug_span!(
+        let _span = trace_span!(
             "check_rollback",
             ?name,
             %predicted_entity,

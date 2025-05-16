@@ -11,6 +11,7 @@ use alloc::vec::Vec;
 use bevy::app::App;
 use bevy::ecs::component::ComponentId;
 use bevy::prelude::*;
+use core::fmt::Debug;
 use core::ops::Deref;
 use lightyear_core::history_buffer::HistoryBuffer;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};

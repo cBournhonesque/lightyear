@@ -11,6 +11,7 @@ use lightyear::prelude::*;
 
 use crate::protocol::*;
 
+
 pub const FLOOR_WIDTH: f32 = 100.0;
 pub const FLOOR_HEIGHT: f32 = 1.0;
 
@@ -107,10 +108,9 @@ impl Plugin for SharedPlugin {
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
-                .disable::<PhysicsInterpolationPlugin>(),
-            // disable Sleeping plugin as it can mess up physics rollbacks
-            // TODO: disabling sleeping plugin causes the player to fall through the floor
-            // .disable::<SleepingPlugin>(),
+                .disable::<PhysicsInterpolationPlugin>()
+                // disable Sleeping plugin as it can mess up physics rollbacks
+                .disable::<SleepingPlugin>(),
         );
 
         // add an extra sync for cases where:
@@ -161,7 +161,7 @@ pub fn apply_character_action(
     let max_velocity_delta_per_tick = MAX_ACCELERATION * time.delta_secs();
 
     // Handle jumping.
-    if action_state.pressed(&CharacterAction::Jump) {
+    if action_state.just_pressed(&CharacterAction::Jump) {
         let ray_cast_origin = character.position.0
             + Vec3::new(
                 0.0,

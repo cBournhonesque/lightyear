@@ -1,3 +1,4 @@
+use avian2d::position::{Position, Rotation};
 use avian2d::prelude::RigidBody;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
@@ -31,7 +32,7 @@ pub struct PlayerId(pub PeerId);
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
 pub struct Score(pub usize);
 
-#[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq)]
+#[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Reflect)]
 pub struct ColorComponent(pub(crate) Color);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -64,7 +65,7 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<PlayerActions>();
+        app.register_type::<(PlayerActions, ColorComponent)>();
         // inputs
         // Use new input plugin path and default config
         app.add_plugins(leafwing::InputPlugin::<PlayerActions> {
@@ -82,21 +83,25 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PlayerId>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
-
-        app.register_component::<Transform>()
+        
+        app.register_component::<Position>()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full)
-            .add_interpolation_fn(TransformLinearInterpolation::lerp);
+            .add_linear_interpolation_fn()
+            .add_linear_correction_fn();
+
+        app.register_component::<Rotation>()
+            .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full)
+            .add_linear_interpolation_fn()
+            .add_linear_correction_fn();
 
         app.register_component::<ColorComponent>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
 
-        // Score component doesn't need prediction/interpolation by default
         app.register_component::<Score>();
 
-        // RigidBody might only need prediction if physics runs client-side?
-        // Assuming Once is okay for now.
         app.register_component::<RigidBody>()
             .add_prediction(PredictionMode::Once);
 
@@ -110,5 +115,13 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<InterpolatedBot>()
             .add_interpolation(InterpolationMode::Once);
+        
+        // do not replicate Transform but make sure to register an interpolation function
+        // for it so that we can do visual interpolation
+        // (another option would be to replicate transform and not use Position/Rotation at all)
+        app.world_mut().resource_mut::<InterpolationRegistry>()
+            .set_interpolation::<Transform>(TransformLinearInterpolation::lerp);
+        app.world_mut().resource_mut::<InterpolationRegistry>()
+            .set_interpolation_mode::<Transform>(InterpolationMode::None);
     }
 }

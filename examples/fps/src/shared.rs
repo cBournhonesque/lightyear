@@ -7,10 +7,15 @@ use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
+use lightyear::prediction::plugin::PredictionSet;
+use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prediction::prespawn::PreSpawned;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
+
+// Replication group for all predicted entities
+pub(crate) const PREDICTION_GROUP: ReplicationGroup = ReplicationGroup::new_id(0);
 
 const EPS: f32 = 0.0001;
 pub const BOT_RADIUS: f32 = 15.0;
@@ -23,13 +28,12 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(lightyear_avian::LightyearAvianPlugin);
         app.add_plugins(ProtocolPlugin);
-        // registry types for reflection
         app.register_type::<PlayerId>();
+        
         // debug systems
-        // app.add_systems(FixedLast, fixed_update_log);
-        // app.add_systems(FixedLast, log_predicted_bot_transform);
+        app.add_systems(FixedLast, fixed_update_log);
+        app.add_systems(FixedLast, log_predicted_bot_transform);
 
         // every system that is physics-based and can be rolled-back has to be in the `FixedUpdate` schedule
         app.add_systems(
@@ -37,15 +41,15 @@ impl Plugin for SharedPlugin {
             (predicted_bot_movement, player_movement, shoot_bullet).chain(),
         );
         // both client and server need physics
-        // (the client also needs the physics plugin to be able to compute predicted
-        //  bullet hits)
-        app.add_plugins(
-            PhysicsPlugins::default()
-                .build()
-                .disable::<ColliderHierarchyPlugin>(),
+        // (the client also needs the physics plugin to be able to compute predicted bullet hits)
+        app.add_plugins(PhysicsPlugins::default()
+            .build()
+            // disable Sync as it is handled by lightyear_avian
+            .disable::<SyncPlugin>()
         )
-        .insert_resource(Gravity(Vec2::ZERO));
+            .insert_resource(Gravity(Vec2::ZERO));
     }
+
 }
 
 // Generate pseudo-random color from id
@@ -58,33 +62,32 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
 
 // This system defines how we update the player's positions when we receive an input
 pub(crate) fn shared_player_movement(
-    mut transform: Mut<Transform>,
+    mut position: Mut<Position>,
+    mut rotation: Mut<Rotation>,
     action: &ActionState<PlayerActions>,
 ) {
     const PLAYER_MOVE_SPEED: f32 = 10.0;
-    // warn!(?action, "action state");
     let Some(cursor_data) = action.dual_axis_data(&PlayerActions::MoveCursor) else {
         return;
     };
-    // warn!(?mouse_position);
-    let angle = Vec2::new(0.0, 1.0).angle_to(cursor_data.pair - transform.translation.truncate());
+    let angle = Vec2::new(0.0, 1.0).angle_to(cursor_data.pair - position.0);
     // careful to only activate change detection if there was an actual change
-    if (angle - transform.rotation.to_euler(EulerRot::XYZ).2).abs() > EPS {
-        transform.rotation = Quat::from_rotation_z(angle);
+    if (angle - rotation.as_radians()).abs() > EPS {
+        *rotation = Rotation::from(angle);
     }
     // TODO: look_at should work
     // transform.look_at(Vec3::new(mouse_position.x, mouse_position.y, 0.0), Vec3::Y);
     if action.pressed(&PlayerActions::Up) {
-        transform.translation.y += PLAYER_MOVE_SPEED;
+        position.y += PLAYER_MOVE_SPEED;
     }
     if action.pressed(&PlayerActions::Down) {
-        transform.translation.y -= PLAYER_MOVE_SPEED;
+        position.y -= PLAYER_MOVE_SPEED;
     }
     if action.pressed(&PlayerActions::Right) {
-        transform.translation.x += PLAYER_MOVE_SPEED;
+        position.x += PLAYER_MOVE_SPEED;
     }
     if action.pressed(&PlayerActions::Left) {
-        transform.translation.x -= PLAYER_MOVE_SPEED;
+        position.x -= PLAYER_MOVE_SPEED;
     }
 }
 
@@ -94,14 +97,13 @@ pub(crate) fn shared_player_movement(
 fn player_movement(
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     mut player_query: Query<
-        (&mut Transform, &ActionState<PlayerActions>, &PlayerId),
+        (&mut Position, &mut Rotation, &ActionState<PlayerActions>, &PlayerId),
         Or<(With<Predicted>, With<Replicate>)>,
     >,
 ) {
-    for (transform, action_state, player_id) in player_query.iter_mut() {
-        trace!(tick = ?timeline.tick(), action = ?action_state.dual_axis_data(&PlayerActions::MoveCursor), "Data in Movement (FixedUpdate)");
-        shared_player_movement(transform, action_state);
-        // info!(tick = ?tick_manager.tick(), ?transform, actions = ?action_state.get_pressed(), "applying movement to predicted player");
+    for (position, rotation, action_state, player_id) in player_query.iter_mut() {
+        debug!(tick = ?timeline.tick(), action = ?action_state.dual_axis_data(&PlayerActions::MoveCursor), "Data in Movement (FixedUpdate)");
+        shared_player_movement(position, rotation, action_state);
     }
 }
 
@@ -126,40 +128,33 @@ fn log_predicted_bot_transform(
     let (timeline, is_rollback) = timeline.into_inner();
     let tick = timeline.tick();
     query.iter().for_each(|(pos, transform)| {
-        info!(?tick, ?pos, ?transform, "PredictedBot FixedLast");
+        debug!(?tick, ?pos, ?transform, "PredictedBot FixedLast");
     })
 }
 
 pub(crate) fn fixed_update_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
     player: Query<(Entity, &Transform), (With<PlayerId>, Without<Confirmed>)>,
-    ball: Query<(Entity, &Transform), (With<BulletMarker>, Without<Confirmed>)>,
+    predicted_bullet: Query<(Entity, &Transform, Option<&PredictionHistory<Transform>>), (With<BulletMarker>, Without<Confirmed>)>,
     interpolated_ball: Query<(Entity, &Transform), (With<BulletMarker>, With<Interpolated>)>,
 ) {
     let (timeline, is_rollback) = timeline.into_inner();
     let tick = timeline.tick();
     for (entity, transform) in player.iter() {
-        trace!(
-        ?tick,
-        ?entity,
-        pos = ?transform.translation.truncate(),
-        "Player after fixed update"
-        );
-    }
-    for (entity, transform) in ball.iter() {
-        trace!(
+        debug!(
             ?tick,
             ?entity,
             pos = ?transform.translation.truncate(),
-            "Ball after fixed update"
+            "Player after fixed update"
         );
     }
-    for (entity, transform) in interpolated_ball.iter() {
-        trace!(
+    for (entity, transform, history) in predicted_bullet.iter() {
+        debug!(
             ?tick,
             ?entity,
             pos = ?transform.translation.truncate(),
-            "interpolated Ball after fixed update"
+            ?history,
+            "Bullet after fixed update"
         );
     }
 }
@@ -188,7 +183,8 @@ pub(crate) fn shoot_bullet(
         // NOTE: pressed lets you shoot many bullets, which can be cool
         if action.just_pressed(&PlayerActions::Shoot) {
             error!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
-            for delta in [-0.2, 0.2] {
+            // for delta in [-0.2, 0.2] {
+            for delta in [0.0] {
                 let salt: u64 = if delta < 0.0 { 0 } else { 1 };
                 // shoot from the position of the player, towards the cursor, with an angle of delta
                 let mut bullet_transform = transform.clone();
@@ -222,10 +218,9 @@ pub(crate) fn shoot_bullet(
                         PreSpawned::default_with_salt(salt),
                         Replicate::to_clients(NetworkTarget::All),
                         PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
+                        PREDICTION_GROUP,
                         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         controlled_by.unwrap().clone(),
-                        // NOTE: all predicted entities need to have the same replication group
-                        ReplicationGroup::new_id(id.0.to_bits()),
                     ));
                 } else {
                     // on the client, just spawn the ball

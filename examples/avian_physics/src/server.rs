@@ -108,22 +108,12 @@ pub(crate) fn replicate_players(
     client_query: Query<&Connected, With<ClientOf>>,
 ) {
     let entity = trigger.target();
-    let Ok(connected) = client_query.get(entity) else {
-        error!("ClientOf component not found on entity {entity:?} triggered by OnAdd<ClientOf>");
-        return;
-    };
+    let connected = client_query.get(entity).unwrap();
     let client_id = connected.remote_peer_id;
-
-    info!(
-        "Received player entity {entity:?} from client {client_id:?}. Adding replication components."
-    );
 
     let color = color_from_id(client_id);
     let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
-
-    // Add the necessary replication components to the entity received from the client
-    if let Ok(mut e) = commands.get_entity(entity) {
-        e.insert((
+    commands.spawn((
             PlayerId(client_id),
             Position::from(Vec2::new(-50.0, y)),
             ColorComponent(color),
@@ -136,13 +126,12 @@ pub(crate) fn replicate_players(
                 lifetime: Default::default(),
             },
             PhysicsBundle::player(),
-            InputMap::new([
-                (PlayerActions::Up, KeyCode::KeyW),
-                (PlayerActions::Down, KeyCode::KeyS),
-                (PlayerActions::Left, KeyCode::KeyA),
-                (PlayerActions::Right, KeyCode::KeyD),
-            ]),
+            // InputMap::new([
+            //     (PlayerActions::Up, KeyCode::KeyW),
+            //     (PlayerActions::Down, KeyCode::KeyS),
+            //     (PlayerActions::Left, KeyCode::KeyA),
+            //     (PlayerActions::Right, KeyCode::KeyD),
+            // ]),
             Name::from("Player"),
-        ));
-    }
+    ));
 }

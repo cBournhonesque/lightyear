@@ -1,54 +1,102 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-
-use crate::settings::get_settings;
 use bevy::prelude::*;
-use lightyear_examples_common::app::{Apps, Cli};
+use core::time::Duration;
+
+use lightyear_examples_common::cli::{Cli, Mode};
+use lightyear_examples_common::shared::{
+    CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS,
+};
+
+#[cfg(feature = "client")]
+use crate::client::ExampleClientPlugin;
+#[cfg(feature = "server")]
+use crate::server::ExampleServerPlugin;
+use crate::shared::SharedPlugin;
 
 #[cfg(feature = "client")]
 mod client;
+mod protocol;
+
 #[cfg(feature = "gui")]
 mod entity_label;
 #[cfg(feature = "gui")]
 mod renderer;
-
-mod protocol;
 #[cfg(feature = "server")]
 mod server;
-mod settings;
 mod shared;
 
 fn main() {
     let cli = Cli::default();
-    #[allow(unused_mut)]
-    let mut settings = get_settings();
+
     #[cfg(target_family = "wasm")]
-    lightyear_examples_common::settings::modify_digest_on_wasm(&mut settings.common.client);
-    // build the bevy app (this adds common plugin such as the DefaultPlugins)
-    // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
-    let mut apps = Apps::new(settings.common, cli, env!("CARGO_PKG_NAME").to_string());
-    // use input delay and a correction function to smooth over rollback errors
-    apps.update_lightyear_client_config(|config| {
-        config
-            .prediction
-            .set_fixed_input_delay_ticks(settings.input_delay_ticks);
-        config.prediction.correction_ticks_factor = settings.correction_ticks_factor;
+    lightyear_examples_common::settings::modify_digest_on_wasm(&mut settings.client);
+
+    let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
+
+    app.add_plugins(SharedPlugin {
+        show_confirmed: false
     });
-    // add `ClientPlugins` and `ServerPlugins` plugin groups
-    apps.add_lightyear_plugins();
-    // add our plugins
-    apps.add_user_shared_plugin(shared::SharedPlugin {
-        show_confirmed: settings.show_confirmed,
-    });
+
     #[cfg(feature = "client")]
-    apps.add_user_client_plugin(client::ExampleClientPlugin);
+    {
+        use lightyear::prelude::client::{Input, InputDelayConfig};
+        use lightyear::prelude::{InputTimeline, LinkConditionerConfig, RecvLinkConditioner, Timeline};
+        
+        app.add_plugins(ExampleClientPlugin);
+        if matches!(cli.mode, Some(Mode::Client { .. })) {
+            use lightyear::prelude::Connect;
+            use lightyear_examples_common::client::{ClientTransports, ExampleClient};
+            let client = app
+                .world_mut()
+                .spawn((
+                    ExampleClient {
+                        client_id: cli
+                            .client_id()
+                            .expect("You need to specify a client_id via `-c ID`"),
+                        client_port: CLIENT_PORT,
+                        server_addr: SERVER_ADDR,
+                        conditioner: Some(RecvLinkConditioner::new(
+                            LinkConditionerConfig::average_condition(),
+                        )),
+                        transport: ClientTransports::Udp,
+                        shared: SHARED_SETTINGS,
+                    },
+                    InputTimeline(Timeline::from(
+                        Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
+                    )),
+                ))
+                .id();
+            app.world_mut().trigger_targets(Connect, client)
+        }
+    }
+
     #[cfg(feature = "server")]
-    apps.add_user_server_plugin(server::ExampleServerPlugin {
-        predict_all: settings.predict_all,
-    });
+    {
+        use lightyear::connection::server::Start;
+        use lightyear_examples_common::server::{ExampleServer, ServerTransports};
+
+        app.add_plugins(ExampleServerPlugin {
+            predict_all: true
+        });
+        if matches!(cli.mode, Some(Mode::Server)) {
+            let server = app
+                .world_mut()
+                .spawn(ExampleServer {
+                    conditioner: None,
+                    transport: ServerTransports::Udp {
+                        local_port: SERVER_PORT,
+                    },
+                    shared: SHARED_SETTINGS,
+                })
+                .id();
+            app.world_mut().trigger_targets(Start, server);
+        }
+    }
+
     #[cfg(feature = "gui")]
-    apps.add_user_renderer_plugin(renderer::SpaceshipsRendererPlugin);
-    // run the app
-    apps.run();
+    app.add_plugins(renderer::ExampleRendererPlugin);
+
+    app.run();
 }

@@ -11,27 +11,17 @@ use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use core::time::Duration;
 use leafwing_input_manager::action_state::ActionState;
-use lightyear::client::prediction::prespawn::PreSpawned;
-use lightyear::inputs::leafwing::input_buffer::InputBuffer;
-use lightyear::prelude::Replicating;
 use lightyear::prelude::client::*;
-use lightyear::shared::tick_manager;
-use lightyear::shared::tick_manager::Tick;
-use lightyear::shared::tick_manager::TickManager;
-use lightyear::transport::io::IoDiagnosticsPlugin;
-use lightyear::{
-    client::{
-        interpolation::plugin::InterpolationSet,
-        prediction::{diagnostics::PredictionDiagnosticsPlugin, plugin::PredictionSet},
-    },
-    shared::run_conditions::is_server,
-};
+
+use lightyear::prelude::input::InputBuffer;
+use lightyear::prelude::*;
+use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 use std::f32::consts::PI;
 use std::f32::consts::TAU;
 
-pub struct SpaceshipsRendererPlugin;
+pub struct ExampleRendererPlugin;
 
-impl Plugin for SpaceshipsRendererPlugin {
+impl Plugin for ExampleRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init_camera);
         app.insert_resource(ClearColor::default());
@@ -62,7 +52,7 @@ impl Plugin for SpaceshipsRendererPlugin {
         app.add_plugins(EntityLabelPlugin);
 
         // set up visual interp plugins for Transform
-        app.add_plugins(VisualInterpolationPlugin::<Transform>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Transform>::default());
 
         // observers that add VisualInterpolationStatus components to entities which receive
         // a Position
@@ -91,7 +81,7 @@ fn add_visual_interpolation_components(
     debug!("Adding visual interp component to {:?}", trigger.target());
     commands
         .entity(trigger.target())
-        .insert(VisualInterpolateStatus::<Transform> {
+        .insert(FrameInterpolate::<Transform> {
             // We must trigger change detection on visual interpolation
             // to make sure that child entities (sprites, meshes, text)
             // are also interpolated
@@ -119,7 +109,7 @@ fn add_player_label(
     // add the label on both client and server
     q: Query<(Entity, &Player, &Score), Or<(With<Predicted>, With<Replicating>)>>,
 ) {
-    if let Ok((e, player, score)) = q.get(trigger.entity()) {
+    if let Ok((e, player, score)) = q.get(trigger.target()) {
         error!("Adding visual bits to {e:?}");
         commands.entity(e).insert((
             Visibility::default(),
@@ -150,14 +140,15 @@ fn update_player_label(
             Changed<InputBuffer<PlayerActions>>,
         )>,
     >,
-    tick_manager: Res<TickManager>,
+    timeline: Single<&LocalTimeline, Without<ClientOf>>,
 ) {
+    let tick = timeline.tick();
     for (e, player, mut label, input_buffer, score) in q.iter_mut() {
         // hopefully this is positive, ie we have received remote player inputs before they are needed.
         // this can happen because of input_delay. The server receives inputs in advance of
         // needing them, and rebroadcasts to other players.
         let num_buffered_inputs = if let Some(end_tick) = input_buffer.end_tick() {
-            lightyear::utils::wrapping_id::wrapping_diff(tick_manager.tick().0, end_tick.0)
+            lightyear::utils::wrapping_id::wrapping_diff(tick.0, end_tick.0)
         } else {
             0
         };
@@ -219,8 +210,9 @@ fn draw_predicted_entities(
             Or<(With<PreSpawned>, With<Predicted>)>,
         ),
     >,
-    tick_manager: Res<TickManager>,
+    timeline: Single<&LocalTimeline, Without<ClientOf>>,
 ) {
+    let tick = timeline.tick();
     for (e, position, rotation, color, collider, prespawned, opt_action, opt_ib) in &predicted {
         // render prespawned translucent until acknowledged by the server
         // (at which point the PreSpawned component is removed)

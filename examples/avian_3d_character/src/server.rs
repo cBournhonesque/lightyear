@@ -75,15 +75,13 @@ fn player_shoot(
         (
             &ActionState<CharacterAction>,
             &Position,
-            &Replicated,
-            Has<Controlled>,
+            &ControlledBy,
         ),
         Without<Predicted>,
     >,
     time: Res<Time<Fixed>>,
 ) {
-    for (action_state, position, replicated, is_controlled) in &query {
-        let peer_id = replicated.from;
+    for (action_state, position, controlled_by) in &query {
         let mut position_override = ComponentReplicationOverrides::<Position>::default();
         position_override.global_override(ComponentReplicationOverride {
             replicate_once: true,
@@ -133,10 +131,10 @@ fn player_shoot(
                 Rotation::default(),
                 LinearVelocity(Vec3::Z * 10.),
                 Replicate::to_clients(NetworkTarget::All),
-                REPLICATION_GROUP,
+                PREDICTION_GROUP,
                 PredictionTarget::to_clients(NetworkTarget::All),
                 ControlledBy {
-                    owner: replicated.receiver,
+                    owner: controlled_by.owner,
                     lifetime: Default::default(),
                 },
                 // we don't want clients to receive any replication updates after the initial spawn
@@ -162,7 +160,7 @@ fn setup(mut commands: Commands) {
         FloorMarker,
         Position::new(Vec3::ZERO),
         Replicate::to_clients(NetworkTarget::All),
-        REPLICATION_GROUP,
+        PREDICTION_GROUP,
     ));
 
     commands.spawn((
@@ -172,6 +170,7 @@ fn setup(mut commands: Commands) {
         Position::new(Vec3::new(1.0, 1.0, 0.0)),
         Replicate::to_clients(NetworkTarget::All),
         PredictionTarget::to_clients(NetworkTarget::All),
+        PREDICTION_GROUP,
     ));
 }
 
@@ -232,7 +231,7 @@ pub(crate) fn handle_connected(
             ActionState::<CharacterAction>::default(),
             Position(Vec3::new(x, 3.0, z)),
             Replicate::to_clients(NetworkTarget::All),
-            REPLICATION_GROUP,
+            PREDICTION_GROUP,
             PredictionTarget::to_clients(NetworkTarget::All),
             ControlledBy {
                 owner: trigger.target(),

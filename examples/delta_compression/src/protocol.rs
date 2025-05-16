@@ -15,7 +15,8 @@ use bevy::prelude::{App, Plugin};
 use lightyear::prelude::client::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::shared::replication::delta::Diffable; // Keep Diffable
+use lightyear::shared::replication::delta::Diffable;
+// Keep Diffable
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace};
 
@@ -130,21 +131,6 @@ impl MapEntities for PlayerParent {
     }
 }
 
-// Channels
-
-#[derive(Channel)]
-pub struct Channel1;
-
-impl Channel for Channel1 {
-    fn name(&self) -> &'static str {
-        "Channel1"
-    }
-}
-
-// Messages
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Message1(pub usize);
 
 // Inputs
 
@@ -177,8 +163,6 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        // messages
-        app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
         // Use new input plugin path
         app.add_plugins(input::InputPlugin::<Inputs>::default());
@@ -198,10 +182,6 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PlayerColor>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
-        // channels
-        app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        });
+
     }
 }

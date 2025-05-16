@@ -2,6 +2,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
+extern crate core;
 
 use crate::manager::{PredictionManager, PredictionResource};
 use bevy::ecs::component::{HookContext, Mutable, StorageType};

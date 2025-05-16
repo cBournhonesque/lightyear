@@ -34,13 +34,13 @@ pub mod prelude {
     pub use crate::ping::manager::{PingConfig, PingManager};
     pub use crate::ping::message::{Ping, Pong};
     pub use crate::ping::PingChannel;
-    pub use crate::plugin::SyncPlugin;
+    pub use crate::plugin::TimelineSyncPlugin;
     pub use crate::timeline::sync::{IsSynced, SyncConfig};
     pub use crate::timeline::{input::InputTimeline, DrivingTimeline};
 
     #[cfg(feature = "client")]
     pub mod client {
-        pub use crate::timeline::input::{Input, InputTimeline};
+        pub use crate::timeline::input::{Input, InputDelayConfig, InputTimeline};
         pub use crate::timeline::remote::{RemoteEstimate, RemoteTimeline};
         pub use crate::timeline::sync::IsSynced;
     }

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 // the same replication group. This will make sure that they will be replicated
 // in the same message and that all the entities in the group will always be
 // consistent (= on the same tick)
-pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
+pub const PREDICTION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
 // Components
 
@@ -54,7 +54,6 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        // Use new input plugin path and default config
         app.add_plugins(leafwing::InputPlugin::<CharacterAction> {
             config: InputConfig::<CharacterAction> {
                 rebroadcast_inputs: true,
@@ -62,7 +61,6 @@ impl Plugin for ProtocolPlugin {
             },
         });
 
-        // Use PredictionMode and InterpolationMode
         app.register_component::<ColorComponent>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
@@ -97,11 +95,6 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ExternalImpulse>()
             .add_prediction(PredictionMode::Full);
 
-        // Do not replicate Transform when we are replicating Position/Rotation!
-        // See https://github.com/cBournhonesque/lightyear/discussions/941
-        // app.register_component::<Transform>()
-        //     .add_prediction(PredictionMode::Full);
-
         app.register_component::<ComputedMass>()
             .add_prediction(PredictionMode::Full);
 
@@ -121,13 +114,5 @@ impl Plugin for ProtocolPlugin {
             .add_linear_correction_fn()
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
-
-        // do not replicate Transform but make sure to register an interpolation function
-        // for it so that we can do visual interpolation
-        // (another option would be to replicate transform and not use Position/Rotation at all)
-        app.world_mut().resource_mut::<InterpolationRegistry>()
-            .set_interpolation::<Transform>(TransformLinearInterpolation::lerp);
-        app.world_mut().resource_mut::<InterpolationRegistry>()
-            .set_interpolation_mode::<Transform>(InterpolationMode::None);
     }
 }

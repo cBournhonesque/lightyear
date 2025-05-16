@@ -1,6 +1,7 @@
 use crate::protocol::ProtocolPlugin;
 #[cfg(not(feature = "std"))]
 use alloc::vec;
+use bevy::input::InputPlugin;
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
@@ -79,7 +80,7 @@ impl ClientServerStepper {
 
     pub(crate) fn new_client(&mut self) -> usize {
         let mut client_app = App::new();
-        client_app.add_plugins((MinimalPlugins, StatesPlugin));
+        client_app.add_plugins((MinimalPlugins, StatesPlugin, InputPlugin));
         client_app.add_plugins(client::ClientPlugins {
             tick_duration: self.tick_duration,
         });

@@ -4,13 +4,8 @@
 //! - sending inputs to the server
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //! predicted entity and the server entity)
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
 
-use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
-use bevy::time::common_conditions::on_timer;
-use core::time::Duration;
 
 use lightyear::client::input::InputSystemSet;
 use lightyear::inputs::native::{ActionState, InputMarker};
@@ -124,37 +119,6 @@ fn player_movement(mut position_query: Query<(&mut PlayerPosition, &ActionState<
         // if let Some(inputs) = &input.value { // Old check using private field
         //     shared::shared_movement_behaviour(position, inputs);
         // }
-    }
-}
-
-/// System to receive messages on the client
-pub(crate) fn receive_message1(mut reader: EventReader<ReceiveMessage<Message1>>) {
-    for event in reader.read() {
-        info!("Received message: {:?}", event.message());
-    }
-}
-
-/// Example system to handle EntitySpawn events
-pub(crate) fn receive_entity_spawn(mut reader: EventReader<EntitySpawnEvent>) {
-    for event in reader.read() {
-        info!("Received entity spawn: {:?}", event.entity());
-    }
-}
-
-/// Example system to handle EntitySpawn events
-pub(crate) fn receive_entity_despawn(mut reader: EventReader<EntityDespawnEvent>) {
-    for event in reader.read() {
-        info!("Received entity despawn: {:?}", event.entity());
-    }
-}
-
-/// Example system to handle ComponentInsertEvent events
-pub(crate) fn receive_player_id_insert(mut reader: EventReader<ComponentInsertEvent<PlayerId>>) {
-    for event in reader.read() {
-        info!(
-            "Received component PlayerId insert for entity: {:?}",
-            event.entity()
-        );
     }
 }
 

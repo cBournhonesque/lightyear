@@ -20,6 +20,7 @@ use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::timeline::Rollback;
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_sync::prelude::{InputTimeline, IsSynced};
 
 pub struct RollbackPlugin;
 
@@ -111,7 +112,7 @@ fn check_rollback(
         &ReplicationReceiver,
         &PredictionManager,
         &LocalTimeline,
-    )>,
+    ), With<IsSynced<InputTimeline>>>,
     prediction_registry: Res<PredictionRegistry>,
     component_registry: Res<ComponentRegistry>,
     system_ticks: SystemChangeTick,
@@ -161,6 +162,7 @@ fn check_rollback(
             return
         };
         let confirmed_tick = confirmed_ref.get::<Confirmed>().unwrap().tick;
+        
         if confirmed_tick > tick {
             debug!(
                 "Confirmed entity {:?} is at a tick in the future: {:?} compared to client timeline. Current tick: {:?}",
@@ -232,14 +234,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
         let rollback_tick = confirmed.tick;
 
-        // // 0. Confirm that we are in rollback.
-        // // NOTE: currently all predicted entities must be in the same replication group because I do not know how
-        // //  to do a 'partial' rollback for only some entities
-        // let Some(RollbackState::ShouldRollback { current_tick }) = rollback.state else {
-        //     continue;
-        // };
-        // // careful, we added 1 to the tick in the check_rollback stage...
-        // let tick = Tick(*current_tick - 1);
+        // 0. Confirm that we are in rollback, with the correct tick
+        debug_assert_eq!(manager.get_rollback_start_tick(), Some(rollback_tick), "The rollback tick (LEFT) does not match the confirmed tick (RIGHT) for confirmed entity {:?}. Are all predicted entities in the same replication group?", confirmed_entity);
 
         let Some(predicted_entity) = confirmed.predicted else {
             continue;
@@ -339,6 +335,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                                 correction.current_correction = None;
                             } else {
                                 trace!(
+                                    kind = ?core::any::type_name::<C>(),
                                     ?current_tick,
                                     ?final_correction_tick,
                                     "inserting new correction"

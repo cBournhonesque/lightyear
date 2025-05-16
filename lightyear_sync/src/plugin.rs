@@ -8,9 +8,9 @@ pub enum SyncSet {
     Sync,
 }
 
-pub struct SyncPlugin;
+pub struct TimelineSyncPlugin;
 
-impl Plugin for SyncPlugin {
+impl Plugin for TimelineSyncPlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<PingPlugin>() {
             app.add_plugins(PingPlugin);

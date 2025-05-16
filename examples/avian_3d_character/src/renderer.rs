@@ -242,7 +242,8 @@ fn disable_projectile_rollback(
         Entity,
         (
             With<Predicted>,
-            Or<(With<ProjectileMarker>, With<CharacterMarker>)>,
+            With<ProjectileMarker>,
+            // Or<(With<ProjectileMarker>, With<CharacterMarker>)>,
             // disabling character rollbacks while we debug projectiles with this janky setup
             Without<DisableRollback>,
         ),
