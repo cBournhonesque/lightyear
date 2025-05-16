@@ -308,7 +308,7 @@ impl ComponentRegistry {
         reader: &mut Reader,
         entity_map: &mut ReceiveEntityMap,
     ) -> Result<C, ComponentError> {
-        let net_id = NetId::from_bytes(reader).map_err(SerializationError::from)?;
+        let net_id = NetId::from_bytes(reader)?;
         self.raw_deserialize(reader, entity_map)
     }
 

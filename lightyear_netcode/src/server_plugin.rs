@@ -205,7 +205,7 @@ impl NetcodeServerPlugin {
                     let server = &mut *server;
                     // SAFETY: we know that the list of client entities are unique because it is a Relationship
                     let unique_slice =
-                        unsafe { UniqueEntitySlice::from_slice_unchecked(&server.collection()) };
+                        unsafe { UniqueEntitySlice::from_slice_unchecked(server.collection()) };
                     link_query
                         .iter_many_unique_mut(unique_slice)
                         .for_each(|(entity, mut link)| {
@@ -277,9 +277,8 @@ impl NetcodeServerPlugin {
         query: Query<(), With<NetcodeServer>>,
         mut commands: Commands,
     ) {
-        if let Ok(_) = query.get(trigger.target()) {
+        if query.get(trigger.target()).is_ok() {
             commands.entity(trigger.target()).insert(Started);
-            return;
         }
     }
 
@@ -299,7 +298,7 @@ impl NetcodeServerPlugin {
 
             // SAFETY: we know that the list of client entities are unique because it is a Relationship
             let unique_slice =
-                unsafe { UniqueEntitySlice::from_slice_unchecked(&server.collection()) };
+                unsafe { UniqueEntitySlice::from_slice_unchecked(server.collection()) };
             link_query.iter_many_unique_mut(unique_slice).try_for_each(
                 |(entity, mut link, connected)| {
                     let PeerId::Netcode(client_id) = connected.remote_peer_id else {

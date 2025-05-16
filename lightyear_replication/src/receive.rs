@@ -4,7 +4,6 @@ use alloc::collections::BTreeMap;
 use crate::components::{Confirmed, InitialReplicated, Replicated, ReplicationGroupId};
 use crate::message::{ActionsMessage, SpawnAction, UpdatesMessage};
 use crate::registry::registry::ComponentRegistry;
-use alloc::alloc::Layout;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::app::{App, Plugin, PreUpdate};
@@ -13,6 +12,7 @@ use bevy::ecs::entity::{EntityHash, EntityIndexMap};
 use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use bevy::ptr::OwningPtr;
+use core::alloc::Layout;
 use core::ptr::NonNull;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::RemoteEntityMap;
@@ -206,7 +206,8 @@ impl TempWriteBuffer {
 
     /// Inserts the components that were buffered inside the EntityWorldMut
     ///
-    /// SAFETY: `buffer_insert_raw_ptrs` must have been called beforehand
+    /// # Safety 
+    /// `buffer_insert_raw_ptrs` must have been called beforehand
     pub unsafe fn batch_insert(&mut self, entity_world_mut: &mut EntityWorldMut) {
         if self.is_empty() {
             return;
@@ -239,7 +240,7 @@ impl TempWriteBuffer {
     /// This function is called for all components that will be added to an entity, so that we can
     /// insert them all at once using `entity_world_mut.insert_by_ids`
     ///
-    /// SAFETY:
+    /// # Safety
     /// - the component C must match the `component_id `
     pub unsafe fn buffer_insert_raw_ptrs<C: Component>(
         &mut self,
@@ -806,64 +807,61 @@ impl GroupChannel {
         // Our solution is to first handle spawn for all entities separately.
         for (remote_entity, actions) in message.actions.iter() {
             // spawn
-            match actions.spawn {
-                SpawnAction::Spawn => {
-                    if let Some(local_entity) = remote_entity_map.get_local(*remote_entity) {
-                        // this can happen with authority transfer
-                        // (e.g client spawned an entity and then transfer the authority to the server.
-                        //  The server will then send a spawn message)
-                        if world.get_entity(local_entity).is_ok() {
-                            debug!(
-                                ?local_entity,
-                                "Received spawn for entity {local_entity:?} that already exists. This might be because of an authority transfer or pre-prediction."
-                            );
-                            // we still need to update the local entity to group mapping on the receiver
-                            self.local_entities.insert(local_entity);
-                            local_entity_to_group.insert(local_entity, group_id);
-                            continue;
-                        }
-                        local_entity_to_group.insert(local_entity, group_id);
-                        warn!(
-                            "Received spawn for an entity that is already in our entity mapping! Not spawning"
+            if actions.spawn == SpawnAction::Spawn {
+                if let Some(local_entity) = remote_entity_map.get_local(*remote_entity) {
+                    // this can happen with authority transfer
+                    // (e.g client spawned an entity and then transfer the authority to the server.
+                    //  The server will then send a spawn message)
+                    if world.get_entity(local_entity).is_ok() {
+                        debug!(
+                            ?local_entity,
+                            "Received spawn for entity {local_entity:?} that already exists. This might be because of an authority transfer or pre-prediction."
                         );
+                        // we still need to update the local entity to group mapping on the receiver
+                        self.local_entities.insert(local_entity);
+                        local_entity_to_group.insert(local_entity, group_id);
                         continue;
                     }
-                    // TODO: optimization: spawn the bundle of insert components
-
-                    // TODO: spawning all entities with Confirmed:
-                    //  - is inefficient because we don't need the receive tick in most cases (only for prediction/interpolation)
-                    //  - we can't use Without<Confirmed> queries to display all interpolated/predicted entities, because
-                    //    the entities we receive from other clients all have Confirmed added.
-                    //    Doing Or<(With<Interpolated>, With<Predicted>)> is not ideal; what if we want to see a replicated entity that doesn't have
-                    //    interpolation/prediction? Maybe we should introduce new components ReplicatedFrom<Server> and ReplicatedFrom<Client>.
-                    // // we spawn every replicated entity with the `Confirmed` component
-                    // let local_entity = world.spawn(Confirmed {
-                    //     predicted: None,
-                    //     interpolated: None,
-                    //     tick,
-                    // });
-
-                    // TODO: add abstractions to protect against this, maybe create a MappedEntity type?
-                    // NOTE: at this point we know that the remote entity was not mapped!
-
-                    // TODO: maybe use command-batching?
-                    let local_entity = world.spawn((
-                        Replicated {
-                            receiver: receiver_entity,
-                            from: remote,
-                        },
-                        InitialReplicated { from: remote },
-                    ));
-                    self.local_entities.insert(local_entity.id());
-                    local_entity_to_group.insert(local_entity.id(), group_id);
-                    remote_entity_map.insert(*remote_entity, local_entity.id());
-                    trace!("Updated remote entity map: {:?}", remote_entity_map);
-                    debug!(
-                        "Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}",
-                        local_entity.id()
+                    local_entity_to_group.insert(local_entity, group_id);
+                    warn!(
+                        "Received spawn for an entity that is already in our entity mapping! Not spawning"
                     );
+                    continue;
                 }
-                _ => {}
+                // TODO: optimization: spawn the bundle of insert components
+
+                // TODO: spawning all entities with Confirmed:
+                //  - is inefficient because we don't need the receive tick in most cases (only for prediction/interpolation)
+                //  - we can't use Without<Confirmed> queries to display all interpolated/predicted entities, because
+                //    the entities we receive from other clients all have Confirmed added.
+                //    Doing Or<(With<Interpolated>, With<Predicted>)> is not ideal; what if we want to see a replicated entity that doesn't have
+                //    interpolation/prediction? Maybe we should introduce new components ReplicatedFrom<Server> and ReplicatedFrom<Client>.
+                // // we spawn every replicated entity with the `Confirmed` component
+                // let local_entity = world.spawn(Confirmed {
+                //     predicted: None,
+                //     interpolated: None,
+                //     tick,
+                // });
+
+                // TODO: add abstractions to protect against this, maybe create a MappedEntity type?
+                // NOTE: at this point we know that the remote entity was not mapped!
+
+                // TODO: maybe use command-batching?
+                let local_entity = world.spawn((
+                    Replicated {
+                        receiver: receiver_entity,
+                        from: remote,
+                    },
+                    InitialReplicated { from: remote },
+                ));
+                self.local_entities.insert(local_entity.id());
+                local_entity_to_group.insert(local_entity.id(), group_id);
+                remote_entity_map.insert(*remote_entity, local_entity.id());
+                trace!("Updated remote entity map: {:?}", remote_entity_map);
+                debug!(
+                    "Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}",
+                    local_entity.id()
+                );
             }
         }
 

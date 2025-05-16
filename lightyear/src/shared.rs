@@ -17,7 +17,10 @@ impl PluginGroup for SharedPlugins {
             })
             .add(lightyear_transport::plugin::TransportPlugin)
             .add(lightyear_messages::plugin::MessagePlugin)
-            .add(lightyear_connection::ConnectionPlugin)
+            .add(lightyear_connection::ConnectionPlugin);
+        
+        #[cfg(feature = "replication")]
+        let builder = builder
             .add(lightyear_replication::prelude::ReplicationSendPlugin)
             .add(lightyear_replication::prelude::NetworkVisibilityPlugin)
             // TODO: this is dangerous because every registered message/component/etc.

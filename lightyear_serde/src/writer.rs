@@ -113,7 +113,7 @@ pub(crate) mod std {
         /// Consume the writer to get the RawData
         #[allow(clippy::wrong_self_convention)]
         pub fn to_bytes_mut(self) -> BytesMut {
-            self.0.into_inner().into()
+            self.0.into_inner()
         }
     }
 }

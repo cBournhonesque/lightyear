@@ -215,7 +215,7 @@ impl PacketHeaderManager {
         let last_ack_packet_id = self
             .recv_buffer
             .last_recv_packet_id
-            .unwrap_or_else(|| PacketId(u16::MAX));
+            .unwrap_or(PacketId(u16::MAX));
         let outgoing_header = PacketHeader {
             packet_type,
             packet_id: self.next_packet_id,

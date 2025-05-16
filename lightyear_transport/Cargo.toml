@@ -32,7 +32,7 @@ lightyear_link.workspace = true
 lightyear_macros.workspace = true
 lightyear_serde.workspace = true
 lightyear_utils.workspace = true
-lightyear_connection = {workspace = true, optional = true}
+lightyear_connection.workspace = true
 
 
 # bevy

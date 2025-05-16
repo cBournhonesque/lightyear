@@ -8,7 +8,6 @@ use crate::Message;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Event};
-#[cfg(any(feature = "client", feature = "server"))]
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::{ReadVarInt, Reader};
@@ -41,7 +40,7 @@ pub struct TriggerRegistration<'a, M> {
     pub(crate) _marker: core::marker::PhantomData<M>,
 }
 
-impl<'a, M: Event> TriggerRegistration<'a, M> {
+impl<M: Event> TriggerRegistration<'_, M> {
     #[cfg(feature = "test_utils")]
     pub fn new(app: &'a mut App) -> Self {
         Self {
@@ -64,7 +63,6 @@ impl<'a, M: Event> TriggerRegistration<'a, M> {
         self
     }
 
-    #[cfg(any(feature = "client", feature = "server"))]
     pub fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self {
         #[cfg(feature = "client")]
         self.add_client_direction(direction);

@@ -95,7 +95,7 @@ impl<'a> ToSocketAddrs for &'a [SocketAddr] {
     }
 }
 
-impl<'a> ToSocketAddrs for &'a str {
+impl ToSocketAddrs for &str {
     type Iter = option::IntoIter<SocketAddr>;
 
     fn to_socket_addrs(&self) -> Result<Self::Iter, AddrParseError> {
@@ -104,7 +104,7 @@ impl<'a> ToSocketAddrs for &'a str {
     }
 }
 
-impl<'a, T: ToSocketAddrs + ?Sized> ToSocketAddrs for &'a T {
+impl<T: ToSocketAddrs + ?Sized> ToSocketAddrs for &T {
     type Iter = T::Iter;
     fn to_socket_addrs(&self) -> Result<T::Iter, AddrParseError> {
         (**self).to_socket_addrs()

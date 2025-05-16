@@ -106,8 +106,7 @@ impl Transport {
     pub fn has_receiver<C: Channel>(&self) -> bool {
         self.receivers
             .values()
-            .find(|m| m.channel_kind == ChannelKind::of::<C>())
-            .is_some()
+            .any(|m| m.channel_kind == ChannelKind::of::<C>())
     }
 
     pub fn add_sender<C: Channel>(

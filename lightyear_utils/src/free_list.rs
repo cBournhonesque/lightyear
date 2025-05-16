@@ -9,6 +9,12 @@ pub struct FreeListIter<'a, T: Sized + Copy, const N: usize> {
     pub index: usize,
 }
 
+impl<T: Sized + Copy, const N: usize> Default for FreeList<T, N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: Sized + Copy, const N: usize> FreeList<T, N> {
     pub fn new() -> Self {
         Self {

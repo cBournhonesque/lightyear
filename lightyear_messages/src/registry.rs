@@ -7,7 +7,6 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use core::any::TypeId;
 use core::cell::UnsafeCell;
-#[cfg(any(feature = "client", feature = "server"))]
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::{ReceiveEntityMap, RemoteEntityMap, SendEntityMap};
@@ -290,7 +289,7 @@ pub struct MessageRegistration<'a, M> {
     pub(crate) _marker: core::marker::PhantomData<M>,
 }
 
-impl<'a, M: Message> MessageRegistration<'a, M> {
+impl<M: Message> MessageRegistration<'_, M> {
     #[cfg(feature = "test_utils")]
     pub fn new(app: &'a mut App) -> Self {
         Self {
@@ -399,14 +398,14 @@ mod tests {
     pub(crate) fn serialize_message2(
         data: &Message2,
         writer: &mut Writer,
-    ) -> std::result::Result<(), SerializationError> {
+    ) -> core::result::Result<(), SerializationError> {
         writer.write_u32(data.0.to_bits())?;
         Ok(())
     }
 
     pub(crate) fn deserialize_message2(
         reader: &mut Reader,
-    ) -> std::result::Result<Message2, SerializationError> {
+    ) -> core::result::Result<Message2, SerializationError> {
         let data = f32::from_bits(reader.read_u32()?);
         Ok(Message2(data))
     }

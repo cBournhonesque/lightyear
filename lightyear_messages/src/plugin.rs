@@ -253,6 +253,7 @@ mod tests {
     use lightyear_transport::channel::ChannelKind;
     use lightyear_transport::plugin::tests::TestTransportPlugin;
     use lightyear_transport::plugin::tests::C;
+    use lightyear_transport::prelude::{ChannelRegistry, Transport};
     use serde::{Deserialize, Serialize};
     use test_log::test;
 
@@ -344,7 +345,7 @@ mod tests {
         app.add_plugins(MessagePlugin);
         app.finish();
 
-        let mut entity_mut = app.world_mut().spawn((MessageReceiver::<M>::default(),));
+        let entity_mut = app.world_mut().spawn((MessageReceiver::<M>::default(),));
 
         let entity = entity_mut.id();
 

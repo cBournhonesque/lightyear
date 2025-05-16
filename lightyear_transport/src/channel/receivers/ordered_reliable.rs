@@ -21,6 +21,12 @@ pub struct OrderedReliableReceiver {
     fragment_receiver: FragmentReceiver,
 }
 
+impl Default for OrderedReliableReceiver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OrderedReliableReceiver {
     pub fn new() -> Self {
         Self {

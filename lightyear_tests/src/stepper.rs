@@ -17,6 +17,7 @@ const SERVER_ADDR: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCAL
 /// Stepper with:
 /// - n client in one 'client' App
 /// - 1 server in another App, with n ClientOf connected to each client
+/// 
 /// Connected via crossbeam channels, and using Netcode for connection
 /// We create two separate apps to make it easy to order the client and server updates.
 pub struct ClientServerStepper {
@@ -171,8 +172,7 @@ impl ClientServerStepper {
     pub(crate) fn default_no_init() -> Self {
         let frame_duration = Duration::from_millis(10);
         let tick_duration = Duration::from_millis(10);
-        let stepper = Self::new(tick_duration, frame_duration);
-        stepper
+        Self::new(tick_duration, frame_duration)
     }
 
     pub fn client_app(&mut self) -> &mut App {

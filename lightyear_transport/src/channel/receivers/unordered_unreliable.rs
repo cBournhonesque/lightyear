@@ -16,6 +16,12 @@ pub struct UnorderedUnreliableReceiver {
     current_time: Duration,
 }
 
+impl Default for UnorderedUnreliableReceiver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UnorderedUnreliableReceiver {
     pub fn new() -> Self {
         Self {

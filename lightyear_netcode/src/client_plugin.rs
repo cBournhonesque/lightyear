@@ -141,13 +141,12 @@ impl NetcodeClientPlugin {
 
                 // Buffer the packets received from the link into the Connection
                 // don't short-circuit on error
-                if let Some(state) = client
+                if let Ok(state) = client
                     .inner
                     .try_update(delta.as_secs_f64(), &mut link.recv)
                     .inspect_err(|e| {
                         error!("Error receiving packet: {:?}", e);
                     })
-                    .ok()
                 {
                     if state == ClientState::Connected && connecting {
                         info!("Client {} connected", client.id());

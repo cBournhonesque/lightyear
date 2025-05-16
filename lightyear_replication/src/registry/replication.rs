@@ -8,7 +8,7 @@ use bytes::Bytes;
 use lightyear_core::prelude::Tick;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
-use lightyear_serde::{SerializationError, ToBytes};
+use lightyear_serde::ToBytes;
 use tracing::{debug, trace};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -71,7 +71,7 @@ impl ComponentRegistry {
             // TODO: reuse a single reader that reads through the entire message ?
             let mut reader = Reader::from(b);
             let net_id =
-                ComponentNetId::from_bytes(&mut reader).map_err(SerializationError::from)?;
+                ComponentNetId::from_bytes(&mut reader)?;
             let kind = self
                 .kind_map
                 .kind(net_id)
@@ -114,7 +114,7 @@ impl ComponentRegistry {
         tick: Tick,
         entity_map: &mut ReceiveEntityMap,
     ) -> Result<ComponentKind, ComponentError> {
-        let net_id = ComponentNetId::from_bytes(reader).map_err(SerializationError::from)?;
+        let net_id = ComponentNetId::from_bytes(reader)?;
         let kind = self
             .kind_map
             .kind(net_id)

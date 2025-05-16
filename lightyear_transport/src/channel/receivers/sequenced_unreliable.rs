@@ -23,6 +23,12 @@ pub struct SequencedUnreliableReceiver {
     current_time: Duration,
 }
 
+impl Default for SequencedUnreliableReceiver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SequencedUnreliableReceiver {
     pub fn new() -> Self {
         Self {

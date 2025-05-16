@@ -177,14 +177,9 @@ impl RemoteEntityMap {
                 self.remote_to_local.remove(&remote);
             }
             return Some(local);
-        } else {
-            match self.remote_to_local.remove(&remote_entity) {
-                Some(local) => {
-                    self.local_to_remote.remove(&local);
-                    return Some(local);
-                }
-                _ => {}
-            }
+        } else if let Some(local) = self.remote_to_local.remove(&remote_entity) {
+            self.local_to_remote.remove(&local);
+            return Some(local);
         }
         None
     }

@@ -53,7 +53,6 @@ fn test_spawn_with_child() {
         .parent(), server_entity);
 }
 
-///
 #[test]
 fn test_despawn_with_child() {}
 

@@ -119,7 +119,7 @@ impl RemoteTimeline {
         if self
             .context
             .last_received_tick
-            .map_or(true, |previous_tick| remote_tick >= previous_tick)
+            .is_none_or(|previous_tick| remote_tick >= previous_tick)
         {
             // only update if the remote tick is newer than the last received tick
             self.context.received_packet = true;
@@ -189,8 +189,8 @@ impl RemoteTimeline {
         let clamped_normalized_jitter = normalized_jitter.clamp(0.0, 1.0);
 
         // 3. Linearly interpolate alpha based on clamped_normalized_jitter.
-        let dynamic_alpha = self.max_ema_alpha - clamped_normalized_jitter * alpha_range;
-        dynamic_alpha
+        
+        self.max_ema_alpha - clamped_normalized_jitter * alpha_range
     }
 }
 

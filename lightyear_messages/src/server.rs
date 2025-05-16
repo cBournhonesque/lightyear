@@ -22,7 +22,7 @@ pub struct ServerMultiMessageSender<'w, 's> {
     metadata: Res<'w, PeerMetadata>,
 }
 
-impl<'w, 's> ServerMultiMessageSender<'w, 's> {
+impl ServerMultiMessageSender<'_, '_> {
     pub fn send<M: Message, C: Channel>(
         &mut self,
         message: &M,

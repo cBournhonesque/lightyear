@@ -334,7 +334,7 @@ impl Plugin for TransportPlugin {
 pub mod tests {
     use super::*;
     use crate::channel::registry::AppChannelExt;
-    use crate::channel::ChannelKind;
+    
     use crate::prelude::{ChannelMode, ChannelSettings};
 
     pub struct C;

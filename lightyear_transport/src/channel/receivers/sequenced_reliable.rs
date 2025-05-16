@@ -22,6 +22,12 @@ pub struct SequencedReliableReceiver {
     fragment_receiver: FragmentReceiver,
 }
 
+impl Default for SequencedReliableReceiver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SequencedReliableReceiver {
     pub fn new() -> Self {
         Self {

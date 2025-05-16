@@ -47,7 +47,7 @@ use bevy::reflect::Reflect;
 use crate::send::ReplicationBufferSet;
 use crate::visibility::error::NetworkVisibilityError;
 use crate::visibility::immediate::{
-    NetworkVisibility, NetworkVisibilityPlugin, VisibilityState,
+    NetworkVisibility, NetworkVisibilityPlugin, VisibilityState
 };
 
 /// A [`Room`] is a data structure that is used to perform interest management.
@@ -256,7 +256,7 @@ impl Plugin for RoomPlugin {
         #[cfg(test)]
         app.configure_sets(
             PostUpdate,
-            RoomSet::ApplyRoomEvents.before(VisibilitySet::UpdateVisibility),
+            RoomSet::ApplyRoomEvents.before(crate::visibility::immediate::VisibilitySet::UpdateVisibility),
         );
         app.add_observer(Self::handle_room_event);
     }

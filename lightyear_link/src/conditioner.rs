@@ -3,7 +3,6 @@ use bevy::platform::time::Instant;
 use bevy::reflect::Reflect;
 use core::time::Duration;
 use lightyear_utils::ready_buffer::ReadyBuffer;
-use rand;
 use rand::Rng;
 
 /// Contains configuration required to initialize a LinkConditioner

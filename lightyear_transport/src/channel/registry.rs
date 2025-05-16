@@ -4,7 +4,6 @@ use bevy::app::App;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::{Resource, TypePath};
 use core::any::TypeId;
-#[cfg(any(feature = "client", feature = "server"))]
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
 use lightyear_utils::registry::{TypeKind, TypeMapper};
@@ -114,7 +113,6 @@ impl<'a, C: Channel> ChannelRegistration<'a, C> {
     }
 
     /// Add a new [`NetworkDirection`] to the registry
-    #[cfg(any(feature = "client", feature = "server"))]
     pub fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self {
         #[cfg(feature = "client")]
         self.add_client_direction(direction);

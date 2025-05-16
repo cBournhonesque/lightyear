@@ -43,7 +43,7 @@ use lightyear_messages::registry::{MessageKind, MessageRegistry};
 use lightyear_messages::MessageNetId;
 use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
 use lightyear_serde::writer::Writer;
-use lightyear_serde::{SerializationError, ToBytes};
+use lightyear_serde::ToBytes;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::plugin::TransportSet;
@@ -1012,11 +1012,9 @@ impl ReplicationSender {
 
             // Since we are serializing directly though the Transport, we need to serialize the message_net_id ourselves
             actions_net_id
-                .to_bytes(&mut self.writer)
-                .map_err(SerializationError::from)?;
+                .to_bytes(&mut self.writer)?;
             message
-                .to_bytes(&mut self.writer)
-                .map_err(SerializationError::from)?;
+                .to_bytes(&mut self.writer)?;
             let message_bytes = self.writer.split();
             let message_id = sender
                 .send_mut_with_priority::<ActionsChannel>(message_bytes, priority)?
@@ -1064,11 +1062,9 @@ impl ReplicationSender {
 
             // Since we are serializing directly though the Transport, we need to serialize the message_net_id ourselves
             updates_net_id
-                .to_bytes(&mut self.writer)
-                .map_err(SerializationError::from)?;
+                .to_bytes(&mut self.writer)?;
             message
-                .to_bytes(&mut self.writer)
-                .map_err(SerializationError::from)?;
+                .to_bytes(&mut self.writer)?;
             let message_bytes = self.writer.split();
             let message_id = transport
                 .send_mut_with_priority::<UpdatesChannel>(message_bytes, priority)?

@@ -20,7 +20,7 @@ pub struct MultiMessageSender<'w, 's> {
     pub(crate) writer: Local<'s, Writer>,
 }
 
-impl<'w, 's> MultiMessageSender<'w, 's> {
+impl MultiMessageSender<'_, '_> {
     pub fn send_with_priority<M: Message, C: Channel>(
         &mut self,
         message: &M,

@@ -182,7 +182,7 @@ fn default_serialize<M: Serialize>(
     message: &M,
     buffer: &mut Writer,
 ) -> Result<(), SerializationError> {
-    let _ = bincode::serde::encode_into_writer(message, buffer, bincode::config::standard())?;
+    bincode::serde::encode_into_writer(message, buffer, bincode::config::standard())?;
     Ok(())
 }
 

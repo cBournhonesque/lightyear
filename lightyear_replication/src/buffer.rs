@@ -26,13 +26,10 @@ use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 
 use crate::control::{Controlled, ControlledBy};
 use lightyear_connection::client::Connected;
-use lightyear_connection::client::{Client, PeerMetadata};
 use lightyear_connection::prelude::NetworkTarget;
 
-use lightyear_connection::client_of::ClientOf;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
-use lightyear_link::prelude::LinkOf;
 #[cfg(feature = "server")]
 use lightyear_link::prelude::Server;
 use lightyear_messages::MessageManager;
@@ -946,7 +943,7 @@ fn replicate_component_update(
             let send_tick = sender.get_send_tick(group_id);
 
             // send the update for all changes newer than the last send bevy tick for the group
-            if send_tick.map_or(true, |send_tick| {
+            if send_tick.is_none_or(|send_tick| {
                 component_ticks.is_changed(send_tick, sender.this_run)
             }) {
                 trace!(

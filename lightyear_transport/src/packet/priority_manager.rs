@@ -73,9 +73,9 @@ impl Default for PriorityManager {
 
 impl PriorityManager {
     pub fn new(config: PriorityConfig) -> Self {
-        let quota = config.bandwidth_quota.clone();
+        let quota = config.bandwidth_quota;
         Self {
-            config: config,
+            config,
             data_to_send: Vec::new(),
             limiter: DefaultDirectRateLimiter::direct(quota),
             // data_to_send: BTreeMap::new(),

@@ -34,7 +34,7 @@ pub struct WebTransportClientIo {
 }
 
 impl WebTransportClientPlugin {
-    #[must_use]
+    
     fn link(
         trigger: Trigger<LinkStart>,
         query: Query<(Entity, &WebTransportClientIo), (Without<Linking>, Without<Linked>)>,

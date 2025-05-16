@@ -776,12 +776,10 @@ impl<Ctx> Server<Ctx> {
     }
 
     pub(crate) fn send_netcode_packets(&mut self, entity: Entity, sender: &mut LinkSender) {
-        self.send_queue.get_mut(&entity).map(|queue| {
-            queue.drain(..).for_each(|send_payload| {
+        if let Some(queue) = self.send_queue.get_mut(&entity) { queue.drain(..).for_each(|send_payload| {
                 trace!("server sending netcode packet");
                 sender.push(send_payload);
-            });
-        });
+            }); }
     }
 
     fn recv_packet(

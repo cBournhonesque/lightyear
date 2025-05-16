@@ -27,6 +27,12 @@ pub struct UnorderedReliableReceiver {
     received_message_ids: HashSet<MessageId>,
 }
 
+impl Default for UnorderedReliableReceiver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UnorderedReliableReceiver {
     pub fn new() -> Self {
         Self {

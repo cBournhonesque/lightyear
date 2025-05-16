@@ -105,7 +105,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
         // (we need to call this even if status.start is set, because a new more recent server update could have been received)
         let new_start = history.pop_until_tick(current_interpolate_tick);
         if let Some((new_tick, _)) = new_start {
-            if start.as_ref().map_or(true, |(tick, _)| *tick <= new_tick) {
+            if start.as_ref().is_none_or(|(tick, _)| *tick <= new_tick) {
                 trace!(
                     ?current_interpolate_tick,
                     old_start = ?start.as_ref().map(|(tick, _)| tick),
@@ -118,7 +118,7 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
         // get the next value immediately > current_interpolate_tick, but without popping
         // (we need to call this even if status.end is set, because a new more recent server update could have been received)
         if let Some((new_tick, _)) = history.peek() {
-            if end.as_ref().map_or(true, |(tick, _)| new_tick < *tick) {
+            if end.as_ref().is_none_or(|(tick, _)| new_tick < *tick) {
                 trace!("next value after current_interpolate_tick: {:?}", new_tick);
                 // only pop if we actually put the value in end
                 end = history.pop();
