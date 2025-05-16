@@ -67,6 +67,17 @@ pub struct CompMap(#[entities] pub Entity);
 pub struct CompFull(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompCorr(pub f32);
+
+impl Ease for CompCorr {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| {
+            CompCorr(f32::lerp(start.0, end.0, t))
+        })
+    }
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompNotNetworked(pub f32);
 
 // Inputs
@@ -108,6 +119,10 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<CompA>();
         app.register_component::<CompFull>()
             .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full);
+        app.register_component::<CompCorr>()
+            .add_prediction(PredictionMode::Full)
+            .add_linear_correction_fn()
             .add_interpolation(InterpolationMode::Full);
         app.register_component::<CompMap>()
             .add_prediction(PredictionMode::Full)

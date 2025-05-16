@@ -129,7 +129,6 @@ fn check_rollback(
     if !replication_receiver.has_received_this_frame() {
         return;
     }
-    info!("C");
     predicted_entities.par_iter_mut().for_each(|mut predicted_mut| {
         let Some(confirmed) = predicted_mut.get::<Predicted>().and_then(|p| p.confirmed_entity) else {
             // skip if the confirmed entity does not exist
@@ -144,7 +143,6 @@ fn check_rollback(
         if prediction_manager.is_rollback() {
             return
         }
-        info!("will check");
 
         // NOTE: do NOT use ref because the change ticks are incorrect within a system! Fixed in 0.17
         // let confirmed_component = get_ref::<Confirmed>(

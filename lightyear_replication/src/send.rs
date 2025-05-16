@@ -297,11 +297,10 @@ impl Plugin for ReplicationSendPlugin {
         // SYSTEMS
         app.add_observer(buffer::buffer_entity_despawn_replicate_remove);
         app.add_observer(Self::send_sender_metadata);
-        #[cfg(any(feature = "client", feature = "server"))]
         app.add_observer(Replicate::handle_connection);
-        #[cfg(all(any(feature = "client", feature = "server"), feature = "prediction"))]
+        #[cfg(feature = "prediction")]
         app.add_observer(PredictionTarget::handle_connection);
-        #[cfg(all(any(feature = "client", feature = "server"), feature = "interpolation"))]
+        #[cfg(feature = "interpolation")]
         app.add_observer(InterpolationTarget::handle_connection);
         app.add_observer(Self::handle_disconnection);
 

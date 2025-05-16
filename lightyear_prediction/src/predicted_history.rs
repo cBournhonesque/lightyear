@@ -272,11 +272,9 @@ fn added_on_confirmed_sync(
     let Ok(confirmed_component) = confirmed_query.get(trigger.target()) else {
         return;
     };
-    info!("B");
     let Some(predicted) = confirmed_component.predicted else {
         return;
     };
-    info!("SY");
     let confirmed = trigger.target();
 
     // TODO: how do we avoid this allocation?

@@ -1,3 +1,4 @@
+use crate::client_server::prediction::{trigger_rollback, trigger_rollback_system, RollbackInfo};
 use crate::protocol::{CompFull, CompMap, CompNotNetworked};
 use crate::stepper::ClientServerStepper;
 #[cfg(not(feature = "std"))]
@@ -8,40 +9,14 @@ use lightyear::prediction::diagnostics::PredictionMetrics;
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prediction::Predicted;
 use lightyear_connection::prelude::NetworkTarget;
-use lightyear_core::prelude::{Rollback, Tick};
+use lightyear_core::prelude::Rollback;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::plugin::PredictionSet;
 use lightyear_prediction::prelude::PredictionManager;
 use lightyear_prediction::rollback::DisableRollback;
 use lightyear_replication::components::Confirmed;
-use lightyear_replication::prelude::{PredictionTarget, Replicate, ReplicationReceiver, ReplicationSet};
+use lightyear_replication::prelude::{PredictionTarget, Replicate, ReplicationSet};
 use test_log::test;
-
-/// Mock that we received an update for the Confirmed entity at a given tick
-#[derive(Event)]
-struct RollbackInfo {
-    confirmed: Entity,
-    tick: Tick,
-}
-
-
-/// Helper function to simulate that we received a server message
-fn trigger_rollback_system(
-    mut events: EventReader<RollbackInfo>,
-    mut receiver: Single<&mut ReplicationReceiver, With<PredictionManager>>,
-    mut query: Query<&mut Confirmed>
-) {
-    for event in events.read() {
-        receiver.set_received_this_frame();
-        if let Ok(mut confirmed) = query.get_mut(event.confirmed) {
-            confirmed.tick = event.tick;
-        }
-    }
-}
-
-fn trigger_rollback(stepper: &mut ClientServerStepper, rollback_info: RollbackInfo) {
-    stepper.client_app().world_mut().resource_mut::<Events<RollbackInfo>>().send(rollback_info);
-}
 
 fn setup() -> (ClientServerStepper, Entity, Entity) {
     let mut stepper = ClientServerStepper::single();

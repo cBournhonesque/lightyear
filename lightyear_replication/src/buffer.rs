@@ -25,11 +25,13 @@ use crate::send::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 
 use crate::control::{Controlled, ControlledBy};
-use lightyear_connection::client::Connected;
+use lightyear_connection::client::{Client, Connected, PeerMetadata};
+use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::prelude::NetworkTarget;
 
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
+use lightyear_link::prelude::LinkOf;
 #[cfg(feature = "server")]
 use lightyear_link::prelude::Server;
 use lightyear_messages::MessageManager;
@@ -285,7 +287,6 @@ impl Replicate {
             });
     }
 
-    #[cfg(any(feature = "client", feature = "server"))]
     /// When a new client connects, check if we need to replicate existing entities to it
     pub(crate) fn handle_connection(
         trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,

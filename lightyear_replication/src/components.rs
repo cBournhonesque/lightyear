@@ -10,8 +10,12 @@ use bevy::ecs::reflect::ReflectComponent;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bevy::time::{Timer, TimerMode};
+use lightyear_connection::client::{Connected, PeerMetadata};
+use lightyear_connection::client_of::ClientOf;
+use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::id::PeerId;
 use lightyear_core::tick::Tick;
+use lightyear_link::prelude::LinkOf;
 #[cfg(feature = "server")]
 use lightyear_link::server::Server;
 use lightyear_serde::reader::{ReadInteger, Reader};
@@ -505,7 +509,6 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
         replicate.senders = EntityIndexSet::default();
     }
 
-    #[cfg(any(feature = "client", feature = "server"))]
     /// When a new client connects, check if we need to replicate existing entities to it
     pub(crate) fn handle_connection(
         trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
