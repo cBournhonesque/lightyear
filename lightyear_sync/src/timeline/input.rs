@@ -17,7 +17,7 @@ use tracing::trace;
 /// on the remote peer
 #[derive(Debug, Reflect)]
 pub struct Input {
-    pub(crate) config: SyncConfig,
+    pub config: SyncConfig,
     /// Current input_delay_ticks that are being applied
     pub(crate) input_delay_ticks: u16,
     relative_speed: f32,
@@ -154,7 +154,7 @@ impl InputDelayConfig {
 }
 
 #[derive(Component, Deref, DerefMut, Default, Debug, Reflect)]
-pub struct InputTimeline(Timeline<Input>);
+pub struct InputTimeline(pub Timeline<Input>);
 
 impl TimelineContext for Input {}
 
@@ -282,5 +282,39 @@ impl SyncedTimeline for InputTimeline {
         self.relative_speed = 1.0;
         self.now = Default::default();
         // TODO: also reset tick duration?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_input_delay_config() {
+        let config_1 = InputDelayConfig {
+            minimum_input_delay_ticks: 2,
+            maximum_input_delay_before_prediction: 3,
+            maximum_predicted_ticks: 7,
+        };
+        // 1. Test the minimum input delay
+        assert_eq!(
+            config_1.input_delay_ticks(Duration::from_millis(10), Duration::from_millis(16)),
+            2
+        );
+
+        // 2. Test the maximum input delay before prediction
+        assert_eq!(
+            config_1.input_delay_ticks(Duration::from_millis(60), Duration::from_millis(16)),
+            3
+        );
+
+        // 3. Test the maximum predicted delay
+        assert_eq!(
+            config_1.input_delay_ticks(Duration::from_millis(200), Duration::from_millis(16)),
+            6
+        );
+        assert_eq!(
+            config_1.input_delay_ticks(Duration::from_millis(300), Duration::from_millis(16)),
+            12
+        );
     }
 }

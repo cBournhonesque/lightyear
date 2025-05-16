@@ -1,12 +1,15 @@
 //! Contains the `LinkConditioner` struct which can be used to simulate network conditions
+#[cfg(not(feature = "test_utils"))]
 use bevy::platform::time::Instant;
 use bevy::reflect::Reflect;
 use core::time::Duration;
 use lightyear_utils::ready_buffer::ReadyBuffer;
+#[cfg(feature = "test_utils")]
+use mock_instant::global::Instant;
 use rand::Rng;
 
 /// Contains configuration required to initialize a LinkConditioner
-#[derive(Clone, Debug, Reflect)]
+#[derive(Clone, Debug, Default, Reflect)]
 pub struct LinkConditionerConfig {
     /// Delay to receive incoming messages in milliseconds (half the RTT)
     pub incoming_latency: Duration,

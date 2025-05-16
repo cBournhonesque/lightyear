@@ -53,15 +53,17 @@ pub struct PredictionManager {
     /// by avoiding a `ResMut<PredictionManager>` in our systems.
     #[reflect(ignore)]
     pub predicted_entity_map: UnsafeCell<PredictedEntityMap>,
+    #[doc(hidden)]
     /// Map from the hash of a PrespawnedPlayerObject to the corresponding local entity
     /// NOTE: multiple entities could share the same hash. In which case, upon receiving a server prespawned entity,
     /// we will randomly select a random entity in the set to be its predicted counterpart
     ///
     /// Also stores the tick at which the entities was spawned.
     /// If the interpolation_tick reaches that tick and there is till no match, we should despawn the entity
-    pub(crate) prespawn_hash_to_entities: EntityHashMap<u64, Vec<Entity>>,
+    pub prespawn_hash_to_entities: EntityHashMap<u64, Vec<Entity>>,
+    #[doc(hidden)]
     /// Store the spawn tick of the entity, as well as the corresponding hash
-    pub(crate) prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
+    pub prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
     #[reflect(ignore)]
     pub(crate) temp_write_buffer: TempWriteBuffer,
     /// We use a RwLock because we want to be able to update this value from multiple systems

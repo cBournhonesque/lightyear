@@ -9,6 +9,10 @@ mod pre_prediction;
 
 mod rollback;
 mod correction;
+mod despawn;
+mod history;
+mod prespawn;
+mod spawn;
 
 /// Mock that we received an update for the Confirmed entity at a given tick
 #[derive(Event)]

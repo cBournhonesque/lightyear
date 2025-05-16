@@ -15,6 +15,14 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use tracing::trace;
 
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum RelationshipSet {
+    // PreUpdate
+    Receive,
+    // PostUpdate
+    Send,
+}
+
 /// Marker component that defines how the hierarchy of an entity (parent/children) should be replicated.
 ///
 /// When `DisableReplicateHierarchy` is added to an entity, we will stop replicating their children.
@@ -213,13 +221,10 @@ impl<R: Relationship + Debug + GetTypeRegistration + TypePath> Plugin
 
         // TODO: does this work for client replication? (client replicating to other clients via the server?)
         // when we receive a RelationshipSync update from the remote, update the hierarchy
+        app.configure_sets(PreUpdate, ReplicationSet::ReceiveRelationships.after(ReplicationSet::Receive));
         app.add_systems(
             PreUpdate,
-            Self::update_parent.after(ReplicationSet::Receive),
-            // // we want update_parent to run in the same frame that ParentSync is propagated
-            // // to the predicted/interpolated entities
-            // .after(PredictionSet::Sync)
-            // .after(InterpolationSet::SpawnHistory),
+            Self::update_parent.in_set(ReplicationSet::ReceiveRelationships)
         );
     }
 }

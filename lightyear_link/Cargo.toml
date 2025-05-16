@@ -15,8 +15,7 @@ std = [
     "bytes/std",
     "serde/std",
 ]
-
-test_utils = []
+test_utils = ["dep:mock_instant"]
 
 [dependencies]
 lightyear_core.workspace = true
@@ -32,6 +31,9 @@ bytes.workspace = true
 
 # bevy
 bevy.workspace = true
+
+# test
+mock_instant = { workspace = true, optional = true}
 
 [lints]
 workspace = true

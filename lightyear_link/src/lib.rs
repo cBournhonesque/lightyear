@@ -13,6 +13,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
+#[cfg(not(feature = "test_utils"))]
+use bevy::platform::time::Instant;
+#[cfg(feature = "test_utils")]
+use mock_instant::global::Instant;
+
 mod conditioner;
 
 mod id;
@@ -24,7 +29,6 @@ use crate::conditioner::LinkConditioner;
 use alloc::collections::VecDeque;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::Bytes;
 use core::net::SocketAddr;
@@ -108,7 +112,7 @@ impl Link {
 #[derive(Default)]
 pub struct LinkReceiver {
     buffer: VecDeque<RecvPayload>,
-    conditioner: Option<LinkConditioner<RecvPayload>>,
+    pub conditioner: Option<LinkConditioner<RecvPayload>>,
 }
 
 impl LinkReceiver {

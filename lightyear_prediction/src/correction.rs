@@ -28,7 +28,6 @@ use crate::SyncComponent;
 use bevy::prelude::{Added, Commands, Component, DetectChangesMut, Entity, Query, Res, Single, With};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_replication::components::Replicated;
 use lightyear_utils::easings::ease_out_quad;
 use tracing::{debug, trace};
 

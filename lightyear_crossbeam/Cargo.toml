@@ -12,6 +12,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 default = ["std"]
 std = [
 ]
+test_utils = ["dep:mock_instant"]
 
 [dependencies]
 lightyear_link.workspace = true
@@ -25,6 +26,9 @@ tracing.workspace = true
 
 # serde
 bytes.workspace = true
+
+# test
+mock_instant = {workspace = true, optional = true}
 
 [lints]
 workspace = true

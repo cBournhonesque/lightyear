@@ -39,10 +39,11 @@ lightyear_core.workspace = true
 lightyear_netcode = { workspace = true, features = ["client", "server", "test_utils"] }
 lightyear_messages = { workspace = true, features = ["client", "server"] }
 lightyear_replication =  { workspace = true, features = ["client", "server", "test_utils"]}
-lightyear_crossbeam.workspace = true
+lightyear_crossbeam = { workspace = true, features = ["test_utils"]}
 lightyear_connection = { workspace = true, features = ["client", "server"]}
 lightyear_sync = { workspace = true, features = ["client", "server"] }
 lightyear_prediction = { workspace = true, features = ["test_utils"] }
+lightyear_link = { workspace = true, features = ["test_utils"]}
 
 # utils
 cfg-if.workspace = true
@@ -55,9 +56,13 @@ bytes.workspace = true
 # bevy
 bevy.workspace = true
 
+# test
+mock_instant.workspace = true
+
 [dev-dependencies]
 test-log.workspace = true
 approx.workspace = true
+mock_instant.workspace = true
 
 [lints]
 workspace = true

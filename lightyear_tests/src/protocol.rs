@@ -67,6 +67,12 @@ pub struct CompMap(#[entities] pub Entity);
 pub struct CompFull(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompSimple(pub f32);
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompOnce(pub f32);
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompCorr(pub f32);
 
 impl Ease for CompCorr {
@@ -120,6 +126,12 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<CompFull>()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full);
+        app.register_component::<CompSimple>()
+            .add_prediction(PredictionMode::Simple)
+            .add_interpolation(InterpolationMode::Simple);
+        app.register_component::<CompOnce>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
         app.register_component::<CompCorr>()
             .add_prediction(PredictionMode::Full)
             .add_linear_correction_fn()

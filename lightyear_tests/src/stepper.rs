@@ -17,7 +17,7 @@ const SERVER_ADDR: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCAL
 /// Stepper with:
 /// - n client in one 'client' App
 /// - 1 server in another App, with n ClientOf connected to each client
-/// 
+///
 /// Connected via crossbeam channels, and using Netcode for connection
 /// We create two separate apps to make it easy to order the client and server updates.
 pub struct ClientServerStepper {
@@ -289,6 +289,7 @@ impl ClientServerStepper {
         });
         self.server_app
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
+        mock_instant::global::MockClock::advance(duration);
     }
 
     pub(crate) fn flush(&mut self) {

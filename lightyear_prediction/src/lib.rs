@@ -29,7 +29,7 @@ pub mod server;
 mod shared;
 
 pub mod prelude {
-    pub use crate::despawn::PredictionDespawnCommandsExt;
+    pub use crate::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
     pub use crate::manager::PredictionManager;
     pub use crate::plugin::PredictionPlugin;
     pub use crate::prespawn::PreSpawned;

@@ -363,37 +363,3 @@ impl Plugin for PredictionPlugin {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_input_delay_config() {
-        let config_1 = PredictionConfig {
-            always_rollback: false,
-            minimum_input_delay_ticks: 2,
-            maximum_input_delay_before_prediction: 3,
-            maximum_predicted_ticks: 7,
-            correction_ticks_factor: 0.0,
-        };
-        // 1. Test the minimum input delay
-        assert_eq!(
-            config_1.input_delay_ticks(Duration::from_millis(10), Duration::from_millis(16)),
-            2
-        );
-
-        // 2. Test the maximum input delay before prediction
-        assert_eq!(
-            config_1.input_delay_ticks(Duration::from_millis(60), Duration::from_millis(16)),
-            3
-        );
-
-        // 3. Test the maximum predicted delay
-        assert_eq!(
-            config_1.input_delay_ticks(Duration::from_millis(200), Duration::from_millis(16)),
-            6
-        );
-        assert_eq!(
-            config_1.input_delay_ticks(Duration::from_millis(300), Duration::from_millis(16)),
-            12
-        );
-    }
-}
