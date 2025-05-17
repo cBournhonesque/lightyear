@@ -40,6 +40,12 @@ pub(crate) mod std {
             self.0.read(buf)
         }
     }
+    
+    impl AsRef<[u8]> for Reader {
+        fn as_ref(&self) -> &[u8] {
+            self.0.get_ref().as_ref()
+        }
+    }
 
     impl Reader {
         /// Returns the underlying RawData
@@ -47,12 +53,12 @@ pub(crate) mod std {
             self.0.into_inner()
         }
 
-        pub fn as_ref(&self) -> &[u8] {
-            self.0.get_ref().as_ref()
-        }
-
         pub fn len(&self) -> usize {
             self.0.get_ref().len()
+        }
+        
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
         }
 
         /// Split of the next `len` bytes from the reader into a separate Bytes.
@@ -128,6 +134,12 @@ pub(crate) mod no_std {
             self.0.read(buf)
         }
     }
+    
+    impl AsRef<[u8]> for Reader {
+        fn as_ref(&self) -> &[u8] {
+            self.0.get_ref().as_ref()
+        }
+    }
 
     impl Reader {
         /// Returns the underlying RawData
@@ -135,12 +147,12 @@ pub(crate) mod no_std {
             self.0.into_inner()
         }
 
-        pub fn as_ref(&self) -> &[u8] {
-            self.0.get_ref().as_ref()
-        }
-
         pub fn len(&self) -> usize {
             self.0.get_ref().len()
+        }
+        
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
         }
 
         /// Split of the next `len` bytes from the reader into a separate Bytes.

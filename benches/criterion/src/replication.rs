@@ -5,10 +5,10 @@ use bevy::prelude::With;
 use core::time::Duration;
 use lightyear::prelude::{NetworkTarget, Replicate, Replicating};
 use lightyear_benches::profiler::FlamegraphProfiler;
-use lightyear_benches::protocol::*;
 use std::time::Instant;
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
+use lightyear_tests::protocol::CompFull;
 use lightyear_tests::stepper::ClientServerStepper;
 
 criterion_group!(
@@ -40,7 +40,7 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
                     for _ in 0..iter {
                         let mut stepper = ClientServerStepper::single();
                         let entities =
-                            vec![(Component1(0.0), Replicate::to_clients(NetworkTarget::All),); *n];
+                            vec![(CompFull(0.0), Replicate::to_clients(NetworkTarget::All),); *n];
                         stepper.server_app.world_mut().spawn_batch(entities);
 
                         // advance time by one frame
@@ -76,7 +76,7 @@ fn send_float_update_one_client(criterion: &mut Criterion) {
                     for _ in 0..iter {
                         let mut stepper = ClientServerStepper::single();
                         let entities =
-                            vec![(Component1(1.0), Replicate::to_clients(NetworkTarget::All)); *n];
+                            vec![(CompFull(1.0), Replicate::to_clients(NetworkTarget::All)); *n];
                         stepper.server_app.world_mut().spawn_batch(entities);
                         stepper.frame_step(2);
 
@@ -84,7 +84,7 @@ fn send_float_update_one_client(criterion: &mut Criterion) {
                         for mut component in stepper
                             .server_app
                             .world_mut()
-                            .query_filtered::<&mut Component1, With<Replicating>>()
+                            .query_filtered::<&mut CompFull, With<Replicating>>()
                             .iter_mut(stepper.server_app.world_mut())
                         {
                             component.0 = 0.0;
@@ -123,7 +123,7 @@ fn receive_float_insert(criterion: &mut Criterion) {
                     for _ in 0..iter {
                         let mut stepper = ClientServerStepper::single();
                         let entities =
-                            vec![(Component1(1.0), Replicate::to_clients(NetworkTarget::All)); *n];
+                            vec![(CompFull(1.0), Replicate::to_clients(NetworkTarget::All)); *n];
                         stepper.server_app.world_mut().spawn_batch(entities);
 
                         stepper.advance_time(stepper.frame_duration);
@@ -157,7 +157,7 @@ fn receive_float_update(criterion: &mut Criterion) {
                     for _ in 0..iter {
                         let mut stepper = ClientServerStepper::single();
                         let entities =
-                            vec![(Component1(1.0), Replicate::to_clients(NetworkTarget::All)); *n];
+                            vec![(CompFull(1.0), Replicate::to_clients(NetworkTarget::All)); *n];
                         stepper.server_app.world_mut().spawn_batch(entities);
                         stepper.frame_step(2);
 
@@ -165,7 +165,7 @@ fn receive_float_update(criterion: &mut Criterion) {
                         for mut component in stepper
                             .server_app
                             .world_mut()
-                            .query_filtered::<&mut Component1, With<Replicating>>()
+                            .query_filtered::<&mut CompFull, With<Replicating>>()
                             .iter_mut(stepper.server_app.world_mut())
                         {
                             component.0 = 0.0;
@@ -203,7 +203,7 @@ fn send_float_insert_n_clients(criterion: &mut Criterion) {
                     for _ in 0..iter {
                         let mut stepper = ClientServerStepper::with_clients(*n);
                         let entities =
-                            vec![(Component1(0.0), Replicate::default()); FIXED_NUM_ENTITIES];
+                            vec![(CompFull(0.0), Replicate::default()); FIXED_NUM_ENTITIES];
                         stepper.server_app.world_mut().spawn_batch(entities);
 
                         // advance time by one frame

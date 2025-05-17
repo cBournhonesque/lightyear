@@ -1,9 +1,9 @@
 //! Benchmark to measure the performance of replicating Entity spawns
 #![allow(unused_imports)]
-use lightyear_benches::protocol::*;
 
-use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use lightyear::prelude::MessageSender;
+use lightyear_tests::protocol::{Channel1, StringMessage};
 use lightyear_tests::stepper::ClientServerStepper;
 
 criterion_group!(message_benches, send_receive_simple_messages_to_one_client);
@@ -28,9 +28,9 @@ fn send_receive_simple_messages_to_one_client(criterion: &mut Criterion) {
                         for _ in 0..*n {
                             stepper
                                 .client_of_mut(0)
-                                .get_mut::<MessageSender<Message2>>()
+                                .get_mut::<MessageSender<StringMessage>>()
                                 .unwrap()
-                                .send::<Channel1>(Message2(1));
+                                .send::<Channel1>(StringMessage("a".to_string()));
                         }
                         stepper.frame_step(1);
                     },

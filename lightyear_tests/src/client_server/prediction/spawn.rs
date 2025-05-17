@@ -1,6 +1,5 @@
 use crate::stepper::ClientServerStepper;
 use bevy::ecs::hierarchy::ChildOf;
-use bevy::ecs::relationship::Relationship;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::components::{Confirmed, PredictionTarget};

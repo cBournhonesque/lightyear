@@ -6,7 +6,6 @@ use alloc::{
 };
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
-use cfg_if::cfg_if;
 use leafwing_input_manager::Actionlike;
 use lightyear::prelude::input::*;
 use lightyear::prelude::*;
