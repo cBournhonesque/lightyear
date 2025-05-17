@@ -72,15 +72,17 @@ impl Plugin for LagCompensationPlugin {
                 .in_set(LagCompensationSet::UpdateHistory),
         );
 
+        
         app.configure_sets(
             PhysicsSchedule,
             (
                 PhysicsStepSet::Solver,
                 // the history must be updated before the SpatialQuery is updated
-                LagCompensationSet::UpdateHistory.ambiguous_with(PhysicsStepSet::ReportContacts),
+                LagCompensationSet::UpdateHistory.ambiguous_with(PhysicsStepSet::Sleeping),
                 PhysicsStepSet::SpatialQuery,
                 // collisions must run after the SpatialQuery has been updated
-                LagCompensationSet::Collisions,
+                // NOTE: we set it as ambiguous with Finalize, but maybe we should run before?
+                LagCompensationSet::Collisions.ambiguous_with(PhysicsStepSet::Finalize),
             )
                 .chain(),
         );
@@ -126,7 +128,7 @@ fn update_collision_layers(
     parent_query.iter_mut().for_each(|(layers, children)| {
         if layers.is_changed() || !layers.is_added() {
             for child in children.iter() {
-                if let Ok(mut child_layers) = child_query.get_mut(*child) {
+                if let Ok(mut child_layers) = child_query.get_mut(child) {
                     *child_layers = *layers;
                 }
             }
@@ -151,7 +153,7 @@ fn update_collider_history(
         ),
         Without<AabbEnvelopeHolder>,
     >,
-    mut children_query: Query<(&Parent, &mut Collider, &mut Position), With<AabbEnvelopeHolder>>,
+    mut children_query: Query<(&ChildOf, &mut Collider, &mut Position), With<AabbEnvelopeHolder>>,
 ) {
     let tick = tick_manager.tick();
     children_query

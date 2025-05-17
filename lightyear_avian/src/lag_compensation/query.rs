@@ -26,7 +26,7 @@ pub struct LagCompensationSpatialQuery<'w, 's> {
     pub config: Res<'w, LagCompensationConfig>,
     spatial_query: SpatialQuery<'w, 's>,
     parent_query: Query<'w, 's, (&'static Collider, &'static LagCompensationHistory)>,
-    child_query: Query<'w, 's, &'static Parent, With<AabbEnvelopeHolder>>,
+    child_query: Query<'w, 's, &'static ChildOf, With<AabbEnvelopeHolder>>,
 }
 
 impl LagCompensationSpatialQuery<'_, '_> {

@@ -50,7 +50,7 @@ fn add_player_input_map(
 
 /// Compute the world-position of the cursor and set it in the DualAxis input
 fn update_cursor_state_from_window(
-    window_query: Query<&Window>,
+    window: Single<&Window>,
     // query to get camera transform
     q_camera: Query<(&Camera, &GlobalTransform)>,
     mut action_state_query: Query<&mut ActionState<PlayerActions>, With<Predicted>>,
@@ -59,7 +59,6 @@ fn update_cursor_state_from_window(
         error!("Expected to find only one camera");
         return;
     };
-    let window = window_query.single();
     if let Some(world_position) = window
         .cursor_position()
         .and_then(|cursor| Some(camera.viewport_to_world(camera_transform, cursor).unwrap()))

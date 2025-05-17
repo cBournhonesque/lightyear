@@ -1,4 +1,3 @@
-use avian2d::collision::ColliderHierarchyPlugin;
 use avian2d::prelude::*;
 use avian2d::PhysicsPlugins;
 use bevy::diagnostic::LogDiagnosticsPlugin;
@@ -46,8 +45,8 @@ impl Plugin for SharedPlugin {
         //  bullet hits)
         app.add_plugins(
             PhysicsPlugins::default()
-                .build()
-                .disable::<ColliderHierarchyPlugin>(),
+            .build()
+            .disable::<ColliderHierarchyPlugin>()
         )
         .insert_resource(Gravity(Vec2::ZERO));
     }

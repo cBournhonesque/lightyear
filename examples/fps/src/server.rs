@@ -4,7 +4,7 @@ use bevy::time::Stopwatch;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
 use core::ops::DerefMut;
-
+use avian2d::collision::narrow_phase::CollisionEventSystems;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{color_from_id, shared_player_movement, BOT_RADIUS};
@@ -32,7 +32,10 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(
             PhysicsSchedule,
             // lag compensation collisions must run after the SpatialQuery has been updated
-            compute_hit_lag_compensation.after(PhysicsStepSet::SpatialQuery),
+            compute_hit_lag_compensation
+                .after(CollisionEventSystems)
+                .in_set(LagCompensationSet::Collisions),
+
         );
         app.add_systems(
             FixedPostUpdate,
