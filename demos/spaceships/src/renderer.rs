@@ -110,7 +110,7 @@ fn add_player_label(
     q: Query<(Entity, &Player, &Score), Or<(With<Predicted>, With<Replicating>)>>,
 ) {
     if let Ok((e, player, score)) = q.get(trigger.target()) {
-        error!("Adding visual bits to {e:?}");
+        info!("Adding visual bits to {e:?}");
         commands.entity(e).insert((
             Visibility::default(),
             Transform::default(),
@@ -131,13 +131,13 @@ fn update_player_label(
             Entity,
             &Player,
             &mut EntityLabel,
-            &InputBuffer<PlayerActions>,
+            &InputBuffer<ActionState<PlayerActions>>,
             &Score,
         ),
         Or<(
             Changed<Player>,
             Changed<Score>,
-            Changed<InputBuffer<PlayerActions>>,
+            Changed<InputBuffer<ActionState<PlayerActions>>>,
         )>,
     >,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,

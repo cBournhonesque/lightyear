@@ -42,7 +42,7 @@ impl PhysicsBundle {
             Vec2::new(-SHIP_WIDTH / 2., -SHIP_LENGTH / 2.),
         ];
         let collider = Collider::convex_hull(points).unwrap();
-        // Note: due to a bug in older (?) versions of bevy_xpbd, using a triangle collider here
+        // Note: due to a bug in older (?) versions of avian, using a triangle collider here
         // sometimes caused strange behaviour. Unsure if this is fixed now.
         // Also, counter-clockwise ordering of points was required for convex hull creation (?)
         Self {

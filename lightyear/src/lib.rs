@@ -1,3 +1,5 @@
+#![allow(ambiguous_glob_reexports)]
+
 #[cfg(feature = "client")]
 pub mod client;
 

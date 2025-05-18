@@ -65,7 +65,7 @@ fn add_ball_physics(
 fn add_bullet_physics(
     trigger: Trigger<OnAdd, BulletMarker>,
     mut commands: Commands,
-    bullet_query: Query<(), (Added<Predicted>, Without<Collider>)>,
+    bullet_query: Query<(), (With<Predicted>, Without<Collider>)>,
 ) {
     let entity = trigger.target();
     if let Ok(()) = bullet_query.get(entity) {
@@ -79,10 +79,10 @@ fn add_bullet_physics(
 fn handle_new_player(
     trigger: Trigger<OnAdd, Player>,
     mut commands: Commands,
-    player_query: Query<(&Player, &Replicated, Has<Controlled>), Added<Predicted>>,
+    player_query: Query<(&Player, Has<Controlled>), With<Predicted>>,
 ) {
     let entity = trigger.target();
-    if let Ok((player, replicated, is_controlled))  = player_query.get(entity) {
+    if let Ok((player, is_controlled))  = player_query.get(entity) {
         info!("handle_new_player, entity = {entity:?} is_controlled = {is_controlled}");
         // is this our own entity?
         if is_controlled {

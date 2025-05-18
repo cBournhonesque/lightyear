@@ -250,14 +250,7 @@ pub(crate) fn lifetime_despawner(
     let (timeline, is_server) = timeline.into_inner();
     for (e, ttl) in q.iter() {
         if (timeline.tick() - ttl.origin_tick) > ttl.lifetime {
-            // if ttl.origin_tick.wrapping_add(ttl.lifetime) > *tick_manager.tick() {
-            if is_server {
-                // info!("Despawning {e:?} without replication");
-                commands.entity(e).despawn();
-            } else {
-                // info!("Despawning:lifetime {e:?}");
-                commands.entity(e).prediction_despawn();
-            }
+            commands.entity(e).prediction_despawn();
         }
     }
 }

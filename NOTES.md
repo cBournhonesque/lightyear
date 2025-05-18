@@ -45,6 +45,9 @@ STATUS:
   - ITS POSSIBLE TO GET COMPLETELY DESYNCED FOR SOME REASON, AND ITS NOT ROLLBACKED!
   - STILL HAVE DOUBLE BULLET SPAWN even though we use JUST_PRESSED! It looks like the leafwing ActionState is always JustPressed
   - possible for the client to get 'stuck'
+- spaceships
+  - runs ok in client/server
+  - Weapon causes rollback, the Confirmed component does not have last_fire_tick for some reason! Is it not being replicated correctly?
 
 
 

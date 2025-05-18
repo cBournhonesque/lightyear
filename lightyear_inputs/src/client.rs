@@ -486,7 +486,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 ) {
     let (manager, mut receiver) = link.into_inner();
     receiver.receive().for_each(|message| {
-        info!(?message.end_tick, ?message, "received remote input message for action: {:?}", core::any::type_name::<S::Action>());
+        trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", core::any::type_name::<S::Action>());
         for target_data in &message.inputs {
             // - the input target has already been set to the server entity in the InputMessage
             // - it has been mapped to a client-entity on the client during deserialization
@@ -509,7 +509,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 if let Ok(confirmed) = confirmed_query.get(entity) {
                     if let Some(predicted) = confirmed.predicted {
                         if let Ok(input_buffer) = predicted_query.get_mut(predicted) {
-                            info!(confirmed= ?entity, ?predicted, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
+                            trace!(confirmed= ?entity, ?predicted, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
                             if let Some(mut input_buffer) = input_buffer {
                                 target_data.states.update_buffer(&mut input_buffer, message.end_tick);
                                 #[cfg(feature = "metrics")]

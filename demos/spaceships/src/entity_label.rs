@@ -3,6 +3,7 @@ use bevy::prelude::TransformSystem::TransformPropagate;
 ///
 /// Label will track parent position, ignoring rotation.
 use bevy::prelude::*;
+use lightyear_frame_interpolation::FrameInterpolationSet;
 
 pub struct EntityLabelPlugin;
 
@@ -12,6 +13,7 @@ impl Plugin for EntityLabelPlugin {
             PostUpdate,
             (label_added, label_changed, fix_entity_label_rotations)
                 .chain()
+                .after(FrameInterpolationSet::Interpolate)
                 .before(TransformPropagate),
         );
     }

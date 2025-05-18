@@ -80,7 +80,7 @@ impl Plugin for LightyearAvianPlugin {
                 .chain(),
         );
 
-        // // TODO: this is only valid if we predict Transform!
+        // // TODO: this is only valid if we replicate Transform instead of Position/Rotation!
         // app.configure_sets(
         //     FixedPostUpdate,
         //     (
@@ -106,14 +106,13 @@ impl Plugin for LightyearAvianPlugin {
             RunFixedMainLoop,
             PhysicsSet::Sync.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
         );
-        // if we are syncing Position/Rotation in PostUpdate (not in FixedLast because FixedLast might not run
-        // in some frames), and running VisualInterpolation for Position/Rotation,
-        // we want to first interpolate and then sync to transform
+        // TODO: this only works if Position/Rotation are replicated and Transform is FrameInterpolated!
+        // Sync Pos/Rotation to Transform before applying frame interpolation to Transfrom
         app.configure_sets(
             PostUpdate,
             (
-                FrameInterpolationSet::Interpolate,
                 PhysicsSet::Sync,
+                FrameInterpolationSet::Interpolate,
                 TransformPropagate,
             )
                 .chain(),

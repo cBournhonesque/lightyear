@@ -149,6 +149,8 @@ pub(crate) fn handle_connections(
                     owner: trigger.target(),
                     lifetime: Default::default(),
                 },
+                // prevent rendering children to be replicated
+                DisableReplicateHierarchy,
                 PhysicsBundle::player_ship(),
                 Weapon::new((FIXED_TIMESTEP_HZ / 5.0) as u16),
                 ColorComponent(col.into()),
