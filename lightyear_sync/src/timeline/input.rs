@@ -204,6 +204,7 @@ impl SyncedTimeline for InputTimeline {
     /// - RTT/2 ahead of the server timeline, so that inputs sent from the server arrive on time
     /// - On top of that, we will take a bit of margin based on the jitter
     /// - we can reduce the ahead-delay by the input_delay
+    ///
     /// Because of the input-delay, the time we return might be in the past compared with the main timeline
     fn sync_objective<T: SyncTargetTimeline>(
         &self,

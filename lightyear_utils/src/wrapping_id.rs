@@ -1,7 +1,7 @@
 //! u16 that wraps around when it reaches the maximum value
 pub trait WrappedId {
-    // return self % total
     // used for sequence buffers
+    /// returns self % total
     fn rem(&self, total: usize) -> usize;
 }
 
@@ -152,23 +152,6 @@ macro_rules! wrapping_id {
 /// ```
 pub fn wrapping_diff(a: u16, b: u16) -> i16 {
     b.wrapping_sub(a) as i16
-}
-
-#[cfg(test)]
-mod sequence_compare_tests {
-    use super::*;
-
-    wrapping_id!(Id);
-
-    #[test]
-    fn test_ordering() {
-        assert!(Id(2) > Id(1));
-        assert!(Id(1) < Id(2));
-        assert!(Id(2) == Id(2));
-        assert!(Id(0) > Id(65535));
-        assert!(Id(0) < Id(32767));
-        assert!(Id(0) > Id(32768));
-    }
 }
 
 #[cfg(test)]

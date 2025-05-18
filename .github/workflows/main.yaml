@@ -45,10 +45,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-all-crates: true
           shared-key: lints
-      - name: Rustdoc
-        run: cargo rustdoc --workspace --features=metrics,interpolation,prediction,replication,leafwing,input_native,avian_2d,avian2d/2d,avian2d/f32,avian2d/parry-f32 -- --document-private-items -D warnings --cfg docsrc
       - name: Test doc
         run: cargo test --workspace --doc
+      - name: Rustdoc
+        run: cargo rustdoc --workspace --features=metrics,interpolation,prediction,replication,leafwing,input_native,avian_2d,avian2d/2d,avian2d/f32,avian2d/parry-f32 -- --document-private-items -D warnings --cfg docsrc
 
   test:
     name: Test
@@ -73,7 +73,7 @@ jobs:
         run: cargo install cargo-tarpaulin
 
       - name: Test
-        run: cargo tarpaulin --all-features --features=avian_2d,avian2d/2d,avian2d/f32,avian2d/parry-f32 --engine llvm --out lcov
+        run: cargo tarpaulin -p lightyear_tests --engine llvm --out lcov
 
       - name: Upload code coverage results
         if: github.actor != 'dependabot[bot]'

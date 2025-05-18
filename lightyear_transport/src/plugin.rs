@@ -367,7 +367,9 @@ pub mod tests {
         app.add_plugins(TestTransportPlugin);
 
         let registry = app.world().resource::<ChannelRegistry>();
-        let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
+        let channel_id = *registry
+            .get_net_from_kind(&crate::channel::ChannelKind::of::<C>())
+            .unwrap();
         let mut transport = Transport::default();
         transport.add_sender_from_registry::<C>(registry);
         transport.add_receiver_from_registry::<C>(registry);

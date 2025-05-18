@@ -62,19 +62,25 @@ impl<K: WrappedId, T, const N: usize> SequenceBuffer<K, T, N> {
 mod tests {
     use super::*;
 
+    impl WrappedId for u16 {
+        fn rem(&self, total: usize) -> usize {
+            (*self as usize) % total
+        }
+    }
+
     #[test]
     fn test_sequence_buffer() {
-        let mut buffer = SequenceBuffer::<MessageId, u8, 32>::new();
+        let mut buffer = SequenceBuffer::<u16, u8, 32>::new();
 
         // check basic behaviour
-        buffer.push(&MessageId(0), 0);
-        assert_eq!(buffer.get(&MessageId(0)), Some(&0));
+        buffer.push(&0, 0);
+        assert_eq!(buffer.get(&0), Some(&0));
 
-        assert_eq!(buffer.remove(&MessageId(0)), Some(0));
+        assert_eq!(buffer.remove(&0), Some(0));
 
         // check loop around behaviour
-        buffer.push(&MessageId(0), 0);
-        buffer.push(&MessageId(32), 1);
-        assert_eq!(buffer.get(&MessageId(0)), Some(&1));
+        buffer.push(&0, 0);
+        buffer.push(&32, 1);
+        assert_eq!(buffer.get(&0), Some(&1));
     }
 }

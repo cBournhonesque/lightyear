@@ -90,10 +90,11 @@ mod tests {
     use super::*;
     use bevy::app::App;
     use bevy::time::{TimePlugin, TimeUpdateStrategy};
+    use core::time::Duration;
     use lightyear_core::prelude::Tick;
     use lightyear_core::tick::TickDuration;
     use lightyear_core::time::{Overstep, TickInstant};
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
     use test_log::test;
 
     #[test]

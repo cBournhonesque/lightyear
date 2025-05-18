@@ -213,6 +213,10 @@ unused_variables = "allow"
 
 [workspace.lints.clippy]
 type_complexity = "allow"
+missing_transmute_annotations = "allow"
+len_without_is_empty = "allow"
+too_many_arguments = "allow"
+module_inception = "allow"
 alloc_instead_of_core = "warn"
 std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"

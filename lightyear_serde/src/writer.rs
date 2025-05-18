@@ -47,6 +47,12 @@ pub(crate) mod std {
         }
     }
 
+    impl AsMut<[u8]> for Writer {
+        fn as_mut(&mut self) -> &mut [u8] {
+            self.0.get_mut().as_mut()
+        }
+    }
+
     impl Writer {
         pub fn with_capacity(capacity: usize) -> Self {
             let buf = BytesMut::with_capacity(capacity);
@@ -61,12 +67,12 @@ pub(crate) mod std {
             self.0.get_ref().len()
         }
 
-        pub fn position(&self) -> usize {
-            self.len()
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
         }
 
-        pub fn as_mut(&mut self) -> &mut [u8] {
-            self.0.get_mut().as_mut()
+        pub fn position(&self) -> usize {
+            self.len()
         }
 
         // TODO: how do reduce capacity over time?
@@ -158,6 +164,12 @@ pub(crate) mod no_std {
         }
     }
 
+    impl AsMut<[u8]> for Writer {
+        fn as_mut(&mut self) -> &mut [u8] {
+            self.0.as_mut()
+        }
+    }
+
     impl Writer {
         pub fn with_capacity(capacity: usize) -> Self {
             let buf = BytesMut::with_capacity(capacity);
@@ -172,12 +184,12 @@ pub(crate) mod no_std {
             self.0.as_ref().len()
         }
 
-        pub fn position(&self) -> usize {
-            self.len()
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
         }
 
-        pub fn as_mut(&mut self) -> &mut [u8] {
-            self.0.as_mut()
+        pub fn position(&self) -> usize {
+            self.len()
         }
 
         // TODO: how do reduce capacity over time?

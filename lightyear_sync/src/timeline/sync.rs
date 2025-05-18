@@ -78,9 +78,9 @@ pub trait SyncTargetTimeline: NetworkTimeline + Default {
 ///
 /// The sync manager runs only on the client and maintains two different times:
 /// - the prediction tick/time: this is the client time, which runs roughly RTT/2 ahead of the server time, so that input packets
-///     for tick T sent from the client arrive on the server at tick T
+///   for tick T sent from the client arrive on the server at tick T
 /// - the interpolation tick/time: this is the interpolation timeline, which runs behind the server time so that interpolation
-///     always has at least one packet to interpolate towards
+///   always has at least one packet to interpolate towards
 #[derive(Clone, Copy, Debug, Reflect)]
 pub struct SyncConfig {
     /// How much multiple of jitter do we apply as margin when computing the time

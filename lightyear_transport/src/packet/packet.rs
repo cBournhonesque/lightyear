@@ -122,8 +122,8 @@ mod tests {
             ..default()
         };
         app.init_resource::<ChannelRegistry>();
-        app.add_channel::<Channel1>(settings.clone());
-        app.add_channel::<Channel2>(settings.clone());
+        app.add_channel::<Channel1>(settings);
+        app.add_channel::<Channel2>(settings);
         app.world_mut()
             .remove_resource::<ChannelRegistry>()
             .unwrap()

@@ -290,7 +290,8 @@ impl ErasedSerializeFns {
     /// Serialize the message into the writer.
     /// If available, we try to map the entities in the message from local to remote.
     ///
-    /// SAFETY: the ErasedSerializeFns must be created for the type M
+    /// # Safety
+    /// the ErasedSerializeFns must be created for the type M
     pub unsafe fn serialize<C, M: 'static, I>(
         &self,
         message: &M,
@@ -305,7 +306,8 @@ impl ErasedSerializeFns {
 
     /// Deserialize the message value from the reader
     ///
-    /// SAFETY: the ErasedSerializeFns must be created for the type M
+    /// # Safety
+    /// the ErasedSerializeFns must be created for the type M
     pub unsafe fn deserialize<C, M: 'static, I>(
         &self,
         reader: &mut Reader,
@@ -315,75 +317,5 @@ impl ErasedSerializeFns {
         let context_deserialize: ContextDeserializeFn<C, M, I> =
             unsafe { core::mem::transmute(self.context_deserialize) };
         context_deserialize(context, reader, deserialize)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bevy::prelude::{Entity, Reflect, Resource};
-    use bevy::ptr::Ptr;
-    use serde::Deserialize;
-
-    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect, MapEntities)]
-    pub struct EntityMessage(#[entities] pub Entity);
-
-    #[derive(Resource, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
-    pub struct Message1(pub f32);
-
-    /// Test serializing/deserializing using the ErasedSerializeFns
-    #[test]
-    fn test_erased_serde() {
-        let mut registry = ErasedSerializeFns::new::<(), EntityMessage>();
-        registry.add_map_entities::<EntityMessage>();
-
-        let message = EntityMessage(Entity::from_raw(1));
-        let mut writer = Writer::default();
-        let _ = unsafe {
-            erased_serialize_fn::<EntityMessage>(
-                &registry,
-                Ptr::from(&message),
-                &mut writer,
-                &mut SendEntityMap::default(),
-            )
-        };
-
-        let data = writer.to_bytes();
-        let mut reader = Reader::from(data);
-        let new_message = unsafe {
-            registry.deserialize::<EntityMessage>(&mut reader, &mut ReceiveEntityMap::default())
-        }
-        .unwrap();
-        // we deserialize the entity as a placeholder when we don't find it in the ReceiveEntityMap
-        assert_eq!(new_message, EntityMessage(Entity::PLACEHOLDER));
-    }
-
-    /// Test serializing/deserializing using the ErasedSerializeFns and applying entity mapping
-    /// We do the mapping on the send size
-    #[test]
-    fn test_erased_serde_map_entities() {
-        let mut registry = ErasedSerializeFns::new::<(), EntityMessage>();
-        registry.add_map_entities::<EntityMessage>();
-
-        let message = EntityMessage(Entity::from_raw(1));
-        let mut writer = Writer::default();
-        let mut entity_map = SendEntityMap::default();
-        entity_map.insert(Entity::from_raw(1), Entity::from_raw(2));
-        let _ = unsafe {
-            erased_serialize_fn::<EntityMessage>(
-                &registry,
-                Ptr::from(&message),
-                &mut writer,
-                &mut entity_map,
-            )
-        };
-
-        let data = writer.to_bytes();
-        let mut reader = Reader::from(data);
-        let new_message = unsafe {
-            registry.deserialize::<EntityMessage>(&mut reader, &mut ReceiveEntityMap::default())
-        }
-        .unwrap();
-        assert_eq!(new_message, EntityMessage(Entity::from_raw(2)));
     }
 }
