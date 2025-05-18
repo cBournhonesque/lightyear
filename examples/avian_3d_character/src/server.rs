@@ -131,7 +131,6 @@ fn player_shoot(
                 Rotation::default(),
                 LinearVelocity(Vec3::Z * 10.),
                 Replicate::to_clients(NetworkTarget::All),
-                PREDICTION_GROUP,
                 PredictionTarget::to_clients(NetworkTarget::All),
                 ControlledBy {
                     owner: controlled_by.owner,
@@ -160,7 +159,6 @@ fn setup(mut commands: Commands) {
         FloorMarker,
         Position::new(Vec3::ZERO),
         Replicate::to_clients(NetworkTarget::All),
-        PREDICTION_GROUP,
     ));
 
     commands.spawn((
@@ -170,7 +168,6 @@ fn setup(mut commands: Commands) {
         Position::new(Vec3::new(1.0, 1.0, 0.0)),
         Replicate::to_clients(NetworkTarget::All),
         PredictionTarget::to_clients(NetworkTarget::All),
-        PREDICTION_GROUP,
     ));
 }
 
@@ -231,7 +228,6 @@ pub(crate) fn handle_connected(
             ActionState::<CharacterAction>::default(),
             Position(Vec3::new(x, 3.0, z)),
             Replicate::to_clients(NetworkTarget::All),
-            PREDICTION_GROUP,
             PredictionTarget::to_clients(NetworkTarget::All),
             ControlledBy {
                 owner: trigger.target(),

@@ -5,14 +5,16 @@
 //! - is a ClientOf of a Server
 //! - the Server is started
 
-
-// TODO: should HostServer be a Component? Or a QueryFilter?
-
-use crate::client::{Client, Connected};
-use crate::server::Started;
+#[cfg(feature = "server")]
+use crate::{
+    client::{Client, Connected},
+    server::Started,
+};
 use bevy::prelude::*;
+#[cfg(feature = "server")]
 use lightyear_link::prelude::{LinkOf, Server};
 
+// we want the component to be available even if the server feature is not enabled
 /// Marker component inserted on a client that acts as a Host
 #[derive(Component, Debug, Reflect)]
 pub struct HostClient;

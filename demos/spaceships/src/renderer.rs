@@ -11,8 +11,8 @@ use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use core::time::Duration;
 use leafwing_input_manager::action_state::ActionState;
-use lightyear::prelude::client::*;
-
+use lightyear::connection::client_of::ClientOf;
+use lightyear::connection::identity::is_server;
 use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
@@ -202,7 +202,7 @@ fn draw_predicted_entities(
             &Collider,
             Has<PreSpawned>,
             Option<&ActionState<PlayerActions>>,
-            Option<&InputBuffer<PlayerActions>>,
+            Option<&InputBuffer<ActionState<PlayerActions>>>,
         ),
         (
             // skip drawing bullet outlines, since we add a mesh + material to them

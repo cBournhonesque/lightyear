@@ -6,91 +6,15 @@ use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use serde::{Deserialize, Serialize};
 
 use crate::shared::color_from_id;
-use lightyear::client::components::{ComponentSyncMode, LerpFn};
-use lightyear::client::interpolation::LinearInterpolator;
 use lightyear::input::config::InputConfig;
-use lightyear::prelude::client::{self};
 use lightyear::prelude::input::leafwing;
-use lightyear::prelude::server::{Replicate, SyncTarget};
 use lightyear::prelude::*;
-use lightyear::shared::input::InputConfig;
-use lightyear::utils::avian2d::*;
-use lightyear::utils::bevy::TransformLinearInterpolation;
 use tracing_subscriber::util::SubscriberInitExt;
 
 pub const BULLET_SIZE: f32 = 1.5;
 pub const SHIP_WIDTH: f32 = 19.0;
 pub const SHIP_LENGTH: f32 = 32.0;
 
-// For prediction, we want everything entity that is predicted to be part of the same replication group
-// This will make sure that they will be replicated in the same message and that all the entities in the group
-// will always be consistent (= on the same tick)
-pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
-
-// Bullet
-#[derive(Bundle)]
-pub(crate) struct BulletBundle {
-    position: Position,
-    velocity: LinearVelocity,
-    color: ColorComponent,
-    marker: BulletMarker,
-    lifetime: BulletLifetime,
-}
-
-impl BulletBundle {
-    pub(crate) fn new(
-        owner: ClientId,
-        position: Vec2,
-        velocity: Vec2,
-        color: Color,
-        current_tick: Tick,
-    ) -> Self {
-        Self {
-            position: Position(position),
-            velocity: LinearVelocity(velocity),
-            color: ColorComponent(color),
-            lifetime: BulletLifetime {
-                origin_tick: current_tick,
-                lifetime: FIXED_TIMESTEP_HZ as i16 * 2,
-            },
-            marker: BulletMarker::new(owner),
-        }
-    }
-}
-
-// Ball
-#[derive(Bundle)]
-pub(crate) struct BallBundle {
-    position: Position,
-    color: ColorComponent,
-    replicate: Replicate,
-    marker: BallMarker,
-    physics: PhysicsBundle,
-    name: Name,
-}
-
-impl BallBundle {
-    pub(crate) fn new(radius: f32, position: Vec2, color: Color) -> Self {
-        let ball = BallMarker::new(radius);
-        let sync_target = SyncTarget {
-            prediction: NetworkTarget::All,
-            ..default()
-        };
-        let replicate = Replicate {
-            sync: sync_target,
-            group: REPLICATION_GROUP,
-            ..default()
-        };
-        Self {
-            position: Position(position),
-            color: ColorComponent(color),
-            replicate,
-            physics: ball.physics_bundle(),
-            marker: ball,
-            name: Name::new("Ball"),
-        }
-    }
-}
 
 #[derive(Bundle)]
 pub(crate) struct PhysicsBundle {
@@ -133,14 +57,14 @@ impl PhysicsBundle {
 // Components
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Player {
-    pub client_id: ClientId,
+    pub client_id: PeerId,
     pub nickname: String,
     pub rtt: Duration,
     pub jitter: Duration,
 }
 
 impl Player {
-    pub fn new(client_id: ClientId, nickname: String) -> Self {
+    pub fn new(client_id: PeerId, nickname: String) -> Self {
         Self {
             client_id,
             nickname,
@@ -155,10 +79,10 @@ impl Player {
 /// On the clients, we just use them for visual effects.
 #[derive(Event, Debug)]
 pub struct BulletHitEvent {
-    pub bullet_owner: ClientId,
+    pub bullet_owner: PeerId,
     pub bullet_color: Color,
-    /// if it struck a player, this is their clientid:
-    pub victim_client_id: Option<ClientId>,
+    /// if it struck a player, this is their PeerId:
+    pub victim_client_id: Option<PeerId>,
     pub position: Vec2,
 }
 
@@ -187,11 +111,11 @@ impl BallMarker {
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BulletMarker {
-    pub owner: ClientId,
+    pub owner: PeerId,
 }
 
 impl BulletMarker {
-    pub fn new(owner: ClientId) -> Self {
+    pub fn new(owner: PeerId) -> Self {
         Self { owner }
     }
 }
@@ -235,7 +159,6 @@ pub enum PlayerActions {
     Fire,
 }
 
-// Protocol
 pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
@@ -270,7 +193,6 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(PredictionMode::Simple);
 
         // Fully replicated, but not visual, so no need for lerp/corrections:
-
         app.register_component::<LinearVelocity>()
             .add_prediction(PredictionMode::Full);
 
@@ -294,11 +216,5 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(PredictionMode::Full)
             .add_linear_interpolation_fn()
             .add_linear_correction_fn();
-
-        // do not replicate Transform but make sure to register an interpolation function
-        // for it so that we can do visual interpolation
-        // (another option would be to replicate transform and not use Position/Rotation at all)
-        app.add_interpolation::<Transform>(ComponentSyncMode::None);
-        app.add_interpolation_fn::<Transform>(TransformLinearInterpolation::lerp);
     }
 }

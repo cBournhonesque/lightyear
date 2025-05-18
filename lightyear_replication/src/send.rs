@@ -299,7 +299,10 @@ impl Plugin for ReplicationSendPlugin {
         app.add_observer(Self::send_sender_metadata);
         app.add_observer(Replicate::handle_connection);
         #[cfg(feature = "prediction")]
-        app.add_observer(PredictionTarget::handle_connection);
+        {
+            app.add_observer(PredictionTarget::handle_connection);
+            app.add_observer(PredictionTarget::add_replication_group);
+        }
         #[cfg(feature = "interpolation")]
         app.add_observer(InterpolationTarget::handle_connection);
         app.add_observer(Self::handle_disconnection);

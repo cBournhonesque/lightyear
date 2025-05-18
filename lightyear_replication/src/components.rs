@@ -11,9 +11,8 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bevy::time::{Timer, TimerMode};
 use lightyear_connection::client::Connected;
-use lightyear_connection::network_target::NetworkTarget;
 #[cfg(feature = "server")]
-use lightyear_connection::{client::PeerMetadata, client_of::ClientOf};
+use lightyear_connection::{client::PeerMetadata, client_of::ClientOf, network_target::NetworkTarget};
 use lightyear_core::id::PeerId;
 use lightyear_core::tick::Tick;
 use lightyear_link::prelude::LinkOf;
@@ -28,6 +27,9 @@ use serde::{Deserialize, Serialize};
 //  if a sender is only interested in a few components it might be expensive
 //  maybe we can have a 'direction' in ComponentReplicationConfig and Client/ClientOf peers can precompute
 //  a list of components based on this.
+
+/// Replication group shared by all predicted entities
+pub const PREDICTION_GROUP: ReplicationGroup =  ReplicationGroup::new_id(1);
 
 #[derive(Debug, Default, PartialEq, Clone, Reflect)]
 pub struct ComponentReplicationConfig {
@@ -310,6 +312,12 @@ pub struct ShouldBePredicted;
 
 #[cfg(feature = "prediction")]
 pub type PredictionTarget = ReplicationTarget<ShouldBePredicted>;
+
+impl PredictionTarget {
+    pub(crate) fn add_replication_group(trigger: Trigger<OnAdd, PredictionTarget>, mut commands: Commands) {
+        commands.entity(trigger.target()).insert(PREDICTION_GROUP);
+    }
+}
 
 #[cfg(feature = "interpolation")]
 /// Marker component that tells the client to spawn an Interpolated entity

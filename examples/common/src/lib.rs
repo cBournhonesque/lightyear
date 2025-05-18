@@ -69,6 +69,9 @@
 //! [`ClientConfig`]: lightyear::client::config::ClientConfig
 //! [`ServerConfig`]: lightyear::prelude::server::ServerConfig
 
+#![allow(unreachable_patterns)]
+#![allow(unexpected_cfgs)]
+
 // Check feature combo sanity, to make it easier to cfg out code by just checking one feature.
 // For example, don't allow "steam" to be set on wasm builds, because it can't work in wasm anyway.
 

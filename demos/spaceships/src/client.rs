@@ -3,6 +3,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
+use lightyear::input::input_buffer::InputBuffer;
 use lightyear::prediction::plugin::is_in_rollback;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -48,12 +49,13 @@ impl Plugin for ExampleClientPlugin {
 /// We want the ball to be rigid so that when players collide with it, they bounce off.
 fn add_ball_physics(
     trigger: Trigger<OnAdd, BallMarker>,
-    mut ball_query: Query<&BallMarker, With<Predicted>>, 
+    ball_query: Query<&BallMarker, With<Predicted>>, 
     mut commands: Commands,
 ) {
-    if let Ok(ball) = ball_query.get(trigger.target()) {
+    let entity = trigger.target();
+    if let Ok(ball) = ball_query.get(entity) {
         info!("Adding physics to a replicated ball {entity:?}");
-        commands.entity(trigger.target()).insert(ball.physics_bundle());
+        commands.entity(entity).insert(ball.physics_bundle());
     }
 }
 
@@ -63,11 +65,12 @@ fn add_ball_physics(
 fn add_bullet_physics(
     trigger: Trigger<OnAdd, BulletMarker>,
     mut commands: Commands,
-    mut bullet_query: Query<(), (Added<Predicted>, Without<Collider>)>,
+    bullet_query: Query<(), (Added<Predicted>, Without<Collider>)>,
 ) {
-    if let Ok(()) = bullet_query.get(trigger.target()) {
-        info!("Adding physics to a replicated bullet:  {entity:?}");
-        commands.entity(trigger.target()).insert(PhysicsBundle::bullet());
+    let entity = trigger.target();
+    if let Ok(()) = bullet_query.get(entity) {
+        info!("Adding physics to a replicated bullet: {entity:?}");
+        commands.entity(entity).insert(PhysicsBundle::bullet());
     }
 }
 
@@ -76,7 +79,7 @@ fn add_bullet_physics(
 fn handle_new_player(
     trigger: Trigger<OnAdd, Player>,
     mut commands: Commands,
-    mut player_query: Query<(&Player, &Replicated, Has<Controlled>), Added<Predicted>>,
+    player_query: Query<(&Player, &Replicated, Has<Controlled>), Added<Predicted>>,
 ) {
     let entity = trigger.target();
     if let Ok((player, replicated, is_controlled))  = player_query.get(entity) {
@@ -122,21 +125,17 @@ fn player_movement(
     mut q: Query<
         (
             &ActionState<PlayerActions>,
-            &InputBuffer<PlayerActions>,
+            &InputBuffer<ActionState<PlayerActions>>,
             ApplyInputsQuery,
         ),
         (With<Player>, With<Predicted>),
     >,
-    tick_manager: Res<TickManager>,
-    rollback: Option<Res<Rollback>>,
+    timeline: Single<&LocalTimeline, With<PredictionManager>>,
 ) {
     // max number of stale inputs to predict before default inputs used
     const MAX_STALE_TICKS: u16 = 6;
     // get the tick, even if during rollback
-    let tick = rollback
-        .as_ref()
-        .map(|rb| tick_manager.tick_or_rollback_tick(rb))
-        .unwrap_or(tick_manager.tick());
+    let tick = timeline.tick();
 
     for (action_state, input_buffer, mut aiq) in q.iter_mut() {
         if !action_state.get_pressed().is_empty() {

@@ -1,13 +1,12 @@
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
+use core::hash::{Hash, Hasher};
 use core::time::Duration;
-use std::hash::{Hash, Hasher};
 
 use avian2d::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
-use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use tracing::Level;
@@ -51,40 +50,13 @@ impl Plugin for SharedPlugin {
             (process_collisions, lifetime_despawner).chain(),
         );
 
-        app.add_systems(PostProcessCollisions, filter_own_bullet_collisions);
-
         app.add_event::<BulletHitEvent>();
         // registry types for reflection
         app.register_type::<Player>();
     }
 }
 
-// Players can't collide with their own bullets.
-// this is especially helpful if you are accelerating forwards while shooting, as otherwise you
-// might overtake / collide on spawn with your own bullets that spawn in front of you.
-fn filter_own_bullet_collisions(
-    mut collisions: Collisions,
-    q_bullets: Query<&BulletMarker>,
-    q_players: Query<&Player>,
-) {
-    collisions.retain(|contacts| {
-        if let Ok(bullet) = q_bullets.get(contacts.entity1) {
-            if let Ok(player) = q_players.get(contacts.entity2) {
-                if bullet.owner == player.client_id {
-                    return false;
-                }
-            }
-        }
-        if let Ok(bullet) = q_bullets.get(contacts.entity2) {
-            if let Ok(player) = q_players.get(contacts.entity1) {
-                if bullet.owner == player.client_id {
-                    return false;
-                }
-            }
-        }
-        true
-    });
-}
+
 
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
@@ -241,13 +213,14 @@ pub fn shared_player_firing(
 
         let bullet_entity = commands
             .spawn((
-                BulletBundle::new(
-                    player.client_id,
-                    bullet_origin,
-                    bullet_linvel,
-                    (color.0.to_linear() * 5.0).into(), // bloom!
-                    current_tick,
-                ),
+                Position(bullet_origin),
+                LinearVelocity(bullet_linvel),
+                ColorComponent((color.0.to_linear() * 5.0).into()), // bloom !
+                BulletLifetime {
+                    origin_tick: current_tick,
+                    lifetime: FIXED_TIMESTEP_HZ as i16 * 2,
+                },
+                BulletMarker::new(player.client_id),
                 PhysicsBundle::bullet(),
                 prespawned,
             ))
@@ -258,11 +231,10 @@ pub fn shared_player_firing(
         );
 
         if is_server {
+            #[cfg(feature = "server")]
             commands.entity(bullet_entity).insert((
                 Replicate::to_clients(NetworkTarget::All),
                 PredictionTarget::to_clients(NetworkTarget::All),
-                // make sure that all entities that are predicted are part of the same replication group
-                REPLICATION_GROUP,
             ));
         }
     }
@@ -325,8 +297,12 @@ impl WallBundle {
 // Despawn bullets that collide with something.
 //
 // Generate a BulletHitEvent so we can modify scores, show visual effects, etc.
+//
+// Players can't collide with their own bullets.
+// this is especially helpful if you are accelerating forwards while shooting, as otherwise you
+// might overtake / collide on spawn with your own bullets that spawn in front of you.
 pub(crate) fn process_collisions(
-    mut collision_event_reader: EventReader<Collision>,
+    collisions: Collisions,
     bullet_q: Query<(&BulletMarker, &ColorComponent, &Position)>,
     player_q: Query<&Player>,
     mut commands: Commands,
@@ -338,16 +314,18 @@ pub(crate) fn process_collisions(
     // * A collides with B
     // * B collides with A
     // which is why logic is duplicated twice here
-    for Collision(contacts) in collision_event_reader.read() {
-        if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.entity1) {
+    for contacts in collisions.iter() {
+        if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.collider1) {
+            if let Ok(owner) = player_q.get(contacts.collider2) {
+                if bullet.owner == owner.client_id {
+                    // this is our own bullet, don't do anything
+                    continue;
+                }
+            }
             // despawn the bullet
-            if is_server {
-                commands.entity(contacts.entity1).despawn();
-            } else {
-                commands.entity(contacts.entity1).prediction_despawn();
-            }
+            commands.entity(contacts.collider1).prediction_despawn();
             let victim_client_id = player_q
-                .get(contacts.entity2)
+                .get(contacts.collider2)
                 .map_or(None, |victim_player| Some(victim_player.client_id));
 
             let ev = BulletHitEvent {
@@ -356,16 +334,18 @@ pub(crate) fn process_collisions(
                 position: bullet_pos.0,
                 bullet_color: col.0,
             };
-            hit_ev_writer.send(ev);
+            hit_ev_writer.write(ev);
         }
-        if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.entity2) {
-            if is_server {
-                commands.entity(contacts.entity2).despawn();
-            } else {
-                commands.entity(contacts.entity2).prediction_despawn();
+        if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.collider2) {
+            if let Ok(owner) = player_q.get(contacts.collider1) {
+                if bullet.owner == owner.client_id {
+                    // this is our own bullet, don't do anything
+                    continue;
+                }
             }
+            commands.entity(contacts.collider2).prediction_despawn();
             let victim_client_id = player_q
-                .get(contacts.entity1)
+                .get(contacts.collider1)
                 .map_or(None, |victim_player| Some(victim_player.client_id));
 
             let ev = BulletHitEvent {
@@ -374,7 +354,7 @@ pub(crate) fn process_collisions(
                 position: bullet_pos.0,
                 bullet_color: col.0,
             };
-            hit_ev_writer.send(ev);
+            hit_ev_writer.write(ev);
         }
     }
 }

@@ -5,17 +5,13 @@ use bevy::color::palettes::css;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
-use client::Rollback;
 use core::time::Duration;
 use leafwing_input_manager::action_diff::ActionDiff;
 use leafwing_input_manager::prelude::*;
-use lightyear::client::connection;
-use lightyear::prelude::client::{Confirmed, Predicted};
+use lightyear::connection::client::PeerMetadata;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::server::input::InputSystemSet;
-use lightyear::shared::tick_manager;
-use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
+use lightyear_examples_common::shared::{FIXED_TIMESTEP_HZ, SEND_INTERVAL};
 
 use crate::protocol::*;
 use crate::shared;
@@ -44,10 +40,11 @@ impl Plugin for ExampleServerPlugin {
             FixedUpdate,
             (player_movement, shared::shared_player_firing).chain(),
         );
+        app.add_observer(handle_new_client);
+        app.add_observer(handle_connections);
         app.add_systems(
             Update,
             (
-                handle_connections,
                 update_player_metrics.run_if(on_timer(Duration::from_secs(1))),
             ),
         );
@@ -63,13 +60,13 @@ impl Plugin for ExampleServerPlugin {
 
 /// Since Player is replicated, this allows the clients to display remote players' latency stats.
 fn update_player_metrics(
-    connection_manager: Res<ConnectionManager>,
-    mut q: Query<(Entity, &mut Player)>,
+    links: Query<&Link, With<LinkOf>>,
+    mut q: Query<(&mut Player, &ControlledBy)>,
 ) {
-    for (_e, mut player) in q.iter_mut() {
-        if let Ok(connection) = connection_manager.connection(player.client_id) {
-            player.rtt = connection.rtt();
-            player.jitter = connection.jitter();
+    for (mut player, controlled) in q.iter_mut() {
+        if let Ok(link) = links.get(controlled.owner) {
+            player.rtt = link.stats.rtt;
+            player.jitter = link.stats.jitter;
         }
     }
 }
@@ -82,37 +79,43 @@ fn init(mut commands: Commands) {
         let radius = 10.0 + i as f32 * 4.0;
         let angle: f32 = i as f32 * (TAU / NUM_BALLS as f32);
         let pos = Vec2::new(125.0 * angle.cos(), 125.0 * angle.sin());
-        commands.spawn(BallBundle::new(radius, pos, css::GOLD.into()));
+        let ball = BallMarker::new(radius);
+        commands.spawn((
+            Position(pos),
+            ColorComponent(css::GOLD.into()),
+            ball.physics_bundle(),
+            ball,
+            Name::new("Ball"),
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+       ));
     }
+}
+
+/// Add the ReplicationSender component to new clients
+pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+    commands
+        .entity(trigger.target())
+        .insert(ReplicationSender::new(
+            SEND_INTERVAL,
+            SendUpdatesMode::SinceLastAck,
+            false,
+        ));
 }
 
 /// Whenever a new client connects, spawn their spaceship
 pub(crate) fn handle_connections(
-    mut connections: EventReader<ConnectEvent>,
+    trigger: Trigger<OnAdd, Connected>,
+    query: Query<&Connected, With<ClientOf>>,
     mut commands: Commands,
     all_players: Query<Entity, With<Player>>,
 ) {
     // track the number of connected players in order to pick colors and starting positions
-    let mut player_n = all_players.iter().count();
-    for connection in connections.read() {
-        let client_id = connection.client_id;
+    let player_n = all_players.iter().count();
+    if let Ok(connected) = query.get(trigger.target()) {
+        let client_id = connected.remote_peer_id;
         info!("New connected client, client_id: {client_id:?}. Spawning player entity..");
-        // replicate newly connected clients to all players
-        let replicate = Replicate {
-            sync: SyncTarget {
-                prediction: NetworkTarget::All,
-                ..default()
-            },
-            controlled_by: ControlledBy {
-                target: NetworkTarget::Single(client_id),
-                ..default()
-            },
-            // make sure that all entities that are predicted are part of the same replication group
-            group: REPLICATION_GROUP,
-            ..default()
-        };
         // pick color and x,y pos for player
-
         let available_colors = [
             css::LIMEGREEN,
             css::PINK,
@@ -140,15 +143,18 @@ pub(crate) fn handle_connections(
                 Name::new("Player"),
                 ActionState::<PlayerActions>::default(),
                 Position(Vec2::new(x, y)),
-                replicate,
+                Replicate::to_clients(NetworkTarget::All),
+                PredictionTarget::to_clients(NetworkTarget::All),
+                ControlledBy {
+                    owner: trigger.target(),
+                    lifetime: Default::default(),
+                },
                 PhysicsBundle::player_ship(),
                 Weapon::new((FIXED_TIMESTEP_HZ / 5.0) as u16),
                 ColorComponent(col.into()),
             ))
             .id();
-
         info!("Created entity {player_ent:?} for client {client_id:?}");
-        player_n += 1;
     }
 }
 
@@ -195,21 +201,16 @@ const NAMES: [&str; 35] = [
     "Mr. T",
 ];
 
+
 /// Server will manipulate scores when a bullet collides with a player.
-/// the `Score` component is a simple replication. scores fully server-authoritative.
+/// the `Score` component is a simple replication. Score is fully server-authoritative.
 pub(crate) fn handle_hit_event(
-    connection_manager: Res<server::ConnectionManager>,
+    peer_metadata: Res<PeerMetadata>,
     mut events: EventReader<BulletHitEvent>,
-    client_q: Query<&ControlledEntities, Without<Player>>,
     mut player_q: Query<(&Player, &mut Score)>,
 ) {
-    let client_id_to_player_entity = |client_id: ClientId| -> Option<Entity> {
-        if let Ok(e) = connection_manager.client_entity(client_id) {
-            if let Ok(controlled_entities) = client_q.get(e) {
-                return controlled_entities.entities().pop();
-            }
-        }
-        None
+    let client_id_to_player_entity = |client_id: PeerId| -> Option<Entity> {
+        peer_metadata.mapping.get(&client_id).copied()
     };
 
     for ev in events.read() {
@@ -235,9 +236,9 @@ pub(crate) fn handle_hit_event(
 /// see: https://github.com/cBournhonesque/lightyear/issues/492
 pub(crate) fn player_movement(
     mut q: Query<(&ActionState<PlayerActions>, ApplyInputsQuery), With<Player>>,
-    tick_manager: Res<TickManager>,
+    timeline: Single<&LocalTimeline, With<Server>>,
 ) {
-    let tick = tick_manager.tick();
+    let tick = timeline.tick();
     for (action_state, mut aiq) in q.iter_mut() {
         if !action_state.get_pressed().is_empty() {
             trace!(

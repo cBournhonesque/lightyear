@@ -14,8 +14,6 @@ use lightyear::prelude::*;
 
 use crate::protocol::*;
 
-// Replication group for all predicted entities
-pub(crate) const PREDICTION_GROUP: ReplicationGroup = ReplicationGroup::new_id(0);
 
 const EPS: f32 = 0.0001;
 pub const BOT_RADIUS: f32 = 15.0;
@@ -218,7 +216,6 @@ pub(crate) fn shoot_bullet(
                         PreSpawned::default_with_salt(salt),
                         Replicate::to_clients(NetworkTarget::All),
                         PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
-                        PREDICTION_GROUP,
                         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         controlled_by.unwrap().clone(),
                     ));

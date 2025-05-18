@@ -25,7 +25,8 @@ use crate::send::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 
 use crate::control::{Controlled, ControlledBy};
-use lightyear_connection::client::{Client, Connected, PeerMetadata};
+use lightyear_connection::client::{Client, Connected};
+#[cfg(feature = "server")]
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::prelude::NetworkTarget;
 
@@ -177,7 +178,7 @@ impl Replicate {
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
                     let world = unsafe { unsafe_world.world_mut() };
-                    let peer_metadata = world.resource::<PeerMetadata>();
+                    let peer_metadata = world.resource::<lightyear_connection::client::PeerMetadata>();
                     let world = unsafe { unsafe_world.world_mut() };
                     target.apply_targets(
                         server.collection().iter().copied(),
@@ -228,7 +229,7 @@ impl Replicate {
                         return;
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
-                    let peer_metadata = unsafe { unsafe_world.world() }.resource::<PeerMetadata>();
+                    let peer_metadata = unsafe { unsafe_world.world() }.resource::<lightyear_connection::client::PeerMetadata>();
                     let world = unsafe { unsafe_world.world_mut() };
                     target.apply_targets(
                         server.collection().iter().copied(),

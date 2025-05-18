@@ -56,6 +56,7 @@ fn label_added(
         commands
             .spawn((
                 EntityLabelChild,
+                ChildOf(e),
                 TextLayout {
                     justify: JustifyText::Center,
                     linebreak: LineBreak::NoWrap,
@@ -65,7 +66,6 @@ fn label_added(
                 TextColor(label.color),
                 Transform::from_translation(Vec3::new(label.offset.x, label.offset.y, label.z)),
             ))
-            .set_parent(e)
             .with_children(|builder| {
                 builder.spawn((
                     TextSpan(label.sub_text.clone()),
@@ -111,8 +111,8 @@ fn fix_entity_label_rotations(
     mut q_text: Query<(&ChildOf, &mut Transform), With<EntityLabelChild>>,
     q_parents: Query<(&Transform, &EntityLabel), Without<EntityLabelChild>>,
 ) {
-    for (parent, mut transform) in q_text.iter_mut() {
-        if let Ok((parent_transform, fl)) = q_parents.get(parent.get()) {
+    for (child_of, mut transform) in q_text.iter_mut() {
+        if let Ok((parent_transform, fl)) = q_parents.get(child_of.parent()) {
             // global transform propagation system will make the rotation 0 now
             transform.rotation = parent_transform.rotation.inverse();
         }

@@ -18,14 +18,15 @@ publish = true
 default = ["std"]
 std = [
     "lightyear_prediction/std",
-    "lightyear_replication/std"
+    "lightyear_replication/std",
+    "lightyear_interpolation/std"
 ]
 2d = ["avian2d/2d"]
 3d = ["avian3d/3d"]
 lag_compensation = [
     "dep:lightyear_link",
-    "dep:lightyear_interpolation",
 ]
+
 
 [dependencies]
 avian2d = { workspace = true, optional = true }
@@ -35,6 +36,6 @@ bevy = { workspace = true }
 lightyear_core.workspace = true
 lightyear_link = { workspace = true, optional = true }
 lightyear_prediction.workspace = true
-lightyear_interpolation = { workspace = true, optional = true }
+lightyear_interpolation.workspace = true
 lightyear_frame_interpolation.workspace = true
 lightyear_replication.workspace = true

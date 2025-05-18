@@ -8,11 +8,6 @@ use lightyear::prelude::input::leafwing;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
-// For prediction, we want everything entity that is predicted to be part of
-// the same replication group. This will make sure that they will be replicated
-// in the same message and that all the entities in the group will always be
-// consistent (= on the same tick)
-pub const PREDICTION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
 // Components
 

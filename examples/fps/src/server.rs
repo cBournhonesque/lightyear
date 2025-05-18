@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, shared_player_movement, BOT_RADIUS, PREDICTION_GROUP};
+use crate::shared::{color_from_id, shared_player_movement, BOT_RADIUS};
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
@@ -75,7 +75,6 @@ pub(crate) fn spawn_player(
             owner: trigger.target(),
             lifetime: Default::default(),
         },
-        PREDICTION_GROUP,
         Score(0),
         PlayerId(client_id),
         RigidBody::Kinematic,
@@ -106,7 +105,6 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
         Name::new("PredictedBot"),
         Replicate::to_clients(NetworkTarget::All),
         PredictionTarget::to_clients(NetworkTarget::All),
-        PREDICTION_GROUP,
         // NOTE: all predicted entities must be part of the same replication group!
         // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
         DisableReplicateHierarchy,

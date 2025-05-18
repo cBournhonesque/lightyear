@@ -10,10 +10,6 @@ use serde::{Deserialize, Serialize};
 pub const BALL_SIZE: f32 = 15.0;
 pub const PLAYER_SIZE: f32 = 40.0;
 
-// For prediction, we want everything entity that is predicted to be part of the same replication group
-// This will make sure that they will be replicated in the same message and that all the entities in the group
-// will always be consistent (= on the same tick)
-pub const REPLICATION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
 #[derive(Bundle)]
 pub(crate) struct PhysicsBundle {

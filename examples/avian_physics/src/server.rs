@@ -43,7 +43,6 @@ fn setup(mut commands: Commands) {
         ColorComponent(css::AZURE.into()),
         Replicate::to_clients(NetworkTarget::All),
         PredictionTarget::to_clients(NetworkTarget::All),
-        REPLICATION_GROUP,
         PhysicsBundle::ball(),
         BallMarker,
         Name::from("Ball"),
@@ -120,7 +119,6 @@ pub(crate) fn replicate_players(
             Replicate::to_clients(NetworkTarget::All),
             // Predict to all players
             PredictionTarget::to_clients(NetworkTarget::All),
-            REPLICATION_GROUP,
             ControlledBy {
                 owner: entity,
                 lifetime: Default::default(),

@@ -1,16 +1,17 @@
+use crate::client::Client;
+use crate::host::HostClient;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use lightyear_link::server::Server;
 
 /// Returns true if the peer is a client (host-server counts as a server)
-pub fn is_client(identity: Option<Res<NetworkIdentityState>>) -> bool {
-    todo!();
-    // identity.is_some_and(|i| i.get() == &NetworkIdentityState::Client)
+pub fn is_client(query: Query<(), (With<Client>, Without<HostClient>)>) -> bool {
+    !query.is_empty()
 }
 
 /// Returns true if the peer is a server
-pub fn is_server(identity: Option<Res<NetworkIdentityState>>) -> bool {
-    todo!();
-    // identity.is_some_and(|i| i.get() != &NetworkIdentityState::Client)
+pub fn is_server(query: Query<(), With<Server>>) -> bool {
+    !query.is_empty()
 }
 
 
