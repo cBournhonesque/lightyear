@@ -43,11 +43,11 @@
 //!   That system must run in the [`InputSet::BufferClientInputs`] system set, in the `FixedPreUpdate` stage.
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
 //!   will read the inputs using the [`InputBuffer`] component.
+use crate::InputChannel;
 use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
-use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use core::time::Duration;
@@ -58,14 +58,14 @@ use lightyear_core::timeline::LocalTimeline;
 use lightyear_core::timeline::SyncEvent;
 use lightyear_interpolation::plugin::InterpolationDelay;
 use lightyear_interpolation::prelude::InterpolationTimeline;
+use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
-use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;
 use lightyear_replication::components::{Confirmed, PrePredicted};
 use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::client::IsSynced;
 use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::client::IsSynced;
 use tracing::trace;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -464,7 +464,11 @@ fn prepare_input_message<S: ActionStateSequence>(
 fn receive_remote_player_input_messages<S: ActionStateSequence>(
     mut commands: Commands,
     link: Single<
-        (&MessageManager, &mut MessageReceiver<InputMessage<S>>, &LocalTimeline),
+        (
+            &MessageManager,
+            &mut MessageReceiver<InputMessage<S>>,
+            &LocalTimeline,
+        ),
         With<IsSynced<InputTimeline>>,
     >,
     // TODO: currently we do not handle entities that are controlled by multiple clients

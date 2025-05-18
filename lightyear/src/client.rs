@@ -5,7 +5,7 @@ use core::time::Duration;
 /// A plugin group containing all the client plugins.
 ///
 /// By default, the following plugins will be added:
-/// 
+///
 pub struct ClientPlugins {
     /// The tick interval for the client. This is used to determine how often the client should tick.
     /// The default value is 1/60 seconds.

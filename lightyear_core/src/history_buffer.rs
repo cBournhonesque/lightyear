@@ -55,11 +55,10 @@ impl<R> PartialEq for HistoryBuffer<R> {
 }
 
 impl<R> HistoryBuffer<R> {
-    
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
-    
+
     /// Oldest value in the buffer
     pub fn front(&self) -> Option<&(Tick, HistoryState<R>)> {
         self.buffer.front()
