@@ -64,7 +64,6 @@ impl PingPlugin {
     /// We modify the pongs that were buffered so that we can write the correct
     /// time spent between PostUpdate and PreUpdate
     fn send(
-        fixed_time: Res<Time<Fixed>>,
         tick_duration: Res<TickDuration>,
         mut query: Query<
             (

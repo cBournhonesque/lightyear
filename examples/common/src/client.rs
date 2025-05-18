@@ -100,7 +100,6 @@ impl ExampleClient {
                             "".to_string()
                         }
                     };
-                    dbg!(certificate_digest.clone());
                     entity_mut.insert(WebTransportClientIo {
                         server_addr: settings.server_addr,
                         certificate_digest,

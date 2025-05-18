@@ -21,7 +21,7 @@ impl Plugin for WebPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(WebKeepalivePlugin {
             // The interval is in milliseconds. We can run app.update() infrequently when in the background
-            wake_delay: 1000.0,
+            wake_delay: 100.0,
         });
     }
 }

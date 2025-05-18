@@ -1,4 +1,5 @@
 //! Manages sending/receiving pings and computing network statistics
+use crate::ping::estimator::RttEstimatorEwma;
 use crate::ping::message::{Ping, Pong};
 use crate::ping::store::{PingId, PingStore};
 #[cfg(not(feature = "std"))]
@@ -10,7 +11,6 @@ use bevy::time::Stopwatch;
 use core::time::Duration;
 use lightyear_core::time::TickDelta;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
-use lightyear_utils::ready_buffer::ReadyBuffer;
 use tracing::{error, trace};
 
 /// Config for the ping manager, which sends regular pings to the remote machine in order
@@ -20,16 +20,12 @@ pub struct PingConfig {
     /// The duration to wait before sending a ping message to the remote host,
     /// in order to estimate RTT time
     pub ping_interval: Duration,
-    /// Duration of the rolling buffer of stats to compute RTT/jitter
-    /// NOTE: this must be high enough to have received enough pongs to sync
-    pub stats_buffer_duration: Duration,
 }
 
 impl Default for PingConfig {
     fn default() -> Self {
         PingConfig {
             ping_interval: Duration::from_millis(100),
-            stats_buffer_duration: Duration::from_secs(4),
         }
     }
 }
@@ -50,12 +46,9 @@ pub struct PingManager {
     /// (when the connection's send_timer is ready)
     pongs_to_send: Vec<(Pong, Instant)>,
 
-    // stats
     // TODO: we could actually compute stats from every single packet, not just pings/pongs
-    /// Buffer to store the connection stats from the last few pongs received
-    pub(crate) sync_stats: SyncStatsBuffer,
-    /// Current best estimates of various networking statistics
-    pub final_stats: FinalStats,
+    /// Estimator used to compute RTT/Jitter from the pongs received
+    pub rtt_estimator_ewma: RttEstimatorEwma,
     /// The number of pings we have sent
     pub(crate) pings_sent: u32,
     /// The number of pongs we have received
@@ -70,8 +63,7 @@ impl Default for PingManager {
             ping_store: PingStore::new(),
             most_recent_received_ping: PingId(u16::MAX - 1),
             pongs_to_send: vec![],
-            sync_stats: SyncStatsBuffer::new(),
-            final_stats: FinalStats::default(),
+            rtt_estimator_ewma: RttEstimatorEwma::default(),
             pings_sent: 0,
             pongs_recv: 0,
         }
@@ -84,37 +76,12 @@ impl PingManager {
         self.ping_store.reset();
         self.most_recent_received_ping = PingId(u16::MAX - 1);
         self.pongs_to_send.clear();
-        self.sync_stats.clear();
-        self.final_stats = FinalStats::default();
+        self.rtt_estimator_ewma.reset();
         self.pings_sent = 0;
         self.pongs_recv = 0;
     }
 }
 
-/// Connection stats aggregated over several [`SyncStats`]
-#[derive(Debug)]
-pub struct FinalStats {
-    pub rtt: Duration,
-    pub jitter: Duration,
-}
-
-impl Default for FinalStats {
-    fn default() -> Self {
-        Self {
-            // start with a conservative estimate
-            rtt: Duration::from_millis(100),
-            jitter: Duration::default(),
-        }
-    }
-}
-
-/// Stats computed from each pong
-#[derive(Debug, PartialEq)]
-pub struct SyncStats {
-    pub(crate) round_trip_delay: Duration,
-}
-
-pub type SyncStatsBuffer = ReadyBuffer<Instant, SyncStats>;
 
 impl PingManager {
     pub fn new(config: PingConfig) -> Self {
@@ -126,8 +93,7 @@ impl PingManager {
             most_recent_received_ping: PingId(u16::MAX - 1),
             pongs_to_send: vec![],
             // sync
-            sync_stats: SyncStatsBuffer::new(),
-            final_stats: FinalStats::default(),
+            rtt_estimator_ewma: RttEstimatorEwma::default(),
             pings_sent: 0,
             pongs_recv: 0,
         }
@@ -135,38 +101,17 @@ impl PingManager {
 
     /// Return the latest estimate of rtt
     pub fn rtt(&self) -> Duration {
-        self.final_stats.rtt
+        self.rtt_estimator_ewma.final_stats.rtt
     }
 
     /// Return the latest estimate of jitter
     pub fn jitter(&self) -> Duration {
-        self.final_stats.jitter
+        self.rtt_estimator_ewma.final_stats.jitter
     }
 
     /// Update the ping manager after a delta update
     pub(crate) fn update(&mut self, time: &Time<Real>) {
         self.ping_timer.tick(time.delta());
-
-        // clear stats that are older than a threshold, such as 2 seconds
-        let Some(oldest_time) = Instant::now().checked_sub(self.config.stats_buffer_duration)
-        else {
-            return;
-        };
-        let old_len = self.sync_stats.len();
-        self.sync_stats.pop_until(&oldest_time);
-        let new_len = self.sync_stats.len();
-
-        // recompute RTT jitter from the last 2-seconds of stats if we popped anything
-        if old_len != new_len {
-            self.compute_stats();
-            #[cfg(feature = "metrics")]
-            {
-                metrics::gauge!("connection::rtt_ms").set(self.rtt().as_millis() as f64);
-                metrics::gauge!("connection::jitter_ms").set(self.jitter().as_millis() as f64);
-            }
-        }
-
-        // NOTE: no need to clear anything in the ping_store because new pings will overwrite older pings
     }
 
     /// Check if we are ready to send a ping to the remote
@@ -180,79 +125,6 @@ impl PingManager {
             return Some(Ping { id: ping_id });
         }
         None
-    }
-
-    // TODO: optimization
-    //  - for efficiency, we want to use a rolling mean/std algorithm
-    //  - every N seconds (for example 2 seconds), we clear the buffer for stats older than 2 seconds and recompute mean/std from the remaining elements
-    /// Compute the stats (rtt, jitter) from the stats present in the buffer
-    pub fn compute_stats(&mut self) {
-        let sample_count = self.sync_stats.len() as f64;
-
-        // Find the Mean
-        let rtt_mean = self.sync_stats.heap.iter().fold(0.0, |acc, stat| {
-            let item = &stat.item;
-            acc + item.round_trip_delay.as_secs_f64() / sample_count
-        });
-
-        // TODO: should I use biased or unbiased estimator?
-        // Find the Variance
-        let rtt_diff_mean: f64 = self.sync_stats.heap.iter().fold(0.0, |acc, stat| {
-            let item = &stat.item;
-            acc + (item.round_trip_delay.as_secs_f64() - rtt_mean).powi(2) / (sample_count)
-        });
-
-        // Find the Standard Deviation
-        let rtt_stdv = rtt_diff_mean.sqrt();
-
-        // Get the pruned mean: keep only the stat values inside the standard deviation (mitigation)
-        let pruned_samples = self.sync_stats.heap.iter().filter(|stat| {
-            let item = &stat.item;
-            let rtt_diff = (item.round_trip_delay.as_secs_f64() - rtt_mean).abs();
-            rtt_diff <= rtt_stdv + 1000.0 * f64::EPSILON
-        });
-        let (pruned_rtt_mean, pruned_sample_count) =
-            pruned_samples.fold((0.0, 0.0), |acc, stat| {
-                let item = &stat.item;
-                (acc.0 + item.round_trip_delay.as_secs_f64(), acc.1 + 1.0)
-            });
-
-        let final_rtt_mean = if pruned_sample_count > 0.0 {
-            pruned_rtt_mean / pruned_sample_count
-        } else {
-            rtt_mean
-        };
-
-        // TODO: recompute rtt_stdv from pruned ?
-        // Find the Mean
-        let rtt_mean = self.sync_stats.heap.iter().fold(0.0, |acc, stat| {
-            let item = &stat.item;
-            acc + item.round_trip_delay.as_secs_f64() / sample_count
-        });
-
-        // TODO: should I use biased or unbiased estimator?
-        // Find the Variance
-        let rtt_diff_mean: f64 = self.sync_stats.heap.iter().fold(0.0, |acc, stat| {
-            let item = &stat.item;
-            acc + (item.round_trip_delay.as_secs_f64() - rtt_mean).powi(2) / (sample_count)
-        });
-        let final_rtt_stdv = if pruned_sample_count > 0.0 {
-            rtt_diff_mean.sqrt()
-        } else {
-            0.0
-        };
-
-        self.final_stats = FinalStats {
-            // rtt: Duration::from_secs_f64(rtt_mean),
-            rtt: Duration::from_secs_f64(final_rtt_mean),
-            // jitter is based on one-way delay, so we divide by 2
-            jitter: Duration::from_secs_f64(final_rtt_stdv / 2.0),
-        };
-        trace!(
-            rtt = ?self.final_stats.rtt,
-            jitter = ?self.final_stats.jitter,
-            "Computed stats!"
-        );
     }
 
     /// Received a pong: update
@@ -276,12 +148,9 @@ impl PingManager {
             let server_process_time = TickDelta::from(pong.frame_time).to_duration(tick_duration);
             trace!(?rtt, ?received_time, ?ping_sent_time, ?pong.frame_time,  "process received pong");
             let round_trip_delay = rtt.saturating_sub(server_process_time);
-            // update stats buffer
-            self.sync_stats
-                .push(received_time, SyncStats { round_trip_delay });
 
             // recompute stats whenever we get a new pong
-            self.compute_stats();
+            self.rtt_estimator_ewma.update_with_new_sample(round_trip_delay);
         }
     }
 
