@@ -33,7 +33,6 @@ netcode = [
 ]
 udp = [
   "lightyear_examples_common/udp",
-  # udp requires std
   "lightyear/std",
   "lightyear/udp",
 ]
@@ -44,21 +43,15 @@ lightyear = { workspace = true, features = [
   "prediction",
   "replication",
   "leafwing",
-  "input_native", # Added based on simple_box_new
+  "input_native",
 ] }
 lightyear_examples_common.workspace = true
 
-cfg-if.workspace = true
 bevy_egui.workspace = true
 egui_extras.workspace = true
-leafwing-input-manager.workspace = true
 serde.workspace = true
-anyhow.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 bevy.workspace = true
-rand.workspace = true
-metrics-exporter-prometheus = { workspace = true, optional = true }
 
 [lints]
 workspace = true

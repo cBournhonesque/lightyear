@@ -43,13 +43,9 @@ lightyear = { "workspace" = true, features = [
 ] }
 lightyear_examples_common.workspace = true
 serde.workspace = true
-anyhow.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 bevy.workspace = true
-rand.workspace = true
-metrics-exporter-prometheus = { workspace = true, optional = true }
-bevy-inspector-egui = { workspace = true, optional = true }
+
 
 [lints]
 workspace = true

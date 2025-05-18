@@ -15,10 +15,7 @@ license.workspace = true
 [dependencies]
 lightyear = {workspace = true, features = ["interpolation"] }
 lightyear_tests = { workspace = true }
-crossbeam-channel.workspace = true
-serde.workspace = true
-rand.workspace = true
-lz4_flex.workspace = true
+
 
 # enable all the bevy defaults:
 bevy = { workspace = true, default-features = true }
@@ -26,8 +23,6 @@ bevy = { workspace = true, default-features = true }
 # crates specific to benchmarks, so not in top-level Cargo workspace
 pprof = { version = "0.14.0", features = ["flamegraph", "frame-pointer"] }
 criterion = { version = "0.5", features = ["html_reports"] }
-rand_chacha = "0.3.1"
-bitcode = "0.6.0-beta.1"
 divan = "0.1.14"
 
 [[bin]]

@@ -40,7 +40,7 @@ version = "0.19.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 publish = false
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.86"
 license = "MIT OR Apache-2.0"
 
 # Enable max optimizations for dependencies, but not for our code:
@@ -111,7 +111,6 @@ thiserror = "2.0.3"
 seahash = "4.1.0"
 smallvec = { version = "1", features = ["union", "const_generics"] }
 variadics_please = "1.1.0"
-zstd = "0.13.1"
 
 # no_std
 no_std_io2 = { version = "0.9", features = ["alloc"] }
@@ -141,15 +140,6 @@ crossbeam-channel = { version = "0.5.13", features = [] }
 # metrics
 
 metrics = "0.24"
-metrics-util = "0.19"
-metrics-tracing-context = "0.18"
-metrics-exporter-prometheus = { version = "0.17", default-features = false, features = [
-  "http-listener",
-] }
-
-
-# compression
-lz4_flex = { version = "0.11", default-features = false, features = ["std"] }
 
 # transport
 aeronet_webtransport = "0.14.0"
@@ -159,12 +149,10 @@ tokio = { version = "1.44", features = [
   "sync",
   "macros",
 ], default-features = false }
-futures = "0.3.30"
 async-compat = "0.2.3"
 
 # Non-WASM things
 steamworks = "0.11"
-
 
 # WASM things
 console_error_panic_hook = "0.1.7"
