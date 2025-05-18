@@ -6,30 +6,41 @@ edition = "2021"
 publish = false
 
 [features]
-default = ["client", "server", "gui", "lightyear_examples_common/default"]
-websocket = ["lightyear_examples_common/websocket"]
-client = ["lightyear_examples_common/client", "gui"]
-server = ["lightyear_examples_common/server"]
-gui = ["lightyear_examples_common/gui"]
-tls = ["dep:bevygap_client_plugin"]
-metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
-bevygap_client = ["lightyear_examples_common/bevygap_client", "client"]
-bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
-steam = ["lightyear_examples_common/steam"]
-visualizer = ["lightyear_examples_common/visualizer", "gui"]
+default = ["client", "gui", "server", "netcode", "udp"]
+client = [
+  "gui",
+  "lightyear/client",
+  "lightyear_examples_common/client"
+]
+gui = [
+  "lightyear_examples_common/gui"
+]
+server = [
+  "lightyear/server",
+  "lightyear_examples_common/server"
+]
+netcode = [
+  "lightyear_examples_common/netcode"
+]
+udp = [
+  "lightyear_examples_common/udp",
+  "lightyear/udp",
+]
 
 [dependencies]
-lightyear_examples_common.workspace = true
 lightyear = { workspace = true, features = [
+  "interpolation",
+  "prediction",
+  "replication",
   "leafwing",
   "avian3d",
-  "websocket",
 ] }
+lightyear_frame_interpolation.workspace = true
+lightyear_examples_common.workspace = true
 leafwing-input-manager = { workspace = true, default-features = false, features = [
   "keyboard",
   "gamepad",
 ] }
-
 avian3d = { workspace = true, features = [
   "3d",
   "f32",
@@ -37,16 +48,10 @@ avian3d = { workspace = true, features = [
   "parallel",
   "serialize",
 ] }
-anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 serde.workspace = true
 bevy.workspace = true
-rand.workspace = true
-metrics-exporter-prometheus = { workspace = true, optional = true }
-bevygap_client_plugin = { workspace = true, optional = true, features = [
-  "matchmaker-tls",
-] }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook.workspace = true

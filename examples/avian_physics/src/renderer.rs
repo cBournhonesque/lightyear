@@ -4,11 +4,10 @@ use avian2d::position::{Position, Rotation};
 use avian2d::prelude::LinearVelocity;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
-use lightyear::client::components::Confirmed;
-use lightyear::client::interpolation::VisualInterpolateStatus;
-use lightyear::client::prediction::Predicted;
-use lightyear::prelude::client::{InterpolationSet, PredictionSet, VisualInterpolationPlugin};
+use lightyear::prediction::plugin::PredictionSet;
+use lightyear::prediction::Predicted;
+use lightyear::prelude::{Confirmed, InterpolationSet};
+use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin {
@@ -29,8 +28,8 @@ impl Plugin for ExampleRendererPlugin {
         // add visual interpolation for Position and Rotation
         // (normally we would interpolate on Transform but here this is fine
         // since rendering is done via Gizmos that only depend on Position/Rotation)
-        app.add_plugins(VisualInterpolationPlugin::<Position>::default());
-        app.add_plugins(VisualInterpolationPlugin::<Rotation>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Position>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
         app.add_observer(add_visual_interpolation_components);
 
         if self.show_confirmed {
@@ -55,8 +54,8 @@ fn add_visual_interpolation_components(
         return;
     }
     commands.entity(trigger.target()).insert((
-        VisualInterpolateStatus::<Position>::default(),
-        VisualInterpolateStatus::<Rotation>::default(),
+        FrameInterpolate::<Position>::default(),
+        FrameInterpolate::<Rotation>::default(),
     ));
 }
 

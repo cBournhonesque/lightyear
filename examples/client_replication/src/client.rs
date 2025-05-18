@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::client::input::InputSystemSet;
-use lightyear::inputs::native::{ActionState, InputMarker};
-use lightyear::prelude::client::*;
+use lightyear::input::client::InputSet;
+use lightyear::input::native::prelude::*;
 use lightyear::prelude::*;
 
 use crate::protocol::Direction;
@@ -13,59 +12,45 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, init);
-        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
+        app.add_observer(spawn_local_cursor);
         // Inputs need to be buffered in the `FixedPreUpdate` schedule
         app.add_systems(
             FixedPreUpdate,
-            buffer_input.in_set(InputSystemSet::WriteClientInputs),
+            write_inputs.in_set(InputSet::WriteClientInputs),
         );
         // all actions related-system that can be rolled back should be in the `FixedUpdate` schedule
         app.add_systems(FixedUpdate, (player_movement, delete_player));
-        app.add_systems(
-            Update,
-            (
-                cursor_movement,
-                receive_message,
-                send_message,
-                spawn_player,
-                handle_predicted_spawn,
-                handle_interpolated_spawn,
-            ),
-        );
+        app.add_systems(Update, (cursor_movement, spawn_player));
+        app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_interpolated_spawn);
     }
 }
 
-/// Startup system for the client
-pub(crate) fn init(mut commands: Commands) {
-    commands.connect_client();
-}
-
-/// Listen for events to know when the client is connected;
-/// - spawn a text entity to display the client id
-/// - spawn a client-owned cursor entity that will be replicated to the server
-pub(crate) fn handle_connection(
+/// Spawn a cursor that is replicated to the server when the client connects
+pub(crate) fn spawn_local_cursor(
+    trigger: Trigger<OnAdd, Connected>,
+    client: Single<&Client>,
     mut commands: Commands,
-    mut connection_event: EventReader<ConnectEvent>,
 ) {
-    for event in connection_event.read() {
-        let client_id = event.client_id();
-        info!("Spawning local cursor");
-        // spawn a local cursor which will be replicated to other clients, but remain client-authoritative.
-        commands.spawn(CursorBundle::new(
-            client_id,
-            Vec2::ZERO,
-            color_from_id(client_id),
-        ));
-    }
+    let client_id = client.peer_id().unwrap();
+    info!("Spawning local cursor for client: {}", client_id);
+    // spawn a local cursor which will be replicated to the server
+    commands.spawn((
+        PlayerId(client_id),
+        CursorPosition(Vec2::ZERO),
+        PlayerColor(color_from_id(client_id)),
+        Replicate::to_server(),
+        Name::from("Cursor"),
+        // TODO: maybe add Interpolation so that the server interpolates the cursor updates?
+    ));
 }
 
 // System that reads from peripherals and adds inputs to the buffer
-pub(crate) fn buffer_input(
+pub(crate) fn write_inputs(
     mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
-    if let Ok(mut action_state) = query.get_single_mut() {
+    if let Ok(mut action_state) = query.single_mut() {
         let mut input = None;
         let mut direction = Direction {
             up: false,
@@ -110,29 +95,34 @@ fn player_movement(
     }
 }
 
-/// Spawn a server-owned pre-predicted player entity when the space command is pressed
+/// Spawn a client-owned player entity when the space command is pressed
 fn spawn_player(
     mut commands: Commands,
     keypress: Res<ButtonInput<KeyCode>>,
-    connection: Res<ClientConnection>,
+    client: Single<&Client>,
     players: Query<&PlayerId, With<PlayerPosition>>,
 ) {
-    let client_id = connection.id();
-
-    // do not spawn a new player if we already have one
-    for player_id in players.iter() {
-        if player_id.0 == client_id {
-            return;
-        }
-    }
     if keypress.just_pressed(KeyCode::Space) {
+        let client_id = client.peer_id().unwrap();
+        // do not spawn a new player if we already have one
+        for player_id in players.iter() {
+            if player_id.0 == client_id {
+                return;
+            }
+        }
+        info!(
+            "Spawning client-owned player entity for client: {}",
+            client_id
+        );
         commands.spawn((
-            PlayerBundle::new(client_id, Vec2::ZERO),
-            // add a marker to specify that we will be writing Inputs on this entity
-            InputMarker::<Inputs>::default(),
+            Name::from("Player"),
+            PlayerId(client_id),
+            PlayerPosition(Vec2::ZERO),
+            PlayerColor(color_from_id(client_id)),
+            Replicate::to_server(),
             // IMPORTANT: this lets the server know that the entity is pre-predicted
-            // when the server replicates this entity; we will get a Confirmed entity which will use this entity
-            // as the Predicted version
+            // when the server replicates this entity; we will get a Confirmed entity
+            // which will use this entity as the Predicted version
             PrePredicted::default(),
         ));
     }
@@ -152,7 +142,7 @@ fn delete_player(
 ) {
     for (entity, inputs) in players.iter() {
         if inputs.value.as_ref().is_some_and(|v| v == &Inputs::Delete) {
-            if let Some(mut entity_mut) = commands.get_entity(entity) {
+            if let Ok(mut entity_mut) = commands.get_entity(entity) {
                 // we need to use this special function to despawn prediction entity
                 // the reason is that we actually keep the entity around for a while,
                 // in case we need to re-store it for rollback
@@ -165,19 +155,21 @@ fn delete_player(
 
 // Adjust the movement of the cursor entity based on the mouse position
 fn cursor_movement(
-    connection: Res<ClientConnection>,
+    client: Single<&Client, With<Connected>>,
     window_query: Query<&Window>,
     mut cursor_query: Query<
         (&mut CursorPosition, &PlayerId),
-        Or<((Without<Confirmed>, Without<Interpolated>),)>,
+        // Query the client-authoritative cursor
+        (Without<Confirmed>, Without<Interpolated>),
     >,
 ) {
-    let client_id = connection.id();
+    let client_id = client.peer_id().unwrap();
     for (mut cursor_position, player_id) in cursor_query.iter_mut() {
         if player_id.0 != client_id {
-            return;
+            // This entity is replicated from another client, skip
+            continue;
         }
-        if let Ok(window) = window_query.get_single() {
+        if let Ok(window) = window_query.single() {
             if let Some(mouse_position) = window_relative_mouse_position(window) {
                 // only update the cursor if it's changed
                 cursor_position.set_if_neq(CursorPosition(mouse_position));
@@ -198,50 +190,36 @@ fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
     ))
 }
 
-// System to receive messages on the client
-pub(crate) fn receive_message(mut reader: EventReader<ReceiveMessage<Message1>>) {
-    for event in reader.read() {
-        info!("Received message: {:?}", event.message());
-    }
-}
-
-/// Send messages from server to clients
-pub(crate) fn send_message(
-    mut client: ResMut<ConnectionManager>,
-    input: Res<ButtonInput<KeyCode>>,
+/// When the predicted copy of the client-owned entity is spawned, do stuff
+/// - assign it a different saturation
+/// - keep track of it in the Global resource
+pub(crate) fn handle_predicted_spawn(
+    trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
+    mut predicted: Query<&mut PlayerColor, (With<Predicted>, With<PlayerId>)>,
+    mut commands: Commands,
 ) {
-    if input.pressed(KeyCode::KeyM) {
-        let message = Message1(5);
-        info!("Send message: {:?}", message);
-        // the message will be re-broadcasted by the server to all clients
-        client
-            .send_message_to_target::<Channel1, Message1>(&mut Message1(5), NetworkTarget::All)
-            .unwrap_or_else(|e| {
-                error!("Failed to send message: {:?}", e);
-            });
-    }
-}
-
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - keep track of it in the Global resource
-pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut PlayerColor, Added<Predicted>>) {
-    for mut color in predicted.iter_mut() {
+    let entity = trigger.target();
+    if let Ok(mut color) = predicted.get_mut(entity) {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
+        warn!("Add InputMarker to entity: {:?}", entity);
+        commands
+            .entity(entity)
+            .insert(InputMarker::<Inputs>::default());
     }
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - keep track of it in the Global resource
+/// When the predicted copy of the client-owned entity is spawned, do stuff
+/// - assign it a different saturation
+/// - keep track of it in the Global resource
 pub(crate) fn handle_interpolated_spawn(
-    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
+    trigger: Trigger<OnAdd, PlayerColor>,
+    mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
 ) {
-    for mut color in interpolated.iter_mut() {
+    if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
         let hsva = Hsva {
             saturation: 0.1,
             ..Hsva::from(color.0)

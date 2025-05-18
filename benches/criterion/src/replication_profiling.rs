@@ -1,8 +1,7 @@
 use bevy::prelude::*;
-use lightyear::prelude::server::Replicate;
-use lightyear::prelude::ReplicationGroup;
-use lightyear_benches::local_stepper::{LocalBevyStepper, Step};
+use lightyear::prelude::{NetworkTarget, Replicate};
 use lightyear_benches::protocol::Component1;
+use lightyear_tests::stepper::ClientServerStepper;
 use std::fs::File;
 
 const N: usize = 100;
@@ -10,17 +9,9 @@ const N: usize = 100;
 const NUM_ENTITIES: usize = 1000;
 fn main() {
     for _ in 0..N {
-        let mut stepper = LocalBevyStepper::default();
-        let entities = vec![
-            (
-                Component1(0.0),
-                Replicate {
-                    group: ReplicationGroup::new_id(1),
-                    ..default()
-                }
-            );
-            NUM_ENTITIES
-        ];
+        let mut stepper = ClientServerStepper::single();
+        let entities =
+            vec![(Component1(0.0), Replicate::to_clients(NetworkTarget::All)); NUM_ENTITIES];
         stepper.server_app.world_mut().spawn_batch(entities);
 
         // advance time by one frame
@@ -33,8 +24,8 @@ fn main() {
             .unwrap();
 
         // buffer and send replication messages
-        stepper.server_update();
-        stepper.client_update();
+        stepper.server_app.update();
+        stepper.client_app().update();
 
         if let Ok(report) = guard.report().build() {
             let file = File::create("flamegraph.svg").unwrap();

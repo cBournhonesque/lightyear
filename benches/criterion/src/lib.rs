@@ -1,6 +1,6 @@
+//! This crate contains benchmarking tests for the Lightyear project, primarily using Criterion.
+//! It includes modules for profiling and protocol-specific benchmarks.
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-pub mod local_stepper;
 pub mod profiler;
-pub mod protocol;

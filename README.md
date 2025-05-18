@@ -23,14 +23,6 @@ the [simple_box](https://github.com/cBournhonesque/lightyear/tree/main/examples/
 
 You can also find more information in this WIP [book](https://cbournhonesque.github.io/lightyear/book/).
 
-## Related projects
-
-- [lightyear-template](https://github.com/Piefayth/lightyear-template/tree/main): opiniated template for a bevy + lightyear starter project
-
-### Games
-- [Lumina](https://github.com/nixon-voxell/lumina)
-- [cycles.io](https://github.com/cBournhonesque/jam5) for bevy jam 5: https://cbournhonesque.itch.io/cyclesio
-
 ## Features
 
 ### Ergonomic
@@ -88,7 +80,8 @@ app.add_channel::<Channel1>(ChannelSettings {
       the [`leafwing-input-manager`](https://github.com/Leafwing-Studios/leafwing-input-manager) crate, where
       your `leafwing` inputs are networked for you!
 - World Replication
-    - Entities that have the `Replicate` bundle will be automatically replicated to clients.
+    - Entities that have the `Replicate` bundle will be automatically replicated to clients. Only the components that
+      change will be sent over the network. This functionality is similar to what [bevy_replicon](https://github.com/lifescapegame/bevy_replicon) provides.
 - Advanced replication
     - **Client-side prediction**: with just a one-line change, you can enable client-prediction with rollback on the
       client, so that your inputs can feel responsive
@@ -117,12 +110,15 @@ app.add_channel::<Channel1>(ChannelSettings {
     - *Lightyear* has plenty of examples demonstrating all these features, as well as the integration with other bevy
       crates such as `avian`
 
+## Games using lightyear
+
+- [Lumina](https://github.com/nixon-voxell/lumina)
+- [cycles.io](https://github.com/cBournhonesque/jam5) for bevy jam 5: https://cbournhonesque.itch.io/cyclesio
 
 ## Supported bevy version
 
 | Lightyear | Bevy |
 |-----------|------|
-| 0.20      | 0.16 |
 | 0.18-0.19 | 0.15 |
 | 0.16-0.17 | 0.14 |
 | 0.10-0.15 | 0.13 |

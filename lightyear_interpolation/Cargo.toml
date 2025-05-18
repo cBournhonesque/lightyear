@@ -1,0 +1,44 @@
+[package]
+name = "lightyear_interpolation"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "IO primitives for the lightyear networking library"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = ["std"]
+std = [
+    "bevy/std",
+    "bytes/std",
+    "serde/std",
+]
+metrics = [
+    "dep:metrics", "std"
+]
+
+
+[dependencies]
+lightyear_utils.workspace = true
+lightyear_serde.workspace = true
+lightyear_core.workspace = true
+lightyear_connection.workspace = true
+lightyear_messages = {workspace = true, features = ["client"]}
+lightyear_replication = {workspace = true, features = ["client", "interpolation"]}
+lightyear_sync = {workspace = true, features = ["client"]}
+
+# utils
+metrics = { workspace= true, optional=true}
+tracing.workspace = true
+
+# serde
+serde.workspace = true
+bytes.workspace = true
+
+# bevy
+bevy.workspace = true
+
+[lints]
+workspace = true

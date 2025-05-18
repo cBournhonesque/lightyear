@@ -1,0 +1,60 @@
+[package]
+name = "spaceships"
+version.workspace = true
+authors = [
+  "Charles Bournhonesque <charlesbour@gmail.com>",
+  "Richard Jones <rj@metabrew.com>",
+]
+edition.workspace = true
+publish = false
+
+[features]
+default = ["client", "gui", "server", "netcode", "udp"]
+client = [
+  "gui",
+  "lightyear/client",
+  "lightyear_examples_common/client"
+]
+gui = [
+  "lightyear_examples_common/gui"
+]
+server = [
+  "lightyear/server",
+  "lightyear_examples_common/server"
+]
+netcode = [
+  "lightyear_examples_common/netcode"
+]
+udp = [
+  "lightyear_examples_common/udp",
+  # udp requires std
+  "lightyear/std",
+  "lightyear/udp",
+]
+
+[dependencies]
+lightyear = { workspace = true, features = [
+  "interpolation",
+  "prediction",
+  "replication",
+  "leafwing",
+  "avian2d",
+] }
+lightyear_frame_interpolation.workspace = true
+lightyear_examples_common.workspace = true
+leafwing-input-manager = { workspace = true, features = ["keyboard", "mouse"] }
+
+avian2d = { workspace = true, features = [
+  "2d",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
+] }
+serde.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+bevy.workspace = true
+
+[lints]
+workspace = true

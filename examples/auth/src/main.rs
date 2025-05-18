@@ -11,61 +11,76 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-use crate::shared::SharedPlugin;
-use lightyear_examples_common::app::{Apps, Cli};
-use lightyear_examples_common::settings::Settings;
-use serde::{Deserialize, Serialize};
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use bevy::prelude::*;
+use core::time::Duration;
+use lightyear::netcode::NetcodeClient;
+use lightyear_examples_common::cli::{Cli, Mode};
+use lightyear_examples_common::shared::{
+    CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS,
+};
 
-#[cfg(feature = "client")]
+use crate::client::ExampleClientPlugin;
+use crate::server::ExampleServerPlugin;
+use crate::shared::AUTH_BACKEND_ADDRESS;
+use lightyear::connection::server::Start;
+use lightyear_examples_common::client::{ClientTransports, ExampleClient};
+use lightyear_examples_common::server::{ExampleServer, ServerTransports};
+
 mod client;
-mod protocol;
 
-#[cfg(feature = "gui")]
-mod renderer;
-#[cfg(feature = "server")]
 mod server;
-mod settings;
+// mod settings; // Settings are now handled by common_new
 mod shared;
 
 fn main() {
     let cli = Cli::default();
-    let settings = settings::get_settings();
 
-    #[cfg(feature = "client")]
-    let client_plugin = client::ExampleClientPlugin {
-        auth_backend_address: SocketAddr::V4(SocketAddrV4::new(
-            Ipv4Addr::UNSPECIFIED,
-            settings.netcode_auth_port,
-        )),
-    };
+    let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
 
-    #[cfg(feature = "server")]
-    let server_plugin = server::ExampleServerPlugin {
-        protocol_id: settings.common.shared.protocol_id,
-        private_key: settings.common.shared.private_key,
-        game_server_addr: SocketAddr::V4(SocketAddrV4::new(
-            settings.common.client.server_addr,
-            settings.common.client.server_port,
-        )),
-        auth_backend_addr: SocketAddr::V4(SocketAddrV4::new(
-            Ipv4Addr::UNSPECIFIED,
-            settings.netcode_auth_port,
-        )),
-    };
+    match cli.mode {
+        None => {}
+        Some(Mode::Client { client_id }) => {
+            app.add_plugins(ExampleClientPlugin {
+                auth_backend_address: AUTH_BACKEND_ADDRESS,
+            });
+            let client = app
+                .world_mut()
+                .spawn(ExampleClient {
+                    client_id: cli.client_id().unwrap_or(0),
+                    client_port: CLIENT_PORT,
+                    server_addr: SERVER_ADDR,
+                    conditioner: None,
+                    transport: ClientTransports::Udp,
+                    shared: SHARED_SETTINGS,
+                })
+                .id();
+            assert!(
+                app.world().get::<NetcodeClient>(client).is_some(),
+                "The example only works with netcode enabled!"
+            );
+            // remove the NetcodeClient for the example, as we want to show how we can
+            // send the ConnectToken from the server to the client to build a NetcodeClient
+            app.world_mut().entity_mut(client).remove::<NetcodeClient>();
+        }
+        Some(Mode::Server) => {
+            app.add_plugins(ExampleServerPlugin {
+                game_server_addr: SERVER_ADDR,
+                auth_backend_addr: AUTH_BACKEND_ADDRESS,
+            });
+            let server = app
+                .world_mut()
+                .spawn(ExampleServer {
+                    conditioner: None,
+                    transport: ServerTransports::Udp {
+                        local_port: SERVER_PORT,
+                    },
+                    shared: SHARED_SETTINGS,
+                })
+                .id();
+            app.world_mut().trigger_targets(Start, server);
+        }
+        _ => {}
+    }
 
-    // build the bevy app (this adds common plugin such as the DefaultPlugins)
-    let mut apps = Apps::new(settings.common, cli, env!("CARGO_PKG_NAME").to_string());
-
-    apps.add_lightyear_plugins();
-    apps.add_user_shared_plugin(SharedPlugin);
-    #[cfg(feature = "client")]
-    apps.add_user_client_plugin(client_plugin);
-    #[cfg(feature = "server")]
-    apps.add_user_server_plugin(server_plugin);
-    #[cfg(feature = "gui")]
-    apps.add_user_renderer_plugin(renderer::ExampleRendererPlugin);
-
-    // run the app
-    apps.run();
+    app.run();
 }

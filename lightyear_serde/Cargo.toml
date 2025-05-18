@@ -1,0 +1,36 @@
+[package]
+name = "lightyear_serde"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "IO primitives for the lightyear networking library"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = ["std"]
+std = [
+    "bincode/std",
+    "no_std_io2/std"
+]
+
+[dependencies]
+# utils
+bytes.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+variadics_please.workspace = true
+
+# serde
+bincode.workspace = true
+serde.workspace = true
+
+# bevy
+bevy.workspace = true
+
+# no_std
+no_std_io2.workspace = true
+
+[lints]
+workspace = true

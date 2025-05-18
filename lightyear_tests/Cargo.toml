@@ -1,0 +1,71 @@
+[package]
+name = "lightyear_tests"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Setup for integration tests for the lightyear networking library"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = [
+    "std",
+    "lightyear/interpolation"
+]
+leafwing = [
+    "lightyear/leafwing"
+]
+std = [
+    "bevy/std",
+    "bytes/std",
+    "serde/std",
+    "lightyear_sync/std",
+    "lightyear_messages/std",
+    "lightyear_serde/std",
+    "lightyear_transport/std",
+]
+
+
+[dependencies]
+lightyear = { workspace = true, features = [
+    "client", "server", "crossbeam", "netcode", "input_native", "leafwing", "interpolation", "prediction", "replication"
+]}
+lightyear_macros.workspace = true
+lightyear_utils.workspace = true
+lightyear_serde.workspace = true
+lightyear_transport = { workspace = true, features = ["client", "server"] }
+lightyear_core.workspace = true
+lightyear_netcode = { workspace = true, features = ["client", "server", "test_utils"] }
+lightyear_messages = { workspace = true, features = ["client", "server"] }
+lightyear_replication =  { workspace = true, features = ["client", "server", "test_utils"]}
+lightyear_crossbeam = { workspace = true, features = ["test_utils"]}
+lightyear_connection = { workspace = true, features = ["client", "server"]}
+lightyear_sync = { workspace = true, features = ["client", "server"] }
+lightyear_prediction = { workspace = true, features = ["test_utils"] }
+lightyear_link = { workspace = true, features = ["test_utils"]}
+
+# inputs
+leafwing-input-manager.workspace = true
+
+# utils
+cfg-if.workspace = true
+tracing.workspace = true
+
+# serde
+serde.workspace = true
+bytes.workspace = true
+
+# bevy
+bevy.workspace = true
+
+# test
+mock_instant.workspace = true
+
+[dev-dependencies]
+test-log.workspace = true
+approx.workspace = true
+mock_instant.workspace = true
+
+[lints]
+workspace = true

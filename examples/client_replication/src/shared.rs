@@ -1,7 +1,4 @@
 use bevy::prelude::*;
-use core::time::Duration;
-
-use lightyear::prelude::client::Confirmed;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
@@ -16,7 +13,7 @@ impl Plugin for SharedPlugin {
 }
 
 // Generate pseudo-random color from id
-pub(crate) fn color_from_id(client_id: ClientId) -> Color {
+pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     let h = (((client_id.to_bits().wrapping_mul(90)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;

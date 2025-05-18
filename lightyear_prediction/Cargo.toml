@@ -1,0 +1,58 @@
+[package]
+name = "lightyear_prediction"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "IO primitives for the lightyear networking library"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = ["std"]
+std = [
+    "lightyear_utils/std",
+    "lightyear_serde/std",
+    "lightyear_link/std",
+    "lightyear_core/std",
+    "lightyear_connection/std",
+    "lightyear_replication/std",
+    "lightyear_sync/std",
+    "bevy/std",
+    "bytes/std",
+    "serde/std",
+]
+server = [
+    "dep:lightyear_messages"
+]
+metrics = [
+    "dep:metrics",
+    "std"
+]
+test_utils = []
+
+[dependencies]
+lightyear_utils.workspace = true
+lightyear_serde.workspace = true
+lightyear_link.workspace = true
+lightyear_core.workspace = true
+lightyear_connection = {workspace = true, features = ["client"]}
+lightyear_replication = {workspace = true, features = ["prediction", "interpolation"]}
+lightyear_sync = {workspace = true, features = ["client"]}
+lightyear_messages = {workspace = true, optional = true}
+
+# utils
+metrics = { workspace= true, optional=true}
+seahash.workspace = true
+parking_lot.workspace = true
+tracing.workspace = true
+
+# serde
+serde.workspace = true
+bytes.workspace = true
+
+# bevy
+bevy.workspace = true
+
+[lints]
+workspace = true

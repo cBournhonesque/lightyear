@@ -7,14 +7,10 @@ use crate::{
 };
 use avian3d::{math::AsF32, prelude::*};
 use bevy::{color::palettes::css::MAGENTA, prelude::*};
-use lightyear::{
-    client::prediction::diagnostics::PredictionDiagnosticsPlugin,
-    prelude::{client::*, *},
-    transport::io::IoDiagnosticsPlugin,
-};
-use lightyear::{
-    client::prediction::rollback::DisableRollback, prelude::server::ReplicateToClient,
-};
+use lightyear::prediction::plugin::PredictionSet;
+use lightyear::prediction::rollback::DisableRollback;
+use lightyear::prelude::*;
+use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 pub struct ExampleRendererPlugin;
 
@@ -48,7 +44,7 @@ impl Plugin for ExampleRendererPlugin {
 
         // Set up visual interp plugins for Transform. Transform is updated in FixedUpdate
         // by the physics plugin so we make sure that in PostUpdate we interpolate it
-        app.add_plugins(VisualInterpolationPlugin::<Transform>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Transform>::default());
 
         // Observers that add VisualInterpolationStatus components to entities
         // which receive a Position and are predicted
@@ -93,8 +89,8 @@ pub fn position_to_transform_for_interpolated(
     parents: Query<ParentComponents, With<Children>>,
 ) {
     for (mut transform, pos, rot, parent) in &mut query {
-        if let Some(parent) = parent {
-            if let Ok((parent_transform, parent_pos, parent_rot)) = parents.get(parent.parent()) {
+        if let Some(child_of) = parent {
+            if let Ok((parent_transform, parent_pos, parent_rot)) = parents.get(child_of.parent()) {
                 let parent_transform = parent_transform.compute_transform();
                 let parent_pos = parent_pos.map_or(parent_transform.translation, |pos| pos.f32());
                 let parent_rot = parent_rot.map_or(parent_transform.rotation, |rot| rot.f32());
@@ -138,7 +134,7 @@ fn add_visual_interpolation_components(
     }
     commands
         .entity(trigger.target())
-        .insert(VisualInterpolateStatus::<Transform> {
+        .insert(FrameInterpolate::<Transform> {
             // We must trigger change detection on visual interpolation
             // to make sure that child entities (sprites, meshes, text)
             // are also interpolated
@@ -154,11 +150,7 @@ fn add_character_cosmetics(
     character_query: Query<
         (Entity, &ColorComponent),
         (
-            Or<(
-                Added<Predicted>,
-                Added<ReplicateToClient>,
-                Added<Interpolated>,
-            )>,
+            Or<(Added<Predicted>, Added<Replicate>, Added<Interpolated>)>,
             With<CharacterMarker>,
         ),
     >,
@@ -180,16 +172,16 @@ fn add_character_cosmetics(
 fn add_projectile_cosmetics(
     mut commands: Commands,
     character_query: Query<
-        (Entity),
+        Entity,
         (
-            Or<(Added<Predicted>, Added<ReplicationMarker>)>,
+            Or<(Added<Predicted>, Added<Replicate>)>,
             With<ProjectileMarker>,
         ),
     >,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (entity) in &character_query {
+    for entity in &character_query {
         info!(?entity, "Adding cosmetics to character {:?}", entity);
         commands.entity(entity).insert((
             Mesh3d(meshes.add(Sphere::new(1.))),
@@ -221,13 +213,7 @@ fn add_floor_cosmetics(
 /// see the predicted block and not the confirmed block.
 fn add_block_cosmetics(
     mut commands: Commands,
-    floor_query: Query<
-        Entity,
-        (
-            Or<(Added<Predicted>, Added<ReplicateToClient>)>,
-            With<BlockMarker>,
-        ),
-    >,
+    floor_query: Query<Entity, (Or<(Added<Predicted>, Added<Replicate>)>, With<BlockMarker>)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -246,7 +232,9 @@ fn disable_projectile_rollback(
         Entity,
         (
             With<Predicted>,
-            Or<(With<ProjectileMarker>, With<CharacterMarker>)>, // disabling character rollbacks while we debug projectiles with this janky setup
+            With<ProjectileMarker>,
+            // Or<(With<ProjectileMarker>, With<CharacterMarker>)>,
+            // disabling character rollbacks while we debug projectiles with this janky setup
             Without<DisableRollback>,
         ),
     >,

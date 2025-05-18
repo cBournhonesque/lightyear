@@ -15,8 +15,8 @@ The top level `Cargo.toml` workspace defines the deps that examples can use and 
 - `client_replication`: example that shows how to replicate entities from the client to the server. (i.e. the client has authority)
 - `delta_compression`: example that shows how a component can be replicated with delta-compression enabled. Whenever the component value
   changes, only the difference is sent over the network, instead of the full component value.
-- `interest_management`: example that shows how to use interest management to only replicate a subset of entities
-  to each player, via the `VisibilityManager` and the `RoomManager`
+- `network_visibility`: example that shows how to use network visibility to only replicate a subset of entities
+  to each player
 - `replication_groups`: example that shows how to replicate entities that refer to other entities
   (e.g. they have a component containing an `Entity` id). You need to use `ReplicationGroup` to ensure that the
   those entities are replicated in the same message

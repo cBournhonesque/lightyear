@@ -1,7 +1,6 @@
-use bevy::prelude::*;
-use bevy::render::RenderPlugin;
-
 use crate::protocol::*;
+use bevy::prelude::*;
+use lightyear::prelude::Confirmed;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
@@ -19,7 +18,10 @@ fn init(mut commands: Commands) {
 
 /// System that draws the boxes of the player positions.
 /// The components should be replicated from the server to the client
-pub(crate) fn draw_boxes(mut gizmos: Gizmos, players: Query<(&PlayerPosition, &PlayerColor)>) {
+pub(crate) fn draw_boxes(
+    mut gizmos: Gizmos,
+    players: Query<(&PlayerPosition, &PlayerColor), Without<Confirmed>>,
+) {
     for (position, color) in &players {
         gizmos.rect_2d(
             Isometry2d::from_translation(position.0),

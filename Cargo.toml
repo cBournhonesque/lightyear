@@ -1,11 +1,34 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
   "lightyear",
+  "lightyear_aeronet",
+  "lightyear_core",
+  "lightyear_crossbeam",
+  "lightyear_frame_interpolation",
+  "lightyear_inputs",
+  "lightyear_inputs_leafwing",
+  "lightyear_inputs_native",
+  "lightyear_interpolation",
+  "lightyear_link",
+  "lightyear_transport",
+  "lightyear_connection",
+  "lightyear_macros",
+  "lightyear_messages",
+  "lightyear_netcode",
+  "lightyear_prediction",
+  "lightyear_replication",
+  "lightyear_serde",
+  "lightyear_steam",
+  "lightyear_sync",
+  "lightyear_tests",
+  "lightyear_udp",
+  "lightyear_utils",
   "lightyear_avian",
-  "macros",
+  "lightyear_webtransport",
   # internal
   "benches/*",
+  "demos/*",
   "examples/*",
 ]
 default-members = ["lightyear"]
@@ -13,11 +36,11 @@ exclude = ["examples/certificates"]
 
 
 [workspace.package]
-version = "0.20.2"
+version = "0.19.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 publish = false
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.86"
 license = "MIT OR Apache-2.0"
 
 # Enable max optimizations for dependencies, but not for our code:
@@ -38,11 +61,36 @@ codegen-units = 1
 incremental = false
 debug = false
 
-[workspace.dependencies]
 
-lightyear_avian = { path = "./lightyear_avian", version = "0.20.2", default-features = false }
-lightyear_examples_common = { path = "./examples/common", default-features = false }
-lightyear = { path = "./lightyear", version = "0.20.2", default-features = false }
+[workspace.dependencies]
+lightyear_aeronet = { path = "./lightyear_aeronet", version = "0.19.0", default-features = false }
+lightyear_avian = { path = "./lightyear_avian", version = "0.19.0", default-features = false }
+lightyear_macros = { path = "./lightyear_macros", version = "0.19.0", default-features = false}
+lightyear_netcode = { path = "./lightyear_netcode", version = "0.19.0", default-features = false }
+lightyear_connection = { path = "./lightyear_connection", version = "0.19.0", default-features = false }
+lightyear_core = { path = "./lightyear_core", version = "0.19.0", default-features = false }
+lightyear_crossbeam = { path = "./lightyear_crossbeam", version = "0.19.0", default-features = false }
+lightyear_frame_interpolation = { path = "./lightyear_frame_interpolation", version = "0.19.0", default-features = false }
+lightyear_inputs = { path = "./lightyear_inputs", version = "0.19.0", default-features = false }
+lightyear_inputs_leafwing = { path = "./lightyear_inputs_leafwing", version = "0.19.0", default-features = false }
+lightyear_inputs_native = { path = "./lightyear_inputs_native", version = "0.19.0", default-features = false }
+lightyear_interpolation = { path = "./lightyear_interpolation", version = "0.19.0", default-features = false }
+lightyear_messages = { path = "./lightyear_messages", version = "0.19.0", default-features = false }
+lightyear = { path = "lightyear", version = "0.19.0", default-features = false }
+lightyear_transport = { path = "lightyear_transport", version = "0.19.0", default-features = false }
+lightyear_prediction = { path = "./lightyear_prediction", version = "0.19.0", default-features = false }
+lightyear_link = { path = "./lightyear_link", version = "0.19.0", default-features = false }
+lightyear_replication = { path = "./lightyear_replication", version = "0.19.0", default-features = false }
+lightyear_serde = { path = "./lightyear_serde", version = "0.19.0", default-features = false }
+lightyear_steam = { path = "./lightyear_steam", version = "0.19.0", default-features = false }
+lightyear_sync = { path = "./lightyear_sync", version = "0.19.0", default-features = false }
+lightyear_udp = { path = "./lightyear_udp", version = "0.19.0", default-features = false }
+lightyear_utils = { path = "./lightyear_utils", version = "0.19.0", default-features = false }
+lightyear_tests = { path = "./lightyear_tests", version = "0.19.0", default-features = false }
+lightyear_webtransport = { path = "./lightyear_webtransport", version = "0.19.0", default-features = false }
+
+# examples
+lightyear_examples_common = { path = "./examples/common", version = "0.19.0", default-features = false }
 
 # utils
 anyhow = { version = "1.0.75", features = [] }
@@ -52,7 +100,9 @@ cfg-if = "1.0"
 enum_dispatch = "0.3"
 governor = "0.10"
 hashbrown = "0.15"
+indexmap = { version = "2.9.0", default-features = false }
 nonzero_ext = "0.3.0"
+numquant = { version = "0.2.0", features = ["serde"] }
 parking_lot = "0.12.3"
 paste = "1.0"
 rand = "0.9"
@@ -61,28 +111,23 @@ thiserror = "2.0.3"
 seahash = "4.1.0"
 smallvec = { version = "1", features = ["union", "const_generics"] }
 variadics_please = "1.1.0"
-zstd = "0.13.1"
 
 # no_std
-no_std_io2 = { version = "0.9.0", features = ["alloc"] }
+no_std_io2 = { version = "0.9", features = ["alloc"] }
+spin = { version = "0.10", default-features = false }
 
 # serialization
 
 bincode = { version = "2.0.0-rc.3", default-features = false, features = ["serde", "alloc"] }
 bytes = { version = "1.8", default-features = false, features = ["serde"] }
-self_cell = "1.0"
 serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
 
 # netcode
-
 chacha20poly1305 = { version = "0.10" }
 
-# derive
-
-lightyear_macros = { path = "./macros", version = "0.20.2"}
 
 # tracing
-
+test-log =  { version = "0.2.17", default-features = false, features = ["trace", "color"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.17", features = [
   "registry",
@@ -90,91 +135,43 @@ tracing-subscriber = { version = "0.3.17", features = [
 ] }
 
 # server
-
 crossbeam-channel = { version = "0.5.13", features = [] }
 
 # metrics
 
 metrics = "0.24"
-metrics-util = "0.19"
-metrics-tracing-context = "0.18"
-metrics-exporter-prometheus = { version = "0.17", default-features = false, features = [
-  "http-listener",
-] }
-
-
-# compression
-
-lz4_flex = { version = "0.11", default-features = false, features = ["std"] }
-
-# WebSocket
-futures-util = "0.3.30"
 
 # transport
+aeronet_webtransport = "0.14.0"
+aeronet_io = "0.14.0"
 # we don't need any tokio features, we use only use the tokio channels
-
-tokio = { version = "1.36", features = [
+tokio = { version = "1.44", features = [
   "sync",
   "macros",
 ], default-features = false }
-futures = "0.3.30"
 async-compat = "0.2.3"
-async-channel = "2.2.0"
 
-# Non-WASM thingjs
+# Non-WASM things
 steamworks = "0.11"
-wtransport = { version = "0.6.1", features = [
-  "quinn",
-  "self-signed",
-  "dangerous-configuration",
-] }
-tokio-tungstenite = { version = "0.26", features = ["connect", "handshake"] }
-
 
 # WASM things
-
 console_error_panic_hook = "0.1.7"
-web-sys = { version = "0.3", features = [
-  "Document",
-  "WebTransport",
-  "WebTransportHash",
-  "WebTransportOptions",
-  "WebTransportBidirectionalStream",
-  "WebTransportSendStream",
-  "WebTransportReceiveStream",
-  "ReadableStreamDefaultReader",
-  "WritableStreamDefaultWriter",
-  "WebTransportDatagramDuplexStream",
-  "WebSocket",
-  "CloseEvent",
-  "ErrorEvent",
-  "MessageEvent",
-  "BinaryType",
-] }
-
-# latest version that still uses bevy 0.14:
+web-time = "1.1.0"
 bevy_web_keepalive = "0.3.5"
-
-futures-lite = "2.1.0"
-getrandom = { version = "0.3.0", features = [
+getrandom = { version = "0.3", features = [
   "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
 ] }
-xwt-core = "0.6"
-xwt-web = "0.15.0"
 wasm-bindgen = "0.2.90"
-wasm-bindgen-futures = "0.4.42"
-web-time = "1.1.0"
 
 # dev deps
-wasm-bindgen-test = "0.3.39"
 mock_instant = "0.5"
-bitvec = "1.0"
 approx = "0.5.1"
 
 # Bevy
 # (we add back features needed for gui clients if desired)
 bevy = { version = "0.16", default-features = false, features = [
   "bevy_state",
+  "bevy_log",
   "serialize",
   "bevy_asset",
   "bevy_state",
@@ -192,7 +189,6 @@ leafwing-input-manager = { version = "0.17", default-features = false, features 
 avian2d = { version = "0.3", default-features = false }
 avian3d = { version = "0.3", default-features = false }
 
-
 # gui debug ui
 bevy-inspector-egui = { version = "0.31", default-features = false, features = [
   "bevy_pbr",
@@ -205,12 +201,15 @@ bevy_egui = { version = "0.34", default-features = false, features = [
   "default_fonts",
   "render",
 ] }
-bevy_metrics_dashboard = "0.7"
+bevy_metrics_dashboard = { version = "0.7", features = ["bevy_egui"]}
 egui_extras = "0.31"
 
-# bevygap for deploying on Edgegap
-bevygap_server_plugin = { version = "0.3.1" }
-bevygap_client_plugin = { version = "0.3.1" }
+# documentation
+document-features    = { version = "0.2.11" }
+
+[workspace.lints.rust]
+dead_code = "allow"
+unused_variables = "allow"
 
 [workspace.lints.clippy]
 type_complexity = "allow"

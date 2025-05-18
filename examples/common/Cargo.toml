@@ -12,14 +12,11 @@ license = "MIT OR Apache-2.0"
 exclude = ["/tests"]
 
 [features]
-default = ["steam", "websocket", "client", "server", "gui"]
-steam = ["lightyear/steam"]
-websocket = ["lightyear/websocket"]
-server = []
-client = ["gui"]
-bevygap_client = ["client", "dep:bevygap_client_plugin"]
-bevygap_server = ["server", "dep:bevygap_server_plugin"]
-visualizer = ["gui", "lightyear/visualizer"]
+default = ["client", "server", "gui", "netcode", "udp"]
+client = ["lightyear/client", "gui"]
+server = ["lightyear/server"]
+netcode = ["lightyear/netcode"]
+udp = ["lightyear/udp"]
 
 # this serves as a bit of "workspace-hack" crate by enabling all bevy features needed by examples.
 # you can read about workspace-hack crates here: https://docs.rs/cargo-hakari/latest/cargo_hakari/about/index.html
@@ -42,33 +39,37 @@ gui = [
   "bevy/webgl2",
   "bevy/bevy_winit",
   "bevy/bevy_picking",
-  "bevy/bevy_ui_picking_backend",
   "bevy/bevy_sprite",
   "bevy/bevy_text",
   "bevy/bevy_ui",
+  "bevy/bevy_ui_picking_backend",
   "bevy/bevy_window",
 ]
 
 [dependencies]
-lightyear = { workspace = true, features = ["udp", "webtransport"] }
-anyhow.workspace = true
+lightyear = {"workspace" = true, features = [
+  "interpolation",
+  "prediction",
+  "replication",
+  "webtransport",
+  "webtransport_self_signed",
+  "webtransport_dangerous_configuration",
+  "udp",
+]}
 async-compat.workspace = true
 cfg-if.workspace = true
 clap.workspace = true
-crossbeam-channel.workspace = true
-rand.workspace = true
 serde.workspace = true
-bevy = { workspace = true, features = ["bevy_log"]}
-bevygap_client_plugin = { workspace = true, optional = true }
-bevygap_server_plugin = { workspace = true, optional = true }
+bevy.workspace = true
 bevy-inspector-egui = { workspace = true, optional = true }
 bevy_metrics_dashboard = { workspace = true, optional = true }
 bevy_egui = { workspace = true, optional = true }
 tracing.workspace = true
 
-
 [target."cfg(target_family = \"wasm\")".dependencies]
-web-sys = { workspace = true, features = ["Window", "Location"] }
+console_error_panic_hook.workspace = true
+rand.workspace = true
+getrandom.workspace = true
 
 [lints]
 workspace = true

@@ -1,0 +1,34 @@
+[package]
+name = "lightyear_crossbeam"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "IO primitives for the lightyear networking library"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = ["std"]
+std = [
+]
+test_utils = ["dep:mock_instant"]
+
+[dependencies]
+lightyear_link.workspace = true
+
+# bevy
+bevy.workspace = true
+
+# utils
+crossbeam-channel.workspace = true
+tracing.workspace = true
+
+# serde
+bytes.workspace = true
+
+# test
+mock_instant = {workspace = true, optional = true}
+
+[lints]
+workspace = true

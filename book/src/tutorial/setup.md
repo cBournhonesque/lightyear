@@ -1,48 +1,27 @@
 # General architecture
 
-`Lightyear` essentially provides 2 plugins that will handle every networking-related concern for you: a `ClientPlugin`
-and a `ServerPlugin`.
+`lightyear` is split up into multiple crates that each provide a facet of networking.
+The main crate `lightyear` provides an easy way of importing all the other crates and settings up the necessary plugins.
+In particular it provides 2 plugin groups that set up the various systems needed for multiplayer app: `ClientPlugins` and `ServerPlugins`.
 
-The plugins will define various resources and systems that will handle the connection to the server.
-Some of the notable resources are:
-
-- the [TickManager](https://docs.rs/lightyear/latest/lightyear/shared/tick_manager/struct.TickManager.html): `lightyear`
-  uses `Ticks` to handle synchronization between the client and server. The `Tick` is basically the fixed-timestep unit
-  of simulation, it gets incremented by 1 every time the FixedUpdate
-  schedule runs. The `TickManager` has
-  the [tick](https://docs.rs/lightyear/latest/lightyear/shared/tick_manager/struct.TickManager.html#method.tick) method
-  to return the current client or server tick. (depending on which plugin you are using)
-- the [ClientConnectionManager](https://docs.rs/lightyear/latest/lightyear/client/connection/struct.ConnectionManager.html)
-or [ServerConnectionManager](https://docs.rs/lightyear/latest/lightyear/server/connection/struct.ConnectionManager.html)
-which are used to send messages to the remote.
-- the [ClientConnection](https://docs.rs/lightyear/latest/lightyear/prelude/client/struct.ClientConnection.html) or
-  [ServerConnection](https://docs.rs/lightyear/latest/lightyear/prelude/server/struct.ServerConnection.html) which
-  handle the general io connection. You can use them to get the current `ClientId` or to check that the connection is
-  still alive.
-- the [InputManager](https://docs.rs/lightyear/latest/lightyear/client/input/struct.InputManager.html) lets you send inputs from the client to the server
-
-There are many different sub-plugins but the most important things that `lightyear` handles for you are probably:
-- the sending and receiving of messages.
+There are many different sub-plugins but the most important things that `lightyear` handles for you are:
+- the sending and receiving of messages
 - automatic replication of the World from the server to the client
-- handling the inputs from the user.
+- syncing the timelines of the client and the server
+- handling the inputs from the user
 
 
 # Example code organization
 
 In the most basic setup, you will run 2 separate apps: one for the client and one for the server.
-(You can also run both in the same app in what is called `HostServer` mode, but we will not cover that in this
-tutorial.)
 
 The `simple_box` example has the following structure:
 
-- `main.rs`: this is where we read the settings file from `assets/settings.ron` and create the client or server app
-  depending on the passed CLI arguments.
-- `settings.rs`: here we parse the `settings.ron` file and have helpers to create the `ClientConfig` and `ServerConfig`
-  structs which are all that is required to build a `ClientPlugin` or a `ServerPlugin`
+- `main.rs`: this is where we create the client or server app depending on the passed CLI mode.
 - `protocol.rs`: here we define a shared protocol, which is basically the list of messages, components and inputs that
   can be sent between the client and server.
 - `shared.rs`: this is where we define shared behaviour between the client and server. For example some simulation
-  logic (physics/movement) should be shared between the client and server.
+  logic (physics/movement) should be shared between the client and server to ensure consistency.
 - `client.rs`: this is where we define client-specific logic (input-handling, client-prediction, etc.)
 - `server.rs`: this is where we define server-specific logic (spawning players for newly-connected clients, etc.)
 
@@ -64,6 +43,7 @@ A protocol is composed of
 
 A `Message` is any struct that is `Serialize + Deserialize + Clone`.
 
+
 ### Components
 
 The `ComponentRegistry` is needed for automatic World replication: automatically replicating entities and components
@@ -77,11 +57,6 @@ It can also contain additional metadata for each component, such as prediction o
 Let's define our components protocol:
 
 ```rust
-# use bevy::prelude::*;
-# use lightyear::prelude::{client::ComponentSyncMode, *};
-# use serde::{Deserialize, Serialize};
-# use std::ops::{Add, Mul};
-#
 /// A component that will identify which player the box belongs to
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(ClientId);
@@ -90,22 +65,6 @@ pub struct PlayerId(ClientId);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerPosition(Vec2);
 
-# impl Mul<f32> for &PlayerPosition {
-#     type Output = PlayerPosition;
-#
-#     fn mul(self, rhs: f32) -> Self::Output {
-#         PlayerPosition(self.0 * rhs)
-#     }
-# }
-#
-# impl Add for PlayerPosition {
-#     type Output = PlayerPosition;
-#     #[inline]
-#     fn add(self, rhs: PlayerPosition) -> PlayerPosition {
-#         PlayerPosition(self.0.add(rhs.0))
-#     }
-# }
-#
 /// A component that will store the color of the box, so that each player can have a different color.
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
@@ -114,23 +73,21 @@ pub struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin{
     fn build(&self, app: &mut App) {
-        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<PlayerId>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
-        app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
+        app.register_component::<PlayerPosition>()
+            .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
 
-        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        app.register_component::<PlayerColor>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
     }
 }
 ```
-
-Make sure `PlayerPosition` implements the `Linear` trait by implementing `Add` and `Mul` for it.
 
 ### Message
 
@@ -144,17 +101,12 @@ Let's define our message protocol:
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
 
-/// Again, you need to use the macro `message_protocol` to define a message protocol.
-#[message_protocol(protocol = "MyProtocol")]
-pub enum Messages {
-    Message1(Message1),
-}
-
 impl Plugin for ProtocolPlugin{
   fn build(&self, app: &mut App) {
     // Register messages
-    app.add_message::<Message1>(ChannelDirection::Bidirectional);
-    
+    app.add_message::<Message1>()
+      .add_direction(NetworkDirection::ServerToClient);
+      
     // Register components
     ...
   }
@@ -166,8 +118,6 @@ impl Plugin for ProtocolPlugin{
 Lightyear handles inputs (the user actions that should be sent to the server) for you, you just need to define the list
 of possible inputs (like the message or component protocols).
 
-(it is recommended to use the `leafwing` feature to handle inputs with `leafwing-input-manager`, but we will not cover
-that in this tutorial)
 
 Let's define our inputs:
 
@@ -187,8 +137,6 @@ pub enum Inputs {
     Direction(Direction),
     Delete,
     Spawn,
-    /// NOTE: we NEED to provide a None input so that the server can distinguish between lost input packets and 'None' inputs
-    None,
 }
 
 impl Plugin for ProtocolPlugin{
@@ -203,7 +151,7 @@ impl Plugin for ProtocolPlugin{
 }
 ```
 
-Inputs have to implement the `UserAction` trait, which means that they must be `Send + Sync + 'static` and can be serialized.
+Inputs have to implement the `UserAction` trait, which means that they must be `Reflect + Send + Sync + 'static` and can be serialized.
 
 ### Channels
 
@@ -218,8 +166,6 @@ A `Channel` defines some properties of how messages will be sent over the networ
 - priority: do we want to increase the priority of some messages in case the network is congested?
 
 ```rust,noplayground
-/// A channel is basically a ZST (Zero Sized Type) with the `Channel` derive macro.
-#[derive(Channel)]
 pub struct Channel1;
 
 pub(crate) struct ProtocolPlugin;
@@ -231,6 +177,7 @@ impl Plugin for ProtocolPlugin {
           mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
           ..default()
         });
+        
         // register messages, inputs, components
         ...
     }
@@ -239,40 +186,6 @@ impl Plugin for ProtocolPlugin {
 
 We create a channel by simply deriving the `Channel` trait on an empty struct.
 
-### Protocol
-
-The complete protocol looks like this:
-
-```rust
-pub(crate) struct ProtocolPlugin;
-
-impl Plugin for ProtocolPlugin {
-    fn build(&self, app: &mut App) {
-        // messages
-        app.add_message::<Message1>(ChannelDirection::Bidirectional);
-        // inputs
-        app.add_plugins(InputPlugin::<Inputs>::default());
-        // components
-        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
-            .add_prediction::<PlayerId>(ComponentSyncMode::Once)
-            .add_interpolation::<PlayerId>(ComponentSyncMode::Once);
-
-        app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient)
-            .add_prediction::<PlayerPosition>(ComponentSyncMode::Full)
-            .add_interpolation::<PlayerPosition>(ComponentSyncMode::Full)
-            .add_linear_interpolation_fn::<PlayerPosition>();
-
-        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
-            .add_prediction::<PlayerColor>(ComponentSyncMode::Once)
-            .add_interpolation::<PlayerColor>(ComponentSyncMode::Once);
-        // channels
-        app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        });
-    }
-}
-```
 
 ## Summary
 

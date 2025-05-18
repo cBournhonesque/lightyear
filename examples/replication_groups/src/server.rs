@@ -1,52 +1,74 @@
-use bevy::platform::collections::HashMap;
-use bevy::prelude::*;
-use lightyear::client::components::Confirmed;
-use lightyear::client::prediction::Predicted;
-use lightyear::inputs::native::ActionState;
-use lightyear::prelude::server::*;
-
 use crate::protocol::*;
 use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
+use bevy::prelude::*;
+use lightyear::input::native::prelude::ActionState;
+use lightyear::prediction::Predicted;
+use lightyear::prelude::server::*;
+use lightyear::prelude::*;
+use lightyear_examples_common::shared::SEND_INTERVAL;
+use std::collections::VecDeque;
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, init);
         // the simulation systems that can be rolled back must run in FixedUpdate
         app.add_systems(FixedUpdate, (movement, shared_tail_behaviour).chain());
-        app.add_systems(Update, handle_connections);
+        app.add_observer(handle_new_client);
+        app.add_observer(handle_connections);
     }
 }
 
-/// Start the server
-pub(crate) fn init(mut commands: Commands) {
-    commands.start_server();
+pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+    commands.entity(trigger.target()).insert((
+        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        Name::from("Client"),
+    ));
 }
 
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
-    mut connections: EventReader<ConnectEvent>,
+    trigger: Trigger<OnAdd, Connected>,
+    query: Query<&Connected, With<ClientOf>>,
     mut commands: Commands,
 ) {
-    for connection in connections.read() {
-        let client_id = connection.client_id;
+    if let Ok(connected) = query.get(trigger.target()) {
+        let client_id = connected.remote_peer_id;
         // Generate pseudo random color from client id.
         let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
         let l = 0.5;
+        let color = Color::hsl(h, s, l);
         let player_position = Vec2::ZERO;
         let player_entity = commands
-            .spawn(PlayerBundle::new(client_id, player_position))
+            .spawn((
+                PlayerId(client_id),
+                PlayerPosition(player_position),
+                PlayerColor(color),
+                Replicate::to_clients(NetworkTarget::All),
+                PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+                InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+                ControlledBy {
+                    owner: trigger.target(),
+                    lifetime: Lifetime::default(),
+                },
+            ))
             .id();
+
         let tail_length = 300.0;
+        let default_direction = Direction::Up;
+        let tail = default_direction.get_tail(player_position, tail_length);
+        let mut points = VecDeque::new();
+        points.push_front((tail, default_direction));
         let tail_entity = commands
-            .spawn(TailBundle::new(
-                client_id,
-                player_entity,
-                player_position,
-                tail_length,
+            .spawn((
+                PlayerParent(player_entity),
+                TailPoints(points),
+                TailLength(tail_length),
+                ReplicateLike {
+                    root: player_entity,
+                },
             ))
             .id();
     }

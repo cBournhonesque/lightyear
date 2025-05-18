@@ -10,11 +10,20 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
-use crate::settings::get_settings;
+
+#[cfg(feature = "client")]
+use crate::client::ExampleClientPlugin;
+#[cfg(feature = "server")]
+use crate::server::ExampleServerPlugin;
+use crate::shared::SharedPlugin;
 use bevy::prelude::*;
-use lightyear_examples_common::app::{Apps, Cli};
-use lightyear_examples_common::settings::Settings;
-use protocol::ProtocolPlugin;
+use core::time::Duration;
+use lightyear::prelude::{LinkConditionerConfig, RecvLinkConditioner};
+use lightyear_examples_common::cli::{Cli, Mode};
+
+use lightyear_examples_common::shared::{
+    CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS,
+};
 
 #[cfg(feature = "client")]
 mod client;
@@ -23,27 +32,74 @@ mod protocol;
 mod renderer;
 #[cfg(feature = "server")]
 mod server;
-mod settings;
+
 mod shared;
 
+/// When running the example as a binary, we only support Client or Server mode.
 fn main() {
     let cli = Cli::default();
-    #[allow(unused_mut)]
-    let mut settings = get_settings();
-    #[cfg(target_family = "wasm")]
-    lightyear_examples_common::settings::modify_digest_on_wasm(&mut settings.client);
-    // build the bevy app (this adds common plugin such as the DefaultPlugins)
-    // and returns the `ClientConfig` and `ServerConfig` so that we can modify them if needed
-    let mut apps = Apps::new(settings, cli, env!("CARGO_PKG_NAME").to_string());
-    // add the `ClientPlugins` and `ServerPlugins` plugin groups
-    apps.add_lightyear_plugins();
-    apps.add_user_shared_plugin(ProtocolPlugin);
+
+    let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
+
+    app.add_plugins(SharedPlugin);
+
     #[cfg(feature = "client")]
-    apps.add_user_client_plugin(client::ExampleClientPlugin);
+    {
+        app.add_plugins(ExampleClientPlugin);
+        if matches!(cli.mode, Some(Mode::Client { .. })) {
+            use lightyear::prelude::Connect;
+            use lightyear_examples_common::client::{ClientTransports, ExampleClient};
+            let client = app
+                .world_mut()
+                .spawn(ExampleClient {
+                    client_id: cli
+                        .client_id()
+                        .expect("You need to specify a client_id via `-c ID`"),
+                    client_port: CLIENT_PORT,
+                    server_addr: SERVER_ADDR,
+                    conditioner: Some(RecvLinkConditioner::new(
+                        LinkConditionerConfig::average_condition(),
+                    )),
+                    // transport: ClientTransports::Udp,
+                    transport: ClientTransports::WebTransport,
+                    shared: SHARED_SETTINGS,
+                })
+                .id();
+            app.world_mut().trigger_targets(Connect, client)
+        }
+    }
+
     #[cfg(feature = "server")]
-    apps.add_user_server_plugin(server::ExampleServerPlugin);
+    {
+        use lightyear::connection::server::Start;
+        use lightyear_examples_common::server::WebTransportCertificateSettings;
+        use lightyear_examples_common::server::{ExampleServer, ServerTransports};
+
+        app.add_plugins(ExampleServerPlugin);
+        if matches!(cli.mode, Some(Mode::Server)) {
+            let server = app
+                .world_mut()
+                .spawn(ExampleServer {
+                    conditioner: None,
+                    // transport: ServerTransports::Udp {
+                    //     local_port: SERVER_PORT,
+                    // },
+                    transport: ServerTransports::WebTransport {
+                        local_port: SERVER_PORT,
+                        certificate: WebTransportCertificateSettings::FromFile {
+                            cert: "../certificates/cert.pem".to_string(),
+                            key: "../certificates/key.pem".to_string(),
+                        },
+                    },
+                    shared: SHARED_SETTINGS,
+                })
+                .id();
+            app.world_mut().trigger_targets(Start, server);
+        }
+    }
+
     #[cfg(feature = "gui")]
-    apps.add_user_renderer_plugin(renderer::ExampleRendererPlugin);
-    // run the app
-    apps.run();
+    app.add_plugins(renderer::ExampleRendererPlugin);
+
+    app.run();
 }

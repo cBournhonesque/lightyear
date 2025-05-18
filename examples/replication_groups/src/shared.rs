@@ -1,12 +1,7 @@
 use bevy::prelude::*;
-use core::time::Duration;
-use tracing::Level;
 
 use crate::protocol::Direction;
 use crate::protocol::*;
-use lightyear::client::prediction::Predicted;
-use lightyear::prelude::client::{Confirmed, Interpolated};
-use lightyear::prelude::server::ReplicateToClient;
 use lightyear::prelude::*;
 
 #[derive(Clone)]
@@ -43,10 +38,10 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 // Note: we only apply logic for the Predicted entity on the client (Interpolated is updated
 // during interpolation, and Confirmed is just replicated from Server)
 pub(crate) fn shared_tail_behaviour(
-    player_position: Query<Ref<PlayerPosition>, Or<(With<Predicted>, With<ReplicateToClient>)>>,
+    player_position: Query<Ref<PlayerPosition>, (Without<Interpolated>, Without<Confirmed>)>,
     mut tails: Query<
         (&mut TailPoints, &PlayerParent, &TailLength),
-        Or<(With<Predicted>, With<ReplicateToClient>)>,
+        (Without<Interpolated>, Without<Confirmed>),
     >,
 ) {
     for (mut points, parent, length) in tails.iter_mut() {

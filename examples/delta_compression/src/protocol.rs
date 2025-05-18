@@ -11,9 +11,12 @@ use bevy::prelude::{
     default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Transform, Vec2,
 };
 use bevy::prelude::{App, Plugin};
-use lightyear::client::components::ComponentSyncMode;
+// Use preludes
+use lightyear::prelude::client::*;
+use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear::shared::replication::delta::Diffable;
+// Keep Diffable
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace};
 
@@ -22,21 +25,26 @@ use tracing::{info, trace};
 pub(crate) struct PlayerBundle {
     id: PlayerId,
     position: PlayerPosition,
-    delta: DeltaCompression,
+    // Removed delta field, delta compression is configured in the protocol
+    // delta: DeltaCompression,
     color: PlayerColor,
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
+    // Updated to use PeerId
+    pub(crate) fn new(id: PeerId, position: Vec2) -> Self {
         // Generate pseudo random color from client id.
-        let h = (((id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        id.hash(&mut hasher);
+        let h = hasher.finish() % 360;
+        // let h = (((id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0; // Old way
         let s = 0.8;
         let l = 0.5;
-        let color = Color::hsl(h, s, l);
+        let color = Color::hsl(h as f32, s, l); // Use h as f32
         Self {
-            id: PlayerId(id),
+            id: PlayerId(id), // Store PeerId
             position: PlayerPosition(position),
-            delta: DeltaCompression::default().add::<PlayerPosition>(),
+            // delta: DeltaCompression::default().add::<PlayerPosition>(), // Removed
             color: PlayerColor(color),
         }
     }
@@ -45,7 +53,7 @@ impl PlayerBundle {
 // Components
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct PlayerId(ClientId);
+pub struct PlayerId(PeerId); // Use PeerId
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
 pub struct PlayerPosition(pub Vec2);
@@ -123,16 +131,6 @@ impl MapEntities for PlayerParent {
     }
 }
 
-// Channels
-
-#[derive(Channel)]
-pub struct Channel1;
-
-// Messages
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Message1(pub usize);
-
 // Inputs
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -164,29 +162,24 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        // messages
-        app.register_message::<Message1>(ChannelDirection::Bidirectional);
         // inputs
-        app.add_plugins(InputPlugin::<Inputs>::default());
+        // Use new input plugin path
+        app.add_plugins(input::InputPlugin::<Inputs>::default());
         // components
-        app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+        // Use PredictionMode and InterpolationMode
+        app.register_component::<PlayerId>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
-        app.register_component::<PlayerPosition>(ChannelDirection::ServerToClient)
+        app.register_component::<PlayerPosition>()
             // NOTE: remember to add delta compression in the protocol!
-            .add_delta_compression()
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
+            .add_delta_compression() // Keep delta compression
+            .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
 
-        app.register_component::<PlayerColor>(ChannelDirection::ServerToClient)
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
-        // channels
-        app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        });
+        app.register_component::<PlayerColor>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
     }
 }

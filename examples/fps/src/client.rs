@@ -4,8 +4,7 @@ use leafwing_input_manager::action_state::ActionData;
 use leafwing_input_manager::buttonlike::ButtonState::Pressed;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
-use lightyear::client::input::InputSystemSet;
-use lightyear::inputs::native::input_buffer::InputBuffer;
+use lightyear::input::client::InputSet;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -17,45 +16,26 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(add_player_input_map);
-
         // NOTE: we need to run this in FixedPreUpdate before we
         app.add_systems(
             FixedPreUpdate,
             update_cursor_state_from_window
                 // make sure that we update the ActionState before we buffer it in the InputBuffer
-                .before(InputSystemSet::BufferClientInputs)
+                .before(InputSet::BufferClientInputs)
                 .in_set(InputManagerSystem::ManualControl),
         );
-        app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
-    }
-}
-
-/// Add the input map to the predicted player entity so that it can controlled by the user
-fn add_player_input_map(
-    trigger: Trigger<OnAdd, PlayerId>,
-    mut commands: Commands,
-    query: Query<(), With<Predicted>>,
-) {
-    if query.get(trigger.target()).is_ok() {
-        commands.entity(trigger.target()).insert(InputMap::new([
-            (PlayerActions::Up, KeyCode::KeyW),
-            (PlayerActions::Down, KeyCode::KeyS),
-            (PlayerActions::Left, KeyCode::KeyA),
-            (PlayerActions::Right, KeyCode::KeyD),
-            (PlayerActions::Shoot, KeyCode::Space),
-        ]));
+        app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_interpolated_spawn);
     }
 }
 
 /// Compute the world-position of the cursor and set it in the DualAxis input
 fn update_cursor_state_from_window(
     window: Single<&Window>,
-    // query to get camera transform
     q_camera: Query<(&Camera, &GlobalTransform)>,
     mut action_state_query: Query<&mut ActionState<PlayerActions>, With<Predicted>>,
 ) {
-    let Ok((camera, camera_transform)) = q_camera.get_single() else {
+    let Ok((camera, camera_transform)) = q_camera.single() else {
         error!("Expected to find only one camera");
         return;
     };
@@ -70,35 +50,35 @@ fn update_cursor_state_from_window(
     }
 }
 
-// Get the cursor position relative to the window
-fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
-    let cursor_pos = window.cursor_position()?;
-    Some(Vec2::new(
-        cursor_pos.x - (window.width() / 2.0),
-        (cursor_pos.y - (window.height() / 2.0)) * -1.0,
-    ))
-}
-
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation
-// - keep track of it in the Global resource
-pub(crate) fn handle_predicted_spawn(mut predicted: Query<&mut ColorComponent, Added<Predicted>>) {
-    for mut color in predicted.iter_mut() {
+// - add physics components so that its movement can be predicted
+pub(crate) fn handle_predicted_spawn(
+    trigger: Trigger<OnAdd, PlayerId>,
+    mut commands: Commands,
+    mut player_query: Query<&mut ColorComponent, With<Predicted>>,
+) {
+    if let Ok(mut color) = player_query.get_mut(trigger.target()) {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
+        commands.entity(trigger.target()).insert((InputMap::new([
+            (PlayerActions::Up, KeyCode::KeyW),
+            (PlayerActions::Down, KeyCode::KeyS),
+            (PlayerActions::Left, KeyCode::KeyA),
+            (PlayerActions::Right, KeyCode::KeyD),
+            (PlayerActions::Shoot, KeyCode::Space),
+        ]),));
     }
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - keep track of it in the Global resource
 pub(crate) fn handle_interpolated_spawn(
+    trigger: Trigger<OnAdd, ColorComponent>,
     mut interpolated: Query<&mut ColorComponent, Added<Interpolated>>,
 ) {
-    for mut color in interpolated.iter_mut() {
+    if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
         let hsva = Hsva {
             saturation: 0.1,
             ..Hsva::from(color.0)

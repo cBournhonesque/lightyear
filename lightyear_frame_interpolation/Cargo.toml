@@ -1,0 +1,36 @@
+[package]
+name = "lightyear_frame_interpolation"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "IO primitives for the lightyear networking library"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = ["std"]
+std = [
+    "bevy/std",
+    "bytes/std",
+    "serde/std",
+]
+
+[dependencies]
+lightyear_core.workspace = true
+lightyear_replication = {workspace = true, features = ["interpolation"]}
+lightyear_prediction.workspace = true
+lightyear_interpolation.workspace = true
+
+# utils
+tracing.workspace = true
+
+# serde
+serde.workspace = true
+bytes.workspace = true
+
+# bevy
+bevy.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,59 @@
+[package]
+name = "lightyear_netcode"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Connection handling for the lightyear networking library"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = [
+    "std",
+    # TODO: split between client/server features
+    "client",
+    "server",
+]
+std = [
+    "lightyear_link/std",
+    "lightyear_transport/std",
+    "lightyear_serde/std",
+    "lightyear_connection/std",
+    "no_std_io2/std",
+    "bytes/std",
+    "chacha20poly1305/std",
+]
+client = ["lightyear_connection/client"]
+server = ["lightyear_connection/server"]
+test_utils = ["lightyear_link/test_utils"]
+trace = []
+metrics = []
+
+[dependencies]
+# local crates
+lightyear_connection.workspace = true
+lightyear_core.workspace = true
+lightyear_link.workspace = true
+lightyear_transport.workspace = true
+lightyear_serde.workspace = true
+lightyear_utils.workspace = true
+
+# bevy
+bevy.workspace = true
+
+# no_std
+no_std_io2.workspace = true
+
+# utils
+bytes.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+rand.workspace = true
+chacha20poly1305.workspace = true
+
+[target."cfg(target_family = \"wasm\")".dependencies]
+web-time.workspace = true
+
+[lints]
+workspace = true

@@ -1,22 +1,13 @@
 use bevy::ecs::query::QueryData;
 use bevy::math::VectorSpace;
 use bevy::prelude::*;
-use core::time::Duration;
-use lightyear::inputs::leafwing::input_buffer::InputBuffer;
-use server::ControlledEntities;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 use avian3d::prelude::*;
-use avian3d::sync::{position_to_transform, SyncSet};
-use bevy::prelude::TransformSystem::TransformPropagate;
+use avian3d::sync::position_to_transform;
 use leafwing_input_manager::prelude::ActionState;
-use lightyear::shared::replication::components::Controlled;
-use tracing::Level;
 
-use lightyear::prelude::client::*;
-use lightyear::prelude::TickManager;
 use lightyear::prelude::*;
-use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 use crate::protocol::*;
 
@@ -86,15 +77,11 @@ impl Default for BlockPhysicsBundle {
 }
 
 #[derive(Clone)]
-pub struct SharedPlugin {
-    pub predict_all: bool,
-}
+pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ProtocolPlugin {
-            predict_all: self.predict_all,
-        });
+        app.add_plugins(ProtocolPlugin);
 
         // Physics
 
@@ -112,18 +99,17 @@ impl Plugin for SharedPlugin {
             angular: -0.01,
         });
 
-        app.add_systems(
-            FixedPostUpdate,
-            after_physics_log.after(PhysicsSet::StepSimulation),
-        );
+        // app.add_systems(
+        //     FixedPostUpdate,
+        //     after_physics_log.after(PhysicsSet::StepSimulation),
+        // );
 
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
-                .disable::<PhysicsInterpolationPlugin>(),
-            // disable Sleeping plugin as it can mess up physics rollbacks
-            // TODO: disabling sleeping plugin causes the player to fall through the floor
-            // .disable::<SleepingPlugin>(),
+                .disable::<PhysicsInterpolationPlugin>()
+                // disable Sleeping plugin as it can mess up physics rollbacks
+                .disable::<SleepingPlugin>(),
         );
 
         // add an extra sync for cases where:
@@ -137,110 +123,12 @@ impl Plugin for SharedPlugin {
                 .in_set(PhysicsSet::Sync)
                 .run_if(|config: Res<avian3d::sync::SyncConfig>| config.position_to_transform),
         );
-        // app.add_systems(FixedLast, fixed_last_log
-        //     .before(PredictionSet::IncrementRollbackTick)
-        //     .after(InterpolationSet::UpdateVisualInterpolationState));
-        // app.add_systems(Last, last_log);
-    }
-}
-
-pub(crate) fn after_physics_log(
-    tick_manager: Res<TickManager>,
-    rollback: Option<Res<Rollback>>,
-    // collisions: Option<Res<Collisions>>,
-    query: Query<(Entity, &Position, &Rotation), (Without<Confirmed>, With<CharacterMarker>)>,
-) {
-    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
-        tick_manager.tick_or_rollback_tick(r.as_ref())
-    });
-    // info!(?tick, ?collisions, "collisions");
-    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
-
-    // if is_rollback {
-    //     println!("rollback tick {}", tick.0);
-    // }
-    // for (entity, position, rotation) in query.iter() {
-    //     warn!(
-    //         ?is_rollback,
-    //         ?tick,
-    //         ?entity,
-    //         ?position,
-    //         ?rotation,
-    //         "Block after physics update"
-    //     );
-    // }
-}
-
-pub(crate) fn fixed_last_log(
-    tick_manager: Res<TickManager>,
-    rollback: Option<Res<Rollback>>,
-    // collisions: Option<Res<Collisions>>,
-    query: Query<
-        (Entity, &Position, Option<&Correction<Position>>),
-        (Without<Confirmed>, With<ProjectileMarker>),
-    >,
-) {
-    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
-        tick_manager.tick_or_rollback_tick(r.as_ref())
-    });
-    // info!(?tick, ?collisions, "collisions");
-    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
-
-    // if is_rollback {
-    //     println!("rollback tick {}", tick.0);
-    // }
-    for (entity, position, correction) in query.iter() {
-        warn!(
-            ?is_rollback,
-            ?tick,
-            ?entity,
-            ?position,
-            ?correction,
-            "Bullet in fixed-last"
-        );
-    }
-}
-pub(crate) fn last_log(
-    time_manager: Res<TimeManager>,
-    tick_manager: Res<TickManager>,
-    rollback: Option<Res<Rollback>>,
-    // collisions: Option<Res<Collisions>>,
-    query: Query<
-        (
-            Entity,
-            &Transform,
-            Option<&Correction<Position>>,
-            Option<&VisualInterpolateStatus<Transform>>,
-        ),
-        (Without<Confirmed>, With<ProjectileMarker>),
-    >,
-) {
-    let tick = rollback.as_ref().map_or(tick_manager.tick(), |r| {
-        tick_manager.tick_or_rollback_tick(r.as_ref())
-    });
-    let overstep = time_manager.overstep();
-    // info!(?tick, ?collisions, "collisions");
-    let is_rollback = rollback.map_or(false, |r| r.is_rollback());
-
-    // if is_rollback {
-    //     println!("rollback tick {}", tick.0);
-    // }
-    for (entity, transform, correction, visual_interpolate) in query.iter() {
-        warn!(
-            ?is_rollback,
-            ?tick,
-            ?entity,
-            ?transform,
-            ?correction,
-            ?visual_interpolate,
-            ?overstep,
-            "Bullet in last"
-        );
     }
 }
 
 /// Generate pseudo-random color based on `client_id`.
-pub(crate) fn color_from_id(client_id: ClientId) -> Color {
+// Updated to use PeerId
+pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
@@ -272,7 +160,7 @@ pub fn apply_character_action(
     let max_velocity_delta_per_tick = MAX_ACCELERATION * time.delta_secs();
 
     // Handle jumping.
-    if action_state.pressed(&CharacterAction::Jump) {
+    if action_state.just_pressed(&CharacterAction::Jump) {
         let ray_cast_origin = character.position.0
             + Vec3::new(
                 0.0,

@@ -1,0 +1,39 @@
+[package]
+name = "lightyear_link"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "IO primitives for the lightyear networking library"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = ["std"]
+std = [
+    "bevy/std",
+    "bytes/std",
+    "serde/std",
+]
+test_utils = ["dep:mock_instant"]
+
+[dependencies]
+lightyear_core.workspace = true
+lightyear_utils.workspace = true
+
+# utils
+rand.workspace = true
+tracing.workspace = true
+
+# serde
+serde.workspace = true
+bytes.workspace = true
+
+# bevy
+bevy.workspace = true
+
+# test
+mock_instant = { workspace = true, optional = true}
+
+[lints]
+workspace = true
