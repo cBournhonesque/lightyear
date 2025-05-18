@@ -25,6 +25,8 @@ use crate::{Predicted, PredictionMode, SyncComponent};
 use bevy::ecs::component::Mutable;
 use bevy::ecs::entity_disabling::DefaultQueryFilters;
 use bevy::prelude::*;
+use lightyear_connection::client::{Client, Connected};
+use lightyear_connection::host::HostClient;
 use lightyear_core::timeline::Rollback;
 use lightyear_replication::prelude::ReplicationSet;
 
@@ -80,6 +82,22 @@ pub enum PredictionSet {
 
 /// Returns true if we are in rollback
 pub fn is_in_rollback(query: Query<(), (With<PredictionManager>, With<Rollback>)>) -> bool {
+    query.single().is_ok()
+}
+
+pub(crate) type PredictionFilter = (
+    With<PredictionManager>,
+    With<Client>,
+    With<Connected>,
+    Without<HostClient>,
+);
+
+
+// NOTE: we need to run the prediction systems even if we're not synced, because we want
+//  our HistoryBuffer to contain values for components/resources that were updated before syncing
+//  is done.
+/// Returns true if the client is not a HostClient and is Connected
+pub(crate) fn should_run(query: Query<(), PredictionFilter>) -> bool {
     query.single().is_ok()
 }
 
@@ -271,6 +289,7 @@ impl Plugin for PredictionPlugin {
             )
                 .chain(),
         );
+        app.configure_sets(PreUpdate, PredictionSet::All.run_if(should_run));
         app.add_systems(
             PreUpdate,
             (
@@ -296,6 +315,7 @@ impl Plugin for PredictionPlugin {
             FixedPreUpdate,
             PredictionSet::RestoreVisualCorrection.in_set(PredictionSet::All),
         );
+        app.configure_sets(FixedPreUpdate, PredictionSet::All.run_if(should_run));
 
         // FixedUpdate systems
         // 1. Update client tick (don't run in rollback)
@@ -316,6 +336,7 @@ impl Plugin for PredictionPlugin {
                 .in_set(PredictionSet::All)
                 .chain(),
         );
+        app.configure_sets(FixedPostUpdate, PredictionSet::All.run_if(should_run));
 
         // NOTE: this needs to run in FixedPostUpdate because the order we want is (if we replicate Position):
         // - Physics update

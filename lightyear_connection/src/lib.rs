@@ -41,6 +41,8 @@ pub mod client_of;
 pub mod identity;
 pub mod shared;
 
+pub mod host;
+
 /// System sets for connection-related logic.
 /// These are used to order systems that handle receiving and sending packets.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

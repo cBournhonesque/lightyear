@@ -1,7 +1,7 @@
 //! Handles spawning entities that are predicted
 
 use crate::manager::{PredictionManager, PredictionResource};
-use crate::plugin::PredictionSet;
+use crate::plugin::{PredictionFilter, PredictionSet};
 use crate::Predicted;
 use bevy::ecs::archetype::Archetype;
 use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
@@ -54,7 +54,7 @@ impl PreSpawnedPlugin {
             // run this only when the component was added on a client-spawned entity (not server-replicated)
             Without<Replicated>,
         >,
-        manager_query: Single<(&LocalTimeline, &mut PredictionManager)>,
+        manager_query: Single<(&LocalTimeline, &mut PredictionManager), PredictionFilter>,
     ) {
         let entity = trigger.target();
         if let Ok(prespawn) = query.get(entity) {
@@ -114,7 +114,7 @@ impl PreSpawnedPlugin {
             //  ReplicationGroup then the observer could run several times in a row
             With<Replicated>,
         >,
-        manager_query: Single<(&ReplicationReceiver, &mut PredictionManager)>,
+        manager_query: Single<(&ReplicationReceiver, &mut PredictionManager), PredictionFilter>,
     ) {
         let confirmed_entity = trigger.target();
         let (receiver, mut manager) = manager_query.into_inner();

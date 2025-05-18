@@ -1,4 +1,4 @@
-use crate::client_server::prediction::{trigger_rollback, trigger_rollback_system, RollbackInfo};
+use crate::client_server::prediction::{trigger_rollback_check, trigger_rollback_system, RollbackInfo};
 use crate::protocol::CompCorr;
 use crate::stepper::ClientServerStepper;
 use approx::assert_relative_eq;
@@ -111,10 +111,8 @@ fn increment_component_system(mut query: Query<&mut CompCorr>) {
         // trigger a rollback (the predicted value doesn't exist in the prediction history)
         let original_tick = stepper.client_tick(0);
         let rollback_tick = original_tick - 5;
-        trigger_rollback(&mut stepper, RollbackInfo {
-            confirmed,
-            tick: rollback_tick,
-        });
+        info!(?rollback_tick, "history {:?}", stepper.client_app().world().get::<PredictionHistory<CompCorr>>(predicted));
+        trigger_rollback_check(&mut stepper, rollback_tick);
 
         stepper.frame_step(1);
         // check that a correction is applied
@@ -153,10 +151,7 @@ fn increment_component_system(mut query: Query<&mut CompCorr>) {
         // trigger a new rollback while the correction is under way
         let original_tick = stepper.client_tick(0);
         let rollback_tick = original_tick - 5;
-         trigger_rollback(&mut stepper, RollbackInfo {
-            confirmed,
-            tick: rollback_tick,
-        });
+        trigger_rollback_check(&mut stepper, rollback_tick);
         stepper.frame_step(1);
 
         // check that the correction has been updated
@@ -235,10 +230,7 @@ fn increment_component_system(mut query: Query<&mut CompCorr>) {
             .world_mut()
             .entity_mut(predicted_b)
             .insert(history);
-         trigger_rollback(&mut stepper, RollbackInfo {
-            confirmed: confirmed_a,
-            tick: rollback_tick,
-        });
+         trigger_rollback_check(&mut stepper, rollback_tick);
 
         stepper.frame_step(1);
         // check that a correction is applied
@@ -289,10 +281,7 @@ fn increment_component_system(mut query: Query<&mut CompCorr>) {
         // trigger a rollback (the predicted value doesn't exist in the prediction history)
         let original_tick = stepper.client_tick(0);
         let rollback_tick = original_tick - 5;
-         trigger_rollback(&mut stepper, RollbackInfo {
-            confirmed,
-            tick: rollback_tick,
-        });
+         trigger_rollback_check(&mut stepper, rollback_tick);
         stepper.frame_step(1);
         // check that a correction Component is added, however no Correction is applied yet because FixedUpdate didn't run
         assert_eq!(

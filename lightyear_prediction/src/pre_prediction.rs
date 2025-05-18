@@ -2,6 +2,7 @@
 //! then the ownership gets transferred to the server.
 
 use crate::manager::{PredictionManager, PredictionResource};
+use crate::plugin::{PredictionFilter, PredictionSet};
 use crate::Predicted;
 use bevy::prelude::*;
 use lightyear_connection::client::Connected;
@@ -24,7 +25,7 @@ impl Plugin for PrePredictionPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
             PostUpdate,
-            (ReplicationBufferSet::Buffer, PrePredictionSet::Clean, ReplicationBufferSet::Flush).chain(),
+            (ReplicationBufferSet::Buffer, PrePredictionSet::Clean.in_set(PredictionSet::All), ReplicationBufferSet::Flush).chain(),
         );
         app.add_systems(
             PostUpdate,
@@ -90,7 +91,7 @@ impl PrePredictionPlugin {
     pub(crate) fn handle_pre_predicted_client(
         trigger: Trigger<OnAdd, PrePredicted>,
         mut commands: Commands,
-        prediction_query: Single<&PredictionManager>,
+        prediction_query: Single<&PredictionManager, PredictionFilter>,
         // TODO: should we fetch the value of PrePredicted to confirm that it matches what we expect?
     ) {
         let predicted_map = unsafe {

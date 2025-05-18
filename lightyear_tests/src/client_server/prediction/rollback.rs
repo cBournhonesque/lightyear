@@ -1,4 +1,4 @@
-use crate::client_server::prediction::{trigger_rollback, trigger_rollback_system, RollbackInfo};
+use crate::client_server::prediction::{trigger_rollback, trigger_rollback_check, trigger_rollback_system, RollbackInfo};
 use crate::protocol::{CompFull, CompMap, CompNotNetworked};
 use crate::stepper::ClientServerStepper;
 #[cfg(not(feature = "std"))]
@@ -9,7 +9,6 @@ use lightyear::prediction::diagnostics::PredictionMetrics;
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prediction::Predicted;
 use lightyear_connection::prelude::NetworkTarget;
-use lightyear_core::prelude::Rollback;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::plugin::PredictionSet;
 use lightyear_prediction::prelude::PredictionManager;
@@ -66,10 +65,7 @@ fn setup() -> (ClientServerStepper, Entity, Entity) {
 
         // make sure we simulate that we received a server update
         let tick = stepper.client_tick(0);
-        trigger_rollback(&mut stepper, RollbackInfo {
-            confirmed,
-            tick,
-        });
+        trigger_rollback_check(&mut stepper, tick);
         stepper.frame_step(1);
         // 0. Rollback when the Confirmed component is just added
         // (there is a rollback even though the values match, because the value isn't present in
@@ -92,10 +88,7 @@ fn setup() -> (ClientServerStepper, Entity, Entity) {
             .insert(CompFull(2.0));
         // simulate that we received a server message for the confirmed entity on tick `tick`
         // where the PredictionHistory had the value of 1.0
-        trigger_rollback(&mut stepper, RollbackInfo {
-            confirmed,
-            tick,
-        });
+        trigger_rollback_check(&mut stepper, tick);
         stepper.frame_step(1);
         assert_eq!(
             stepper
@@ -114,10 +107,7 @@ fn setup() -> (ClientServerStepper, Entity, Entity) {
             .entity_mut(confirmed)
             .remove::<CompFull>();
         // simulate that we received a server message for the confirmed entity on tick `tick`
-        trigger_rollback(&mut stepper, RollbackInfo {
-            confirmed,
-            tick,
-        });
+        trigger_rollback_check(&mut stepper, tick);
         stepper.frame_step(1);
         assert_eq!(
             stepper
@@ -141,10 +131,7 @@ fn setup() -> (ClientServerStepper, Entity, Entity) {
             .entity_mut(confirmed)
             .insert(CompFull(2.0));
         // simulate that we received a server message for the confirmed entity on tick `tick`
-        trigger_rollback(&mut stepper, RollbackInfo {
-            confirmed,
-            tick,
-        });
+        trigger_rollback_check(&mut stepper, tick);
         stepper.frame_step(1);
         assert_eq!(
             stepper
@@ -166,10 +153,7 @@ fn setup() -> (ClientServerStepper, Entity, Entity) {
             .add_update(tick, CompFull(2.0));
 
         // simulate that we received a server message for the confirmed entity on tick `tick`
-        trigger_rollback(&mut stepper, RollbackInfo {
-            confirmed,
-            tick,
-        });
+        trigger_rollback_check(&mut stepper, tick);
         stepper.frame_step(1);
         // no rollback
         assert_eq!(
@@ -236,12 +220,7 @@ fn setup() -> (ClientServerStepper, Entity, Entity) {
             .unwrap()
             .0 = Entity::PLACEHOLDER;
         let tick = stepper.client_tick(0);
-        stepper.client_mut(0).insert(Rollback);
-        stepper
-            .client_mut(0)
-            .get_mut::<PredictionManager>()
-            .unwrap()
-            .set_rollback_tick(tick);
+        trigger_rollback(&mut stepper, tick);
         stepper.frame_step(1);
         assert_eq!(
             stepper
@@ -265,12 +244,7 @@ fn setup() -> (ClientServerStepper, Entity, Entity) {
             .entity_mut(predicted_entity)
             .remove::<CompMap>();
         let tick = stepper.client_tick(0);
-        stepper.client_mut(0).insert(Rollback);
-        stepper
-            .client_mut(0)
-            .get_mut::<PredictionManager>()
-            .unwrap()
-            .set_rollback_tick(tick);
+        trigger_rollback(&mut stepper, tick);
         stepper.frame_step(1);
         assert_eq!(
             stepper
@@ -350,10 +324,7 @@ fn setup() -> (ClientServerStepper, Entity, Entity) {
             .get_mut::<CompFull>(confirmed)
             .unwrap()
             .0 = -10.0;
-        trigger_rollback(&mut stepper, RollbackInfo {
-            confirmed,
-            tick: tick - 3,
-        });
+        trigger_rollback_check(&mut stepper, tick - 3);
         stepper.frame_step(1);
 
         // check that rollback happened
@@ -410,7 +381,7 @@ fn setup() -> (ClientServerStepper, Entity, Entity) {
             .world_mut()
             .entity_mut(confirmed)
             .remove::<CompFull>();
-        trigger_rollback(&mut stepper, RollbackInfo { confirmed, tick: rollback_tick});
+        trigger_rollback_check(&mut stepper, rollback_tick);
         stepper.frame_step(1);
 
         // check that rollback happened:
@@ -478,7 +449,7 @@ fn setup() -> (ClientServerStepper, Entity, Entity) {
             .unwrap()
             .0 = 2.0;
         // simulate that we received a server message for the confirmed entity on tick `tick`
-        trigger_rollback(&mut stepper, RollbackInfo { confirmed: confirmed_a, tick});
+        trigger_rollback_check(&mut stepper, tick);
         let num_rollbacks = stepper
             .client_app()
             .world()
@@ -514,8 +485,7 @@ fn setup() -> (ClientServerStepper, Entity, Entity) {
             .insert(history);
         // simulate that we received a server message for the confirmed entities on tick `tick`
         // (all predicted entities are in the same ReplicationGroup)
-        trigger_rollback(&mut stepper, RollbackInfo { confirmed: confirmed_b, tick});
-        trigger_rollback(&mut stepper, RollbackInfo { confirmed: confirmed_a, tick});
+        trigger_rollback_check(&mut stepper, tick);
         stepper.frame_step(1);
 
         // the DisableRollback entity was rolledback to the past PredictionHistory value
@@ -577,7 +547,7 @@ fn setup() -> (ClientServerStepper, Entity, Entity) {
 
         // Trigger 2 rollback ticks
         let tick = stepper.client_tick(0);
-        trigger_rollback(&mut stepper, RollbackInfo { confirmed, tick: tick - 2});
+        trigger_rollback_check(&mut stepper, tick - 2);
         stepper.frame_step(1);
 
         // Check that the component got synced.

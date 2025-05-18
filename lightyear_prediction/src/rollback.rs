@@ -162,7 +162,7 @@ fn check_rollback(
             return
         };
         let confirmed_tick = confirmed_ref.get::<Confirmed>().unwrap().tick;
-        
+
         if confirmed_tick > tick {
             debug!(
                 "Confirmed entity {:?} is at a tick in the future: {:?} compared to client timeline. Current tick: {:?}",

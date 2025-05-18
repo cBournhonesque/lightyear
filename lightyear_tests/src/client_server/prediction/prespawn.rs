@@ -263,6 +263,7 @@ use tracing::info;
             .spawn((
                 Replicate::to_clients(NetworkTarget::All),
                 PredictionTarget::to_clients(NetworkTarget::All),
+                ReplicationGroup::new_id(0),
             ))
             .id();
         stepper.frame_step(2);
@@ -282,6 +283,7 @@ use tracing::info;
             .spawn((
                 Replicate::to_clients(NetworkTarget::All),
                 PredictionTarget::to_clients(NetworkTarget::All),
+                ReplicationGroup::new_id(0),
                 PreSpawned::default(),
                 CompMap(server_entity),
             ))

@@ -2,7 +2,7 @@
 //! so that whenever we receive an update from the server we can compare the predicted entity's history with the server update.
 use crate::correction::Correction;
 use crate::manager::{PredictionManager, PredictionResource};
-use crate::plugin::PredictionSet;
+use crate::plugin::{PredictionFilter, PredictionSet};
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
 use crate::{Predicted, PredictionMode, SyncComponent};
@@ -64,7 +64,7 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
 pub(crate) fn apply_component_removal_predicted<C: Component>(
     trigger: Trigger<OnRemove, C>,
     mut predicted_query: Query<&mut PredictionHistory<C>>,
-    timeline: Single<&LocalTimeline, With<PredictionManager>>,
+    timeline: Single<&LocalTimeline, PredictionFilter>,
 ) {
     let tick = timeline.tick();
     // if the component was removed from the Predicted entity, add the Removal to the history
