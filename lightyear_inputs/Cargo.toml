@@ -30,7 +30,9 @@ server = [
     "lightyear_sync/server",
     "lightyear_transport/server",
 ]
-metrics = []
+metrics = [
+    "dep:metrics", "std"
+]
 interpolation = [
     "dep:lightyear_interpolation"
 ]
@@ -48,6 +50,7 @@ lightyear_link.workspace = true
 lightyear_interpolation = { workspace = true, optional = true}
 
 # utils
+metrics = { workspace= true, optional=true}
 tracing.workspace = true
 
 # serde

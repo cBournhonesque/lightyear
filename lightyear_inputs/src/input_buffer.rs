@@ -3,7 +3,7 @@
 //! It is used for several purposes:
 //! - the client's inputs for tick T must arrive before the server processes tick T, so they are stored
 //!   in the buffer until the server processes them. The InputBuffer can be updated efficiently by receiving
-//!   a list of [`ActionDiff`]s compared from an initial [`ActionState`]
+//!   a list of `ActionDiff`s compared from an initial `ActionState`
 //! - to implement input-delay, we want a button press at tick t to be processed at tick t + delay on the client.
 //!   Therefore, we will store the computed ActionState at tick t + delay, but then we load the ActionState at tick t
 //!   from the buffer
@@ -196,7 +196,7 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
         self.buffer.get((tick - start_tick) as usize).unwrap()
     }
 
-    /// Get the [`ActionState`] for the given tick
+    /// Get the `ActionState` for the given tick
     pub fn get(&self, tick: Tick) -> Option<&T> {
         let start_tick = self.start_tick?;
         if self.buffer.is_empty() {

@@ -34,7 +34,10 @@ server = [
 prediction = []
 interpolation = []
 trace = []
-metrics = []
+metrics = [
+    "dep:metrics",
+    "std"
+]
 test_utils = []
 
 [dependencies]
@@ -47,7 +50,7 @@ lightyear_messages.workspace = true
 lightyear_transport.workspace = true
 
 # utils
-metrics.workspace = true
+metrics = { workspace= true, optional=true}
 smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

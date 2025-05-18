@@ -11,7 +11,11 @@ repository = "https://github.com/cBournhonesque/lightyear"
 [features]
 default = ["std"]
 std = [
+    "lightyear_core/std",
     "lightyear_link/std",
+    "lightyear_serde/std",
+    "lightyear_utils/std",
+    "lightyear_connection/std",
     "indexmap/std"
 ]
 client = [
@@ -20,7 +24,10 @@ client = [
 server = [
     "lightyear_connection/server"
 ]
-metrics = []
+metrics = [
+    "dep:metrics",
+    "std"
+]
 trace = []
 
 test_utils = []
@@ -48,6 +55,7 @@ crossbeam-channel.workspace = true
 enum_dispatch.workspace = true
 indexmap.workspace = true
 governor.workspace = true
+metrics = {workspace = true, optional = true}
 nonzero_ext.workspace = true
 ringbuffer.workspace = true
 thiserror.workspace = true

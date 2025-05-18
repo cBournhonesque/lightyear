@@ -9,17 +9,16 @@
 //!
 //! ### Adding a new input type
 //!
-//! An input type is an enum that implements the [`UserAction`] trait.
+//! An input type is an enum that implements the `UserAction` trait.
 //! This trait is a marker trait that is used to tell Lightyear that this type can be used as an input.
 //! In particular inputs must be `Serialize`, `Deserialize`, `Clone` and `PartialEq`.
 //!
-//! You can then add the input type by adding the [`InputPlugin<InputType>`](crate::prelude::ClientInputPlugin) to your app.
+//! You can then add the input type by adding the `InputPlugin<InputType>` to your app.
 //!
 //! ```rust
 //! use bevy::ecs::entity::MapEntities;
 //! use bevy::prelude::*;
-//! use lightyear::prelude::client::*;
-//! use lightyear::prelude::*;
+//! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 //! pub enum MyInput {
@@ -34,29 +33,21 @@
 //!     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
 //!     }
 //! }
-//!
-//! let mut app = App::new();
-//! # app.add_plugins(ClientPlugins::new(ClientConfig::default()));
-//! app.add_plugins(InputPlugin::<MyInput>::default());
 //! ```
 //!
 //! ### Sending inputs
 //!
 //! There are several steps to use the `InputPlugin`:
 //! - (optional) read the inputs from an external signal (mouse click or keyboard press, for instance)
-//! - to buffer inputs for each tick. This is done by calling [`add_input`](InputManager::add_input) in a system.
-//!   That system must run in the [`InputSystemSet::BufferInputs`] system set, in the `FixedPreUpdate` stage.
+//! - to buffer inputs for each tick. This is done by updating the `ActionState` component in a system.
+//!   That system must run in the [`InputSet::BufferClientInputs`] system set, in the `FixedPreUpdate` stage.
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
-//!   will read the inputs using the [`InputEvent`] event.
-//!
-//! NOTE: I would advise to activate the `leafwing` feature to handle inputs via the `input_leafwing` module, instead.
-//! That module is more up-to-date and has more features.
-//! This module is kept for simplicity but might get removed in the future.
-use crate::InputChannel;
+//!   will read the inputs using the [`InputBuffer`] component.
 use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
+use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use core::time::Duration;
@@ -67,14 +58,14 @@ use lightyear_core::timeline::LocalTimeline;
 use lightyear_core::timeline::SyncEvent;
 use lightyear_interpolation::plugin::InterpolationDelay;
 use lightyear_interpolation::prelude::InterpolationTimeline;
-use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
+use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;
 use lightyear_replication::components::{Confirmed, PrePredicted};
 use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
+use lightyear_sync::prelude::InputTimeline;
 use tracing::trace;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -235,7 +226,7 @@ fn buffer_action_state<S: ActionStateSequence>(
         {
             metrics::gauge!(format!(
                 "inputs::{}::{}::buffer_size",
-                core::any::type_name::<A>(),
+                core::any::type_name::<S::Action>(),
                 entity
             ))
             .set(input_buffer.len() as f64);
@@ -473,7 +464,7 @@ fn prepare_input_message<S: ActionStateSequence>(
 fn receive_remote_player_input_messages<S: ActionStateSequence>(
     mut commands: Commands,
     link: Single<
-        (&MessageManager, &mut MessageReceiver<InputMessage<S>>),
+        (&MessageManager, &mut MessageReceiver<InputMessage<S>>, &LocalTimeline),
         With<IsSynced<InputTimeline>>,
     >,
     // TODO: currently we do not handle entities that are controlled by multiple clients
@@ -483,7 +474,8 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         (With<Predicted>, Without<S::Marker>),
     >,
 ) {
-    let (manager, mut receiver) = link.into_inner();
+    let (manager, mut receiver, timeline) = link.into_inner();
+    let tick = timeline.tick();
     receiver.receive().for_each(|message| {
         trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", core::any::type_name::<S::Action>());
         for target_data in &message.inputs {
@@ -516,13 +508,13 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                                     let margin = input_buffer.end_tick().unwrap() - tick;
                                     metrics::gauge!(format!(
                                                     "inputs::{}::remote_player::{}::buffer_margin",
-                                                    core::any::type_name::<A>(),
+                                                    core::any::type_name::<S::Action>(),
                                                     entity
                                                 ))
                                         .set(margin as f64);
                                     metrics::gauge!(format!(
                                                     "inputs::{}::remote_player::{}::buffer_size",
-                                                    core::any::type_name::<A>(),
+                                                    core::any::type_name::<S::Action>(),
                                                     entity
                                                 ))
                                         .set(input_buffer.len() as f64);

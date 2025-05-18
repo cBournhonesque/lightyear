@@ -16,15 +16,14 @@ use core::time::Duration;
 /// A plugin group containing all the server plugins.
 ///
 /// By default, the following plugins will be added:
-/// - [`SetupPlugin`]: Adds the [`ServerConfig`] resource and the [`SharedPlugin`] plugin.
-/// - [`ServerEventsPlugin`]: Adds the server network event
-/// - [`ServerNetworkingPlugin`]: Handles the network state (starting/stopping the server, sending/receiving packets)
-/// - [`NetworkRelevancePlugin`]: Handles the network relevance systems. This can be disabled if you don't need fine-grained interest management.
-/// - [`RoomPlugin`]: Handles the room system, which is an addition to the visibility system. This can be disabled if you don't need rooms.
-/// - [`ServerReplicationReceivePlugin`]: Handles the replication of entities and resources from clients to the server. This can be
-///   disabled if you don't need client to server replication.
-/// - [`ServerReplicationSendPlugin`]: Handles the replication of entities and resources from the server to the client. This can be
-///   disabled if you don't need server to client replication.
+/// IO
+/// - [`ServerLinkPlugin`](lightyear_link::server::ServerLinkPlugin): Handles how the server reacts to links getting established/disconnected
+/// CONNECTION
+/// -
+/// MESSAGE
+/// - [`MessagePlugin`](lightyear_messages::plugin::MessagePlugin): Handles the messaging system.
+/// - [`ConnectionPlugin`](lightyear_connection::ConnectionPlugin): Handles connections, which are long-term connections with a persistent id on top of a link
+/// REPLICATION
 #[derive(Default)]
 pub struct ServerPlugins {
     /// The tick interval for the server. This is used to determine how often the server should tick.

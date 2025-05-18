@@ -51,7 +51,7 @@ jobs:
         run: cargo clippy --workspace --no-deps --tests -- -D warnings -A clippy::wrong_self_convention
 
       - name: Rustdoc
-        run: cargo rustdoc --workspace --all-features -- --document-private-items -D warnings --cfg docsrc
+        run: cargo rustdoc --workspace --features=metrics,interpolation,prediction,replication,leafwing,inputs_native,avian_2d,avian2d/2d,avian2d/f32,avian2d/parry-f32 -- --document-private-items -D warnings --cfg docsrc
 
   doctest:
     name: Doctest

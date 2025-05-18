@@ -15,7 +15,10 @@ std = [
     "bytes/std",
     "serde/std",
 ]
-metrics = []
+metrics = [
+    "dep:metrics", "std"
+]
+
 
 [dependencies]
 lightyear_utils.workspace = true
@@ -27,6 +30,7 @@ lightyear_replication = {workspace = true, features = ["client", "interpolation"
 lightyear_sync = {workspace = true, features = ["client"]}
 
 # utils
+metrics = { workspace= true, optional=true}
 tracing.workspace = true
 
 # serde

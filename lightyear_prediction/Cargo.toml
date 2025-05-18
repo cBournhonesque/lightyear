@@ -11,6 +11,13 @@ repository = "https://github.com/cBournhonesque/lightyear"
 [features]
 default = ["std"]
 std = [
+    "lightyear_utils/std",
+    "lightyear_serde/std",
+    "lightyear_link/std",
+    "lightyear_core/std",
+    "lightyear_connection/std",
+    "lightyear_replication/std",
+    "lightyear_sync/std",
     "bevy/std",
     "bytes/std",
     "serde/std",
@@ -18,7 +25,10 @@ std = [
 server = [
     "dep:lightyear_messages"
 ]
-metrics = []
+metrics = [
+    "dep:metrics",
+    "std"
+]
 test_utils = []
 
 [dependencies]
@@ -32,6 +42,7 @@ lightyear_sync = {workspace = true, features = ["client"]}
 lightyear_messages = {workspace = true, optional = true}
 
 # utils
+metrics = { workspace= true, optional=true}
 seahash.workspace = true
 parking_lot.workspace = true
 tracing.workspace = true

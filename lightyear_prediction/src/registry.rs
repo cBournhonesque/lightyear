@@ -292,7 +292,7 @@ impl PredictionRegistry {
             "prediction::rollbacks::history::{:?}::num_values",
             core::any::type_name::<C>()
         ))
-        .set(predicted_history.buffer.len() as f64);
+        .set(predicted_history.len() as f64);
 
         let history_value = predicted_history.pop_until_tick(confirmed_tick);
         debug!(?history_value, ?confirmed_component, "check");

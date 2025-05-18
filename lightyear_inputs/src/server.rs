@@ -1,9 +1,9 @@
 //! Handle input messages received from the clients
 
-use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
+use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear_connection::client::Connected;
@@ -41,7 +41,7 @@ struct ServerInputConfig<S> {
 pub enum InputSet {
     /// Receive the latest ActionDiffs from the client
     ReceiveInputs,
-    /// Use the ActionDiff received from the client to update the [`ActionState`]
+    /// Use the ActionDiff received from the client to update the `ActionState`
     UpdateActionState,
 }
 
@@ -226,7 +226,7 @@ fn update_action_state<S: ActionStateSequence>(
                 // so that we can handle lost messages
                 metrics::gauge!(format!(
                     "inputs::{}::{}::buffer_size",
-                    core::any::type_name::<A>(),
+                    core::any::type_name::<S::Action>(),
                     entity
                 ))
                 .set(input_buffer.len() as f64);
