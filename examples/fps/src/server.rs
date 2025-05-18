@@ -10,12 +10,12 @@ use leafwing_input_manager::prelude::*;
 use lightyear::interpolation::plugin::InterpolationDelay;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear_avian::prelude::{LagCompensationHistory, LagCompensationPlugin, LagCompensationSet, LagCompensationSpatialQuery};
+use lightyear_avian::prelude::{
+    LagCompensationHistory, LagCompensationPlugin, LagCompensationSet, LagCompensationSpatialQuery,
+};
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
-
 pub struct ExampleServerPlugin;
-
 
 const BULLET_COLLISION_DISTANCE_CHECK: f32 = 4.0;
 
@@ -122,7 +122,10 @@ pub(crate) fn compute_hit_lag_compensation(
     mut commands: Commands,
     timeline: Single<&LocalTimeline, With<Server>>,
     query: LagCompensationSpatialQuery,
-    bullets: Query<(Entity, &PlayerId, &Position, &LinearVelocity, &ControlledBy), With<BulletMarker>>,
+    bullets: Query<
+        (Entity, &PlayerId, &Position, &LinearVelocity, &ControlledBy),
+        With<BulletMarker>,
+    >,
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
     // metadata)
@@ -130,33 +133,40 @@ pub(crate) fn compute_hit_lag_compensation(
     mut player_query: Query<(&mut Score, &PlayerId)>,
 ) {
     let tick = timeline.tick();
-    bullets.iter().for_each(|(entity, id, position, velocity, controlled_by)| {
-        let Ok(delay) = client_query.get(controlled_by.owner) else {
-            error!("Could not retrieve InterpolationDelay for client {id:?}");
-            return;
-        };
-        if let Some(hit_data) = query.cast_ray(
-            // the delay is sent in every input message; the latest InterpolationDelay received
-            // is stored on the client entity
-            *delay,
-            position.0,
-            Dir2::new_unchecked(velocity.0.normalize()),
-            // TODO: shouldn't this be based on velocity length?
-            BULLET_COLLISION_DISTANCE_CHECK,
-            false,
-            &mut SpatialQueryFilter::default(),
-        ) {
-            info!(?tick, ?hit_data, ?entity, "Collision with interpolated bot! Despawning bullet");
-            // if there is a hit, increment the score
-            player_query
-                .iter_mut()
-                .find(|(_, player_id)| player_id.0 == id.0)
-                .map(|(mut score, _)| {
-                    score.0 += 1;
-                });
-            commands.entity(entity).despawn();
-        }
-    })
+    bullets
+        .iter()
+        .for_each(|(entity, id, position, velocity, controlled_by)| {
+            let Ok(delay) = client_query.get(controlled_by.owner) else {
+                error!("Could not retrieve InterpolationDelay for client {id:?}");
+                return;
+            };
+            if let Some(hit_data) = query.cast_ray(
+                // the delay is sent in every input message; the latest InterpolationDelay received
+                // is stored on the client entity
+                *delay,
+                position.0,
+                Dir2::new_unchecked(velocity.0.normalize()),
+                // TODO: shouldn't this be based on velocity length?
+                BULLET_COLLISION_DISTANCE_CHECK,
+                false,
+                &mut SpatialQueryFilter::default(),
+            ) {
+                info!(
+                    ?tick,
+                    ?hit_data,
+                    ?entity,
+                    "Collision with interpolated bot! Despawning bullet"
+                );
+                // if there is a hit, increment the score
+                player_query
+                    .iter_mut()
+                    .find(|(_, player_id)| player_id.0 == id.0)
+                    .map(|(mut score, _)| {
+                        score.0 += 1;
+                    });
+                commands.entity(entity).despawn();
+            }
+        })
 }
 
 pub(crate) fn compute_hit_prediction(
@@ -184,7 +194,12 @@ pub(crate) fn compute_hit_prediction(
                 bot_query.get(entity).is_ok()
             },
         ) {
-            info!(?tick, ?hit_data, ?entity, "Collision with predicted bot! Despawn bullet");
+            info!(
+                ?tick,
+                ?hit_data,
+                ?entity,
+                "Collision with predicted bot! Despawn bullet"
+            );
             // if there is a hit, increment the score
             player_query
                 .iter_mut()

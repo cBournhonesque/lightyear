@@ -82,7 +82,6 @@ impl PingManager {
     }
 }
 
-
 impl PingManager {
     pub fn new(config: PingConfig) -> Self {
         Self {
@@ -150,7 +149,8 @@ impl PingManager {
             let round_trip_delay = rtt.saturating_sub(server_process_time);
 
             // recompute stats whenever we get a new pong
-            self.rtt_estimator_ewma.update_with_new_sample(round_trip_delay);
+            self.rtt_estimator_ewma
+                .update_with_new_sample(round_trip_delay);
         }
     }
 

@@ -1,8 +1,8 @@
 /*! Handles syncing the time between the client and the server
 */
 use crate::plugin::TimelineSyncPlugin;
-use crate::prelude::client::RemoteTimeline;
 use crate::prelude::InputTimeline;
+use crate::prelude::client::RemoteTimeline;
 use crate::timeline::input::Input;
 use crate::timeline::remote;
 use crate::timeline::sync::SyncedTimelinePlugin;
@@ -26,7 +26,10 @@ impl ClientPlugin {
         mut query: Query<&mut LocalTimeline>,
     ) {
         if let Ok(mut timeline) = query.get_mut(trigger.target()) {
-            info!("TickDelta: {:?} applied to local timeline", trigger.tick_delta);
+            info!(
+                "TickDelta: {:?} applied to local timeline",
+                trigger.tick_delta
+            );
             timeline.apply_delta(TickDelta::from_i16(trigger.tick_delta));
         }
     }

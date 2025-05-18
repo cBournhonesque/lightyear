@@ -11,7 +11,6 @@ use lightyear::prelude::*;
 
 use crate::protocol::*;
 
-
 pub const FLOOR_WIDTH: f32 = 100.0;
 pub const FLOOR_HEIGHT: f32 = 1.0;
 

@@ -5,8 +5,8 @@ use bytes::Bytes;
 use core::time::Duration;
 use lightyear_core::tick::Tick;
 
-use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
+use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 
 const DISCARD_AFTER: Duration = Duration::from_millis(3000);
@@ -94,8 +94,8 @@ impl ChannelReceive for SequencedUnreliableReceiver {
 
 #[cfg(test)]
 mod tests {
-    use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
     use crate::channel::receivers::ChannelReceive;
+    use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
     use crate::packet::error::PacketError;
     use crate::packet::message::{MessageId, ReceiveMessage, SingleData};
     use bytes::Bytes;

@@ -90,10 +90,7 @@ impl PredictionRegistry {
             .or_insert_with(|| PredictionMetadata::default_from::<C>(history_id, mode));
     }
 
-    pub fn set_should_rollback<C: SyncComponent>(
-        &mut self,
-        should_rollback: ShouldRollbackFn<C>,
-    ) {
+    pub fn set_should_rollback<C: SyncComponent>(&mut self, should_rollback: ShouldRollbackFn<C>) {
         self.prediction_map
                 .get_mut(&ComponentKind::of::<C>())
                 .expect("The component has not been registered for prediction. Did you call `.add_prediction(PredictionMode::Full)`")
@@ -282,7 +279,8 @@ impl PredictionRegistry {
             %predicted_entity,
             %confirmed_entity,
             ?confirmed_tick
-        ).entered();
+        )
+        .entered();
         let confirmed_component = confirmed_ref.get::<C>();
         let Some(mut predicted_history) = predicted_mut.get_mut::<PredictionHistory<C>>() else {
             // if the history is not present on the entity, but the confirmed component is present, we need to rollback

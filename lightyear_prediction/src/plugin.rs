@@ -1,17 +1,17 @@
 use super::pre_prediction::PrePredictionPlugin;
 use super::predicted_history::apply_confirmed_update;
 use super::resource_history::{
-    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
+    ResourceHistory, handle_tick_event_resource_history, update_resource_history,
 };
 use super::rollback::{
-    prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn, prepare_rollback_resource,
-    remove_prediction_disable, run_rollback, RollbackPlugin,
+    RollbackPlugin, prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn,
+    prepare_rollback_resource, remove_prediction_disable, run_rollback,
 };
 use super::spawn::spawn_predicted_entity;
 use crate::correction::{
     get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback,
 };
-use crate::despawn::{despawn_confirmed, PredictionDisable};
+use crate::despawn::{PredictionDisable, despawn_confirmed};
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
@@ -91,7 +91,6 @@ pub(crate) type PredictionFilter = (
     With<Connected>,
     Without<HostClient>,
 );
-
 
 // NOTE: we need to run the prediction systems even if we're not synced, because we want
 //  our HistoryBuffer to contain values for components/resources that were updated before syncing
@@ -363,7 +362,7 @@ impl Plugin for PredictionPlugin {
             PredictionDiagnosticsPlugin::default(),
             PrePredictionPlugin,
             PreSpawnedPlugin,
-            RollbackPlugin
+            RollbackPlugin,
         ));
     }
 
@@ -373,4 +372,3 @@ impl Plugin for PredictionPlugin {
         add_sync_systems(app);
     }
 }
-

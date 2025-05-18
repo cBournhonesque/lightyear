@@ -39,16 +39,14 @@ it just caches the room metadata to keep track of the relevance of entities.
 */
 
 use bevy::app::App;
-use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet, EntityIndexMap};
+use bevy::ecs::entity::{EntityIndexMap, hash_map::EntityHashMap, hash_set::EntityHashSet};
 use bevy::platform::collections::hash_map::Entry;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
 
 use crate::send::ReplicationBufferSet;
 use crate::visibility::error::NetworkVisibilityError;
-use crate::visibility::immediate::{
-    NetworkVisibility, NetworkVisibilityPlugin, VisibilityState
-};
+use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilityState};
 
 /// A [`Room`] is a data structure that is used to perform interest management.
 ///
@@ -228,7 +226,7 @@ impl RoomVisibility {
 impl From<RoomVisibility> for NetworkVisibility {
     fn from(value: RoomVisibility) -> Self {
         Self {
-            clients: value.clients
+            clients: value.clients,
         }
     }
 }
@@ -256,7 +254,8 @@ impl Plugin for RoomPlugin {
         #[cfg(test)]
         app.configure_sets(
             PostUpdate,
-            RoomSet::ApplyRoomEvents.before(crate::visibility::immediate::VisibilitySet::UpdateVisibility),
+            RoomSet::ApplyRoomEvents
+                .before(crate::visibility::immediate::VisibilitySet::UpdateVisibility),
         );
         app.add_observer(Self::handle_room_event);
     }

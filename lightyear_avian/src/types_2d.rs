@@ -3,7 +3,6 @@ use avian2d::math::Scalar;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 
-
 pub mod position {
     use super::*;
 

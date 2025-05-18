@@ -1,9 +1,9 @@
 //! Handle input messages received from the clients
 
+use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
-use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear_connection::client::Connected;
@@ -37,7 +37,6 @@ struct ServerInputConfig<S> {
     pub marker: core::marker::PhantomData<S>,
 }
 
-
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSet {
     /// Receive the latest ActionDiffs from the client
@@ -54,7 +53,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
         app.insert_resource::<ServerInputConfig<S>>(ServerInputConfig::<S> {
             // TODO: make this changeable dynamically by putting this in a resource?
             rebroadcast_inputs: self.rebroadcast_inputs,
-            marker: core::marker::PhantomData
+            marker: core::marker::PhantomData,
         });
 
         // SETS
@@ -106,7 +105,13 @@ fn receive_input_message<S: ActionStateSequence>(
     config: Res<ServerInputConfig<S>>,
     server: Query<&Server>,
     mut sender: ServerMultiMessageSender,
-    mut receivers: Query<(Entity, &LinkOf, &ClientOf, &mut MessageReceiver<InputMessage<S>>, &Connected)>,
+    mut receivers: Query<(
+        Entity,
+        &LinkOf,
+        &ClientOf,
+        &mut MessageReceiver<InputMessage<S>>,
+        &Connected,
+    )>,
     mut query: Query<Option<&mut InputBuffer<S::State>>>,
     mut commands: Commands,
 ) -> Result {

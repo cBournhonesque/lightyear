@@ -88,8 +88,6 @@ fn main() {
             app.world_mut().trigger_targets(Start, server);
         }
     }
-    
-    
 
     #[cfg(feature = "gui")]
     app.add_plugins(crate::renderer::ExampleRendererPlugin);

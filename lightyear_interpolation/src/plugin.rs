@@ -37,7 +37,10 @@ impl InterpolationDelay {
         if self.delay.overstep.value() == 0.0 {
             (tick - self.delay.tick_diff, 0.0)
         } else {
-            (tick - self.delay.tick_diff - 1, 1.0 - self.delay.overstep.value())
+            (
+                tick - self.delay.tick_diff - 1,
+                1.0 - self.delay.overstep.value(),
+            )
         }
     }
 }
@@ -47,19 +50,21 @@ impl ToBytes for InterpolationDelay {
         self.delay.bytes_len()
     }
 
-    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> core::result::Result<(), SerializationError> {
+    fn to_bytes(
+        &self,
+        buffer: &mut impl WriteInteger,
+    ) -> core::result::Result<(), SerializationError> {
         self.delay.to_bytes(buffer)
     }
 
     fn from_bytes(buffer: &mut Reader) -> core::result::Result<Self, SerializationError>
     where
-        Self: Sized
+        Self: Sized,
     {
         let delay = PositiveTickDelta::from_bytes(buffer)?;
         Ok(Self { delay })
     }
 }
-
 
 /// Config to specify how the snapshot interpolation should behave
 #[derive(Clone, Copy, Reflect)]
@@ -225,22 +230,20 @@ mod tests {
 
     #[test]
     fn test_interpolation_delay() {
-        let delay = InterpolationDelay { delay: PositiveTickDelta {
-            tick_diff: 2,
-            overstep: Default::default(),
-        } };
-        assert_eq!(
-            delay.tick_and_overstep(Tick(3)),
-            (Tick(1), 0.0)
-        );
+        let delay = InterpolationDelay {
+            delay: PositiveTickDelta {
+                tick_diff: 2,
+                overstep: Default::default(),
+            },
+        };
+        assert_eq!(delay.tick_and_overstep(Tick(3)), (Tick(1), 0.0));
 
-            let delay = InterpolationDelay { delay: PositiveTickDelta {
-            tick_diff: 2,
-            overstep: Overstep::new(0.4),
-        } };
-        assert_eq!(
-            delay.tick_and_overstep(Tick(3)),
-            (Tick(0), 0.6)
-        );
+        let delay = InterpolationDelay {
+            delay: PositiveTickDelta {
+                tick_diff: 2,
+                overstep: Overstep::new(0.4),
+            },
+        };
+        assert_eq!(delay.tick_and_overstep(Tick(3)), (Tick(0), 0.6));
     }
 }

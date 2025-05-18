@@ -1,6 +1,6 @@
+use crate::channel::receivers::ChannelReceive;
 use crate::channel::receivers::error::ChannelReceiveError;
 use crate::channel::receivers::fragment_receiver::FragmentReceiver;
-use crate::channel::receivers::ChannelReceive;
 use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 use alloc::collections::VecDeque;
 use bytes::Bytes;
@@ -69,8 +69,8 @@ impl ChannelReceive for UnorderedUnreliableReceiver {
 mod tests {
     use bytes::Bytes;
 
-    use crate::channel::receivers::error::ChannelReceiveError;
     use crate::channel::receivers::ChannelReceive;
+    use crate::channel::receivers::error::ChannelReceiveError;
     use crate::packet::message::{MessageId, SingleData};
 
     use super::*;

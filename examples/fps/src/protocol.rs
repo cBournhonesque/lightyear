@@ -13,7 +13,6 @@ use crate::shared::color_from_id;
 pub const BULLET_SIZE: f32 = 3.0;
 pub const PLAYER_SIZE: f32 = 40.0;
 
-
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PredictedBot;
 
@@ -79,7 +78,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PlayerId>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
-        
+
         app.register_component::<Position>()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full)
@@ -111,13 +110,15 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<InterpolatedBot>()
             .add_interpolation(InterpolationMode::Once);
-        
+
         // do not replicate Transform but make sure to register an interpolation function
         // for it so that we can do visual interpolation
         // (another option would be to replicate transform and not use Position/Rotation at all)
-        app.world_mut().resource_mut::<InterpolationRegistry>()
+        app.world_mut()
+            .resource_mut::<InterpolationRegistry>()
             .set_interpolation::<Transform>(TransformLinearInterpolation::lerp);
-        app.world_mut().resource_mut::<InterpolationRegistry>()
+        app.world_mut()
+            .resource_mut::<InterpolationRegistry>()
             .set_interpolation_mode::<Transform>(InterpolationMode::None);
     }
 }

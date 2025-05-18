@@ -1,11 +1,9 @@
 //! Logic to handle spawning Predicted entities
-use crate::manager::PredictionManager;
 use crate::Predicted;
+use crate::manager::PredictionManager;
 use bevy::prelude::*;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_replication::prelude::{
-    Confirmed, ReplicationReceiver, ShouldBePredicted,
-};
+use lightyear_replication::prelude::{Confirmed, ReplicationReceiver, ShouldBePredicted};
 
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
 /// The `Confirmed` entity could already exist because we share the Confirmed component for prediction and interpolation.
@@ -15,10 +13,7 @@ pub(crate) fn spawn_predicted_entity(
     mut commands: Commands,
     // only handle predicted that have ShouldBePredicted
     // (if the entity was handled by prespawn or prepredicted before, ShouldBePredicted gets removed)
-    mut confirmed_entities: Query<
-        (Entity, Option<&mut Confirmed>),
-        Added<ShouldBePredicted>,
-    >,
+    mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBePredicted>>,
     link: Single<(&ReplicationReceiver, &LocalTimeline), With<PredictionManager>>,
 ) {
     let (receiver, timeline) = link.into_inner();

@@ -8,7 +8,6 @@ use lightyear::prelude::input::leafwing;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
-
 // Components
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]

@@ -4,15 +4,15 @@ use core::net::SocketAddr;
 use no_std_io2::io;
 
 use super::{
-    bytes::Bytes, error::{Error, Result}, packet::{
+    ClientId, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
+    bytes::Bytes,
+    error::{Error, Result},
+    packet::{
         DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket, RequestPacket, ResponsePacket,
-    }, replay::ReplayProtection,
+    },
+    replay::ReplayProtection,
     token::{ChallengeToken, ConnectToken},
     utils,
-    ClientId,
-    MAX_PACKET_SIZE,
-    MAX_PKT_BUF_SIZE,
-    PACKET_SEND_RATE_SEC,
 };
 use lightyear_link::{LinkReceiver, LinkSender, RecvPayload, SendPayload};
 use lightyear_serde::writer::Writer;

@@ -115,8 +115,8 @@
 //     }
 // }
 
-use crate::registry::MessageRegistry;
 use crate::MessageManager;
+use crate::registry::MessageRegistry;
 use bevy::app::{App, Last, PostUpdate, PreUpdate};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
 use bevy::prelude::{
@@ -251,8 +251,8 @@ mod tests {
     use lightyear_core::prelude::Tick;
     use lightyear_link::Link;
     use lightyear_transport::channel::ChannelKind;
-    use lightyear_transport::plugin::tests::TestTransportPlugin;
     use lightyear_transport::plugin::tests::C;
+    use lightyear_transport::plugin::tests::TestTransportPlugin;
     use lightyear_transport::prelude::{ChannelRegistry, Transport};
     use serde::{Deserialize, Serialize};
     use test_log::test;

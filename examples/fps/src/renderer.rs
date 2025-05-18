@@ -48,7 +48,7 @@ fn init(mut commands: Commands) {
             ..default()
         },
         ScoreText,
-   ));
+    ));
 }
 
 #[derive(Component)]
@@ -139,7 +139,9 @@ fn add_bullet_visuals(
             })),
         ));
         if interpolated {
-            commands.entity(trigger.target()).insert(FrameInterpolate::<Transform>::default());
+            commands
+                .entity(trigger.target())
+                .insert(FrameInterpolate::<Transform>::default());
         }
     }
 }

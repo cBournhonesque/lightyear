@@ -52,7 +52,6 @@ impl MapEntities for Inputs {
 pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
-
     fn build(&self, app: &mut App) {
         app.register_type::<Inputs>();
         // inputs

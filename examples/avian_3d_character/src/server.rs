@@ -71,14 +71,7 @@ fn despawn_system(
 fn player_shoot(
     mut commands: Commands,
     timeline: Single<&LocalTimeline, With<Server>>,
-    query: Query<
-        (
-            &ActionState<CharacterAction>,
-            &Position,
-            &ControlledBy,
-        ),
-        Without<Predicted>,
-    >,
+    query: Query<(&ActionState<CharacterAction>, &Position, &ControlledBy), Without<Predicted>>,
     time: Res<Time<Fixed>>,
 ) {
     for (action_state, position, controlled_by) in &query {
@@ -92,12 +85,14 @@ fn player_shoot(
             replicate_once: true,
             ..default()
         });
-        let mut linear_velocity_override = ComponentReplicationOverrides::<LinearVelocity>::default();
+        let mut linear_velocity_override =
+            ComponentReplicationOverrides::<LinearVelocity>::default();
         linear_velocity_override.global_override(ComponentReplicationOverride {
             replicate_once: true,
             ..default()
         });
-        let mut angular_velocity_override = ComponentReplicationOverrides::<AngularVelocity>::default();
+        let mut angular_velocity_override =
+            ComponentReplicationOverrides::<AngularVelocity>::default();
         angular_velocity_override.global_override(ComponentReplicationOverride {
             replicate_once: true,
             ..default()
@@ -112,7 +107,8 @@ fn player_shoot(
             replicate_once: true,
             ..default()
         });
-        let mut external_impulse_override = ComponentReplicationOverrides::<ExternalImpulse>::default();
+        let mut external_impulse_override =
+            ComponentReplicationOverrides::<ExternalImpulse>::default();
         external_impulse_override.global_override(ComponentReplicationOverride {
             replicate_once: true,
             ..default()
@@ -145,7 +141,7 @@ fn player_shoot(
                     computed_mass_override,
                     external_force_override,
                     external_impulse_override,
-                )
+                ),
             ));
         }
     }

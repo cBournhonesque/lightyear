@@ -6,8 +6,8 @@ use bevy::prelude::FromReflect;
 use bevy::reflect::Reflectable;
 use core::fmt::Debug;
 use lightyear_inputs::config::InputConfig;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 pub struct InputPlugin<A> {
     pub config: InputConfig<A>,
@@ -22,7 +22,17 @@ impl<A> Default for InputPlugin<A> {
 }
 
 impl<
-    A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + 'static + MapEntities + Reflectable + FromReflect,
+    A: Serialize
+        + DeserializeOwned
+        + Clone
+        + PartialEq
+        + Send
+        + Sync
+        + Debug
+        + 'static
+        + MapEntities
+        + Reflectable
+        + FromReflect,
 > Plugin for InputPlugin<A>
 {
     fn build(&self, app: &mut App) {

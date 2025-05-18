@@ -44,9 +44,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(handle_connections);
         app.add_systems(
             Update,
-            (
-                update_player_metrics.run_if(on_timer(Duration::from_secs(1))),
-            ),
+            (update_player_metrics.run_if(on_timer(Duration::from_secs(1))),),
         );
 
         app.add_systems(
@@ -71,7 +69,6 @@ fn update_player_metrics(
     }
 }
 
-
 fn init(mut commands: Commands) {
     // the balls are server-authoritative
     const NUM_BALLS: usize = 6;
@@ -88,7 +85,7 @@ fn init(mut commands: Commands) {
             Name::new("Ball"),
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
-       ));
+        ));
     }
 }
 
@@ -203,7 +200,6 @@ const NAMES: [&str; 35] = [
     "Mr. T",
 ];
 
-
 /// Server will manipulate scores when a bullet collides with a player.
 /// the `Score` component is a simple replication. Score is fully server-authoritative.
 pub(crate) fn handle_hit_event(
@@ -211,9 +207,8 @@ pub(crate) fn handle_hit_event(
     mut events: EventReader<BulletHitEvent>,
     mut player_q: Query<(&Player, &mut Score)>,
 ) {
-    let client_id_to_player_entity = |client_id: PeerId| -> Option<Entity> {
-        peer_metadata.mapping.get(&client_id).copied()
-    };
+    let client_id_to_player_entity =
+        |client_id: PeerId| -> Option<Entity> { peer_metadata.mapping.get(&client_id).copied() };
 
     for ev in events.read() {
         // did they hit a player?

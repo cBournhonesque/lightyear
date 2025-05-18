@@ -1,7 +1,7 @@
+use crate::SyncComponent;
 use crate::interpolation_history::ConfirmedHistory;
 use crate::registry::InterpolationRegistry;
 use crate::timeline::InterpolationTimeline;
-use crate::SyncComponent;
 use bevy::ecs::component::Mutable;
 use bevy::prelude::*;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};

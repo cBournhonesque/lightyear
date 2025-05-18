@@ -150,11 +150,7 @@ fn add_character_cosmetics(
     character_query: Query<
         (Entity, &ColorComponent),
         (
-            Or<(
-                Added<Predicted>,
-                Added<Replicate>,
-                Added<Interpolated>,
-            )>,
+            Or<(Added<Predicted>, Added<Replicate>, Added<Interpolated>)>,
             With<CharacterMarker>,
         ),
     >,
@@ -217,13 +213,7 @@ fn add_floor_cosmetics(
 /// see the predicted block and not the confirmed block.
 fn add_block_cosmetics(
     mut commands: Commands,
-    floor_query: Query<
-        Entity,
-        (
-            Or<(Added<Predicted>, Added<Replicate>)>,
-            With<BlockMarker>,
-        ),
-    >,
+    floor_query: Query<Entity, (Or<(Added<Predicted>, Added<Replicate>)>, With<BlockMarker>)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {

@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 pub const BALL_SIZE: f32 = 15.0;
 pub const PLAYER_SIZE: f32 = 40.0;
 
-
 #[derive(Bundle)]
 pub(crate) struct PhysicsBundle {
     pub(crate) collider: Collider,
@@ -66,7 +65,7 @@ impl Plugin for ProtocolPlugin {
             config: InputConfig {
                 rebroadcast_inputs: true,
                 ..default()
-            }
+            },
         });
 
         // components

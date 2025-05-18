@@ -45,8 +45,6 @@ fn main() {
         false, // No physics loop needed
     );
 
-
-
     #[cfg(feature = "client")]
     {
         app.add_plugins(ExampleClientPlugin);
@@ -91,11 +89,9 @@ fn main() {
             app.world_mut().trigger_targets(Start, server);
         }
     }
-    
-        // add the protocol plugin
-    app.add_plugins(ProtocolPlugin);
-    
 
+    // add the protocol plugin
+    app.add_plugins(ProtocolPlugin);
 
     #[cfg(feature = "gui")]
     app.add_plugins(renderer::ExampleRendererPlugin);

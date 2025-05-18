@@ -30,20 +30,19 @@ mod shared;
 fn main() {
     let cli = Cli::default();
 
-    #[cfg(target_family = "wasm")]
-    lightyear_examples_common::settings::modify_digest_on_wasm(&mut settings.client);
-
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
 
     app.add_plugins(SharedPlugin {
-        show_confirmed: false
+        show_confirmed: false,
     });
 
     #[cfg(feature = "client")]
     {
         use lightyear::prelude::client::{Input, InputDelayConfig};
-        use lightyear::prelude::{InputTimeline, LinkConditionerConfig, RecvLinkConditioner, Timeline};
-        
+        use lightyear::prelude::{
+            InputTimeline, LinkConditionerConfig, RecvLinkConditioner, Timeline,
+        };
+
         app.add_plugins(ExampleClientPlugin);
         if matches!(cli.mode, Some(Mode::Client { .. })) {
             use lightyear::prelude::Connect;
@@ -77,9 +76,7 @@ fn main() {
         use lightyear::connection::server::Start;
         use lightyear_examples_common::server::{ExampleServer, ServerTransports};
 
-        app.add_plugins(ExampleServerPlugin {
-            predict_all: true
-        });
+        app.add_plugins(ExampleServerPlugin { predict_all: true });
         if matches!(cli.mode, Some(Mode::Server)) {
             let server = app
                 .world_mut()

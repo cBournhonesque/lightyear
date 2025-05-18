@@ -1,11 +1,10 @@
-use crate::registry::MessageError;
 use crate::Message;
+use crate::registry::MessageError;
 use bevy::prelude::ParallelCommands;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_transport::channel::ChannelKind;
-
 
 use crate::trigger::TriggerMessage;
 use bevy::prelude::Event;

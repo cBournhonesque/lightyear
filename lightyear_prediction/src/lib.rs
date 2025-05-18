@@ -151,5 +151,3 @@ pub enum PredictionMode {
 /// according to the specified `PredictionMode`.
 pub trait SyncComponent: Component<Mutability = Mutable> + Clone + PartialEq + Debug {}
 impl<T> SyncComponent for T where T: Component<Mutability = Mutable> + Clone + PartialEq + Debug {}
-
-

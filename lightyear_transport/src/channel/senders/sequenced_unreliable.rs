@@ -1,5 +1,5 @@
-use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::ChannelSend;
+use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
 use alloc::collections::VecDeque;
 use bevy::prelude::{Real, Time};
@@ -54,10 +54,7 @@ impl ChannelSend for SequencedUnreliableSender {
     fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         if message.len() > self.fragment_sender.fragment_size {
-            for fragment in self
-                .fragment_sender
-                .build_fragments(message_id, message)
-            {
+            for fragment in self.fragment_sender.build_fragments(message_id, message) {
                 self.fragmented_messages_to_send.push_back(SendMessage {
                     data: MessageData::Fragment(fragment),
                     priority,

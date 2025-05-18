@@ -29,14 +29,16 @@ fn main() {
     let cli = Cli::default();
 
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
-    
+
     app.add_plugins(SharedPlugin);
 
     #[cfg(feature = "client")]
     {
         use lightyear::prelude::client::{Input, InputDelayConfig};
-        use lightyear::prelude::{InputTimeline, LinkConditionerConfig, RecvLinkConditioner, Timeline};
-        
+        use lightyear::prelude::{
+            InputTimeline, LinkConditionerConfig, RecvLinkConditioner, Timeline,
+        };
+
         app.add_plugins(ExampleClientPlugin);
         if matches!(cli.mode, Some(Mode::Client { .. })) {
             use lightyear::prelude::Connect;
@@ -56,9 +58,9 @@ fn main() {
                         transport: ClientTransports::Udp,
                         shared: SHARED_SETTINGS,
                     },
-                    InputTimeline(Timeline::from(Input::default()
-                         .with_input_delay(InputDelayConfig::fixed_input_delay(10))
-                    ))
+                    InputTimeline(Timeline::from(
+                        Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
+                    )),
                 ))
                 .id();
             app.world_mut().trigger_targets(Connect, client)
@@ -85,8 +87,6 @@ fn main() {
             app.world_mut().trigger_targets(Start, server);
         }
     }
-    
-    
 
     #[cfg(feature = "gui")]
     {

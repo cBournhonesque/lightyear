@@ -13,7 +13,6 @@ pub fn is_server(query: Query<(), With<Server>>) -> bool {
     !query.is_empty()
 }
 
-
 /// Returns true if we are running in host-server mode, i.e. the server is acting as a client
 /// (in which case we can disable the networking/prediction/interpolation systems on the client)
 ///

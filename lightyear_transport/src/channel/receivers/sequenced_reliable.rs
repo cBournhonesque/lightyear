@@ -1,12 +1,12 @@
-use alloc::collections::{btree_map, BTreeMap};
+use alloc::collections::{BTreeMap, btree_map};
 
 use super::error::{ChannelReceiveError, Result};
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_core::tick::Tick;
 
-use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
+use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 
 /// Sequenced Reliable receiver: make sure that all messages are received,

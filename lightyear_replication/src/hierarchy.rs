@@ -197,7 +197,10 @@ impl<R: Relationship + Debug> RelationshipReceivePlugin<R> {
             );
             if let Some(new_parent) = parent_sync.entity {
                 if parent.is_none_or(|p| p.get() != new_parent) {
-                    trace!("Inserting {:?}({new_parent:?}) on child {entity:?}", core::any::type_name::<R>());
+                    trace!(
+                        "Inserting {:?}({new_parent:?}) on child {entity:?}",
+                        core::any::type_name::<R>()
+                    );
                     commands.entity(entity).insert(R::from(new_parent));
                 }
             } else if parent.is_some() {
@@ -221,10 +224,13 @@ impl<R: Relationship + Debug + GetTypeRegistration + TypePath> Plugin
 
         // TODO: does this work for client replication? (client replicating to other clients via the server?)
         // when we receive a RelationshipSync update from the remote, update the hierarchy
-        app.configure_sets(PreUpdate, ReplicationSet::ReceiveRelationships.after(ReplicationSet::Receive));
+        app.configure_sets(
+            PreUpdate,
+            ReplicationSet::ReceiveRelationships.after(ReplicationSet::Receive),
+        );
         app.add_systems(
             PreUpdate,
-            Self::update_parent.in_set(ReplicationSet::ReceiveRelationships)
+            Self::update_parent.in_set(ReplicationSet::ReceiveRelationships),
         );
     }
 }

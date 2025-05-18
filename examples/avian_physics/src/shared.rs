@@ -23,11 +23,11 @@ impl Plugin for SharedPlugin {
         // physics
         app.add_plugins(
             PhysicsPlugins::default()
-            .build()
-            // disable Sync as it is handled by lightyear_avian
-            .disable::<TimelineSyncPlugin>()
+                .build()
+                // disable Sync as it is handled by lightyear_avian
+                .disable::<TimelineSyncPlugin>(),
         )
-            .insert_resource(Gravity(Vec2::ZERO));
+        .insert_resource(Gravity(Vec2::ZERO));
 
         app.add_systems(FixedLast, fixed_last_log);
         app.add_systems(Last, last_log);
@@ -35,7 +35,10 @@ impl Plugin for SharedPlugin {
         // registry types for reflection
         app.register_type::<PlayerId>();
 
-        app.add_systems(RunFixedMainLoop, debug.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop));
+        app.add_systems(
+            RunFixedMainLoop,
+            debug.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
+        );
     }
 }
 
@@ -99,7 +102,13 @@ fn debug() {
 pub(crate) fn fixed_last_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
     players: Query<
-        (Entity, &Position, Option<&Correction<Position>>, Option<&ActionState<PlayerActions>>, Option<&InputBuffer<ActionState<PlayerActions>>>),
+        (
+            Entity,
+            &Position,
+            Option<&Correction<Position>>,
+            Option<&ActionState<PlayerActions>>,
+            Option<&InputBuffer<ActionState<PlayerActions>>>,
+        ),
         (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
     >,
     ball: Query<(&Position, Option<&Correction<Position>>), (With<BallMarker>, Without<Confirmed>)>,
@@ -129,7 +138,13 @@ pub(crate) fn fixed_last_log(
 pub(crate) fn last_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
     players: Query<
-        (Entity, &Position, Option<&Correction<Position>>, Option<&ActionState<PlayerActions>>, Option<&InputBuffer<ActionState<PlayerActions>>>),
+        (
+            Entity,
+            &Position,
+            Option<&Correction<Position>>,
+            Option<&ActionState<PlayerActions>>,
+            Option<&InputBuffer<ActionState<PlayerActions>>>,
+        ),
         (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
     >,
     ball: Query<(&Position, Option<&Correction<Position>>), (With<BallMarker>, Without<Confirmed>)>,

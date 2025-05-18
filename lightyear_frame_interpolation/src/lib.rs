@@ -39,7 +39,7 @@ use bevy::transform::TransformSystem::TransformPropagate;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::correction::Correction;
-use lightyear_prediction::plugin::{is_in_rollback, PredictionSet};
+use lightyear_prediction::plugin::{PredictionSet, is_in_rollback};
 use lightyear_prediction::prelude::PredictionManager;
 use lightyear_replication::prelude::ReplicationSet;
 use tracing::trace;
@@ -217,7 +217,7 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone>(
         let interpolated = registry.interpolate(
             previous_value.clone(),
             current_value.clone(),
-            overstep.value()
+            overstep.value(),
         );
         // let curve = EasingCurve::new(
         //     previous_value.clone(),
@@ -273,8 +273,8 @@ mod tests {
     use crate::client::components::Confirmed;
     use crate::client::config::ClientConfig;
     use crate::client::easings::ease_out_quad;
-    use crate::client::prediction::rollback::test_utils::received_confirmed_update;
     use crate::client::prediction::Predicted;
+    use crate::client::prediction::rollback::test_utils::received_confirmed_update;
     use crate::prelude::client::PredictionConfig;
     use crate::prelude::{SharedConfig, TickConfig};
     use crate::tests::protocol::*;

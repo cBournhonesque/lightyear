@@ -39,8 +39,22 @@ pub struct PerTargetData<S> {
 pub trait ActionStateSequence:
     Serialize + DeserializeOwned + Clone + Debug + Send + Sync + 'static
 {
-    type Action: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + Reflectable + 'static;
-    type State: Component<Mutability = Mutable> + Default + Debug + Clone + PartialEq + Reflectable + FromReflect;
+    type Action: Serialize
+        + DeserializeOwned
+        + Clone
+        + PartialEq
+        + Send
+        + Sync
+        + Debug
+        + Reflectable
+        + 'static;
+    type State: Component<Mutability = Mutable>
+        + Default
+        + Debug
+        + Clone
+        + PartialEq
+        + Reflectable
+        + FromReflect;
 
     /// Marker component to identify the ActionState that the player is actively updating
     /// (as opposed to the ActionState of other players, for instance)

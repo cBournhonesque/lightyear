@@ -159,7 +159,10 @@ fn apply_predicted_sync(world: &mut World) {
             }
             .unwrap()
             .temp_write_buffer;
-            trace!("Sync from confirmed {:?} to predicted {:?}", event.confirmed, event.predicted);
+            trace!(
+                "Sync from confirmed {:?} to predicted {:?}",
+                event.confirmed, event.predicted
+            );
 
             let world = unsafe { unsafe_world.world_mut() };
 
@@ -325,8 +328,9 @@ pub(crate) fn add_sync_systems(app: &mut App) {
 
     // Apply the sync events
     // make sure to Sync before the RelationshipSync systems run
-    app.configure_sets(PreUpdate, PredictionSet::Sync.before(ReplicationSet::ReceiveRelationships));
+    app.configure_sets(
+        PreUpdate,
+        PredictionSet::Sync.before(ReplicationSet::ReceiveRelationships),
+    );
     app.add_systems(PreUpdate, apply_predicted_sync.in_set(PredictionSet::Sync));
 }
-
-

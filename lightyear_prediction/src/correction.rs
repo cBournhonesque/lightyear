@@ -22,9 +22,9 @@
 //!   - if there is a rollback, restart correction from the current corrected value
 //! - FixedUpdate: run the simulation to compute C(T+2).
 //! - FixedPostUpdate: set the component value to the interpolation between PT (predicted value at rollback start T) and C(T+2)
+use crate::SyncComponent;
 use crate::manager::PredictionManager;
 use crate::registry::PredictionRegistry;
-use crate::SyncComponent;
 use bevy::prelude::*;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
@@ -132,7 +132,10 @@ pub(crate) fn restore_corrected_state<C: SyncComponent>(
     for (mut component, mut correction) in query.iter_mut() {
         match core::mem::take(&mut correction.current_correction) {
             Some(correction) => {
-                trace!("Restoring corrected component before FixedUpdate: {:?}", kind);
+                trace!(
+                    "Restoring corrected component before FixedUpdate: {:?}",
+                    kind
+                );
                 *component.bypass_change_detection() = correction;
             }
             _ => {}

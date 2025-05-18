@@ -1,6 +1,4 @@
-use crate::client::{
-    Disconnected, Disconnecting,
-};
+use crate::client::{Disconnected, Disconnecting};
 use crate::client_of::ClientOf;
 use bevy::app::{App, Last, Plugin};
 use bevy::ecs::component::HookContext;

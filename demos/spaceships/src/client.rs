@@ -31,7 +31,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(add_ball_physics);
         app.add_observer(add_bullet_physics);
         app.add_observer(handle_new_player);
-        
+
         app.add_systems(
             FixedUpdate,
             handle_hit_event
@@ -49,7 +49,7 @@ impl Plugin for ExampleClientPlugin {
 /// We want the ball to be rigid so that when players collide with it, they bounce off.
 fn add_ball_physics(
     trigger: Trigger<OnAdd, BallMarker>,
-    ball_query: Query<&BallMarker, With<Predicted>>, 
+    ball_query: Query<&BallMarker, With<Predicted>>,
     mut commands: Commands,
 ) {
     let entity = trigger.target();
@@ -82,7 +82,7 @@ fn handle_new_player(
     player_query: Query<(&Player, Has<Controlled>), With<Predicted>>,
 ) {
     let entity = trigger.target();
-    if let Ok((player, is_controlled))  = player_query.get(entity) {
+    if let Ok((player, is_controlled)) = player_query.get(entity) {
         info!("handle_new_player, entity = {entity:?} is_controlled = {is_controlled}");
         // is this our own entity?
         if is_controlled {

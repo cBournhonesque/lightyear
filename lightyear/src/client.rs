@@ -26,11 +26,11 @@ impl PluginGroup for ClientPlugins {
     fn build(self) -> PluginGroupBuilder {
         let builder = PluginGroupBuilder::start::<Self>();
         let builder = builder.add(lightyear_sync::client::ClientPlugin);
-        
+
         let builder = builder.add_group(SharedPlugins {
             tick_duration: self.tick_duration,
         });
-        
+
         #[cfg(feature = "prediction")]
         let builder = builder.add(lightyear_prediction::plugin::PredictionPlugin);
 
@@ -41,8 +41,6 @@ impl PluginGroup for ClientPlugins {
         // CONNECTION
         #[cfg(feature = "netcode")]
         let builder = builder.add(lightyear_netcode::client_plugin::NetcodeClientPlugin);
-
-
 
         #[cfg(target_family = "wasm")]
         let builder = builder.add(crate::web::WebPlugin);

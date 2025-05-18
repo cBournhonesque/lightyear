@@ -1,8 +1,8 @@
-use alloc::collections::{btree_map, BTreeMap};
+use alloc::collections::{BTreeMap, btree_map};
 
 use super::error::{ChannelReceiveError, Result};
-use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
+use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 use bytes::Bytes;
 use core::time::Duration;
@@ -91,8 +91,8 @@ impl ChannelReceive for OrderedReliableReceiver {
 
 #[cfg(test)]
 mod tests {
-    use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
     use crate::channel::receivers::ChannelReceive;
+    use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
     use crate::packet::error::PacketError;
     use crate::packet::message::{MessageId, ReceiveMessage, SingleData};
     use bytes::Bytes;

@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Component, Clone, PartialEq, Debug, Reflect, Serialize, Deserialize)]
 pub struct Controlled;
 
-
 /// Component on the sender side that lists the entities controlled by the remote peer
 #[derive(Component, Clone, PartialEq, Debug, Reflect)]
 #[relationship_target(relationship = ControlledBy)]
@@ -27,7 +26,6 @@ pub struct ControlledBy {
     /// What happens to the entity if the controlling client disconnects?
     pub lifetime: Lifetime,
 }
-
 
 impl ControlledBy {
     pub(crate) fn handle_disconnection(
@@ -55,7 +53,6 @@ impl ControlledBy {
         }
     }
 }
-
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Reflect)]
 pub enum Lifetime {

@@ -1,13 +1,13 @@
 use crate::ping::manager::PingManager;
 use crate::timeline::sync::{SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline};
-use bevy::prelude::{default, Component, Deref, DerefMut, Query, Reflect, Res, Time, Trigger, With, Without};
+use bevy::prelude::{
+    Component, Deref, DerefMut, Query, Reflect, Res, Time, Trigger, With, Without, default,
+};
 use core::time::Duration;
 use lightyear_core::prelude::Rollback;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
-use lightyear_core::timeline::{
-    NetworkTimeline, SyncEvent, Timeline, TimelineContext,
-};
+use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineContext};
 use lightyear_link::{Link, Linked};
 use tracing::trace;
 
@@ -17,7 +17,7 @@ use tracing::trace;
 pub struct Input {
     pub config: SyncConfig,
     pub input_delay_config: InputDelayConfig,
-    
+
     /// Current input_delay_ticks that are being applied
     pub(crate) input_delay_ticks: u16,
     relative_speed: f32,
@@ -32,17 +32,17 @@ impl Input {
             ..default()
         }
     }
-    
+
     pub fn with_input_delay(mut self, input_delay: InputDelayConfig) -> Self {
         self.input_delay_config = input_delay;
         self
     }
-    
+
     pub fn with_sync_config(mut self, sync_config: SyncConfig) -> Self {
         self.config = sync_config;
         self
     }
-    
+
     // TODO: currently this is fixed, but the input delay should be updated everytime we have a
     //  SyncEvent. We want to make it configurable based on prediction settings.
     /// Return the input delay in number of ticks
@@ -142,7 +142,7 @@ impl InputDelayConfig {
             maximum_predicted_ticks: 0,
         }
     }
-    
+
     pub fn fixed_input_delay(delay_ticks: u16) -> Self {
         Self {
             minimum_input_delay_ticks: delay_ticks,

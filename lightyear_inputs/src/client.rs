@@ -52,11 +52,11 @@
 //! NOTE: I would advise to activate the `leafwing` feature to handle inputs via the `input_leafwing` module, instead.
 //! That module is more up-to-date and has more features.
 //! This module is kept for simplicity but might get removed in the future.
+use crate::InputChannel;
 use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
-use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use core::time::Duration;
@@ -67,14 +67,14 @@ use lightyear_core::timeline::LocalTimeline;
 use lightyear_core::timeline::SyncEvent;
 use lightyear_interpolation::plugin::InterpolationDelay;
 use lightyear_interpolation::prelude::InterpolationTimeline;
+use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
-use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;
 use lightyear_replication::components::{Confirmed, PrePredicted};
 use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::client::IsSynced;
 use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::client::IsSynced;
 use tracing::trace;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -172,8 +172,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         if self.config.rebroadcast_inputs {
             app.add_systems(
                 RunFixedMainLoop,
-                receive_remote_player_input_messages::<S>
-                    .in_set(InputSet::ReceiveInputMessages),
+                receive_remote_player_input_messages::<S>.in_set(InputSet::ReceiveInputMessages),
             );
         }
         app.add_systems(
@@ -555,8 +554,13 @@ fn send_input_messages<S: ActionStateSequence>(
     input_config: Res<InputConfig<S::Action>>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
     mut sender: Single<&mut MessageSender<InputMessage<S>>, With<IsSynced<InputTimeline>>>,
-    #[cfg(feature = "interpolation")]
-    interpolation_query: Single<(&InputTimeline, &InterpolationTimeline), (With<IsSynced<InterpolationTimeline>>, With<IsSynced<InputTimeline>>)>,
+    #[cfg(feature = "interpolation")] interpolation_query: Single<
+        (&InputTimeline, &InterpolationTimeline),
+        (
+            With<IsSynced<InterpolationTimeline>>,
+            With<IsSynced<InputTimeline>>,
+        ),
+    >,
 ) {
     trace!(
         "Number of input messages to send: {:?}",
@@ -573,7 +577,7 @@ fn send_input_messages<S: ActionStateSequence>(
             delay = TickDelta::from(Tick(0));
         }
         InterpolationDelay {
-            delay: delay.into()
+            delay: delay.into(),
         }
     };
 

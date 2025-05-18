@@ -50,7 +50,6 @@ fn update_cursor_state_from_window(
     }
 }
 
-
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation
 // - add physics components so that its movement can be predicted

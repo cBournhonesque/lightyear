@@ -131,7 +131,6 @@ impl MapEntities for PlayerParent {
     }
 }
 
-
 // Inputs
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -182,6 +181,5 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PlayerColor>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
-
     }
 }

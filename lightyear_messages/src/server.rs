@@ -1,10 +1,10 @@
+use crate::Message;
 use crate::multi::MultiMessageSender;
 use crate::prelude::{MessageReceiver, MessageSender};
 use crate::registry::MessageRegistration;
 use crate::send::Priority;
 use crate::send_trigger::TriggerSender;
 use crate::trigger::TriggerRegistration;
-use crate::Message;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use lightyear_connection::client::PeerMetadata;

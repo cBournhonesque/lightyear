@@ -1,5 +1,5 @@
-use crate::varint::varint_parse_len;
 use crate::SerializationError;
+use crate::varint::varint_parse_len;
 use bytes::Bytes;
 use no_std_io2::io::{Cursor, Error, Read, Result, Seek, SeekFrom};
 
@@ -40,7 +40,7 @@ pub(crate) mod std {
             self.0.read(buf)
         }
     }
-    
+
     impl AsRef<[u8]> for Reader {
         fn as_ref(&self) -> &[u8] {
             self.0.get_ref().as_ref()
@@ -56,7 +56,7 @@ pub(crate) mod std {
         pub fn len(&self) -> usize {
             self.0.get_ref().len()
         }
-        
+
         pub fn is_empty(&self) -> bool {
             self.len() == 0
         }
@@ -134,7 +134,7 @@ pub(crate) mod no_std {
             self.0.read(buf)
         }
     }
-    
+
     impl AsRef<[u8]> for Reader {
         fn as_ref(&self) -> &[u8] {
             self.0.get_ref().as_ref()
@@ -150,7 +150,7 @@ pub(crate) mod no_std {
         pub fn len(&self) -> usize {
             self.0.get_ref().len()
         }
-        
+
         pub fn is_empty(&self) -> bool {
             self.len() == 0
         }

@@ -93,7 +93,8 @@ impl TransportPlugin {
                             }
                         }
                         Ok::<(), TransportError>(())
-                    }).ok();
+                    })
+                    .ok();
 
                 link.recv
                     .drain()
@@ -185,7 +186,8 @@ impl TransportPlugin {
                             }
                         }
                         Ok::<(), TransportError>(())
-                    }).ok();
+                    })
+                    .ok();
             })
     }
 
@@ -334,7 +336,7 @@ impl Plugin for TransportPlugin {
 pub mod tests {
     use super::*;
     use crate::channel::registry::AppChannelExt;
-    
+
     use crate::prelude::{ChannelMode, ChannelSettings};
 
     pub struct C;

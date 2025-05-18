@@ -42,7 +42,7 @@ impl PluginGroup for ServerPlugins {
         let builder = builder.add_group(SharedPlugins {
             tick_duration: self.tick_duration,
         });
-        
+
         #[cfg(feature = "prediction")]
         let builder = builder.add(lightyear_prediction::server::ServerPlugin);
 

@@ -72,8 +72,8 @@ fn main() {
     #[cfg(feature = "server")]
     {
         use lightyear::connection::server::Start;
-        use lightyear_examples_common::server::{ExampleServer, ServerTransports};
         use lightyear_examples_common::server::WebTransportCertificateSettings;
+        use lightyear_examples_common::server::{ExampleServer, ServerTransports};
 
         app.add_plugins(ExampleServerPlugin);
         if matches!(cli.mode, Some(Mode::Server)) {
@@ -97,9 +97,6 @@ fn main() {
             app.world_mut().trigger_targets(Start, server);
         }
     }
-
-    
-    
 
     #[cfg(feature = "gui")]
     app.add_plugins(renderer::ExampleRendererPlugin);

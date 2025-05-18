@@ -7,7 +7,7 @@ use lightyear::prelude::{NetworkTarget, Replicate, Replicating};
 use lightyear_benches::profiler::FlamegraphProfiler;
 use std::time::Instant;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use lightyear_tests::protocol::CompFull;
 use lightyear_tests::stepper::ClientServerStepper;
 

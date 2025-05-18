@@ -10,8 +10,8 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-use bevy::platform::collections::hash_map::Entry;
 use bevy::platform::collections::HashMap;
+use bevy::platform::collections::hash_map::Entry;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::{BufMut, BytesMut};

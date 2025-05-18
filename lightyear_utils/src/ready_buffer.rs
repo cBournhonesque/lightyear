@@ -261,17 +261,11 @@ mod tests {
         buffer.push(3, 3);
         buffer.push(4, 4);
 
-        assert_eq!(
-            buffer.drain_until(&2),
-            vec![(1, 1), (2, 2),]
-        );
+        assert_eq!(buffer.drain_until(&2), vec![(1, 1), (2, 2),]);
         assert_eq!(buffer.len(), 2);
         assert_eq!(
             buffer.heap.peek(),
-            Some(&ItemWithReadyKey {
-                key: 3,
-                item: 3
-            })
+            Some(&ItemWithReadyKey { key: 3, item: 3 })
         );
     }
 
@@ -292,10 +286,7 @@ mod tests {
         assert_eq!(buffer.len(), 2);
         assert_eq!(
             buffer.heap.peek(),
-            Some(&ItemWithReadyKey {
-                key: 1,
-                item: 1
-            })
+            Some(&ItemWithReadyKey { key: 1, item: 1 })
         );
     }
 }

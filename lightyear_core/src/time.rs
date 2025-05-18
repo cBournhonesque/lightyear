@@ -810,38 +810,47 @@ mod tests {
         let delta = TickDelta {
             tick_diff: 10,
             overstep: Overstep::from_f32(0.5),
-            neg: false
+            neg: false,
         };
 
         // Simple multiplication
         let result = delta * 2.0;
-        assert_eq!(result, TickDelta {
-            tick_diff: 21,
-            overstep: Overstep::default(),
-            neg: false,
-        });
+        assert_eq!(
+            result,
+            TickDelta {
+                tick_diff: 21,
+                overstep: Overstep::default(),
+                neg: false,
+            }
+        );
         assert_relative_eq!(result.overstep.value, 0.0);
 
         // Fractional multiplication
         let result = delta * 1.5;
-        assert_eq!(result, TickDelta {
-            tick_diff: 15,
-            overstep: Overstep::from(0.75),
-            neg: false,
-        });
+        assert_eq!(
+            result,
+            TickDelta {
+                tick_diff: 15,
+                overstep: Overstep::from(0.75),
+                neg: false,
+            }
+        );
 
         // Multiplication causing overstep overflow
         let delta = TickDelta {
             tick_diff: 10,
             overstep: Overstep::from_f32(0.8),
-            neg: false
+            neg: false,
         };
         let result = delta * 1.5;
-        assert_eq!(result, TickDelta {
-            tick_diff: 16,
-            overstep: Overstep::from(0.2),
-            neg: false,
-        });
+        assert_eq!(
+            result,
+            TickDelta {
+                tick_diff: 16,
+                overstep: Overstep::from(0.2),
+                neg: false,
+            }
+        );
     }
 
     #[test]

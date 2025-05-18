@@ -1,7 +1,13 @@
 #[cfg(feature = "2d")]
-use avian2d::{math::{AsF32, Quaternion}, position::{Position, Rotation}};
+use avian2d::{
+    math::{AsF32, Quaternion},
+    position::{Position, Rotation},
+};
 #[cfg(feature = "3d")]
-use avian3d::{math::{AsF32, Quaternion}, position::{Position, Rotation}};
+use avian3d::{
+    math::{AsF32, Quaternion},
+    position::{Position, Rotation},
+};
 use bevy::prelude::{Changed, ChildOf, Children, GlobalTransform, Or, Query, Transform, With};
 
 type PosToTransformComponents = (

@@ -107,12 +107,15 @@ fn check_rollback(
     // we want Query<&mut PredictionHistory<C>, With<Predicted>>
     // make sure to include disabled entities
     mut predicted_entities: Query<FilteredEntityMut>,
-    receiver_query: Single<(
-        Entity,
-        &ReplicationReceiver,
-        &PredictionManager,
-        &LocalTimeline,
-    ), With<IsSynced<InputTimeline>>>,
+    receiver_query: Single<
+        (
+            Entity,
+            &ReplicationReceiver,
+            &PredictionManager,
+            &LocalTimeline,
+        ),
+        With<IsSynced<InputTimeline>>,
+    >,
     prediction_registry: Res<PredictionRegistry>,
     component_registry: Res<ComponentRegistry>,
     system_ticks: SystemChangeTick,
@@ -235,7 +238,12 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         let rollback_tick = confirmed.tick;
 
         // 0. Confirm that we are in rollback, with the correct tick
-        debug_assert_eq!(manager.get_rollback_start_tick(), Some(rollback_tick), "The rollback tick (LEFT) does not match the confirmed tick (RIGHT) for confirmed entity {:?}. Are all predicted entities in the same replication group?", confirmed_entity);
+        debug_assert_eq!(
+            manager.get_rollback_start_tick(),
+            Some(rollback_tick),
+            "The rollback tick (LEFT) does not match the confirmed tick (RIGHT) for confirmed entity {:?}. Are all predicted entities in the same replication group?",
+            confirmed_entity
+        );
 
         let Some(predicted_entity) = confirmed.predicted else {
             continue;

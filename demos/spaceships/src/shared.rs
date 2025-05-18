@@ -56,8 +56,6 @@ impl Plugin for SharedPlugin {
     }
 }
 
-
-
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
     let s = 1.0;
@@ -285,7 +283,6 @@ impl WallBundle {
         }
     }
 }
-
 
 // Despawn bullets that collide with something.
 //

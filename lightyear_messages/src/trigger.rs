@@ -1,10 +1,10 @@
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
+use crate::Message;
 use crate::receive_trigger::receive_trigger_typed;
 use crate::registry::{MessageKind, MessageRegistry, SendTriggerMetadata};
 use crate::send_trigger::TriggerSender;
-use crate::Message;
 use bevy::app::App;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{Entity, EntityMapper, Event};

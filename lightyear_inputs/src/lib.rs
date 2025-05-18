@@ -18,7 +18,6 @@ pub mod plugin;
 #[cfg(feature = "server")]
 pub mod server;
 
-
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
 /// A marker struct for the default channel used to send inputs from client to server.
 ///

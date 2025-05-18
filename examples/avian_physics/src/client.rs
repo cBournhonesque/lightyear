@@ -86,18 +86,14 @@ pub(crate) fn handle_predicted_spawn(
         };
         color.0 = Color::from(hsva);
         let mut entity_mut = commands.entity(trigger.target());
-        entity_mut.insert(
-            PhysicsBundle::player(),
-        );
+        entity_mut.insert(PhysicsBundle::player());
         if controlled {
-            entity_mut.insert(
-                InputMap::new([
-                    (PlayerActions::Up, KeyCode::KeyW),
-                    (PlayerActions::Down, KeyCode::KeyS),
-                    (PlayerActions::Left, KeyCode::KeyA),
-                    (PlayerActions::Right, KeyCode::KeyD),
-                ]),
-            );
+            entity_mut.insert(InputMap::new([
+                (PlayerActions::Up, KeyCode::KeyW),
+                (PlayerActions::Down, KeyCode::KeyS),
+                (PlayerActions::Left, KeyCode::KeyA),
+                (PlayerActions::Right, KeyCode::KeyD),
+            ]));
         }
     }
 }

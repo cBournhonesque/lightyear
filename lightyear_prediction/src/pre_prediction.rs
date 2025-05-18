@@ -1,14 +1,17 @@
 //! Module to handle pre-prediction logic (entities that are created on the client first),
 //! then the ownership gets transferred to the server.
 
+use crate::Predicted;
 use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::{PredictionFilter, PredictionSet};
-use crate::Predicted;
 use bevy::prelude::*;
 use lightyear_connection::client::Connected;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::components::PrePredicted;
-use lightyear_replication::prelude::{Confirmed, DisableReplicateHierarchy, Replicate, ReplicateLike, ReplicateLikeChildren, Replicating, ReplicationBufferSet, ReplicationGroup, ReplicationSender, ShouldBePredicted};
+use lightyear_replication::prelude::{
+    Confirmed, DisableReplicateHierarchy, Replicate, ReplicateLike, ReplicateLikeChildren,
+    Replicating, ReplicationBufferSet, ReplicationGroup, ReplicationSender, ShouldBePredicted,
+};
 use tracing::debug;
 
 #[derive(Default)]
@@ -25,7 +28,12 @@ impl Plugin for PrePredictionPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(
             PostUpdate,
-            (ReplicationBufferSet::Buffer, PrePredictionSet::Clean.in_set(PredictionSet::All), ReplicationBufferSet::Flush).chain(),
+            (
+                ReplicationBufferSet::Buffer,
+                PrePredictionSet::Clean.in_set(PredictionSet::All),
+                ReplicationBufferSet::Flush,
+            )
+                .chain(),
         );
         app.add_systems(
             PostUpdate,
@@ -84,7 +92,6 @@ impl PrePredictionPlugin {
             }
         }
     }
-
 
     /// When PrePredicted is added by the client: we spawn a Confirmed entity and update the mapping
     /// When PrePredicted is replicated from the server: we add the Predicted component
@@ -175,11 +182,10 @@ impl PrePredictionPlugin {
 mod tests {
     use super::*;
     use crate::prelude::server::AuthorityPeer;
-    use crate::prelude::{client, ClientId};
+    use crate::prelude::{ClientId, client};
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{ComponentClientToServer, PredictionModeFull};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
-
 
     #[test]
     fn test_pre_prediction_host_server() {

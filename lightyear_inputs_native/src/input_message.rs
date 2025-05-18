@@ -17,8 +17,18 @@ pub struct NativeStateSequence<A> {
     states: Vec<InputData<A>>,
 }
 
-impl<A: Serialize + DeserializeOwned + Clone + PartialEq + Send + Sync + Debug + Reflectable + FromReflect + 'static>
-    ActionStateSequence for NativeStateSequence<A>
+impl<
+    A: Serialize
+        + DeserializeOwned
+        + Clone
+        + PartialEq
+        + Send
+        + Sync
+        + Debug
+        + Reflectable
+        + FromReflect
+        + 'static,
+> ActionStateSequence for NativeStateSequence<A>
 {
     type Action = A;
     type State = ActionState<A>;

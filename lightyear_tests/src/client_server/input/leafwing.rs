@@ -9,27 +9,25 @@ use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::Timeline;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::Replicate;
-use lightyear_sync::prelude::client::{Input, InputDelayConfig};
 use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::client::{Input, InputDelayConfig};
 use test_log::test;
 
 /// Check that ActionStates are stored correctly in the InputBuffer
 #[test]
 fn test_buffer_inputs_with_delay() {
     let mut stepper = ClientServerStepper::single();
-    stepper.client_mut(0).insert(
-        InputTimeline(Timeline::from(
-            Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
-        )),
-    );
+    stepper.client_mut(0).insert(InputTimeline(Timeline::from(
+        Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
+    )));
     let server_entity = stepper
-            .server_app
-            .world_mut()
-            .spawn((
-                ActionState::<LeafwingInput1>::default(),
-                Replicate::to_clients(NetworkTarget::All),
-            ))
-            .id();
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
     stepper.frame_step(2);
     let client_entity = stepper
         .client(0)
@@ -60,41 +58,47 @@ fn test_buffer_inputs_with_delay() {
     // check that the action state got buffered without any press (because the input is delayed)
     // (we cannot use JustPressed because we start by ticking the ActionState)
     // (i.e. the InputBuffer is empty for the current tick, and has the button press only with 1 tick of delay)
-    assert!(stepper
-        .client_app()
-        .world()
-        .entity(client_entity)
-        .get::<InputBuffer<ActionState<LeafwingInput1>>>()
-        .unwrap()
-        .get(client_tick)
-        .unwrap()
-        .get_pressed()
-        .is_empty());
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .entity(client_entity)
+            .get::<InputBuffer<ActionState<LeafwingInput1>>>()
+            .unwrap()
+            .get(client_tick)
+            .unwrap()
+            .get_pressed()
+            .is_empty()
+    );
     // if we check the next tick (delay of 1), we can see that the InputBuffer contains the ActionState with a press
-    assert!(stepper
-        .client_app()
-        .world()
-        .entity(client_entity)
-        .get::<InputBuffer<ActionState<LeafwingInput1>>>()
-        .unwrap()
-        .get(client_tick + 1)
-        .unwrap()
-        .just_pressed(&LeafwingInput1::Jump));
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .entity(client_entity)
+            .get::<InputBuffer<ActionState<LeafwingInput1>>>()
+            .unwrap()
+            .get(client_tick + 1)
+            .unwrap()
+            .just_pressed(&LeafwingInput1::Jump)
+    );
 
     // outside of the FixedUpdate schedule, the fixed_update_state of ActionState should be the delayed action
     // (which we restored)
     //
     // It has been ticked by LWIM so now it's only pressed
-    assert!(stepper
-        .client_app()
-        .world()
-        .entity(client_entity)
-        .get::<ActionState<LeafwingInput1>>()
-        .unwrap()
-        .button_data(&LeafwingInput1::Jump)
-        .unwrap()
-        .fixed_update_state
-        .pressed());
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .entity(client_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .unwrap()
+            .button_data(&LeafwingInput1::Jump)
+            .unwrap()
+            .fixed_update_state
+            .pressed()
+    );
 
     // release the key
     stepper
@@ -113,30 +117,37 @@ fn test_buffer_inputs_with_delay() {
         .get::<InputBuffer<ActionState<LeafwingInput1>>>()
         .unwrap();
     assert_eq!(
-        input_buffer.get(client_tick + 1).unwrap().get_just_pressed(),
+        input_buffer
+            .get(client_tick + 1)
+            .unwrap()
+            .get_just_pressed(),
         &[LeafwingInput1::Jump]
     );
     // the fixed_update_state ActionState outside of FixedUpdate is the delayed one
-    assert!(stepper
-        .client_app()
-        .world()
-        .entity(client_entity)
-        .get::<ActionState<LeafwingInput1>>()
-        .unwrap()
-        .button_data(&LeafwingInput1::Jump)
-        .unwrap()
-        .fixed_update_state
-        .just_released());
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .entity(client_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .unwrap()
+            .button_data(&LeafwingInput1::Jump)
+            .unwrap()
+            .fixed_update_state
+            .just_released()
+    );
 
     stepper.frame_step(1);
 
-    assert!(stepper
-        .client_app()
-        .world()
-        .entity(client_entity)
-        .get::<InputBuffer<ActionState<LeafwingInput1>>>()
-        .unwrap()
-        .get(client_tick + 2)
-        .unwrap()
-        .just_released(&LeafwingInput1::Jump));
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .entity(client_entity)
+            .get::<InputBuffer<ActionState<LeafwingInput1>>>()
+            .unwrap()
+            .get(client_tick + 2)
+            .unwrap()
+            .just_released(&LeafwingInput1::Jump)
+    );
 }

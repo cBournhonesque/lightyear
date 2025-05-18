@@ -74,7 +74,6 @@ fn movement(
     }
 }
 
-
 /// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
@@ -95,12 +94,10 @@ pub(crate) fn handle_predicted_spawn(
         // so that the position gets updated smoothly every frame
         // (updating it only during FixedUpdate might cause visual artifacts, see:
         //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
-        commands
-            .entity(entity)
-            .insert((
-                FrameInterpolate::<PlayerPosition>::default(),
-                InputMarker::<Inputs>::default()
-            ));
+        commands.entity(entity).insert((
+            FrameInterpolate::<PlayerPosition>::default(),
+            InputMarker::<Inputs>::default(),
+        ));
     }
 }
 
@@ -119,7 +116,6 @@ pub(crate) fn handle_interpolated_spawn(
         color.0 = Color::from(hsva);
     }
 }
-
 
 pub(crate) fn debug_pre_visual_interpolation(
     timeline: Single<&LocalTimeline>,

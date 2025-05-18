@@ -64,15 +64,15 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Inputs>();
-        
+
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
-        
+
         // components
         app.register_component::<PlayerId>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
-        
+
         app.register_component::<Name>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);

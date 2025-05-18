@@ -2,7 +2,6 @@
 /// so that they can be used for lag compensation.
 use bevy::prelude::*;
 
-
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use avian2d::{math::Vector, prelude::*};
 #[cfg(all(feature = "3d", not(feature = "2d")))]

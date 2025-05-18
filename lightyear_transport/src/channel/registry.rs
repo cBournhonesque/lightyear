@@ -1,5 +1,5 @@
-use crate::channel::builder::ChannelSettings;
 use crate::channel::Channel;
+use crate::channel::builder::ChannelSettings;
 use bevy::app::App;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::{Resource, TypePath};
@@ -60,7 +60,6 @@ pub struct ChannelRegistry {
 }
 
 impl ChannelRegistry {
-
     pub(crate) fn settings(&self, kind: ChannelKind) -> Option<&ChannelSettings> {
         self.settings_map.get(&kind)
     }

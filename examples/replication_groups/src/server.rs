@@ -21,17 +21,11 @@ impl Plugin for ExampleServerPlugin {
 }
 
 pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
-    commands
-        .entity(trigger.target())
-        .insert((
-            ReplicationSender::new(
-                SEND_INTERVAL,
-                SendUpdatesMode::SinceLastAck,
-                false,
-            ),
-            Name::from("Client"),
-        ));
-    }
+    commands.entity(trigger.target()).insert((
+        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        Name::from("Client"),
+    ));
+}
 
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(

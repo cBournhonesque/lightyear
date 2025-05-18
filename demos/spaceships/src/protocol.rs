@@ -15,7 +15,6 @@ pub const BULLET_SIZE: f32 = 1.5;
 pub const SHIP_WIDTH: f32 = 19.0;
 pub const SHIP_LENGTH: f32 = 32.0;
 
-
 #[derive(Bundle)]
 pub(crate) struct PhysicsBundle {
     pub(crate) collider: Collider,

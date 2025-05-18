@@ -33,7 +33,6 @@ pub struct WebTransportClientIo {
 }
 
 impl WebTransportClientPlugin {
-    
     fn link(
         trigger: Trigger<LinkStart>,
         query: Query<(Entity, &WebTransportClientIo), (Without<Linking>, Without<Linked>)>,
@@ -117,7 +116,6 @@ impl WebTransportClientPlugin {
             .build())
     }
 }
-
 
 // Adapted from https://github.com/briansmith/ring/blob/befdc87ac7cbca615ab5d68724f4355434d3a620/src/test.rs#L364-L393
 fn from_hex(hex_str: &str) -> core::result::Result<Vec<u8>, String> {

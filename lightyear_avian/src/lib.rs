@@ -17,20 +17,25 @@ pub mod lag_compensation;
 pub mod types_2d;
 #[cfg(feature = "2d")]
 pub use types_2d as types;
+mod sync;
 #[cfg(feature = "3d")]
 pub mod types_3d;
-mod sync;
 
 #[cfg(feature = "3d")]
 pub use types_3d as types;
 
-
 #[cfg(all(feature = "2d", not(feature = "3d")))]
-use avian2d::{prelude::*, sync::{SyncConfig, SyncSet}};
+use avian2d::{
+    prelude::*,
+    sync::{SyncConfig, SyncSet},
+};
 #[cfg(all(feature = "3d", not(feature = "2d")))]
-use avian3d::{prelude::*, sync::{SyncConfig, SyncSet}};
-use lightyear_interpolation::prelude::InterpolationRegistry;
+use avian3d::{
+    prelude::*,
+    sync::{SyncConfig, SyncSet},
+};
 use lightyear_interpolation::InterpolationMode;
+use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_replication::prelude::TransformLinearInterpolation;
 
 /// Commonly used items for Lightyear Avian integration.
@@ -44,7 +49,6 @@ pub mod prelude {
         query::LagCompensationSpatialQuery,
     };
 }
-
 
 pub struct LightyearAvianPlugin;
 
@@ -126,30 +130,29 @@ impl Plugin for LightyearAvianPlugin {
         });
         app.add_systems(
             FixedPostUpdate,
-            sync::position_to_transform
-                .in_set(SyncSet::PositionToTransform)
+            sync::position_to_transform.in_set(SyncSet::PositionToTransform),
         );
         app.add_systems(
             PostUpdate,
-            sync::position_to_transform
-                .in_set(SyncSet::PositionToTransform)
+            sync::position_to_transform.in_set(SyncSet::PositionToTransform),
         );
         app.configure_sets(
-            PostUpdate, SyncSet::PositionToTransform.in_set(PhysicsSet::Sync)
+            PostUpdate,
+            SyncSet::PositionToTransform.in_set(PhysicsSet::Sync),
         );
 
         // do not replicate Transform but make sure to register an interpolation function
         // for it so that we can do visual interpolation
         // (another option would be to replicate transform and not use Position/Rotation at all)
-        app.world_mut().resource_mut::<InterpolationRegistry>()
+        app.world_mut()
+            .resource_mut::<InterpolationRegistry>()
             .set_interpolation::<Transform>(TransformLinearInterpolation::lerp);
-        app.world_mut().resource_mut::<InterpolationRegistry>()
+        app.world_mut()
+            .resource_mut::<InterpolationRegistry>()
             .set_interpolation_mode::<Transform>(InterpolationMode::None);
 
         // Add rollback for some non-replicated resources
         // app.add_resource_rollback::<Collisions>();
         // app.add_rollback::<CollidingEntities>();
-
     }
 }
-

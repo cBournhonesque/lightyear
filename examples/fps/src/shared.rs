@@ -14,7 +14,6 @@ use lightyear::prelude::*;
 
 use crate::protocol::*;
 
-
 const EPS: f32 = 0.0001;
 pub const BOT_RADIUS: f32 = 15.0;
 pub(crate) const BOT_MOVE_SPEED: f32 = 1.0;
@@ -28,7 +27,7 @@ impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
         app.register_type::<PlayerId>();
-        
+
         // debug systems
         app.add_systems(FixedLast, fixed_update_log);
         app.add_systems(FixedLast, log_predicted_bot_transform);
@@ -40,14 +39,14 @@ impl Plugin for SharedPlugin {
         );
         // both client and server need physics
         // (the client also needs the physics plugin to be able to compute predicted bullet hits)
-        app.add_plugins(PhysicsPlugins::default()
-            .build()
-            // disable Sync as it is handled by lightyear_avian
-            .disable::<SyncPlugin>()
+        app.add_plugins(
+            PhysicsPlugins::default()
+                .build()
+                // disable Sync as it is handled by lightyear_avian
+                .disable::<SyncPlugin>(),
         )
-            .insert_resource(Gravity(Vec2::ZERO));
+        .insert_resource(Gravity(Vec2::ZERO));
     }
-
 }
 
 // Generate pseudo-random color from id
@@ -95,7 +94,12 @@ pub(crate) fn shared_player_movement(
 fn player_movement(
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     mut player_query: Query<
-        (&mut Position, &mut Rotation, &ActionState<PlayerActions>, &PlayerId),
+        (
+            &mut Position,
+            &mut Rotation,
+            &ActionState<PlayerActions>,
+            &PlayerId,
+        ),
         Or<(With<Predicted>, With<Replicate>)>,
     >,
 ) {
@@ -133,7 +137,10 @@ fn log_predicted_bot_transform(
 pub(crate) fn fixed_update_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
     player: Query<(Entity, &Transform), (With<PlayerId>, Without<Confirmed>)>,
-    predicted_bullet: Query<(Entity, &Transform, Option<&PredictionHistory<Transform>>), (With<BulletMarker>, Without<Confirmed>)>,
+    predicted_bullet: Query<
+        (Entity, &Transform, Option<&PredictionHistory<Transform>>),
+        (With<BulletMarker>, Without<Confirmed>),
+    >,
     interpolated_ball: Query<(Entity, &Transform), (With<BulletMarker>, With<Interpolated>)>,
 ) {
     let (timeline, is_rollback) = timeline.into_inner();

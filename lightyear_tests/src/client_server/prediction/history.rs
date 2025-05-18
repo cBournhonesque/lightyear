@@ -4,8 +4,8 @@ use bevy::app::FixedUpdate;
 use bevy::prelude::{Commands, OnAdd, Trigger};
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_prediction::predicted_history::PredictionHistory;
 use lightyear_prediction::Predicted;
+use lightyear_prediction::predicted_history::PredictionHistory;
 use lightyear_replication::components::ShouldBePredicted;
 use test_log::test;
 

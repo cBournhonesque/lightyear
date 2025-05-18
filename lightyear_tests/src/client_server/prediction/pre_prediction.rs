@@ -1,8 +1,8 @@
 use crate::protocol::CompFull;
 use crate::stepper::ClientServerStepper;
 use bevy::prelude::{ChildOf, Entity, With};
-use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prediction::Predicted;
+use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::components::{Confirmed, PrePredicted};
@@ -12,7 +12,6 @@ use test_log::test;
 /// Simple PrePrediction case
 #[test]
 fn test_pre_prediction() {
-
     let mut stepper = ClientServerStepper::single();
 
     // spawn a pre-predicted entity on the client
@@ -67,10 +66,7 @@ fn test_pre_prediction() {
         .server_app
         .world_mut()
         .entity_mut(server_entity)
-        .insert((
-            Replicate::to_clients(NetworkTarget::All),
-            CompFull(2.0)
-        ));
+        .insert((Replicate::to_clients(NetworkTarget::All), CompFull(2.0)));
 
     stepper.frame_step(2);
     assert_eq!(
@@ -91,7 +87,6 @@ fn test_pre_prediction() {
     );
 }
 
-
 /// Test that PrePredicted works if ReplicateHierarchy is present.
 /// In that case, both the parent but also the children should be pre-predicted.
 ///
@@ -99,18 +94,11 @@ fn test_pre_prediction() {
 #[test]
 fn test_pre_prediction_hierarchy() {
     let mut stepper = ClientServerStepper::single();
-    let child = stepper
-        .client_app()
-        .world_mut()
-        .spawn(CompFull(0.0))
-        .id();
+    let child = stepper.client_app().world_mut().spawn(CompFull(0.0)).id();
     let parent = stepper
         .client_app()
         .world_mut()
-        .spawn((
-            Replicate::to_server(),
-            PrePredicted::default(),
-        ))
+        .spawn((Replicate::to_server(), PrePredicted::default()))
         .add_child(child)
         .id();
     stepper.frame_step(1);
@@ -122,11 +110,13 @@ fn test_pre_prediction_hierarchy() {
         .unwrap()
         .confirmed_entity
         .unwrap();
-    assert!(stepper
-        .client_app()
-        .world()
-        .get::<Confirmed>(confirmed_parent)
-        .is_some());
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Confirmed>(confirmed_parent)
+            .is_some()
+    );
     // check that PrePredicted was also added on the child
     let confirmed_child = stepper
         .client_app()
@@ -135,12 +125,14 @@ fn test_pre_prediction_hierarchy() {
         .unwrap()
         .confirmed_entity
         .unwrap();
-    assert!(stepper
-        .client_app()
-        .world()
-        .get::<Confirmed>(confirmed_child)
-        .is_some());
-    
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Confirmed>(confirmed_child)
+            .is_some()
+    );
+
     // check that both the parent and the child were replicated
     let server_parent = stepper
         .client_of(0)
@@ -177,14 +169,22 @@ fn test_pre_prediction_hierarchy() {
     stepper.frame_step(2);
 
     // check that the client parent and child entity both have the Predicted component
-    assert_eq!(stepper
-        .client_app()
-        .world()
-        .get::<Predicted>(parent)
-        .unwrap().confirmed_entity, Some(confirmed_parent));
-    assert_eq!(stepper
-        .client_app()
-        .world()
-        .get::<Predicted>(child)
-        .unwrap().confirmed_entity, Some(confirmed_child));
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Predicted>(parent)
+            .unwrap()
+            .confirmed_entity,
+        Some(confirmed_parent)
+    );
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Predicted>(child)
+            .unwrap()
+            .confirmed_entity,
+        Some(confirmed_child)
+    );
 }

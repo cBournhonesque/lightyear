@@ -4,7 +4,7 @@ use crate::reader::{ReadInteger, ReadVarInt, Reader};
 use crate::varint::varint_len;
 use crate::writer::WriteInteger;
 use crate::{SerializationError, ToBytes};
-use bevy::ecs::entity::{hash_map::EntityHashMap, EntityMapper};
+use bevy::ecs::entity::{EntityMapper, hash_map::EntityHashMap};
 use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
 use bevy::reflect::Reflect;
 use tracing::{debug, error, trace};

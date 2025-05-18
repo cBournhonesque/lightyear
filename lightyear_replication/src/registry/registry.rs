@@ -426,7 +426,6 @@ impl<C> ComponentRegistration<'_, C> {
     }
 }
 
-
 pub struct TransformLinearInterpolation;
 
 impl TransformLinearInterpolation {
@@ -441,16 +440,11 @@ impl TransformLinearInterpolation {
         };
         trace!(
             "position lerp: start: {:?} end: {:?} t: {} res: {:?}",
-            start,
-            other,
-            t,
-            res
+            start, other, t, res
         );
         res
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

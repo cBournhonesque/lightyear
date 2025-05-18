@@ -18,7 +18,7 @@ impl PluginGroup for SharedPlugins {
             .add(lightyear_transport::plugin::TransportPlugin)
             .add(lightyear_messages::plugin::MessagePlugin)
             .add(lightyear_connection::ConnectionPlugin);
-        
+
         #[cfg(feature = "replication")]
         let builder = builder
             .add(lightyear_replication::prelude::ReplicationSendPlugin)
@@ -48,7 +48,7 @@ impl PluginGroup for SharedPlugins {
         let builder = builder.add(lightyear_interpolation::plugin::InterpolationPlugin::new(
             lightyear_interpolation::plugin::InterpolationConfig::default(),
         ));
-        
+
         #[cfg(feature = "avian")]
         let builder = builder.add(lightyear_avian::LightyearAvianPlugin);
 

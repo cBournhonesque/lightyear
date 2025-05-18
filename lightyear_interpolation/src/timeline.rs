@@ -12,8 +12,8 @@ use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineContext};
 use lightyear_messages::prelude::RemoteTrigger;
 use lightyear_replication::message::SenderMetadata;
-use lightyear_sync::prelude::client::RemoteTimeline;
 use lightyear_sync::prelude::PingManager;
+use lightyear_sync::prelude::client::RemoteTimeline;
 use lightyear_sync::timeline::sync::{
     SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline, SyncedTimelinePlugin,
 };

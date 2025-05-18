@@ -1,8 +1,8 @@
 //! Handles spawning entities that are predicted
 
+use crate::Predicted;
 use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::{PredictionFilter, PredictionSet};
-use crate::Predicted;
 use bevy::ecs::archetype::Archetype;
 use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
 use bevy::ecs::world::DeferredWorld;
@@ -13,9 +13,11 @@ use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
 use lightyear_link::prelude::Server;
 use lightyear_replication::components::{PrePredicted, Replicated, ShouldBeInterpolated};
 use lightyear_replication::control::Controlled;
-use lightyear_replication::prelude::{Confirmed, ReplicateLike, ReplicationReceiver, ShouldBePredicted};
-use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::prelude::{
+    Confirmed, ReplicateLike, ReplicationReceiver, ShouldBePredicted,
+};
 use lightyear_replication::registry::ComponentKind;
+use lightyear_replication::registry::registry::ComponentRegistry;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, trace, warn};
 
@@ -313,7 +315,6 @@ impl Component for PreSpawned {
                 return;
             }
             let salt = prespawned_obj.user_salt;
-            
             // Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
             // ignore replicated entities, we only want to iterate through entities spawned on the client directly
             if let Some(prediction_resource) = deferred_world.get_resource::<PredictionResource>() {
@@ -340,7 +341,6 @@ impl Component for PreSpawned {
                     .get_mut::<PreSpawned>()
                     .unwrap()
                     .hash = Some(hash);
-                
             } else {
                 // we cannot use PredictionResource because it does not exist on the server!
                 // we need to run a query to get the Server entity.
@@ -427,9 +427,9 @@ pub(crate) fn compute_default_hash(
         // TODO: avoid this allocation, maybe provide a preallocated vec
         .collect::<Vec<_>>();
     kinds_to_hash.sort();
-    kinds_to_hash.into_iter().for_each(|kind| {
-        kind.hash(&mut hasher)
-    });
+    kinds_to_hash
+        .into_iter()
+        .for_each(|kind| kind.hash(&mut hasher));
 
     // if a user salt is provided, hash after the sorted component list
     if let Some(salt) = salt {

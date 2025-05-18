@@ -1,4 +1,4 @@
-use alloc::collections::{btree_map, BTreeMap};
+use alloc::collections::{BTreeMap, btree_map};
 use bevy::platform::collections::HashSet;
 use core::time::Duration;
 
@@ -7,8 +7,8 @@ use bytes::Bytes;
 use lightyear_core::tick::Tick;
 use tracing::trace;
 
-use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::channel::receivers::ChannelReceive;
+use crate::channel::receivers::fragment_receiver::FragmentReceiver;
 use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 
 /// Unordered Reliable receiver: make sure that all messages are received,

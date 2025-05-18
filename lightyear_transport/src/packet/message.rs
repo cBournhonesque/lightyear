@@ -1,7 +1,6 @@
 /// Defines the [`Message`](message::Message) struct, which is a piece of serializable data
 use core::fmt::Debug;
 
-
 use bytes::Bytes;
 
 use lightyear_core::tick::Tick;

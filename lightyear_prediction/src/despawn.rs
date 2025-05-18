@@ -1,6 +1,6 @@
+use crate::Predicted;
 use crate::manager::PredictionResource;
 use crate::prespawn::PreSpawned;
-use crate::Predicted;
 use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
 use lightyear_connection::host::HostClient;
@@ -32,9 +32,10 @@ pub struct PredictionDisable;
 impl Command for PredictionDespawnCommand {
     fn apply(self, world: &mut World) {
         // if we are the server (or host-client), there is no rollback so we can despawn the entity immediately
-        if world.get_resource::<PredictionResource>().is_none_or(|r| {
-                world.entity(r.link_entity).contains::<HostClient>()
-        }) {
+        if world
+            .get_resource::<PredictionResource>()
+            .is_none_or(|r| world.entity(r.link_entity).contains::<HostClient>())
+        {
             world.entity_mut(self.entity).despawn();
         };
 
@@ -69,9 +70,10 @@ impl PredictionDespawnCommandsExt for EntityCommands<'_> {
         let entity = self.id();
         self.queue(move |entity_mut: EntityWorldMut| {
             let world = entity_mut.world();
-            if world.get_resource::<PredictionResource>().is_some_and(|r| {
-                !world.entity(r.link_entity).contains::<HostClient>()
-            }) {
+            if world
+                .get_resource::<PredictionResource>()
+                .is_some_and(|r| !world.entity(r.link_entity).contains::<HostClient>())
+            {
                 PredictionDespawnCommand { entity }.apply(entity_mut.into_world_mut());
             } else {
                 // if we are the server (or host server), just despawn the entity

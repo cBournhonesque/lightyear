@@ -20,13 +20,7 @@ impl Plugin for ExampleClientPlugin {
         );
         // all actions related-system that can be rolled back should be in the `FixedUpdate` schedule
         app.add_systems(FixedUpdate, (player_movement, delete_player));
-        app.add_systems(
-            Update,
-            (
-                cursor_movement,
-                spawn_player,
-            ),
-        );
+        app.add_systems(Update, (cursor_movement, spawn_player));
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
     }
@@ -195,8 +189,6 @@ fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
         (cursor_pos.y - (window.height() / 2.0)) * -1.0,
     ))
 }
-
-
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation

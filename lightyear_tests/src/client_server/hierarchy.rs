@@ -45,12 +45,15 @@ fn test_spawn_with_child() {
         .entity_mapper
         .get_local(client_child)
         .expect("entity is not present in entity map");
-    assert_eq!(stepper
-        .server_app
-        .world()
-        .get::<ChildOf>(server_child)
-        .unwrap()
-        .parent(), server_entity);
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<ChildOf>(server_child)
+            .unwrap()
+            .parent(),
+        server_entity
+    );
 }
 
 #[test]

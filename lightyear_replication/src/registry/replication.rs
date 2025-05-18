@@ -6,9 +6,9 @@ use bevy::ecs::component::{Component, ComponentId, Mutable};
 use bevy::prelude::*;
 use bytes::Bytes;
 use lightyear_core::prelude::Tick;
+use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
-use lightyear_serde::ToBytes;
 use tracing::{debug, trace};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -70,8 +70,7 @@ impl ComponentRegistry {
         component_bytes.into_iter().try_for_each(|b| {
             // TODO: reuse a single reader that reads through the entire message ?
             let mut reader = Reader::from(b);
-            let net_id =
-                ComponentNetId::from_bytes(&mut reader)?;
+            let net_id = ComponentNetId::from_bytes(&mut reader)?;
             let kind = self
                 .kind_map
                 .kind(net_id)
@@ -144,7 +143,10 @@ impl ComponentRegistry {
             .ok_or(ComponentError::NotRegistered)?;
         let component = self.raw_deserialize::<C>(reader, entity_map)?;
         let entity = entity_world_mut.id();
-        debug!("Insert component {} to entity {entity:?}", core::any::type_name::<C>());
+        debug!(
+            "Insert component {} to entity {entity:?}",
+            core::any::type_name::<C>()
+        );
 
         // if the component is already on the entity, no need to insert
         if let Some(mut c) = entity_world_mut.get_mut::<C>() {

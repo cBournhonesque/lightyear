@@ -20,7 +20,6 @@ const MAX_RTT_RELATIVE_INCREASE_FACTOR: f64 = 3.0; // e.g., sample clamped if > 
 // This provides a safety net if SRTT is very low.
 const MAX_RTT_ABSOLUTE_INCREASE_SECS: f64 = 0.5; // e.g., 500ms absolute increase allowed over SRTT
 
-
 /// Holds the final computed RTT and Jitter.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FinalStats {
@@ -48,7 +47,7 @@ impl RttEstimatorEwma {
             smoothed_rtt: None,
             rtt_abs_deviation: None,
             final_stats: FinalStats::default(),
-            samples_processed: 0
+            samples_processed: 0,
         }
     }
 
@@ -60,11 +59,14 @@ impl RttEstimatorEwma {
 
         // RTT samples should be non-negative.
         if rtt_sample_secs < 0.0 {
-            error!("Received negative RTT sample, ignoring: {:?}", new_rtt_sample);
+            error!(
+                "Received negative RTT sample, ignoring: {:?}",
+                new_rtt_sample
+            );
             // Optionally, you might want to reset or handle this as an error.
             return;
         }
-        
+
         self.samples_processed += 1;
 
         let (prev_srtt_secs, prev_rtt_abs_dev_secs) = (
@@ -75,13 +77,14 @@ impl RttEstimatorEwma {
         // --- Outlier Clamping Logic ---
         // Only apply clamping if we have established estimates (e.g., after a few samples)
         // and if there are previous SRTT and Dev values to compare against.
-        if self.samples_processed > 2 &&
-           prev_srtt_secs.is_some() && prev_rtt_abs_dev_secs.is_some() {
+        if self.samples_processed > 2 && prev_srtt_secs.is_some() && prev_rtt_abs_dev_secs.is_some()
+        {
             let prev_srtt_secs = prev_srtt_secs.unwrap();
             let prev_rtt_abs_dev_secs = prev_rtt_abs_dev_secs.unwrap();
 
             // Calculate dynamic upper bound based on deviation
-            let dev_based_upper_bound = prev_srtt_secs + OUTLIER_STDDEV_FACTOR * prev_rtt_abs_dev_secs;
+            let dev_based_upper_bound =
+                prev_srtt_secs + OUTLIER_STDDEV_FACTOR * prev_rtt_abs_dev_secs;
 
             // Calculate relative upper bound based on SRTT itself
             let relative_upper_bound = prev_srtt_secs * MAX_RTT_RELATIVE_INCREASE_FACTOR;
@@ -124,12 +127,13 @@ impl RttEstimatorEwma {
 
                     // Update smoothed RTT (SRTT in TCP terms):
                     // SRTT = (1 - alpha) * SRTT_prev + alpha * RTT_sample
-                    let updated_srtt_secs = (1.0 - RTT_EWMA_ALPHA) * prev_srtt_secs
-                        + RTT_EWMA_ALPHA * rtt_sample_secs;
+                    let updated_srtt_secs =
+                        (1.0 - RTT_EWMA_ALPHA) * prev_srtt_secs + RTT_EWMA_ALPHA * rtt_sample_secs;
 
                     // Update smoothed RTT absolute deviation (RTTVAR in TCP terms, though RTTVAR is a mean deviation):
                     // RTTVAR = (1 - beta) * RTTVAR_prev + beta * |RTT_sample - SRTT_prev|
-                    let updated_rtt_abs_dev_secs = (1.0 - RTT_DEV_EWMA_BETA) * prev_rtt_abs_dev_secs
+                    let updated_rtt_abs_dev_secs = (1.0 - RTT_DEV_EWMA_BETA)
+                        * prev_rtt_abs_dev_secs
                         + RTT_DEV_EWMA_BETA * rtt_error_secs;
 
                     (updated_srtt_secs, updated_rtt_abs_dev_secs)
@@ -183,9 +187,6 @@ impl RttEstimatorEwma {
         self.samples_processed = 0;
     }
 }
-
-
-
 
 #[cfg(test)]
 mod tests {

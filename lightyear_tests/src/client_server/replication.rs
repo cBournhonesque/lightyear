@@ -2,7 +2,7 @@
 
 use crate::protocol::{CompA, CompDisabled, CompReplicateOnce};
 use crate::stepper::ClientServerStepper;
-use bevy::prelude::{default, Name, ResMut, Resource, Single};
+use bevy::prelude::{Name, ResMut, Resource, Single, default};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
@@ -367,7 +367,6 @@ fn test_component_remove() {
             .is_none()
     );
 }
-
 
 /// Check that if we remove a non-replicated component, the replicate component does not get removed
 #[test]

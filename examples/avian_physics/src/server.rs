@@ -33,8 +33,6 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
         ));
 }
 
-
-
 // Renamed from init, removed Global resource, assume ball is always predicted
 fn setup(mut commands: Commands) {
     // Spawn server-authoritative entities (ball and walls)
@@ -113,23 +111,23 @@ pub(crate) fn replicate_players(
     let color = color_from_id(client_id);
     let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
     commands.spawn((
-            PlayerId(client_id),
-            Position::from(Vec2::new(-50.0, y)),
-            ColorComponent(color),
-            Replicate::to_clients(NetworkTarget::All),
-            // Predict to all players
-            PredictionTarget::to_clients(NetworkTarget::All),
-            ControlledBy {
-                owner: entity,
-                lifetime: Default::default(),
-            },
-            PhysicsBundle::player(),
-            // InputMap::new([
-            //     (PlayerActions::Up, KeyCode::KeyW),
-            //     (PlayerActions::Down, KeyCode::KeyS),
-            //     (PlayerActions::Left, KeyCode::KeyA),
-            //     (PlayerActions::Right, KeyCode::KeyD),
-            // ]),
-            Name::from("Player"),
+        PlayerId(client_id),
+        Position::from(Vec2::new(-50.0, y)),
+        ColorComponent(color),
+        Replicate::to_clients(NetworkTarget::All),
+        // Predict to all players
+        PredictionTarget::to_clients(NetworkTarget::All),
+        ControlledBy {
+            owner: entity,
+            lifetime: Default::default(),
+        },
+        PhysicsBundle::player(),
+        // InputMap::new([
+        //     (PlayerActions::Up, KeyCode::KeyW),
+        //     (PlayerActions::Down, KeyCode::KeyS),
+        //     (PlayerActions::Left, KeyCode::KeyA),
+        //     (PlayerActions::Right, KeyCode::KeyD),
+        // ]),
+        Name::from("Player"),
     ));
 }

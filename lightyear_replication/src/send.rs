@@ -37,20 +37,20 @@ use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::TickDelta;
 use lightyear_core::timeline::NetworkTimeline;
+use lightyear_messages::MessageNetId;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::TriggerSender;
 use lightyear_messages::registry::{MessageKind, MessageRegistry};
-use lightyear_messages::MessageNetId;
+use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
 use lightyear_serde::writer::Writer;
-use lightyear_serde::ToBytes;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
-use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
+use tracing::{debug, error, trace};
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = bevy::platform::collections::HashSet<K, EntityHash>;
@@ -115,11 +115,7 @@ impl ReplicationSendPlugin {
         component_registry: Res<ComponentRegistry>,
         change_tick: SystemChangeTick,
         mut query: Query<
-            (
-                &mut ReplicationSender,
-                &mut DeltaManager,
-                &mut Transport,
-            ),
+            (&mut ReplicationSender, &mut DeltaManager, &mut Transport),
             With<Connected>,
         >,
     ) {
@@ -1013,10 +1009,8 @@ impl ReplicationSender {
             trace!("final action messages to send: {:?}", message);
 
             // Since we are serializing directly though the Transport, we need to serialize the message_net_id ourselves
-            actions_net_id
-                .to_bytes(&mut self.writer)?;
-            message
-                .to_bytes(&mut self.writer)?;
+            actions_net_id.to_bytes(&mut self.writer)?;
+            message.to_bytes(&mut self.writer)?;
             let message_bytes = self.writer.split();
             let message_id = sender
                 .send_mut_with_priority::<ActionsChannel>(message_bytes, priority)?
@@ -1063,10 +1057,8 @@ impl ReplicationSender {
             };
 
             // Since we are serializing directly though the Transport, we need to serialize the message_net_id ourselves
-            updates_net_id
-                .to_bytes(&mut self.writer)?;
-            message
-                .to_bytes(&mut self.writer)?;
+            updates_net_id.to_bytes(&mut self.writer)?;
+            message.to_bytes(&mut self.writer)?;
             let message_bytes = self.writer.split();
             let message_id = transport
                 .send_mut_with_priority::<UpdatesChannel>(message_bytes, priority)?

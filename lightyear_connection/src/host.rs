@@ -23,14 +23,12 @@ pub struct HostClient;
 /// Marker component inserted on a server that has a [`HostClient`]
 #[derive(Component, Debug, Reflect)]
 pub struct HostServer {
-    client: Entity
+    client: Entity,
 }
-
 
 pub struct HostPlugin;
 
 impl HostPlugin {
-
     // TODO: also add check that the client has LocalIo.
 
     #[cfg(feature = "server")]
@@ -44,12 +42,11 @@ impl HostPlugin {
             if server_query.get(link_of.server).is_ok() {
                 commands.entity(trigger.target()).insert(HostClient);
                 commands.entity(link_of.server).insert(HostServer {
-                    client: trigger.target()
+                    client: trigger.target(),
                 });
             }
         }
     }
-
 
     #[cfg(feature = "server")]
     fn check_if_host_on_server_change(
@@ -79,4 +76,3 @@ impl Plugin for HostPlugin {
         app.add_observer(Self::check_if_host_on_server_change);
     }
 }
-

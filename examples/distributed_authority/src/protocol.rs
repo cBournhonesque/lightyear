@@ -93,7 +93,6 @@ pub struct PlayerColor(pub(crate) Color);
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
-
 // Inputs
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]

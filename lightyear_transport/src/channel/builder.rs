@@ -97,7 +97,6 @@ impl Default for Transport {
     }
 }
 
-
 impl Transport {
     pub fn has_sender<C: Channel>(&self) -> bool {
         self.senders.contains_key(&ChannelKind::of::<C>())

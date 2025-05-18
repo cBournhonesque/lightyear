@@ -27,12 +27,12 @@ use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
+use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
-use lightyear_messages::MessageManager;
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "trace")]
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
@@ -206,7 +206,7 @@ impl TempWriteBuffer {
 
     /// Inserts the components that were buffered inside the EntityWorldMut
     ///
-    /// # Safety 
+    /// # Safety
     /// `buffer_insert_raw_ptrs` must have been called beforehand
     pub unsafe fn batch_insert(&mut self, entity_world_mut: &mut EntityWorldMut) {
         if self.is_empty() {

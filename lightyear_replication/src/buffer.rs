@@ -19,8 +19,8 @@ use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
 use crate::prelude::ComponentReplicationOverrides;
-use crate::registry::registry::ComponentRegistry;
 use crate::registry::ComponentKind;
+use crate::registry::registry::ComponentRegistry;
 use crate::send::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 
@@ -178,7 +178,8 @@ impl Replicate {
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
                     let world = unsafe { unsafe_world.world_mut() };
-                    let peer_metadata = world.resource::<lightyear_connection::client::PeerMetadata>();
+                    let peer_metadata =
+                        world.resource::<lightyear_connection::client::PeerMetadata>();
                     let world = unsafe { unsafe_world.world_mut() };
                     target.apply_targets(
                         server.collection().iter().copied(),
@@ -229,7 +230,8 @@ impl Replicate {
                         return;
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
-                    let peer_metadata = unsafe { unsafe_world.world() }.resource::<lightyear_connection::client::PeerMetadata>();
+                    let peer_metadata = unsafe { unsafe_world.world() }
+                        .resource::<lightyear_connection::client::PeerMetadata>();
                     let world = unsafe { unsafe_world.world_mut() };
                     target.apply_targets(
                         server.collection().iter().copied(),
@@ -366,13 +368,16 @@ pub(crate) fn replicate(
     // query &C + various replication components
     entity_query: Query<FilteredEntityMut>,
     // TODO: should we put the DeltaManager in the same component?
-    mut manager_query: Query<(
-        Entity,
-        &mut ReplicationSender,
-        &mut DeltaManager,
-        &mut MessageManager,
-        &LocalTimeline,
-    ), With<Connected>>,
+    mut manager_query: Query<
+        (
+            Entity,
+            &mut ReplicationSender,
+            &mut DeltaManager,
+            &mut MessageManager,
+            &LocalTimeline,
+        ),
+        With<Connected>,
+    >,
     component_registry: Res<ComponentRegistry>,
     system_ticks: SystemChangeTick,
     archetypes: &Archetypes,
@@ -945,9 +950,9 @@ fn replicate_component_update(
             let send_tick = sender.get_send_tick(group_id);
 
             // send the update for all changes newer than the last send bevy tick for the group
-            if send_tick.is_none_or(|send_tick| {
-                component_ticks.is_changed(send_tick, sender.this_run)
-            }) {
+            if send_tick
+                .is_none_or(|send_tick| component_ticks.is_changed(send_tick, sender.this_run))
+            {
                 trace!(
                     change_tick = ?component_ticks.changed,
                     ?send_tick,
@@ -1027,7 +1032,7 @@ pub(crate) fn buffer_component_removed(
                 //  non replicated components, that we need to filter out
                 // check if the component is disabled
                 let Some(kind) = registry.component_id_to_kind.get(component_id) else {
-                    continue
+                    continue;
                 };
                 let metadata = registry.replication_map.get(kind).unwrap();
                 let mut disable = metadata.config.disable;

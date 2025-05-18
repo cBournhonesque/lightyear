@@ -43,8 +43,9 @@ impl MultiMessageSender<'_, '_> {
                     transport.send_with_priority::<C>(bytes.clone(), priority)
                 })?;
         } else {
-            self.query.iter_many_unique_mut(senders).try_for_each(
-                |(mut manager, transport)| {
+            self.query
+                .iter_many_unique_mut(senders)
+                .try_for_each(|(mut manager, transport)| {
                     self.registry.serialize::<M>(
                         message,
                         &mut self.writer,
@@ -54,8 +55,7 @@ impl MultiMessageSender<'_, '_> {
                     let bytes = self.writer.split();
                     transport.send_with_priority::<C>(bytes, priority)?;
                     Ok::<(), BevyError>(())
-                },
-            )?;
+                })?;
         }
         Ok::<(), _>(())
     }

@@ -13,7 +13,6 @@
 
 extern crate alloc;
 
-
 /// Handles the registration of components for replication.
 pub mod registry;
 
@@ -57,7 +56,9 @@ pub mod prelude {
     pub use crate::message::*;
     pub use crate::plugin::ReplicationSet;
     pub use crate::receive::{ReplicationReceivePlugin, ReplicationReceiver};
-    pub use crate::registry::registry::{AppComponentExt, ComponentRegistration, TransformLinearInterpolation};
+    pub use crate::registry::registry::{
+        AppComponentExt, ComponentRegistration, TransformLinearInterpolation,
+    };
     pub use crate::send::{
         ReplicationBufferSet, ReplicationSendPlugin, ReplicationSender, SendUpdatesMode,
     };

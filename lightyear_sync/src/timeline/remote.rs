@@ -189,7 +189,7 @@ impl RemoteTimeline {
         let clamped_normalized_jitter = normalized_jitter.clamp(0.0, 1.0);
 
         // 3. Linearly interpolate alpha based on clamped_normalized_jitter.
-        
+
         self.max_ema_alpha - clamped_normalized_jitter * alpha_range
     }
 }

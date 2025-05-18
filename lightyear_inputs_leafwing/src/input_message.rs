@@ -5,9 +5,9 @@ use alloc::vec::Vec;
 use bevy::ecs::entity::MapEntities;
 use bevy::platform::time::Instant;
 use bevy::prelude::EntityMapper;
+use leafwing_input_manager::Actionlike;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
-use leafwing_input_manager::Actionlike;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::InputBuffer;
 use lightyear_inputs::input_message::ActionStateSequence;
@@ -122,7 +122,6 @@ mod tests {
 
     #[test]
     fn test_create_message() {
-
         let mut input_buffer = InputBuffer::default();
         let mut action_state = ActionState::<Action>::default();
         input_buffer.set(Tick(2), &ActionState::default());
@@ -131,11 +130,8 @@ mod tests {
         action_state.release(&Action::Jump);
         input_buffer.set(Tick(7), &action_state);
 
-        let message = ActionStateSequence::build_from_input_buffer(
-            &input_buffer,
-            9,
-            Tick(10)
-        ).unwrap();
+        let message =
+            ActionStateSequence::build_from_input_buffer(&input_buffer, 9, Tick(10)).unwrap();
         assert_eq!(
             message,
             InputMessage {
