@@ -11,10 +11,7 @@ use aeronet_io::server::{Close, Server};
 use aeronet_io::{IoSet, Session, SessionEndpoint};
 use bevy::app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy::ecs::relationship::Relationship;
-use bevy::log::trace;
-use bevy::prelude::{
-    Commands, Component, Entity, Has, IntoScheduleConfigs, OnAdd, Query, Reflect, Trigger, With,
-};
+use bevy::prelude::*;
 use lightyear_link::{Link, LinkPlugin, LinkSet, Linked, Linking, Unlink, Unlinked};
 
 #[derive(Component, Reflect)]

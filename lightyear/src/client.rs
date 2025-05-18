@@ -45,7 +45,7 @@ impl PluginGroup for ClientPlugins {
 
 
         #[cfg(target_family = "wasm")]
-        let builder = builder.add(crate::client::web::WebPlugin);
+        let builder = builder.add(crate::web::WebPlugin);
 
         builder
     }

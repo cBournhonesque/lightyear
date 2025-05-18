@@ -39,9 +39,6 @@ mod shared;
 fn main() {
     let cli = Cli::default();
 
-    #[cfg(target_family = "wasm")]
-    lightyear_examples_common::settings::modify_digest_on_wasm(&mut settings.client);
-
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
 
     app.add_plugins(SharedPlugin);
@@ -63,8 +60,8 @@ fn main() {
                     conditioner: Some(RecvLinkConditioner::new(
                         LinkConditionerConfig::average_condition(),
                     )),
-                    // transport: ClientTransports::WebTransport,
-                    transport: ClientTransports::Udp,
+                    // transport: ClientTransports::Udp,
+                    transport: ClientTransports::WebTransport,
                     shared: SHARED_SETTINGS,
                 })
                 .id();
@@ -76,6 +73,7 @@ fn main() {
     {
         use lightyear::connection::server::Start;
         use lightyear_examples_common::server::{ExampleServer, ServerTransports};
+        use lightyear_examples_common::server::WebTransportCertificateSettings;
 
         app.add_plugins(ExampleServerPlugin);
         if matches!(cli.mode, Some(Mode::Server)) {
@@ -83,16 +81,16 @@ fn main() {
                 .world_mut()
                 .spawn(ExampleServer {
                     conditioner: None,
-                    transport: ServerTransports::Udp {
-                        local_port: SERVER_PORT,
-                    },
-                    // transport: ServerTransports::WebTransport {
+                    // transport: ServerTransports::Udp {
                     //     local_port: SERVER_PORT,
-                    //     certificate: WebTransportCertificateSettings::FromFile {
-                    //         cert: "../certificates/cert.pem".to_string(),
-                    //         key: "../certificates/key.pem".to_string(),
-                    //     },
                     // },
+                    transport: ServerTransports::WebTransport {
+                        local_port: SERVER_PORT,
+                        certificate: WebTransportCertificateSettings::FromFile {
+                            cert: "../certificates/cert.pem".to_string(),
+                            key: "../certificates/key.pem".to_string(),
+                        },
+                    },
                     shared: SHARED_SETTINGS,
                 })
                 .id();

@@ -50,7 +50,7 @@ echo "Using clang at $TARGET_CC"
 p_args="-p $(echo $example_list | sed 's/,/ -p /g')"
 
 echo "Building examples: $p_args"
-cargo build --release --no-default-features -F bevygap_client $p_args
+cargo build --release --no-default-features $p_args
 
 echo "Running wasm-bindgen for each example"
 for example in $(echo $example_list | tr ',' ' ') ;

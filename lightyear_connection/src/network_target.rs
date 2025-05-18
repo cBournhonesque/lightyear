@@ -25,13 +25,13 @@ impl NetworkTarget {
         func: &mut impl FnMut(Entity),
     ) {
         match self {
-            NetworkTarget::All => clients.into_iter().for_each(|e| func(e)),
+            NetworkTarget::All => clients.into_iter().for_each(func),
             NetworkTarget::AllExceptSingle(client_id) => {
                 let except_entity = mapping.get(client_id).unwrap_or(&Entity::PLACEHOLDER);
                 clients
                     .into_iter()
                     .filter(|e| e != except_entity)
-                    .for_each(|e| func(e))
+                    .for_each(func)
             }
             NetworkTarget::AllExcept(client_ids) => {
                 let entity_ids = client_ids
@@ -41,7 +41,7 @@ impl NetworkTarget {
                 clients
                     .into_iter()
                     .filter(|e| !entity_ids.contains(e))
-                    .for_each(|e| func(e))
+                    .for_each(func)
             }
             NetworkTarget::Single(client_id) => {
                 let entity = mapping.get(client_id).unwrap_or(&Entity::PLACEHOLDER);
@@ -57,7 +57,7 @@ impl NetworkTarget {
                 clients
                     .into_iter()
                     .filter(|e| entity_ids.contains(e))
-                    .for_each(|e| func(e))
+                    .for_each(func)
             }
             NetworkTarget::None => {}
         }

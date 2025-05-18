@@ -49,7 +49,7 @@ impl WebTransportClientPlugin {
                 let target = {
                     #[cfg(target_family = "wasm")]
                     {
-                        server_url.into()
+                        server_url
                     }
 
                     #[cfg(not(target_family = "wasm"))]
@@ -68,7 +68,7 @@ impl WebTransportClientPlugin {
 
     #[cfg(target_family = "wasm")]
     fn client_config(cert_hash: String) -> Result<ClientConfig> {
-        use xwt_web::{CertificateHash, HashAlgorithm};
+        use aeronet_webtransport::xwt_web::{CertificateHash, HashAlgorithm};
 
         let server_certificate_hashes = if cert_hash.is_empty() {
             Vec::new()
@@ -78,9 +78,9 @@ impl WebTransportClientPlugin {
                     algorithm: HashAlgorithm::Sha256,
                     value: Vec::from(hash),
                 }],
-                Err(err) => WebTransportError::Certificate(
+                Err(err) => Err(WebTransportError::Certificate(
                     "Failed to read certificate hash from string: {err:?}".to_string(),
-                )?,
+                ))?,
             }
         };
 

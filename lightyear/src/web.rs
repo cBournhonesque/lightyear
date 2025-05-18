@@ -17,8 +17,6 @@ use bevy_web_keepalive::WebKeepalivePlugin;
 /// and updating the local World.
 pub(crate) struct WebPlugin;
 
-pub use bevy_web_keepalive::KeepaliveSettings;
-
 impl Plugin for WebPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(WebKeepalivePlugin {

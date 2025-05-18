@@ -1,11 +1,10 @@
-name: Deploy website
+name: Deploy book
 on:
   push:
     paths:
       - "book/**"
-      # - "examples/**"
     branches:
-      - website
+      - book
 
 jobs:
   deploy:

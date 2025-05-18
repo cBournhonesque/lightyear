@@ -289,7 +289,7 @@ pub struct MessageRegistration<'a, M> {
     pub(crate) _marker: core::marker::PhantomData<M>,
 }
 
-impl<M: Message> MessageRegistration<'_, M> {
+impl<'a, M: Message> MessageRegistration<'a, M> {
     #[cfg(feature = "test_utils")]
     pub fn new(app: &'a mut App) -> Self {
         Self {

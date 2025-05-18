@@ -11,20 +11,15 @@ repository = "https://github.com/cBournhonesque/lightyear"
 [features]
 default = ["std"]
 std = [
+    "lightyear_link/std"
 ]
 server = []
 
 [dependencies]
 lightyear_link.workspace = true
-lightyear_core.workspace = true
-lightyear_connection.workspace = true
 
 # bevy
 bevy.workspace = true
-
-# utils
-tracing.workspace = true
-smallvec.workspace = true
 
 # serde
 bytes.workspace = true

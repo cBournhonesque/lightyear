@@ -46,7 +46,7 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 /// DDoS attempt, etc.). We want to start the replication only when the client is confirmed as connected.
 pub(crate) fn handle_connected(
     trigger: Trigger<OnAdd, Connected>,
-    mut query: Query<&Connected, With<ClientOf>>,
+    query: Query<&Connected, With<ClientOf>>,
     mut commands: Commands,
 ) {
     let connected = query.get(trigger.target()).unwrap();

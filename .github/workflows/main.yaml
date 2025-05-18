@@ -14,6 +14,8 @@ on:
       - "**.md"
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: --deny warnings -C debuginfo=line-tables-only
+  RUSTDOCFLAGS: --deny warnings
 jobs:
   format:
     name: Format
@@ -25,13 +27,9 @@ jobs:
       - name: Cache crates
         uses: Swatinem/rust-cache@v2
 
-      - name: Install Taplo
-        run: cargo install --locked taplo-cli
-
       - name: Format
         run: |
-          cargo fmt -p lightyear --check
-          taplo fmt --check
+          cargo fmt --all --check
 
   lint:
     name: Lint
@@ -50,10 +48,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Clippy
-        run: cargo clippy -p lightyear --no-deps --tests -- -D warnings -A clippy::wrong_self_convention
+        run: cargo clippy --workspace --no-deps --tests -- -D warnings -A clippy::wrong_self_convention
 
       - name: Rustdoc
-        run: cargo rustdoc -p lightyear --features=metrics,webtransport,leafwing,avian2d,websocket,steam,zstd,avian2d/2d,avian2d/f32,avian2d/parry-f32 -- --document-private-items -D warnings --cfg docsrc
+        run: cargo rustdoc --workspace --all-features -- --document-private-items -D warnings --cfg docsrc
 
   doctest:
     name: Doctest
@@ -72,7 +70,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Test doc
-        run: cargo test -p lightyear --doc
+        run: cargo test --workspace --doc
 
   test:
     name: Test
@@ -97,7 +95,7 @@ jobs:
         run: cargo install cargo-tarpaulin
 
       - name: Test
-        run: cargo tarpaulin --features leafwing --engine llvm --out lcov
+        run: cargo tarpaulin --all-features --engine llvm --out lcov
 
       - name: Upload code coverage results
         if: github.actor != 'dependabot[bot]'

@@ -3,9 +3,12 @@
 #[cfg(feature = "client")]
 pub mod client;
 
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", not(target_family = "wasm")))]
 mod server;
 mod shared;
+
+#[cfg(target_family = "wasm")]
+mod web;
 
 #[cfg(feature = "netcode")]
 pub mod netcode {
@@ -61,6 +64,8 @@ pub mod prelude {
 
     #[cfg(all(not(target_family = "wasm"), feature = "udp"))]
     pub use lightyear_udp::prelude::*;
+
+    #[allow(unused_imports)]
     #[cfg(feature = "webtransport")]
     pub use lightyear_webtransport::prelude::*;
 
@@ -104,7 +109,7 @@ pub mod prelude {
         }
     }
 
-    #[cfg(feature = "server")]
+    #[cfg(all(feature = "server", not(target_family = "wasm")))]
     pub mod server {
         pub use crate::server::ServerPlugins;
         pub use lightyear_connection::prelude::server::*;

@@ -56,22 +56,20 @@ lightyear = {"workspace" = true, features = [
   "webtransport_dangerous_configuration",
   "udp",
 ]}
-anyhow.workspace = true
 async-compat.workspace = true
 cfg-if.workspace = true
 clap.workspace = true
-crossbeam-channel.workspace = true
-rand.workspace = true
 serde.workspace = true
 bevy.workspace = true
-#bevy = { workspace = true, features = ["bevy_log"]}
 bevy-inspector-egui = { workspace = true, optional = true }
 bevy_metrics_dashboard = { workspace = true, optional = true }
 bevy_egui = { workspace = true, optional = true }
 tracing.workspace = true
 
 [target."cfg(target_family = \"wasm\")".dependencies]
-web-sys = { workspace = true, features = ["Window", "Location"] }
+console_error_panic_hook.workspace = true
+rand.workspace = true
+getrandom.workspace = true
 
 [lints]
 workspace = true

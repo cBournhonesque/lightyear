@@ -194,10 +194,7 @@ impl<T: TimelineContext> SyncEvent<T> {
 
 impl<T> Clone for SyncEvent<T> {
     fn clone(&self) -> Self {
-        SyncEvent {
-            tick_delta: self.tick_delta,
-            marker: core::marker::PhantomData,
-        }
+        *self
     }
 }
 

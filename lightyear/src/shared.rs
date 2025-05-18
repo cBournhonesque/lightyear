@@ -39,7 +39,7 @@ impl PluginGroup for SharedPlugins {
         // IO
         #[cfg(feature = "crossbeam")]
         let builder = builder.add(lightyear_crossbeam::CrossbeamPlugin);
-        #[cfg(feature = "udp")]
+        #[cfg(all(feature = "udp", not(target_family = "wasm")))]
         let builder = builder.add(lightyear_udp::UdpPlugin);
 
         // Note: the server can also do interpolation

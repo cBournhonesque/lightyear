@@ -114,8 +114,8 @@ variadics_please = "1.1.0"
 zstd = "0.13.1"
 
 # no_std
-no_std_io2 = { version = "0.9.0", features = ["alloc"] }
-spin = { version = "0.9.8", default-features = false }
+no_std_io2 = { version = "0.9", features = ["alloc"] }
+spin = { version = "0.10", default-features = false }
 
 # serialization
 
@@ -168,36 +168,15 @@ steamworks = "0.11"
 
 # WASM things
 console_error_panic_hook = "0.1.7"
-js-sys               = { version = "0.3.70" }
-web-sys = { version = "0.3", features = [
-  "Document",
-  "WebTransport",
-  "WebTransportHash",
-  "WebTransportOptions",
-  "WebTransportBidirectionalStream",
-  "WebTransportSendStream",
-  "WebTransportReceiveStream",
-  "ReadableStreamDefaultReader",
-  "WritableStreamDefaultWriter",
-  "WebTransportDatagramDuplexStream",
-  "WebSocket",
-  "CloseEvent",
-  "ErrorEvent",
-  "MessageEvent",
-  "BinaryType",
-] }
-
+web-time = "1.1.0"
 bevy_web_keepalive = "0.3.5"
-
-futures-lite = "2.1.0"
-getrandom = { version = "0.3.0", features = [
+getrandom = { version = "0.3", features = [
   "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
 ] }
 wasm-bindgen = "0.2.90"
 
 # dev deps
 mock_instant = "0.5"
-bitvec = "1.0"
 approx = "0.5.1"
 
 # Bevy

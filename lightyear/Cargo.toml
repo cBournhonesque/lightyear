@@ -26,10 +26,6 @@ std = [
   "bevy/std",
   # needed for bevy_transform parallel
   "bevy/async_executor",
-  "serde/std",
-  "bincode/std",
-  "bytes/std",
-  "no_std_io2/std",
   "lightyear_interpolation?/std",
   "lightyear_udp?/std",
   "lightyear_netcode?/std",
@@ -73,10 +69,6 @@ interpolation = [
 ]
 trace = []
 metrics = [
-  "dep:metrics",
-  "dep:metrics-util",
-  "dep:metrics-tracing-context",
-  "dep:metrics-exporter-prometheus",
   "lightyear_interpolation?/metrics",
   "lightyear_replication?/metrics",
   "lightyear_sync/metrics",
@@ -88,7 +80,6 @@ metrics = [
 netcode = [
   "dep:lightyear_netcode",
 ]
-visualizer = ["dep:bevy_metrics_dashboard", "metrics"]
 webtransport = [
   "std",
   "dep:lightyear_webtransport"
@@ -105,7 +96,6 @@ input_native = [
 ]
 leafwing = [
   "dep:lightyear_inputs",
-  "dep:leafwing-input-manager",
   "dep:lightyear_inputs_leafwing",
 ]
 
@@ -141,10 +131,6 @@ steam = [
 #]
 track_location = ["bevy/track_location"]
 
-# compression
-lz4 = ["dep:lz4_flex"]
-zstd = ["dep:zstd"]
-
 [dependencies]
 # local crates
 lightyear_avian = { workspace = true, optional = true }
@@ -168,57 +154,21 @@ lightyear_inputs_native = {workspace = true, optional = true}
 lightyear_crossbeam = {workspace = true, optional = true}
 lightyear_webtransport = {workspace = true, optional = true}
 
-# no_std
-# TODO: only enable in no_std
-no_std_io2.workspace = true
-
-# input
-leafwing-input-manager = { workspace = true, optional = true }
-
-# physics
-#avian2d = { workspace = true, optional = true }
-#avian3d = { workspace = true, optional = true }
-
-# serialization
-bincode.workspace = true
-bytes.workspace = true
-serde.workspace = true
-
-# tracing
-tracing.workspace = true
-
-# metrics
-metrics = { workspace = true, optional = true }
-metrics-util = { workspace = true, optional = true }
-metrics-tracing-context = { workspace = true, optional = true }
-metrics-exporter-prometheus = { workspace = true, optional = true }
-
-# debug ui
-bevy_metrics_dashboard = { workspace = true, optional = true }
-
 # bevy
 bevy.workspace = true
-
-# compression
-lz4_flex = { workspace = true, optional = true }
 
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
 lightyear_udp = { workspace = true, optional = true }
 steamworks = { workspace = true, optional = true }
-zstd = { workspace = true, optional = true }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook.workspace = true
 bevy_web_keepalive.workspace = true
-futures-lite = { workspace = true, optional = true }
-getrandom.workspace = true
 wasm-bindgen = { workspace = true, optional = true }
-zstd = { workspace = true, optional = true, features = ["wasm"] }
 
 
 [dev-dependencies]
-mock_instant.workspace = true
 leafwing-input-manager.workspace = true
 
 # docs.rs-specific configuration
@@ -226,5 +176,5 @@ leafwing-input-manager.workspace = true
 # we cannot use all-features = true, because we need to provide additional features for avian
 # when building the docs
 # NOTE: building docs.rs doesn't work if I include avian
-features = ["metrics", "udp", "webtransport", "leafwing", "websocket", "steam", "zstd", "crossbeam", "lag_compensation"]
+features = ["metrics", "udp", "webtransport", "leafwing", "websocket", "steam", "crossbeam", "lag_compensation"]
 rustdoc-args = ["--cfg", "docsrs"]

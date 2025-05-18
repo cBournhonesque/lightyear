@@ -4,24 +4,14 @@
 //! - sending inputs to the server
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //! predicted entity and the server entity)
-use std::net::{Ipv4Addr, SocketAddr};
-use std::str::FromStr;
 
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared;
-use bevy::app::PluginGroupBuilder;
-use bevy::ecs::component::HookContext;
-use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
-use bevy::time::common_conditions::on_timer;
-use core::time::Duration;
 use lightyear::prelude::client::input::*;
-use lightyear::prelude::client::*;
 use lightyear::prelude::input::native::*;
-use lightyear::prelude::input::*;
 use lightyear::prelude::*;
-use lightyear_examples_common::client::ExampleClient;
 
 pub struct ExampleClientPlugin;
 
