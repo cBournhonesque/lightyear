@@ -23,6 +23,14 @@ the [simple_box](https://github.com/cBournhonesque/lightyear/tree/main/examples/
 
 You can also find more information in this WIP [book](https://cbournhonesque.github.io/lightyear/book/).
 
+## Related projects
+
+- [lightyear-template](https://github.com/Piefayth/lightyear-template/tree/main): opiniated template for a bevy + lightyear starter project
+
+### Games
+- [Lumina](https://github.com/nixon-voxell/lumina)
+- [cycles.io](https://github.com/cBournhonesque/jam5) for bevy jam 5: https://cbournhonesque.itch.io/cyclesio
+
 ## Features
 
 ### Ergonomic
@@ -33,15 +41,15 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
   the network; as well as the `Channels` to be used:
 ```rust,ignore
 // messages
-app.add_message::<Message1>(ChannelDirection::Bidirectional);
+app.add_message::<Message1>();
 
 // inputs
 app.add_plugins(InputPlugin::<Inputs>::default());
 
 // components
-app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
-    .add_prediction(ComponentSyncMode::Once)
-    .add_interpolation(ComponentSyncMode::Once);
+app.register_component::<PlayerId>()
+    .add_prediction(PredictionMode::Once)
+    .add_interpolation(InterpolationMode::Once);
     
 // channels
 app.add_channel::<Channel1>(ChannelSettings {
@@ -49,18 +57,13 @@ app.add_channel::<Channel1>(ChannelSettings {
     ..default()
 });
 ```
-- to enable replication, the user just needs to add a `Replicate` bundle to entities that need to be replicated.
-- all network-related events are accessible via bevy `Events`: `EventReader<MessageEvent<MyMessage>>` or `EventReader<EntitySpawnEvent>`
-- I provide a certain number of bevy `Resources` to interact with the library (`InputManager`, `ConnectionManager`, `TickManager`,
-  etc.)
+- to enable replication, the user just needs to add a `Replicate` component to entities that need to be replicated.
+- all network-related behaviour is defined via bevy components: `MessageReceiver<Message1>`, `ReplicationSender`, etc.
 
 
 ### Batteries-included
 
-- Transport-agnostic: *Lightyear* uses a very
-  general [Transport](https://github.com/cBournhonesque/lightyear/blob/main/lightyear/src/transport/mod.rs) trait to
-  send raw data on the network.
-  The trait currently has several implementations:
+- Transport-agnostic: *Lightyear* is compatible with a number of IO backends, including:
     - UDP sockets
     - WebTransport (using QUIC): available on both native and wasm!
     - WebSocket: available on both native and wasm!
@@ -80,8 +83,7 @@ app.add_channel::<Channel1>(ChannelSettings {
       the [`leafwing-input-manager`](https://github.com/Leafwing-Studios/leafwing-input-manager) crate, where
       your `leafwing` inputs are networked for you!
 - World Replication
-    - Entities that have the `Replicate` bundle will be automatically replicated to clients. Only the components that
-      change will be sent over the network. This functionality is similar to what [bevy_replicon](https://github.com/lifescapegame/bevy_replicon) provides.
+    - Entities that have the `Replicate` bundle will be automatically replicated to clients.
 - Advanced replication
     - **Client-side prediction**: with just a one-line change, you can enable client-prediction with rollback on the
       client, so that your inputs can feel responsive
@@ -110,15 +112,12 @@ app.add_channel::<Channel1>(ChannelSettings {
     - *Lightyear* has plenty of examples demonstrating all these features, as well as the integration with other bevy
       crates such as `avian`
 
-## Games using lightyear
-
-- [Lumina](https://github.com/nixon-voxell/lumina)
-- [cycles.io](https://github.com/cBournhonesque/jam5) for bevy jam 5: https://cbournhonesque.itch.io/cyclesio
 
 ## Supported bevy version
 
 | Lightyear | Bevy |
 |-----------|------|
+| 0.20      | 0.16 |
 | 0.18-0.19 | 0.15 |
 | 0.16-0.17 | 0.14 |
 | 0.10-0.15 | 0.13 |
