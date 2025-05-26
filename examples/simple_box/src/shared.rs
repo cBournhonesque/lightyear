@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::interpolation::{ConfirmedHistory, InterpolateStatus, Interpolated};
 use lightyear::prelude::{Client, Confirmed, LocalTimeline, NetworkTimeline, Rollback};
+use lightyear_examples_common::shared::SharedSettings;
 
 pub struct SharedPlugin;
 
@@ -18,6 +19,11 @@ impl Plugin for SharedPlugin {
         app.add_systems(PostUpdate, interpolate_log);
     }
 }
+
+pub const SHARED_SETTINGS: SharedSettings = SharedSettings {
+    protocol_id: 0,
+    private_key: [0; 32],
+};
 
 // This system defines how we update the player's positions when we receive an input
 pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input: &Inputs) {
