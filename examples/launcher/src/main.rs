@@ -8,7 +8,7 @@ use lightyear::prelude::client;
 use lightyear::prelude::server;
 
 use clap::Parser;
-use strum::{EnumIter, IntoEnumIterator};
+use strum::IntoEnumIterator;
 
 use crate::config::*;
 use core::net::SocketAddr;
@@ -18,17 +18,15 @@ use lightyear::connection::server::Start;
 use lightyear_examples_common::client::{ClientTransports, ExampleClient};
 use lightyear_examples_common::client_renderer::ExampleClientRendererPlugin;
 use lightyear_examples_common::server::{ExampleServer, ServerTransports};
-use lightyear_examples_common::server_renderer::ExampleServerRendererPlugin;
-use simple_box_new::client::ExampleClientPlugin as SimpleBoxClientPlugin;
-use simple_box_new::protocol::ProtocolPlugin as SimpleBoxProtocolPlugin;
-use simple_box_new::renderer::ExampleRendererPlugin as SimpleBoxRendererPlugin;
-use simple_box_new::server::{ExampleServerPlugin as SimpleBoxServerPlugin, ExampleServerPlugin};
+use simple_box::client::ExampleClientPlugin as SimpleBoxClientPlugin;
+use simple_box::protocol::ProtocolPlugin as SimpleBoxProtocolPlugin;
+use simple_box::renderer::ExampleRendererPlugin as SimpleBoxRendererPlugin;
+use simple_box::server::ExampleServerPlugin as SimpleBoxServerPlugin;
 use std::{
     env, fs,
     io::Write,
     path::PathBuf,
     process::{exit, Command},
-    thread,
 };
 
 #[derive(Event, Debug)]
@@ -232,9 +230,10 @@ fn ui_system(mut contexts: EguiContexts, mut config: ResMut<LauncherConfig>) {
                 // Client Transport
                 ui.horizontal(|ui| {
                     ui.label("Client Transport:");
-                    let current_transport_text = match config.client_transport {
+                    let current_transport_text = match &config.client_transport {
                         Some(ClientTransports::Udp) => "UDP",
                         Some(ClientTransports::WebTransport { .. }) => "WebTransport",
+                        Some(transport) => "None",
                         None => "None",
                     };
                     egui::ComboBox::from_id_salt("##ClientTransport")
@@ -296,9 +295,10 @@ fn ui_system(mut contexts: EguiContexts, mut config: ResMut<LauncherConfig>) {
                 // Server Transport
                 ui.horizontal(|ui| {
                     ui.label("Server Transport:");
-                    let current_transport_text = match config.server_transport {
+                    let current_transport_text = match &config.server_transport {
                         Some(ServerTransports::Udp { .. }) => "UDP",
                         Some(ServerTransports::WebTransport { .. }) => "WebTransport",
+                        Some(transport) => "None",
                         None => "None",
                     };
                      egui::ComboBox::from_id_salt("##ServerTransport")
@@ -429,7 +429,7 @@ fn build_server_app(config: LauncherConfig, _asset_path: String) -> App {
         .spawn(ExampleServer {
             conditioner: None,
             transport: server_transport,
-            shared: simple_box_new::SHARED_SETTINGS,
+            shared: simple_box::shared::SHARED_SETTINGS,
         })
         .id();
     app.world_mut().trigger_targets(Start, server);
@@ -475,7 +475,7 @@ fn build_client_app(config: LauncherConfig, _asset_path: String) -> App {
             server_addr,
             conditioner: None,
             transport: client_transport,
-            shared: simple_box_new::SHARED_SETTINGS,
+            shared: simple_box::shared::SHARED_SETTINGS,
         })
         .id();
     app.world_mut().trigger_targets(Connect, client);
@@ -503,15 +503,13 @@ fn build_host_server_app(config: LauncherConfig, _asset_path: String) -> App {
         config.example, client_id, server_addr
     ));
 
-    app.add_plugins((
-        client::ClientPlugins {
-            tick_duration: config.tick_duration,
-        },
-        ExampleClientRendererPlugin::new(String::new()),
-        server::ServerPlugins {
-            tick_duration: config.tick_duration,
-        },
-    ));
+    app.add_plugins(client::ClientPlugins {
+        tick_duration: config.tick_duration,
+    });
+    app.add_plugins(ExampleClientRendererPlugin::new(String::new()));
+    app.add_plugins(server::ServerPlugins {
+        tick_duration: config.tick_duration,
+    });
 
     // --- Add Example Plugins (Common Protocol, Specific Client/Server Logic) ---
     add_example_server_plugins(&mut app, config.example); // Adds Protocol + Server Logic
