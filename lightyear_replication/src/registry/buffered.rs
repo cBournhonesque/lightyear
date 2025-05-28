@@ -7,9 +7,21 @@ use core::alloc::Layout;
 use core::ptr::NonNull;
 
 /// An [`EntityWorldMut`] that buffers all insertions and removals so that they are all applied at once.
-pub(crate) struct BufferedEntity<'w, 'b> {
-    pub(crate) entity: EntityWorldMut<'w>,
-    pub(crate) buffered: &'b mut BufferedChanges,
+pub struct BufferedEntity<'w, 'b> {
+    pub entity: EntityWorldMut<'w>,
+    pub buffered: &'b mut BufferedChanges,
+}
+
+impl <'w, 'b> BufferedEntity<'w, 'b> {
+
+    pub(crate) fn component_id<C: Component>(&mut self) -> ComponentId {
+        // SAFETY: does not update the entity's location
+        unsafe { self.entity.world_mut().register_component::<C>() }
+    }
+
+    pub(crate) fn apply(&mut self) {
+        self.buffered.apply(&mut self.entity)
+    }
 }
 
 #[derive(Debug, Default)]

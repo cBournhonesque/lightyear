@@ -5,8 +5,8 @@ use crate::{SerializationError, ToBytes};
 use bevy::ecs::entity::MapEntities;
 use bevy::ptr::{Ptr, PtrMut};
 use core::any::TypeId;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 // TODO: this should be in lightyear_serde? it's not strictly related to messages?
 /// Stores function pointers related to serialization and deserialization
@@ -133,12 +133,12 @@ pub type SerializeFn<M> = fn(message: &M, writer: &mut Writer) -> Result<(), Ser
 pub type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<M, SerializationError>;
 
 #[doc(hidden)]
-/// Type of the serialize function without entity mapping
+/// Type of the serialize function with entity mapping
 pub type ContextSerializeFn<C, M, I> =
     fn(&mut C, message: &M, writer: &mut Writer, SerializeFn<I>) -> Result<(), SerializationError>;
 
 #[doc(hidden)]
-/// Type of the deserialize function without entity mapping
+/// Type of the deserialize function with entity mapping
 pub type ContextDeserializeFn<C, M, I> =
     fn(&mut C, reader: &mut Reader, DeserializeFn<I>) -> Result<M, SerializationError>;
 
@@ -317,5 +317,19 @@ impl ErasedSerializeFns {
         let context_deserialize: ContextDeserializeFn<C, M, I> =
             unsafe { core::mem::transmute(self.context_deserialize) };
         context_deserialize(context, reader, deserialize)
+    }
+    
+    /// Get the deserialize functions for the type M.
+    ///
+    /// # Safety
+    /// the ErasedSerializeFns must be created for the type M
+    pub unsafe fn deserialize_fns<C, M: 'static, I>(&self) -> ContextDeserializeFns<C, M, I> {
+        let deserialize: DeserializeFn<I> = unsafe { core::mem::transmute(self.deserialize) };
+        let context_deserialize: ContextDeserializeFn<C, M, I> =
+            unsafe { core::mem::transmute(self.context_deserialize) };
+        ContextDeserializeFns {
+            deserialize,
+            context_deserialize
+        }
     }
 }

@@ -12,7 +12,6 @@ use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::RemoteEntityMap;
-use lightyear_serde::reader::Reader;
 use lightyear_transport::packet::message::MessageId;
 use tracing::{debug, error, info, trace};
 
@@ -818,14 +817,15 @@ impl GroupChannel {
 
             // inserts
             // TODO: remove updates that are duplicate for the same component
-            let _ = component_registry
-                .batch_insert(
-                    actions.insert,
+            let _ = actions.insert.into_iter().try_for_each(|bytes| {
+                component_registry.buffer(
+                    bytes,
                     &mut buffered_entity,
                     remote_tick,
                     &mut remote_entity_map.remote_to_local,
                 )
-                .inspect_err(|e| error!("could not insert the components to the entity: {:?}", e));
+            }).inspect_err(|e| error!("could not insert the components to the entity: {:?}", e));
+           
 
             // TODO: find a way to handle this elegantly. Maybe the server should send a Spawn::Reuse
             //  or Spawn::PrePredicted for this situation?
@@ -846,21 +846,22 @@ impl GroupChannel {
             //  to know for which client we should do the pre-prediction
 
             // removals
-            component_registry.batch_remove(
-                actions.remove,
-                &mut buffered_entity,
-                remote_tick,
-            );
+            actions.remove.into_iter().for_each(|component_net_id| {
+                component_registry.remove(
+                    component_net_id,
+                    &mut buffered_entity,
+                    remote_tick,
+                );
+            });
 
-            buffered_entity.buffered.apply(&mut buffered_entity.entity);
+            
+            buffered_entity.apply();
 
             // updates
             for component in actions.updates {
-                let mut reader = Reader::from(component);
-                let _ = component_registry
-                    .raw_write(
-                        &mut reader,
-                        &mut buffered_entity.entity,
+                let _ = component_registry.buffer(
+                        component,
+                        &mut buffered_entity,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
                     )
@@ -903,7 +904,7 @@ impl GroupChannel {
         );
         for (entity, components) in message.updates.into_iter() {
             trace!(?components, remote_entity = ?entity, "Received UpdateComponent");
-            let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
+            let Some(local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
                 // we can get a few buffered updates after the entity has been despawned
                 // those are the updates that we received before the despawn action message, but with a tick
                 // later than the despawn action message
@@ -922,11 +923,13 @@ impl GroupChannel {
                 continue;
             }
 
+            let mut local_entity_mut = BufferedEntity {
+                entity: local_entity_mut,
+                buffered: &mut BufferedChanges::default(),
+            };
             for component in components {
-                let mut reader = Reader::from(component);
-                let _ = component_registry
-                    .raw_write(
-                        &mut reader,
+                let _ = component_registry.buffer(
+                        component,
                         &mut local_entity_mut,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
@@ -935,6 +938,8 @@ impl GroupChannel {
                         error!("could not write the component to the entity: {:?}", e)
                     });
             }
+            
+            local_entity_mut.apply();
         }
 
         // Flush commands because the entities that were inserted might have triggered some observers

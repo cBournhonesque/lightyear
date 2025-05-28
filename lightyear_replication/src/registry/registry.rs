@@ -2,7 +2,7 @@ use crate::components::ComponentReplicationConfig;
 use crate::delta::Diffable;
 use crate::prelude::ComponentReplicationOverrides;
 use crate::registry::delta::ErasedDeltaFns;
-use crate::registry::replication::ReplicationMetadata;
+use crate::registry::replication::{GetWriteFns, ReplicationMetadata};
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 use bevy::app::App;
 use bevy::ecs::change_detection::Mut;
@@ -102,7 +102,7 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// use lightyear::prelude::*;
 /// use lightyear::prelude::client::*;
 ///
-/// #[derive(Component, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// #[derive(Component, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 /// struct MyComponent(f32);
 ///
 /// fn my_lerp_fn(start: MyComponent, other: MyComponent, t: f32) -> MyComponent {
@@ -332,7 +332,7 @@ pub trait AppComponentExt {
     /// Registers the component in the Registry
     /// This component can now be sent over the network.
     fn register_component<
-        C: Component<Mutability = Mutable> + Serialize + DeserializeOwned + PartialEq,
+        C: Component<Mutability: GetWriteFns<C>> + Serialize + DeserializeOwned + PartialEq,
     >(
         &mut self,
     ) -> ComponentRegistration<'_, C>;
@@ -340,7 +340,7 @@ pub trait AppComponentExt {
     /// Registers the component in the Registry: this component can now be sent over the network.
     ///
     /// You need to provide your own [`SerializeFns`]
-    fn register_component_custom_serde<C: Component<Mutability = Mutable> + PartialEq>(
+    fn register_component_custom_serde<C: Component<Mutability: GetWriteFns<C>> + PartialEq>(
         &mut self,
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C>;
@@ -348,14 +348,14 @@ pub trait AppComponentExt {
 
 impl AppComponentExt for App {
     fn register_component<
-        C: Component<Mutability = Mutable> + PartialEq + Serialize + DeserializeOwned,
+        C: Component<Mutability: GetWriteFns<C>> + PartialEq + Serialize + DeserializeOwned,
     >(
         &mut self,
     ) -> ComponentRegistration<'_, C> {
         self.register_component_custom_serde(SerializeFns::<C>::default())
     }
 
-    fn register_component_custom_serde<C: Component<Mutability = Mutable> + PartialEq>(
+    fn register_component_custom_serde<C: Component<Mutability: GetWriteFns<C>> + PartialEq>(
         &mut self,
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C> {
@@ -400,14 +400,20 @@ impl<C> ComponentRegistration<'_, C> {
 
     pub fn with_replication_config(self, config: ComponentReplicationConfig) -> Self
     where
-        C: Component<Mutability = Mutable> + PartialEq,
+        C: Component<Mutability: GetWriteFns<C>> + PartialEq,
     {
         let overrides_component_id = self
             .app
             .world_mut()
             .register_component::<ComponentReplicationOverrides<C>>();
         let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
-        registry.set_replication_fns::<C>(config, overrides_component_id);
+        registry.replication_map.insert(
+            ComponentKind::of::<C>(),
+            ReplicationMetadata::default_fns::<C>(
+                config,
+                overrides_component_id,
+            ),
+        );
         self
     }
 
