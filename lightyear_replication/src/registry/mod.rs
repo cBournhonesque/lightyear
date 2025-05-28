@@ -9,6 +9,7 @@ use lightyear_utils::registry::TypeKind;
 mod delta;
 pub mod registry;
 pub(crate) mod replication;
+pub mod buffered;
 
 pub type ComponentNetId = NetId;
 

@@ -152,13 +152,13 @@ fn apply_predicted_sync(world: &mut World) {
                     .unwrap()
                     .link_entity
             };
-            let temp_write_buffer = &mut unsafe {
+            let buffer = &mut unsafe {
                 unsafe_world
                     .world_mut()
                     .get_mut::<PredictionManager>(link_entity)
             }
             .unwrap()
-            .temp_write_buffer;
+            .buffer;
             trace!(
                 "Sync from confirmed {:?} to predicted {:?}",
                 event.confirmed, event.predicted
@@ -173,7 +173,7 @@ fn apply_predicted_sync(world: &mut World) {
                 event.confirmed,
                 event.predicted,
                 world,
-                temp_write_buffer,
+                buffer,
             );
         })
     });

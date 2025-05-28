@@ -10,9 +10,9 @@ use bevy::prelude::{Component, Entity, Reflect, Resource, World};
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::{RollbackState, Tick};
-use lightyear_replication::receive::TempWriteBuffer;
-use lightyear_replication::registry::ComponentError;
+use lightyear_replication::registry::buffered::BufferedChanges;
 use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::registry::ComponentError;
 use lightyear_serde::entity_map::EntityMap;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_utils::ready_buffer::ReadyBuffer;
@@ -65,7 +65,7 @@ pub struct PredictionManager {
     /// Store the spawn tick of the entity, as well as the corresponding hash
     pub prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
     #[reflect(ignore)]
-    pub(crate) temp_write_buffer: TempWriteBuffer,
+    pub(crate) buffer: BufferedChanges,
     /// We use a RwLock because we want to be able to update this value from multiple systems
     /// in parallel.
     #[reflect(ignore)]
@@ -80,7 +80,7 @@ impl Default for PredictionManager {
             predicted_entity_map: UnsafeCell::new(PredictedEntityMap::default()),
             prespawn_hash_to_entities: EntityHashMap::default(),
             prespawn_tick_to_hash: ReadyBuffer::default(),
-            temp_write_buffer: TempWriteBuffer::default(),
+            buffer: BufferedChanges::default(),
             rollback: RwLock::new(RollbackState::Default),
         }
     }

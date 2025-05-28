@@ -1,6 +1,6 @@
 use crate::components::ComponentReplicationConfig;
 use crate::delta::{DeltaComponentHistory, DeltaMessage, DeltaType, Diffable};
-use crate::receive::TempWriteBuffer;
+use crate::registry::buffered::BufferedEntity;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::replication::{RawWriteFn, ReplicationMetadata};
 use crate::registry::{ComponentError, ComponentKind};
@@ -15,8 +15,8 @@ use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::Writer;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use tracing::trace;
 
 impl ComponentRegistry {
@@ -213,13 +213,12 @@ impl ComponentRegistry {
     /// Insert a component delta into the entity.
     /// If the component is not present on the entity, we put it in a temporary buffer
     /// so that all components can be inserted at once
-    pub fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
+    fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
         &self,
         reader: &mut Reader,
         tick: Tick,
-        entity_world_mut: &mut EntityWorldMut,
+        entity_mut: &mut BufferedEntity,
         entity_map: &mut ReceiveEntityMap,
-        temp_write_buffer: &mut TempWriteBuffer,
     ) -> Result<(), ComponentError> {
         let kind = ComponentKind::of::<C>();
         let component_id = self
@@ -233,7 +232,6 @@ impl ComponentRegistry {
             core::any::type_name::<C>()
         );
         let delta = self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, entity_map)?;
-        let entity = entity_world_mut.id();
         match delta.delta_type {
             DeltaType::Normal { previous_tick } => {
                 unreachable!(
@@ -247,27 +245,25 @@ impl ComponentRegistry {
                 let cloned_value = new_value.clone();
 
                 // if the component is on the entity, no need to insert
-                if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+                if let Some(mut c) = entity_mut.entity.get_mut::<C>() {
                     // only apply the update if the component is different, to not trigger change detection
                     if c.as_ref() != &new_value {
                         *c = new_value;
                     }
                 } else {
-                    // TODO: add safety comment
                     // use the component id of C, not DeltaMessage<C>
-                    unsafe {
-                        temp_write_buffer.buffer_insert_raw_ptrs::<C>(new_value, *component_id)
-                    };
+                    // SAFETY: we are inserting a component of type C, which matches the component_id
+                    unsafe { entity_mut.buffered.insert::<C>(new_value, *component_id); }
                 }
                 // store the component value in the delta component history, so that we can compute
                 // diffs from it
-                if let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>() {
+                if let Some(mut history) = entity_mut.entity.get_mut::<DeltaComponentHistory<C>>() {
                     history.buffer.insert(tick, cloned_value);
                 } else {
                     // create a DeltaComponentHistory and insert the value
                     let mut history = DeltaComponentHistory::default();
                     history.buffer.insert(tick, cloned_value);
-                    entity_world_mut.insert(history);
+                    entity_mut.entity.insert(history);
                 }
             }
         }

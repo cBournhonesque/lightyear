@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::tick::Tick;
 use lightyear_replication::prelude::ComponentRegistration;
-use lightyear_replication::receive::TempWriteBuffer;
+use lightyear_replication::registry::buffered::BufferedChanges;
 use lightyear_replication::registry::registry::{ComponentRegistry, LerpFn};
 use lightyear_replication::registry::{ComponentError, ComponentKind};
 
@@ -38,7 +38,7 @@ type SyncFn = fn(
     confirmed: Entity,
     predicted: Entity,
     &World,
-    &mut TempWriteBuffer,
+    &mut BufferedChanges,
 );
 
 type CheckRollbackFn = fn(
@@ -168,6 +168,7 @@ impl PredictionRegistry {
         correction_fn(predicted, corrected, t)
     }
 
+    // TODO: also sync removals!
     /// Clone the components from the confirmed entity to the predicted entity
     /// All the cloned components are inserted at once.
     pub fn batch_sync(
@@ -177,7 +178,7 @@ impl PredictionRegistry {
         confirmed: Entity,
         predicted: Entity,
         world: &mut World,
-        temp_write_buffer: &mut TempWriteBuffer,
+        buffer: &mut BufferedChanges,
     ) {
         // clone each component to be synced into a temporary buffer
         component_ids.iter().for_each(|component_id| {
@@ -195,13 +196,12 @@ impl PredictionRegistry {
                 confirmed,
                 predicted,
                 world,
-                temp_write_buffer,
+                buffer,
             );
         });
         // insert all the components in the predicted entity
         if let Ok(mut entity_world_mut) = world.get_entity_mut(predicted) {
-            // SAFETY: we call `buffer_insert_raw_pts` inside the `buffer_sync` function
-            unsafe { temp_write_buffer.batch_insert(&mut entity_world_mut) };
+            buffer.apply(&mut entity_world_mut);
         };
     }
 
@@ -212,7 +212,7 @@ impl PredictionRegistry {
         confirmed: Entity,
         predicted: Entity,
         world: &World,
-        temp_write_buffer: &mut TempWriteBuffer,
+        buffer: &mut BufferedChanges,
     ) {
         let kind = ComponentKind::of::<C>();
         let prediction_metadata = self
@@ -257,8 +257,9 @@ impl PredictionRegistry {
                 .unwrap()
                 .map_entities(&mut clone, component_registry)
                 .unwrap();
+            // SAFETY: the component_id matches the component of type C
             unsafe {
-                temp_write_buffer.buffer_insert_raw_ptrs(clone, world.component_id::<C>().unwrap())
+                buffer.insert::<C>(clone, world.component_id::<C>().unwrap());
             };
         }
     }

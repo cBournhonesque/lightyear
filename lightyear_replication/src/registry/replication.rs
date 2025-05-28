@@ -1,26 +1,25 @@
 use crate::prelude::ComponentReplicationConfig;
-use crate::receive::TempWriteBuffer;
+use crate::registry::buffered::BufferedEntity;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 use bevy::ecs::component::{Component, ComponentId, Mutable};
 use bevy::prelude::*;
 use bytes::Bytes;
 use lightyear_core::prelude::Tick;
-use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
-use tracing::{debug, trace};
+use lightyear_serde::ToBytes;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplicationMetadata {
     pub config: ComponentReplicationConfig,
     pub overrides_component_id: ComponentId,
-    pub write: RawWriteFn,
-    pub buffer_insert_fn: RawBufferInsertFn,
-    pub remove: Option<RawBufferRemoveFn>,
+    pub(crate) write: RawWriteFn,
+    pub(crate) buffer_insert_fn: RawBufferInsertFn,
+    pub(crate) remove: Option<RawBufferRemoveFn>,
 }
 
-type RawBufferRemoveFn = fn(&ComponentRegistry, &mut TempWriteBuffer);
+type RawBufferRemoveFn = fn(&ComponentRegistry, &mut BufferedEntity);
 pub type RawWriteFn = fn(
     &ComponentRegistry,
     &mut Reader,
@@ -32,10 +31,25 @@ type RawBufferInsertFn = fn(
     &ComponentRegistry,
     &mut Reader,
     Tick,
-    &mut EntityWorldMut,
+    &mut BufferedEntity,
     &mut ReceiveEntityMap,
-    &mut TempWriteBuffer,
 ) -> Result<(), ComponentError>;
+
+impl ReplicationMetadata {
+    pub fn new<C: Component<Mutability = Mutable> + PartialEq>(
+        config: ComponentReplicationConfig,
+        overrides_component_id: ComponentId,
+        write_fn: RawWriteFn,
+    ) -> Self {
+        Self {
+            config,
+            overrides_component_id,
+            write: ComponentRegistry::write::<C>,
+            buffer_insert_fn: ComponentRegistry::buffer_insert::<C>,
+            remove: Some(ComponentRegistry::buffer_remove::<C>),
+        }
+    }
+}
 
 impl ComponentRegistry {
     pub(crate) fn set_replication_fns<C: Component<Mutability = Mutable> + PartialEq>(
@@ -59,13 +73,12 @@ impl ComponentRegistry {
     ///
     /// This method will insert all the components simultaneously.
     /// If any component already existed on the entity, it will be updated instead of inserted.
-    pub fn batch_insert(
+    pub(crate) fn batch_insert(
         &self,
         component_bytes: Vec<Bytes>,
-        entity_world_mut: &mut EntityWorldMut,
+        entity_mut: &mut BufferedEntity,
         tick: Tick,
         entity_map: &mut ReceiveEntityMap,
-        temp_write_buffer: &mut TempWriteBuffer,
     ) -> Result<(), ComponentError> {
         component_bytes.into_iter().try_for_each(|b| {
             // TODO: reuse a single reader that reads through the entire message ?
@@ -85,9 +98,8 @@ impl ComponentRegistry {
                 self,
                 &mut reader,
                 tick,
-                entity_world_mut,
+                entity_mut,
                 entity_map,
-                temp_write_buffer,
             )?;
             Ok::<(), ComponentError>(())
         })?;
@@ -98,15 +110,11 @@ impl ComponentRegistry {
         // - Each [`ComponentId`] is from the same world as [`EntityWorldMut`]
         // - Each [`OwningPtr`] is a valid reference to the type represented by [`ComponentId`]
         //   (the data is store in self.raw_bytes)
-
-        trace!(?temp_write_buffer.component_ids, "Inserting components into entity");
-        // SAFETY: we call `buffer_insert_raw_ptrs` inside the `buffer_insert_fn` function
-        unsafe { temp_write_buffer.batch_insert(entity_world_mut) };
         Ok(())
     }
 
     /// SAFETY: the ReadWordBuffer must contain bytes corresponding to the correct component type
-    pub fn raw_write(
+    pub(crate) fn raw_write(
         &self,
         reader: &mut Reader,
         entity_world_mut: &mut EntityWorldMut,
@@ -128,13 +136,12 @@ impl ComponentRegistry {
 
     /// Method that buffers a pointer to the component data that will be inserted
     /// in the entity inside `self.raw_bytes`
-    pub fn buffer_insert<C: Component<Mutability = Mutable> + PartialEq>(
+    pub(crate) fn buffer_insert<C: Component<Mutability = Mutable> + PartialEq>(
         &self,
         reader: &mut Reader,
         _tick: Tick,
-        entity_world_mut: &mut EntityWorldMut,
+        entity_mut: &mut BufferedEntity,
         entity_map: &mut ReceiveEntityMap,
-        temp_write_buffer: &mut TempWriteBuffer,
     ) -> Result<(), ComponentError> {
         let kind = ComponentKind::of::<C>();
         let component_id = self
@@ -142,14 +149,14 @@ impl ComponentRegistry {
             .get(&kind)
             .ok_or(ComponentError::NotRegistered)?;
         let component = self.raw_deserialize::<C>(reader, entity_map)?;
-        let entity = entity_world_mut.id();
+        let entity = entity_mut.entity.id();
         debug!(
             "Insert component {} to entity {entity:?}",
             core::any::type_name::<C>()
         );
 
         // if the component is already on the entity, no need to insert
-        if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+        if let Some(mut c) = entity_mut.entity.get_mut::<C>() {
             // TODO: when can we be in this situation? on authority change?
             // only apply the update if the component is different, to not trigger change detection
             if c.as_ref() != &component {
@@ -165,8 +172,8 @@ impl ComponentRegistry {
                 *c = component;
             }
         } else {
-            // TODO: add safety comment
-            unsafe { temp_write_buffer.buffer_insert_raw_ptrs::<C>(component, *component_id) };
+            // SAFETY: the component_id matches the component
+            unsafe { entity_mut.buffered.insert::<C>(component, *component_id); }
             #[cfg(feature = "metrics")]
             {
                 metrics::counter!("replication::receive::component::insert").increment(1);
@@ -221,12 +228,11 @@ impl ComponentRegistry {
         Ok(())
     }
 
-    pub fn batch_remove(
+    pub(crate) fn batch_remove(
         &self,
         net_ids: Vec<ComponentNetId>,
-        entity_world_mut: &mut EntityWorldMut,
+        entity_mut: &mut BufferedEntity,
         tick: Tick,
-        temp_write_buffer: &mut TempWriteBuffer,
     ) {
         for net_id in net_ids {
             let kind = self.kind_map.kind(net_id).expect("unknown component kind");
@@ -237,20 +243,17 @@ impl ComponentRegistry {
             let remove_fn = replication_metadata
                 .remove
                 .expect("the component does not have a remove function");
-            remove_fn(self, temp_write_buffer);
+            remove_fn(self, entity_mut);
         }
-
-        entity_world_mut.remove_by_ids(&temp_write_buffer.component_ids);
-        temp_write_buffer.component_ids.clear();
     }
 
     /// Prepare for a component being removed
     /// We don't actually remove the component here, we just push the ComponentId to the `component_ids` vector
     /// so that they can all be removed at the same time
-    pub fn buffer_remove<C: Component>(&self, temp_write_buffer: &mut TempWriteBuffer) {
+    pub(crate) fn buffer_remove<C: Component>(&self, entity_mut: &mut BufferedEntity) {
         let kind = ComponentKind::of::<C>();
         let component_id = self.kind_to_component_id.get(&kind).unwrap();
-        temp_write_buffer.component_ids.push(*component_id);
+        entity_mut.buffered.remove(*component_id);
         #[cfg(feature = "metrics")]
         {
             metrics::counter!("replication::receive::component::remove").increment(1);
