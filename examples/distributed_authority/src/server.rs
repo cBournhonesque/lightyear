@@ -8,6 +8,7 @@
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
 use crate::protocol::*;
 use crate::shared;
+use crate::shared::color_from_id;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use core::time::Duration;
@@ -24,6 +25,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(Startup, setup);
         app.add_systems(FixedUpdate, movement);
         app.add_observer(handle_connected);
+        app.add_observer(handle_new_client);
         app.add_systems(Update, (transfer_authority, update_ball_color));
     }
 }
@@ -36,16 +38,16 @@ fn setup(mut commands: Commands) {
         Speed(Vec2::new(0.0, 1.0)),
         PlayerColor(Color::WHITE),
         Replicate::to_clients(NetworkTarget::All),
-        InterpolationTarget::to_clients(NetworkTarget::All), // Interpolate ball on all clients
-        // Allow clients to gain authority over Position and Speed
-        ControlledComponents {
-            controlled_components: vec![
-                ComponentRegistry::get_id::<Position>(),
-                ComponentRegistry::get_id::<Speed>(),
-            ],
-        },
+        InterpolationTarget::to_clients(NetworkTarget::All),
         // Add ReplicationSender to send updates back to clients
         ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+    ));
+}
+
+pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+    commands.entity(trigger.target()).insert((
+        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        Name::from("Client"),
     ));
 }
 
@@ -61,29 +63,34 @@ pub(crate) fn handle_connected(
     };
     let client_id = connected.remote_peer_id;
 
-    // Standard prediction: predict owner, interpolate others
-    let prediction_target = PredictionTarget::to_clients(NetworkTarget::Single(client_id));
-    let interpolation_target =
-        InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id));
-
-    let replicate = Replicate::to_clients(NetworkTarget::All); // Replicate to all
-
+    let color = color_from_id(client_id);
     let entity = commands.spawn((
-        PlayerBundle::new(client_id, Vec2::ZERO),
-        replicate,
-        prediction_target,
-        interpolation_target,
-        // Add ReplicationSender to send updates back to clients
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        PlayerId(client_id),
+        Position(Vec2::ZERO),
+        PlayerColor(color),
+        Replicate::to_clients(NetworkTarget::All),
+        PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+        InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+        ControlledBy {
+            owner: client_entity,
+            lifetime: Lifetime::default()
+        },
     ));
     info!("Create entity {:?} for client {:?}", entity.id(), client_id);
 }
 
+
 /// Read client inputs and move players in server therefore giving a basis for other clients
-fn movement(mut position_query: Query<(&mut Position, &ActionState<Inputs>)>) {
+fn movement(
+    mut position_query: Query<
+        (&mut Position, &ActionState<Inputs>),
+        // if we run in host-server mode, we don't want to apply this system to the local client's entities
+        // because they are already moved by the client plugin
+        (Without<Confirmed>, Without<Predicted>),
+    >,
+) {
     for (position, inputs) in position_query.iter_mut() {
-        // Use current_value() for server::ActionState
-        if let Some(inputs) = inputs.current_value() {
+        if let Some(inputs) = &inputs.value {
             shared::shared_movement_behaviour(position, inputs);
         }
     }

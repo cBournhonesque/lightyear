@@ -1,22 +1,23 @@
 use crate::components::ComponentReplicationConfig;
 use crate::delta::{DeltaComponentHistory, DeltaMessage, DeltaType, Diffable};
-use crate::receive::TempWriteBuffer;
+use crate::registry::buffered::BufferedEntity;
 use crate::registry::registry::ComponentRegistry;
-use crate::registry::replication::{RawWriteFn, ReplicationMetadata};
+use crate::registry::replication::ReplicationMetadata;
 use crate::registry::{ComponentError, ComponentKind};
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format};
+use alloc::boxed::Box;
 use bevy::ecs::component::{ComponentId, Mutable};
-use bevy::prelude::{Component, EntityWorldMut, World};
+use bevy::prelude::{Component, World};
 use bevy::ptr::{Ptr, PtrMut};
 use core::any::TypeId;
 use core::ptr::NonNull;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
+use lightyear_serde::registry::ContextDeserializeFns;
 use lightyear_serde::writer::Writer;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use tracing::trace;
 
 impl ComponentRegistry {
@@ -36,18 +37,15 @@ impl ComponentRegistry {
         // add write/remove functions associated with the delta component's net_id
         // (since the serialized message will contain the delta component's net_id)
         // update the write function to use the delta compression logic
-        let write: RawWriteFn = Self::write_delta::<C>;
         self.replication_map.insert(
             delta_kind,
-            ReplicationMetadata {
-                config: ComponentReplicationConfig::default(),
-                overrides_component_id: ComponentId::new(0),
-                write,
-                buffer_insert_fn: Self::buffer_insert_delta::<C>,
-                // we never need to remove the DeltaMessage<C> component
-                remove: None,
-            },
+            ReplicationMetadata::new(
+                ComponentReplicationConfig::default(),
+                ComponentId::new(0),
+                buffer_insert_delta::<C>,
+            )
         );
+
     }
 
     /// # Safety
@@ -134,106 +132,27 @@ impl ComponentRegistry {
         unsafe { (delta_fns.drop_delta_message)(delta) };
         Ok(())
     }
-
-    /// Deserialize the DeltaMessage<C::Delta> and apply it to the component
-    pub fn write_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
-        &self,
-        reader: &mut Reader,
-        tick: Tick,
-        entity_world_mut: &mut EntityWorldMut,
-        entity_map: &mut ReceiveEntityMap,
-    ) -> Result<(), ComponentError> {
-        trace!(
-            "Writing component delta {} to entity",
-            core::any::type_name::<C>()
-        );
-        let kind = ComponentKind::of::<C>();
-        let delta_net_id = self.net_id::<DeltaMessage<C::Delta>>();
-        let delta = self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, entity_map)?;
-        let entity = entity_world_mut.id();
-        match delta.delta_type {
-            DeltaType::Normal { previous_tick } => {
-                let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>()
-                else {
-                    return Err(ComponentError::DeltaCompressionError(format!(
-                        "Entity {entity:?} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression",
-                        core::any::type_name::<C>()
-                    )));
-                };
-                let Some(past_value) = history.buffer.get(&previous_tick) else {
-                    return Err(ComponentError::DeltaCompressionError(format!(
-                        "Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
-                        core::any::type_name::<C>()
-                    )));
-                };
-                // TODO: is it possible to have one clone instead of 2?
-                let mut new_value = past_value.clone();
-                new_value.apply_diff(&delta.delta);
-                // we can remove all the values strictly older than previous_tick in the component history
-                // (since we now know that the sender has received an ack for previous_tick, otherwise it wouldn't
-                // have sent a diff based on the previous_tick)
-                history.buffer = history.buffer.split_off(&previous_tick);
-                // store the new value in the history
-                history.buffer.insert(tick, new_value.clone());
-                let Some(mut c) = entity_world_mut.get_mut::<C>() else {
-                    return Err(ComponentError::DeltaCompressionError(format!(
-                        "Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
-                        core::any::type_name::<C>()
-                    )));
-                };
-                *c = new_value;
-            }
-            DeltaType::FromBase => {
-                let mut new_value = C::base_value();
-                new_value.apply_diff(&delta.delta);
-                let value = new_value.clone();
-                if let Some(mut c) = entity_world_mut.get_mut::<C>() {
-                    // only apply the update if the component is different, to not trigger change detection
-                    if c.as_ref() != &new_value {
-                        *c = new_value;
-                    }
-                } else {
-                    entity_world_mut.insert(new_value);
-                }
-                // store the component value in the delta component history, so that we can compute
-                // diffs from it
-                if let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>() {
-                    history.buffer.insert(tick, value);
-                } else {
-                    // create a DeltaComponentHistory and insert the value
-                    let mut history = DeltaComponentHistory::default();
-                    history.buffer.insert(tick, value);
-                    entity_world_mut.insert(history);
-                }
-            }
-        }
-        Ok(())
-    }
+}
 
     /// Insert a component delta into the entity.
     /// If the component is not present on the entity, we put it in a temporary buffer
     /// so that all components can be inserted at once
-    pub fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
-        &self,
+    fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
+        deserialize: ContextDeserializeFns<ReceiveEntityMap, DeltaMessage<C::Delta>, DeltaMessage<C::Delta>>,
         reader: &mut Reader,
         tick: Tick,
-        entity_world_mut: &mut EntityWorldMut,
+        entity_mut: &mut BufferedEntity,
         entity_map: &mut ReceiveEntityMap,
-        temp_write_buffer: &mut TempWriteBuffer,
     ) -> Result<(), ComponentError> {
         let kind = ComponentKind::of::<C>();
-        let component_id = self
-            .kind_to_component_id
-            .get(&kind)
-            .ok_or(ComponentError::NotRegistered)?;
+        let component_id = entity_mut.component_id::<C>();
         trace!(
             ?kind,
             ?component_id,
             "Writing component delta {} to entity",
             core::any::type_name::<C>()
         );
-        let delta = self.raw_deserialize::<DeltaMessage<C::Delta>>(reader, entity_map)?;
-        let entity = entity_world_mut.id();
+        let delta = deserialize.deserialize(entity_map, reader)?;
         match delta.delta_type {
             DeltaType::Normal { previous_tick } => {
                 unreachable!(
@@ -247,33 +166,30 @@ impl ComponentRegistry {
                 let cloned_value = new_value.clone();
 
                 // if the component is on the entity, no need to insert
-                if let Some(mut c) = entity_world_mut.get_mut::<C>() {
+                if let Some(mut c) = entity_mut.entity.get_mut::<C>() {
                     // only apply the update if the component is different, to not trigger change detection
                     if c.as_ref() != &new_value {
                         *c = new_value;
                     }
                 } else {
-                    // TODO: add safety comment
                     // use the component id of C, not DeltaMessage<C>
-                    unsafe {
-                        temp_write_buffer.buffer_insert_raw_ptrs::<C>(new_value, *component_id)
-                    };
+                    // SAFETY: we are inserting a component of type C, which matches the component_id
+                    unsafe { entity_mut.buffered.insert::<C>(new_value, component_id); }
                 }
                 // store the component value in the delta component history, so that we can compute
                 // diffs from it
-                if let Some(mut history) = entity_world_mut.get_mut::<DeltaComponentHistory<C>>() {
+                if let Some(mut history) = entity_mut.entity.get_mut::<DeltaComponentHistory<C>>() {
                     history.buffer.insert(tick, cloned_value);
                 } else {
                     // create a DeltaComponentHistory and insert the value
                     let mut history = DeltaComponentHistory::default();
                     history.buffer.insert(tick, cloned_value);
-                    entity_world_mut.insert(history);
+                    entity_mut.entity.insert(history);
                 }
             }
         }
         Ok(())
     }
-}
 
 type ErasedCloneFn = unsafe fn(data: Ptr) -> NonNull<u8>;
 type ErasedDiffFn = unsafe fn(start_tick: Tick, start: Ptr, present: Ptr) -> NonNull<u8>;

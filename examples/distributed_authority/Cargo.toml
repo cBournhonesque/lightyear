@@ -38,6 +38,7 @@ lightyear = { "workspace" = true, features = [
   "interpolation",
   "prediction",
   "replication",
+  "input_native"
 ] }
 lightyear_examples_common.workspace = true
 

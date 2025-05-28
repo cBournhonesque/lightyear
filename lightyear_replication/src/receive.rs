@@ -7,32 +7,28 @@ use crate::registry::registry::ComponentRegistry;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::app::{App, Plugin, PreUpdate};
-use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::{EntityHash, EntityIndexMap};
 use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
-use bevy::ptr::OwningPtr;
-use core::alloc::Layout;
-use core::ptr::NonNull;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::RemoteEntityMap;
-use lightyear_serde::reader::Reader;
 use lightyear_transport::packet::message::MessageId;
 use tracing::{debug, error, info, trace};
 
 use crate::plugin;
 use crate::plugin::ReplicationSet;
 use crate::prelude::ReplicationSender;
+use crate::registry::buffered::{BufferedChanges, BufferedEntity};
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
-use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
+use lightyear_messages::MessageManager;
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "trace")]
-use tracing::{Level, instrument};
+use tracing::{instrument, Level};
 
 type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
@@ -180,95 +176,11 @@ impl Plugin for ReplicationReceivePlugin {
     }
 }
 
-/// Temporary buffer to store component data that we want to insert
-/// using `entity_world_mut.insert_by_ids`
-#[derive(Debug, Default, PartialEq, TypePath)]
-pub struct TempWriteBuffer {
-    // temporary buffers to store the deserialized data to batch write
-    // Raw storage where we can store the deserialized data bytes
-    raw_bytes: Vec<u8>,
-    // Positions of each component in the `raw_bytes` buffer
-    component_ptrs_indices: Vec<usize>,
-    // List of component ids
-    pub(crate) component_ids: Vec<ComponentId>,
-    // Position of the `component_ptr_indices` and `component_ids` list
-    // This is needed because we can write into the buffer recursively.
-    // For example if we write component A in the buffer, then call entity_mut_world.insert(A),
-    // we might trigger an observer that inserts(B) in the buffer before it can be cleared
-    cursor: usize,
-}
-
-impl TempWriteBuffer {
-    fn is_empty(&self) -> bool {
-        self.cursor == self.component_ids.len()
-    }
-    // TODO: also write a similar function for component removals, to handle recursive removals!
-
-    /// Inserts the components that were buffered inside the EntityWorldMut
-    ///
-    /// # Safety
-    /// `buffer_insert_raw_ptrs` must have been called beforehand
-    pub unsafe fn batch_insert(&mut self, entity_world_mut: &mut EntityWorldMut) {
-        if self.is_empty() {
-            return;
-        }
-        // apply all commands from start_cursor to end
-        // SAFETY: a value was insert in the cursor in a previous call to `buffer_insert_raw_ptrs`
-        let start = self.cursor;
-        // set the cursor position so that recursive calls only start reading the buffer from this
-        // position
-        self.cursor = self.component_ids.len();
-        let start_index = self.component_ptrs_indices[start];
-        // apply all buffer contents from `start` to the end
-        unsafe {
-            entity_world_mut.insert_by_ids(
-                &self.component_ids[start..],
-                self.component_ptrs_indices[start..].iter().map(|index| {
-                    let ptr = NonNull::new_unchecked(self.raw_bytes.as_mut_ptr().add(*index));
-                    OwningPtr::new(ptr)
-                }),
-            )
-        };
-        // clear the raw bytes that we inserted in the entity_world_mut
-        self.component_ptrs_indices.drain(start..);
-        self.component_ids.drain(start..);
-        self.raw_bytes.drain(start_index..);
-        self.cursor = start;
-    }
-
-    /// Store the component's raw bytes into a temporary buffer so that we can get an OwningPtr to it
-    /// This function is called for all components that will be added to an entity, so that we can
-    /// insert them all at once using `entity_world_mut.insert_by_ids`
-    ///
-    /// # Safety
-    /// - the component C must match the `component_id `
-    pub unsafe fn buffer_insert_raw_ptrs<C: Component>(
-        &mut self,
-        mut component: C,
-        component_id: ComponentId,
-    ) {
-        let layout = Layout::new::<C>();
-        // SAFETY: we are creating a pointer to the component data, which is non-null
-        let ptr = unsafe { NonNull::new_unchecked(&mut component).cast::<u8>() };
-        // make sure the Drop trait is not called when the `component` variable goes out of scope
-        core::mem::forget(component);
-        let count = layout.size();
-        self.raw_bytes.reserve(count);
-        let space =
-            unsafe { NonNull::new_unchecked(self.raw_bytes.spare_capacity_mut()).cast::<u8>() };
-        unsafe { space.copy_from_nonoverlapping(ptr, count) };
-        let length = self.raw_bytes.len();
-        // SAFETY: we are using the spare capacity of the Vec, so we know that the length is correct
-        unsafe { self.raw_bytes.set_len(length + count) };
-        self.component_ptrs_indices.push(length);
-        self.component_ids.push(component_id);
-    }
-}
 
 #[derive(Debug, Component)]
 #[require(Transport)]
 pub struct ReplicationReceiver {
-    pub(crate) temp_write_buffer: TempWriteBuffer,
+    pub(crate) buffer: BufferedChanges,
     /// Map from local entity to the replication group-id
     /// We use the local entity because in some cases we don't have access to the remote entity at all, since the remote
     /// has pre-done the mapping! (for example C1 spawns 1 and sends to S who spawns 2. Then S transfers authority to C2,
@@ -292,7 +204,7 @@ impl Default for ReplicationReceiver {
 impl ReplicationReceiver {
     pub(crate) fn new() -> Self {
         Self {
-            temp_write_buffer: TempWriteBuffer::default(),
+            buffer: BufferedChanges::default(),
             // RECEIVE
             local_entity_to_group: Default::default(),
             // BOTH
@@ -455,7 +367,7 @@ impl ReplicationReceiver {
         // apply all actions first
         // TODO: it's extremely strange, but it seems like the value of TempWriteBuffer can linger from previous
         //  frames. Let's clear it manually for now
-        self.temp_write_buffer = TempWriteBuffer::default();
+        self.buffer = BufferedChanges::default();
         self.group_channels
             .iter_mut()
             .for_each(|(group_id, channel)| {
@@ -497,7 +409,7 @@ impl ReplicationReceiver {
                         remote_entity_map,
                         authority_map,
                         &mut self.local_entity_to_group,
-                        &mut self.temp_write_buffer,
+                        &mut self.buffer,
                     );
                 }
             });
@@ -794,7 +706,7 @@ impl GroupChannel {
         remote_entity_map: &mut RemoteEntityMap,
         authority_map: Option<&EntityIndexMap<bool>>,
         local_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
-        temp_write_buffer: &mut TempWriteBuffer,
+        temp_write_buffer: &mut BufferedChanges,
     ) {
         let group_id = message.group_id;
         debug!(
@@ -882,7 +794,7 @@ impl GroupChannel {
             }
 
             // safety: we know by this point that the entity exists
-            let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
+            let Some(local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
                 error!(?entity, "cannot find entity");
                 continue;
             };
@@ -897,17 +809,23 @@ impl GroupChannel {
                 );
                 continue;
             }
+
+            let mut buffered_entity = BufferedEntity {
+                entity: local_entity_mut,
+                buffered: temp_write_buffer,
+            };
+
             // inserts
             // TODO: remove updates that are duplicate for the same component
-            let _ = component_registry
-                .batch_insert(
-                    actions.insert,
-                    &mut local_entity_mut,
+            let _ = actions.insert.into_iter().try_for_each(|bytes| {
+                component_registry.buffer(
+                    bytes,
+                    &mut buffered_entity,
                     remote_tick,
                     &mut remote_entity_map.remote_to_local,
-                    temp_write_buffer,
                 )
-                .inspect_err(|e| error!("could not insert the components to the entity: {:?}", e));
+            }).inspect_err(|e| error!("could not insert the components to the entity: {:?}", e));
+           
 
             // TODO: find a way to handle this elegantly. Maybe the server should send a Spawn::Reuse
             //  or Spawn::PrePredicted for this situation?
@@ -928,20 +846,22 @@ impl GroupChannel {
             //  to know for which client we should do the pre-prediction
 
             // removals
-            component_registry.batch_remove(
-                actions.remove,
-                &mut local_entity_mut,
-                remote_tick,
-                temp_write_buffer,
-            );
+            actions.remove.into_iter().for_each(|component_net_id| {
+                component_registry.remove(
+                    component_net_id,
+                    &mut buffered_entity,
+                    remote_tick,
+                );
+            });
+
+            
+            buffered_entity.apply();
 
             // updates
             for component in actions.updates {
-                let mut reader = Reader::from(component);
-                let _ = component_registry
-                    .raw_write(
-                        &mut reader,
-                        &mut local_entity_mut,
+                let _ = component_registry.buffer(
+                        component,
+                        &mut buffered_entity,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
                     )
@@ -984,7 +904,7 @@ impl GroupChannel {
         );
         for (entity, components) in message.updates.into_iter() {
             trace!(?components, remote_entity = ?entity, "Received UpdateComponent");
-            let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
+            let Some(local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
                 // we can get a few buffered updates after the entity has been despawned
                 // those are the updates that we received before the despawn action message, but with a tick
                 // later than the despawn action message
@@ -1003,11 +923,13 @@ impl GroupChannel {
                 continue;
             }
 
+            let mut local_entity_mut = BufferedEntity {
+                entity: local_entity_mut,
+                buffered: &mut BufferedChanges::default(),
+            };
             for component in components {
-                let mut reader = Reader::from(component);
-                let _ = component_registry
-                    .raw_write(
-                        &mut reader,
+                let _ = component_registry.buffer(
+                        component,
                         &mut local_entity_mut,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
@@ -1016,6 +938,8 @@ impl GroupChannel {
                         error!("could not write the component to the entity: {:?}", e)
                     });
             }
+            
+            local_entity_mut.apply();
         }
 
         // Flush commands because the entities that were inserted might have triggered some observers

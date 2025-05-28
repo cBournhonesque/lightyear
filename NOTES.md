@@ -4,10 +4,6 @@ https://excalidraw.com/#room=6556b82e2cc953b853cd,eIOMjgsfWiA7iaFzjk1blA
 
 TODO:
 - add button on server to add a new local client, or add a new client in a separate app
-- should we automatically add PREDICTION_GROUP when PredictionTarget is added?
-- sometimes the sync keeps increasing all the time! or there is a huge sync bug.
-  - it seems to be that suddenly our jitter estimate goes haywire (from 3ms to 133ms) which totally changes
-    the InputTimeline objective.
 - the confirmed.tick is not the same than the rollback_start_tick sometimes.. It looks like the confirmed.tick
   for some entities is still at an OLD rollback tick, meaning that the confirmed tick did not get updated.
 - we have temporary ChannelNotFound error in avian_3d example when a client connects?
@@ -50,7 +46,6 @@ STATUS:
   - Weapon causes rollback, the Confirmed component does not have last_fire_tick for some reason! Is it not being replicated correctly?
 
 
-
 - Have a pane where you can see the running clients, servers, processes.
 
 
@@ -60,7 +55,6 @@ TODO:
 - update docstrings
 - update book
 - run benchmarks, and update how we write replication packets?
-- input rebroadcasting
 - add unit test for replicating entities between the ServerSendInterval (i.e. with ServerSendInterval which is not every tick)
 - on the server, we get cases where the input buffer just contains [SameAsPrecedent]. Normally
   the first value should never be just SameAsPrecedent! That's due to `update_buffer` using `set_raw`. But maybe that's ok? if there's only SameAsPrecedent, we don't do anything (i.e. we re-use the existing inputs)
