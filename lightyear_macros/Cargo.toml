@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_macros"
-version.workspace = true
+version = "0.21.0-rc.1"
 authors.workspace = true
 edition.workspace = true
 description = "Procedural macros for the lightyear networking library"
@@ -15,13 +15,7 @@ exclude = ["/tests"]
 proc-macro = true
 
 [dependencies]
-serde.workspace = true
-
 # deps specific to macros, not in top-level Cargo workspace
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = { version = "2.0", features = ["full"] }
-
-[dev-dependencies]
-lightyear.workspace = true
-bevy.workspace = true

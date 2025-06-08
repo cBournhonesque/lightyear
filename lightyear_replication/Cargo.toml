@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_replication"
-version.workspace = true
+version = "0.21.0-rc.1"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -63,7 +63,6 @@ bytes.workspace = true
 bevy.workspace = true
 
 [dev-dependencies]
-lightyear.workspace = true
 test-log.workspace = true
 
 [lints]

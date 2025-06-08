@@ -315,6 +315,7 @@ pub struct ShouldBePredicted;
 #[cfg(feature = "prediction")]
 pub type PredictionTarget = ReplicationTarget<ShouldBePredicted>;
 
+#[cfg(feature = "prediction")]
 impl PredictionTarget {
     pub(crate) fn add_replication_group(
         trigger: Trigger<OnAdd, PredictionTarget>,

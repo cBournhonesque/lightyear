@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_serde"
-version.workspace = true
+version = "0.21.0-rc.1"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,6 +12,9 @@ repository = "https://github.com/cBournhonesque/lightyear"
 default = ["std"]
 std = [
     "bincode/std",
+    "bevy/std", 
+    "bytes/std",
+    "serde/std",
     "no_std_io2/std"
 ]
 

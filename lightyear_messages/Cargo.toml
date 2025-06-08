@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_messages"
-version.workspace = true
+version = "0.21.0-rc.1"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -46,7 +46,6 @@ bevy.workspace = true
 
 [dev-dependencies]
 lightyear_link.workspace = true
-lightyear_macros.workspace = true
 lightyear_transport = {workspace = true, features = ["test_utils"]}
 test-log.workspace = true
 
