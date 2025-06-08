@@ -46,7 +46,6 @@ bevy.workspace = true
 
 [dev-dependencies]
 lightyear_link.workspace = true
-lightyear_macros.workspace = true
 lightyear_transport = {workspace = true, features = ["test_utils"]}
 test-log.workspace = true
 

@@ -12,8 +12,6 @@ repository = "https://github.com/cBournhonesque/lightyear"
 default = ["std"]
 std = [
     "lightyear_link/std",
-    "lightyear_transport/std",
-    "lightyear_messages/std",
     "lightyear_serde/std"
 ]
 client = []
@@ -34,10 +32,6 @@ serde.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-
-[dev-dependencies]
-lightyear_messages = {workspace = true, features = ["test_utils"]}
-lightyear_transport = {workspace = true, features = ["test_utils"]}
 
 [lints]
 workspace = true
