@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 11 commits contributed to the release over the course of 20 calendar days.
+ - 12 commits contributed to the release over the course of 20 calendar days.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#1015](https://github.com/cBournhonesque/lightyear/issues/1015), [#989](https://github.com/cBournhonesque/lightyear/issues/989)
 
@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#989](https://github.com/cBournhonesque/lightyear/issues/989)**
     - Bevy main refactor ([`b236123`](https://github.com/cBournhonesque/lightyear/commit/b236123c8331f9feea8c34cb9e0d6a179bb34918))
  * **Uncategorized**
+    - Release lightyear_sync v0.21.0-rc.1, lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`5e965d4`](https://github.com/cBournhonesque/lightyear/commit/5e965d4430740dcdf337dac32a4ec4227088dfc9))
     - Release lightyear_replication v0.21.0-rc.1, lightyear_sync v0.21.0-rc.1, lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`ff75efe`](https://github.com/cBournhonesque/lightyear/commit/ff75efe04c8c69265d498049e43a8576357e4aeb))
     - Release lightyear_replication v0.21.0-rc.1, lightyear_sync v0.21.0-rc.1, lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`e844fdf`](https://github.com/cBournhonesque/lightyear/commit/e844fdfe74b2dd7a6d51b89219d17f143478d1c5))
     - Release lightyear_replication v0.21.0-rc.1, lightyear_sync v0.21.0-rc.1, lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`52ab726`](https://github.com/cBournhonesque/lightyear/commit/52ab7260b3a412b75b29103fd476231e0ff4b4ae))
