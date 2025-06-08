@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 19 commits contributed to the release over the course of 21 calendar days.
+ - 20 commits contributed to the release over the course of 21 calendar days.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#989](https://github.com/cBournhonesque/lightyear/issues/989)
 
@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#989](https://github.com/cBournhonesque/lightyear/issues/989)**
     - Bevy main refactor ([`b236123`](https://github.com/cBournhonesque/lightyear/commit/b236123c8331f9feea8c34cb9e0d6a179bb34918))
  * **Uncategorized**
+    - Release lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`56fce65`](https://github.com/cBournhonesque/lightyear/commit/56fce65f2ba11827e34d115d9767dd6bb0867342))
     - Release lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`5298f30`](https://github.com/cBournhonesque/lightyear/commit/5298f301264be20e888e346fee3ff7aa53efee08))
     - Release lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`d1f8de0`](https://github.com/cBournhonesque/lightyear/commit/d1f8de07feada99788ad76b2649463c18fd182bd))
     - Release lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`a83da5c`](https://github.com/cBournhonesque/lightyear/commit/a83da5c78e6fa5291c302ab1acafc8f2b3d4cdef))
