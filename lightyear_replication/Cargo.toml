@@ -63,7 +63,6 @@ bytes.workspace = true
 bevy.workspace = true
 
 [dev-dependencies]
-lightyear.workspace = true
 test-log.workspace = true
 
 [lints]
