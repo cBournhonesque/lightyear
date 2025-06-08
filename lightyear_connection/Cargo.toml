@@ -36,7 +36,6 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-lightyear_macros.workspace = true
 lightyear_messages = {workspace = true, features = ["test_utils"]}
 lightyear_transport = {workspace = true, features = ["test_utils"]}
 

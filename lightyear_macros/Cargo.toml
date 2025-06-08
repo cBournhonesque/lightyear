@@ -15,8 +15,6 @@ exclude = ["/tests"]
 proc-macro = true
 
 [dependencies]
-serde.workspace = true
-
 # deps specific to macros, not in top-level Cargo workspace
 proc-macro2 = "1.0"
 quote = "1.0"
