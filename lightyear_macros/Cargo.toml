@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_macros"
-version.workspace = true
+version = "0.21.0-rc.1"
 authors.workspace = true
 edition.workspace = true
 description = "Procedural macros for the lightyear networking library"
