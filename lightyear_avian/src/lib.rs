@@ -3,7 +3,11 @@
 //! This crate provides integration between Lightyear and the Avian physics engine.
 //!
 //! It currently includes utilities for lag compensation.
-#[cfg!(any(feature = "2d", feature = "3d"))]
+#[cfg(all(not(feature = "2d"), not(feature = "3d")))]
+compile_error!("either feature \"2d\" or \"3d\" must be enabled");
+ 
+#[cfg(all(feature = "2d", feature = "3d"))]
+compile_error!("feature \"2d\" and feature \"3d\" cannot be enabled at the same time");
 
 use bevy::prelude::TransformSystem::TransformPropagate;
 use bevy::prelude::*;
