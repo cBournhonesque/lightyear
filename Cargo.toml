@@ -36,7 +36,7 @@ exclude = ["examples/certificates"]
 
 
 [workspace.package]
-version = "0.19.0"
+version = "0.21.0-rc.1"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 publish = false
 edition = "2024"
@@ -63,34 +63,34 @@ debug = false
 
 
 [workspace.dependencies]
-lightyear_aeronet = { path = "./lightyear_aeronet", version = "0.19.0", default-features = false }
-lightyear_avian = { path = "./lightyear_avian", version = "0.19.0", default-features = false }
-lightyear_macros = { path = "./lightyear_macros", version = "0.19.0", default-features = false}
-lightyear_netcode = { path = "./lightyear_netcode", version = "0.19.0", default-features = false }
-lightyear_connection = { path = "./lightyear_connection", version = "0.19.0", default-features = false }
-lightyear_core = { path = "./lightyear_core", version = "0.19.0", default-features = false }
-lightyear_crossbeam = { path = "./lightyear_crossbeam", version = "0.19.0", default-features = false }
-lightyear_frame_interpolation = { path = "./lightyear_frame_interpolation", version = "0.19.0", default-features = false }
-lightyear_inputs = { path = "./lightyear_inputs", version = "0.19.0", default-features = false }
-lightyear_inputs_leafwing = { path = "./lightyear_inputs_leafwing", version = "0.19.0", default-features = false }
-lightyear_inputs_native = { path = "./lightyear_inputs_native", version = "0.19.0", default-features = false }
-lightyear_interpolation = { path = "./lightyear_interpolation", version = "0.19.0", default-features = false }
-lightyear_messages = { path = "./lightyear_messages", version = "0.19.0", default-features = false }
-lightyear = { path = "lightyear", version = "0.19.0", default-features = false }
-lightyear_transport = { path = "lightyear_transport", version = "0.19.0", default-features = false }
-lightyear_prediction = { path = "./lightyear_prediction", version = "0.19.0", default-features = false }
-lightyear_link = { path = "./lightyear_link", version = "0.19.0", default-features = false }
-lightyear_replication = { path = "./lightyear_replication", version = "0.19.0", default-features = false }
-lightyear_serde = { path = "./lightyear_serde", version = "0.19.0", default-features = false }
-lightyear_steam = { path = "./lightyear_steam", version = "0.19.0", default-features = false }
-lightyear_sync = { path = "./lightyear_sync", version = "0.19.0", default-features = false }
-lightyear_udp = { path = "./lightyear_udp", version = "0.19.0", default-features = false }
-lightyear_utils = { path = "./lightyear_utils", version = "0.19.0", default-features = false }
-lightyear_tests = { path = "./lightyear_tests", version = "0.19.0", default-features = false }
-lightyear_webtransport = { path = "./lightyear_webtransport", version = "0.19.0", default-features = false }
+lightyear_aeronet = { path = "./lightyear_aeronet", version = " 0.21.0-rc.1", default-features = false }
+lightyear_avian = { path = "./lightyear_avian", version = " 0.21.0-rc.1", default-features = false }
+lightyear_macros = { path = "./lightyear_macros", version = " 0.21.0-rc.1", default-features = false}
+lightyear_netcode = { path = "./lightyear_netcode", version = " 0.21.0-rc.1", default-features = false }
+lightyear_connection = { path = "./lightyear_connection", version = " 0.21.0-rc.1", default-features = false }
+lightyear_core = { path = "./lightyear_core", version = " 0.21.0-rc.1", default-features = false }
+lightyear_crossbeam = { path = "./lightyear_crossbeam", version = " 0.21.0-rc.1", default-features = false }
+lightyear_frame_interpolation = { path = "./lightyear_frame_interpolation", version = " 0.21.0-rc.1", default-features = false }
+lightyear_inputs = { path = "./lightyear_inputs", version = " 0.21.0-rc.1", default-features = false }
+lightyear_inputs_leafwing = { path = "./lightyear_inputs_leafwing", version = " 0.21.0-rc.1", default-features = false }
+lightyear_inputs_native = { path = "./lightyear_inputs_native", version = " 0.21.0-rc.1", default-features = false }
+lightyear_interpolation = { path = "./lightyear_interpolation", version = " 0.21.0-rc.1", default-features = false }
+lightyear_messages = { path = "./lightyear_messages", version = " 0.21.0-rc.1", default-features = false }
+lightyear = { path = "lightyear", version = " 0.21.0-rc.1", default-features = false }
+lightyear_transport = { path = "lightyear_transport", version = " 0.21.0-rc.1", default-features = false }
+lightyear_prediction = { path = "./lightyear_prediction", version = " 0.21.0-rc.1", default-features = false }
+lightyear_link = { path = "./lightyear_link", version = " 0.21.0-rc.1", default-features = false }
+lightyear_replication = { path = "./lightyear_replication", version = " 0.21.0-rc.1", default-features = false }
+lightyear_serde = { path = "./lightyear_serde", version = " 0.21.0-rc.1", default-features = false }
+lightyear_steam = { path = "./lightyear_steam", version = " 0.21.0-rc.1", default-features = false }
+lightyear_sync = { path = "./lightyear_sync", version = " 0.21.0-rc.1", default-features = false }
+lightyear_udp = { path = "./lightyear_udp", version = " 0.21.0-rc.1", default-features = false }
+lightyear_utils = { path = "./lightyear_utils", version = " 0.21.0-rc.1", default-features = false }
+lightyear_tests = { path = "./lightyear_tests", version = " 0.21.0-rc.1", default-features = false }
+lightyear_webtransport = { path = "./lightyear_webtransport", version = " 0.21.0-rc.1", default-features = false }
 
 # examples
-lightyear_examples_common = { path = "./examples/common", version = "0.19.0", default-features = false }
+lightyear_examples_common = { path = "./examples/common", version = " 0.21.0-rc.1", default-features = false }
 
 # utils
 anyhow = { version = "1.0.75", features = [] }
