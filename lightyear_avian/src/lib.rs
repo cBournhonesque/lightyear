@@ -22,6 +22,8 @@ pub mod lag_compensation;
 pub mod types_2d;
 #[cfg(feature = "2d")]
 pub use types_2d as types;
+
+#[cfg(any(feature = "2d", feature = "3d"))]
 mod sync;
 #[cfg(feature = "3d")]
 pub mod types_3d;
@@ -57,6 +59,7 @@ pub mod prelude {
 
 pub struct LightyearAvianPlugin;
 
+#[cfg(any(feature = "2d", feature = "3d"))]
 impl Plugin for LightyearAvianPlugin {
     fn build(&self, app: &mut App) {
         // NOTE: the three main physics sets in FixedPostUpdate run in this order:

@@ -8,7 +8,7 @@ use avian3d::{
     math::{AsF32, Quaternion},
     position::{Position, Rotation},
 };
-use bevy::prelude::{Changed, ChildOf, Children, GlobalTransform, Or, Query, Transform, With};
+use bevy::prelude::*;
 
 type PosToTransformComponents = (
     &'static mut Transform,
