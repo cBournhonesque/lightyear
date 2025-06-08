@@ -12,6 +12,9 @@ repository = "https://github.com/cBournhonesque/lightyear"
 default = ["std"]
 std = [
     "bincode/std",
+    "bevy/std", 
+    "bytes/std",
+    "serde/std",
     "no_std_io2/std"
 ]
 
