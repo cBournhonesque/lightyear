@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 20 commits contributed to the release.
+ - 21 commits contributed to the release.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 6 unique issues were worked on: [#849](https://github.com/cBournhonesque/lightyear/issues/849), [#853](https://github.com/cBournhonesque/lightyear/issues/853), [#965](https://github.com/cBournhonesque/lightyear/issues/965), [#966](https://github.com/cBournhonesque/lightyear/issues/966), [#989](https://github.com/cBournhonesque/lightyear/issues/989), [#999](https://github.com/cBournhonesque/lightyear/issues/999)
 
@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#999](https://github.com/cBournhonesque/lightyear/issues/999)**
     - Cb/0.20 ([`e7a259a`](https://github.com/cBournhonesque/lightyear/commit/e7a259ab58b6c0caa10d7f7924d443268b2a456d))
  * **Uncategorized**
+    - Release lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`1d2457f`](https://github.com/cBournhonesque/lightyear/commit/1d2457f21490e2e2d7cdc8fa652db12972ef2a12))
     - Release lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`e2421e0`](https://github.com/cBournhonesque/lightyear/commit/e2421e0f880bd761093b629783657fdcb2d4bdeb))
     - Release lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`41dc70e`](https://github.com/cBournhonesque/lightyear/commit/41dc70e0bf0685b3dc4719a5b107bc25f2801e0f))
     - Release lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`c21009a`](https://github.com/cBournhonesque/lightyear/commit/c21009afc6d98a0c771f8b7406cec5d36ad19439))
