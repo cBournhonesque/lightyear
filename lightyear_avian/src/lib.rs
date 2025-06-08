@@ -35,5 +35,6 @@ pub mod prelude {
         },
         query::LagCompensationSpatialQuery,
     };
+    #[cfg(any(feature = "2d", feature = "3d"))]
     pub use crate::plugin::LightyearAvianPlugin;
 }
