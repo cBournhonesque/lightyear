@@ -1,24 +1,13 @@
-//! The client plugin.
-//! The client will be responsible for:
-//! - connecting to the server at Startup
-//! - sending inputs to the server
-//! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
-//! predicted entity and the server entity)
 use std::net::SocketAddr;
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
-use lightyear::client::input::InputSystemSet;
-pub use lightyear::prelude::client::*;
-use lightyear::prelude::server::ServerCommandsExt;
+use lightyear::input::client::InputSet;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use lightyear_examples_common::settings::{get_client_net_config, Settings};
 
-pub struct ExampleClientPlugin {
-    pub(crate) settings: Settings,
-}
+pub struct ExampleClientPlugin;
 
 /// State that tracks whether we are in the lobby or in the game
 #[derive(States, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -35,17 +24,15 @@ impl Default for AppState {
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(self.settings.clone());
         app.init_resource::<lobby::LobbyTable>();
         app.init_resource::<Lobbies>();
         app.init_state::<AppState>();
         app.add_systems(Startup, on_disconnect);
-        app.add_systems(PreUpdate, handle_connection.after(MainSet::Receive));
+        app.add_systems(PreUpdate, handle_connection.after(MessageSet::Receive));
         app.add_systems(
             FixedPreUpdate,
             game::buffer_input
-                // Inputs have to be buffered in the FixedPreUpdate schedule
-                .in_set(InputSystemSet::WriteClientInputs)
+                .in_set(InputSet::WriteClientInputs)
                 .run_if(in_state(AppState::Game)),
         );
         app.add_systems(
@@ -65,24 +52,6 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-/// Marker component for the debug text displaying the `ClientId`
-#[derive(Component)]
-struct ClientIdText;
-
-/// Listen for events to know when the client is connected, and spawn a text entity
-/// to display the client id
-fn handle_connection(
-    mut commands: Commands,
-    mut connection_event: EventReader<ConnectEvent>,
-    debug_text: Query<Entity, With<ClientIdText>>,
-) {
-    for event in connection_event.read() {
-        let client_id = event.client_id();
-        if let Ok(entity) = debug_text.get_single() {
-            commands.entity(entity).despawn();
-        }
-    }
-}
 
 /// Remove all entities when the client disconnect.
 /// Reset the ClientConfig to connect to the dedicated server on the next connection attempt.
@@ -110,7 +79,7 @@ fn on_disconnect(
 mod game {
     use crate::protocol::Direction;
     use crate::shared::shared_movement_behaviour;
-    use lightyear::inputs::native::{ActionState, InputMarker};
+    use lightyear::input::native::prelude::{ActionState, InputMarker};
 
     use super::*;
 

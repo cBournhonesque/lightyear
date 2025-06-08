@@ -2,17 +2,14 @@ use crate::protocol::*;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy_egui::EguiPlugin;
-use lightyear::client::interpolation::Interpolated;
-use lightyear::client::prediction::Predicted;
+use lightyear::interpolation::Interpolated;
+use lightyear::prediction::Predicted;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
 
 impl Plugin for ExampleRendererPlugin {
     fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<EguiPlugin>() {
-            app.add_plugins(EguiPlugin);
-        }
         app.add_systems(Startup, init);
         app.add_systems(Update, draw_boxes);
     }

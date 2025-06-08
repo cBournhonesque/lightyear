@@ -8,13 +8,12 @@ use core::ops::{Add, Mul};
 
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{
-    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Vec2,
-};
+use bevy::math::Curve;
+use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Ease, Entity, EntityMapper, FunctionCurve, Interval, Vec2};
 use bevy::prelude::{Reflect, Resource};
 use serde::{Deserialize, Serialize};
 
-use lightyear::client::components::ComponentSyncMode;
+use lightyear::input::native::plugin::InputPlugin;
 use lightyear::prelude::*;
 
 // Player
@@ -26,7 +25,7 @@ pub(crate) struct PlayerBundle {
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(id: ClientId, position: Vec2) -> Self {
+    pub(crate) fn new(id: PeerId, position: Vec2) -> Self {
         // Generate pseudo random color from client id.
         let h = (((id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
@@ -42,7 +41,7 @@ impl PlayerBundle {
 
 // Resources
 
-#[derive(Resource, Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Lobbies {
     pub lobbies: Vec<Lobby>,
 }
@@ -57,7 +56,7 @@ impl Lobbies {
     }
 
     /// Remove a client from a lobby
-    pub(crate) fn remove_client(&mut self, client_id: ClientId) {
+    pub(crate) fn remove_client(&mut self, client_id: PeerId) {
         let mut removed_lobby = None;
         for (lobby_id, lobby) in self.lobbies.iter_mut().enumerate() {
             if let Some(index) = lobby.players.iter().position(|id| *id == client_id) {
@@ -84,9 +83,9 @@ impl Lobbies {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Lobby {
-    pub players: Vec<ClientId>,
+    pub players: Vec<PeerId>,
     /// Which client is selected to be the host for the next game (if None, the server will be the host)
-    pub host: Option<ClientId>,
+    pub host: Option<PeerId>,
     /// If true, the lobby is in game. If not, it is still in lobby mode
     pub in_game: bool,
 }
@@ -94,47 +93,24 @@ pub struct Lobby {
 // Components
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-pub struct PlayerId(ClientId);
+pub struct PlayerId(pub PeerId);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Reflect)]
 pub struct PlayerPosition(pub Vec2);
 
-impl Add for PlayerPosition {
-    type Output = PlayerPosition;
-    #[inline]
-    fn add(self, rhs: PlayerPosition) -> PlayerPosition {
-        PlayerPosition(self.0.add(rhs.0))
-    }
-}
-
-impl Mul<f32> for &PlayerPosition {
-    type Output = PlayerPosition;
-
-    fn mul(self, rhs: f32) -> Self::Output {
-        PlayerPosition(self.0 * rhs)
+impl Ease for PlayerPosition {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| {
+            PlayerPosition(Vec2::lerp(start.0, end.0, t))
+        })
     }
 }
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
-// Example of a component that contains an entity.
-// This component, when replicated, needs to have the inner entity mapped from the Server world
-// to the client World.
-// This can be done by adding a `#[message(custom_map)]` attribute to the component, and then
-// deriving the `MapEntities` trait for the component.
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
-pub struct PlayerParent(Entity);
-
-impl MapEntities for PlayerParent {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.get_mapped(self.0);
-    }
-}
 
 // Channels
-
-#[derive(Channel)]
 pub struct Channel1;
 
 // Messages
@@ -142,7 +118,7 @@ pub struct Channel1;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct StartGame {
     pub(crate) lobby_id: usize,
-    pub(crate) host: Option<ClientId>,
+    pub(crate) host: Option<PeerId>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -157,7 +133,7 @@ pub struct JoinLobby {
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Reflect)]
 pub struct Direction {
     pub(crate) up: bool,
     pub(crate) down: bool,
@@ -171,7 +147,7 @@ impl Direction {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub enum Inputs {
     Direction(Direction),
 }
@@ -187,26 +163,30 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<(PlayerPosition, PlayerId)>();
         // messages
-        app.register_message::<StartGame>(ChannelDirection::Bidirectional);
-        app.register_message::<JoinLobby>(ChannelDirection::ClientToServer);
-        app.register_message::<ExitLobby>(ChannelDirection::ClientToServer);
+        app.add_message::<StartGame>()
+            .add_direction(NetworkDirection::Bidirectional);
+        app.add_message::<JoinLobby>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.add_message::<ExitLobby>()
+            .add_direction(NetworkDirection::ClientToServer);
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
         app.register_component::<PlayerId>()
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<PlayerPosition>()
-            .add_prediction(ComponentSyncMode::Full)
-            .add_interpolation(ComponentSyncMode::Full)
+            .add_prediction(PredictionMode::Full)
+            .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
 
         app.register_component::<PlayerColor>()
-            .add_prediction(ComponentSyncMode::Once)
-            .add_interpolation(ComponentSyncMode::Once);
-        // resources
-        app.register_resource::<Lobbies>(ChannelDirection::ServerToClient);
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
+        
+        app.register_component::<Lobbies>();
+        
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
