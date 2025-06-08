@@ -3,6 +3,7 @@
 //! This crate provides integration between Lightyear and the Avian physics engine.
 //!
 //! It currently includes utilities for lag compensation.
+#[cfg!(any(feature = "2d", feature = "3d"))]
 
 use bevy::prelude::TransformSystem::TransformPropagate;
 use bevy::prelude::*;
@@ -34,8 +35,8 @@ use avian3d::{
     prelude::*,
     sync::{SyncConfig, SyncSet},
 };
-use lightyear_interpolation::InterpolationMode;
 use lightyear_interpolation::prelude::InterpolationRegistry;
+use lightyear_interpolation::InterpolationMode;
 use lightyear_replication::prelude::TransformLinearInterpolation;
 
 /// Commonly used items for Lightyear Avian integration.
