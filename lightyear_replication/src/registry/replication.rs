@@ -6,10 +6,10 @@ use bevy::ecs::component::{Component, ComponentId, Immutable, Mutable};
 use bevy::prelude::*;
 use bytes::Bytes;
 use lightyear_core::prelude::Tick;
+use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{ContextDeserializeFns, ErasedSerializeFns};
-use lightyear_serde::ToBytes;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplicationMetadata {
@@ -52,11 +52,7 @@ impl ReplicationMetadata {
         config: ComponentReplicationConfig,
         overrides_component_id: ComponentId,
     ) -> Self {
-        Self::new(
-            config,
-            overrides_component_id,
-            C::Mutability::buffer_fn(),
-        )
+        Self::new(config, overrides_component_id, C::Mutability::buffer_fn())
     }
 
     pub(crate) fn buffer<C: Component>(
@@ -67,21 +63,15 @@ impl ReplicationMetadata {
         entity_mut: &mut BufferedEntity,
         entity_map: &mut ReceiveEntityMap,
     ) -> Result<(), ComponentError> {
-        let buffer_fn = unsafe { core::mem::transmute::<unsafe fn(), BufferFn<C>>(self.inner_buffer) };
+        let buffer_fn =
+            unsafe { core::mem::transmute::<unsafe fn(), BufferFn<C>>(self.inner_buffer) };
         // SAFETY: the erased_deserialize is guaranteed to be valid for the type C
         let deserialize = unsafe { erased_serialize_fns.deserialize_fns::<_, C, C>() };
-        buffer_fn(
-            deserialize,
-            reader,
-            tick,
-            entity_mut,
-            entity_map,
-        )
+        buffer_fn(deserialize, reader, tick, entity_mut, entity_map)
     }
 }
 
 impl ComponentRegistry {
-
     /// Insert a batch of components on the entity
     ///
     /// This method will insert all the components simultaneously.
@@ -184,17 +174,15 @@ pub type BufferFn<C> = fn(
     entity_map: &mut ReceiveEntityMap,
 ) -> Result<(), ComponentError>;
 
-
 pub trait GetWriteFns<C: Component> {
     fn buffer_fn() -> BufferFn<C>;
 }
 
-impl<C: Component<Mutability=Self> + PartialEq> GetWriteFns<C> for Mutable {
+impl<C: Component<Mutability = Self> + PartialEq> GetWriteFns<C> for Mutable {
     fn buffer_fn() -> BufferFn<C> {
         default_buffer::<C>
     }
 }
-
 
 /// Default method to buffer a component for insertion
 ///
@@ -233,7 +221,9 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
         }
     } else {
         // SAFETY: the component_id matches the component
-        unsafe { entity_mut.buffered.insert::<C>(component, component_id); }
+        unsafe {
+            entity_mut.buffered.insert::<C>(component, component_id);
+        }
         #[cfg(feature = "metrics")]
         {
             metrics::counter!("replication::receive::component::insert").increment(1);
@@ -247,12 +237,11 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
     Ok(())
 }
 
-impl<C: Component<Mutability=Self> + PartialEq> GetWriteFns<C> for Immutable {
+impl<C: Component<Mutability = Self> + PartialEq> GetWriteFns<C> for Immutable {
     fn buffer_fn() -> BufferFn<C> {
         default_immutable_buffer::<C>
     }
 }
-
 
 /// Default method to buffer a component for insertion
 fn default_immutable_buffer<C: Component<Mutability = Immutable> + PartialEq>(
@@ -280,11 +269,12 @@ fn default_immutable_buffer<C: Component<Mutability = Immutable> + PartialEq>(
             ))
             .increment(1);
         }
-        unsafe { entity_mut.buffered.insert::<C>(component, component_id); }
+        unsafe {
+            entity_mut.buffered.insert::<C>(component, component_id);
+        }
     }
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {

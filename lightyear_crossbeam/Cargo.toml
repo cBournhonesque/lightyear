@@ -21,6 +21,7 @@ lightyear_link.workspace = true
 bevy.workspace = true
 
 # utils
+aeronet_io.workspace = true
 crossbeam-channel.workspace = true
 tracing.workspace = true
 

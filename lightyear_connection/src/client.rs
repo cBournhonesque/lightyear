@@ -5,7 +5,7 @@ use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use lightyear_core::id::PeerId;
+use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::LinkStart;
 use lightyear_link::prelude::{Server, Unlinked};
 use tracing::trace;
@@ -62,19 +62,14 @@ pub struct Disconnect;
 
 #[derive(Component, Debug, Reflect)]
 #[component(on_add = Connected::on_add)]
-pub struct Connected {
-    /// PeerId of the local peer
-    pub local_peer_id: PeerId,
-    /// PeerId of the remote peer that this entity is connected to
-    pub remote_peer_id: PeerId,
-}
+pub struct Connected;
 
 impl Connected {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         let peer_id = world
-            .get::<Connected>(context.entity)
-            .unwrap()
-            .remote_peer_id;
+            .get::<RemoteId>(context.entity)
+            .expect("A Connected entity must always have a RemoteId component")
+            .0;
         if let Some(mut client) = world.get_mut::<Client>(context.entity) {
             client.state = ClientState::Connected(peer_id);
         };
@@ -117,10 +112,7 @@ impl Disconnected {
         if let Some(mut client) = world.get_mut::<Client>(context.entity) {
             client.state = ClientState::Disconnected;
         }
-        if let Some(peer_id) = world
-            .get::<Connected>(context.entity)
-            .map(|c| c.remote_peer_id)
-        {
+        if let Some(peer_id) = world.get::<RemoteId>(context.entity).map(|c| c.0) {
             world
                 .resource_mut::<PeerMetadata>()
                 .mapping

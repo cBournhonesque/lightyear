@@ -56,14 +56,17 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 // has been removed
 pub(crate) fn spawn_player(
     trigger: Trigger<OnAdd, Connected>,
-    query: Query<&Connected, With<ClientOf>>,
+    query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
     replicated_players: Query<
         (Entity, &InitialReplicated),
         (Added<InitialReplicated>, With<PlayerId>),
     >,
 ) {
-    let client_id = query.get(trigger.target()).unwrap().remote_peer_id;
+    let Ok(client_id) = query.get(trigger.target()) else {
+        return;
+    };
+    let client_id = client_id.0;
     let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
     let color = color_from_id(client_id);
     info!("Spawning player with id: {}", client_id);

@@ -149,10 +149,10 @@ pub struct ClientIdText;
 /// to display the client id
 pub(crate) fn handle_connection(
     trigger: Trigger<OnAdd, Connected>,
-    query: Query<&Connected>,
+    query: Query<&LocalId>,
     mut commands: Commands,
 ) {
-    let client_id = query.get(trigger.target()).unwrap().local_peer_id;
+    let client_id = query.get(trigger.target()).unwrap().0;
     commands.spawn((
         Text(format!("Client {}", client_id)),
         TextFont::from_font_size(30.0),

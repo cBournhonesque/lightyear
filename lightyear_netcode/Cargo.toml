@@ -46,6 +46,7 @@ bevy.workspace = true
 no_std_io2.workspace = true
 
 # utils
+aeronet_io.workspace = true
 bytes.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

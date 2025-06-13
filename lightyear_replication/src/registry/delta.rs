@@ -16,8 +16,8 @@ use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::ContextDeserializeFns;
 use lightyear_serde::writer::Writer;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tracing::trace;
 
 impl ComponentRegistry {
@@ -43,9 +43,8 @@ impl ComponentRegistry {
                 ComponentReplicationConfig::default(),
                 ComponentId::new(0),
                 buffer_insert_delta::<C>,
-            )
+            ),
         );
-
     }
 
     /// # Safety
@@ -134,62 +133,68 @@ impl ComponentRegistry {
     }
 }
 
-    /// Insert a component delta into the entity.
-    /// If the component is not present on the entity, we put it in a temporary buffer
-    /// so that all components can be inserted at once
-    fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
-        deserialize: ContextDeserializeFns<ReceiveEntityMap, DeltaMessage<C::Delta>, DeltaMessage<C::Delta>>,
-        reader: &mut Reader,
-        tick: Tick,
-        entity_mut: &mut BufferedEntity,
-        entity_map: &mut ReceiveEntityMap,
-    ) -> Result<(), ComponentError> {
-        let kind = ComponentKind::of::<C>();
-        let component_id = entity_mut.component_id::<C>();
-        trace!(
-            ?kind,
-            ?component_id,
-            "Writing component delta {} to entity",
-            core::any::type_name::<C>()
-        );
-        let delta = deserialize.deserialize(entity_map, reader)?;
-        match delta.delta_type {
-            DeltaType::Normal { previous_tick } => {
-                unreachable!(
-                    "buffer_insert_delta should only be called for FromBase deltas since the component is being inserted"
-                );
-            }
-            DeltaType::FromBase => {
-                let mut new_value = C::base_value();
-                new_value.apply_diff(&delta.delta);
-                // clone the value so that we can insert it in the history
-                let cloned_value = new_value.clone();
+/// Insert a component delta into the entity.
+/// If the component is not present on the entity, we put it in a temporary buffer
+/// so that all components can be inserted at once
+fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
+    deserialize: ContextDeserializeFns<
+        ReceiveEntityMap,
+        DeltaMessage<C::Delta>,
+        DeltaMessage<C::Delta>,
+    >,
+    reader: &mut Reader,
+    tick: Tick,
+    entity_mut: &mut BufferedEntity,
+    entity_map: &mut ReceiveEntityMap,
+) -> Result<(), ComponentError> {
+    let kind = ComponentKind::of::<C>();
+    let component_id = entity_mut.component_id::<C>();
+    trace!(
+        ?kind,
+        ?component_id,
+        "Writing component delta {} to entity",
+        core::any::type_name::<C>()
+    );
+    let delta = deserialize.deserialize(entity_map, reader)?;
+    match delta.delta_type {
+        DeltaType::Normal { previous_tick } => {
+            unreachable!(
+                "buffer_insert_delta should only be called for FromBase deltas since the component is being inserted"
+            );
+        }
+        DeltaType::FromBase => {
+            let mut new_value = C::base_value();
+            new_value.apply_diff(&delta.delta);
+            // clone the value so that we can insert it in the history
+            let cloned_value = new_value.clone();
 
-                // if the component is on the entity, no need to insert
-                if let Some(mut c) = entity_mut.entity.get_mut::<C>() {
-                    // only apply the update if the component is different, to not trigger change detection
-                    if c.as_ref() != &new_value {
-                        *c = new_value;
-                    }
-                } else {
-                    // use the component id of C, not DeltaMessage<C>
-                    // SAFETY: we are inserting a component of type C, which matches the component_id
-                    unsafe { entity_mut.buffered.insert::<C>(new_value, component_id); }
+            // if the component is on the entity, no need to insert
+            if let Some(mut c) = entity_mut.entity.get_mut::<C>() {
+                // only apply the update if the component is different, to not trigger change detection
+                if c.as_ref() != &new_value {
+                    *c = new_value;
                 }
-                // store the component value in the delta component history, so that we can compute
-                // diffs from it
-                if let Some(mut history) = entity_mut.entity.get_mut::<DeltaComponentHistory<C>>() {
-                    history.buffer.insert(tick, cloned_value);
-                } else {
-                    // create a DeltaComponentHistory and insert the value
-                    let mut history = DeltaComponentHistory::default();
-                    history.buffer.insert(tick, cloned_value);
-                    entity_mut.entity.insert(history);
+            } else {
+                // use the component id of C, not DeltaMessage<C>
+                // SAFETY: we are inserting a component of type C, which matches the component_id
+                unsafe {
+                    entity_mut.buffered.insert::<C>(new_value, component_id);
                 }
+            }
+            // store the component value in the delta component history, so that we can compute
+            // diffs from it
+            if let Some(mut history) = entity_mut.entity.get_mut::<DeltaComponentHistory<C>>() {
+                history.buffer.insert(tick, cloned_value);
+            } else {
+                // create a DeltaComponentHistory and insert the value
+                let mut history = DeltaComponentHistory::default();
+                history.buffer.insert(tick, cloned_value);
+                entity_mut.entity.insert(history);
             }
         }
-        Ok(())
     }
+    Ok(())
+}
 
 type ErasedCloneFn = unsafe fn(data: Ptr) -> NonNull<u8>;
 type ErasedDiffFn = unsafe fn(start_tick: Tick, start: Ptr, present: Ptr) -> NonNull<u8>;

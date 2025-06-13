@@ -9,7 +9,10 @@ use core::ops::{Add, Mul};
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::math::Curve;
-use bevy::prelude::{default, Bundle, Color, Component, Deref, DerefMut, Ease, Entity, EntityMapper, FunctionCurve, Interval, Vec2};
+use bevy::prelude::{
+    default, Bundle, Color, Component, Deref, DerefMut, Ease, Entity, EntityMapper, FunctionCurve,
+    Interval, Vec2,
+};
 use bevy::prelude::{Reflect, Resource};
 use serde::{Deserialize, Serialize};
 
@@ -109,7 +112,6 @@ impl Ease for PlayerPosition {
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
-
 // Channels
 pub struct Channel1;
 
@@ -184,9 +186,9 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PlayerColor>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
-        
+
         app.register_component::<Lobbies>();
-        
+
         // channels
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),

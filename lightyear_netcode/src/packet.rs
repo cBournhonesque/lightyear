@@ -588,6 +588,7 @@ mod tests {
     use super::*;
     #[cfg(not(feature = "std"))]
     use alloc::vec::Vec;
+    use lightyear_serde::writer::Writer;
 
     #[test]
     fn sequence_number_bytes_required() {

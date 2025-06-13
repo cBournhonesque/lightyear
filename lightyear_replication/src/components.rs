@@ -15,7 +15,7 @@ use lightyear_connection::client::Connected;
 use lightyear_connection::{
     client::PeerMetadata, client_of::ClientOf, network_target::NetworkTarget,
 };
-use lightyear_core::id::PeerId;
+use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::tick::Tick;
 use lightyear_link::prelude::LinkOf;
 #[cfg(feature = "server")]
@@ -527,10 +527,13 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
     /// When a new client connects, check if we need to replicate existing entities to it
     pub(crate) fn handle_connection(
         trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
-        mut sender_query: Query<(Entity, &mut ReplicationSender, &Connected, Option<&LinkOf>)>,
+        mut sender_query: Query<
+            (Entity, &mut ReplicationSender, &RemoteId, Option<&LinkOf>),
+            With<Connected>,
+        >,
         mut replicate_query: Query<(Entity, &mut ReplicationTarget<T>)>,
     ) {
-        if let Ok((sender_entity, mut sender, connected, link_of)) =
+        if let Ok((sender_entity, mut sender, remote_peer_id, link_of)) =
             sender_query.get_mut(trigger.target())
         {
             // TODO: maybe do this in parallel?
@@ -541,7 +544,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                     ReplicationMode::SingleClient => {}
                     #[cfg(feature = "server")]
                     ReplicationMode::SingleServer(target) => {
-                        if link_of.is_some() && target.targets(&connected.remote_peer_id) {
+                        if link_of.is_some() && target.targets(&remote_peer_id) {
                             info!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
                             sender.add_replicated_entity(entity, true);
                             replicate.senders.insert(sender_entity);
@@ -550,13 +553,13 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                     ReplicationMode::Sender(_) => {}
                     #[cfg(feature = "server")]
                     ReplicationMode::Server(e, target) => {
-                        if target.targets(&connected.remote_peer_id) && link_of.is_some_and(|c| c.server == *e) {
+                        if target.targets(&remote_peer_id) && link_of.is_some_and(|c| c.server == *e) {
                             sender.add_replicated_entity(entity, true);
                             replicate.senders.insert(sender_entity);
                         }
                     }
                     ReplicationMode::Target(target) => {
-                        if target.targets(&connected.remote_peer_id) {
+                        if target.targets(&remote_peer_id) {
                             sender.add_replicated_entity(entity, true);
                             replicate.senders.insert(sender_entity);
                         }

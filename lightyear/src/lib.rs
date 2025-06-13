@@ -53,6 +53,7 @@ pub mod utils {
 }
 
 pub mod prelude {
+    pub use aeronet_io::connection::{LocalAddr, PeerAddr};
     pub use lightyear_connection::prelude::*;
     pub use lightyear_core::prelude::*;
     pub use lightyear_link::prelude::*;

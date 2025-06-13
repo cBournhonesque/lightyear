@@ -1,11 +1,11 @@
+use crate::WebTransportError;
 use aeronet_io::Session;
-use aeronet_io::connection::PeerAddr;
+use aeronet_io::connection::{LocalAddr, PeerAddr};
 use aeronet_webtransport::server::{
     ServerConfig, SessionRequest, SessionResponse, WebTransportServer, WebTransportServerClient,
 };
 use aeronet_webtransport::wtransport::Identity;
 use bevy::prelude::*;
-use core::net::SocketAddr;
 use core::time::Duration;
 use lightyear_aeronet::server::ServerAeronetPlugin;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
@@ -37,6 +37,8 @@ impl Plugin for WebTransportServerPlugin {
 ///
 /// Use [`WebTransportServer::open`] to start opening a server.
 ///
+/// The [`LocalAddr`] component must be inserted to specify the server_addr.
+///
 /// When a client attempts to connect, the server will trigger a
 /// [`SessionRequest`]. Your app **must** observe this, and use
 /// [`SessionRequest::respond`] to set how the server should respond to this
@@ -44,32 +46,35 @@ impl Plugin for WebTransportServerPlugin {
 #[derive(Debug, Component)]
 #[require(Server)]
 pub struct WebTransportServerIo {
-    pub server_addr: SocketAddr,
     pub certificate: Identity,
 }
 
 impl WebTransportServerPlugin {
     fn link(
         trigger: Trigger<LinkStart>,
-        query: Query<(Entity, &WebTransportServerIo), (Without<Linking>, Without<Linked>)>,
+        query: Query<
+            (Entity, &WebTransportServerIo, Option<&LocalAddr>),
+            (Without<Linking>, Without<Linked>),
+        >,
         mut commands: Commands,
-    ) {
-        if let Ok((entity, io)) = query.get(trigger.target()) {
-            let addr = io.server_addr;
+    ) -> Result {
+        if let Ok((entity, io, local_addr)) = query.get(trigger.target()) {
+            let server_addr = local_addr.ok_or(WebTransportError::LocalAddrMissing)?.0;
             let certificate = io.certificate.clone_identity();
             commands.queue(move |world: &mut World| {
                 let config = ServerConfig::builder()
-                    .with_bind_address(addr)
+                    .with_bind_address(server_addr)
                     .with_identity(certificate)
                     .keep_alive_interval(Some(Duration::from_secs(1)))
                     .max_idle_timeout(Some(Duration::from_secs(5)))
                     .expect("should be a valid idle timeout")
                     .build();
-                info!("Server WebTransport starting at {}", addr);
+                info!("Server WebTransport starting at {}", server_addr);
                 let child = world.spawn((AeronetLinkOf(entity), Name::from("WebTransportServer")));
                 WebTransportServer::open(config).apply(child);
             });
         }
+        Ok(())
     }
 
     fn on_session_request(mut request: Trigger<SessionRequest>) {
@@ -84,13 +89,13 @@ impl WebTransportServerPlugin {
     ) {
         if let Ok((child_of, peer_addr)) = child_query.get(trigger.target()) {
             if let Ok(server_link) = query.get(child_of.parent()) {
-                let link = Link::new(peer_addr.0, None);
                 let link_entity = commands
                     .spawn((
                         LinkOf {
                             server: server_link.0,
                         },
-                        link,
+                        Link::new(None),
+                        PeerAddr(peer_addr.0),
                     ))
                     .id();
                 commands.entity(trigger.target()).insert((

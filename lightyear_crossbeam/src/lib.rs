@@ -10,6 +10,7 @@
 
 extern crate alloc;
 
+use aeronet_io::connection::{LocalAddr, PeerAddr};
 #[cfg(not(feature = "test_utils"))]
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
@@ -31,7 +32,9 @@ const LOCALHOST: SocketAddr = SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LO
 /// via in-memory channels, simulating a network link. It holds the sender
 /// and receiver ends of the channels.
 #[derive(Component)]
-#[require(Link::new(LOCALHOST, None))]
+#[require(Link::new(None))]
+#[require(LocalAddr(LOCALHOST))]
+#[require(PeerAddr(LOCALHOST))]
 pub struct CrossbeamIo {
     sender: Sender<Bytes>,
     receiver: Receiver<Bytes>,

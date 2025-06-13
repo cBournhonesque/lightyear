@@ -131,13 +131,11 @@ impl ClientServerStepper {
                     ReplicationSender::default(),
                     ReplicationReceiver::default(),
                     // we will act like each client has a different port
-                    Link::new(
-                        SocketAddr::new(
-                            core::net::IpAddr::V4(Ipv4Addr::LOCALHOST),
-                            client_id as u16,
-                        ),
-                        None,
-                    ),
+                    Link::new(None),
+                    PeerAddr(SocketAddr::new(
+                        core::net::IpAddr::V4(Ipv4Addr::LOCALHOST),
+                        client_id as u16,
+                    )),
                     // For Crossbeam we need to mark the IO as Linked, as there is no ServerLink to do that for us
                     Linked,
                     crossbeam_server,

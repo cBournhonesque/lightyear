@@ -5,6 +5,7 @@ use bevy::prelude::{Component, EntityWorldMut, TypePath};
 use bevy::ptr::OwningPtr;
 use core::alloc::Layout;
 use core::ptr::NonNull;
+use tracing::info;
 
 /// An [`EntityWorldMut`] that buffers all insertions and removals so that they are all applied at once.
 pub struct BufferedEntity<'w, 'b> {
@@ -12,8 +13,7 @@ pub struct BufferedEntity<'w, 'b> {
     pub buffered: &'b mut BufferedChanges,
 }
 
-impl <'w, 'b> BufferedEntity<'w, 'b> {
-
+impl<'w, 'b> BufferedEntity<'w, 'b> {
     pub(crate) fn component_id<C: Component>(&mut self) -> ComponentId {
         // SAFETY: does not update the entity's location
         unsafe { self.entity.world_mut().register_component::<C>() }
@@ -26,21 +26,24 @@ impl <'w, 'b> BufferedEntity<'w, 'b> {
 
 #[derive(Debug, Default)]
 pub struct BufferedChanges {
-     insertions: TempWriteBuffer,
-     removals: Vec<ComponentId>,
+    insertions: TempWriteBuffer,
+    removals: Vec<ComponentId>,
 }
-
 
 impl BufferedChanges {
     pub fn apply(&mut self, entity: &mut EntityWorldMut) {
+        let entity_id = entity.id();
         if !self.removals.is_empty() {
+            info!("Removing on {entity_id}");
             entity.remove_by_ids(&self.removals);
         }
         self.removals.clear();
 
         if !self.insertions.is_empty() {
             // SAFETY: the `insertions` buffer is guaranteed to be valid for the lifetime of `self`.
-            unsafe { self.insertions.batch_insert(entity); }
+            unsafe {
+                self.insertions.batch_insert(entity);
+            }
         }
     }
 
@@ -48,7 +51,10 @@ impl BufferedChanges {
     /// The `component` must match the `component_id` type.
     pub unsafe fn insert<C: Component>(&mut self, component: C, component_id: ComponentId) {
         // SAFETY: the component C matches the `component_id`
-        unsafe { self.insertions.buffer_insert_raw_ptrs(component, component_id) };
+        unsafe {
+            self.insertions
+                .buffer_insert_raw_ptrs(component, component_id)
+        };
     }
 
     pub fn remove(&mut self, component_id: ComponentId) {

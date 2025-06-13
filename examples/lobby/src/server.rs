@@ -31,7 +31,9 @@ impl Plugin for ExampleServerPlugin {
         }
         app.add_observer(handle_new_client);
         app.add_systems(FixedUpdate, game::movement);
-        app.add_systems(Update, game::handle_disconnections.run_if(in_state(NetworkingState::Started)),
+        app.add_systems(
+            Update,
+            game::handle_disconnections.run_if(in_state(NetworkingState::Started)),
         );
         app.add_systems(
             Update,
@@ -58,8 +60,8 @@ impl Plugin for ExampleServerPlugin {
 /// System to start the dedicated server at Startup
 fn start_dedicated_server(mut commands: Commands) {
     commands.spawn((
-       Lobbies::default(),
-       Replicate::to_clients(NetworkTarget::All)
+        Lobbies::default(),
+        Replicate::to_clients(NetworkTarget::All),
     ));
 }
 
@@ -81,18 +83,20 @@ fn spawn_player_entity(
     let s = 0.8;
     let l = 0.5;
     let color = Color::hsl(h, s, l);
-    let entity = commands.spawn((
-        PlayerId(client_id),
-        PlayerPosition(Vec2::ZERO),
-        PlayerColor(color),
-        Replicate::to_clients(NetworkTarget::All),
-        PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
-        InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-        ControlledBy {
-            owner: client_entity,
-            lifetime: Default::default(),
-        },
-    )).id();
+    let entity = commands
+        .spawn((
+            PlayerId(client_id),
+            PlayerPosition(Vec2::ZERO),
+            PlayerColor(color),
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+            InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+            ControlledBy {
+                owner: client_entity,
+                lifetime: Default::default(),
+            },
+        ))
+        .id();
     if dedicated_server {
         commands.entity(entity).insert(NetworkVisibility::default());
     }
@@ -113,7 +117,7 @@ mod game {
         mut commands: Commands,
     ) {
         let Ok(connected) = query.get(trigger.target()) else {
-            return
+            return;
         };
         let client_id = connected.remote_peer_id;
         info!("HostServer spawn player for client {client_id:?}");
@@ -122,7 +126,7 @@ mod game {
 
     /// Delete the player's entity when the client disconnects
     pub(crate) fn handle_disconnections(
-        // TODO: need a way to get the peer_id that disconnected 
+        // TODO: need a way to get the peer_id that disconnected
         mut disconnections: Trigger<OnAdd, Disconnected>,
         mut lobbies: Single<&mut Lobbies>,
     ) {
@@ -134,7 +138,8 @@ mod game {
     /// Read client inputs and move players
     pub(crate) fn movement(
         server_started: Single<(), (With<Server>, With<Started>)>,
-        mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>) {
+        mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>,
+    ) {
         for (position, inputs) in position_query.iter_mut() {
             if let Some(inputs) = &inputs.value {
                 shared_movement_behaviour(position, inputs);
@@ -230,10 +235,10 @@ mod lobby {
                     multi_sender.send::<_, Channel1>(
                         &StartGame {
                             lobby_id,
-                            host: lobby.host
+                            host: lobby.host,
                         },
                         server,
-                        &NetworkTarget::Single(client_id)
+                        &NetworkTarget::Single(client_id),
                     )?;
                 } else {
                     if host.is_none() {
@@ -248,10 +253,10 @@ mod lobby {
                     multi_sender.send::<_, Channel1>(
                         &StartGame {
                             lobby_id,
-                            host: lobby.host
+                            host: lobby.host,
                         },
                         server,
-                        &NetworkTarget::Only(lobby.players.clone())
+                        &NetworkTarget::Only(lobby.players.clone()),
                     )?;
                 }
             }

@@ -2,10 +2,9 @@ use alloc::sync::Arc;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec, vec::Vec};
 use bevy::platform::collections::HashMap;
-use bevy::prelude::{Entity, EntityCommands};
+use bevy::prelude::*;
 use core::net::SocketAddr;
 use no_std_io2::io;
-use tracing::{debug, error, trace, warn};
 
 use super::{
     ClientId, MAC_BYTES, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,

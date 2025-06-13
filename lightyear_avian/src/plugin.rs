@@ -20,7 +20,7 @@ use lightyear_replication::prelude::TransformLinearInterpolation;
 
 pub struct LightyearAvianPlugin;
 
-impl Plugin for crate::LightyearAvianPlugin {
+impl Plugin for LightyearAvianPlugin {
     fn build(&self, app: &mut App) {
         // NOTE: the three main physics sets in FixedPostUpdate run in this order:
         // pub enum PhysicsSet {

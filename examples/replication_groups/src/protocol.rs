@@ -1,10 +1,7 @@
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::math::Curve;
-use bevy::prelude::{
-    default, Color, Component, Deref, DerefMut, Ease, Entity, EntityMapper, FunctionCurve,
-    Interval, Reflect, Vec2,
-};
+use bevy::prelude::*;
 use core::ops::{Add, Mul};
 use lightyear::input::native::plugin::InputPlugin;
 use lightyear::prelude::*;
@@ -222,7 +219,7 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<Inputs>();
+        app.register_type::<(Inputs, PlayerId, PlayerPosition, PlayerColor)>();
 
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());

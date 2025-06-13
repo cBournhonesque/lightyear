@@ -41,7 +41,8 @@ fn startup(mut commands: Commands) -> Result {
     let server = commands
         .spawn((
             NetcodeServer::new(NetcodeConfig::default()),
-            ServerUdpIo::new(SERVER_ADDR),
+            LocalAddr(SERVER_ADDR),
+            ServerUdpIo::default(),
         ))
         .id();
     commands.trigger_targets(Start, server);

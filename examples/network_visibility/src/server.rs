@@ -55,11 +55,13 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 pub(crate) fn handle_connected(
     trigger: Trigger<OnAdd, Connected>,
     room: Single<Entity, With<Room>>,
-    mut query: Query<&Connected, With<ClientOf>>,
+    mut query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
 ) {
-    let connected = query.get(trigger.target()).unwrap();
-    let client_id = connected.remote_peer_id;
+    let Ok(client_id) = query.get(trigger.target()) else {
+        return;
+    };
+    let client_id = client_id.0;
     let color = color_from_id(client_id);
     let player_entity = commands
         .spawn((

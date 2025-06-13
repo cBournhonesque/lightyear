@@ -11,6 +11,7 @@ use crate::shared;
 use bevy::app::PluginGroupBuilder;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use lightyear::connection::client_of::ClientOf;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
 use std::sync::Arc;
@@ -28,7 +29,6 @@ impl Plugin for ExampleServerPlugin {
         // Use observers for connections/disconnections
         app.add_observer(handle_connected);
         app.add_observer(handle_disconnected);
-        app.add_systems(Update, send_message);
         // app.add_systems(Update, (send_message, handle_connections)); // Removed old handler
     }
 }
@@ -48,13 +48,12 @@ pub(crate) fn handle_connected(
     trigger: Trigger<OnAdd, Connected>, // Trigger on connection
     mut entity_map: ResMut<ClientEntityMap>,
     mut commands: Commands,
-    query: Query<&Connected>, // Query Connected component
+    query: Query<&RemoteId, With<ClientOf>>,
 ) {
-    let client_entity = trigger.target();
-    let Ok(connected) = query.get(client_entity) else {
+    let Ok(client_id) = query.get(trigger.target()) else {
         return;
     };
-    let client_id = connected.peer_id; // Get PeerId
+    let client_id = client_id.0;
 
     // Standard prediction: predict owner, interpolate others
     let prediction_target = PredictionTarget::to_clients(NetworkTarget::Single(client_id));

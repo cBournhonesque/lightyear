@@ -2,7 +2,7 @@ use crate::{LinkPlugin, Linked, Linking, Unlink, Unlinked};
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::ecs::component::HookContext;
-use bevy::ecs::relationship::Relationship;
+use bevy::ecs::relationship::{Relationship, RelationshipHookMode, RelationshipSourceCollection};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use lightyear_core::prelude::LocalTimeline;
@@ -23,7 +23,7 @@ impl Server {
             && !entity_ref.contains::<Linked>()
             && !entity_ref.contains::<Linking>()
         {
-            trace!("Inserting Unlinked because ServerLink was added");
+            trace!("Inserting Unlinked because Server was added");
             world.commands().entity(context.entity).insert(Unlinked {
                 reason: String::new(),
             });
@@ -49,13 +49,104 @@ impl Server {
     }
 }
 
+// We add our own relationship hooks instead of deriving relationship
+//  because we don't want to despawn Server if there are no more LinkOfs.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug, Reflect)]
-#[relationship(relationship_target = Server)]
+#[component(on_insert = LinkOf::on_insert_hook)]
+#[component(on_replace = LinkOf::on_replace)]
 pub struct LinkOf {
     pub server: Entity,
 }
 
+impl Relationship for LinkOf {
+    type RelationshipTarget = Server;
+    #[inline(always)]
+    fn get(&self) -> Entity {
+        self.server
+    }
+    #[inline]
+    fn from(entity: Entity) -> Self {
+        Self { server: entity }
+    }
+}
+
 impl LinkOf {
+    fn on_insert_hook(
+        mut world: DeferredWorld,
+        HookContext {
+            entity,
+            caller,
+            relationship_hook_mode,
+            ..
+        }: HookContext,
+    ) {
+        match relationship_hook_mode {
+            RelationshipHookMode::Run => {}
+            RelationshipHookMode::Skip => return,
+            RelationshipHookMode::RunIfNotLinked => return,
+        }
+        let target_entity = world.entity(entity).get::<Self>().unwrap().get();
+        if target_entity == entity {
+            warn!(
+                "{}The {}({target_entity:?}) relationship on entity {entity:?} points to itself. The invalid {} relationship has been removed.",
+                caller
+                    .map(|location| format!("{location}: "))
+                    .unwrap_or_default(),
+                core::any::type_name::<Self>(),
+                core::any::type_name::<Self>()
+            );
+            world.commands().entity(entity).remove::<Self>();
+            return;
+        }
+        if let Ok(mut target_entity_mut) = world.get_entity_mut(target_entity) {
+            if let Some(mut relationship_target) = target_entity_mut.get_mut::<Server>() {
+                relationship_target.collection_mut_risky().add(entity);
+            } else {
+                let mut target = <Server as RelationshipTarget>::with_capacity(1);
+                target.collection_mut_risky().add(entity);
+                world.commands().entity(target_entity).insert(target);
+            }
+        } else {
+            warn!(
+                "{}The {}({target_entity:?}) relationship on entity {entity:?} relates to an entity that does not exist. The invalid {} relationship has been removed.",
+                caller
+                    .map(|location| format!("{location}: "))
+                    .unwrap_or_default(),
+                core::any::type_name::<Self>(),
+                core::any::type_name::<Self>()
+            );
+            world.commands().entity(entity).remove::<Self>();
+        }
+    }
+
+    fn on_replace(
+        mut world: DeferredWorld,
+        HookContext {
+            entity,
+            relationship_hook_mode,
+            ..
+        }: HookContext,
+    ) {
+        match relationship_hook_mode {
+            RelationshipHookMode::Run => {}
+            RelationshipHookMode::Skip => return,
+            RelationshipHookMode::RunIfNotLinked => {
+                if <Server as RelationshipTarget>::LINKED_SPAWN {
+                    return;
+                }
+            }
+        }
+        let target_entity = world.entity(entity).get::<Self>().unwrap().get();
+        if let Ok(mut target_entity_mut) = world.get_entity_mut(target_entity) {
+            if let Some(mut relationship_target) = target_entity_mut.get_mut::<Server>() {
+                RelationshipSourceCollection::remove(
+                    relationship_target.collection_mut_risky(),
+                    entity,
+                );
+            }
+        }
+    }
+
     pub(crate) fn on_insert(
         trigger: Trigger<OnInsert, (LinkOf, LocalTimeline)>,
         server: Query<&LocalTimeline, (Without<LinkOf>, With<Server>)>,
