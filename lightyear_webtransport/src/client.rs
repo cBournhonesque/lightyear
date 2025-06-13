@@ -1,3 +1,5 @@
+use crate::WebTransportError;
+use aeronet_io::connection::PeerAddr;
 use aeronet_webtransport::client::{ClientConfig, WebTransportClient};
 use bevy::prelude::*;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
@@ -15,32 +17,29 @@ impl Plugin for WebTransportClientPlugin {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum WebTransportError {
-    #[error("the certificate hash `{0}` is invalid")]
-    Certificate(String),
-}
+
 
 /// WebTransport session implementation which acts as a dedicated client,
 /// connecting to a target endpoint.
+///
+/// The [`PeerAddr`] component will be used to find the server_addr.
 ///
 /// Use [`WebTransportClient::connect`] to start a connection.
 #[derive(Debug, Component)]
 #[require(Link)]
 pub struct WebTransportClientIo {
-    pub server_addr: core::net::SocketAddr,
     pub certificate_digest: String,
 }
 
 impl WebTransportClientPlugin {
     fn link(
         trigger: Trigger<LinkStart>,
-        query: Query<(Entity, &WebTransportClientIo), (Without<Linking>, Without<Linked>)>,
+        query: Query<(Entity, &WebTransportClientIo, Option<&PeerAddr>), (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
-    ) {
-        if let Ok((entity, client)) = query.get(trigger.target()) {
+    ) -> Result {
+        if let Ok((entity, client, peer_addr)) = query.get(trigger.target()) {
+            let server_addr = peer_addr.ok_or(WebTransportError::PeerAddrMissing)?.0;
             let digest = client.certificate_digest.clone();
-            let server_addr = client.server_addr;
             commands.queue(move |world: &mut World| -> Result {
                 let config = Self::client_config(digest)?;
                 let server_url = format!("https://{}", server_addr);
@@ -62,6 +61,7 @@ impl WebTransportClientPlugin {
                 Ok(())
             });
         }
+        Ok(())
     }
 
     // `cert_hash` is expected to be the hexadecimal representation of the SHA256 Digest, without colons

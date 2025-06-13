@@ -46,11 +46,13 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 /// DDoS attempt, etc.). We want to start the replication only when the client is confirmed as connected.
 pub(crate) fn handle_connected(
     trigger: Trigger<OnAdd, Connected>,
-    query: Query<&Connected, With<ClientOf>>,
+    query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
 ) {
-    let connected = query.get(trigger.target()).unwrap();
-    let client_id = connected.remote_peer_id;
+    let Ok(client_id) = query.get(trigger.target()) else {
+        return;
+    };
+    let client_id = client_id.0;
     let entity = commands
         .spawn((
             PlayerBundle::new(client_id, Vec2::ZERO),

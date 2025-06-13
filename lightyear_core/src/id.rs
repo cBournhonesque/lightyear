@@ -1,10 +1,19 @@
 //! Module to handle the various possible ClientIds
+use bevy::prelude::{Component, Deref};
 use bevy::reflect::Reflect;
 use core::fmt::Formatter;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
+
+/// Stores the PeerId of the local peer for the connection
+#[derive(Debug, Component, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect, Deref)]
+pub struct LocalId(pub PeerId);
+
+/// Stores the PeerId of the remote peer that we are connected to
+#[derive(Debug, Component, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect, Deref)]
+pub struct RemoteId(pub PeerId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum PeerId {

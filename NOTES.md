@@ -1,3 +1,19 @@
+# Bugs
+
+- stop on Server -> Server component gets removed!
+- after disconnecting and reconnecting Client, inputs don't work anymore!
+  - we still receive replication messages, but the ticks are incorrect! Are we not syncing again?
+- Error messages: `lightyear_netcode::client: client ignored packet: invalid packet: sequence 4611686018427388030 already received`
+  - ReplayBuffer issue?
+
+- ReplicationGroup ErrorMessage:
+ - `Error processing packet: SerializationError(InvalidPacketType)`
+ - `ERROR lightyear_transport::plugin: Error processing packet: PacketError(ChannelNotFound)`
+
+Makes me think that things are not cleaned up properly on the entity 
+when we disconnect/reconnect?
+The ticks we receive from the remote are completely wrong for some reason!
+
 https://excalidraw.com/#room=6556b82e2cc953b853cd,eIOMjgsfWiA7iaFzjk1blA
 
 # Examples

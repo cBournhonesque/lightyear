@@ -667,7 +667,7 @@ pub(crate) fn run_rollback(world: &mut World) {
         // we add 1 here because running FixedUpdate will start by incrementing the tick
         let rollback_tick = rollback_start_tick + i + 1;
         let _span = debug_span!("rollback", tick = ?rollback_tick).entered();
-        info!(?rollback_tick, "rollback");
+        debug!(?rollback_tick, "rollback");
         // Set the rollback tick's generic time resource to the fixed time
         // resource that was just advanced.
         *world.resource_mut::<Time>() = world.resource::<Time<Fixed>>().as_generic();

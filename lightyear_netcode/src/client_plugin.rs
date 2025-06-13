@@ -1,14 +1,15 @@
-use crate::Error;
 use crate::auth::Authentication;
 use crate::client::{ClientConfig, ClientState};
+use crate::Error;
+use aeronet_io::connection::PeerAddr;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
-use lightyear_connection::ConnectionSet;
 use lightyear_connection::client::{
     Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected,
 };
-use lightyear_core::id::PeerId;
+use lightyear_connection::ConnectionSet;
+use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::{Link, LinkSet, Linked};
 use lightyear_transport::plugin::TransportSet;
 use tracing::{debug, error};
@@ -27,11 +28,10 @@ pub struct NetcodeClient {
 }
 
 fn on_client_add(mut world: DeferredWorld, context: HookContext) {
-    let server_addr = world
+    if let Some(server_addr) = world
         .get::<NetcodeClient>(context.entity)
-        .map(|client| client.inner.server_addr());
-    if let Some(mut link) = world.get_mut::<Link>(context.entity) {
-        link.as_mut().remote_addr = server_addr;
+        .map(|client| client.inner.server_addr()) {
+        world.commands().get_entity(context.entity).unwrap().insert(PeerAddr(server_addr));
     }
 }
 
@@ -85,8 +85,6 @@ impl NetcodeClient {
 }
 
 // TODO: when Client is spawned, add an observer for connection/disconnection, etc.
-
-// TODO: set the remote_addr on the Link upon connection?
 
 // We process bytes from the link and re-add them to the link so that the Transport can still
 // fetch directly from the link
@@ -151,10 +149,11 @@ impl NetcodeClientPlugin {
                     if state == ClientState::Connected && connecting {
                         info!("Client {} connected", client.id());
                         parallel_commands.command_scope(|mut commands| {
-                            commands.entity(entity).insert(Connected {
-                                local_peer_id: client.id(),
-                                remote_peer_id: PeerId::Server,
-                            });
+                            commands.entity(entity).insert((
+                                Connected,
+                                LocalId(client.id()),
+                                RemoteId(PeerId::Server),
+                            ));
                         });
                     }
                     if !disconnected

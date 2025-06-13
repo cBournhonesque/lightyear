@@ -2,22 +2,21 @@ use alloc::sync::Arc;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec, vec::Vec};
 use bevy::platform::collections::HashMap;
-use bevy::prelude::{Entity, EntityCommands};
+use bevy::prelude::*;
 use core::net::SocketAddr;
 use no_std_io2::io;
-use tracing::{debug, error, trace, warn};
 
 use super::{
-    ClientId, MAC_BYTES, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
-    bytes::Bytes,
-    crypto::{self, Key},
-    error::{Error, Result},
-    packet::{
+    bytes::Bytes, crypto::{self, Key}, error::{Error, Result}, packet::{
         ChallengePacket, DeniedPacket, DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket,
         RequestPacket, ResponsePacket,
-    },
-    replay::ReplayProtection,
+    }, replay::ReplayProtection,
     token::{ChallengeToken, ConnectToken, ConnectTokenBuilder, ConnectTokenPrivate},
+    ClientId,
+    MAC_BYTES,
+    MAX_PACKET_SIZE,
+    MAX_PKT_BUF_SIZE,
+    PACKET_SEND_RATE_SEC,
 };
 use crate::token::TOKEN_EXPIRE_SEC;
 use lightyear_connection::prelude::Connecting;
@@ -29,7 +28,7 @@ use lightyear_link::{Link, LinkReceiver, LinkSender, RecvPayload, SendPayload};
 use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::writer::Writer;
 #[cfg(feature = "trace")]
-use tracing::{Level, instrument};
+use tracing::{instrument, Level};
 
 pub const MAX_CLIENTS: usize = 256;
 

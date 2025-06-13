@@ -147,7 +147,7 @@ impl RemoteTimeline {
         }
     }
 
-    /// On connection, reset the Synced timeline.
+    /// On connection, reset the Remote timeline.
     pub(crate) fn handle_connect(
         trigger: Trigger<OnAdd, Connected>,
         mut query: Query<&mut RemoteTimeline>,

@@ -31,7 +31,6 @@ use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bytes::Bytes;
-use core::net::SocketAddr;
 use core::time::Duration;
 
 /// Commonly used items from the `lightyear_link` crate.
@@ -74,12 +73,6 @@ pub struct Link {
     pub send: LinkSender,
     pub state: LinkState,
     pub stats: LinkStats,
-    // TODO: maybe put this somewhere else? So that link is completely independent of how io
-    //   is handled? (i.e. it might not even required a SocketAddr)
-    //   maybe we have a LinkId, and for example netcode would only be compatible if the LinkId has a SocketAddr?
-    pub local_addr: Option<SocketAddr>,
-    /// Address of the remote peer
-    pub remote_addr: Option<SocketAddr>,
 }
 
 /// Type alias for a `LinkConditioner` specifically for receiving `RecvPayload`.
@@ -90,7 +83,7 @@ pub type RecvLinkConditioner = LinkConditioner<RecvPayload>;
 
 impl Link {
     /// Creates a new Link with the given remote address.
-    pub fn new(remote_addr: SocketAddr, recv_conditioner: Option<RecvLinkConditioner>) -> Self {
+    pub fn new(recv_conditioner: Option<RecvLinkConditioner>) -> Self {
         Self {
             recv: LinkReceiver {
                 buffer: VecDeque::new(),
@@ -99,8 +92,6 @@ impl Link {
             send: LinkSender::default(),
             state: Default::default(),
             stats: LinkStats::default(),
-            local_addr: None,
-            remote_addr: Some(remote_addr),
         }
     }
 }

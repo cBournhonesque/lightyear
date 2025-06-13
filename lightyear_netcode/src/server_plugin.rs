@@ -1,11 +1,11 @@
-use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig};
+use crate::{ClientId, Key, ServerConfig, PRIVATE_KEY_BYTES};
 use alloc::sync::Arc;
 use bevy::ecs::entity::unique_slice::UniqueEntitySlice;
 use bevy::prelude::*;
 use lightyear_connection::client::{Connected, Disconnected, Disconnecting};
 use lightyear_connection::prelude::{server::*, *};
 use lightyear_connection::server::Stopping;
-use lightyear_core::id::PeerId;
+use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_link::{Link, LinkSet};
 use lightyear_transport::plugin::TransportSet;
@@ -95,6 +95,7 @@ impl NetcodeServerPlugin {
             (
                 Entity,
                 &mut Link,
+                Option<&RemoteId>,
                 Option<&Connected>,
                 Option<&Disconnecting>,
             ),
@@ -120,35 +121,38 @@ impl NetcodeServerPlugin {
                 let unique_slice =
                     unsafe { UniqueEntitySlice::from_slice_unchecked(server.collection()) };
                 client_query.iter_many_unique_mut(unique_slice).for_each(
-                    |(entity, mut link, connected, disconnecting)| {
+                    |(entity, mut link, remote_id, connected, disconnecting)| {
                         // TODO: we can be here while the link has been established, but the client is not yet connected
                         //  so the PeerId is not Netcode! I think we should just error?
 
                         // If the client was connected, it has a Netcode client_id
-                        if let Some(PeerId::Netcode(client_id)) =
-                            connected.map(|c| c.remote_peer_id)
-                        {
-                            for _ in 0..link.send.len() {
-                                if let Some(payload) = link.send.pop() {
-                                    netcode_server
-                                        .inner
-                                        .send(payload, client_id, &mut link.send)
-                                        .inspect_err(|e| {
-                                            error!("Error sending packet: {:?}", e);
-                                        })
-                                        .ok();
+                        if connected.is_some() {
+                            if let Some(PeerId::Netcode(client_id)) = remote_id.map(|x| x.0) {
+                                for _ in 0..link.send.len() {
+                                    if let Some(payload) = link.send.pop() {
+                                        netcode_server
+                                            .inner
+                                            .send(payload, client_id, &mut link.send)
+                                            .inspect_err(|e| {
+                                                error!("Error sending packet: {:?}", e);
+                                            })
+                                            .ok();
+                                    }
                                 }
-                            }
 
-                            // NOTE: we send any netcode packets AFTER the user payloads have been processed
-                            // (because we want the
-                            netcode_server
-                                .inner
-                                .send_keepalives(client_id, &mut link.send)
-                                .inspect_err(|e| {
-                                    error!("Error sending keepalive packet: {:?}", e);
-                                })
-                                .ok();
+                                // NOTE: we send any netcode packets AFTER the user payloads have been processed
+                                // (because we want the
+                                netcode_server
+                                    .inner
+                                    .send_keepalives(client_id, &mut link.send)
+                                    .inspect_err(|e| {
+                                        error!("Error sending keepalive packet: {:?}", e);
+                                    })
+                                    .ok();
+
+                            } else {
+                                error!("The client is Connected but does not have a RemoteId component");
+                            }
                         } else {
                             // if the client is not connected, remove any messages buffered in link.send
                             // We don't want to allow users to send messages while not connected
@@ -239,10 +243,9 @@ impl NetcodeServerPlugin {
                             info!("New connection on netcode from {:?} ({:?})", id, entity);
                             trace!("Adding Connected/ClientOf with id {:?}", id);
                             c.entity(entity).insert((
-                                Connected {
-                                    local_peer_id: PeerId::Server,
-                                    remote_peer_id: PeerId::Netcode(id),
-                                },
+                                Connected,
+                                LocalId(PeerId::Server),
+                                RemoteId(PeerId::Netcode(id)),
                                 ClientOf,
                             ));
                         });
@@ -286,7 +289,7 @@ impl NetcodeServerPlugin {
         trigger: Trigger<Stop>,
         mut commands: Commands,
         mut query: Query<(Entity, &mut NetcodeServer, &Server), Without<Stopped>>,
-        mut link_query: Query<(Entity, &mut Link, &Connected), With<ClientOf>>,
+        mut link_query: Query<(Entity, &mut Link, &RemoteId), (With<ClientOf>, With<Connected>)>,
     ) -> Result {
         if let Ok((server_entity, mut netcode_server, server)) = query.get_mut(trigger.target()) {
             info!("Stopping netcode server");
@@ -300,13 +303,13 @@ impl NetcodeServerPlugin {
             let unique_slice =
                 unsafe { UniqueEntitySlice::from_slice_unchecked(server.collection()) };
             link_query.iter_many_unique_mut(unique_slice).try_for_each(
-                |(entity, mut link, connected)| {
-                    let PeerId::Netcode(client_id) = connected.remote_peer_id else {
+                |(entity, mut link, remote_peer_id)| {
+                    let PeerId::Netcode(client_id) = remote_peer_id.0 else {
                         error!(
                             "Client {:?} is not a Netcode client",
-                            connected.remote_peer_id
+                            remote_peer_id
                         );
-                        return Err(crate::error::Error::UnknownClient(connected.remote_peer_id));
+                        return Err(crate::error::Error::UnknownClient(remote_peer_id.0));
                     };
                     // this will make sure that `netcode.on_disconnect` is called, so the entity will get disconnected
                     // in the next frame from the `receive` system.

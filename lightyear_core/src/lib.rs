@@ -31,7 +31,7 @@ pub mod timeline;
 
 /// Commonly used items from the `lightyear_core` crate.
 pub mod prelude {
-    pub use crate::id::PeerId;
+    pub use crate::id::{LocalId, PeerId, RemoteId};
     pub use crate::tick::Tick;
     pub use crate::timeline::{
         LocalTimeline, NetworkTimeline, NetworkTimelinePlugin, Rollback, RollbackState, SyncEvent,

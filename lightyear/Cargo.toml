@@ -157,6 +157,9 @@ lightyear_webtransport = {workspace = true, optional = true}
 # bevy
 bevy.workspace = true
 
+# io
+aeronet_io.workspace = true
+
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
 lightyear_udp = { workspace = true, optional = true }

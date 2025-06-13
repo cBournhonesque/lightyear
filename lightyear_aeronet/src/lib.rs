@@ -6,7 +6,7 @@ use alloc::format;
 
 pub mod server;
 
-use aeronet_io::connection::{Disconnect, Disconnected};
+use aeronet_io::connection::{Disconnect, Disconnected, LocalAddr, PeerAddr};
 use aeronet_io::server::{Close, Server};
 use aeronet_io::{IoSet, Session, SessionEndpoint};
 use bevy::app::{App, Plugin, PostUpdate, PreUpdate};
@@ -25,6 +25,31 @@ pub struct AeronetLinkOf(pub Entity);
 pub struct AeronetPlugin;
 
 impl AeronetPlugin {
+    
+    fn on_local_addr_added(
+        trigger: Trigger<OnAdd, (LocalAddr, AeronetLinkOf)>,
+        query: Query<(&AeronetLinkOf, &LocalAddr)>,
+        mut commands: Commands,
+    ) {
+        if let Ok((aeronet_link, local_addr)) = query.get(trigger.target()) {
+            if let Ok(mut c) = commands.get_entity(aeronet_link.0) {
+                c.insert(LocalAddr(local_addr.0));
+            }
+        }
+    }
+    
+    fn on_peer_addr_added(
+        trigger: Trigger<OnAdd, (PeerAddr, AeronetLinkOf)>,
+        query: Query<(&AeronetLinkOf, &PeerAddr)>,
+        mut commands: Commands,
+    ) {
+        if let Ok((aeronet_link, peer_addr)) = query.get(trigger.target()) {
+            if let Ok(mut c) = commands.get_entity(aeronet_link.0) {
+                c.insert(PeerAddr(peer_addr.0));
+            }
+        }
+    }
+    
     fn on_connecting(
         trigger: Trigger<OnAdd, (SessionEndpoint, AeronetLinkOf)>,
         query: Query<&AeronetLinkOf>,
@@ -131,6 +156,8 @@ impl Plugin for AeronetPlugin {
         app.register_type::<AeronetLinkOf>()
             .register_type::<AeronetLink>();
 
+        app.add_observer(Self::on_local_addr_added);
+        app.add_observer(Self::on_peer_addr_added);
         app.add_observer(Self::on_connecting);
         app.add_observer(Self::on_connected);
         app.add_observer(Self::on_disconnected);

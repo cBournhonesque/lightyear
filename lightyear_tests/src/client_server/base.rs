@@ -45,7 +45,11 @@ fn test_setup_client_server() {
     assert!(stepper.client(0).contains::<ReplicationReceiver>());
     assert!(stepper.client(0).contains::<CrossbeamIo>());
     assert!(stepper.client(0).contains::<Connected>());
-
+    assert!(stepper.client(0).contains::<LocalAddr>());
+    assert!(stepper.client(0).contains::<PeerAddr>());
+    assert!(stepper.client(0).contains::<LocalId>());
+    assert!(stepper.client(0).contains::<RemoteId>());
+    
     assert!(stepper.server().contains::<LocalTimeline>());
     assert!(stepper.server().contains::<Started>());
 
@@ -79,4 +83,7 @@ fn test_setup_client_server() {
     );
     assert!(stepper.client_of(0).contains::<CrossbeamIo>());
     assert!(stepper.client_of(0).contains::<Connected>());
+    assert!(stepper.client_of(0).contains::<PeerAddr>());
+    assert!(stepper.client_of(0).contains::<LocalId>());
+    assert!(stepper.client_of(0).contains::<RemoteId>());
 }

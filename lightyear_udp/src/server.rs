@@ -10,8 +10,10 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-use bevy::platform::collections::HashMap;
+use crate::UdpError;
+use aeronet_io::connection::{LocalAddr, PeerAddr};
 use bevy::platform::collections::hash_map::Entry;
+use bevy::platform::collections::HashMap;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::{BufMut, BytesMut};
@@ -23,20 +25,20 @@ use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Linking, Unli
 /// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>
 pub(crate) const MTU: usize = 1472;
 
+/// Component to start a UdpServer.
+/// 
+/// The [`LocalAddr`] component is required to specify the local SocketAddr to bind.
 #[derive(Component)]
 #[require(Server)]
 pub struct ServerUdpIo {
-    local_addr: SocketAddr,
-    // TODO: add possibility to set the remote addr
     socket: Option<std::net::UdpSocket>,
     buffer: BytesMut,
     connected_addresses: HashMap<SocketAddr, Option<Entity>>,
 }
 
-impl ServerUdpIo {
-    pub fn new(local_addr: SocketAddr) -> ServerUdpIo {
-        ServerUdpIo {
-            local_addr,
+impl Default for ServerUdpIo {
+    fn default() -> Self {
+         ServerUdpIo {
             socket: None,
             buffer: BytesMut::with_capacity(MTU),
             connected_addresses: HashMap::with_capacity(1),
@@ -44,18 +46,20 @@ impl ServerUdpIo {
     }
 }
 
+
 pub struct ServerUdpPlugin;
 
 impl ServerUdpPlugin {
     // TODO: we don't want this system to panic on error
     fn link(
         trigger: Trigger<LinkStart>,
-        mut query: Query<&mut ServerUdpIo, (Without<Linking>, Without<Linked>)>,
+        mut query: Query<(&mut ServerUdpIo, Option<&LocalAddr>), (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
-        if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
-            info!("Server UDP socket bound to {}", udp_io.local_addr);
-            let socket = std::net::UdpSocket::bind(udp_io.local_addr)?;
+        if let Ok((mut udp_io, local_addr)) = query.get_mut(trigger.target()) {
+            let local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?.0;
+            info!("Server UDP socket bound to {}", local_addr);
+            let socket = std::net::UdpSocket::bind(local_addr)?;
             socket.set_nonblocking(true)?;
             udp_io.socket = Some(socket);
             commands.entity(trigger.target()).insert(Linked);
@@ -72,19 +76,15 @@ impl ServerUdpPlugin {
 
     fn send(
         mut server_query: Query<(&mut ServerUdpIo, &Server), With<Linked>>,
-        mut link_query: Query<&mut Link>,
+        mut link_query: Query<(&mut Link, &PeerAddr)>,
     ) {
         // TODO: parallelize
         server_query
             .iter_mut()
             .for_each(|(mut server_udp_io, server)| {
                 server.collection().iter().for_each(|client_entity| {
-                    let Some(mut link) = link_query.get_mut(*client_entity).ok() else {
+                    let Some((mut link, remote_addr)) = link_query.get_mut(*client_entity).ok() else {
                         error!("Client entity {} not found in link query", client_entity);
-                        return;
-                    };
-                    let Some(remote_addr) = link.remote_addr else {
-                        error!("Client entity {} has no remote address", client_entity);
                         return;
                     };
                     link.send.drain().for_each(|send_payload| {
@@ -92,9 +92,9 @@ impl ServerUdpPlugin {
                             .socket
                             .as_mut()
                             .unwrap()
-                            .send_to(send_payload.as_ref(), remote_addr)
+                            .send_to(send_payload.as_ref(), remote_addr.0)
                             .inspect_err(|e| {
-                                error!("Error sending UDP packet to {}: {}", remote_addr, e);
+                                error!("Error sending UDP packet to {}: {}", remote_addr.0, e);
                             })
                             .ok();
                     });
@@ -102,12 +102,7 @@ impl ServerUdpPlugin {
             });
     }
 
-    // TODO:
-    //  - server io receives some packets from a new address
-    //  - server_io spawns a ClientOf, with Linked
-    //     and updates Server->ClientOf mapping to contain the SocketId
     fn receive(
-        time: Res<Time<Real>>,
         commands: ParallelCommands,
         mut server_query: Query<(Entity, &mut ServerUdpIo), With<Linked>>,
         // TODO: we want to have With<Linked> here, but that would mean that if a client sends 2 packets in a row
@@ -175,7 +170,7 @@ impl ServerUdpPlugin {
                                 }
                                 Entry::Vacant(vacant) => {
                                     // we are spawning a new entity but the initial packets will be dropped
-                                    let mut link = Link::new(address, None);
+                                    let mut link = Link::new(None);
                                     info!("Received UDP packet from new address: {}", address);
                                     link.recv.push(payload, Instant::now());
                                     let vacant = vacant.insert(None);
@@ -187,6 +182,8 @@ impl ServerUdpPlugin {
                                                 },
                                                 link,
                                                 Linked,
+                                                PeerAddr(address),
+                                                // TODO: should we add LocalAddr?
                                             ))
                                             .id();
                                         info!(?entity, ?server_entity, "Spawn new LinkOf");

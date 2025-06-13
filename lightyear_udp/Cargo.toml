@@ -16,13 +16,15 @@ std = [
 server = []
 
 [dependencies]
+aeronet_io.workspace = true
 lightyear_link.workspace = true
 
 # bevy
 bevy.workspace = true
 
-# serde
+# utils
 bytes.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

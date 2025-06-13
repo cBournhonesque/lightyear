@@ -1,16 +1,16 @@
-use crate::MessageManager;
 use crate::plugin::MessagePlugin;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
+use crate::MessageManager;
 use crate::{Message, MessageNetId};
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy::prelude::{Component, Entity, ParallelCommands, Query, Res, With, World};
 use lightyear_core::tick::Tick;
-use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
-use lightyear_transport::channel::ChannelKind;
+use lightyear_serde::ToBytes;
 use lightyear_transport::channel::receivers::ChannelReceive;
+use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::Transport;
 use tracing::{error, trace};
 
@@ -21,7 +21,7 @@ use alloc::sync::Arc;
 use bevy::ecs::component::HookContext;
 use bevy::prelude::Event;
 use lightyear_connection::client::Connected;
-use lightyear_core::id::PeerId;
+use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_transport::packet::message::MessageId;
 
@@ -150,7 +150,7 @@ impl MessagePlugin {
     /// - Otherwise, buffer the message in the `MessageReceiver<M>` component.
     pub fn recv(
         // NOTE: we only need the mut bound on MessageManager because EntityMapper requires mut
-        mut transport_query: Query<(Entity, &mut MessageManager, &mut Transport, &Connected)>,
+        mut transport_query: Query<(Entity, &mut MessageManager, &mut Transport, &RemoteId), With<Connected>>,
         // List of ChannelReceivers<M> present on that entity
         receiver_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
@@ -159,7 +159,7 @@ impl MessagePlugin {
         // We use Arc to make the query Clone, since we know that we will only access MessageReceiver<M> components
         // on potentially different entities in parallel (though the current loop isn't parallel)
         let receiver_query = Arc::new(receiver_query);
-        transport_query.par_iter_mut().for_each(|(entity, mut message_manager, mut transport, connected)| {
+        transport_query.par_iter_mut().for_each(|(entity, mut message_manager, mut transport, remote_peer_id)| {
             // SAFETY: we know that this won't lead to violating the aliasing rule
             let mut receiver_query = unsafe { receiver_query.reborrow_unsafe() };
             // enable split borrows
@@ -167,7 +167,6 @@ impl MessagePlugin {
             // TODO: we can run this in parallel using rayon!
             transport.receivers.values_mut().try_for_each(|receiver_metadata| {
                 let channel_kind = receiver_metadata.channel_kind;
-                let remote_peer_id = connected.remote_peer_id;
                 while let Some((tick, bytes, message_id)) = receiver_metadata.receiver.read_message() {
                     trace!("Received message {message_id:?} from peer {:?} on channel {channel_kind:?}", remote_peer_id);
                     let mut reader = Reader::from(bytes);
@@ -206,7 +205,7 @@ impl MessagePlugin {
                                 message_id,
                                 serialize_fns,
                                 &mut message_manager.entity_mapper.remote_to_local,
-                                remote_peer_id,
+                                remote_peer_id.0,
                             )?;
                         }
                     } else {

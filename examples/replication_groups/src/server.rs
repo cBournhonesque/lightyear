@@ -30,48 +30,49 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
     trigger: Trigger<OnAdd, Connected>,
-    query: Query<&Connected, With<ClientOf>>,
+    query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
 ) {
-    if let Ok(connected) = query.get(trigger.target()) {
-        let client_id = connected.remote_peer_id;
-        // Generate pseudo random color from client id.
-        let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
-        let s = 0.8;
-        let l = 0.5;
-        let color = Color::hsl(h, s, l);
-        let player_position = Vec2::ZERO;
-        let player_entity = commands
-            .spawn((
-                PlayerId(client_id),
-                PlayerPosition(player_position),
-                PlayerColor(color),
-                Replicate::to_clients(NetworkTarget::All),
-                PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
-                InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-                ControlledBy {
-                    owner: trigger.target(),
-                    lifetime: Lifetime::default(),
-                },
-            ))
-            .id();
+    let Ok(client_id) = query.get(trigger.target()) else {
+        return;
+    };
+    let client_id = client_id.0;
+    // Generate pseudo random color from client id.
+    let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
+    let s = 0.8;
+    let l = 0.5;
+    let color = Color::hsl(h, s, l);
+    let player_position = Vec2::ZERO;
+    let player_entity = commands
+        .spawn((
+            PlayerId(client_id),
+            PlayerPosition(player_position),
+            PlayerColor(color),
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+            InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+            ControlledBy {
+                owner: trigger.target(),
+                lifetime: Lifetime::default(),
+            },
+        ))
+        .id();
 
-        let tail_length = 300.0;
-        let default_direction = Direction::Up;
-        let tail = default_direction.get_tail(player_position, tail_length);
-        let mut points = VecDeque::new();
-        points.push_front((tail, default_direction));
-        let tail_entity = commands
-            .spawn((
-                PlayerParent(player_entity),
-                TailPoints(points),
-                TailLength(tail_length),
-                ReplicateLike {
-                    root: player_entity,
-                },
-            ))
-            .id();
-    }
+    let tail_length = 300.0;
+    let default_direction = Direction::Up;
+    let tail = default_direction.get_tail(player_position, tail_length);
+    let mut points = VecDeque::new();
+    points.push_front((tail, default_direction));
+    let tail_entity = commands
+        .spawn((
+            PlayerParent(player_entity),
+            TailPoints(points),
+            TailLength(tail_length),
+            ReplicateLike {
+                root: player_entity,
+            },
+        ))
+        .id();
 }
 
 /// Read client inputs and move players

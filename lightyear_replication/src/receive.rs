@@ -20,7 +20,7 @@ use crate::plugin::ReplicationSet;
 use crate::prelude::ReplicationSender;
 use crate::registry::buffered::{BufferedChanges, BufferedEntity};
 use lightyear_connection::client::{Connected, Disconnected};
-use lightyear_core::id::PeerId;
+use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::plugin::MessageSet;
@@ -84,11 +84,10 @@ impl ReplicationReceivePlugin {
 
     pub(crate) fn apply_world(
         world: &mut World,
-        // TODO: have some logic to get the remote peer independently from ClientOf or client-server
-        //  Maybe the link contains the remoteLinkId?
         query: &mut QueryState<
-            (Entity, &Connected),
+            (Entity, &RemoteId),
             (
+                With<Connected>,
                 With<ReplicationReceiver>,
                 With<MessageManager>,
                 With<LocalTimeline>,
@@ -103,7 +102,7 @@ impl ReplicationReceivePlugin {
         receiver_entities.extend(
             query
                 .iter(world)
-                .map(|(e, connected)| (e, connected.remote_peer_id)),
+                .map(|(e, remote_id)| (e, remote_id.0)),
         );
 
         // SAFETY: the other uses of `world` won't access the ComponentRegistry

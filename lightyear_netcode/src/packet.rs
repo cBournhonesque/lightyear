@@ -12,12 +12,12 @@ use {
 };
 
 use super::{
-    ClientId, MAC_BYTES, MAX_PKT_BUF_SIZE, NETCODE_VERSION,
-    bytes::Bytes,
-    crypto::{self, Key},
-    error::Error as NetcodeError,
-    replay::ReplayProtection,
+    bytes::Bytes, crypto::{self, Key}, error::Error as NetcodeError, replay::ReplayProtection,
     token::{ChallengeToken, ConnectTokenPrivate},
+    ClientId,
+    MAC_BYTES,
+    MAX_PKT_BUF_SIZE,
+    NETCODE_VERSION,
 };
 use chacha20poly1305::XNonce;
 use lightyear_link::{RecvPayload, SendPayload};
@@ -581,13 +581,14 @@ pub fn sequence_len(sequence: u64) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use chacha20poly1305::{AeadCore, XChaCha20Poly1305, aead::OsRng};
+    use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305};
 
-    use crate::{MAX_PACKET_SIZE, USER_DATA_BYTES, crypto::generate_key, token::AddressList};
+    use crate::{crypto::generate_key, token::AddressList, MAX_PACKET_SIZE, USER_DATA_BYTES};
 
     use super::*;
     #[cfg(not(feature = "std"))]
     use alloc::vec::Vec;
+    use lightyear_serde::writer::Writer;
 
     #[test]
     fn sequence_number_bytes_required() {

@@ -30,10 +30,12 @@ fn startup(mut commands: Commands) -> Result {
     let client = commands
         .spawn((
             Client::default(),
-            Link::new(SERVER_ADDR, None),
+            LocalAddr(CLIENT_ADDR),
+            PeerAddr(SERVER_ADDR),
+            Link::new(None),
             ReplicationReceiver::default(),
             NetcodeClient::new(auth, NetcodeConfig::default())?,
-            UdpIo::new(CLIENT_ADDR)?,
+            UdpIo::default(),
         ))
         .id();
     commands.trigger_targets(Connect, client);

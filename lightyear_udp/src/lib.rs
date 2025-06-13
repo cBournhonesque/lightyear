@@ -17,10 +17,10 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
+use aeronet_io::connection::{LocalAddr, PeerAddr};
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::{BufMut, BytesMut};
-use core::net::SocketAddr;
 use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Linking, Unlink, Unlinked};
 
 /// Provides server-specific UDP IO functionalities.
@@ -45,32 +45,33 @@ pub(crate) const MTU: usize = 1472;
 /// Component that manages a UDP socket for network communication.
 ///
 /// This component is added to an entity with a `Link` component to enable
-/// sending and receiving data over UDP. It holds the local socket address,
-/// the `std::net::UdpSocket` (once linked), and a buffer for incoming data.
-///
-/// The `UdpPlugin` is responsible for creating and managing the actual socket
-/// based on the `LinkState`.
+/// sending and receiving data over UDP.
+/// The user must also add a `LocalAddr` component to specify the local socket address
+/// that will be bound.
 #[derive(Component)]
 #[require(Link)]
+// TODO: add LocalAddr using Construct
 pub struct UdpIo {
-    // TODO: require remote addr here!
-    local_addr: SocketAddr,
     socket: Option<std::net::UdpSocket>,
     buffer: BytesMut,
 }
 
-// TODO: maybe We could have UdpIo<Unlinked> and UdpIo<Linked> and only UdpIo<Linked> has a std::net::UdpSocket?
-//  but then it becomes annoying for the user to query. But realistically the user wouldn't query it?
-
-impl UdpIo {
-    pub fn new(local_addr: SocketAddr) -> std::io::Result<UdpIo> {
-        Ok(UdpIo {
-            local_addr,
+impl Default for UdpIo {
+    fn default() -> Self {
+        UdpIo {
             socket: None,
             buffer: BytesMut::with_capacity(MTU),
-        })
+        }
     }
 }
+
+/// Errors related to the client connection
+#[derive(thiserror::Error, Debug)]
+pub enum UdpError {
+    #[error("LocalAddr is required to start the UdpIo link")]
+    LocalAddrMissing,
+}
+
 
 /// Bevy plugin to integrate UDP-based IO with Lightyear.
 ///
@@ -86,13 +87,14 @@ pub struct UdpPlugin;
 impl UdpPlugin {
     fn link(
         trigger: Trigger<LinkStart>,
-        mut query: Query<&mut UdpIo, (Without<Linking>, Without<Linked>)>,
+        mut query: Query<(&mut UdpIo, Option<&LocalAddr>), (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
         trace!("In LinkStart::UDP trigger");
-        if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
-            let socket = std::net::UdpSocket::bind(udp_io.local_addr)?;
-            info!("UDP socket bound to {}", udp_io.local_addr);
+        if let Ok((mut udp_io, local_addr)) = query.get_mut(trigger.target()) {
+            let local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?.0;
+            let socket = std::net::UdpSocket::bind(local_addr)?;
+            info!("UDP socket bound to {}", local_addr);
             socket.set_nonblocking(true)?;
             udp_io.socket = Some(socket);
             commands.entity(trigger.target()).insert(Linked);
@@ -107,19 +109,17 @@ impl UdpPlugin {
         }
     }
 
-    fn send(mut query: Query<(&mut Link, &mut UdpIo), With<Linked>>) {
-        query.par_iter_mut().for_each(|(mut link, mut udp_io)| {
-            if let Some(remote_addr) = link.remote_addr {
-                link.send.drain().for_each(|payload| {
-                    udp_io
-                        .socket
-                        .as_mut()
-                        .unwrap()
-                        .send_to(payload.as_ref(), remote_addr)
-                        .inspect_err(|e| error!("Error sending UDP packet: {}", e))
-                        .ok();
-                });
-            }
+    fn send(mut query: Query<(&mut Link, &mut UdpIo, &PeerAddr), With<Linked>>) {
+        query.par_iter_mut().for_each(|(mut link, mut udp_io, remote_addr)| {
+            link.send.drain().for_each(|payload| {
+                udp_io
+                    .socket
+                    .as_mut()
+                    .unwrap()
+                    .send_to(payload.as_ref(), remote_addr.0)
+                    .inspect_err(|e| error!("Error sending UDP packet: {}", e))
+                    .ok();
+            });
         })
     }
 

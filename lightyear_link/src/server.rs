@@ -23,7 +23,7 @@ impl Server {
             && !entity_ref.contains::<Linked>()
             && !entity_ref.contains::<Linking>()
         {
-            trace!("Inserting Unlinked because ServerLink was added");
+            trace!("Inserting Unlinked because Server was added");
             world.commands().entity(context.entity).insert(Unlinked {
                 reason: String::new(),
             });

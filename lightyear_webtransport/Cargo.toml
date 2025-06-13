@@ -42,7 +42,6 @@ dangerous-configuration = ["aeronet_webtransport/dangerous-configuration"]
 [dependencies]
 aeronet_webtransport.workspace = true
 aeronet_io.workspace = true
-lightyear_connection.workspace = true
 lightyear_link.workspace = true
 lightyear_aeronet.workspace = true
 bevy.workspace = true

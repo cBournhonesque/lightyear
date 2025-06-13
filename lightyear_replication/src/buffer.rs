@@ -19,8 +19,8 @@ use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
 use crate::prelude::ComponentReplicationOverrides;
-use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
+use crate::registry::ComponentKind;
 use crate::send::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 
@@ -29,7 +29,7 @@ use lightyear_connection::client::{Client, Connected};
 #[cfg(feature = "server")]
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::prelude::NetworkTarget;
-
+use lightyear_core::id::RemoteId;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
 use lightyear_link::prelude::LinkOf;
@@ -296,13 +296,13 @@ impl Replicate {
         mut sender_query: Query<(
             Entity,
             &mut ReplicationSender,
-            &Connected,
+            &RemoteId,
             Option<&Client>,
             Option<&LinkOf>,
-        )>,
+        ), With<Connected>>,
         mut replicate_query: Query<(Entity, &mut Replicate)>,
     ) {
-        if let Ok((sender_entity, mut sender, connected, _client, client_of)) =
+        if let Ok((sender_entity, mut sender, remote_peer_id, _client, client_of)) =
             sender_query.get_mut(trigger.target())
         {
             // TODO: maybe do this in parallel?
@@ -313,7 +313,7 @@ impl Replicate {
                     ReplicationMode::SingleClient => {}
                     #[cfg(feature = "server")]
                     ReplicationMode::SingleServer(target) => {
-                        if client_of.is_some() && target.targets(&connected.remote_peer_id) {
+                        if client_of.is_some() && target.targets(&remote_peer_id) {
                             debug!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
                             sender.add_replicated_entity(entity, replicate.authority);
                             replicate.senders.insert(sender_entity);
@@ -322,13 +322,13 @@ impl Replicate {
                     ReplicationMode::Sender(_) => {}
                     #[cfg(feature = "server")]
                     ReplicationMode::Server(e, target) => {
-                        if client_of.is_some_and(|c| c.server == *e) && target.targets(&connected.remote_peer_id) {
+                        if client_of.is_some_and(|c| c.server == *e) && target.targets(&remote_peer_id) {
                             sender.add_replicated_entity(entity, replicate.authority);
                             replicate.senders.insert(sender_entity);
                         }
                     }
                     ReplicationMode::Target(target) => {
-                        if target.targets(&connected.remote_peer_id) {
+                        if target.targets(&remote_peer_id) {
                             sender.add_replicated_entity(entity, replicate.authority);
                             replicate.senders.insert(sender_entity);
                         }

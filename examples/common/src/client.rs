@@ -60,7 +60,9 @@ impl ExampleClient {
             let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), settings.client_port);
             entity_mut.insert((
                 Client::default(),
-                Link::new(settings.server_addr, settings.conditioner.clone()),
+                Link::new(settings.conditioner.clone()),
+                LocalAddr(client_addr),
+                PeerAddr(settings.server_addr),
                 ReplicationReceiver::default(),
                 PredictionManager::default(),
                 InterpolationManager::default(),
@@ -87,7 +89,7 @@ impl ExampleClient {
             match settings.transport {
                 #[cfg(not(target_family = "wasm"))]
                 ClientTransports::Udp => {
-                    entity_mut.insert(UdpIo::new(client_addr)?);
+                    entity_mut.insert(UdpIo::default());
                 }
                 ClientTransports::WebTransport => {
                     let certificate_digest = {
@@ -101,7 +103,6 @@ impl ExampleClient {
                         }
                     };
                     entity_mut.insert(WebTransportClientIo {
-                        server_addr: settings.server_addr,
                         certificate_digest,
                     });
                 }

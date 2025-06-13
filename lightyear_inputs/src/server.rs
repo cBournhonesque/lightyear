@@ -1,15 +1,16 @@
 //! Handle input messages received from the clients
 
-use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
+use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_connection::server::Started;
+use lightyear_core::id::RemoteId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSet;
@@ -110,16 +111,15 @@ fn receive_input_message<S: ActionStateSequence>(
         &LinkOf,
         &ClientOf,
         &mut MessageReceiver<InputMessage<S>>,
-        &Connected,
-    )>,
+        &RemoteId,
+    ), With<Connected>>,
     mut query: Query<Option<&mut InputBuffer<S::State>>>,
     mut commands: Commands,
 ) -> Result {
     // TODO: use par_iter_mut
-    receivers.iter_mut().try_for_each(|(client_entity, link_of, client_of, mut receiver, connected)| {
+    receivers.iter_mut().try_for_each(|(client_entity, link_of, client_of, mut receiver, client_id)| {
         // TODO: this drains the messages... but the user might want to re-broadcast them?
         //  should we just read instead?
-        let client_id = connected.remote_peer_id;
         let server_entity = link_of.server;
         receiver.receive().try_for_each(|message| {
             // ignore input messages from the local client (if running in host-server mode)
@@ -183,7 +183,7 @@ fn receive_input_message<S: ActionStateSequence>(
                     sender.send::<_, InputChannel>(
                         &message,
                         server,
-                        &NetworkTarget::AllExceptSingle(client_id)
+                        &NetworkTarget::AllExceptSingle(client_id.0)
                     )?;
                 }
             }
