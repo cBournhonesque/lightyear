@@ -13,14 +13,14 @@ use crate::sync;
 use bevy::prelude::TransformSystem::TransformPropagate;
 use bevy::prelude::*;
 use lightyear_frame_interpolation::FrameInterpolationSet;
-use lightyear_interpolation::InterpolationMode;
 use lightyear_interpolation::prelude::InterpolationRegistry;
+use lightyear_interpolation::InterpolationMode;
 use lightyear_prediction::plugin::PredictionSet;
 use lightyear_replication::prelude::TransformLinearInterpolation;
 
 pub struct LightyearAvianPlugin;
 
-impl Plugin for crate::LightyearAvianPlugin {
+impl Plugin for LightyearAvianPlugin {
     fn build(&self, app: &mut App) {
         // NOTE: the three main physics sets in FixedPostUpdate run in this order:
         // pub enum PhysicsSet {

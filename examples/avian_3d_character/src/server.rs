@@ -181,12 +181,14 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 /// Spawn the player entity when a client connects
 pub(crate) fn handle_connected(
     trigger: Trigger<OnAdd, Connected>,
-    query: Query<&Connected, With<ClientOf>>,
+    query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
-    character_query: Query<Entity, With<CharacterMarker>>, // Query existing characters
+    character_query: Query<Entity, With<CharacterMarker>>,
 ) {
-    let connected = query.get(trigger.target()).unwrap();
-    let client_id = connected.remote_peer_id;
+    let Ok(client_id) = query.get(trigger.target()) else {
+        return;
+    };
+    let client_id = client_id.0;
     info!("Client connected with client-id {client_id:?}. Spawning character entity.");
 
     // Track the number of characters to pick colors and starting positions.

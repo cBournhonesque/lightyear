@@ -25,7 +25,7 @@ impl Plugin for SharedPlugin {
             PhysicsPlugins::default()
                 .build()
                 // disable Sync as it is handled by lightyear_avian
-                .disable::<TimelineSyncPlugin>(),
+                .disable::<SyncPlugin>(),
         )
         .insert_resource(Gravity(Vec2::ZERO));
 

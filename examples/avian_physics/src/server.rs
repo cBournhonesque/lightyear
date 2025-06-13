@@ -102,11 +102,13 @@ pub(crate) fn movement(
 pub(crate) fn replicate_players(
     trigger: Trigger<OnAdd, Connected>,
     mut commands: Commands,
-    client_query: Query<&Connected, With<ClientOf>>,
+    client_query: Query<&RemoteId, With<ClientOf>>,
 ) {
+    let Ok(client_id) = client_query.get(trigger.target()) else {
+        return;
+    };
+    let client_id = client_id.0;
     let entity = trigger.target();
-    let connected = client_query.get(entity).unwrap();
-    let client_id = connected.remote_peer_id;
 
     let color = color_from_id(client_id);
     let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;

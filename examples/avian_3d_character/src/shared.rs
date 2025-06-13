@@ -85,14 +85,6 @@ impl Plugin for SharedPlugin {
 
         // Physics
 
-        // Position and Rotation are the primary source of truth so no need to
-        // sync changes from Transform to Position.
-        // (we are not applying manual updates to Transform)
-        app.insert_resource(avian3d::sync::SyncConfig {
-            transform_to_position: false,
-            position_to_transform: true,
-            ..default()
-        });
         // disable sleeping
         app.insert_resource(SleepingThreshold {
             linear: -0.01,
@@ -107,6 +99,7 @@ impl Plugin for SharedPlugin {
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
+                .disable::<SyncPlugin>()
                 .disable::<PhysicsInterpolationPlugin>()
                 // disable Sleeping plugin as it can mess up physics rollbacks
                 .disable::<SleepingPlugin>(),

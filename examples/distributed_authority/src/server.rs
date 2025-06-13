@@ -12,6 +12,7 @@ use crate::shared::color_from_id;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use core::time::Duration;
+use lightyear::connection::client_of::ClientOf;
 use lightyear::input::native::prelude::ActionState;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
@@ -55,14 +56,12 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 pub(crate) fn handle_connected(
     trigger: Trigger<OnAdd, Connected>,
     mut commands: Commands,
-    query: Query<&Connected>,
+    query: Query<&RemoteId, With<ClientOf>>,
 ) {
-    let client_entity = trigger.target();
-    let Ok(connected) = query.get(client_entity) else {
+    let Ok(client_id) = query.get(trigger.target()) else {
         return;
     };
-    let client_id = connected.remote_peer_id;
-
+    let client_id = client_id.0;
     let color = color_from_id(client_id);
     let entity = commands.spawn((
         PlayerId(client_id),
@@ -72,7 +71,7 @@ pub(crate) fn handle_connected(
         PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
         ControlledBy {
-            owner: client_entity,
+            owner: trigger.target(),
             lifetime: Lifetime::default(),
         },
     ));

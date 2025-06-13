@@ -64,11 +64,13 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 /// Spawn the player entity when a client connects
 pub(crate) fn handle_connected(
     trigger: Trigger<OnAdd, Connected>,
-    mut query: Query<&Connected, With<ClientOf>>,
+    mut query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
 ) {
-    let connected = query.get(trigger.target()).unwrap();
-    let client_id = connected.remote_peer_id;
+    let Ok(client_id) = query.get(trigger.target()) else {
+        return;
+    };
+    let client_id = client_id.0;
     let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
     let s = 0.8;
     let l = 0.5;

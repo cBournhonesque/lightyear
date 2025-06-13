@@ -50,7 +50,7 @@ impl PluginGroup for SharedPlugins {
         ));
 
         #[cfg(feature = "avian")]
-        let builder = builder.add(lightyear_avian::LightyearAvianPlugin);
+        let builder = builder.add(lightyear_avian::prelude::LightyearAvianPlugin);
 
         builder
     }
