@@ -73,12 +73,11 @@ pub(crate) fn handle_connected(
         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
         ControlledBy {
             owner: client_entity,
-            lifetime: Lifetime::default()
+            lifetime: Lifetime::default(),
         },
     ));
     info!("Create entity {:?} for client {:?}", entity.id(), client_id);
 }
-
 
 /// Read client inputs and move players in server therefore giving a basis for other clients
 fn movement(

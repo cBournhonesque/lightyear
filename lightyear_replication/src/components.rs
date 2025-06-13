@@ -527,7 +527,10 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
     /// When a new client connects, check if we need to replicate existing entities to it
     pub(crate) fn handle_connection(
         trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
-        mut sender_query: Query<(Entity, &mut ReplicationSender, &RemoteId, Option<&LinkOf>), With<Connected>>,
+        mut sender_query: Query<
+            (Entity, &mut ReplicationSender, &RemoteId, Option<&LinkOf>),
+            With<Connected>,
+        >,
         mut replicate_query: Query<(Entity, &mut ReplicationTarget<T>)>,
     ) {
         if let Ok((sender_entity, mut sender, remote_peer_id, link_of)) =

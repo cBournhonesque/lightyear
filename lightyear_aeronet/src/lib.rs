@@ -25,7 +25,6 @@ pub struct AeronetLinkOf(pub Entity);
 pub struct AeronetPlugin;
 
 impl AeronetPlugin {
-    
     fn on_local_addr_added(
         trigger: Trigger<OnAdd, (LocalAddr, AeronetLinkOf)>,
         query: Query<(&AeronetLinkOf, &LocalAddr)>,
@@ -37,7 +36,7 @@ impl AeronetPlugin {
             }
         }
     }
-    
+
     fn on_peer_addr_added(
         trigger: Trigger<OnAdd, (PeerAddr, AeronetLinkOf)>,
         query: Query<(&AeronetLinkOf, &PeerAddr)>,
@@ -49,7 +48,7 @@ impl AeronetPlugin {
             }
         }
     }
-    
+
     fn on_connecting(
         trigger: Trigger<OnAdd, (SessionEndpoint, AeronetLinkOf)>,
         query: Query<&AeronetLinkOf>,

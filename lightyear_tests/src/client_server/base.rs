@@ -49,7 +49,7 @@ fn test_setup_client_server() {
     assert!(stepper.client(0).contains::<PeerAddr>());
     assert!(stepper.client(0).contains::<LocalId>());
     assert!(stepper.client(0).contains::<RemoteId>());
-    
+
     assert!(stepper.server().contains::<LocalTimeline>());
     assert!(stepper.server().contains::<Started>());
 

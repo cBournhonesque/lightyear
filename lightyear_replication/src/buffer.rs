@@ -19,8 +19,8 @@ use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
 use crate::prelude::ComponentReplicationOverrides;
-use crate::registry::registry::ComponentRegistry;
 use crate::registry::ComponentKind;
+use crate::registry::registry::ComponentRegistry;
 use crate::send::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 
@@ -293,13 +293,16 @@ impl Replicate {
     /// When a new client connects, check if we need to replicate existing entities to it
     pub(crate) fn handle_connection(
         trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
-        mut sender_query: Query<(
-            Entity,
-            &mut ReplicationSender,
-            &RemoteId,
-            Option<&Client>,
-            Option<&LinkOf>,
-        ), With<Connected>>,
+        mut sender_query: Query<
+            (
+                Entity,
+                &mut ReplicationSender,
+                &RemoteId,
+                Option<&Client>,
+                Option<&LinkOf>,
+            ),
+            With<Connected>,
+        >,
         mut replicate_query: Query<(Entity, &mut Replicate)>,
     ) {
         if let Ok((sender_entity, mut sender, remote_peer_id, _client, client_of)) =

@@ -72,7 +72,6 @@ pub enum UdpError {
     LocalAddrMissing,
 }
 
-
 /// Bevy plugin to integrate UDP-based IO with Lightyear.
 ///
 /// This plugin adds systems to:
@@ -110,17 +109,19 @@ impl UdpPlugin {
     }
 
     fn send(mut query: Query<(&mut Link, &mut UdpIo, &PeerAddr), With<Linked>>) {
-        query.par_iter_mut().for_each(|(mut link, mut udp_io, remote_addr)| {
-            link.send.drain().for_each(|payload| {
-                udp_io
-                    .socket
-                    .as_mut()
-                    .unwrap()
-                    .send_to(payload.as_ref(), remote_addr.0)
-                    .inspect_err(|e| error!("Error sending UDP packet: {}", e))
-                    .ok();
-            });
-        })
+        query
+            .par_iter_mut()
+            .for_each(|(mut link, mut udp_io, remote_addr)| {
+                link.send.drain().for_each(|payload| {
+                    udp_io
+                        .socket
+                        .as_mut()
+                        .unwrap()
+                        .send_to(payload.as_ref(), remote_addr.0)
+                        .inspect_err(|e| error!("Error sending UDP packet: {}", e))
+                        .ok();
+                });
+            })
     }
 
     fn receive(mut query: Query<(&mut Link, &mut UdpIo), With<Linked>>) {

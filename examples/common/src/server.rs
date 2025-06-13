@@ -122,9 +122,7 @@ impl ExampleServer {
                 #[cfg(feature = "udp")]
                 ServerTransports::Udp { local_port } => {
                     let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
-                    entity_mut.insert((
-                        LocalAddr(server_addr), ServerUdpIo::default()
-                    ));
+                    entity_mut.insert((LocalAddr(server_addr), ServerUdpIo::default()));
                 }
                 ServerTransports::WebTransport {
                     local_port,

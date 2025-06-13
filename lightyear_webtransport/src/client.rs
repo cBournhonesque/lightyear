@@ -17,8 +17,6 @@ impl Plugin for WebTransportClientPlugin {
     }
 }
 
-
-
 /// WebTransport session implementation which acts as a dedicated client,
 /// connecting to a target endpoint.
 ///
@@ -34,7 +32,10 @@ pub struct WebTransportClientIo {
 impl WebTransportClientPlugin {
     fn link(
         trigger: Trigger<LinkStart>,
-        query: Query<(Entity, &WebTransportClientIo, Option<&PeerAddr>), (Without<Linking>, Without<Linked>)>,
+        query: Query<
+            (Entity, &WebTransportClientIo, Option<&PeerAddr>),
+            (Without<Linking>, Without<Linked>),
+        >,
         mut commands: Commands,
     ) -> Result {
         if let Ok((entity, client, peer_addr)) = query.get(trigger.target()) {

@@ -409,10 +409,7 @@ impl<C> ComponentRegistration<'_, C> {
         let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
         registry.replication_map.insert(
             ComponentKind::of::<C>(),
-            ReplicationMetadata::default_fns::<C>(
-                config,
-                overrides_component_id,
-            ),
+            ReplicationMetadata::default_fns::<C>(config, overrides_component_id),
         );
         self
     }

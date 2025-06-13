@@ -1,6 +1,6 @@
 use crate::WebTransportError;
-use aeronet_io::connection::{LocalAddr, PeerAddr};
 use aeronet_io::Session;
+use aeronet_io::connection::{LocalAddr, PeerAddr};
 use aeronet_webtransport::server::{
     ServerConfig, SessionRequest, SessionResponse, WebTransportServer, WebTransportServerClient,
 };
@@ -52,7 +52,10 @@ pub struct WebTransportServerIo {
 impl WebTransportServerPlugin {
     fn link(
         trigger: Trigger<LinkStart>,
-        query: Query<(Entity, &WebTransportServerIo, Option<&LocalAddr>), (Without<Linking>, Without<Linked>)>,
+        query: Query<
+            (Entity, &WebTransportServerIo, Option<&LocalAddr>),
+            (Without<Linking>, Without<Linked>),
+        >,
         mut commands: Commands,
     ) -> Result {
         if let Ok((entity, io, local_addr)) = query.get(trigger.target()) {

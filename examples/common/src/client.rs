@@ -102,9 +102,7 @@ impl ExampleClient {
                             "".to_string()
                         }
                     };
-                    entity_mut.insert(WebTransportClientIo {
-                        certificate_digest,
-                    });
+                    entity_mut.insert(WebTransportClientIo { certificate_digest });
                 }
                 _ => {}
             };

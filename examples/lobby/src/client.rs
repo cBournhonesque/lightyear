@@ -52,7 +52,6 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-
 /// Remove all entities when the client disconnect.
 /// Reset the ClientConfig to connect to the dedicated server on the next connection attempt.
 fn on_disconnect(

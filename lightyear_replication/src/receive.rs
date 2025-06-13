@@ -23,12 +23,12 @@ use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
+use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
-use lightyear_messages::MessageManager;
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "trace")]
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
 
@@ -99,11 +99,7 @@ impl ReplicationReceivePlugin {
         // we first collect the entities we need into a buffer
         // We cannot use query.iter() and &mut World at the same time as this would be UB because they both access Archetypes
         // See https://discord.com/channels/691052431525675048/1358658786851684393/1358793406679355593
-        receiver_entities.extend(
-            query
-                .iter(world)
-                .map(|(e, remote_id)| (e, remote_id.0)),
-        );
+        receiver_entities.extend(query.iter(world).map(|(e, remote_id)| (e, remote_id.0)));
 
         // SAFETY: the other uses of `world` won't access the ComponentRegistry
         let unsafe_world = world.as_unsafe_world_cell();
@@ -174,7 +170,6 @@ impl Plugin for ReplicationReceivePlugin {
         app.add_observer(Self::handle_disconnection);
     }
 }
-
 
 #[derive(Debug, Component)]
 #[require(Transport)]
@@ -816,15 +811,18 @@ impl GroupChannel {
 
             // inserts
             // TODO: remove updates that are duplicate for the same component
-            let _ = actions.insert.into_iter().try_for_each(|bytes| {
-                component_registry.buffer(
-                    bytes,
-                    &mut buffered_entity,
-                    remote_tick,
-                    &mut remote_entity_map.remote_to_local,
-                )
-            }).inspect_err(|e| error!("could not insert the components to the entity: {:?}", e));
-           
+            let _ = actions
+                .insert
+                .into_iter()
+                .try_for_each(|bytes| {
+                    component_registry.buffer(
+                        bytes,
+                        &mut buffered_entity,
+                        remote_tick,
+                        &mut remote_entity_map.remote_to_local,
+                    )
+                })
+                .inspect_err(|e| error!("could not insert the components to the entity: {:?}", e));
 
             // TODO: find a way to handle this elegantly. Maybe the server should send a Spawn::Reuse
             //  or Spawn::PrePredicted for this situation?
@@ -846,19 +844,15 @@ impl GroupChannel {
 
             // removals
             actions.remove.into_iter().for_each(|component_net_id| {
-                component_registry.remove(
-                    component_net_id,
-                    &mut buffered_entity,
-                    remote_tick,
-                );
+                component_registry.remove(component_net_id, &mut buffered_entity, remote_tick);
             });
 
-            
             buffered_entity.apply();
 
             // updates
             for component in actions.updates {
-                let _ = component_registry.buffer(
+                let _ = component_registry
+                    .buffer(
                         component,
                         &mut buffered_entity,
                         remote_tick,
@@ -927,7 +921,8 @@ impl GroupChannel {
                 buffered: &mut BufferedChanges::default(),
             };
             for component in components {
-                let _ = component_registry.buffer(
+                let _ = component_registry
+                    .buffer(
                         component,
                         &mut local_entity_mut,
                         remote_tick,
@@ -937,7 +932,7 @@ impl GroupChannel {
                         error!("could not write the component to the entity: {:?}", e)
                     });
             }
-            
+
             local_entity_mut.apply();
         }
 

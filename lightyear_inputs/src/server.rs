@@ -1,9 +1,9 @@
 //! Handle input messages received from the clients
 
+use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
-use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear_connection::client::Connected;
@@ -106,13 +106,16 @@ fn receive_input_message<S: ActionStateSequence>(
     config: Res<ServerInputConfig<S>>,
     server: Query<&Server>,
     mut sender: ServerMultiMessageSender,
-    mut receivers: Query<(
-        Entity,
-        &LinkOf,
-        &ClientOf,
-        &mut MessageReceiver<InputMessage<S>>,
-        &RemoteId,
-    ), With<Connected>>,
+    mut receivers: Query<
+        (
+            Entity,
+            &LinkOf,
+            &ClientOf,
+            &mut MessageReceiver<InputMessage<S>>,
+            &RemoteId,
+        ),
+        With<Connected>,
+    >,
     mut query: Query<Option<&mut InputBuffer<S::State>>>,
     mut commands: Commands,
 ) -> Result {

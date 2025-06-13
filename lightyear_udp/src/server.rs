@@ -12,8 +12,8 @@ use alloc::vec::Vec;
 
 use crate::UdpError;
 use aeronet_io::connection::{LocalAddr, PeerAddr};
-use bevy::platform::collections::hash_map::Entry;
 use bevy::platform::collections::HashMap;
+use bevy::platform::collections::hash_map::Entry;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::{BufMut, BytesMut};
@@ -26,7 +26,7 @@ use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Linking, Unli
 pub(crate) const MTU: usize = 1472;
 
 /// Component to start a UdpServer.
-/// 
+///
 /// The [`LocalAddr`] component is required to specify the local SocketAddr to bind.
 #[derive(Component)]
 #[require(Server)]
@@ -38,7 +38,7 @@ pub struct ServerUdpIo {
 
 impl Default for ServerUdpIo {
     fn default() -> Self {
-         ServerUdpIo {
+        ServerUdpIo {
             socket: None,
             buffer: BytesMut::with_capacity(MTU),
             connected_addresses: HashMap::with_capacity(1),
@@ -46,14 +46,16 @@ impl Default for ServerUdpIo {
     }
 }
 
-
 pub struct ServerUdpPlugin;
 
 impl ServerUdpPlugin {
     // TODO: we don't want this system to panic on error
     fn link(
         trigger: Trigger<LinkStart>,
-        mut query: Query<(&mut ServerUdpIo, Option<&LocalAddr>), (Without<Linking>, Without<Linked>)>,
+        mut query: Query<
+            (&mut ServerUdpIo, Option<&LocalAddr>),
+            (Without<Linking>, Without<Linked>),
+        >,
         mut commands: Commands,
     ) -> Result {
         if let Ok((mut udp_io, local_addr)) = query.get_mut(trigger.target()) {
@@ -83,7 +85,8 @@ impl ServerUdpPlugin {
             .iter_mut()
             .for_each(|(mut server_udp_io, server)| {
                 server.collection().iter().for_each(|client_entity| {
-                    let Some((mut link, remote_addr)) = link_query.get_mut(*client_entity).ok() else {
+                    let Some((mut link, remote_addr)) = link_query.get_mut(*client_entity).ok()
+                    else {
                         error!("Client entity {} not found in link query", client_entity);
                         return;
                     };

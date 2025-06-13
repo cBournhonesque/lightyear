@@ -85,7 +85,6 @@ pub(crate) fn buffer_input(
     });
 }
 
-
 fn player_movement(mut position_query: Query<(&mut Position, &ActionState<Inputs>)>) {
     for (position, input) in position_query.iter_mut() {
         if let Some(inputs) = &input.value {
@@ -93,7 +92,6 @@ fn player_movement(mut position_query: Query<(&mut Position, &ActionState<Inputs
         }
     }
 }
-
 
 /// Set the color of the ball to the color of the peer that has authority
 // Changed to observe HasAuthority component changes
@@ -154,8 +152,6 @@ pub(crate) fn change_ball_color_on_authority(
     // Old logic using messages:
     // for event in messages.drain() { ... }
 }
-
-
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation

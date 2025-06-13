@@ -6,8 +6,8 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear_core::id::{PeerId, RemoteId};
-use lightyear_link::prelude::{Server, Unlinked};
 use lightyear_link::LinkStart;
+use lightyear_link::prelude::{Server, Unlinked};
 use tracing::trace;
 
 /// Errors related to the client connection
@@ -112,10 +112,7 @@ impl Disconnected {
         if let Some(mut client) = world.get_mut::<Client>(context.entity) {
             client.state = ClientState::Disconnected;
         }
-        if let Some(peer_id) = world
-            .get::<RemoteId>(context.entity)
-            .map(|c| c.0)
-        {
+        if let Some(peer_id) = world.get::<RemoteId>(context.entity).map(|c| c.0) {
             world
                 .resource_mut::<PeerMetadata>()
                 .mapping

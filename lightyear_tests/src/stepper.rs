@@ -1,11 +1,11 @@
 use crate::protocol::ProtocolPlugin;
 #[cfg(not(feature = "std"))]
 use alloc::vec;
+use bevy::MinimalPlugins;
 use bevy::input::InputPlugin;
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
-use bevy::MinimalPlugins;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
 use lightyear::prelude::{client::*, server::*, *};

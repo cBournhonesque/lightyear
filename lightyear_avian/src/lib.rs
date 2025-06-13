@@ -24,7 +24,6 @@ mod plugin;
 #[cfg(feature = "3d")]
 pub use types_3d as types;
 
-
 /// Commonly used items for Lightyear Avian integration.
 pub mod prelude {
     #[cfg(feature = "lag_compensation")]

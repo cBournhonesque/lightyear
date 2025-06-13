@@ -1,4 +1,4 @@
-use crate::{ClientId, Key, ServerConfig, PRIVATE_KEY_BYTES};
+use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig};
 use alloc::sync::Arc;
 use bevy::ecs::entity::unique_slice::UniqueEntitySlice;
 use bevy::prelude::*;
@@ -149,9 +149,10 @@ impl NetcodeServerPlugin {
                                         error!("Error sending keepalive packet: {:?}", e);
                                     })
                                     .ok();
-
                             } else {
-                                error!("The client is Connected but does not have a RemoteId component");
+                                error!(
+                                    "The client is Connected but does not have a RemoteId component"
+                                );
                             }
                         } else {
                             // if the client is not connected, remove any messages buffered in link.send
@@ -305,10 +306,7 @@ impl NetcodeServerPlugin {
             link_query.iter_many_unique_mut(unique_slice).try_for_each(
                 |(entity, mut link, remote_peer_id)| {
                     let PeerId::Netcode(client_id) = remote_peer_id.0 else {
-                        error!(
-                            "Client {:?} is not a Netcode client",
-                            remote_peer_id
-                        );
+                        error!("Client {:?} is not a Netcode client", remote_peer_id);
                         return Err(crate::error::Error::UnknownClient(remote_peer_id.0));
                     };
                     // this will make sure that `netcode.on_disconnect` is called, so the entity will get disconnected

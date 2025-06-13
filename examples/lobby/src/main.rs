@@ -14,7 +14,9 @@
 use bevy::prelude::*;
 use lightyear::prelude::{LinkConditionerConfig, RecvLinkConditioner};
 use lightyear_examples_common::cli::{Cli, Mode};
-use lightyear_examples_common::shared::{CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
+use lightyear_examples_common::shared::{
+    CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS,
+};
 use std::time::Duration;
 
 #[cfg(feature = "client")]
@@ -81,7 +83,7 @@ fn main() {
         use lightyear_examples_common::server::{ExampleServer, ServerTransports};
 
         app.add_plugins(server::ExampleServerPlugin {
-            is_dedicated_server
+            is_dedicated_server,
         });
         if matches!(cli.mode, Some(Mode::Server)) {
             let server = app
@@ -101,8 +103,6 @@ fn main() {
             app.world_mut().trigger_targets(Start, server);
         }
     }
-
-
 
     #[cfg(feature = "gui")]
     app.add_plugins(renderer::ExampleRendererPlugin);

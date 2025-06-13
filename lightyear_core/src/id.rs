@@ -8,11 +8,15 @@ use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
 
 /// Stores the PeerId of the local peer for the connection
-#[derive(Debug, Component, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect, Deref)]
+#[derive(
+    Debug, Component, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect, Deref,
+)]
 pub struct LocalId(pub PeerId);
 
 /// Stores the PeerId of the remote peer that we are connected to
-#[derive(Debug, Component, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect, Deref)]
+#[derive(
+    Debug, Component, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect, Deref,
+)]
 pub struct RemoteId(pub PeerId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]

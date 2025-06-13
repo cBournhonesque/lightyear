@@ -1,16 +1,16 @@
+use crate::MessageManager;
 use crate::plugin::MessagePlugin;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
-use crate::MessageManager;
 use crate::{Message, MessageNetId};
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy::prelude::{Component, Entity, ParallelCommands, Query, Res, With, World};
 use lightyear_core::tick::Tick;
+use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
-use lightyear_serde::ToBytes;
-use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::channel::ChannelKind;
+use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::prelude::Transport;
 use tracing::{error, trace};
 
@@ -150,7 +150,10 @@ impl MessagePlugin {
     /// - Otherwise, buffer the message in the `MessageReceiver<M>` component.
     pub fn recv(
         // NOTE: we only need the mut bound on MessageManager because EntityMapper requires mut
-        mut transport_query: Query<(Entity, &mut MessageManager, &mut Transport, &RemoteId), With<Connected>>,
+        mut transport_query: Query<
+            (Entity, &mut MessageManager, &mut Transport, &RemoteId),
+            With<Connected>,
+        >,
         // List of ChannelReceivers<M> present on that entity
         receiver_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,

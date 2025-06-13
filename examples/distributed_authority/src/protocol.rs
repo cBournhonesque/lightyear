@@ -10,13 +10,11 @@ use bevy::prelude::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
 pub struct PlayerId(pub PeerId);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut, Reflect)]
 pub struct Position(pub Vec2);
-
 
 impl Ease for Position {
     fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
@@ -36,7 +34,6 @@ impl Ease for Speed {
         })
     }
 }
-
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerColor(pub(crate) Color);
