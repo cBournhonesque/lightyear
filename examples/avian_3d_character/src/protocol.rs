@@ -99,14 +99,24 @@ impl Plugin for ProtocolPlugin {
         // out rendering between fixedupdate ticks.
         app.register_component::<Position>()
             .add_prediction(PredictionMode::Full)
+            .add_should_rollback(position_should_rollback)
             .add_linear_correction_fn()
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
 
         app.register_component::<Rotation>()
             .add_prediction(PredictionMode::Full)
+            .add_should_rollback(rotation_should_rollback)
             .add_linear_correction_fn()
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
     }
+}
+
+fn position_should_rollback(this: &Position, that: &Position) -> bool {
+    (this.0 - that.0).length() >= 0.01
+}
+
+fn rotation_should_rollback(this: &Rotation, that: &Rotation) -> bool {
+    this.angle_between(that.0) >= 0.01
 }
