@@ -1,4 +1,4 @@
-//! # Lightyear Steam Networking
+//! # Lightyear Steam
 //!
 //! This crate provides an integration layer for using Steam's networking sockets
 //! (specifically `steamworks::networking_sockets`) as a transport for Lightyear.
@@ -8,41 +8,29 @@
 //! and receive messages over the Steam network infrastructure.
 //!
 //! Note: This crate requires the `steamworks` crate and a running Steam client.
-use crate::prelude::LinkConditionerConfig;
-#[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
-use steamworks::networking_types::{NetworkingConfigEntry, NetworkingConfigValue};
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
-pub(crate) mod client;
-pub(crate) mod server;
-pub(crate) mod steamworks_client;
+extern crate alloc;
 
-pub(crate) fn get_networking_options(
-    conditioner: &Option<LinkConditionerConfig>,
-) -> Vec<NetworkingConfigEntry> {
-    let mut options = vec![NetworkingConfigEntry::new_int32(
-        NetworkingConfigValue::NagleTime,
-        0,
-    )];
-    if let Some(ref conditioner) = conditioner {
-        // TODO: float options are not useable, see https://github.com/Noxime/steamworks-rs/pull/168
-        // options.push(NetworkingConfigEntry::new_float(
-        //     NetworkingConfigValue::FakePacketLossRecv,
-        //     conditioner.incoming_loss * 100.0,
-        // ));
-        options.push(NetworkingConfigEntry::new_int32(
-            NetworkingConfigValue::FakePacketLagRecv,
-            conditioner.incoming_latency.as_millis() as i32,
-        ));
-        options.push(NetworkingConfigEntry::new_int32(
-            NetworkingConfigValue::FakePacketReorderTime,
-            conditioner.incoming_jitter.as_millis() as i32,
-        ));
-        // TODO: float options are not useable, see https://github.com/Noxime/steamworks-rs/pull/168
-        // options.push(NetworkingConfigEntry::new_float(
-        //     NetworkingConfigValue::FakePacketReorderRecv,
-        //     100.0,
-        // ));
+#[cfg(feature = "client")]
+pub mod client;
+#[cfg(all(feature = "server", not(target_family = "wasm")))]
+pub mod server;
+
+#[derive(thiserror::Error, Debug)]
+pub enum SteamError {
+}
+
+pub mod prelude {
+    pub use crate::SteamError;
+
+    #[cfg(feature = "client")]
+    pub mod client {
+        pub use crate::client::SteamClientIo;
     }
-    options
+
+    #[cfg(all(feature = "server", not(target_family = "wasm")))]
+    pub mod server {
+        pub use crate::server::SteamServerIo;
+    }
 }
