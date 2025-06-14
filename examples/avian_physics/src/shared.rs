@@ -30,7 +30,7 @@ impl Plugin for SharedPlugin {
         .insert_resource(Gravity(Vec2::ZERO));
 
         app.add_systems(FixedLast, fixed_last_log);
-        app.add_systems(Last, last_log);
+        // app.add_systems(Last, last_log);
 
         // registry types for reflection
         app.register_type::<PlayerId>();
@@ -119,7 +119,7 @@ pub(crate) fn fixed_last_log(
     for (entity, position, correction, action_state, input_buffer) in players.iter() {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
-        trace!(
+        info!(
             ?rollback,
             ?tick,
             ?entity,
