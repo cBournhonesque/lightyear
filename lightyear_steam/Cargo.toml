@@ -10,6 +10,12 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
+client = [
+    "aeronet_steam/client"
+]
+server = [
+    "aeronet_steam/server",
+]
 std = [
     "lightyear_link/std",
     "lightyear_transport/std",
@@ -20,28 +26,25 @@ std = [
 
 [dependencies]
 # local crates
-lightyear_connection.workspace = true
+lightyear_aeronet.workspace = true
 lightyear_core.workspace = true
 lightyear_link.workspace = true
 lightyear_transport.workspace = true
-lightyear_serde.workspace = true
-lightyear_utils.workspace = true
 
 # bevy
 bevy.workspace = true
+
+# aeronet
+aeronet_steam.workspace = true
+aeronet_io.workspace = true
 
 # no_std
 no_std_io2.workspace = true
 
 # utils
-anyhow.workspace = true
 bytes.workspace = true
-cfg-if.workspace = true
-hashbrown.workspace = true
-serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-rand.workspace = true
 chacha20poly1305.workspace = true
 
 [lints]

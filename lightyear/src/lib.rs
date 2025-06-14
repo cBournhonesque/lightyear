@@ -1,7 +1,7 @@
 #![allow(ambiguous_glob_reexports)]
 
 #[cfg(feature = "client")]
-pub mod client;
+mod client;
 
 #[cfg(all(feature = "server", not(target_family = "wasm")))]
 mod server;
@@ -9,6 +9,19 @@ mod shared;
 
 #[cfg(target_family = "wasm")]
 mod web;
+
+pub mod core {
+    pub use lightyear_core::*;
+}
+
+#[cfg(feature = "crossbeam")]
+pub mod crossbeam {
+    pub use lightyear_crossbeam::*;
+}
+
+pub mod link {
+    pub use lightyear_link::*;
+}
 
 #[cfg(feature = "netcode")]
 pub mod netcode {
