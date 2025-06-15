@@ -1,6 +1,8 @@
 use crate::collections::HashMap;
+use bevy::platform::hash::{DefaultHasher, FixedHasher};
 use core::any::TypeId;
-use core::hash::Hash;
+use core::fmt::Formatter;
+use core::hash::{BuildHasher, Hash, Hasher};
 
 /// ID used to serialize IDs over the network efficiently
 pub(crate) type NetId = u16;
@@ -49,5 +51,47 @@ impl<K: TypeKind> TypeMapper<K> {
 
     pub fn net_id(&self, kind: &K) -> Option<&NetId> {
         self.kind_map.get(kind)
+    }
+}
+
+#[derive(Clone)]
+pub struct RegistryHasher{
+    hasher: DefaultHasher,
+    hash: Option<RegistryHash>
+}
+
+pub type RegistryHash = u64;
+
+impl core::fmt::Debug for RegistryHasher {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "RegistryHasher")
+    }
+}
+
+impl Default for RegistryHasher {
+    fn default() -> Self {
+        Self{
+           hasher: FixedHasher.build_hasher(),
+           hash: None,
+        }
+    }
+}
+
+impl RegistryHasher {
+    pub fn hash<T>(&mut self) {
+        if self.hash.is_some() {
+            panic!("Tried to register type {:?} after the protocol was finished", core::any::type_name::<T>())
+        }
+        core::any::type_name::<T>().hash(&mut self.hasher);
+    }
+    pub fn finish(&mut self) -> RegistryHash {
+        match self.hash {
+            None => {
+                let hash = self.hasher.finish();
+                self.hash = Some(hash);
+                hash
+            }
+            Some(h) => h
+        }
     }
 }

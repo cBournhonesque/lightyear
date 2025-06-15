@@ -115,13 +115,11 @@
 //     }
 // }
 
-use crate::MessageManager;
 use crate::registry::MessageRegistry;
+use crate::MessageManager;
 use bevy::app::{App, Last, PostUpdate, PreUpdate};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
-use bevy::prelude::{
-    IntoScheduleConfigs, OnAdd, Plugin, Query, SystemParamBuilder, SystemSet, Trigger,
-};
+use bevy::prelude::*;
 use lightyear_connection::client::Disconnected;
 use lightyear_transport::plugin::{TransportPlugin, TransportSet};
 
@@ -175,7 +173,7 @@ impl Plugin for MessagePlugin {
     }
 
     // NOTE: this should only be called once all messages are registered, because we use the list of registered
-    //  messags to provide the dynamic access
+    //  messages to provide the dynamic access
     fn finish(&self, app: &mut App) {
         let registry = app
             .world_mut()
@@ -251,8 +249,8 @@ mod tests {
     use lightyear_core::prelude::Tick;
     use lightyear_link::Link;
     use lightyear_transport::channel::ChannelKind;
-    use lightyear_transport::plugin::tests::C;
     use lightyear_transport::plugin::tests::TestTransportPlugin;
+    use lightyear_transport::plugin::tests::C;
     use lightyear_transport::prelude::{ChannelRegistry, Transport};
     use serde::{Deserialize, Serialize};
     use test_log::test;

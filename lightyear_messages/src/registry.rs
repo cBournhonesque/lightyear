@@ -7,6 +7,7 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use core::any::TypeId;
 use core::cell::UnsafeCell;
+use core::hash::Hash;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::{ReceiveEntityMap, RemoteEntityMap, SendEntityMap};
@@ -18,9 +19,9 @@ use lightyear_serde::registry::{
 use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::ChannelKind;
-use lightyear_utils::registry::{TypeKind, TypeMapper};
-use serde::Serialize;
+use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageError {
@@ -142,7 +143,7 @@ pub(crate) struct SendTriggerMetadata {
 ///       .add_map_entities();
 /// }
 /// ```
-#[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
+#[derive(Debug, Default, Clone, Resource, TypePath)]
 pub struct MessageRegistry {
     pub(crate) send_metadata: HashMap<MessageKind, SendMessageMetadata>,
     pub(crate) send_trigger_metadata: HashMap<MessageKind, SendTriggerMetadata>,
@@ -150,6 +151,7 @@ pub struct MessageRegistry {
     pub(crate) receive_trigger: HashMap<MessageKind, ReceiveTriggerFn>,
     pub serialize_fns_map: HashMap<MessageKind, ErasedSerializeFns>,
     pub kind_map: TypeMapper<MessageKind>,
+    hasher: RegistryHasher,
 }
 
 pub struct Context {
@@ -184,6 +186,7 @@ impl MessageRegistry {
         serialize: ContextSerializeFns<SendEntityMap, M, I>,
         deserialize: ContextDeserializeFns<ReceiveEntityMap, M, I>,
     ) {
+        self.hasher.hash::<M>();
         let message_kind = self.kind_map.add::<I>();
         self.serialize_fns_map.insert(
             message_kind,
@@ -281,6 +284,10 @@ impl MessageRegistry {
                 .deserialize::<ReceiveEntityMap, M, M>(reader, entity_map)
                 .map_err(Into::into)
         }
+    }
+
+    pub fn finish(&mut self) -> RegistryHash {
+        self.hasher.finish()
     }
 }
 
@@ -383,9 +390,9 @@ impl AppMessageExt for App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lightyear_serde::SerializationError;
     use lightyear_serde::reader::ReadInteger;
     use lightyear_serde::writer::WriteInteger;
+    use lightyear_serde::SerializationError;
     use serde::Deserialize;
 
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]

@@ -1,12 +1,12 @@
-use crate::channel::Channel;
 use crate::channel::builder::ChannelSettings;
+use crate::channel::Channel;
 use bevy::app::App;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::{Resource, TypePath};
 use core::any::TypeId;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
-use lightyear_utils::registry::{TypeKind, TypeMapper};
+use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
 
 // TODO: derive Reflect once we reach bevy 0.14
 /// ChannelKind - internal wrapper around the type of the channel
@@ -52,11 +52,11 @@ impl From<TypeId> for ChannelKind {
 /// ```
 ///
 ///
-#[derive(Resource, Default, Clone, Debug, PartialEq, TypePath)]
+#[derive(Resource, Default, Clone, Debug, TypePath)]
 pub struct ChannelRegistry {
     settings_map: HashMap<ChannelKind, ChannelSettings>,
     kind_map: TypeMapper<ChannelKind>,
-    built: bool,
+    hasher: RegistryHasher,
 }
 
 impl ChannelRegistry {
@@ -82,6 +82,7 @@ impl ChannelRegistry {
         if let Some(net_id) = self.kind_map.net_id(&kind) {
             return (kind, *net_id);
         }
+        self.hasher.hash::<C>();
         self.settings_map.insert(kind, settings);
         let kind = self.kind_map.add::<C>();
         let net_id = self.get_net_from_kind(&kind).unwrap();
@@ -94,6 +95,10 @@ impl ChannelRegistry {
 
     pub fn get_net_from_kind(&self, kind: &ChannelKind) -> Option<&ChannelId> {
         self.kind_map.net_id(kind)
+    }
+    
+    pub fn finish(&mut self) -> RegistryHash {
+        self.hasher.finish()
     }
 }
 

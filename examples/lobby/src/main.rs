@@ -8,16 +8,21 @@
 //! - `cargo run -- server`
 //! - `cargo run -- client -c 1`
 #![allow(unused_imports)]
+#![allow(unused_mut)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
 use bevy::prelude::*;
+use core::time::Duration;
 use lightyear::prelude::{LinkConditionerConfig, RecvLinkConditioner};
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::{
     CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS,
 };
-use std::time::Duration;
+
+#[cfg(feature = "client")]
+use crate::client::ExampleClientPlugin;
+use crate::shared::SharedPlugin;
 
 #[cfg(feature = "client")]
 mod client;
@@ -26,16 +31,17 @@ mod protocol;
 #[cfg(feature = "gui")]
 mod renderer;
 mod server;
-mod settings;
 mod shared;
 
 pub const HOST_SERVER_PORT: u16 = 5050;
 
 fn main() {
-    let mut cli = Cli::default();
+    let cli = Cli::default();
 
     let tick_duration = Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ);
     let mut app = cli.build_app(tick_duration, true);
+
+    app.add_plugins(SharedPlugin);
 
     let mut is_dedicated_server = true;
 
@@ -43,6 +49,7 @@ fn main() {
     // the reason is that we want every client to be able to be the 'host' of a lobby
     // so every client needs to have the ServerPlugins included in the app
     match cli.mode {
+        #[cfg(feature = "client")]
         Some(Mode::Client { client_id }) => {
             // we want every client to be able to act as host-server so we
             // add the server plugins

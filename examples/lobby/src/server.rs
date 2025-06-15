@@ -23,27 +23,24 @@ pub struct ExampleServerPlugin {
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        app.world_mut().spawn(Lobbies::default());
-
-        // start the dedicated server immediately (but not host servers)
-        if self.is_dedicated_server {
-            app.add_systems(Startup, start_dedicated_server);
-        }
+        // the server is using Rooms
+        app.add_plugins(RoomPlugin);
+        
         app.add_observer(handle_new_client);
         app.add_systems(FixedUpdate, game::movement);
-        app.add_systems(
-            Update,
-            game::handle_disconnections.run_if(in_state(NetworkingState::Started)),
-        );
-        app.add_systems(
-            Update,
-            (
-                // in HostServer mode, we will spawn a player when a client connects
-                game::handle_connections
-            )
-                .run_if(is_host_server),
-        );
+        app.add_observer(game::handle_disconnections);
+        // app.add_systems(
+        //     Update,
+        //     (
+        //         // in HostServer mode, we will spawn a player when a client connects
+        //         game::handle_connections
+        //     )
+        //         .run_if(is_host_server),
+        // );
+        
         if self.is_dedicated_server {
+            // start the dedicated server immediately (but not host servers)
+            app.add_systems(Startup, start_dedicated_server);
             app.add_systems(
                 Update,
                 // the lobby systems are only called on the dedicated server
@@ -59,8 +56,16 @@ impl Plugin for ExampleServerPlugin {
 
 /// System to start the dedicated server at Startup
 fn start_dedicated_server(mut commands: Commands) {
+    let mut lobbies = Lobbies::default();
+    // add one empty lobby
+    let room = commands.spawn((
+        Room::default(),
+        Name::from("Room"))
+    ).id();
+    lobbies.lobbies.push(Lobby::new(room));
     commands.spawn((
-        Lobbies::default(),
+        Name::from("Lobbies"),
+        lobbies,
         Replicate::to_clients(NetworkTarget::All),
     ));
 }
@@ -95,6 +100,7 @@ fn spawn_player_entity(
                 owner: client_entity,
                 lifetime: Default::default(),
             },
+            Name::from("Player"),
         ))
         .id();
     if dedicated_server {
@@ -113,26 +119,30 @@ mod game {
     /// to join the lobby list)
     pub(crate) fn handle_connections(
         trigger: Trigger<OnAdd, Connected>,
-        query: Query<&Connected, With<ClientOf>>,
+        query: Query<&RemoteId, With<ClientOf>>,
         mut commands: Commands,
     ) {
-        let Ok(connected) = query.get(trigger.target()) else {
+        let Ok(remote_id) = query.get(trigger.target()) else {
             return;
         };
-        let client_id = connected.remote_peer_id;
+        let client_id = remote_id.0;
         info!("HostServer spawn player for client {client_id:?}");
         spawn_player_entity(&mut commands, trigger.target(), client_id, false);
     }
 
     /// Delete the player's entity when the client disconnects
     pub(crate) fn handle_disconnections(
-        // TODO: need a way to get the peer_id that disconnected
-        mut disconnections: Trigger<OnAdd, Disconnected>,
+        trigger: Trigger<OnAdd, Disconnected>,
+        query: Query<&RemoteId, With<ClientOf>>,
         mut lobbies: Single<&mut Lobbies>,
+        mut commands: Commands,
     ) {
-        // NOTE: games hosted by players will disappear from the lobby list since the host
-        //  is not connected anymore
-        lobbies.remove_client(disconnection.client_id);
+        if let Ok(remote_id) = query.get(trigger.target()) {
+            info!("Client {remote_id:?} disconnected, removing from lobby");
+            // NOTE: games hosted by players will disappear from the lobby list since the host
+            //  is not connected anymore
+            lobbies.remove_client(remote_id.0, &mut commands);
+        }
     }
 
     /// Read client inputs and move players
@@ -155,45 +165,50 @@ mod lobby {
     /// - update the `Lobbies` resource
     /// - add the Client to the room corresponding to the lobby
     pub(super) fn handle_lobby_join(
-        mut events: EventReader<ServerReceiveMessage<JoinLobby>>,
-        mut lobbies: ResMut<Lobbies>,
-        mut room_manager: ResMut<RoomManager>,
+        mut receiver: Query<(Entity, &RemoteId, &mut MessageReceiver<JoinLobby>)>,
+        mut lobbies: Single<&mut Lobbies>,
         mut commands: Commands,
     ) {
-        for lobby_join in events.read() {
-            let client_id = lobby_join.from();
-            let lobby_id = lobby_join.message().lobby_id;
-            info!("Client {client_id:?} joined lobby {lobby_id:?}");
-            let lobby = lobbies.lobbies.get_mut(lobby_id).unwrap();
-            lobby.players.push(client_id);
-            room_manager.add_client(client_id, RoomId(lobby_id as u64));
-            if lobby.in_game {
-                // if the game has already started, we need to spawn the player entity
-                let entity = spawn_player_entity(&mut commands, client_id, true);
-                room_manager.add_entity(entity, RoomId(lobby_id as u64));
-            }
+        for (client_entity, remote_id, mut message_receiver) in receiver.iter_mut() {
+            let client_id = remote_id.0;
+            message_receiver.receive().for_each(|message| {
+                let lobby_id = message.lobby_id;
+                let lobby = lobbies.lobbies.get_mut(lobby_id).unwrap();
+                let room = lobby.room;
+                info!("Client {client_id:?} joined lobby {lobby_id:?}. Room: {room}");
+                lobby.players.push(client_id);
+                commands.trigger_targets(RoomEvent::AddSender(client_entity), room);
+                if lobby.in_game {
+                    // if the game has already started, we need to spawn the player entity
+                    let entity = spawn_player_entity(&mut commands, client_entity, client_id, true);
+                    commands.trigger_targets(RoomEvent::AddEntity(entity), room);
+                }
+                // always make sure that there is an empty lobby for players to join
+                if !lobbies.has_empty_lobby() {
+                    let room = commands.spawn(Room::default()).id();
+                    lobbies.lobbies.push(Lobby::new(room));
+                }
+            })
         }
-        // always make sure that there is an empty lobby for players to join
-        if !lobbies.has_empty_lobby() {
-            lobbies.lobbies.push(Lobby::default());
-        }
+        
     }
 
     /// A client has exited a lobby:
     /// - update the `Lobbies` resource
     /// - remove the Client from the room corresponding to the lobby
     pub(super) fn handle_lobby_exit(
-        mut events: Query<(Entity, &Connected, &mut MessageReceiver<StartGame>)>,
+        mut events: Query<(Entity, &RemoteId, &mut MessageReceiver<ExitLobby>), With<Connected>>,
         mut lobbies: Single<&mut Lobbies>,
         mut commands: Commands,
     ) {
-        for (sender, connected, mut receiver) in events.iter_mut() {
-            let client_id = connected.remote_peer_id;
-            for event in receiver.receive() {
-                let lobby_id = lobby_join.lobby_id;
-                commands.trigger_targets(RoomEvent::AddSender(sender), room_id);
-                room_manager.remove_client(client_id, RoomId(lobby_id as u64));
-                lobbies.remove_client(client_id);
+        for (sender, remote_id, mut receiver) in events.iter_mut() {
+            let client_id = remote_id.0;
+            for message in receiver.receive() {
+                let lobby_id = message.lobby_id;
+                info!("Client {client_id:?} exited lobby {lobby_id:?}");
+                let room = lobbies.lobbies[lobby_id].room;
+                commands.trigger_targets(RoomEvent::RemoveSender(sender), room);
+                lobbies.remove_client(client_id, &mut commands);
             }
         }
     }
@@ -202,15 +217,16 @@ mod lobby {
     /// for each player in the lobby
     pub(super) fn handle_start_game(
         server: Single<&Server>,
-        mut events: Query<(Entity, &Connected, &mut MessageReceiver<StartGame>)>,
+        mut events: Query<(Entity, &RemoteId, &mut MessageReceiver<StartGame>), With<Connected>>,
         mut multi_sender: ServerMultiMessageSender,
         mut lobbies: Single<&mut Lobbies>,
         mut commands: Commands,
     ) -> Result {
         let server = server.into_inner();
-        for (sender, connected, mut receiver) in events.iter_mut() {
-            let client_id = connected.remote_peer_id;
+        for (sender, remote_id, mut receiver) in events.iter_mut() {
+            let client_id = remote_id.0;
             for event in receiver.receive() {
+                info!("Received start game message! {event:?}");
                 let lobby_id = event.lobby_id;
                 let host = event.host;
                 let lobby = lobbies.lobbies.get_mut(lobby_id).unwrap();
@@ -218,19 +234,17 @@ mod lobby {
                 // Setting lobby ingame
                 if !lobby.in_game {
                     lobby.in_game = true;
-                    if let Some(host) = host {
-                        lobby.host = Some(host);
-                    }
+                    lobby.host = host;
                 }
 
-                let room_id = commands.spawn(Room::default()).id();
                 // the client was not part of the lobby, they are joining in the middle of the game
                 if !lobby.players.contains(&client_id) {
+                    info!("Receives start game for a player {client_id:?} who wasn't part of the lobby! They are joining in the middle of the game");
                     lobby.players.push(client_id);
                     if host.is_none() {
                         let entity = spawn_player_entity(&mut commands, sender, client_id, true);
-                        commands.trigger_targets(RoomEvent::AddEntity(entity), room_id);
-                        commands.trigger_targets(RoomEvent::AddSender(sender), room_id);
+                        commands.trigger_targets(RoomEvent::AddEntity(entity), lobby.room);
+                        commands.trigger_targets(RoomEvent::AddSender(sender), lobby.room);
                     }
                     multi_sender.send::<_, Channel1>(
                         &StartGame {
@@ -242,11 +256,12 @@ mod lobby {
                     )?;
                 } else {
                     if host.is_none() {
+                        info!("Received start game for lobby {lobby_id:?}. Dedicated server is hosting.");
                         // one of the players asked for the game to start
                         for player in &lobby.players {
                             info!("Spawning player  {player:?} in server hosted  game");
                             let entity = spawn_player_entity(&mut commands, sender, *player, true);
-                            commands.trigger_targets(RoomEvent::AddEntity(entity), room_id);
+                            commands.trigger_targets(RoomEvent::AddEntity(entity), lobby.room);
                         }
                     }
                     // redirect the StartGame message to all other clients in the lobby

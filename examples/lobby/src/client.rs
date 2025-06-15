@@ -1,11 +1,15 @@
-use std::net::SocketAddr;
-
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
-use lightyear::input::client::InputSet;
-use lightyear::prelude::*;
+use std::net::{Ipv4Addr, SocketAddr};
 
 use crate::protocol::*;
+use crate::HOST_SERVER_PORT;
+use bevy::prelude::*;
+use bevy_egui::{egui, EguiContextPass, EguiContexts};
+use lightyear::input::client::InputSet;
+use lightyear::netcode::client_plugin::NetcodeConfig;
+use lightyear::netcode::NetcodeClient;
+use lightyear::prelude::server::Stop;
+use lightyear::prelude::*;
+use lightyear_examples_common::shared::{SERVER_PORT, SHARED_SETTINGS};
 
 pub struct ExampleClientPlugin;
 
@@ -25,10 +29,7 @@ impl Default for AppState {
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<lobby::LobbyTable>();
-        app.init_resource::<Lobbies>();
         app.init_state::<AppState>();
-        app.add_systems(Startup, on_disconnect);
-        app.add_systems(PreUpdate, handle_connection.after(MessageSet::Receive));
         app.add_systems(
             FixedPreUpdate,
             game::buffer_input
@@ -47,32 +48,44 @@ impl Plugin for ExampleClientPlugin {
             )
                 .run_if(in_state(AppState::Game)),
         );
-        app.add_systems(Update, (lobby::lobby_ui, lobby::receive_start_game_message));
-        app.add_systems(OnEnter(NetworkingState::Disconnected), on_disconnect);
+        app.add_systems(EguiContextPass, (lobby::lobby_ui, lobby::receive_start_game_message));
+        app.add_observer(on_disconnect);
     }
 }
 
 /// Remove all entities when the client disconnect.
 /// Reset the ClientConfig to connect to the dedicated server on the next connection attempt.
 fn on_disconnect(
+    trigger: Trigger<OnAdd, Disconnected>,
+    local_id: Single<&LocalId>,
+    lobbies: Query<Entity, With<Lobbies>>,
     mut commands: Commands,
-    entities: Query<Entity, (Without<Window>, Without<Camera2d>)>,
-    mut config: ResMut<ClientConfig>,
-    settings: Res<Settings>,
-    connection: Res<ClientConnection>,
-) {
-    let existing_client_id = connection.id();
-
+    entities: Query<Entity, (With<Lobbies>, With<PlayerId>)>,
+) -> Result {
+    // despawn every entity
     for entity in entities.iter() {
         commands.entity(entity).despawn();
     }
-    commands.remove_resource::<Lobbies>();
 
     // stop the server if it was started (if the player was host)
-    commands.stop_server();
+    commands.trigger_targets(Stop, trigger.target());
 
-    // update the client config to connect to the lobby server
-    config.net = get_client_net_config(settings.as_ref(), existing_client_id.to_bits());
+    // reset the netcode config to connect to the lobby server
+    let host_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), SERVER_PORT);
+    let auth = Authentication::Manual {
+        server_addr: host_addr,
+        client_id: local_id.0.to_bits(),
+        private_key: SHARED_SETTINGS.private_key,
+        protocol_id: SHARED_SETTINGS.protocol_id,
+    };
+    let netcode_config = NetcodeConfig {
+        // Make sure that the server times out clients when their connection is closed
+        client_timeout_secs: 3,
+        token_expire_secs: -1,
+        ..default()
+    };
+    commands.entity(trigger.target()).insert(NetcodeClient::new(auth, netcode_config)?);
+    Ok(())
 }
 
 mod game {
@@ -88,7 +101,7 @@ mod game {
         mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
         keypress: Res<ButtonInput<KeyCode>>,
     ) {
-        if let Ok(mut action_state) = query.get_single_mut() {
+        if let Ok(mut action_state) = query.single_mut() {
             let mut input = None;
             let mut direction = Direction {
                 up: false,
@@ -166,29 +179,30 @@ mod game {
 }
 
 mod lobby {
-    use std::net::SocketAddr;
+    use std::net::{Ipv4Addr, SocketAddr};
 
+    use super::*;
+    use crate::client::{lobby, AppState};
+    use crate::HOST_SERVER_PORT;
     use bevy::platform::collections::HashMap;
     use bevy_egui::egui::Separator;
     use bevy_egui::{egui, EguiContexts};
     use egui_extras::{Column, TableBuilder};
+    use lightyear::connection::client::ClientState;
+    use lightyear::connection::server::Start;
+    use lightyear::netcode::client_plugin::NetcodeConfig;
+    use lightyear::netcode::NetcodeClient;
+    use lightyear_examples_common::shared::SHARED_SETTINGS;
     use tracing::{error, info};
-
-    use lightyear::server::config::ServerConfig;
-
-    use crate::client::{lobby, AppState};
-    use crate::HOST_SERVER_PORT;
-
-    use super::*;
 
     #[derive(Resource, Default, Debug)]
     pub(crate) struct LobbyTable {
-        clients: HashMap<ClientId, bool>,
+        clients: HashMap<PeerId, bool>,
     }
 
     impl LobbyTable {
         /// Find who will be the host of the game. If no client is host; the server will be the host.
-        pub(crate) fn get_host(&self) -> Option<ClientId> {
+        pub(crate) fn get_host(&self) -> Option<PeerId> {
             self.clients
                 .iter()
                 .find_map(|(client_id, is_host)| if *is_host { Some(*client_id) } else { None })
@@ -201,14 +215,12 @@ mod lobby {
         mut commands: Commands,
         mut contexts: EguiContexts,
         mut lobby_table: ResMut<LobbyTable>,
-        mut connection_manager: ResMut<ConnectionManager>,
-        settings: Res<Settings>,
-        config: ResMut<ClientConfig>,
-        lobbies: Option<Res<Lobbies>>,
-        state: Res<State<NetworkingState>>,
+        lobbies: Option<Single<&Lobbies>>,
+        message_sender: Single<(Entity, &Client, &mut MessageSender<StartGame>, &mut MessageSender<JoinLobby>, &mut MessageSender<ExitLobby>)>,
         app_state: Res<State<AppState>>,
         mut next_app_state: ResMut<NextState<AppState>>,
     ) {
+        let (client_entity, client, mut send_start_game, mut send_join_lobby, mut exit_lobby) = message_sender.into_inner();
         let window_name = match app_state.get() {
             AppState::Lobby { joined_lobby } => {
                 joined_lobby.map_or("Lobby List".to_string(), |i| format!("Lobby {i}"))
@@ -268,22 +280,17 @@ mod lobby {
                                                         if ui.button("Join Game").clicked() {
                                                             // find the host of the game
                                                             let host = lobby_table.get_host();
+                                                            info!("Lobby {lobby_id} starting game with host {host:?}");
                                                             // send a message to join the game
-                                                            let _ = connection_manager
-                                                                .send_message::<Channel1, _>(
-                                                                    &mut StartGame {
-                                                                        lobby_id,
-                                                                        host,
-                                                                    },
-                                                                );
+                                                            send_start_game.send::<Channel1>(StartGame {
+                                                                lobby_id,
+                                                                host,
+                                                            });
                                                         }
                                                     } else {
                                                         if ui.button("Join Lobby").clicked() {
-                                                            connection_manager
-                                                                .send_message::<Channel1, _>(
-                                                                    &mut JoinLobby { lobby_id },
-                                                                )
-                                                                .unwrap();
+                                                            info!("Client joining lobby {lobby_id}");
+                                                            send_join_lobby.send::<Channel1>(JoinLobby { lobby_id });
                                                             next_app_state.set(AppState::Lobby {
                                                                 joined_lobby: Some(lobby_id),
                                                             });
@@ -339,51 +346,46 @@ mod lobby {
                     }
                     AppState::Game => {}
                 };
-                match state.get() {
-                    NetworkingState::Disconnected | NetworkingState::Disconnecting => {
+                match client.state {
+                    ClientState::Disconnected | ClientState::Disconnecting => {
                         if ui.button("Join lobby list").clicked() {
-                            // TODO: before connecting, we want to adjust all clients ConnectionConfig to respect the new host
-                            // - the new host must run in host-server
-                            // - all clients must adjust their net-config to connect to the host
-                            commands.connect_client();
+                            commands.trigger_targets(Connect, client_entity);
                         }
                     }
-                    NetworkingState::Connecting => {
+                    ClientState::Connecting => {
                         let _ = ui.button("Connecting");
                     }
-                    NetworkingState::Connected => {
+                    ClientState::Connected(client_id) => {
                         match app_state.get() {
                             AppState::Lobby { joined_lobby } => {
                                 if let Some(lobby_id) = joined_lobby {
                                     if ui.button("Exit lobby").clicked() {
-                                        connection_manager
-                                            .send_message::<Channel1, _>(&mut ExitLobby {
-                                                lobby_id: *lobby_id,
-                                            })
-                                            .unwrap();
+                                        info!("Exit lobby {lobby_id:?}");
+                                        exit_lobby.send::<Channel1>(ExitLobby {
+                                            lobby_id: *lobby_id
+                                        });
                                         next_app_state.set(AppState::Lobby { joined_lobby: None });
                                     }
                                     if ui.button("Start game").clicked() {
                                         // find the host of the game
                                         let host = lobby_table.get_host();
+                                        info!("Starting game for lobby {lobby_id:?}! Host is {host:?}");
                                         // send a message to server/client to start the game and possibly act as server
-                                        let _ = connection_manager.send_message::<Channel1, _>(
-                                            &mut StartGame {
-                                                lobby_id: *lobby_id,
-                                                host,
-                                            },
-                                        );
+                                        send_start_game.send::<Channel1>(StartGame {
+                                            lobby_id: *lobby_id,
+                                            host,
+                                        });
                                     }
                                 } else {
                                     if ui.button("Exit lobby list").clicked() {
-                                        commands.disconnect_client();
+                                        commands.trigger_targets(Disconnect, client_entity);
                                     }
                                 }
                             }
                             AppState::Game => {
                                 if ui.button("Exit game").clicked() {
                                     next_app_state.set(AppState::Lobby { joined_lobby: None });
-                                    commands.disconnect_client();
+                                    commands.trigger_targets(Disconnect, client_entity);
                                 }
                             }
                         }
@@ -398,47 +400,45 @@ mod lobby {
     /// - set the AppState to Game
     pub(crate) fn receive_start_game_message(
         mut commands: Commands,
-        mut events: EventReader<ReceiveMessage<StartGame>>,
+        local_client: Single<(Entity, &mut MessageReceiver<StartGame>, &LocalId)>,
         lobby_table: Res<LobbyTable>,
         mut next_app_state: ResMut<NextState<AppState>>,
-        mut config: ResMut<ClientConfig>,
-        settings: Res<Settings>,
-        connection: Res<ClientConnection>,
-    ) {
-        for event in events.read() {
-            let host = event.message().host;
-            let lobby_id = event.message().lobby_id;
+    ) -> Result {
+        let (local_client, mut receiver, local_id) = local_client.into_inner();
+        for message in receiver.receive() {
+            info!("Received start_game message! {message:?}");
+            let host = message.host;
             // set the state to Game
             next_app_state.set(AppState::Game);
             // the host of the game is another player
             if let Some(host) = host {
-                if host == connection.id() {
+                if host == local_id.0 {
                     info!("We are the host of the game!");
-                    // set the client connection to be local
-                    config.net = NetConfig::Local { id: host.to_bits() };
-                    // start the server
-                    commands.start_server();
+                    // TODO: setup host server mode
+                    // // set the client connection to be local
+                    // config.net = NetConfig::Local { id: host.to_bits() };
+                    commands.trigger(Start);
                 } else {
-                    info!("The game is hosted by another client. Connecting to the host...");
-                    // update the client config to connect to the game host
-                    match &mut config.net {
-                        NetConfig::Netcode { auth, config, io } => match auth {
-                            Authentication::Manual { server_addr, .. } => {
-                                *server_addr = SocketAddr::new(
-                                    settings.client.server_addr.into(),
-                                    HOST_SERVER_PORT,
-                                );
-                            }
-                            _ => {}
-                        },
-                        _ => {
-                            error!("Unsupported net config");
-                        }
-                    }
+                    info!("The game is hosted by another client ({host:?}). Connecting to the host...");
+                    let host_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), HOST_SERVER_PORT);
+                    let auth = Authentication::Manual {
+                        server_addr: host_addr,
+                        client_id: local_id.0.to_bits(),
+                        private_key: SHARED_SETTINGS.private_key,
+                        protocol_id: SHARED_SETTINGS.protocol_id,
+                    };
+                    let netcode_config = NetcodeConfig {
+                        // Make sure that the server times out clients when their connection is closed
+                        client_timeout_secs: 3,
+                        token_expire_secs: -1,
+                        ..default()
+                    };
+                    let netcode_client =
+                    commands.entity(local_client).insert(NetcodeClient::new(auth, netcode_config)?);
                 }
-                // start the connection process
-                commands.connect_client();
+                commands.trigger(Connect);
             }
         }
+        Ok(())
     }
 }

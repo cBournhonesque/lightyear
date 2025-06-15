@@ -9,9 +9,9 @@ use std::str::FromStr;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 
-use bevy::DefaultPlugins;
 use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::state::app::StatesPlugin;
+use bevy::DefaultPlugins;
 use clap::{Parser, Subcommand};
 
 #[cfg(all(feature = "gui", feature = "client"))]

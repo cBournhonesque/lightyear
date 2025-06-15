@@ -160,6 +160,10 @@ bevy.workspace = true
 # io
 aeronet_io.workspace = true
 
+# utils
+thiserror.workspace = true
+serde.workspace = true
+
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
 lightyear_udp = { workspace = true, optional = true }

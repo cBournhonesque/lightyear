@@ -37,20 +37,20 @@ use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::TickDelta;
 use lightyear_core::timeline::NetworkTimeline;
-use lightyear_messages::MessageNetId;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::TriggerSender;
 use lightyear_messages::registry::{MessageKind, MessageRegistry};
-use lightyear_serde::ToBytes;
+use lightyear_messages::MessageNetId;
 use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
 use lightyear_serde::writer::Writer;
+use lightyear_serde::ToBytes;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
-#[cfg(feature = "trace")]
-use tracing::{Level, instrument};
 use tracing::{debug, error, trace};
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = bevy::platform::collections::HashSet<K, EntityHash>;

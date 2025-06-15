@@ -20,7 +20,7 @@ use lightyear_serde::registry::{
 };
 use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
-use lightyear_utils::registry::TypeMapper;
+use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeMapper};
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 use tracing::{debug, trace};
@@ -117,7 +117,7 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 ///       .add_interpolation_fn(my_lerp_fn);
 /// }
 /// ```
-#[derive(Debug, Default, Clone, Resource, PartialEq, TypePath)]
+#[derive(Debug, Default, Clone, Resource, TypePath)]
 pub struct ComponentRegistry {
     pub component_id_to_kind: HashMap<ComponentId, ComponentKind>,
     pub kind_to_component_id: HashMap<ComponentKind, ComponentId>,
@@ -125,6 +125,7 @@ pub struct ComponentRegistry {
     pub serialize_fns_map: HashMap<ComponentKind, ErasedSerializeFns>,
     pub(crate) delta_fns_map: HashMap<ComponentKind, ErasedDeltaFns>,
     pub kind_map: TypeMapper<ComponentKind>,
+    hasher: RegistryHasher,
 }
 
 impl ComponentRegistry {
@@ -202,6 +203,10 @@ impl ComponentRegistry {
                 ContextDeserializeFns::new(serialize_fns.deserialize),
             ),
         );
+    } 
+    
+    pub fn finish(&mut self) -> RegistryHash {
+        self.hasher.finish()
     }
 }
 
