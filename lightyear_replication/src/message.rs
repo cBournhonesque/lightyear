@@ -23,7 +23,8 @@ pub struct ActionsChannel;
 /// This is a Sequenced Unreliable channel
 pub struct UpdatesChannel;
 
-pub(crate) struct MetadataChannel;
+/// Default reliable channel to replicate metadata about the Sender or the connection
+pub struct MetadataChannel;
 
 /// All the entity actions (Spawn/despawn/inserts/removals) for a single entity
 #[doc(hidden)]

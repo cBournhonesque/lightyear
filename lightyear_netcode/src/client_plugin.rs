@@ -1,14 +1,14 @@
-use crate::Error;
 use crate::auth::Authentication;
 use crate::client::{ClientConfig, ClientState};
+use crate::Error;
 use aeronet_io::connection::PeerAddr;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
-use lightyear_connection::ConnectionSet;
 use lightyear_connection::client::{
     Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected,
 };
+use lightyear_connection::ConnectionSet;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::{Link, LinkSet, Linked};
 use lightyear_transport::plugin::TransportSet;
@@ -22,12 +22,12 @@ pub struct NetcodeClientPlugin;
 #[derive(Component)]
 #[require(Link, lightyear_connection::client::Client)]
 #[require(Disconnected)]
-#[component(on_add = on_client_add)]
+#[component(on_insert = on_client_insert)]
 pub struct NetcodeClient {
     pub inner: crate::client::Client<()>,
 }
 
-fn on_client_add(mut world: DeferredWorld, context: HookContext) {
+fn on_client_insert(mut world: DeferredWorld, context: HookContext) {
     if let Some(server_addr) = world
         .get::<NetcodeClient>(context.entity)
         .map(|client| client.inner.server_addr())

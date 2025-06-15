@@ -31,7 +31,6 @@ mod send_trigger;
 #[cfg(feature = "server")]
 pub mod server;
 mod trigger;
-
 pub mod prelude {
     pub use crate::plugin::MessageSet;
     pub use crate::receive::MessageReceiver;

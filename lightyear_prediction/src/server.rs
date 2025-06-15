@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use lightyear_link::Linked;
 use lightyear_link::prelude::LinkOf;
+use lightyear_link::Linked;
 use lightyear_messages::MessageManager;
 use lightyear_replication::components::{PrePredicted, Replicated};
 use lightyear_replication::prelude::ReplicationSender;
@@ -9,7 +9,9 @@ pub struct ServerPlugin;
 
 impl Plugin for ServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(crate::shared::SharedPlugin);
+        if !app.is_plugin_added::<crate::shared::SharedPlugin>() {
+            app.add_plugins(crate::shared::SharedPlugin);
+        }
         app.add_observer(Self::handle_pre_predicted_server);
     }
 }

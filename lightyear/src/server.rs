@@ -38,7 +38,7 @@ impl PluginGroup for ServerPlugins {
             .add(lightyear_sync::server::ServerPlugin)
             .add(lightyear_link::server::ServerLinkPlugin);
 
-        let builder = builder.add_group(SharedPlugins {
+        let builder = builder.add(SharedPlugins {
             tick_duration: self.tick_duration,
         });
 

@@ -186,7 +186,7 @@ fn apply_predicted_sync(world: &mut World) {
 // TODO: We could not run this for [`Predicted`] entities and instead have the confirmed->sync observers already
 //  add a PredictionHistory component if it's missing on the Predicted entity.
 pub(crate) fn add_prediction_history<C: Component>(
-    trigger: Trigger<OnAdd, C>,
+    trigger: Trigger<OnAdd, (C, Predicted, PrePredicted, PreSpawned)>,
     mut commands: Commands,
     // TODO: should we also have With<ShouldBePredicted>?
     query: Query<

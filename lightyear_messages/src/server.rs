@@ -1,10 +1,10 @@
-use crate::Message;
 use crate::multi::MultiMessageSender;
 use crate::prelude::{MessageReceiver, MessageSender};
 use crate::registry::MessageRegistration;
 use crate::send::Priority;
 use crate::send_trigger::TriggerSender;
 use crate::trigger::TriggerRegistration;
+use crate::Message;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use lightyear_connection::client::PeerMetadata;
@@ -93,11 +93,11 @@ impl<M: Message> MessageRegistration<'_, M> {
         match direction {
             NetworkDirection::ClientToServer => {
                 self.app
-                    .register_required_components::<ClientOf, MessageSender<M>>();
+                    .register_required_components::<ClientOf, MessageReceiver<M>>();
             }
             NetworkDirection::ServerToClient => {
                 self.app
-                    .register_required_components::<ClientOf, MessageReceiver<M>>();
+                    .register_required_components::<ClientOf, MessageSender<M>>();
             }
             NetworkDirection::Bidirectional => {
                 self.add_server_direction(NetworkDirection::ClientToServer);
@@ -110,7 +110,9 @@ impl<M: Message> MessageRegistration<'_, M> {
 impl<M: Event> TriggerRegistration<'_, M> {
     pub(crate) fn add_server_direction(&mut self, direction: NetworkDirection) {
         match direction {
-            NetworkDirection::ClientToServer => {}
+            NetworkDirection::ClientToServer => {
+                // empty because we only have a Sender component, not a Receiver component
+            }
             NetworkDirection::ServerToClient => {
                 self.app
                     .register_required_components::<ClientOf, TriggerSender<M>>();

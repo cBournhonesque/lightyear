@@ -18,7 +18,7 @@ impl PluginGroup for ClientPlugins {
         let builder = PluginGroupBuilder::start::<Self>();
         let builder = builder.add(lightyear_sync::client::ClientPlugin);
 
-        let builder = builder.add_group(SharedPlugins {
+        let builder = builder.add(SharedPlugins {
             tick_duration: self.tick_duration,
         });
 

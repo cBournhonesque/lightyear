@@ -4,16 +4,10 @@
 //! You can use the `#[protocol]` attribute to specify additional behaviour:
 //! - how entities contained in the message should be mapped from the remote world to the local world
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
-use core::ops::{Add, Mul};
-
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::math::Curve;
-use bevy::prelude::{
-    default, Bundle, Color, Component, Deref, DerefMut, Ease, Entity, EntityMapper, FunctionCurve,
-    Interval, Vec2,
-};
-use bevy::prelude::{Reflect, Resource};
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use lightyear::input::native::plugin::InputPlugin;
@@ -42,9 +36,7 @@ impl PlayerBundle {
     }
 }
 
-// Resources
-
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Default, Reflect)]
 pub struct Lobbies {
     pub lobbies: Vec<Lobby>,
 }
@@ -59,38 +51,47 @@ impl Lobbies {
     }
 
     /// Remove a client from a lobby
-    pub(crate) fn remove_client(&mut self, client_id: PeerId) {
+    pub(crate) fn remove_client(&mut self, client_id: PeerId, commands: &mut Commands) {
         let mut removed_lobby = None;
         for (lobby_id, lobby) in self.lobbies.iter_mut().enumerate() {
             if let Some(index) = lobby.players.iter().position(|id| *id == client_id) {
                 lobby.players.remove(index);
                 if lobby.players.is_empty() {
                     removed_lobby = Some(lobby_id);
+                    commands.entity(lobby.room).despawn();
                 }
             }
-            // if lobby.players.remove(&client_id).is_some() {
-            //     if lobby.players.is_empty() {
-            //         removed_lobby = Some(lobby_id);
-            //     }
-            // }
         }
         if let Some(lobby_id) = removed_lobby {
             self.lobbies.remove(lobby_id);
             // always make sure that there is an empty lobby for players to join
             if !self.has_empty_lobby() {
-                self.lobbies.push(Lobby::default());
+                let room = commands.spawn(Room::default()).id();
+                self.lobbies.push(Lobby::new(room));
             }
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Lobby {
     pub players: Vec<PeerId>,
     /// Which client is selected to be the host for the next game (if None, the server will be the host)
     pub host: Option<PeerId>,
+    pub room: Entity,
     /// If true, the lobby is in game. If not, it is still in lobby mode
     pub in_game: bool,
+}
+
+impl Lobby {
+    pub(crate) fn new(room: Entity) -> Self {
+        Self {
+            players: vec![],
+            host: None,
+            room,
+            in_game: false,
+        }
+    }
 }
 
 // Components
@@ -163,7 +164,7 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<(PlayerPosition, PlayerId)>();
+        app.register_type::<(PlayerPosition, PlayerId, Lobbies)>();
         // messages
         app.add_message::<StartGame>()
             .add_direction(NetworkDirection::Bidirectional);
@@ -174,6 +175,9 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
+        app.register_component::<Name>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
         app.register_component::<PlayerId>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
@@ -193,6 +197,7 @@ impl Plugin for ProtocolPlugin {
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             ..default()
-        });
+        })
+            .add_direction(NetworkDirection::Bidirectional);
     }
 }

@@ -39,7 +39,7 @@ it just caches the room metadata to keep track of the relevance of entities.
 */
 
 use bevy::app::App;
-use bevy::ecs::entity::{EntityIndexMap, hash_map::EntityHashMap, hash_set::EntityHashSet};
+use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet, EntityIndexMap};
 use bevy::platform::collections::hash_map::Entry;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
@@ -74,7 +74,7 @@ impl Room {
 pub struct RoomPlugin;
 
 impl RoomPlugin {
-    pub fn handle_room_event(
+    fn handle_room_event(
         trigger: Trigger<RoomEvent>,
         mut room_events: ResMut<RoomEvents>,
         mut query: Query<&mut Room>,
@@ -131,7 +131,7 @@ impl RoomPlugin {
         Ok(())
     }
 
-    pub fn apply_room_events(
+    fn apply_room_events(
         mut commands: Commands,
         mut room_events: ResMut<RoomEvents>,
         mut query: Query<&mut NetworkVisibility>,
@@ -169,6 +169,7 @@ pub enum RoomSet {
     ApplyRoomEvents,
 }
 
+/// Event that can be triggered to modify the entities/peers that belong in a [`Room`]
 #[derive(Event, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RoomEvent {
     AddEntity(Entity),
@@ -178,7 +179,7 @@ pub enum RoomEvent {
 }
 
 #[derive(Default, Debug, Resource)]
-pub struct RoomEvents {
+pub(crate) struct RoomEvents {
     /// List of events that have been triggered by room events
     ///
     /// We cannot apply the [`RoomEvent`]s directly to the entity's [`NetworVisibility`] because
@@ -189,7 +190,7 @@ pub struct RoomEvents {
 }
 
 #[derive(Debug, Default)]
-pub struct RoomVisibility {
+pub(crate) struct RoomVisibility {
     /// List of clients that the entity is currently replicated to.
     /// Will be updated before the other replication systems
     clients: EntityHashMap<VisibilityState>,
