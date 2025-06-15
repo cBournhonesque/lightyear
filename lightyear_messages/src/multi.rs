@@ -20,7 +20,10 @@ pub struct MultiMessageSender<'w, 's> {
     pub(crate) writer: Local<'s, Writer>,
 }
 
+// TODO: add MultiTriggerSender?
 impl MultiMessageSender<'_, '_> {
+    // Note: for the host-client we will also serialize the bytes and buffer then in the Transport's senders
+    //  In the recv() function we will directly read the bytes from the Transport's senders
     pub fn send_with_priority<M: Message, C: Channel>(
         &mut self,
         message: &M,

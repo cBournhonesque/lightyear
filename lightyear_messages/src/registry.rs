@@ -1,5 +1,5 @@
 use crate::receive::{ClearMessageFn, MessageReceiver, ReceiveMessageFn};
-use crate::send::{MessageSender, SendMessageFn};
+use crate::send::{MessageSender, SendLocalMessageFn, SendMessageFn};
 use crate::{Message, MessageNetId};
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::entity::MapEntities;
@@ -67,7 +67,7 @@ impl From<TypeId> for MessageKind {
 }
 
 use crate::receive_trigger::ReceiveTriggerFn;
-use crate::send_trigger::SendTriggerFn;
+use crate::send_trigger::{SendLocalTriggerFn, SendTriggerFn};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceiveMessageMetadata {
@@ -82,6 +82,7 @@ pub(crate) struct SendMessageMetadata {
     /// ComponentId of the MessageSender<M> component
     pub(crate) component_id: ComponentId,
     pub(crate) send_message_fn: SendMessageFn,
+    pub(crate) send_local_message_fn: SendLocalMessageFn
 }
 
 #[derive(Debug, Clone, PartialEq, TypePath)]
@@ -89,6 +90,7 @@ pub(crate) struct SendTriggerMetadata {
     /// ComponentId of the TriggerSender<M> component
     pub(crate) component_id: ComponentId,
     pub(crate) send_trigger_fn: SendTriggerFn,
+    pub(crate) send_local_trigger_fn: SendLocalTriggerFn,
 }
 
 /// A [`Resource`] that will keep track of all the [`Message`]s that can be sent over the network.
@@ -203,6 +205,7 @@ impl MessageRegistry {
             SendMessageMetadata {
                 component_id,
                 send_message_fn: MessageSender::<M>::send_message_typed,
+                send_local_message_fn: MessageSender::<M>::send_local_message_typed,
             },
         );
     }

@@ -1,11 +1,12 @@
-use crate::ping::PingChannel;
 use crate::ping::manager::PingManager;
 use crate::ping::message::{Ping, Pong};
+use crate::ping::PingChannel;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::direction::NetworkDirection;
+use lightyear_connection::host::HostClient;
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::TickDelta;
 use lightyear_link::Link;
@@ -36,7 +37,7 @@ impl PingPlugin {
                 &mut MessageReceiver<Ping>,
                 &mut MessageReceiver<Pong>,
             ),
-            With<Connected>,
+            (With<Connected>, Without<HostClient>),
         >,
     ) {
         query
@@ -71,7 +72,7 @@ impl PingPlugin {
                 &mut MessageSender<Ping>,
                 &mut MessageSender<Pong>,
             ),
-            With<Connected>,
+            (With<Connected>, Without<HostClient>),
         >,
     ) {
         let now = Instant::now();

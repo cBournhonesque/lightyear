@@ -13,14 +13,19 @@ use crate::{
     server::Started,
 };
 use bevy::prelude::*;
+use bytes::Bytes;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 #[cfg(feature = "server")]
 use lightyear_link::prelude::{LinkOf, Server};
 
 // we want the component to be available even if the server feature is not enabled
 /// Marker component inserted on a client that acts as a Host
-#[derive(Component, Debug, Reflect)]
-pub struct HostClient;
+#[derive(Component, Debug)]
+pub struct HostClient {
+    // TODO: put the buffer in a separate component?
+    // buffer that will hold the (bytes, channel_kind) for messages serialized by the ServerMultiSender
+    pub buffer: Vec<(Bytes, core::any::TypeId)>,
+}
 
 #[cfg(feature = "server")]
 /// Marker component inserted on a server that has a [`HostClient`]
@@ -68,7 +73,9 @@ impl HostPlugin {
     ) {
         if let Ok(link_of) = client_query.get(trigger.target()) {
             if server_query.get(link_of.server).is_ok() {
-                commands.entity(trigger.target()).insert(HostClient);
+                commands.entity(trigger.target()).insert(HostClient {
+                    buffer: Vec::new(),
+                });
                 commands.entity(link_of.server).insert(HostServer {
                     client: trigger.target(),
                 });
@@ -86,7 +93,9 @@ impl HostPlugin {
         if let Ok(server) = server_query.get(trigger.target()) {
             for client in server.collection() {
                 if client_query.get(*client).is_ok() {
-                    commands.entity(*client).insert(HostClient);
+                    commands.entity(*client).insert(HostClient {
+                        buffer: Vec::new(),
+                    });
                     commands.entity(trigger.target()).insert(HostServer {
                         client: trigger.target(),
                     });

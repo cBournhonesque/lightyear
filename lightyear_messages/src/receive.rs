@@ -1,18 +1,17 @@
-use crate::MessageManager;
 use crate::plugin::MessagePlugin;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
+use crate::MessageManager;
 use crate::{Message, MessageNetId};
 use bevy::ecs::change_detection::MutUntyped;
 use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
-use bevy::prelude::{Component, Entity, ParallelCommands, Query, Res, With, World};
+use bevy::prelude::*;
 use lightyear_core::tick::Tick;
-use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
-use lightyear_transport::channel::ChannelKind;
+use lightyear_serde::ToBytes;
 use lightyear_transport::channel::receivers::ChannelReceive;
+use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::Transport;
-use tracing::{error, trace};
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -20,8 +19,11 @@ use alloc::vec::Vec;
 use alloc::sync::Arc;
 use bevy::ecs::component::HookContext;
 use bevy::prelude::Event;
+use bytes::Bytes;
 use lightyear_connection::client::Connected;
+use lightyear_connection::host::HostClient;
 use lightyear_core::id::{PeerId, RemoteId};
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_transport::packet::message::MessageId;
 
@@ -143,7 +145,66 @@ impl<M: Message> MessageReceiver<M> {
     }
 }
 
+
 impl MessagePlugin {
+
+    fn receive_message_bytes(
+        bytes: Bytes,
+        registry: &MessageRegistry,
+        receiver_query: &mut Query<FilteredEntityMut>,
+        entity: Entity,
+        channel_kind: ChannelKind,
+        tick: Tick,
+        message_id: Option<MessageId>,
+        message_manager: &mut MessageManager,
+        commands: &ParallelCommands,
+        remote_peer_id: PeerId,
+    ) -> core::result::Result<(), MessageError> {
+        trace!("Received message (id:{message_id:?}) from peer {:?} on channel {channel_kind:?}. {entity:?}", remote_peer_id);
+        let mut reader = Reader::from(bytes);
+        // we receive the message NetId, and then deserialize the message
+        let message_net_id = MessageNetId::from_bytes(&mut reader)?;
+        let message_kind = registry.kind_map.kind(message_net_id).ok_or(MessageError::UnrecognizedMessageId(message_net_id))?;
+        let serialize_fns = registry.serialize_fns_map.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+
+        if let Some(recv_metadata) = registry.receive_metadata.get(message_kind) {
+            let component_id = recv_metadata.component_id;
+            let mut entity_mut = receiver_query.get_mut(entity).unwrap();
+            let receiver = entity_mut
+                .get_mut_by_id(component_id)
+                .ok_or(MessageError::MissingComponent(component_id))?;
+            // SAFETY: we know the receiver corresponds to the correct `MessageReceiver<M>` type
+            unsafe {
+                (recv_metadata.receive_message_fn)(
+                    receiver,
+                    &mut reader,
+                    channel_kind,
+                    tick,
+                    message_id,
+                    serialize_fns,
+                    &mut message_manager.entity_mapper.remote_to_local
+                )
+            }
+        } else if let Some(trigger_fn) = registry.receive_trigger.get(message_kind) {
+            // SAFETY: We assume the trigger handler function is correctly implemented
+            // for the RemoteTrigger<M> type associated with this message_kind.
+            unsafe {
+                trigger_fn(
+                    &commands,
+                    &mut reader,
+                    channel_kind,
+                    tick,
+                    message_id,
+                    serialize_fns,
+                    &mut message_manager.entity_mapper.remote_to_local,
+                    remote_peer_id,
+                )
+            }
+        } else {
+            return Err(MessageError::UnrecognizedMessageId(message_net_id));
+        }
+    }
+
     /// Receive bytes from each channel of the Transport
     /// Deserialize the bytes into Messages.
     /// - If the message is a `RemoteTrigger<M>`, emit a `TriggerEvent<M>` via `Commands`.
@@ -151,7 +212,10 @@ impl MessagePlugin {
     pub fn recv(
         // NOTE: we only need the mut bound on MessageManager because EntityMapper requires mut
         mut transport_query: Query<
-            (Entity, &mut MessageManager, &mut Transport, &RemoteId),
+            // note: we still listen for messages on the Transport for the host-client, because of the way
+            //  MultiMessageSender works. (it simply serializes messages to the Transport instead of writing
+            //  them directly to the host-server's MessageReceiver<M>)
+            (Entity, &mut MessageManager, &mut Transport, &RemoteId, &LocalTimeline, Option<&mut HostClient>),
             With<Connected>,
         >,
         // List of ChannelReceivers<M> present on that entity
@@ -162,61 +226,53 @@ impl MessagePlugin {
         // We use Arc to make the query Clone, since we know that we will only access MessageReceiver<M> components
         // on potentially different entities in parallel (though the current loop isn't parallel)
         let receiver_query = Arc::new(receiver_query);
-        transport_query.par_iter_mut().for_each(|(entity, mut message_manager, mut transport, remote_peer_id)| {
+        transport_query.par_iter_mut().for_each(|(entity, mut message_manager, mut transport, remote_peer_id, timeline, mut host_client)| {
             // SAFETY: we know that this won't lead to violating the aliasing rule
             let mut receiver_query = unsafe { receiver_query.reborrow_unsafe() };
             // enable split borrows
             let transport = &mut *transport;
             // TODO: we can run this in parallel using rayon!
-            transport.receivers.values_mut().try_for_each(|receiver_metadata| {
+            if let Some(host_client) = host_client.as_mut() {
+                let tick = timeline.tick();
+                // for host-clients, we might have to deserialize messages that are in the Transports' senders
+                transport.senders.iter_mut().try_for_each(|(channel_kind, sender_metadata)| {
+                    host_client.buffer.drain(..).try_for_each(|(bytes, channel_type_id)| {
+                        // we fake the tick and message_id for host-client messages
+                        Self::receive_message_bytes(
+                            bytes,
+                            &registry,
+                            &mut receiver_query,
+                            entity,
+                            ChannelKind(channel_type_id),
+                            tick,
+                            None,
+                            &mut message_manager,
+                            &commands,
+                            remote_peer_id.0,
+                        )
+                    })?;
+                    Ok::<_, MessageError>(())
+                }).inspect_err(|e| error!("Error receiving messages: {e:?}")).ok();
+            } else {
+                transport.receivers.values_mut().try_for_each(|receiver_metadata| {
                 let channel_kind = receiver_metadata.channel_kind;
                 while let Some((tick, bytes, message_id)) = receiver_metadata.receiver.read_message() {
-                    trace!("Received message {message_id:?} from peer {:?} on channel {channel_kind:?}", remote_peer_id);
-                    let mut reader = Reader::from(bytes);
-                    // we receive the message NetId, and then deserialize the message
-                    let message_net_id = MessageNetId::from_bytes(&mut reader)?;
-                    let message_kind = registry.kind_map.kind(message_net_id).ok_or(MessageError::UnrecognizedMessageId(message_net_id))?;
-                    let serialize_fns = registry.serialize_fns_map.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-
-                    if let Some(recv_metadata) = registry.receive_metadata.get(message_kind) {
-                        let component_id = recv_metadata.component_id;
-                        let mut entity_mut = receiver_query.get_mut(entity).unwrap();
-                        let receiver = entity_mut
-                            .get_mut_by_id(component_id)
-                            .ok_or(MessageError::MissingComponent(component_id))?;
-                        // SAFETY: we know the receiver corresponds to the correct `MessageReceiver<M>` type
-                        unsafe {
-                            (recv_metadata.receive_message_fn)(
-                                receiver,
-                                &mut reader,
-                                channel_kind,
-                                tick,
-                                message_id,
-                                serialize_fns,
-                                &mut message_manager.entity_mapper.remote_to_local
-                            )?;
-                        }
-                    } else if let Some(trigger_fn) = registry.receive_trigger.get(message_kind) {
-                        // SAFETY: We assume the trigger handler function is correctly implemented
-                        // for the RemoteTrigger<M> type associated with this message_kind.
-                        unsafe {
-                            trigger_fn(
-                                &commands,
-                                &mut reader,
-                                channel_kind,
-                                tick,
-                                message_id,
-                                serialize_fns,
-                                &mut message_manager.entity_mapper.remote_to_local,
-                                remote_peer_id.0,
-                            )?;
-                        }
-                    } else {
-                        return Err(MessageError::UnrecognizedMessageId(message_net_id));
-                    };
+                    Self::receive_message_bytes(
+                        bytes,
+                        &registry,
+                        &mut receiver_query,
+                        entity,
+                        channel_kind,
+                        tick,
+                        message_id,
+                        &mut message_manager,
+                        &commands,
+                        remote_peer_id.0,
+                    )?;
                 }
                 Ok::<_, MessageError>(())
-            }).inspect_err(|e| error!("Error receiving messages: {e:?}")).ok();
+                }).inspect_err(|e| error!("Error receiving messages: {e:?}")).ok();
+            }
         })
     }
 

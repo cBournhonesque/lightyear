@@ -9,6 +9,7 @@ use crate::packet::message::{FragmentData, ReceiveMessage, SingleData};
 use bevy::app::App;
 use bevy::prelude::*;
 use bytes::Bytes;
+use lightyear_connection::host::HostClient;
 #[cfg(any(feature = "client", feature = "server"))]
 use lightyear_connection::prelude::Disconnected;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
@@ -43,7 +44,7 @@ impl TransportPlugin {
     fn buffer_receive(
         time: Res<Time<Real>>,
         par_commands: ParallelCommands,
-        mut query: Query<(Entity, &mut Link, &mut Transport), With<Linked>>,
+        mut query: Query<(Entity, &mut Link, &mut Transport), (With<Linked>, Without<HostClient>)>,
     ) {
         query
             .par_iter_mut()
@@ -203,15 +204,23 @@ impl TransportPlugin {
     /// Upload the packets to the [`Link`]
     fn buffer_send(
         real_time: Res<Time<Real>>,
-        mut query: Query<(&mut Link, &mut Transport, &LocalTimeline), With<Linked>>,
+        mut query: Query<(&mut Link, &mut Transport, &LocalTimeline, Option<&mut HostClient>), With<Linked>>,
         channel_registry: Res<ChannelRegistry>,
     ) {
-        query.par_iter_mut().for_each(|(mut link, mut transport, timeline)| {
+        query.par_iter_mut().for_each(|(mut link, mut transport, timeline, host_client)| {
             let tick = timeline.tick();
             // allow split borrows
             let transport = &mut *transport;
 
             // buffer all new messages in the Sender
+            if let Some(mut host_client) = host_client {
+                // for a host-client, we write the bytes directly to the HostClient buffer
+                transport.recv_channel.try_iter().try_for_each(|(channel_kind, bytes, priority)| {
+                    host_client.buffer.push((bytes, channel_kind.0));
+                    Ok::<(), TransportError>(())
+                }).inspect_err(|e| error!("error buffering host-client message: {e:?}")).ok();
+                return
+            }
             transport.recv_channel.try_iter().try_for_each(|(channel_kind, bytes, priority)| {
                 let sender_metadata = transport.senders.get_mut(&channel_kind).ok_or(TransportError::ChannelNotFound(channel_kind))?;
                 // TODO: do we need the message_id?

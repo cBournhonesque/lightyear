@@ -27,7 +27,7 @@ pub struct ClientServerStepper {
     pub client_entities: Vec<Entity>,
     pub server_entity: Entity,
     pub client_of_entities: Vec<Entity>,
-    pub host_server_entity: Option<Entity>,
+    pub host_client_entity: Option<Entity>,
     pub frame_duration: Duration,
     pub tick_duration: Duration,
     pub current_time: bevy::platform::time::Instant,
@@ -77,7 +77,7 @@ impl ClientServerStepper {
             server_app,
             client_entities: vec![],
             server_entity,
-            host_server_entity: None,
+            host_client_entity: None,
             client_of_entities: vec![],
             frame_duration,
             tick_duration,
@@ -91,7 +91,7 @@ impl ClientServerStepper {
         self.server_app.add_plugins(client::ClientPlugins {
             tick_duration: self.tick_duration,
         });
-        self.host_server_entity = Some(
+        self.host_client_entity = Some(
             self.server_app
                 .world_mut()
                 .spawn((
@@ -236,13 +236,13 @@ impl ClientServerStepper {
     pub fn host_client(&self) -> EntityRef {
         self.server_app
             .world()
-            .entity(self.host_server_entity.unwrap())
+            .entity(self.host_client_entity.unwrap())
     }
     
     pub fn host_client_mut(&mut self) -> EntityWorldMut {
         self.server_app
             .world_mut()
-            .entity_mut(self.host_server_entity.unwrap())
+            .entity_mut(self.host_client_entity.unwrap())
     }
 
     pub fn client(&self, id: usize) -> EntityRef {
@@ -297,7 +297,7 @@ impl ClientServerStepper {
                 .world_mut()
                 .trigger_targets(Connect, self.client_entities[i]);
         }
-        if let Some(host) = self.host_server_entity {
+        if let Some(host) = self.host_client_entity {
             self.server_app.world_mut()
                 .trigger_targets(Connect, host);
         }
