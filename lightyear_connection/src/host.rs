@@ -1,6 +1,6 @@
 //! We call running an app in 'Host-Server' mode an app that has both the Client and Server plugins, and where one of the client acts as the 'Host'.
 //!
-//! A client is considered a host-server if it is:
+//! A Client is considered a host-server if it is:
 //! - Connected
 //! - is a ClientOf of a Server
 //! - the Server is started

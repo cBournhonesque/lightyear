@@ -14,6 +14,8 @@ std = [
     "bevy/std",
     "serde/std",
 ]
+prediction = []
+interpolation = []
 
 [dependencies]
 lightyear_utils.workspace = true
@@ -21,9 +23,7 @@ lightyear_serde.workspace = true
 
 # utils
 chrono.workspace = true
-numquant.workspace = true
 paste.workspace = true
-parking_lot.workspace = true
 tracing.workspace = true
 
 # bevy
@@ -31,9 +31,6 @@ bevy.workspace = true
 
 # serde
 serde.workspace = true
-
-# no_std
-spin = { workspace = true, features = ["rwlock"] }
 
 [dev-dependencies]
 approx.workspace = true

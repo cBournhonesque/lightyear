@@ -31,8 +31,12 @@ server = [
     "lightyear_messages/server",
     "lightyear_transport/server"
 ]
-prediction = []
-interpolation = []
+prediction = [
+    "lightyear_core/prediction"
+]
+interpolation = [
+    "lightyear_core/interpolation"
+]
 trace = []
 metrics = [
     "dep:metrics",

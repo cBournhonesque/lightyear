@@ -18,6 +18,7 @@ client = []
 server = []
 
 
+
 [dependencies]
 # local crates
 lightyear_core.workspace = true

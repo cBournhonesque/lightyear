@@ -23,7 +23,7 @@ metrics = [
 [dependencies]
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
-lightyear_core.workspace = true
+lightyear_core = {workspace = true, features = ["interpolation"]}
 lightyear_connection.workspace = true
 lightyear_messages = {workspace = true, features = ["client"]}
 lightyear_replication = {workspace = true, features = ["client", "interpolation"]}
