@@ -5,12 +5,15 @@
 //! - is a ClientOf of a Server
 //! - the Server is started
 
+use crate::client::Connect;
+use crate::client_of::ClientOf;
 #[cfg(feature = "server")]
 use crate::{
     client::{Client, Connected},
     server::Started,
 };
 use bevy::prelude::*;
+use lightyear_core::id::{LocalId, PeerId, RemoteId};
 #[cfg(feature = "server")]
 use lightyear_link::prelude::{LinkOf, Server};
 
@@ -29,11 +32,36 @@ pub struct HostServer {
 pub struct HostPlugin;
 
 impl HostPlugin {
-    // TODO: also add check that the client has LocalIo.
+    // TODO: also add check that the client has LocalIo?
+
+    /// A host-server client gets connected automatically
+    #[cfg(feature = "server")]
+    fn connect(
+        trigger: Trigger<Connect>,
+        mut commands: Commands,
+        query: Query<&LinkOf, With<Client>>,
+        server_query: Query<(), With<Server>>,
+    ) {
+        if let Ok(link_of) = query.get(trigger.target()) {
+            if server_query.get(link_of.server).is_ok() {
+                info!("Connected host-client");
+                commands.entity(trigger.target()).insert((
+                   Connected,
+                   // We cannot insert the ids purely from the point of view of the client
+                   // so we set both its to Local
+                   LocalId(PeerId::Local(0)),
+                   RemoteId(PeerId::Local(0)),
+                   ClientOf,
+                ));
+            }
+        }
+    }
 
     #[cfg(feature = "server")]
     fn check_if_host_on_client_change(
-        trigger: Trigger<OnAdd, (Client, Connected)>,
+        // NOTE: we handle Connecting in the trigger because otherwise the client
+        //  would never be Connected
+        trigger: Trigger<OnAdd, (Client, Connected, LinkOf)>,
         client_query: Query<&LinkOf, (With<Client>, With<Connected>)>,
         server_query: Query<(), (With<Started>, With<Server>)>,
         mut commands: Commands,
@@ -70,6 +98,8 @@ impl HostPlugin {
 
 impl Plugin for HostPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "server")]
+        app.add_observer(Self::connect);
         #[cfg(feature = "server")]
         app.add_observer(Self::check_if_host_on_client_change);
         #[cfg(feature = "server")]

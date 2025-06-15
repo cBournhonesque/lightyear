@@ -41,6 +41,8 @@ impl PluginGroup for ServerPlugins {
         let builder = builder.add(SharedPlugins {
             tick_duration: self.tick_duration,
         });
+        
+        let builder = builder.add(lightyear_connection::host::HostPlugin);
 
         #[cfg(feature = "prediction")]
         let builder = builder.add(lightyear_prediction::server::ServerPlugin);
