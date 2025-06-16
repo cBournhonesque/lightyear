@@ -13,3 +13,6 @@ extern crate core;
 mod client_server;
 pub mod protocol;
 pub mod stepper;
+
+#[cfg(test)]
+mod host_server;

@@ -35,7 +35,7 @@ test_utils = []
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_link.workspace = true
-lightyear_core.workspace = true
+lightyear_core = {workspace = true, features = ["prediction"]}
 lightyear_connection = {workspace = true, features = ["client"]}
 lightyear_replication = {workspace = true, features = ["prediction", "interpolation"]}
 lightyear_sync = {workspace = true, features = ["client"]}

@@ -1,8 +1,9 @@
-use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig};
+use crate::{ClientId, Key, ServerConfig, PRIVATE_KEY_BYTES};
 use alloc::sync::Arc;
 use bevy::ecs::entity::unique_slice::UniqueEntitySlice;
 use bevy::prelude::*;
 use lightyear_connection::client::{Connected, Disconnected, Disconnecting};
+use lightyear_connection::host::HostClient;
 use lightyear_connection::prelude::{server::*, *};
 use lightyear_connection::server::Stopping;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
@@ -99,7 +100,7 @@ impl NetcodeServerPlugin {
                 Option<&Connected>,
                 Option<&Disconnecting>,
             ),
-            With<LinkOf>,
+            (With<LinkOf>, Without<HostClient>)
         >,
     ) {
         // TODO: we should be able to do ParIterMut if we can make the code understand
@@ -186,7 +187,7 @@ impl NetcodeServerPlugin {
             (Entity, &mut NetcodeServer, &mut Server, Has<Stopping>),
             Without<Stopped>,
         >,
-        link_query: Query<(Entity, &mut Link), With<LinkOf>>,
+        link_query: Query<(Entity, &mut Link), (With<LinkOf>, Without<HostClient>)>,
     ) {
         let delta = real_time.delta();
 

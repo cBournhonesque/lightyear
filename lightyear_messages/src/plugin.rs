@@ -229,11 +229,36 @@ impl Plugin for MessagePlugin {
             .build_state(app.world_mut())
             .build_system(Self::send);
 
+        let send_local = (
+            ParamBuilder,
+            QueryParamBuilder::new(|builder| {
+                builder.optional(|b| {
+                    registry.send_metadata.values().for_each(|metadata| {
+                        b.mut_id(metadata.component_id);
+                    });
+                    registry.receive_metadata.values().for_each(|metadata| {
+                        b.mut_id(metadata.component_id);
+                    });
+                    registry
+                        .send_trigger_metadata
+                        .values()
+                        .for_each(|metadata| {
+                            b.mut_id(metadata.component_id);
+                        });
+                });
+            }),
+            ParamBuilder,
+            ParamBuilder,
+        )
+            .build_state(app.world_mut())
+            .build_system(Self::send_local);
+
         app.configure_sets(PreUpdate, MessageSet::Receive.after(TransportSet::Receive));
         app.configure_sets(PostUpdate, MessageSet::Send.before(TransportSet::Send));
         app.add_systems(PreUpdate, recv.in_set(MessageSet::Receive));
         app.add_systems(PostUpdate, send.in_set(MessageSet::Send));
-        app.add_systems(Last, clear);
+        // we need to send local messages after clear, otherwise they will be cleared immediately after sending
+        app.add_systems(Last, (clear, send_local).chain());
 
         app.world_mut().insert_resource(registry);
     }

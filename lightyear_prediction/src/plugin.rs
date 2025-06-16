@@ -21,7 +21,7 @@ use crate::predicted_history::{
 };
 use crate::prespawn::{PreSpawned, PreSpawnedPlugin};
 use crate::registry::PredictionRegistry;
-use crate::{Predicted, PredictionMode, SyncComponent};
+use crate::{predicted_on_add_hook, predicted_on_remove_hook, Predicted, PredictionMode, SyncComponent};
 use bevy::ecs::component::Mutable;
 use bevy::ecs::entity_disabling::DefaultQueryFilters;
 use bevy::prelude::*;
@@ -255,6 +255,11 @@ impl Plugin for PredictionPlugin {
         app.register_type::<Predicted>()
             .register_type::<PreSpawned>()
             .register_type::<PredictionDisable>();
+        
+        // HOOKS
+        app.world_mut().register_component_hooks::<Predicted>()
+            .on_add(predicted_on_add_hook)
+            .on_remove(predicted_on_remove_hook);
 
         // RESOURCES
         app.init_resource::<PredictionRegistry>();

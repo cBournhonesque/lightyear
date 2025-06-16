@@ -3,9 +3,9 @@
 
 extern crate alloc;
 
-use bevy::ecs::component::{HookContext, Mutable, StorageType};
+use bevy::ecs::component::{HookContext, Mutable};
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Entity, Reflect, ReflectComponent};
+use bevy::prelude::Component;
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
 use lightyear_replication::prelude::Replicated;
@@ -35,80 +35,56 @@ pub mod prelude {
     pub use crate::{Interpolated, InterpolationMode};
 }
 
-/// Component added to client-side entities that are visually interpolated.
-///
-/// Interpolation is used to smooth the visual representation of entities received from the server.
-/// Instead of snapping to new positions/states upon receiving a server update, the entity's
-/// components are smoothly transitioned from their previous state to the new state over time.
-///
-/// This component links the interpolated entity to its server-confirmed counterpart.
-/// The `InterpolationPlugin` uses this to:
-/// - Store the component history of the confirmed entity.
-/// - Apply interpolated values to the components of this entity based on the `InterpolationTimeline`.
-#[derive(Debug, Reflect)]
-#[reflect(Component)]
-pub struct Interpolated {
-    // TODO: maybe here add an interpolation function?
-    pub confirmed_entity: Entity,
-    // TODO: add config about despawn behaviour here:
-    //  - despawn immediately all components
-    //  - leave the entity alive until the confirmed entity catches up to it and then it gets removed.
-    //    - or do this only for certain components (audio, animation, particles..) -> mode on PredictedComponent
+pub use lightyear_core::interpolation::Interpolated;
+
+
+pub(crate) fn interpolated_on_add_hook(mut deferred_world: DeferredWorld, context: HookContext) {
+    let interpolated = context.entity;
+    let confirmed = deferred_world
+        .get::<Interpolated>(interpolated)
+        .unwrap()
+        .confirmed_entity;
+    // TODO: maybe we need InitialReplicated?
+    let Some(replicated) = deferred_world.get::<Replicated>(confirmed) else {
+        error!(
+            "Could not find the receiver assocaited with the interpolated entity {:?}",
+            interpolated
+        );
+        return;
+    };
+    if let Some(mut manager) =
+        deferred_world.get_mut::<InterpolationManager>(replicated.receiver)
+    {
+        manager
+            .interpolated_entity_map
+            .get_mut()
+            .confirmed_to_interpolated
+            .insert(confirmed, interpolated);
+    };
 }
 
-impl Component for Interpolated {
-    const STORAGE_TYPE: StorageType = StorageType::Table;
-
-    type Mutability = Mutable;
-    fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
-        hooks.on_add(|mut deferred_world: DeferredWorld, context: HookContext| {
-            let interpolated = context.entity;
-            let confirmed = deferred_world
-                .get::<Interpolated>(interpolated)
-                .unwrap()
-                .confirmed_entity;
-            // TODO: maybe we need InitialReplicated?
-            let Some(replicated) = deferred_world.get::<Replicated>(confirmed) else {
-                error!(
-                    "Could not find the receiver assocaited with the interpolated entity {:?}",
-                    interpolated
-                );
-                return;
-            };
-            if let Some(mut manager) =
-                deferred_world.get_mut::<InterpolationManager>(replicated.receiver)
-            {
-                manager
-                    .interpolated_entity_map
-                    .get_mut()
-                    .confirmed_to_interpolated
-                    .insert(confirmed, interpolated);
-            };
-        });
-        hooks.on_remove(|mut deferred_world: DeferredWorld, context: HookContext| {
-            let interpolated = context.entity;
-            let confirmed = deferred_world
-                .get::<Interpolated>(interpolated)
-                .unwrap()
-                .confirmed_entity;
-            let Some(replicated) = deferred_world.get::<Replicated>(confirmed) else {
-                error!(
-                    "Could not find the receiver assocaited with the interpolated entity {:?}",
-                    interpolated
-                );
-                return;
-            };
-            if let Some(mut manager) =
-                deferred_world.get_mut::<InterpolationManager>(replicated.receiver)
-            {
-                manager
-                    .interpolated_entity_map
-                    .get_mut()
-                    .confirmed_to_interpolated
-                    .insert(confirmed, interpolated);
-            };
-        });
-    }
+pub(crate) fn interpolated_on_remove_hook(mut deferred_world: DeferredWorld, context: HookContext) {
+    let interpolated = context.entity;
+    let confirmed = deferred_world
+        .get::<Interpolated>(interpolated)
+        .unwrap()
+        .confirmed_entity;
+    let Some(replicated) = deferred_world.get::<Replicated>(confirmed) else {
+        error!(
+            "Could not find the receiver assocaited with the interpolated entity {:?}",
+            interpolated
+        );
+        return;
+    };
+    if let Some(mut manager) =
+        deferred_world.get_mut::<InterpolationManager>(replicated.receiver)
+    {
+        manager
+            .interpolated_entity_map
+            .get_mut()
+            .confirmed_to_interpolated
+            .insert(confirmed, interpolated);
+    };
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]

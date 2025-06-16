@@ -43,14 +43,14 @@
 //!   That system must run in the [`InputSet::BufferClientInputs`] system set, in the `FixedPreUpdate` stage.
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
 //!   will read the inputs using the [`InputBuffer`] component.
-use crate::InputChannel;
 use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
+use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
-use core::time::Duration;
+use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{NetworkTimeline, Rollback, Tick};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::TickDelta;
@@ -58,14 +58,16 @@ use lightyear_core::timeline::LocalTimeline;
 use lightyear_core::timeline::SyncEvent;
 use lightyear_interpolation::plugin::InterpolationDelay;
 use lightyear_interpolation::prelude::InterpolationTimeline;
-use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
+use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;
 use lightyear_replication::components::{Confirmed, PrePredicted};
 use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
+use lightyear_sync::prelude::InputTimeline;
+use lightyear_transport::channel::ChannelKind;
+use lightyear_transport::prelude::ChannelRegistry;
 use tracing::trace;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -236,8 +238,9 @@ fn buffer_action_state<S: ActionStateSequence>(
 
 /// Retrieve the ActionState for the current tick.
 fn get_action_state<S: ActionStateSequence>(
-    // TODO: Disable this in Host-server mode!
-    sender: Single<(&LocalTimeline, &InputTimeline, Has<Rollback>)>,
+    // NOTE: we skip this for host-client because a similar system does the same thing
+    //  in the server, and also clears the buffers
+    sender: Single<(&LocalTimeline, &InputTimeline, Has<Rollback>), Without<HostClient>>,
     // NOTE: we want to apply the Inputs for BOTH the local player and the remote player.
     // - local player: we need to get the input from the InputBuffer because of input delay
     // - remote player: we want to reduce the amount of rollbacks by updating the ActionState
@@ -306,7 +309,9 @@ fn get_delayed_action_state<S: ActionStateSequence>(
 
 /// System that removes old entries from the InputBuffer
 fn clean_buffers<S: ActionStateSequence>(
-    sender: Query<&LocalTimeline, With<InputTimeline>>,
+    // NOTE: we skip this for host-client because the get_action_state system on the server
+    //  also clears the buffers
+    sender: Query<&LocalTimeline, (With<InputTimeline>, Without<HostClient>)>,
     mut input_buffer_query: Query<&mut InputBuffer<S::State>>,
 ) {
     let Ok(local_timeline) = sender.single() else {
@@ -348,9 +353,13 @@ fn prepare_input_message<S: ActionStateSequence>(
     tick_duration: Res<TickDuration>,
     input_config: Res<InputConfig<S::Action>>,
     sender: Single<
-        (&LocalTimeline, &InputTimeline, &MessageManager),
+        (&LocalTimeline, &InputTimeline, &MessageManager, Has<HostClient>),
+        // the host-client doesn't need to send input messages since the ActionState is already on the entity
+        // unless we want to rebroadcast the HostClient inputs to other clients (in which
+        // case we prepare the input-message, which will be send_local to the server)
         (With<IsSynced<InputTimeline>>, Without<Rollback>),
     >,
+    channel_registry: Res<ChannelRegistry>,
     input_buffer_query: Query<
         (
             Entity,
@@ -361,7 +370,12 @@ fn prepare_input_message<S: ActionStateSequence>(
         With<S::Marker>,
     >,
 ) {
-    let (local_timeline, input_timeline, message_manager) = sender.into_inner();
+    let (local_timeline, input_timeline, message_manager, is_host_client) = sender.into_inner();
+    if is_host_client && !input_config.rebroadcast_inputs {
+        // the host-client doesn't need to send input messages since the ActionState is already on the entity
+        // unless we want to rebroadcast the HostClient inputs to other clients
+        return;
+    }
 
     // we send a message from the latest tick that we have available, which is the delayed tick
     let current_tick = local_timeline.tick();
@@ -371,12 +385,9 @@ fn prepare_input_message<S: ActionStateSequence>(
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
     //  this system what the latest acked input tick is?
-    // let input_send_interval = channel_registry
-    //     .get_builder_from_kind(&ChannelKind::of::<InputChannel>())
-    //     .unwrap()
-    //     .settings
-    //     .send_frequency;
-    let input_send_interval = Duration::default();
+
+    let input_send_interval = channel_registry
+        .settings(ChannelKind::of::<InputChannel>()).unwrap().send_frequency;
     // we send redundant inputs, so that if a packet is lost, we can still recover
     // A redundancy of 2 means that we can recover from 1 lost packet
     let mut num_tick: u16 = ((input_send_interval.as_nanos() / tick_duration.as_nanos()) + 1)
@@ -397,7 +408,10 @@ fn prepare_input_message<S: ActionStateSequence>(
         //  could we find a way to do it?
         //  maybe if it's pre-predicted, we send the original entity (pre-predicted), and the server will apply the conversion
         //   on their end?
-        if let Some(target) = if pre_predicted.is_some() {
+        if let Some(target) = if is_host_client {
+            // we are using PrePredictedEntity to make sure that MapEntities will be used on the client receiving side
+            Some(InputTarget::PrePredictedEntity(entity))
+        } else if pre_predicted.is_some() {
             // wait until the client receives the PrePredicted entity confirmation to send inputs
             // otherwise we get failed entity_map logs
             // TODO: the problem is that we wait until we have received the server answer. Ideally we would like
@@ -475,7 +489,8 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     confirmed_query: Query<&Confirmed, Without<S::Marker>>,
     mut predicted_query: Query<
         Option<&mut InputBuffer<S::State>>,
-        (With<Predicted>, Without<S::Marker>),
+        // the host-client won't receive input messages from the Server
+        (With<Predicted>, Without<S::Marker>, Without<HostClient>),
     >,
 ) {
     let (manager, mut receiver, timeline) = link.into_inner();
@@ -549,7 +564,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 fn send_input_messages<S: ActionStateSequence>(
     input_config: Res<InputConfig<S::Action>>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
-    mut sender: Single<&mut MessageSender<InputMessage<S>>, With<IsSynced<InputTimeline>>>,
+    sender: Single<(&mut MessageSender<InputMessage<S>>, Has<HostClient>), With<IsSynced<InputTimeline>>>,
     #[cfg(feature = "interpolation")] interpolation_query: Single<
         (&InputTimeline, &InterpolationTimeline),
         (
@@ -558,6 +573,13 @@ fn send_input_messages<S: ActionStateSequence>(
         ),
     >,
 ) {
+    let (mut sender, is_host_client) = sender.into_inner();
+    if is_host_client && !input_config.rebroadcast_inputs {
+        // the host-client doesn't need to send input messages since the ActionState is already on the entity
+        // unless we want to rebroadcast the HostClient inputs to other clients
+        message_buffer.0.clear();
+        return;
+    }
     trace!(
         "Number of input messages to send: {:?}",
         message_buffer.0.len()

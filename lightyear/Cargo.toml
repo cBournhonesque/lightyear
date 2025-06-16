@@ -60,12 +60,14 @@ prediction = [
   "dep:lightyear_prediction",
   "dep:lightyear_replication",
   "lightyear_replication?/prediction",
+  "lightyear_core/prediction"
 ]
 interpolation = [
   "dep:lightyear_interpolation",
   "dep:lightyear_replication",
   "lightyear_replication?/interpolation",
   "lightyear_inputs?/interpolation",
+  "lightyear_core/interpolation"
 ]
 trace = []
 metrics = [

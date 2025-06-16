@@ -117,6 +117,7 @@ impl AppTriggerExt for App {
             SendTriggerMetadata {
                 component_id: sender_id,
                 send_trigger_fn: TriggerSender::<M>::send_trigger_typed,
+                send_local_trigger_fn: TriggerSender::<M>::send_local_trigger_typed,
             },
         );
         registry

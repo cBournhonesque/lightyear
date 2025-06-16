@@ -1,8 +1,6 @@
 use crate::ping::manager::PingManager;
 use crate::timeline::sync::{SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline};
-use bevy::prelude::{
-    Component, Deref, DerefMut, Query, Reflect, Res, Time, Trigger, With, Without, default,
-};
+use bevy::prelude::{default, Changed, Component, Deref, DerefMut, Query, Reflect, Res, Time, Trigger, With, Without};
 use core::time::Duration;
 use lightyear_core::prelude::Rollback;
 use lightyear_core::tick::{Tick, TickDuration};
@@ -63,6 +61,20 @@ impl Input {
                 .input_delay_config
                 .input_delay_ticks(rtt, tick_duration.0);
         }
+    }
+
+    /// Update the input delay based on the current RTT and tick duration
+    /// when the InputDelayConfig is updated
+    pub(crate) fn recompute_input_delay_on_config_update(
+        tick_duration: Res<TickDuration>,
+        mut query: Query<(&Link, &mut InputTimeline), Changed<InputTimeline>>,
+    ) {
+        query.iter_mut().for_each(|(link, mut timeline)| {
+            let rtt = link.stats.rtt;
+            timeline.input_delay_ticks = timeline
+                .input_delay_config
+                .input_delay_ticks(rtt, tick_duration.0);
+        });
     }
 }
 

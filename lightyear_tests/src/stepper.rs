@@ -1,11 +1,11 @@
 use crate::protocol::ProtocolPlugin;
 #[cfg(not(feature = "std"))]
 use alloc::vec;
-use bevy::MinimalPlugins;
 use bevy::input::InputPlugin;
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
+use bevy::MinimalPlugins;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
 use lightyear::prelude::{client::*, server::*, *};
@@ -27,6 +27,7 @@ pub struct ClientServerStepper {
     pub client_entities: Vec<Entity>,
     pub server_entity: Entity,
     pub client_of_entities: Vec<Entity>,
+    pub host_client_entity: Option<Entity>,
     pub frame_duration: Duration,
     pub tick_duration: Duration,
     pub current_time: bevy::platform::time::Instant,
@@ -45,13 +46,22 @@ impl ClientServerStepper {
         stepper.init();
         stepper
     }
+
+    pub fn host_server() -> Self {
+        let mut stepper = Self::default_no_init();
+        stepper.new_host_client();
+        stepper.new_client();
+        stepper.init();
+        stepper
+    }
 }
 
 impl ClientServerStepper {
     pub fn new(tick_duration: Duration, frame_duration: Duration) -> Self {
         let mut server_app = App::new();
-        server_app.add_plugins((MinimalPlugins, StatesPlugin));
+        server_app.add_plugins((MinimalPlugins, StatesPlugin, InputPlugin));
         server_app.add_plugins(server::ServerPlugins { tick_duration });
+        // ProtocolPlugin needs to be added AFTER ClientPlugins, InputPlugin, because we need the PredictionRegistry to exist
         server_app.add_plugins(ProtocolPlugin);
         let server_entity = server_app
             .world_mut()
@@ -63,19 +73,47 @@ impl ClientServerStepper {
                 },
             ))
             .id();
-        server_app.finish();
-        server_app.cleanup();
-
         Self {
             client_apps: vec![],
             server_app,
             client_entities: vec![],
             server_entity,
+            host_client_entity: None,
             client_of_entities: vec![],
             frame_duration,
             tick_duration,
             current_time: bevy::platform::time::Instant::now(),
         }
+    }
+
+    /// Add a new host-client: we will add the client on the server app
+    pub(crate) fn new_host_client(&mut self) {
+        // the server app will contain both client and server plugins
+        self.server_app.add_plugins(client::ClientPlugins {
+            tick_duration: self.tick_duration,
+        });
+        self.host_client_entity = Some(
+            self.server_app
+                .world_mut()
+                .spawn((
+                    // Client + LinkOf = HostServer
+                    Client::default(),
+                    LinkOf {
+                        server: self.server_entity,
+                    },
+                    // Note: no need to add ReplicationSender/Receiver on the host-client entity
+                    // we will act like each client has a different port
+                    // TODO: maybe don't add Link either?
+                    Link::new(None),
+                    // PeerAddr(SocketAddr::new(
+                    //     core::net::IpAddr::V4(Ipv4Addr::LOCALHOST),
+                    //     0,
+                    // )),
+                    // For Crossbeam we need to mark the IO as Linked, as there is no ServerLink to do that for us
+                    Linked,
+                ))
+                .id(),
+        );
     }
 
     pub(crate) fn new_client(&mut self) -> usize {
@@ -84,7 +122,7 @@ impl ClientServerStepper {
         client_app.add_plugins(client::ClientPlugins {
             tick_duration: self.tick_duration,
         });
-        // ProtocolPlugin needs to be added AFTER ClientPlugins, because we need the PredictionRegistry to exist
+        // ProtocolPlugin needs to be added AFTER ClientPlugins, InputPlugin, because we need the PredictionRegistry to exist
         client_app.add_plugins(ProtocolPlugin);
         client_app.finish();
         client_app.cleanup();
@@ -196,6 +234,18 @@ impl ClientServerStepper {
             .tick()
     }
 
+    pub fn host_client(&self) -> EntityRef {
+        self.server_app
+            .world()
+            .entity(self.host_client_entity.unwrap())
+    }
+
+    pub fn host_client_mut(&mut self) -> EntityWorldMut {
+        self.server_app
+            .world_mut()
+            .entity_mut(self.host_client_entity.unwrap())
+    }
+
     pub fn client(&self, id: usize) -> EntityRef {
         self.client_apps[id]
             .world()
@@ -227,6 +277,9 @@ impl ClientServerStepper {
     }
 
     pub(crate) fn init(&mut self) {
+        self.server_app.finish();
+        self.server_app.cleanup();
+
         // Initialize Real time (needed only for the first TimeSystem run)
         let now = bevy::platform::time::Instant::now();
         self.current_time = now;
@@ -244,6 +297,10 @@ impl ClientServerStepper {
             self.client_apps[i]
                 .world_mut()
                 .trigger_targets(Connect, self.client_entities[i]);
+        }
+        if let Some(host) = self.host_client_entity {
+            self.server_app.world_mut()
+                .trigger_targets(Connect, host);
         }
         self.server_app
             .world_mut()

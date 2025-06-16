@@ -11,7 +11,7 @@ use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapp
 // TODO: derive Reflect once we reach bevy 0.14
 /// ChannelKind - internal wrapper around the type of the channel
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
-pub struct ChannelKind(TypeId);
+pub struct ChannelKind(pub TypeId);
 
 pub type ChannelId = NetId;
 
@@ -60,7 +60,7 @@ pub struct ChannelRegistry {
 }
 
 impl ChannelRegistry {
-    pub(crate) fn settings(&self, kind: ChannelKind) -> Option<&ChannelSettings> {
+    pub fn settings(&self, kind: ChannelKind) -> Option<&ChannelSettings> {
         self.settings_map.get(&kind)
     }
 
