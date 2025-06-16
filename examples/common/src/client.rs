@@ -55,6 +55,7 @@ impl ExampleClient {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         let entity = context.entity;
         world.commands().queue(move |world: &mut World| -> Result {
+            
             let mut entity_mut = world.entity_mut(entity);
             let settings = entity_mut.take::<ExampleClient>().unwrap();
             let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), settings.client_port);

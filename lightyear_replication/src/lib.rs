@@ -39,7 +39,7 @@ pub mod message;
 pub mod control;
 /// Manages entity visibility for replication (e.g., interest management, rooms).
 pub mod visibility;
-mod host;
+pub mod host;
 
 /// Commonly used items for replication.
 pub mod prelude {
