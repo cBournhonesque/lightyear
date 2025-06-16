@@ -60,7 +60,7 @@ pub struct ChannelRegistry {
 }
 
 impl ChannelRegistry {
-    pub(crate) fn settings(&self, kind: ChannelKind) -> Option<&ChannelSettings> {
+    pub fn settings(&self, kind: ChannelKind) -> Option<&ChannelSettings> {
         self.settings_map.get(&kind)
     }
 

@@ -6,8 +6,8 @@ use bevy::prelude::FromReflect;
 use bevy::reflect::Reflectable;
 use core::fmt::Debug;
 use lightyear_inputs::config::InputConfig;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 pub struct InputPlugin<A> {
     pub config: InputConfig<A>,
@@ -36,7 +36,7 @@ impl<
 > Plugin for InputPlugin<A>
 {
     fn build(&self, app: &mut App) {
-        // TODO: for simplicity, we currently register both client and server input plugins
+        // TODO: for simplicity, we currently register both client and server input plugins if both features are enabled
         #[cfg(feature = "client")]
         {
             use lightyear_inputs::client::ClientInputPlugin;

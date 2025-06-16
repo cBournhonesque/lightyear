@@ -19,8 +19,8 @@ use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
 use crate::prelude::ComponentReplicationOverrides;
-use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
+use crate::registry::ComponentKind;
 use crate::send::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 
@@ -193,7 +193,7 @@ impl Replicate {
                                 .query_filtered::<&mut ReplicationSender, With<ClientOf>>()
                                 .get_mut(world, client)
                             else {
-                                error!("ClientOf {client:?} not found");
+                                debug!("ClientOf {client:?} not found or does not have ReplicationSender");
                                 return;
                             };
                             sender.add_replicated_entity(context.entity, replicate.authority);

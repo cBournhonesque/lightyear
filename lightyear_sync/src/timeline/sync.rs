@@ -1,12 +1,10 @@
 use crate::ping::manager::PingManager;
 use crate::plugin::SyncSet;
 use bevy::app::{App, Last, Plugin, PostUpdate};
-use bevy::prelude::{
-    Commands, Component, Entity, Has, IntoScheduleConfigs, OnAdd, Query, Reflect, Res, ResMut,
-    Time, Trigger, Virtual, With,
-};
+use bevy::prelude::{Commands, Component, Entity, Has, IntoScheduleConfigs, OnAdd, Query, Reflect, Res, ResMut, Time, Trigger, Virtual, With, Without};
 use core::time::Duration;
 use lightyear_connection::client::{Connected, Disconnected};
+use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimelinePlugin};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{TickDelta, TickInstant};
@@ -202,7 +200,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
 
     pub(crate) fn update_virtual_time(
         mut virtual_time: ResMut<Time<Virtual>>,
-        query: Query<&Synced, (With<IsSynced<Synced>>, With<Connected>)>,
+        query: Query<&Synced, (With<IsSynced<Synced>>, With<Connected>, Without<HostClient>)>,
     ) {
         if let Ok(timeline) = query.single() {
             trace!(
@@ -229,13 +227,19 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
                 &mut LocalTimeline,
                 &PingManager,
                 Has<IsSynced<Synced>>,
+                Has<HostClient>,
             ),
             With<Connected>,
         >,
     ) {
         // TODO: return early if we haven't received any remote packets? (nothing to sync to)
 
-        query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, mut local_timeline, ping_manager, has_is_synced)| {
+        query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, mut local_timeline, ping_manager, has_is_synced, host_client)| {
+            // automatically sync if we're the host client
+            if !has_is_synced && host_client {
+                commands.entity(entity).insert(IsSynced::<Synced>::default());
+                return;
+            }
             // return early if the remote timeline hasn't received any packets
             if !main_timeline.received_packet() {
                 return;

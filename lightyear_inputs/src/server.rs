@@ -1,9 +1,9 @@
 //! Handle input messages received from the clients
 
-use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
+use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear_connection::client::Connected;
@@ -60,7 +60,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
         // SETS
         // TODO:
         //  - could there be an issue because, client updates `state` and `fixed_update_state` and sends it to server
-        //  - server only considers `state`
+        //  - server only considers `state` since we receive messages in PreUpdate
         //  - but host-server broadcasting their inputs only updates `state`
         app.configure_sets(
             PreUpdate,
@@ -114,7 +114,9 @@ fn receive_input_message<S: ActionStateSequence>(
             &mut MessageReceiver<InputMessage<S>>,
             &RemoteId,
         ),
-        With<Connected>,
+        // We also receive inputs from the HostClient, in case we want the HostClient's inputs to be 
+        // rebroadcast to other clients (so that they can do prediction of the HostClient's entity)
+        With<Connected>
     >,
     mut query: Query<Option<&mut InputBuffer<S::State>>>,
     mut commands: Commands,
@@ -126,7 +128,9 @@ fn receive_input_message<S: ActionStateSequence>(
         let server_entity = link_of.server;
         receiver.receive().try_for_each(|message| {
             // ignore input messages from the local client (if running in host-server mode)
-            if client_id.is_local() {
+            // if we're not doin rebroadcasting
+            if client_id.is_local() && !config.rebroadcast_inputs {
+                error!("Received input message from HostClient for action {:?} even though rebroadcasting is disabled. Ignoring the message.", core::any::type_name::<S::Action>());
                 return Ok(())
             }
             trace!(?client_id, action = ?core::any::type_name::<S::Action>(), ?message.end_tick, ?message.inputs, "received input message");
@@ -181,7 +185,7 @@ fn receive_input_message<S: ActionStateSequence>(
             }
 
             if config.rebroadcast_inputs {
-                trace!("Rebroad message {message:?} to other clients");
+                trace!("Rebroadcast input message {message:?} from client {client_id:?} to other clients");
                 if let Ok(server) = server.get(server_entity) {
                     sender.send::<_, InputChannel>(
                         &message,
@@ -196,6 +200,10 @@ fn receive_input_message<S: ActionStateSequence>(
 }
 
 /// Read the InputState for the current tick from the buffer, and use them to update the ActionState
+///
+/// NOTE: this will also run on HostClients! This is why we disable `get_action_state` in the client
+/// plugin for host-clients. This system also removes old inputs from the buffer, which is why we
+/// can also skip `clear_buffers` on host-clients
 fn update_action_state<S: ActionStateSequence>(
     // TODO: what if there are multiple servers? maybe we can use Replicate to figure out which inputs should be replicating on which servers?
     //  and use the timeline from that connection? i.e. find from which entity we got the first InputMessage?
@@ -235,6 +243,7 @@ fn update_action_state<S: ActionStateSequence>(
                 .set(input_buffer.len() as f64);
             }
         }
+
         // TODO: in host-server mode, if we rebroadcast inputs, we might want to keep a bit of a history
         //  in the buffer so that we have redundancy when we broadcast to other clients
         // remove all the previous values
@@ -243,81 +252,3 @@ fn update_action_state<S: ActionStateSequence>(
         input_buffer.pop(tick - 1);
     }
 }
-
-// /// In host-server mode, we usually don't need to send any input messages because any update
-// /// to the ActionState is immediately visible to the server.
-// /// However we might want other clients to see the inputs of the host client, in which case we will create
-// /// a InputMessage and send it to the server. The user can then have a `replicate_inputs` system that takes this
-// /// message and propagates it to other clients
-// fn send_host_server_input_message<A: UserAction>(
-//     connection: Res<ClientConnectionManager>,
-//     netclient: Res<ClientConnection>,
-//     mut events: ResMut<Events<ServerReceiveMessage<InputMessage<A>>>>,
-//     channel_registry: Res<ChannelRegistry>,
-//     config: Res<ClientConfig>,
-//     input_config: Res<InputConfig<A>>,
-//     tick_manager: Res<TickManager>,
-//     mut input_buffer_query: Query<(Entity, &mut InputBuffer<ActionState<A>>), With<InputMarker<A>>>,
-// ) {
-//     // we send a message from the latest tick that we have available, which is the delayed tick
-//     let current_tick = tick_manager.tick();
-//     let input_delay_ticks = connection.input_delay_ticks() as i16;
-//     let tick = current_tick + input_delay_ticks;
-//     // TODO: the number of messages should be in SharedConfig
-//     trace!(tick = ?tick, "prepare_input_message");
-//     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
-//     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
-//     //  this system what the latest acked input tick is?
-//     let input_send_interval = channel_registry
-//         .get_builder_from_kind(&ChannelKind::of::<InputChannel>())
-//         .unwrap()
-//         .settings
-//         .send_frequency;
-//     // we send redundant inputs, so that if a packet is lost, we can still recover
-//     // A redundancy of 2 means that we can recover from 1 lost packet
-//     let mut num_tick: u16 =
-//         ((input_send_interval.as_nanos() / config.shared.tick.tick_duration.as_nanos()) + 1)
-//             .try_into()
-//             .unwrap();
-//     num_tick *= input_config.packet_redundancy;
-//     let mut message = InputMessage::<A>::new(tick);
-//     for (entity, input_buffer) in input_buffer_query.iter_mut() {
-//         trace!(
-//             ?tick,
-//             ?current_tick,
-//             ?entity,
-//             "Preparing host-server input message with buffer: {:?}",
-//             input_buffer
-//         );
-//         // we are using PrePredictedEntity to make sure that MapEntities will be used on the client receiving side
-//         message.add_inputs(
-//             num_tick,
-//             InputTarget::PrePredictedEntity(entity),
-//             input_buffer.as_ref(),
-//         );
-//     }
-//
-//     events.send(ServerReceiveMessage::new(message, netclient.id()));
-// }
-
-// pub(crate) fn rebroadcast_inputs<S: ActionStateSequence>(
-//     server: Single<&Server>,
-//     mut sender: ServerMultiMessageSender,
-//     mut receivers: Query<(&mut MessageReceiver<InputMessage<S>>, &Connected)>,
-// ) -> Result {
-//     let server = server.into_inner();
-//     receivers.iter_mut().try_for_each(|(mut receiver, connected)| {
-//         let peer = connected.remote_peer_id;
-//         info!("received client message, will rebroadcast");
-//         // we already read the message in Receive so it's ok to drain the messages
-//         receiver.receive().try_for_each(|message| {
-//             info!("Rebroad message {message:?} to other clients");
-//             sender.send::<_, InputChannel>(
-//                 &message,
-//                 server,
-//                 &NetworkTarget::AllExceptSingle(peer)
-//             )
-//         })
-//     })?;
-//     Ok(())
-// }

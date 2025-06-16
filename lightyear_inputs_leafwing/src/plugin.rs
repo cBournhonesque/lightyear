@@ -20,6 +20,8 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "client")]
         {
+            // TODO: this means that for host-server mode InputPlugin must be added before the ProtocolPlugin!
+
             // we add this check so that if we only have the ServerPlugins, but the client feature is enabled,
             // we don't panic (otherwise we would because leafwing expects the bevy InputPlugin)
             // We only want the client or server leafwing plugin, not both

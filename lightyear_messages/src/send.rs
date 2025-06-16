@@ -264,7 +264,7 @@ impl MessagePlugin {
             .par_iter_mut()
             .for_each(|(entity, timeline, mut message_manager)| {
                 let tick = timeline.tick();
-                
+
                 // SAFETY: we know that this won't lead to violating the aliasing rule
                 let mut message_sender_query = unsafe { message_components_query.reborrow_unsafe() };
                 let mut message_receiver_query = unsafe { message_components_query.reborrow_unsafe() };
@@ -286,7 +286,7 @@ impl MessagePlugin {
                             .iter()
                             .find_map(|(kind, id)| if kind == message_kind { Some(id) } else { None })
                             .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                        
+
                         let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
                         let message_receiver = entity_mut
                             .get_mut_by_id(*receiver_id)

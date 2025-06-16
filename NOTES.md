@@ -1,3 +1,11 @@
+# HOST-SERVER
+
+- check if input-delay is correctly enabled on host-server
+- check host-server rebroadcast inputs system
+- check if clean_buffers should run on client
+
+
+
 https://excalidraw.com/#room=6556b82e2cc953b853cd,eIOMjgsfWiA7iaFzjk1blA
 
 # Examples

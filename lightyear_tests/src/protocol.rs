@@ -147,13 +147,13 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(native::InputPlugin::<NativeInput> {
             config: InputConfig::<NativeInput> {
-                rebroadcast_inputs: false,
+                rebroadcast_inputs: true,
                 ..default()
             },
         });
         app.add_plugins(leafwing::InputPlugin::<LeafwingInput1> {
             config: InputConfig::<LeafwingInput1> {
-                rebroadcast_inputs: false,
+                rebroadcast_inputs: true,
                 ..default()
             },
         });

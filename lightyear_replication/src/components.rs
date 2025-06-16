@@ -444,7 +444,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                                 .query_filtered::<(), (With<ClientOf>, With<ReplicationSender>)>()
                                 .get_mut(world, client)
                             else {
-                                error!("ClientOf {client:?} not found");
+                                debug!("ClientOf {client:?} not found or does not have ReplicationSender");
                                 return;
                             };
                             replicate.senders.insert(client);

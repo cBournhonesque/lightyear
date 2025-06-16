@@ -226,7 +226,7 @@ impl TransportPlugin {
                 // TODO: do we need the message_id?
                 sender_metadata.sender.buffer_send(bytes, priority);
                 Ok::<(), TransportError>(())
-            }).inspect_err(|e| error!("error: {e:?}")).ok();
+            }).inspect_err(|e| error!("error sending message: {e:?}")).ok();
 
             // flush messages from the Sender to the priority manager
             transport.senders.values_mut().for_each(|sender_metadata| {

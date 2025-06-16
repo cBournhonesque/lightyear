@@ -11,7 +11,7 @@ use lightyear_messages::MessageManager;
 use lightyear_replication::message::SenderMetadata;
 use lightyear_replication::prelude::{ReplicationReceiver, ReplicationSender};
 use lightyear_sync::prelude::client::RemoteTimeline;
-use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::{InputTimeline, IsSynced};
 use lightyear_transport::prelude::Transport;
 use test_log::test;
 
@@ -26,9 +26,11 @@ fn test_setup_host_server() {
     // Input/Remote timeline are required by Client.
     // TODO: update InputTimeline to match LocalTimeline and to not sync
     assert!(stepper.host_client().contains::<InputTimeline>());
+    assert!(stepper.host_client().contains::<IsSynced<InputTimeline>>());
     assert!(stepper.host_client().contains::<RemoteTimeline>());
     // TODO: update Interpolation to be disabled for host-clients!
     assert!(stepper.host_client().contains::<InterpolationTimeline>());
+    assert!(stepper.host_client().contains::<IsSynced<InterpolationTimeline>>());
     assert!(stepper.host_client().contains::<LocalTimeline>());
     assert!(stepper.host_client().contains::<Transport>());
     assert!(stepper.host_client().contains::<MessageManager>());

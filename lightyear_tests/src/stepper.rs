@@ -46,7 +46,7 @@ impl ClientServerStepper {
         stepper.init();
         stepper
     }
-    
+
     pub fn host_server() -> Self {
         let mut stepper = Self::default_no_init();
         stepper.new_host_client();
@@ -59,8 +59,9 @@ impl ClientServerStepper {
 impl ClientServerStepper {
     pub fn new(tick_duration: Duration, frame_duration: Duration) -> Self {
         let mut server_app = App::new();
-        server_app.add_plugins((MinimalPlugins, StatesPlugin));
+        server_app.add_plugins((MinimalPlugins, StatesPlugin, InputPlugin));
         server_app.add_plugins(server::ServerPlugins { tick_duration });
+        // ProtocolPlugin needs to be added AFTER ClientPlugins, InputPlugin, because we need the PredictionRegistry to exist
         server_app.add_plugins(ProtocolPlugin);
         let server_entity = server_app
             .world_mut()
@@ -121,7 +122,7 @@ impl ClientServerStepper {
         client_app.add_plugins(client::ClientPlugins {
             tick_duration: self.tick_duration,
         });
-        // ProtocolPlugin needs to be added AFTER ClientPlugins, because we need the PredictionRegistry to exist
+        // ProtocolPlugin needs to be added AFTER ClientPlugins, InputPlugin, because we need the PredictionRegistry to exist
         client_app.add_plugins(ProtocolPlugin);
         client_app.finish();
         client_app.cleanup();
@@ -232,13 +233,13 @@ impl ClientServerStepper {
             .unwrap()
             .tick()
     }
-    
+
     pub fn host_client(&self) -> EntityRef {
         self.server_app
             .world()
             .entity(self.host_client_entity.unwrap())
     }
-    
+
     pub fn host_client_mut(&mut self) -> EntityWorldMut {
         self.server_app
             .world_mut()
@@ -278,7 +279,7 @@ impl ClientServerStepper {
     pub(crate) fn init(&mut self) {
         self.server_app.finish();
         self.server_app.cleanup();
-        
+
         // Initialize Real time (needed only for the first TimeSystem run)
         let now = bevy::platform::time::Instant::now();
         self.current_time = now;

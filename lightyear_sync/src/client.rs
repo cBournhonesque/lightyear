@@ -1,8 +1,8 @@
 /*! Handles syncing the time between the client and the server
 */
 use crate::plugin::TimelineSyncPlugin;
-use crate::prelude::InputTimeline;
 use crate::prelude::client::RemoteTimeline;
+use crate::prelude::InputTimeline;
 use crate::timeline::input::Input;
 use crate::timeline::remote;
 use crate::timeline::sync::SyncedTimelinePlugin;
@@ -69,7 +69,9 @@ impl Plugin for ClientPlugin {
         app.register_required_components::<Client, InputTimeline>();
         app.register_required_components::<Client, RemoteTimeline>();
 
+        // TODO: add a system that recomputes input_delay_ticks whenever the InputDelayConfig changes
         app.add_observer(Input::recompute_input_delay);
+        app.add_systems(First, Input::recompute_input_delay_on_config_update);
 
         // TODO: should the DrivingTimeline be configurable?
         // the client will use the Input timeline as the driving timeline
