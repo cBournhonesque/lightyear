@@ -6,6 +6,7 @@ use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
+use lightyear_connection::host::HostClient;
 use lightyear_messages::prelude::{AppTriggerExt, RemoteTrigger, TriggerSender};
 use lightyear_messages::registry::MessageRegistry;
 use lightyear_replication::message::MetadataChannel;
@@ -36,7 +37,7 @@ impl ProtocolCheckPlugin {
     /// On the server, send a message with the protocol checksum when a client connects
     fn send_verify_protocol(
         trigger: Trigger<OnAdd, Connected>,
-        mut sender: Query<&mut TriggerSender<ProtocolCheck>, With<ClientOf>>,
+        mut sender: Query<&mut TriggerSender<ProtocolCheck>, (With<ClientOf>, Without<HostClient>)>,
         messages: Option<ResMut<MessageRegistry>>,
         components: Option<ResMut<ComponentRegistry>>,
         channels: Option<ResMut<ChannelRegistry>>,
@@ -74,8 +75,8 @@ impl ProtocolCheckPlugin {
 impl Plugin for ProtocolCheckPlugin {
     fn build(&self, app: &mut App) {
          // TODO: add these observers only on the server/client
-        app.add_observer(Self::send_verify_protocol);
-        app.add_observer(Self::receive_verify_protocol);
+        // app.add_observer(Self::send_verify_protocol);
+        // app.add_observer(Self::receive_verify_protocol);
 
          // try to re-add the Channel in case Replication is not enabled
         app.add_channel::<MetadataChannel>(ChannelSettings {
@@ -87,6 +88,11 @@ impl Plugin for ProtocolCheckPlugin {
 
         app.add_trigger::<ProtocolCheck>()
             .add_direction(NetworkDirection::ServerToClient);
+    }
+
+    fn finish(&self, app: &mut App) {
+        app.add_observer(Self::send_verify_protocol);
+        app.add_observer(Self::receive_verify_protocol);
     }
 
     // fn finish(&self, app: &mut App) {

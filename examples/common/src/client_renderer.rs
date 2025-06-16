@@ -23,7 +23,6 @@ impl Plugin for ExampleClientRendererPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(GameName(self.name.clone()));
         app.insert_resource(ClearColor::default());
-        // TODO common shortcuts for enabling the egui world inspector etc.
         app.add_systems(Startup, set_window_title);
         spawn_connect_button(app);
         app.add_systems(Update, update_button_text);
@@ -53,6 +52,9 @@ fn on_update_status_message(
 #[derive(Component)]
 struct StatusMessageMarker;
 
+#[derive(Component)]
+pub(crate) struct ClientButton;
+
 /// Create a button that allow you to connect/disconnect to a server
 pub(crate) fn spawn_connect_button(app: &mut App) {
     app.world_mut()
@@ -66,7 +68,7 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
         })
         .with_children(|parent| {
             parent.spawn((
-                Text("Lightyear Example".to_string()),
+                Text("[Client]".to_string()),
                 TextColor(Color::srgb(0.9, 0.9, 0.9).with_alpha(0.4)),
                 TextFont::from_font_size(18.0),
                 StatusMessageMarker,
@@ -82,7 +84,7 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                     Text("Connect".to_string()),
                     TextColor(Color::srgb(0.9, 0.9, 0.9)),
                     TextFont::from_font_size(20.0),
-                    BorderColor(Color::BLACK),
+                    ClientButton,
                     Node {
                         width: Val::Px(150.0),
                         height: Val::Px(65.0),
@@ -116,12 +118,9 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
 }
 
 pub(crate) fn update_button_text(
-    query: Query<&Client>,
-    mut text_query: Query<&mut Text, With<Button>>,
+    client: Single<&Client>,
+    mut text_query: Query<&mut Text, (With<Button>, With<ClientButton>)>,
 ) {
-    let Ok(client) = query.single() else {
-        return;
-    };
     if let Ok(mut text) = text_query.single_mut() {
         match client.state {
             ClientState::Disconnecting => {
@@ -149,15 +148,16 @@ pub struct ClientIdText;
 /// to display the client id
 pub(crate) fn handle_connection(
     trigger: Trigger<OnAdd, Connected>,
-    query: Query<&LocalId>,
+    query: Query<&LocalId, Or<((With<LinkOf>, With<Client>), Without<LinkOf>)>>,
     mut commands: Commands,
 ) {
-    let client_id = query.get(trigger.target()).unwrap().0;
-    commands.spawn((
-        Text(format!("Client {}", client_id)),
-        TextFont::from_font_size(30.0),
-        ClientIdText,
-    ));
+    if let Ok(client_id) = query.get(trigger.target()) {
+        commands.spawn((
+            Text(format!("Client {}", client_id.0)),
+            TextFont::from_font_size(30.0),
+            ClientIdText,
+        ));
+    }
 }
 
 /// Listen for events to know when the client is disconnected, and print out the reason

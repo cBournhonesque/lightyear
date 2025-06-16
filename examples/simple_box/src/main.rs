@@ -76,7 +76,7 @@ fn main() {
         use lightyear_examples_common::server::{ExampleServer, ServerTransports};
 
         app.add_plugins(ExampleServerPlugin);
-        if matches!(cli.mode, Some(Mode::Server)) {
+        if matches!(cli.mode, Some(Mode::Server) | Some(Mode::HostClient { .. })) {
             let server = app
                 .world_mut()
                 .spawn(ExampleServer {
@@ -95,6 +95,22 @@ fn main() {
                 })
                 .id();
             app.world_mut().trigger_targets(Start, server);
+
+            #[cfg(feature = "client")]
+            {
+                use lightyear::prelude::Connect;
+                use lightyear::prelude::{Client, LinkOf};
+                 let client = app
+                    .world_mut()
+                    .spawn((
+                        Client::default(),
+                        Name::new("HostClient"),
+                        LinkOf {
+                            server,
+                        }
+                    )).id();
+                app.world_mut().trigger_targets(Connect, client)
+            }
         }
     }
 

@@ -291,7 +291,7 @@ impl NetcodeServerPlugin {
         trigger: Trigger<Stop>,
         mut commands: Commands,
         mut query: Query<(Entity, &mut NetcodeServer, &Server), Without<Stopped>>,
-        mut link_query: Query<(Entity, &mut Link, &RemoteId), (With<ClientOf>, With<Connected>)>,
+        mut link_query: Query<(Entity, &mut Link, &RemoteId), (With<ClientOf>, With<Connected>, Without<HostClient>)>,
     ) -> Result {
         if let Ok((server_entity, mut netcode_server, server)) = query.get_mut(trigger.target()) {
             info!("Stopping netcode server");

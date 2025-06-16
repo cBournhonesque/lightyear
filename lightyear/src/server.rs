@@ -43,6 +43,10 @@ impl PluginGroup for ServerPlugins {
         });
         
         let builder = builder.add(lightyear_connection::host::HostPlugin);
+        
+        #[cfg(feature = "replication")]
+        let builder = builder.add(lightyear_replication::host::HostServerPlugin);
+        
 
         #[cfg(feature = "prediction")]
         let builder = builder.add(lightyear_prediction::server::ServerPlugin);

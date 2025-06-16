@@ -38,7 +38,7 @@ impl Cli {
             #[cfg(all(feature = "client", feature = "server"))]
             Some(Mode::Separate { client_id }) => *client_id,
             #[cfg(all(feature = "client", feature = "server"))]
-            Some(Mode::HostServer { client_id }) => *client_id,
+            Some(Mode::HostClient { client_id }) => *client_id,
             _ => None,
         }
     }
@@ -66,6 +66,17 @@ impl Cli {
                 app.add_plugins((
                     lightyear::prelude::server::ServerPlugins { tick_duration },
                     ExampleServerRendererPlugin::new("Server".to_string()),
+                ));
+                app
+            }
+            #[cfg(all(feature = "client", feature = "server"))]
+            Some(Mode::HostClient { client_id}) => {
+                let mut app = new_gui_app(add_inspector);
+                app.add_plugins((
+                    lightyear::prelude::client::ClientPlugins { tick_duration },
+                    lightyear::prelude::server::ServerPlugins { tick_duration },
+                    ExampleClientRendererPlugin::new(format!("Host-Client {client_id:?}")),
+                    ExampleServerRendererPlugin::new("Host-Server".to_string()),
                 ));
                 app
             }
@@ -98,9 +109,9 @@ pub enum Mode {
         client_id: Option<u64>,
     },
     #[cfg(all(feature = "client", feature = "server"))]
-    /// Run the app in host-server mode.
+    /// Run the app in host-client mode.
     /// The client and the server will run inside the same app. The peer acts both as a client and a server.
-    HostServer {
+    HostClient {
         #[arg(short, long, default_value = None)]
         client_id: Option<u64>,
     },
@@ -110,7 +121,7 @@ impl Default for Mode {
     fn default() -> Self {
         cfg_if::cfg_if! {
             if #[cfg(all(feature = "client", feature = "server"))] {
-                return Mode::HostServer { client_id: None };
+                return Mode::HostClient { client_id: None };
             } else if #[cfg(feature = "server")] {
                 return Mode::Server;
             } else {

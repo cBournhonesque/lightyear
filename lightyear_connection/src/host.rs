@@ -5,15 +5,15 @@
 //! - is a ClientOf of a Server
 //! - the Server is started
 
-use crate::client::Connect;
-use crate::client_of::ClientOf;
 #[cfg(feature = "server")]
 use crate::{
-    client::{Client, Connected},
+    client::{Client, Connect, Connected},
+    client_of::ClientOf,
     server::Started,
 };
 use bevy::prelude::*;
 use bytes::Bytes;
+#[cfg(feature = "server")]
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 #[cfg(feature = "server")]
 use lightyear_link::prelude::{LinkOf, Server};
