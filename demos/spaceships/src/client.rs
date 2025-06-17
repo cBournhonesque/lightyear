@@ -77,7 +77,7 @@ fn add_bullet_physics(
 /// Decorate newly connecting players with physics components
 /// ..and if it's our own player, set up input stuff
 fn handle_new_player(
-    trigger: Trigger<OnAdd, Player>,
+    trigger: Trigger<OnAdd, (Player, Predicted)>,
     mut commands: Commands,
     player_query: Query<(&Player, Has<Controlled>), With<Predicted>>,
 ) {

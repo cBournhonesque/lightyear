@@ -11,6 +11,7 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bevy::time::{Timer, TimerMode};
 use lightyear_connection::client::Connected;
+use lightyear_connection::host::HostClient;
 #[cfg(feature = "server")]
 use lightyear_connection::{
     client::PeerMetadata, client_of::ClientOf, network_target::NetworkTarget,
@@ -73,6 +74,7 @@ impl<C> Default for ComponentReplicationOverrides<C> {
     }
 }
 
+
 impl<C> ComponentReplicationOverrides<C> {
     /// Get component overrides for a specific sender
     pub(crate) fn get_overrides(&self, sender: Entity) -> Option<&ComponentReplicationOverride> {
@@ -90,6 +92,51 @@ impl<C> ComponentReplicationOverrides<C> {
     /// Add an override for a specific sender. Takes priority over any global override
     pub fn override_for_sender(&mut self, overrides: ComponentReplicationOverride, sender: Entity) {
         self.per_sender.insert(sender, overrides);
+    }
+
+    pub fn disable_for(mut self, sender: Entity) -> Self {
+        let o = self.per_sender.entry(sender)
+            .or_default();
+        o.disable = true;
+        o.enable = false;
+        self
+    }
+
+    pub fn disable_all(mut self) -> Self {
+        let o = self.all_senders.get_or_insert_default();
+        o.disable = true;
+        o.enable = false;
+        self
+    }
+    
+    pub fn enable_for(mut self, sender: Entity) -> Self {
+        let o = self.per_sender.entry(sender)
+            .or_default();
+        o.enable = true;
+        o.disable = false;
+        self
+    }
+    
+    pub fn enable_all(mut self, sender: Entity) -> Self {
+        let o = self.all_senders.get_or_insert_default();
+        o.enable = true;
+        o.disable = false;
+        self
+    }
+
+    pub fn replicate_once_for(mut self, sender: Entity) -> Self {
+        let o = self.per_sender.entry(sender)
+            .or_default();
+        o.replicate_once = true;
+        o.replicate_always = false;
+        self
+    }
+
+    pub fn replicate_once_all(mut self) -> Self {
+        let o = self.all_senders.get_or_insert_default();
+        o.replicate_once = true;
+        o.replicate_always = false;
+        self
     }
 }
 
@@ -393,7 +440,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
             let replicate = &mut *replicate;
             match &mut replicate.mode {
                 ReplicationMode::SingleSender => {
-                    let Ok(sender_entity) = world.query::<Entity>().single_mut(world) else {
+                    let Ok(sender_entity) = world.query_filtered::<Entity, Or<(With<ReplicationSender>, With<HostClient>)>>().single_mut(world) else {
                         error!("No ReplicationSender found in the world");
                         return;
                     };
@@ -403,7 +450,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                 ReplicationMode::SingleClient => {
                     use lightyear_connection::client::Client;
                     let Ok(sender_entity) = world
-                        .query_filtered::<Entity, With<Client>>()
+                        .query_filtered::<Entity, (With<Client>, Or<(With<ReplicationSender>, With<HostClient>)>)>()
                         .single_mut(world)
                     else {
                         error!("No Client found in the world");
@@ -441,10 +488,12 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                                 client
                             );
                             let Ok(()) = world
-                                .query_filtered::<(), (With<ClientOf>, With<ReplicationSender>)>()
+                                .query_filtered::<(), (
+                                    With<ClientOf>, Or<(With<ReplicationSender>, With<HostClient>)>
+                                )>()
                                 .get_mut(world, client)
                             else {
-                                debug!("ClientOf {client:?} not found or does not have ReplicationSender");
+                                error!("ClientOf {client:?} not found or does not have ReplicationSender");
                                 return;
                             };
                             replicate.senders.insert(client);
@@ -453,7 +502,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                 }
                 ReplicationMode::Sender(entity) => {
                     let Ok(()) = world
-                        .query_filtered::<(), With<ReplicationSender>>()
+                        .query_filtered::<(), Or<(With<ReplicationSender>, With<HostClient>)>>()
                         .get_mut(world, *entity)
                     else {
                         error!("No ReplicationSender found in the world");
@@ -482,7 +531,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                         &peer_metadata.mapping,
                         &mut |client| {
                             let Ok(()) = world
-                                .query_filtered::<(), (With<ClientOf>, With<ReplicationSender>)>()
+                                .query_filtered::<(), (With<ClientOf>, Or<(With<ReplicationSender>, With<HostClient>)>)>()
                                 .get_mut(world, client)
                             else {
                                 error!("No Client found in the world");
@@ -500,7 +549,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                 ReplicationMode::Manual(sender_entities) => {
                     for sender_entity in sender_entities.iter() {
                         let Ok(()) = world
-                            .query_filtered::<(), With<ReplicationSender>>()
+                            .query_filtered::<(), Or<(With<ReplicationSender>, With<HostClient>)>>()
                             .get_mut(world, *sender_entity)
                         else {
                             error!("No ReplicationSender found in the world");

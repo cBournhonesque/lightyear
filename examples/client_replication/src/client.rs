@@ -29,20 +29,22 @@ impl Plugin for ExampleClientPlugin {
 /// Spawn a cursor that is replicated to the server when the client connects
 pub(crate) fn spawn_local_cursor(
     trigger: Trigger<OnAdd, Connected>,
-    client: Single<&Client>,
+    client: Query<&LocalId, With<Client>>,
     mut commands: Commands,
 ) {
-    let client_id = client.peer_id().unwrap();
-    info!("Spawning local cursor for client: {}", client_id);
-    // spawn a local cursor which will be replicated to the server
-    commands.spawn((
-        PlayerId(client_id),
-        CursorPosition(Vec2::ZERO),
-        PlayerColor(color_from_id(client_id)),
-        Replicate::to_server(),
-        Name::from("Cursor"),
-        // TODO: maybe add Interpolation so that the server interpolates the cursor updates?
-    ));
+    if let Ok(client) = client.get(trigger.target()) {
+        let client_id = client.0;
+        // spawn a local cursor which will be replicated to the server
+        let id = commands.spawn((
+            PlayerId(client_id),
+            CursorPosition(Vec2::ZERO),
+            PlayerColor(color_from_id(client_id)),
+            Replicate::to_server(),
+            Name::from("Cursor"),
+            // TODO: maybe add Interpolation so that the server interpolates the cursor updates?
+        )).id();
+        info!("Spawning local cursor {id:?} for client: {}", client_id);
+    }
 }
 
 // System that reads from peripherals and adds inputs to the buffer
@@ -99,11 +101,11 @@ fn player_movement(
 fn spawn_player(
     mut commands: Commands,
     keypress: Res<ButtonInput<KeyCode>>,
-    client: Single<&Client>,
+    client: Single<&LocalId, With<Client>>,
     players: Query<&PlayerId, With<PlayerPosition>>,
 ) {
     if keypress.just_pressed(KeyCode::Space) {
-        let client_id = client.peer_id().unwrap();
+        let client_id = client.into_inner().0;
         // do not spawn a new player if we already have one
         for player_id in players.iter() {
             if player_id.0 == client_id {
@@ -128,6 +130,10 @@ fn spawn_player(
     }
 }
 
+// TODO: This doesn't work properly because we when we despawn the entity here, it gets PredictionDisabled
+//  so it doesn't appear in the input plugin's queries.
+//  I'm waiting for bevy 0.17 and the 'Allows' filter to fix this properly, by adding 'Allows<PredictionDisabled>'
+//  filters in the input plugin's queries
 /// Delete the predicted player when the space command is pressed
 fn delete_player(
     mut commands: Commands,
@@ -147,7 +153,7 @@ fn delete_player(
                 // the reason is that we actually keep the entity around for a while,
                 // in case we need to re-store it for rollback
                 entity_mut.prediction_despawn();
-                debug!("Despawning the predicted/pre-predicted player because we received player action!");
+                info!("Despawning the predicted/pre-predicted player because we received player action!");
             }
         }
     }
@@ -155,7 +161,7 @@ fn delete_player(
 
 // Adjust the movement of the cursor entity based on the mouse position
 fn cursor_movement(
-    client: Single<&Client, With<Connected>>,
+    client: Single<&LocalId, (With<Connected>, With<Client>)>,
     window_query: Query<&Window>,
     mut cursor_query: Query<
         (&mut CursorPosition, &PlayerId),
@@ -163,7 +169,7 @@ fn cursor_movement(
         (Without<Confirmed>, Without<Interpolated>),
     >,
 ) {
-    let client_id = client.peer_id().unwrap();
+    let client_id = client.into_inner().0;
     for (mut cursor_position, player_id) in cursor_query.iter_mut() {
         if player_id.0 != client_id {
             // This entity is replicated from another client, skip

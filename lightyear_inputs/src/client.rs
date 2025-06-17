@@ -141,8 +141,8 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         app.configure_sets(
             FixedPostUpdate,
             (
-                // we write the InputMessage for the current tick, then restore the correct inputs
-                // if there is any input delay
+                // we write the InputMessage for the current tick, then restore
+                // the correct inputs if there is any input delay
                 InputSet::PrepareInputMessage,
                 InputSet::RestoreInputs,
             )

@@ -7,9 +7,10 @@ use crate::prelude::InterpolationRegistrationExt;
 use crate::registry::InterpolationRegistry;
 use crate::spawn::spawn_interpolated_entity;
 use crate::timeline::TimelinePlugin;
-use crate::{Interpolated, InterpolationMode, SyncComponent};
+use crate::{interpolated_on_add_hook, interpolated_on_remove_hook, Interpolated, InterpolationMode, SyncComponent};
 use bevy::prelude::*;
 use core::time::Duration;
+use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::Tick;
 use lightyear_core::time::PositiveTickDelta;
 use lightyear_replication::control::Controlled;
@@ -24,7 +25,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// This component will be stored on the Client entities on the server
 /// as an estimate of the interpolation delay of the client, for lag compensation.
-#[derive(Serialize, Deserialize, Component, Clone, Copy, PartialEq, Debug, Reflect)]
+#[derive(Serialize, Deserialize, Component, Default, Clone, Copy, PartialEq, Debug, Reflect)]
 pub struct InterpolationDelay {
     /// Delay between the prediction time and the interpolation time
     pub delay: PositiveTickDelta,
@@ -191,6 +192,15 @@ impl Plugin for InterpolationPlugin {
             .add_interpolation(InterpolationMode::Once);
         app.register_component::<ChildOfSync>()
             .add_interpolation(InterpolationMode::Once);
+
+        // HOOKS
+        // TODO: add tests for these!
+        app.world_mut().register_component_hooks::<Interpolated>()
+            .on_add(interpolated_on_add_hook)
+            .on_remove(interpolated_on_remove_hook);
+
+        // Host-Clients have no interpolation delay
+        app.register_required_components::<HostClient, InterpolationDelay>();
 
         // REFLECT
         app.register_type::<InterpolationConfig>()

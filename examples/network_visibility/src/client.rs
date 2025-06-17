@@ -68,7 +68,7 @@ pub(crate) fn movement(
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(
-    trigger: Trigger<OnAdd, PlayerId>,
+    trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
     mut commands: Commands,
 ) {

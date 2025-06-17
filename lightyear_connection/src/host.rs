@@ -39,13 +39,17 @@ pub struct HostPlugin;
 impl HostPlugin {
     // TODO: also add check that the client has LocalIo?
 
-    /// A host-server client gets connected automatically
+    /// A host-server client gets connected automatically to the server.
+    ///
+    /// NOTE: the server must be started before we try to connect.
+    /// TODO: set to Connecting? and as soon as the server is started, we switch it to
+    ///  Connected?
     #[cfg(feature = "server")]
     fn connect(
         trigger: Trigger<Connect>,
         mut commands: Commands,
-        query: Query<&LinkOf, With<Client>>,
-        server_query: Query<(), With<Server>>,
+        query: Query<&LinkOf, (With<Client>, Without<HostClient>)>,
+        server_query: Query<(), (With<Server>, With<Started>)>,
     ) {
         if let Ok(link_of) = query.get(trigger.target()) {
             if server_query.get(link_of.server).is_ok() {
@@ -57,7 +61,16 @@ impl HostPlugin {
                     LocalId(PeerId::Local(0)),
                     RemoteId(PeerId::Local(0)),
                     ClientOf,
+                   // NOTE: it's very important to insert Connected and HostClient at the same time
+                   //  to avoid race conditions between observers that depend on Connected, and those
+                    // that depend on HostClient
+                   HostClient {
+                      buffer: Vec::new(),
+                   },
                 ));
+                commands.entity(link_of.server).insert(HostServer {
+                    client: trigger.target(),
+                });
             }
         }
     }
@@ -66,16 +79,18 @@ impl HostPlugin {
     fn disconnect(
         trigger: Trigger<Disconnect>,
         mut commands: Commands,
-        query: Query<&LinkOf, With<Client>>,
-        server_query: Query<(), With<Server>>,
+        query: Query<&LinkOf, With<HostClient>>,
+        server_query: Query<(), With<HostServer>>,
     ) {
         if let Ok(link_of) = query.get(trigger.target()) {
             if server_query.get(link_of.server).is_ok() {
                 info!("Disconnected host-client");
-                commands.entity(trigger.target()).remove::<Connected>();
-                commands.entity(trigger.target()).insert(Disconnected {
-                    reason: Some("Client trigger".to_string()),
-                });
+                commands.entity(trigger.target())
+                    .remove::<HostClient>()
+                    .insert(Disconnected {
+                        reason: Some("Client trigger".to_string()),
+                    });
+                commands.entity(link_of.server).remove::<HostServer>();
             }
         }
     }
@@ -85,7 +100,7 @@ impl HostPlugin {
         // NOTE: we handle Connecting in the trigger because otherwise the client
         //  would never be Connected
         trigger: Trigger<OnAdd, (Client, Connected, LinkOf)>,
-        client_query: Query<&LinkOf, (With<Client>, With<Connected>)>,
+        client_query: Query<&LinkOf, (With<Client>, With<Connected>, Without<HostClient>)>,
         server_query: Query<(), (With<Started>, With<Server>)>,
         mut commands: Commands,
     ) {
@@ -105,7 +120,7 @@ impl HostPlugin {
     fn check_if_host_on_server_change(
         trigger: Trigger<OnAdd, (Server, Started)>,
         server_query: Query<&Server, With<Started>>,
-        client_query: Query<(), (With<Client>, With<Connected>)>,
+        client_query: Query<(), (With<Client>, With<Connected>, Without<HostClient>)>,
         mut commands: Commands,
     ) {
         if let Ok(server) = server_query.get(trigger.target()) {

@@ -112,6 +112,7 @@ pub(crate) fn replicate_players(
 
     let color = color_from_id(client_id);
     let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
+    info!("Spawn player for client {client_id:?}");
     commands.spawn((
         PlayerId(client_id),
         Position::from(Vec2::new(-50.0, y)),
@@ -124,12 +125,6 @@ pub(crate) fn replicate_players(
             lifetime: Default::default(),
         },
         PhysicsBundle::player(),
-        // InputMap::new([
-        //     (PlayerActions::Up, KeyCode::KeyW),
-        //     (PlayerActions::Down, KeyCode::KeyS),
-        //     (PlayerActions::Left, KeyCode::KeyA),
-        //     (PlayerActions::Right, KeyCode::KeyD),
-        // ]),
         Name::from("Player"),
     ));
 }

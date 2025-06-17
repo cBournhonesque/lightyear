@@ -73,26 +73,26 @@ pub(crate) fn predicted_on_add_hook(mut deferred_world: DeferredWorld, hook_cont
 
 pub(crate) fn predicted_on_remove_hook(mut deferred_world: DeferredWorld, hook_context: HookContext) {
       let predicted = hook_context.entity;
-                let Some(confirmed) = deferred_world
-                    .get::<Predicted>(predicted)
-                    .unwrap()
-                    .confirmed_entity
-                else {
-                    return;
-                };
-                let Some(resource) = deferred_world.get_resource::<PredictionResource>() else {
-                    return;
-                };
-                let Some(mut manager) =
-                    deferred_world.get_mut::<PredictionManager>(resource.link_entity)
-                else {
-                    return;
-                };
-                manager
-                    .predicted_entity_map
-                    .get_mut()
-                    .confirmed_to_predicted
-                    .remove(&confirmed);
+        let Some(confirmed) = deferred_world
+            .get::<Predicted>(predicted)
+            .unwrap()
+            .confirmed_entity
+        else {
+            return;
+        };
+        let Some(resource) = deferred_world.get_resource::<PredictionResource>() else {
+            return;
+        };
+        let Some(mut manager) =
+            deferred_world.get_mut::<PredictionManager>(resource.link_entity)
+        else {
+            return;
+        };
+        manager
+            .predicted_entity_map
+            .get_mut()
+            .confirmed_to_predicted
+            .remove(&confirmed);
 
 }
 

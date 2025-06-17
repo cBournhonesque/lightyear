@@ -14,12 +14,17 @@ use bevy::state::app::StatesPlugin;
 use bevy::DefaultPlugins;
 use clap::{Parser, Subcommand};
 
+use crate::client::{connect, ClientTransports, ExampleClient};
 #[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
+use crate::server::{start, ExampleServer, ServerTransports, WebTransportCertificateSettings};
 #[cfg(all(feature = "gui", feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
+use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
 #[cfg(feature = "gui")]
 use bevy::window::PresentMode;
+use lightyear::link::RecvLinkConditioner;
+use lightyear::prelude::{Client, LinkConditionerConfig, LinkOf};
 
 /// CLI options to create an [`App`]
 #[derive(Parser, Debug)]
@@ -70,7 +75,7 @@ impl Cli {
                 app
             }
             #[cfg(all(feature = "client", feature = "server"))]
-            Some(Mode::HostClient { client_id}) => {
+            Some(Mode::HostClient { client_id }) => {
                 let mut app = new_gui_app(add_inspector);
                 app.add_plugins((
                     lightyear::prelude::client::ClientPlugins { tick_duration },
@@ -86,6 +91,87 @@ impl Cli {
             _ => {
                 todo!()
             }
+        }
+    }
+
+    pub fn spawn_connections(&self, app: &mut App) {
+        match self.mode {
+            #[cfg(feature = "client")]
+            Some(Mode::Client { client_id }) => {
+                let client = app
+                    .world_mut()
+                    .spawn(ExampleClient {
+                        client_id: client_id
+                            .expect("You need to specify a client_id via `-c ID`"),
+                        client_port: CLIENT_PORT,
+                        server_addr: SERVER_ADDR,
+                        conditioner: Some(RecvLinkConditioner::new(
+                            LinkConditionerConfig::average_condition(),
+                        )),
+                        // transport: ClientTransports::Udp,
+                        transport: ClientTransports::WebTransport,
+                        shared: SHARED_SETTINGS,
+                    })
+                    .id();
+                app.add_systems(Startup, connect);
+            },
+            #[cfg(feature = "server")]
+            Some(Mode::Server) => {
+                let server = app
+                    .world_mut()
+                    .spawn(ExampleServer {
+                        conditioner: None,
+                        // transport: ServerTransports::Udp {
+                        //     local_port: SERVER_PORT,
+                        // },
+                        transport: ServerTransports::WebTransport {
+                            local_port: SERVER_PORT,
+                            certificate: WebTransportCertificateSettings::FromFile {
+                                cert: "../../certificates/cert.pem".to_string(),
+                                key: "../../certificates/key.pem".to_string(),
+                            },
+                        },
+                        shared: SHARED_SETTINGS,
+                    })
+                    .id();
+                app.add_systems(Startup, start);
+            }
+            #[cfg(all(feature = "client", feature = "server"))]
+            Some(Mode::HostClient { client_id }) => {
+                // Spawn the client and server connections here
+                // This is where you would set up the client and server entities
+                let server = app
+                    .world_mut()
+                    .spawn(ExampleServer {
+                        conditioner: None,
+                        // transport: ServerTransports::Udp {
+                        //     local_port: SERVER_PORT,
+                        // },
+                        transport: ServerTransports::WebTransport {
+                            local_port: SERVER_PORT,
+                            certificate: WebTransportCertificateSettings::FromFile {
+                                cert: "../../certificates/cert.pem".to_string(),
+                                key: "../../certificates/key.pem".to_string(),
+                            },
+                        },
+                        shared: SHARED_SETTINGS,
+                    })
+                    .id();
+
+                let client = app
+                    .world_mut()
+                    .spawn((
+                        Client::default(),
+                        Name::new("HostClient"),
+                        LinkOf {
+                            server,
+                        }
+                    )).id();
+                // NOTE: it's ugly but i believe that you need to start the server before
+                //  connecting the host-client for things to work properly
+                app.add_systems(Startup, (start, connect).chain());
+            },
+            _ => {}
         }
     }
 }

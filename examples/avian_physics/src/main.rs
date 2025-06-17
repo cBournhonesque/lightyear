@@ -8,11 +8,10 @@ use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use core::time::Duration;
-
+use lightyear::prelude::client::{Input, InputDelayConfig};
+use lightyear::prelude::{Client, InputTimeline, Timeline};
 use lightyear_examples_common::cli::{Cli, Mode};
-use lightyear_examples_common::shared::{
-    CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS,
-};
+use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 #[cfg(feature = "client")]
 mod client;
@@ -30,62 +29,27 @@ fn main() {
 
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
 
+
     app.add_plugins(SharedPlugin);
+    cli.spawn_connections(&mut app);
 
-    #[cfg(feature = "client")]
-    {
-        use lightyear::prelude::client::{Input, InputDelayConfig};
-        use lightyear::prelude::{
-            InputTimeline, LinkConditionerConfig, RecvLinkConditioner, Timeline,
-        };
-
-        app.add_plugins(ExampleClientPlugin);
-        if matches!(cli.mode, Some(Mode::Client { .. })) {
-            use lightyear::prelude::Connect;
-            use lightyear_examples_common::client::{ClientTransports, ExampleClient};
-            let client = app
-                .world_mut()
-                .spawn((
-                    ExampleClient {
-                        client_id: cli
-                            .client_id()
-                            .expect("You need to specify a client_id via `-c ID`"),
-                        client_port: CLIENT_PORT,
-                        server_addr: SERVER_ADDR,
-                        conditioner: Some(RecvLinkConditioner::new(
-                            LinkConditionerConfig::average_condition(),
-                        )),
-                        transport: ClientTransports::Udp,
-                        shared: SHARED_SETTINGS,
-                    },
-                    InputTimeline(Timeline::from(
-                        Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
-                    )),
-                ))
-                .id();
-            app.world_mut().trigger_targets(Connect, client)
+    match cli.mode {
+        #[cfg(feature = "client")]
+        Some(Mode::Client { .. }) => {
+            app.add_plugins(ExampleClientPlugin);
+            add_input_delay(&mut app);
         }
-    }
-
-    #[cfg(feature = "server")]
-    {
-        use lightyear::connection::server::Start;
-        use lightyear_examples_common::server::{ExampleServer, ServerTransports};
-
-        app.add_plugins(ExampleServerPlugin);
-        if matches!(cli.mode, Some(Mode::Server)) {
-            let server = app
-                .world_mut()
-                .spawn(ExampleServer {
-                    conditioner: None,
-                    transport: ServerTransports::Udp {
-                        local_port: SERVER_PORT,
-                    },
-                    shared: SHARED_SETTINGS,
-                })
-                .id();
-            app.world_mut().trigger_targets(Start, server);
+        #[cfg(feature = "server")]
+        Some(Mode::Server { .. }) => {
+            app.add_plugins(ExampleServerPlugin);
         }
+        #[cfg(all(feature = "client", feature = "server"))]
+        Some(Mode::HostClient { client_id }) => {
+            app.add_plugins(ExampleClientPlugin);
+            app.add_plugins(ExampleServerPlugin);
+            add_input_delay(&mut app);
+        }
+        _ => {}
     }
 
     #[cfg(feature = "gui")]
@@ -103,4 +67,18 @@ fn main() {
 
     // run the app
     app.run();
+}
+
+#[cfg(feature = "client")]
+fn add_input_delay(app: &mut App) {
+    let client = app.world_mut().query_filtered::<Entity, With<Client>>().single(app.world_mut()).unwrap();
+
+    // set some input-delay since we are predicting all entities
+    app.world_mut()
+        .entity_mut(client)
+        .insert(
+            InputTimeline(Timeline::from(
+                Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
+            )),
+        );
 }

@@ -4,8 +4,8 @@
 
 use crate::buffer::{Replicate, ReplicationMode};
 use crate::components::*;
-use crate::control::Controlled;
-use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
+use crate::control::{Controlled, ControlledBy, ControlledByRemote};
+use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike, ReplicateLikeChildren};
 use crate::message::{ActionsChannel, MetadataChannel, SenderMetadata, UpdatesChannel};
 use crate::prelude::{ActionsMessage, AppComponentExt, UpdatesMessage};
 use bevy::prelude::*;
@@ -33,13 +33,18 @@ impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         // REFLECTION
         app.register_type::<Replicated>()
+            .register_type::<InitialReplicated>()
+            .register_type::<Replicating>()
             .register_type::<Confirmed>()
             .register_type::<Controlled>()
+            .register_type::<ControlledBy>()
+            .register_type::<ControlledByRemote>()
             .register_type::<Replicating>()
             .register_type::<ReplicationMode>()
             .register_type::<Replicate>()
             .register_type::<DisableReplicateHierarchy>()
             .register_type::<ReplicateLike>()
+            .register_type::<ReplicateLikeChildren>()
             .register_type::<ComponentReplicationConfig>()
             .register_type::<ComponentReplicationOverride>()
             .register_type::<ReplicationGroupIdBuilder>()

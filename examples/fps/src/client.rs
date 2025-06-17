@@ -16,7 +16,6 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // NOTE: we need to run this in FixedPreUpdate before we
         app.add_systems(
             FixedPreUpdate,
             update_cursor_state_from_window
@@ -54,7 +53,7 @@ fn update_cursor_state_from_window(
 // - assign it a different saturation
 // - add physics components so that its movement can be predicted
 pub(crate) fn handle_predicted_spawn(
-    trigger: Trigger<OnAdd, PlayerId>,
+    trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
     mut commands: Commands,
     mut player_query: Query<&mut ColorComponent, With<Predicted>>,
 ) {

@@ -62,6 +62,7 @@ fn delete_player(
             // - you decide that the client's despawn is incorrect, and you do not despawn the entity. Then the client's prediction
             //   should be rolled back, and the entity should not get despawned on client.
             commands.entity(entity).despawn();
+            info!("Despawn the confirmed player {entity:?} on the server");
         }
     }
 }
@@ -73,9 +74,12 @@ fn delete_player(
 // Note that this needs to run before FixedUpdate, since we handle client inputs in the FixedUpdate schedule (subject to change)
 // And we want to handle deletion properly
 pub(crate) fn replicate_players(
-    trigger: Trigger<OnAdd, PlayerPosition>,
+    // We add an observer on both Cursor and Replicated because
+    // in host-server mode, Replicated is not present on the entity when
+    // CursorPosition is added. (Replicated gets added slightly after by an observer)
+    trigger: Trigger<OnAdd, (PlayerPosition, Replicated)>,
     mut commands: Commands,
-    player_query: Query<&Replicated>,
+    player_query: Query<&Replicated, With<PlayerPosition>>,
 ) {
     let entity = trigger.target();
     let Ok(replicated) = player_query.get(entity) else {
@@ -83,24 +87,9 @@ pub(crate) fn replicate_players(
     };
     let client_entity = replicated.receiver;
     let client_id = replicated.from;
-    debug!("received player spawn event from {client_id:?}");
 
     if let Ok(mut e) = commands.get_entity(entity) {
-        // if we receive a pre-predicted entity, only send the prepredicted component back
-        // to the original client
-        let mut overrides = ComponentReplicationOverrides::<PrePredicted>::default();
-        overrides.global_override(ComponentReplicationOverride {
-            disable: true,
-            ..default()
-        });
-        overrides.override_for_sender(
-            ComponentReplicationOverride {
-                enable: true,
-                ..default()
-            },
-            client_entity,
-        );
-
+        info!("received player spawn event from {client_id:?}");
         e.insert((
             // we want to replicate back to the original client, since they are using a pre-spawned entity
             Replicate::to_clients(NetworkTarget::All),
@@ -111,16 +100,23 @@ pub(crate) fn replicate_players(
                 owner: client_entity,
                 lifetime: Lifetime::SessionBased,
             },
-            overrides,
+            // if we receive a pre-predicted entity, only send the prepredicted component back
+            // to the original client
+            ComponentReplicationOverrides::<PrePredicted>::default()
+                .disable_all()
+                .enable_for(client_entity),
         ));
     }
 }
 
 /// When we receive a replicated Cursor, replicate it to all other clients
 pub(crate) fn replicate_cursors(
-    trigger: Trigger<OnAdd, CursorPosition>,
+    // We add an observer on both Cursor and Replicated because
+    // in host-server mode, Replicated is not present on the entity when
+    // CursorPosition is added. (Replicated gets added slightly after by an observer)
+    trigger: Trigger<OnAdd, (CursorPosition, Replicated)>,
     mut commands: Commands,
-    cursor_query: Query<&Replicated>,
+    cursor_query: Query<&Replicated, With<CursorPosition>>,
 ) {
     let entity = trigger.target();
     let Ok(replicated) = cursor_query.get(entity) else {

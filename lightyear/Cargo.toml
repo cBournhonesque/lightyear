@@ -60,7 +60,7 @@ prediction = [
   "dep:lightyear_prediction",
   "dep:lightyear_replication",
   "lightyear_replication?/prediction",
-  "lightyear_core/prediction"
+  "lightyear_core/prediction",
 ]
 interpolation = [
   "dep:lightyear_interpolation",

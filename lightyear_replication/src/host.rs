@@ -1,5 +1,7 @@
 use crate::buffer::Replicate;
+use crate::components::{ComponentReplicationOverrides, InitialReplicated, Replicated};
 use crate::control::{Controlled, ControlledBy};
+use crate::hierarchy::ReplicateLike;
 #[cfg(feature = "interpolation")]
 use crate::prelude::InterpolationTarget;
 #[cfg(feature = "prediction")]
@@ -7,10 +9,10 @@ use crate::prelude::PredictionTarget;
 use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
 use lightyear_connection::host::HostClient;
+use lightyear_core::id::LocalId;
 use lightyear_core::interpolation::Interpolated;
 #[cfg(feature = "prediction")]
 use lightyear_core::prediction::Predicted;
-
 // impl ControlledBy {
 //     /// In Host-Server mode, any entity that is marked as ControlledBy the host
 //     /// should also have Controlled assigned to them
@@ -33,13 +35,17 @@ pub struct HostServerPlugin;
 #[derive(QueryData)]
 struct HostServerQueryData {
     entity: Entity,
-    replicate: Ref<'static, Replicate>,
+    replicate: Option<Ref<'static, Replicate>>,
     #[cfg(feature = "prediction")]
-    prediction: Option<&'static PredictionTarget>,
+    prediction: Option<Ref<'static, PredictionTarget>>,
     #[cfg(feature = "interpolation")]
-    interpolation: Option<&'static InterpolationTarget>,
+    interpolation: Option<Ref<'static, InterpolationTarget>>,
     controlled: Option<Ref<'static, ControlledBy>>,
+    replicate_like: Option<Ref<'static, ReplicateLike>>,
 }
+
+#[derive(Component)]
+struct SpawnedOnHostServer;
 
 impl HostServerPlugin {
 
@@ -48,32 +54,65 @@ impl HostServerPlugin {
     /// that the host-server wants to replicate, so that client code can still query for them
     fn add_prediction_interpolation_components(
         mut commands: Commands,
-        local_client: Single<Entity, With<HostClient>>,
-        query: Query<HostServerQueryData>,
+        local_client: Single<(Entity, &LocalId, Ref<HostClient>)>,
+        // this is only for entities that are spawned on the host-server
+        // we can't rely only on Without<InitialReplicated> because we add a fake
+        // InitialReplicated in this system, which might prevent fake Predicted/Interpolated
+        // to be added in the future
+        query: Query<HostServerQueryData, Or<(Without<InitialReplicated>, With<SpawnedOnHostServer>)>>,
     ) {
-        let local_entity = local_client.into_inner();
-        query.iter().for_each(|d| {
-            // also insert [`Controlled`] on the entity if it's controlled by the local client
-            if let Some(controlled_by) = d.controlled {
-                if controlled_by.is_changed() && controlled_by.owner == local_entity {
-                    commands
-                        .entity(local_entity)
-                        .insert(Controlled);
-                }
+        let (local_entity, local_id, host_client) = local_client.into_inner();
+
+        let add_fake_components = |commands: &mut Commands, d: &HostServerQueryDataItem, entity: Entity| {
+            // TODO: r.is_changed() will trigger everytime a new client connects (because the list of senders is modified),
+            //  even though the replicate's target doesn't change. To avoid this, we will use `is_added()` for now.
+            //  Maybe a long term solution would be to split Replicate into ReplicationTarget (just the Mode) and
+            //  ReplicateMetadata (list of senders, authority, etc). Same for Prediction/Interpolation
+            if d.replicate.as_ref().is_some_and(|r| (r.is_added() || host_client.is_added()) && r.senders.contains(&local_entity)) {
+                info!("insert fake Replicated on {:?}. Replicate: {:?}", entity, d.replicate);
+                commands.entity(entity).insert((
+                    Replicated { receiver: local_entity, from: local_id.0 },
+                    InitialReplicated { from: local_id.0 },
+                    SpawnedOnHostServer,
+                ));
             }
-            if d.replicate.is_changed() && d.replicate.senders.contains(&local_entity) {
-                #[cfg(feature = "prediction")]
-                if d.prediction.is_some_and(|p| p.senders.contains(&local_entity)) {
-                    commands.entity(d.entity).insert(Predicted {
-                        confirmed_entity: Some(d.entity)
-                    });
-                }
-                
-                #[cfg(feature = "interpolation")]
-                if d.interpolation.is_some_and(|p| p.senders.contains(&local_entity)) {
-                    commands.entity(d.entity).insert(Interpolated {
-                        confirmed_entity: d.entity
-                    });
+            // also insert [`Controlled`] on the entity if it's controlled by the local client
+            if d.controlled.as_ref().is_some_and(|c| (c.is_changed() || host_client.is_added())  && c.owner == local_entity) {
+                commands
+                    .entity(entity)
+                    // NOTE: do not replicate this Controlled to other clients, or they will
+                    // think they control this entity
+                    .insert((
+                        Controlled,
+                        ComponentReplicationOverrides::<Controlled>::default()
+                            .disable_all()
+                    ));
+            }
+            #[cfg(feature = "prediction")]
+            if d.prediction.as_ref().is_some_and(|p| (p.is_added() || host_client.is_added()) && p.senders.contains(&local_entity)) {
+                info!("insert fake Predicted on {:?}. PredictionTarget: {:?}", entity, d.prediction);
+                commands.entity(entity).insert(Predicted {
+                    confirmed_entity: Some(entity)
+                });
+            }
+
+            #[cfg(feature = "interpolation")]
+            if d.interpolation.as_ref().is_some_and(|p| (p.is_added() || host_client.is_added()) && p.senders.contains(&local_entity)) {
+                commands.entity(entity).insert(Interpolated {
+                    confirmed_entity: entity
+                });
+            }
+        };
+
+        query.iter().for_each(|d| {
+            add_fake_components(&mut commands, &d, d.entity);
+            if let Some(replicate_like) = &d.replicate_like {
+                if replicate_like.is_changed() {
+                    if let Ok(root_d) = query.get(replicate_like.root) {
+                        // TODO: when a component changes on the root, we should also check if we need to add
+                        //  fake components on the children
+                        add_fake_components(&mut commands, &root_d, d.entity);
+                    }
                 }
             }
         });

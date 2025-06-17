@@ -1,5 +1,5 @@
-use crate::PredictionMode;
 use crate::prelude::{PreSpawned, PredictionRegistrationExt};
+use crate::PredictionMode;
 use bevy::app::{App, Plugin};
 use lightyear_replication::components::PrePredicted;
 use lightyear_replication::control::Controlled;
