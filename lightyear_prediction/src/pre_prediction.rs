@@ -6,6 +6,7 @@ use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::{PredictionFilter, PredictionSet};
 use bevy::prelude::*;
 use lightyear_connection::client::Connected;
+use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::components::PrePredicted;
 use lightyear_replication::prelude::{
@@ -99,6 +100,7 @@ impl PrePredictionPlugin {
         trigger: Trigger<OnAdd, PrePredicted>,
         mut commands: Commands,
         prediction_query: Single<&PredictionManager, PredictionFilter>,
+        host_server_query: Query<(), With<HostClient>>,
         // TODO: should we fetch the value of PrePredicted to confirm that it matches what we expect?
     ) {
         let predicted_map = unsafe {
@@ -115,7 +117,7 @@ impl PrePredictionPlugin {
             // Received messages from server
             Some(&predicted) => {
                 let confirmed = trigger.target();
-                debug!(
+                info!(
                     "Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}"
                 );
                 commands.queue(move |world: &mut World| {
@@ -130,8 +132,9 @@ impl PrePredictionPlugin {
             // Added PrePredicted on client
             _ => {
                 let predicted_entity = trigger.target();
-                let is_host_server = false;
+                let is_host_server = host_server_query.single().is_ok();
                 if is_host_server {
+                    info!("Spawning prepredicted on host-server");
                     // for host-server, we don't want to spawn a separate entity because
                     //  the confirmed/predicted/server entity are the same! Instead we just want
                     //  to remove PrePredicted and add Predicted
@@ -157,7 +160,7 @@ impl PrePredictionPlugin {
                                 tick,
                             })
                             .id();
-                        debug!("Added PrePredicted on the client. Spawning confirmed entity: {confirmed_entity:?} for pre-predicted: {predicted_entity:?}");
+                        info!("Added PrePredicted on the client. Spawning confirmed entity: {confirmed_entity:?} for pre-predicted: {predicted_entity:?}");
                         world
                             .entity_mut(predicted_entity)
                             .get_mut::<PrePredicted>()

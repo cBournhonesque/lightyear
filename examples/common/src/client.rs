@@ -110,3 +110,7 @@ impl ExampleClient {
         });
     }
 }
+
+pub(crate) fn connect(mut commands: Commands, client: Single<Entity, With<Client>>) {
+    commands.trigger_targets(Connect, client.into_inner());
+}

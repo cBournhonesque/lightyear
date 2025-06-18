@@ -1,14 +1,14 @@
+use crate::Error;
 use crate::auth::Authentication;
 use crate::client::{ClientConfig, ClientState};
-use crate::Error;
 use aeronet_io::connection::PeerAddr;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
+use lightyear_connection::ConnectionSet;
 use lightyear_connection::client::{
     Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected,
 };
-use lightyear_connection::ConnectionSet;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::{Link, LinkSet, Linked};
 use lightyear_transport::plugin::TransportSet;

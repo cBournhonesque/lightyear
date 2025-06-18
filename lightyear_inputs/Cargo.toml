@@ -43,6 +43,8 @@ lightyear_connection.workspace = true
 lightyear_core.workspace = true
 lightyear_sync.workspace = true
 lightyear_messages.workspace = true
+# NOTE: this is only needed to handle Predicted/PrePredicted/PredictionDisabled inputs correctly.
+#  - ideally this should be feature-gated
 lightyear_prediction.workspace = true
 lightyear_replication.workspace = true
 lightyear_transport.workspace = true

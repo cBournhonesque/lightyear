@@ -22,7 +22,7 @@ impl Plugin for ExampleServerRendererPlugin {
         app.insert_resource(ClearColor::default());
         // TODO common shortcuts for enabling the egui world inspector etc.
         app.add_systems(Startup, set_window_title);
-        app.add_systems(Startup, spawn_server_text);
+        // app.add_systems(Startup, spawn_server_text);
 
         spawn_start_button(app);
         app.add_systems(Update, update_button_text);
@@ -47,20 +47,23 @@ fn spawn_server_text(mut commands: Commands) {
     ));
 }
 
+#[derive(Component)]
+pub(crate) struct ServerButton;
+
 /// Create a button that allow you to start/stop the server
 pub(crate) fn spawn_start_button(app: &mut App) {
     app.world_mut()
         .spawn(Node {
-            width: Val::Percent(100.0),
+            width: Val::Percent(50.0),
             height: Val::Percent(100.0),
             align_items: AlignItems::FlexEnd,
             justify_content: JustifyContent::FlexEnd,
-            flex_direction: FlexDirection::Row,
+            flex_direction: FlexDirection::RowReverse,
             ..default()
         })
         .with_children(|parent| {
             parent.spawn((
-                Text("Lightyear Example".to_string()),
+                Text("[Server]".to_string()),
                 TextColor(Color::srgb(0.9, 0.9, 0.9).with_alpha(0.4)),
                 TextFont::from_font_size(18.0),
                 Node {
@@ -75,11 +78,13 @@ pub(crate) fn spawn_start_button(app: &mut App) {
                     Text("Start".to_string()),
                     TextColor(Color::srgb(0.9, 0.9, 0.9)),
                     TextFont::from_font_size(20.0),
+                    ServerButton,
                     BorderColor(Color::BLACK),
                     Node {
                         width: Val::Px(150.0),
                         height: Val::Px(65.0),
                         border: UiRect::all(Val::Px(5.0)),
+                        left: Val::Px(20.0),
                         // horizontally center child text
                         justify_content: JustifyContent::Center,
                         // vertically center child text
@@ -108,7 +113,7 @@ pub(crate) fn spawn_start_button(app: &mut App) {
 
 pub(crate) fn update_button_text(
     server: Single<(Has<Started>, Has<Stopped>), With<Server>>,
-    mut text: Single<&mut Text, With<Button>>,
+    mut text: Single<&mut Text, (With<Button>, With<ServerButton>)>,
 ) {
     let (started, stopped) = server.into_inner();
     if started {

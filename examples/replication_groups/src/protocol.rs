@@ -224,6 +224,9 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
+        app.register_component::<Name>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
         app.register_component::<PlayerId>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);

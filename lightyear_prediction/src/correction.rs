@@ -11,9 +11,8 @@
 //! Instead what we can do is correct the value from P10 to C10 over a period of time.
 //!
 //! The flow is (if T is the tick for the start of the rollback, and X is the current tick)
-//! - PreUpdate: we see that there is a rollback needed. We insert Correction {
-//!   original_value = PT, start_tick, end_tick
-//! }
+//! - PreUpdate: we see that there is a rollback needed. We insert
+//!   Correction { original_value = PT, start_tick, end_tick }
 //! - RunRollback, which lets us compute the correct CT value.
 //! - FixedUpdate: we run the simulation to get the new value C(T+1)
 //! - FixedPostUpdate: set the component value to the interpolation between PT and C(T+1)
@@ -22,9 +21,9 @@
 //!   - if there is a rollback, restart correction from the current corrected value
 //! - FixedUpdate: run the simulation to compute C(T+2).
 //! - FixedPostUpdate: set the component value to the interpolation between PT (predicted value at rollback start T) and C(T+2)
-use crate::SyncComponent;
 use crate::manager::PredictionManager;
 use crate::registry::PredictionRegistry;
+use crate::SyncComponent;
 use bevy::prelude::*;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
@@ -130,15 +129,12 @@ pub(crate) fn restore_corrected_state<C: SyncComponent>(
 ) {
     let kind = core::any::type_name::<C>();
     for (mut component, mut correction) in query.iter_mut() {
-        match core::mem::take(&mut correction.current_correction) {
-            Some(correction) => {
-                trace!(
-                    "Restoring corrected component before FixedUpdate: {:?}",
-                    kind
-                );
-                *component.bypass_change_detection() = correction;
-            }
-            _ => {}
+        if let Some(correction) = core::mem::take(&mut correction.current_correction) {
+            trace!(
+                "Restoring corrected component before FixedUpdate: {:?}",
+                kind
+            );
+            *component.bypass_change_detection() = correction;
         }
     }
 }

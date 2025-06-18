@@ -87,6 +87,3 @@ fn test_setup_client_server() {
     assert!(stepper.client_of(0).contains::<LocalId>());
     assert!(stepper.client_of(0).contains::<RemoteId>());
 }
-
-
-

@@ -43,7 +43,6 @@ pub mod prelude {
     #[cfg(feature = "prediction")]
     pub use crate::prediction::Predicted;
 
-
     pub use crate::id::{LocalId, PeerId, RemoteId};
     pub use crate::tick::Tick;
     pub use crate::timeline::{

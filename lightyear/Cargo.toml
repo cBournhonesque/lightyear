@@ -60,7 +60,7 @@ prediction = [
   "dep:lightyear_prediction",
   "dep:lightyear_replication",
   "lightyear_replication?/prediction",
-  "lightyear_core/prediction"
+  "lightyear_core/prediction",
 ]
 interpolation = [
   "dep:lightyear_interpolation",
@@ -185,5 +185,6 @@ leafwing-input-manager.workspace = true
 # we cannot use all-features = true, because we need to provide additional features for avian
 # when building the docs
 # NOTE: building docs.rs doesn't work if I include avian
+#all-features = true
 features = ["metrics", "udp", "webtransport", "leafwing", "websocket", "steam", "crossbeam", "lag_compensation"]
 rustdoc-args = ["--cfg", "docsrs"]

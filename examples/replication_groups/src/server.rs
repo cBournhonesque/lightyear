@@ -55,6 +55,7 @@ pub(crate) fn handle_connections(
                 owner: trigger.target(),
                 lifetime: Lifetime::default(),
             },
+            Name::from("Head"),
         ))
         .id();
 
@@ -71,8 +72,10 @@ pub(crate) fn handle_connections(
             ReplicateLike {
                 root: player_entity,
             },
+            Name::from("Tail"),
         ))
         .id();
+    info!("New connection from client {client_id:?}, spawning player {player_entity:?} and tail {tail_entity:?}");
 }
 
 /// Read client inputs and move players

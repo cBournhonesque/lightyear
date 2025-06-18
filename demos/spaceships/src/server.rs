@@ -103,14 +103,14 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 /// Whenever a new client connects, spawn their spaceship
 pub(crate) fn handle_connections(
     trigger: Trigger<OnAdd, Connected>,
-    query: Query<&Connected, With<ClientOf>>,
+    query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
     all_players: Query<Entity, With<Player>>,
 ) {
     // track the number of connected players in order to pick colors and starting positions
     let player_n = all_players.iter().count();
-    if let Ok(connected) = query.get(trigger.target()) {
-        let client_id = connected.remote_peer_id;
+    if let Ok(remote_id) = query.get(trigger.target()) {
+        let client_id = remote_id.0;
         info!("New connected client, client_id: {client_id:?}. Spawning player entity..");
         // pick color and x,y pos for player
         let available_colors = [

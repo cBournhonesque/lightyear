@@ -5,9 +5,7 @@ use bevy::prelude::*;
 use core::time::Duration;
 use lightyear::prelude::{ReplicationSender, SendUpdatesMode};
 use lightyear_examples_common::cli::{Cli, Mode};
-use lightyear_examples_common::shared::{
-    CLIENT_PORT, FIXED_TIMESTEP_HZ, SEND_INTERVAL, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS,
-};
+use lightyear_examples_common::shared::{FIXED_TIMESTEP_HZ, SEND_INTERVAL};
 
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
@@ -32,54 +30,37 @@ fn main() {
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
 
     app.add_plugins(SharedPlugin);
+    cli.spawn_connections(&mut app);
 
-    #[cfg(feature = "client")]
-    {
-        app.add_plugins(ExampleClientPlugin);
-        if matches!(cli.mode, Some(Mode::Client { .. })) {
-            use lightyear::prelude::Connect;
-            use lightyear_examples_common::client::{ClientTransports, ExampleClient};
+    match cli.mode {
+        #[cfg(feature = "client")]
+        Some(Mode::Client { .. }) => {
+            use lightyear::prelude::Client;
+            app.add_plugins(ExampleClientPlugin);
             let client = app
                 .world_mut()
-                .spawn((
-                    ExampleClient {
-                        client_id: cli
-                            .client_id()
-                            .expect("You need to specify a client_id via `-c ID`"),
-                        client_port: CLIENT_PORT,
-                        server_addr: SERVER_ADDR,
-                        conditioner: None,
-                        transport: ClientTransports::Udp,
-                        shared: SHARED_SETTINGS,
-                    },
-                    // We are doing client->server replication so we need to include a ReplicationSender for the client
-                    ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
-                ))
-                .id();
-            app.world_mut().trigger_targets(Connect, client)
+                .query_filtered::<Entity, With<Client>>()
+                .single(app.world_mut())
+                .unwrap();
+            // We are doing client->server replication so we need to include a ReplicationSender for the client
+            app.world_mut()
+                .entity_mut(client)
+                .insert(ReplicationSender::new(
+                    SEND_INTERVAL,
+                    SendUpdatesMode::SinceLastAck,
+                    false,
+                ));
         }
-    }
-
-    #[cfg(feature = "server")]
-    {
-        use lightyear::connection::server::Start;
-        use lightyear_examples_common::server::{ExampleServer, ServerTransports};
-
-        app.add_plugins(ExampleServerPlugin);
-        if matches!(cli.mode, Some(Mode::Server)) {
-            let server = app
-                .world_mut()
-                .spawn(ExampleServer {
-                    conditioner: None,
-                    transport: ServerTransports::Udp {
-                        // Assuming UDP
-                        local_port: SERVER_PORT,
-                    },
-                    shared: SHARED_SETTINGS,
-                })
-                .id();
-            app.world_mut().trigger_targets(Start, server);
+        #[cfg(feature = "server")]
+        Some(Mode::Server { .. }) => {
+            app.add_plugins(ExampleServerPlugin);
         }
+        #[cfg(all(feature = "client", feature = "server"))]
+        Some(Mode::HostClient { client_id }) => {
+            app.add_plugins(ExampleClientPlugin);
+            app.add_plugins(ExampleServerPlugin);
+        }
+        _ => {}
     }
 
     #[cfg(feature = "gui")]

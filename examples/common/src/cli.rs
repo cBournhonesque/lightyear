@@ -9,17 +9,22 @@ use std::str::FromStr;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 
+use bevy::DefaultPlugins;
 use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::state::app::StatesPlugin;
-use bevy::DefaultPlugins;
 use clap::{Parser, Subcommand};
 
+use crate::client::{ClientTransports, ExampleClient, connect};
 #[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
+use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
 #[cfg(all(feature = "gui", feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
+use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
 #[cfg(feature = "gui")]
 use bevy::window::PresentMode;
+use lightyear::link::RecvLinkConditioner;
+use lightyear::prelude::{Client, LinkConditionerConfig, LinkOf};
 
 /// CLI options to create an [`App`]
 #[derive(Parser, Debug)]
@@ -38,7 +43,7 @@ impl Cli {
             #[cfg(all(feature = "client", feature = "server"))]
             Some(Mode::Separate { client_id }) => *client_id,
             #[cfg(all(feature = "client", feature = "server"))]
-            Some(Mode::HostServer { client_id }) => *client_id,
+            Some(Mode::HostClient { client_id }) => *client_id,
             _ => None,
         }
     }
@@ -69,12 +74,102 @@ impl Cli {
                 ));
                 app
             }
+            #[cfg(all(feature = "client", feature = "server"))]
+            Some(Mode::HostClient { client_id }) => {
+                let mut app = new_gui_app(add_inspector);
+                app.add_plugins((
+                    lightyear::prelude::client::ClientPlugins { tick_duration },
+                    lightyear::prelude::server::ServerPlugins { tick_duration },
+                    ExampleClientRendererPlugin::new(format!("Host-Client {client_id:?}")),
+                    ExampleServerRendererPlugin::new("Host-Server".to_string()),
+                ));
+                app
+            }
             None => {
                 panic!("Mode is required");
             }
             _ => {
                 todo!()
             }
+        }
+    }
+
+    pub fn spawn_connections(&self, app: &mut App) {
+        match self.mode {
+            #[cfg(feature = "client")]
+            Some(Mode::Client { client_id }) => {
+                let client = app
+                    .world_mut()
+                    .spawn(ExampleClient {
+                        client_id: client_id.expect("You need to specify a client_id via `-c ID`"),
+                        client_port: CLIENT_PORT,
+                        server_addr: SERVER_ADDR,
+                        conditioner: Some(RecvLinkConditioner::new(
+                            LinkConditionerConfig::average_condition(),
+                        )),
+                        // transport: ClientTransports::Udp,
+                        transport: ClientTransports::WebTransport,
+                        shared: SHARED_SETTINGS,
+                    })
+                    .id();
+                app.add_systems(Startup, connect);
+            }
+            #[cfg(feature = "server")]
+            Some(Mode::Server) => {
+                let server = app
+                    .world_mut()
+                    .spawn(ExampleServer {
+                        conditioner: None,
+                        // transport: ServerTransports::Udp {
+                        //     local_port: SERVER_PORT,
+                        // },
+                        transport: ServerTransports::WebTransport {
+                            local_port: SERVER_PORT,
+                            certificate: WebTransportCertificateSettings::FromFile {
+                                cert: "../../certificates/cert.pem".to_string(),
+                                key: "../../certificates/key.pem".to_string(),
+                            },
+                        },
+                        shared: SHARED_SETTINGS,
+                    })
+                    .id();
+                app.add_systems(Startup, start);
+            }
+            #[cfg(all(feature = "client", feature = "server"))]
+            Some(Mode::HostClient { client_id }) => {
+                // Spawn the client and server connections here
+                // This is where you would set up the client and server entities
+                let server = app
+                    .world_mut()
+                    .spawn(ExampleServer {
+                        conditioner: None,
+                        // transport: ServerTransports::Udp {
+                        //     local_port: SERVER_PORT,
+                        // },
+                        transport: ServerTransports::WebTransport {
+                            local_port: SERVER_PORT,
+                            certificate: WebTransportCertificateSettings::FromFile {
+                                cert: "../../certificates/cert.pem".to_string(),
+                                key: "../../certificates/key.pem".to_string(),
+                            },
+                        },
+                        shared: SHARED_SETTINGS,
+                    })
+                    .id();
+
+                let client = app
+                    .world_mut()
+                    .spawn((
+                        Client::default(),
+                        Name::new("HostClient"),
+                        LinkOf { server },
+                    ))
+                    .id();
+                // NOTE: it's ugly but i believe that you need to start the server before
+                //  connecting the host-client for things to work properly
+                app.add_systems(Startup, (start, connect).chain());
+            }
+            _ => {}
         }
     }
 }
@@ -98,9 +193,9 @@ pub enum Mode {
         client_id: Option<u64>,
     },
     #[cfg(all(feature = "client", feature = "server"))]
-    /// Run the app in host-server mode.
+    /// Run the app in host-client mode.
     /// The client and the server will run inside the same app. The peer acts both as a client and a server.
-    HostServer {
+    HostClient {
         #[arg(short, long, default_value = None)]
         client_id: Option<u64>,
     },
@@ -110,7 +205,7 @@ impl Default for Mode {
     fn default() -> Self {
         cfg_if::cfg_if! {
             if #[cfg(all(feature = "client", feature = "server"))] {
-                return Mode::HostServer { client_id: None };
+                return Mode::HostClient { client_id: None };
             } else if #[cfg(feature = "server")] {
                 return Mode::Server;
             } else {

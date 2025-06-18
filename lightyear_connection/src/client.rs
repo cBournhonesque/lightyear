@@ -24,7 +24,7 @@ pub enum ConnectionError {
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum ClientState {
     /// Client is connected to the server
-    Connected(PeerId),
+    Connected,
     /// Client is connecting to the server
     Connecting,
     Disconnecting,
@@ -37,15 +37,6 @@ pub enum ClientState {
 #[derive(Component, Default, Reflect)]
 pub struct Client {
     pub state: ClientState,
-}
-
-impl Client {
-    pub fn peer_id(&self) -> Option<PeerId> {
-        match self.state {
-            ClientState::Connected(peer_id) => Some(peer_id),
-            _ => None,
-        }
-    }
 }
 
 /// Trigger to connect the client
@@ -71,7 +62,7 @@ impl Connected {
             .expect("A Connected entity must always have a RemoteId component")
             .0;
         if let Some(mut client) = world.get_mut::<Client>(context.entity) {
-            client.state = ClientState::Connected(peer_id);
+            client.state = ClientState::Connected;
         };
         world
             .commands()

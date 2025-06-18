@@ -5,15 +5,15 @@
 //! - is a ClientOf of a Server
 //! - the Server is started
 
-use crate::client::Connect;
-use crate::client_of::ClientOf;
 #[cfg(feature = "server")]
 use crate::{
-    client::{Client, Connected},
+    client::{Client, Connect, Connected, Disconnect, Disconnected},
+    client_of::ClientOf,
     server::Started,
 };
 use bevy::prelude::*;
 use bytes::Bytes;
+#[cfg(feature = "server")]
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 #[cfg(feature = "server")]
 use lightyear_link::prelude::{LinkOf, Server};
@@ -39,25 +39,57 @@ pub struct HostPlugin;
 impl HostPlugin {
     // TODO: also add check that the client has LocalIo?
 
-    /// A host-server client gets connected automatically
+    /// A host-server client gets connected automatically to the server.
+    ///
+    /// NOTE: the server must be started before we try to connect.
+    /// TODO: set to Connecting? and as soon as the server is started, we switch it to
+    ///  Connected?
     #[cfg(feature = "server")]
     fn connect(
         trigger: Trigger<Connect>,
         mut commands: Commands,
-        query: Query<&LinkOf, With<Client>>,
-        server_query: Query<(), With<Server>>,
+        query: Query<&LinkOf, (With<Client>, Without<HostClient>)>,
+        server_query: Query<(), (With<Server>, With<Started>)>,
     ) {
         if let Ok(link_of) = query.get(trigger.target()) {
             if server_query.get(link_of.server).is_ok() {
                 info!("Connected host-client");
                 commands.entity(trigger.target()).insert((
-                   Connected,
-                   // We cannot insert the ids purely from the point of view of the client
-                   // so we set both its to Local
-                   LocalId(PeerId::Local(0)),
-                   RemoteId(PeerId::Local(0)),
-                   ClientOf,
+                    Connected,
+                    // We cannot insert the ids purely from the point of view of the client
+                    // so we set both its to Local
+                    LocalId(PeerId::Local(0)),
+                    RemoteId(PeerId::Local(0)),
+                    ClientOf,
+                    // NOTE: it's very important to insert Connected and HostClient at the same time
+                    //  to avoid race conditions between observers that depend on Connected, and those
+                    // that depend on HostClient
+                    HostClient { buffer: Vec::new() },
                 ));
+                commands.entity(link_of.server).insert(HostServer {
+                    client: trigger.target(),
+                });
+            }
+        }
+    }
+
+    #[cfg(feature = "server")]
+    fn disconnect(
+        trigger: Trigger<Disconnect>,
+        mut commands: Commands,
+        query: Query<&LinkOf, With<HostClient>>,
+        server_query: Query<(), With<HostServer>>,
+    ) {
+        if let Ok(link_of) = query.get(trigger.target()) {
+            if server_query.get(link_of.server).is_ok() {
+                info!("Disconnected host-client");
+                commands
+                    .entity(trigger.target())
+                    .remove::<HostClient>()
+                    .insert(Disconnected {
+                        reason: Some("Client trigger".to_string()),
+                    });
+                commands.entity(link_of.server).remove::<HostServer>();
             }
         }
     }
@@ -67,15 +99,15 @@ impl HostPlugin {
         // NOTE: we handle Connecting in the trigger because otherwise the client
         //  would never be Connected
         trigger: Trigger<OnAdd, (Client, Connected, LinkOf)>,
-        client_query: Query<&LinkOf, (With<Client>, With<Connected>)>,
+        client_query: Query<&LinkOf, (With<Client>, With<Connected>, Without<HostClient>)>,
         server_query: Query<(), (With<Started>, With<Server>)>,
         mut commands: Commands,
     ) {
         if let Ok(link_of) = client_query.get(trigger.target()) {
             if server_query.get(link_of.server).is_ok() {
-                commands.entity(trigger.target()).insert(HostClient {
-                    buffer: Vec::new(),
-                });
+                commands
+                    .entity(trigger.target())
+                    .insert(HostClient { buffer: Vec::new() });
                 commands.entity(link_of.server).insert(HostServer {
                     client: trigger.target(),
                 });
@@ -87,15 +119,15 @@ impl HostPlugin {
     fn check_if_host_on_server_change(
         trigger: Trigger<OnAdd, (Server, Started)>,
         server_query: Query<&Server, With<Started>>,
-        client_query: Query<(), (With<Client>, With<Connected>)>,
+        client_query: Query<(), (With<Client>, With<Connected>, Without<HostClient>)>,
         mut commands: Commands,
     ) {
         if let Ok(server) = server_query.get(trigger.target()) {
             for client in server.collection() {
                 if client_query.get(*client).is_ok() {
-                    commands.entity(*client).insert(HostClient {
-                        buffer: Vec::new(),
-                    });
+                    commands
+                        .entity(*client)
+                        .insert(HostClient { buffer: Vec::new() });
                     commands.entity(trigger.target()).insert(HostServer {
                         client: trigger.target(),
                     });
@@ -109,6 +141,8 @@ impl Plugin for HostPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "server")]
         app.add_observer(Self::connect);
+        #[cfg(feature = "server")]
+        app.add_observer(Self::disconnect);
         #[cfg(feature = "server")]
         app.add_observer(Self::check_if_host_on_client_change);
         #[cfg(feature = "server")]

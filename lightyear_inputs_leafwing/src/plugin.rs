@@ -1,6 +1,8 @@
 use crate::action_state::LeafwingUserAction;
 use crate::input_message::LeafwingSequence;
-use bevy::app::{App, Plugin};
+use bevy::app::{App, FixedPreUpdate, Plugin};
+use bevy::prelude::IntoScheduleConfigs;
+use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::InputManagerPlugin;
 use lightyear_inputs::config::InputConfig;
 
@@ -30,6 +32,13 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
                 app.add_plugins(lightyear_inputs::client::ClientInputPlugin::<
                     LeafwingSequence<A>,
                 >::new(self.config));
+
+                // see: https://github.com/cBournhonesque/lightyear/pull/820
+                app.configure_sets(
+                    FixedPreUpdate,
+                    lightyear_inputs::client::InputSet::RestoreInputs
+                        .before(InputManagerSystem::Tick),
+                );
             }
         }
         #[cfg(feature = "server")]

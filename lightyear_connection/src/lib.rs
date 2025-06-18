@@ -58,9 +58,9 @@ pub enum ConnectionSet {
 }
 
 pub mod prelude {
+    pub use crate::ConnectionSet;
     pub use crate::direction::NetworkDirection;
     pub use crate::network_target::NetworkTarget;
-    pub use crate::ConnectionSet;
 
     pub use crate::client::{
         Client, Connect, Connected, Connecting, ConnectionError, Disconnect, Disconnected,

@@ -1,7 +1,10 @@
 use crate::ping::manager::PingManager;
 use crate::plugin::SyncSet;
 use bevy::app::{App, Last, Plugin, PostUpdate};
-use bevy::prelude::{Commands, Component, Entity, Has, IntoScheduleConfigs, OnAdd, Query, Reflect, Res, ResMut, Time, Trigger, Virtual, With, Without};
+use bevy::prelude::{
+    Commands, Component, Entity, Has, IntoScheduleConfigs, OnAdd, Query, Reflect, Res, ResMut,
+    Time, Trigger, Virtual, With, Without,
+};
 use core::time::Duration;
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_connection::host::HostClient;

@@ -203,8 +203,8 @@ impl ComponentRegistry {
                 ContextDeserializeFns::new(serialize_fns.deserialize),
             ),
         );
-    } 
-    
+    }
+
     pub fn finish(&mut self) -> RegistryHash {
         self.hasher.finish()
     }
@@ -349,6 +349,15 @@ pub trait AppComponentExt {
         &mut self,
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C>;
+
+    /// Returns a ComponentRegistration for a component that is not networked.
+    ///
+    /// This can be useful for components that are not networked but that you still need
+    /// to sync to predicted or interpolated entities; or for which you need to enable
+    /// rollback.
+    fn non_networked_component<C: Component<Mutability: GetWriteFns<C>>>(
+        &mut self,
+    ) -> ComponentRegistration<'_, C>;
 }
 
 impl AppComponentExt for App {
@@ -382,7 +391,17 @@ impl AppComponentExt for App {
             app: self,
             _phantom: core::marker::PhantomData,
         }
+        // NOTE: apparently this is important; can't remove!
         .with_replication_config(ComponentReplicationConfig::default())
+    }
+
+    fn non_networked_component<C: Component<Mutability: GetWriteFns<C>>>(
+        &mut self,
+    ) -> ComponentRegistration<'_, C> {
+        ComponentRegistration {
+            app: self,
+            _phantom: core::marker::PhantomData,
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::{ClientId, Key, ServerConfig, PRIVATE_KEY_BYTES};
+use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig};
 use alloc::sync::Arc;
 use bevy::ecs::entity::unique_slice::UniqueEntitySlice;
 use bevy::prelude::*;
@@ -100,7 +100,7 @@ impl NetcodeServerPlugin {
                 Option<&Connected>,
                 Option<&Disconnecting>,
             ),
-            (With<LinkOf>, Without<HostClient>)
+            (With<LinkOf>, Without<HostClient>),
         >,
     ) {
         // TODO: we should be able to do ParIterMut if we can make the code understand
@@ -291,7 +291,10 @@ impl NetcodeServerPlugin {
         trigger: Trigger<Stop>,
         mut commands: Commands,
         mut query: Query<(Entity, &mut NetcodeServer, &Server), Without<Stopped>>,
-        mut link_query: Query<(Entity, &mut Link, &RemoteId), (With<ClientOf>, With<Connected>)>,
+        mut link_query: Query<
+            (Entity, &mut Link, &RemoteId),
+            (With<ClientOf>, With<Connected>, Without<HostClient>),
+        >,
     ) -> Result {
         if let Ok((server_entity, mut netcode_server, server)) = query.get_mut(trigger.target()) {
             info!("Stopping netcode server");

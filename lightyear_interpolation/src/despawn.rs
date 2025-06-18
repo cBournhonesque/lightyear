@@ -13,7 +13,7 @@ pub(crate) fn removed_components<C: SyncComponent>(
     if let Ok(confirmed) = query.get(trigger.target()) {
         if let Some(interpolated) = confirmed.interpolated {
             if let Ok(mut entity) = commands.get_entity(interpolated) {
-                entity.remove::<(C, ConfirmedHistory<C>, InterpolateStatus<C>)>();
+                entity.try_remove::<(C, ConfirmedHistory<C>, InterpolateStatus<C>)>();
             }
         }
     }
@@ -30,7 +30,7 @@ pub(crate) fn despawn_interpolated(
 ) -> Result {
     if let Some(interpolated) = query.get(trigger.target())?.interpolated {
         if let Ok(mut entity_mut) = commands.get_entity(interpolated) {
-            entity_mut.despawn();
+            entity_mut.try_despawn();
         }
     }
     Ok(())

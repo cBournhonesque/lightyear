@@ -204,7 +204,15 @@ impl TransportPlugin {
     /// Upload the packets to the [`Link`]
     fn buffer_send(
         real_time: Res<Time<Real>>,
-        mut query: Query<(&mut Link, &mut Transport, &LocalTimeline, Option<&mut HostClient>), With<Linked>>,
+        mut query: Query<
+            (
+                &mut Link,
+                &mut Transport,
+                &LocalTimeline,
+                Option<&mut HostClient>,
+            ),
+            With<Linked>,
+        >,
         channel_registry: Res<ChannelRegistry>,
     ) {
         query.par_iter_mut().for_each(|(mut link, mut transport, timeline, host_client)| {

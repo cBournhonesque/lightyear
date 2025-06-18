@@ -6,8 +6,8 @@ use lightyear_connection::host::{HostClient, HostServer};
 use lightyear_connection::server::Started;
 use lightyear_core::id::{LocalId, RemoteId};
 use lightyear_core::prelude::LocalTimeline;
-use lightyear_messages::prelude::{MessageReceiver, MessageSender, TriggerSender};
 use lightyear_messages::MessageManager;
+use lightyear_messages::prelude::{MessageReceiver, MessageSender, TriggerSender};
 use lightyear_replication::message::SenderMetadata;
 use lightyear_replication::prelude::{ReplicationReceiver, ReplicationSender};
 use lightyear_sync::prelude::client::RemoteTimeline;
@@ -30,11 +30,19 @@ fn test_setup_host_server() {
     assert!(stepper.host_client().contains::<RemoteTimeline>());
     // TODO: update Interpolation to be disabled for host-clients!
     assert!(stepper.host_client().contains::<InterpolationTimeline>());
-    assert!(stepper.host_client().contains::<IsSynced<InterpolationTimeline>>());
+    assert!(
+        stepper
+            .host_client()
+            .contains::<IsSynced<InterpolationTimeline>>()
+    );
     assert!(stepper.host_client().contains::<LocalTimeline>());
     assert!(stepper.host_client().contains::<Transport>());
     assert!(stepper.host_client().contains::<MessageManager>());
-    assert!(stepper.host_client().contains::<MessageSender<StringMessage>>());
+    assert!(
+        stepper
+            .host_client()
+            .contains::<MessageSender<StringMessage>>()
+    );
     assert!(
         stepper
             .host_client()

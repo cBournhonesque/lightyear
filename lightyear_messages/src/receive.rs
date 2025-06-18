@@ -145,9 +145,7 @@ impl<M: Message> MessageReceiver<M> {
     }
 }
 
-
 impl MessagePlugin {
-
     fn receive_message_bytes(
         bytes: Bytes,
         registry: &MessageRegistry,
@@ -160,12 +158,21 @@ impl MessagePlugin {
         commands: &ParallelCommands,
         remote_peer_id: PeerId,
     ) -> core::result::Result<(), MessageError> {
-        trace!("Received message (id:{message_id:?}) from peer {:?} on channel {channel_kind:?}. {entity:?}", remote_peer_id);
+        trace!(
+            "Received message (id:{message_id:?}) from peer {:?} on channel {channel_kind:?}. {entity:?}",
+            remote_peer_id
+        );
         let mut reader = Reader::from(bytes);
         // we receive the message NetId, and then deserialize the message
         let message_net_id = MessageNetId::from_bytes(&mut reader)?;
-        let message_kind = registry.kind_map.kind(message_net_id).ok_or(MessageError::UnrecognizedMessageId(message_net_id))?;
-        let serialize_fns = registry.serialize_fns_map.get(message_kind).ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+        let message_kind = registry
+            .kind_map
+            .kind(message_net_id)
+            .ok_or(MessageError::UnrecognizedMessageId(message_net_id))?;
+        let serialize_fns = registry
+            .serialize_fns_map
+            .get(message_kind)
+            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
 
         if let Some(recv_metadata) = registry.receive_metadata.get(message_kind) {
             let component_id = recv_metadata.component_id;
@@ -182,7 +189,7 @@ impl MessagePlugin {
                     tick,
                     message_id,
                     serialize_fns,
-                    &mut message_manager.entity_mapper.remote_to_local
+                    &mut message_manager.entity_mapper.remote_to_local,
                 )
             }
         } else if let Some(trigger_fn) = registry.receive_trigger.get(message_kind) {
@@ -190,7 +197,7 @@ impl MessagePlugin {
             // for the RemoteTrigger<M> type associated with this message_kind.
             unsafe {
                 trigger_fn(
-                    &commands,
+                    commands,
                     &mut reader,
                     channel_kind,
                     tick,
@@ -215,7 +222,14 @@ impl MessagePlugin {
             // note: we still listen for messages on the Transport for the host-client, because of the way
             //  MultiMessageSender works. (it simply serializes messages to the Transport instead of writing
             //  them directly to the host-server's MessageReceiver<M>)
-            (Entity, &mut MessageManager, &mut Transport, &RemoteId, &LocalTimeline, Option<&mut HostClient>),
+            (
+                Entity,
+                &mut MessageManager,
+                &mut Transport,
+                &RemoteId,
+                &LocalTimeline,
+                Option<&mut HostClient>,
+            ),
             With<Connected>,
         >,
         // List of ChannelReceivers<M> present on that entity
@@ -226,54 +240,77 @@ impl MessagePlugin {
         // We use Arc to make the query Clone, since we know that we will only access MessageReceiver<M> components
         // on potentially different entities in parallel (though the current loop isn't parallel)
         let receiver_query = Arc::new(receiver_query);
-        transport_query.par_iter_mut().for_each(|(entity, mut message_manager, mut transport, remote_peer_id, timeline, mut host_client)| {
-            // SAFETY: we know that this won't lead to violating the aliasing rule
-            let mut receiver_query = unsafe { receiver_query.reborrow_unsafe() };
-            // enable split borrows
-            let transport = &mut *transport;
-            // TODO: we can run this in parallel using rayon!
-            if let Some(host_client) = host_client.as_mut() {
-                let tick = timeline.tick();
-                // for host-clients, we might have to deserialize messages that are in the Transports' senders
-                transport.senders.iter_mut().try_for_each(|(channel_kind, sender_metadata)| {
-                    host_client.buffer.drain(..).try_for_each(|(bytes, channel_type_id)| {
-                        // we fake the tick and message_id for host-client messages
-                        Self::receive_message_bytes(
-                            bytes,
-                            &registry,
-                            &mut receiver_query,
-                            entity,
-                            ChannelKind(channel_type_id),
-                            tick,
-                            None,
-                            &mut message_manager,
-                            &commands,
-                            remote_peer_id.0,
-                        )
-                    })?;
-                    Ok::<_, MessageError>(())
-                }).inspect_err(|e| error!("Error receiving messages: {e:?}")).ok();
-            } else {
-                transport.receivers.values_mut().try_for_each(|receiver_metadata| {
-                let channel_kind = receiver_metadata.channel_kind;
-                while let Some((tick, bytes, message_id)) = receiver_metadata.receiver.read_message() {
-                    Self::receive_message_bytes(
-                        bytes,
-                        &registry,
-                        &mut receiver_query,
-                        entity,
-                        channel_kind,
-                        tick,
-                        message_id,
-                        &mut message_manager,
-                        &commands,
-                        remote_peer_id.0,
-                    )?;
+        transport_query.par_iter_mut().for_each(
+            |(
+                entity,
+                mut message_manager,
+                mut transport,
+                remote_peer_id,
+                timeline,
+                mut host_client,
+            )| {
+                // SAFETY: we know that this won't lead to violating the aliasing rule
+                let mut receiver_query = unsafe { receiver_query.reborrow_unsafe() };
+                // enable split borrows
+                let transport = &mut *transport;
+                // TODO: we can run this in parallel using rayon!
+                if let Some(host_client) = host_client.as_mut() {
+                    let tick = timeline.tick();
+                    // for host-clients, we might have to deserialize messages that are in the Transports' senders
+                    transport
+                        .senders
+                        .iter_mut()
+                        .try_for_each(|(channel_kind, sender_metadata)| {
+                            host_client.buffer.drain(..).try_for_each(
+                                |(bytes, channel_type_id)| {
+                                    // we fake the tick and message_id for host-client messages
+                                    Self::receive_message_bytes(
+                                        bytes,
+                                        &registry,
+                                        &mut receiver_query,
+                                        entity,
+                                        ChannelKind(channel_type_id),
+                                        tick,
+                                        None,
+                                        &mut message_manager,
+                                        &commands,
+                                        remote_peer_id.0,
+                                    )
+                                },
+                            )?;
+                            Ok::<_, MessageError>(())
+                        })
+                        .inspect_err(|e| error!("Error receiving messages: {e:?}"))
+                        .ok();
+                } else {
+                    transport
+                        .receivers
+                        .values_mut()
+                        .try_for_each(|receiver_metadata| {
+                            let channel_kind = receiver_metadata.channel_kind;
+                            while let Some((tick, bytes, message_id)) =
+                                receiver_metadata.receiver.read_message()
+                            {
+                                Self::receive_message_bytes(
+                                    bytes,
+                                    &registry,
+                                    &mut receiver_query,
+                                    entity,
+                                    channel_kind,
+                                    tick,
+                                    message_id,
+                                    &mut message_manager,
+                                    &commands,
+                                    remote_peer_id.0,
+                                )?;
+                            }
+                            Ok::<_, MessageError>(())
+                        })
+                        .inspect_err(|e| error!("Error receiving messages: {e:?}"))
+                        .ok();
                 }
-                Ok::<_, MessageError>(())
-                }).inspect_err(|e| error!("Error receiving messages: {e:?}")).ok();
-            }
-        })
+            },
+        )
     }
 
     /// Clear all the message receivers to prevent messages from accumulating

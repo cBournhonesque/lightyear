@@ -10,10 +10,10 @@ use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use lightyear_core::id::PeerId;
+use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
-use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
 
@@ -75,16 +75,19 @@ impl<M: Event> TriggerSender<M> {
         // SAFETY:  the `trigger_sender` must be of type `TriggerSender<M>`
         let mut sender = unsafe { trigger_sender.with_type::<Self>() };
         // enable split borrows
-        sender.send.drain(..).for_each(|(message, channel_kind, priority)| {
-            let remote_trigger = RemoteTrigger {
-                trigger: message.trigger,
-                // TODO: how to get the correct PeerId here?
-                from: PeerId::Local(0),
-            };
-            commands.command_scope(|mut c| {
-                c.trigger_targets(remote_trigger, message.target_entities.clone());
+        sender
+            .send
+            .drain(..)
+            .for_each(|(message, channel_kind, priority)| {
+                let remote_trigger = RemoteTrigger {
+                    trigger: message.trigger,
+                    // TODO: how to get the correct PeerId here?
+                    from: PeerId::Local(0),
+                };
+                commands.command_scope(|mut c| {
+                    c.trigger_targets(remote_trigger, message.target_entities.clone());
+                });
             });
-        });
     }
 
     pub fn on_add_hook(mut world: DeferredWorld, context: HookContext) {
@@ -114,10 +117,7 @@ pub(crate) type SendTriggerFn = unsafe fn(
 ) -> Result<(), MessageError>;
 
 // SAFETY: the sender must correspond to the correct `TriggerSender<M>` type
-pub(crate) type SendLocalTriggerFn = unsafe fn(
-    sender: MutUntyped,
-    commands: &ParallelCommands,
-);
+pub(crate) type SendLocalTriggerFn = unsafe fn(sender: MutUntyped, commands: &ParallelCommands);
 
 impl<M: Event> TriggerSender<M> {
     /// Buffers a trigger `M` to be sent over the specified channel to the target entities.

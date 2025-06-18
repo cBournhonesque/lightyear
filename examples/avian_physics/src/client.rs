@@ -34,7 +34,7 @@ impl Plugin for ExampleClientPlugin {
 fn add_ball_physics(
     trigger: Trigger<OnAdd, BallMarker>,
     mut commands: Commands,
-    mut ball_query: Query<(), With<Predicted>>,
+    ball_query: Query<(), With<Predicted>>,
 ) {
     if let Ok(()) = ball_query.get(trigger.target()) {
         commands
@@ -47,7 +47,7 @@ fn add_ball_physics(
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
-    timeline: Single<&LocalTimeline>,
+    timeline: Single<&LocalTimeline, With<Client>>,
     mut velocity_query: Query<
         (
             Entity,
@@ -75,7 +75,7 @@ fn player_movement(
 // - assign it a different saturation
 // - add physics components so that its movement can be predicted
 pub(crate) fn handle_predicted_spawn(
-    trigger: Trigger<OnAdd, PlayerId>,
+    trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
     mut commands: Commands,
     mut player_query: Query<(&mut ColorComponent, Has<Controlled>), With<Predicted>>,
 ) {

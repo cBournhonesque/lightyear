@@ -143,6 +143,10 @@ impl ExampleServer {
     }
 }
 
+pub(crate) fn start(mut commands: Commands, server: Single<Entity, With<Server>>) {
+    commands.trigger_targets(Start, server.into_inner());
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum WebTransportCertificateSettings {
     /// Generate a self-signed certificate, with given SANs list to add to the certifictate

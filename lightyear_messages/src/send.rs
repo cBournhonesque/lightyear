@@ -13,10 +13,10 @@ use bevy::prelude::*;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
+use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
-use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
 
@@ -58,11 +58,8 @@ pub(crate) type SendMessageFn = unsafe fn(
 
 // SAFETY: the sender must correspond to the correct `MessageSender<M>` type
 // SAFETY: the receiver must correspond to the correct `MessageReceiver<M>` type
-pub(crate) type SendLocalMessageFn = unsafe fn(
-    sender: MutUntyped,
-    receiver: MutUntyped,
-    tick: Tick,
-);
+pub(crate) type SendLocalMessageFn =
+    unsafe fn(sender: MutUntyped, receiver: MutUntyped, tick: Tick);
 
 impl<M: Message> MessageSender<M> {
     /// Buffers a message to be sent over the channel
@@ -123,15 +120,21 @@ impl<M: Message> MessageSender<M> {
         let mut receiver = unsafe { message_receiver.with_type::<MessageReceiver<M>>() };
         // enable split borrows
         let sender = &mut *sender;
-        sender.send.drain(..).for_each(|(message, channel_kind, _)| {
-            trace!("Send local message of type {:?} on channel {channel_kind:?}", core::any::type_name::<M>());
-            receiver.recv.push(ReceivedMessage::<M> {
-                data: message,
-                remote_tick: tick,
-                channel_kind,
-                message_id: None,
-            });
-        })
+        sender
+            .send
+            .drain(..)
+            .for_each(|(message, channel_kind, _)| {
+                trace!(
+                    "Send local message of type {:?} on channel {channel_kind:?}",
+                    core::any::type_name::<M>()
+                );
+                receiver.recv.push(ReceivedMessage::<M> {
+                    data: message,
+                    remote_tick: tick,
+                    channel_kind,
+                    message_id: None,
+                });
+            })
     }
 
     pub fn on_add_hook(mut world: DeferredWorld, context: HookContext) {
@@ -155,7 +158,10 @@ impl MessagePlugin {
     /// Take messages to send from the MessageSender<M> components
     /// Serialize them into bytes that are buffered in a ChannelSender<C>
     pub fn send(
-        mut transport_query: Query<(Entity, &Transport, &mut MessageManager), (With<Connected>, Without<HostClient>)>,
+        mut transport_query: Query<
+            (Entity, &Transport, &mut MessageManager),
+            (With<Connected>, Without<HostClient>),
+        >,
         // MessageSender<M> present on that entity
         message_sender_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
@@ -251,7 +257,10 @@ impl MessagePlugin {
     /// and add them directly to the MessageReceiver<M> compoments.
     /// (there is no link)
     pub fn send_local(
-        mut manager_query: Query<(Entity, &LocalTimeline, &mut MessageManager), (With<Connected>, With<HostClient>)>,
+        mut manager_query: Query<
+            (Entity, &LocalTimeline, &mut MessageManager),
+            (With<Connected>, With<HostClient>),
+        >,
         // MessageSender<M>/MessageReceiver<M>/TriggerSender<M> present on that entity
         message_components_query: Query<FilteredEntityMut>,
         commands: ParallelCommands,
@@ -266,8 +275,10 @@ impl MessagePlugin {
                 let tick = timeline.tick();
 
                 // SAFETY: we know that this won't lead to violating the aliasing rule
-                let mut message_sender_query = unsafe { message_components_query.reborrow_unsafe() };
-                let mut message_receiver_query = unsafe { message_components_query.reborrow_unsafe() };
+                let mut message_sender_query =
+                    unsafe { message_components_query.reborrow_unsafe() };
+                let mut message_receiver_query =
+                    unsafe { message_components_query.reborrow_unsafe() };
 
                 // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
                 // enable split borrows
@@ -277,14 +288,16 @@ impl MessagePlugin {
                     .iter()
                     .try_for_each(|(message_kind, sender_id)| {
                         let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
-                        let message_sender =  entity_mut
+                        let message_sender = entity_mut
                             .get_mut_by_id(*sender_id)
                             .ok_or(MessageError::MissingComponent(*sender_id))?;
                         // TODO: maybe use an IndexMap for faster lookup?
                         let receiver_id = message_manager
                             .receive_messages
                             .iter()
-                            .find_map(|(kind, id)| if kind == message_kind { Some(id) } else { None })
+                            .find_map(
+                                |(kind, id)| if kind == message_kind { Some(id) } else { None },
+                            )
                             .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
 
                         let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
@@ -325,10 +338,7 @@ impl MessagePlugin {
                             .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
                         // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
                         unsafe {
-                            (send_metadata.send_local_trigger_fn)(
-                                message_sender,
-                                &commands,
-                            );
+                            (send_metadata.send_local_trigger_fn)(message_sender, &commands);
                         }
                         Ok::<_, MessageError>(())
                     })

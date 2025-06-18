@@ -1,6 +1,6 @@
+use crate::ping::PingChannel;
 use crate::ping::manager::PingManager;
 use crate::ping::message::{Ping, Pong};
-use crate::ping::PingChannel;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use core::time::Duration;

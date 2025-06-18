@@ -1,8 +1,8 @@
 /*! Handles syncing the time between the client and the server
 */
 use crate::plugin::TimelineSyncPlugin;
-use crate::prelude::client::RemoteTimeline;
 use crate::prelude::InputTimeline;
+use crate::prelude::client::RemoteTimeline;
 use crate::timeline::input::Input;
 use crate::timeline::remote;
 use crate::timeline::sync::SyncedTimelinePlugin;

@@ -192,7 +192,7 @@ pub(crate) fn handle_connected(
     info!("Client connected with client-id {client_id:?}. Spawning character entity.");
 
     // Track the number of characters to pick colors and starting positions.
-    let mut num_characters = character_query.iter().count();
+    let num_characters = character_query.iter().count();
 
     // Default prediction/interpolation: predict owner, interpolate others
     let prediction_target = PredictionTarget::to_clients(NetworkTarget::Single(client_id));

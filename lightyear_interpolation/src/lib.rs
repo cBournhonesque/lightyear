@@ -37,14 +37,13 @@ pub mod prelude {
 
 pub use lightyear_core::interpolation::Interpolated;
 
-
 pub(crate) fn interpolated_on_add_hook(mut deferred_world: DeferredWorld, context: HookContext) {
     let interpolated = context.entity;
     let confirmed = deferred_world
         .get::<Interpolated>(interpolated)
         .unwrap()
         .confirmed_entity;
-    // TODO: maybe we need InitialReplicated?
+    // TODO: maybe we need InitialReplicated? in case Replicated gets removed?
     let Some(replicated) = deferred_world.get::<Replicated>(confirmed) else {
         error!(
             "Could not find the receiver assocaited with the interpolated entity {:?}",
@@ -52,9 +51,7 @@ pub(crate) fn interpolated_on_add_hook(mut deferred_world: DeferredWorld, contex
         );
         return;
     };
-    if let Some(mut manager) =
-        deferred_world.get_mut::<InterpolationManager>(replicated.receiver)
-    {
+    if let Some(mut manager) = deferred_world.get_mut::<InterpolationManager>(replicated.receiver) {
         manager
             .interpolated_entity_map
             .get_mut()
@@ -71,19 +68,17 @@ pub(crate) fn interpolated_on_remove_hook(mut deferred_world: DeferredWorld, con
         .confirmed_entity;
     let Some(replicated) = deferred_world.get::<Replicated>(confirmed) else {
         error!(
-            "Could not find the receiver assocaited with the interpolated entity {:?}",
+            "Could not find the receiver associated with the interpolated entity {:?}",
             interpolated
         );
         return;
     };
-    if let Some(mut manager) =
-        deferred_world.get_mut::<InterpolationManager>(replicated.receiver)
-    {
+    if let Some(mut manager) = deferred_world.get_mut::<InterpolationManager>(replicated.receiver) {
         manager
             .interpolated_entity_map
             .get_mut()
             .confirmed_to_interpolated
-            .insert(confirmed, interpolated);
+            .remove(&confirmed);
     };
 }
 

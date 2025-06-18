@@ -16,14 +16,14 @@ use core::time::Duration;
 /// A plugin group containing all the server plugins.
 ///
 /// By default, the following plugins will be added:
-/// IO
+///   IO
 /// - [`ServerLinkPlugin`](lightyear_link::server::ServerLinkPlugin): Handles how the server reacts to links getting established/disconnected
-/// CONNECTION
+///   CONNECTION
 /// -
-/// MESSAGE
+///   MESSAGE
 /// - [`MessagePlugin`](lightyear_messages::plugin::MessagePlugin): Handles the messaging system.
 /// - [`ConnectionPlugin`](lightyear_connection::ConnectionPlugin): Handles connections, which are long-term connections with a persistent id on top of a link
-/// REPLICATION
+///   REPLICATION
 #[derive(Default)]
 pub struct ServerPlugins {
     /// The tick interval for the server. This is used to determine how often the server should tick.
@@ -41,8 +41,11 @@ impl PluginGroup for ServerPlugins {
         let builder = builder.add(SharedPlugins {
             tick_duration: self.tick_duration,
         });
-        
+
         let builder = builder.add(lightyear_connection::host::HostPlugin);
+
+        #[cfg(feature = "replication")]
+        let builder = builder.add(lightyear_replication::host::HostServerPlugin);
 
         #[cfg(feature = "prediction")]
         let builder = builder.add(lightyear_prediction::server::ServerPlugin);

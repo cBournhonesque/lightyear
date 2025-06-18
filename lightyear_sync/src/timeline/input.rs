@@ -1,13 +1,12 @@
 use crate::ping::manager::PingManager;
 use crate::timeline::sync::{SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline};
-use bevy::prelude::{default, Changed, Component, Deref, DerefMut, Query, Reflect, Res, Time, Trigger, With, Without};
+use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_core::prelude::Rollback;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineContext};
 use lightyear_link::{Link, Linked};
-use tracing::trace;
 
 /// Timeline that is used to make sure that Inputs from this peer will arrive on time
 /// on the remote peer
@@ -60,6 +59,10 @@ impl Input {
             timeline.input_delay_ticks = timeline
                 .input_delay_config
                 .input_delay_ticks(rtt, tick_duration.0);
+            trace!(
+                "Recomputing input delay on sync event! Input delay ticks: {}",
+                timeline.input_delay_ticks
+            );
         }
     }
 
@@ -74,6 +77,11 @@ impl Input {
             timeline.input_delay_ticks = timeline
                 .input_delay_config
                 .input_delay_ticks(rtt, tick_duration.0);
+
+            trace!(
+                "Recomputing input delay on config update! Input delay ticks: {}. Config: {:?}",
+                timeline.input_delay_ticks, timeline.input_delay_config
+            );
         });
     }
 }

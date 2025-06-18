@@ -24,9 +24,7 @@ fn count_messages_observer<M: Message + Debug>(
     mut buffer: ResMut<Buffer<M>>,
 ) {
     receiver.iter_mut().for_each(|(entity, mut receiver)| {
-        receiver.receive().for_each(|m| {
-            buffer.0.push((entity, m))
-        });
+        receiver.receive().for_each(|m| buffer.0.push((entity, m)));
     })
 }
 
@@ -151,8 +149,7 @@ fn test_send_triggers() {
             Entity::PLACEHOLDER
         )]
     );
-    
-    trace!("Sending trigger from server to clients (including host-client)");
-    // TODO: add test for server to clients trigger 
-}
 
+    trace!("Sending trigger from server to clients (including host-client)");
+    // TODO: add test for server to clients trigger
+}

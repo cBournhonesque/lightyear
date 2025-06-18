@@ -4,25 +4,35 @@ use bevy::app::FixedUpdate;
 use bevy::prelude::{Commands, OnAdd, Trigger};
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_prediction::Predicted;
 use lightyear_prediction::predicted_history::PredictionHistory;
 use lightyear_prediction::prelude::PreSpawned;
-use lightyear_prediction::Predicted;
 use lightyear_replication::components::ShouldBePredicted;
 use test_log::test;
 
 #[test]
 fn test_history_added_when_prespawned_added() {
     let mut stepper = ClientServerStepper::single();
-     let predicted = stepper
+    let predicted = stepper.client_app().world_mut().spawn(CompFull(1.0)).id();
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<HistoryBuffer<CompFull>>(predicted)
+            .is_none()
+    );
+    stepper
         .client_app()
         .world_mut()
-        .spawn(
-            CompFull(1.0)
-        )
-        .id();
-    assert!(stepper.client_app().world().get::<HistoryBuffer<CompFull>>(predicted).is_none());
-    stepper.client_app().world_mut().entity_mut(predicted).insert(PreSpawned::new(0));
-    assert!(stepper.client_app().world().get::<HistoryBuffer<CompFull>>(predicted).is_some());
+        .entity_mut(predicted)
+        .insert(PreSpawned::new(0));
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<HistoryBuffer<CompFull>>(predicted)
+            .is_some()
+    );
 }
 
 /// Test that components are synced from Confirmed to Predicted and that PredictionHistory is

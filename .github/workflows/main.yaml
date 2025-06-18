@@ -31,11 +31,44 @@ jobs:
       - name: Format
         run: |
           cargo fmt --all --check
-      - name: Clippy
-        run: cargo clippy --all-targets --workspace --no-deps --tests -- -D warnings -A clippy::wrong_self_convention
+      # we cannot `cargo clippy --workspace` because it would activate all features found in any crate
+      # of the workspace (including avian2d, avian3d, test_utils), which causes issues
+      # TODO: put the Instant in a common crate
+      # TODO: put create lightyear_avian2d and lightyear_avian3d crates
+      - name: Clippy lightyear
+        run: |-
+          crates=(
+            lightyear
+            lightyear_aeronet
+            lightyear_avian
+            lightyear_connection
+            lightyear_core
+            lightyear_crossbeam
+            lightyear_frame_interpolation
+            lightyear_inputs
+            # lightyear_inputs_leafwing  # needs client/server features
+            # lightyear_inputs_native  # needs client/server features
+            lightyear_interpolation
+            lightyear_link
+            lightyear_macros
+            lightyear_messages
+            lightyear_netcode
+            lightyear_prediction
+            lightyear_replication
+            lightyear_serde
+            lightyear_steam
+            lightyear_sync
+            lightyear_transport
+            lightyear_udp
+            lightyear_utils
+            lightyear_webtransport
+          )
+          for crate in "${crates[@]}"; do
+            cargo clippy -p $crate --no-deps  -- -D warnings -A clippy::wrong_self_convention -A clippy::needless_lifetimes
+          done
 
   docs:
-    name: Doctest
+    name: Doc
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,10 +78,13 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-all-crates: true
           shared-key: lints
-      - name: Test doc
-        run: cargo test --workspace --doc
       - name: Rustdoc
-        run: cargo rustdoc --workspace --features=metrics,interpolation,prediction,replication,leafwing,input_native,avian_2d,avian2d/2d,avian2d/f32,avian2d/parry-f32 -- --document-private-items -D warnings --cfg docsrc
+        env:
+          # needs to be in sync with [package.metadata.docs.rs]
+          RUSTFLAGS: --cfg docsrs_dep
+          RUSTDOCFLAGS: --cfg=docsrs --generate-link-to-definition
+        # TODO: same, cannot use workspace right now
+        run: cargo doc -p lightyear --document-private-items --no-deps -D warnings
 
   test:
     name: Test
@@ -74,6 +110,9 @@ jobs:
 
       - name: Test
         run: cargo tarpaulin -p lightyear_tests --engine llvm --out lcov
+
+      - name: Test doc
+        run: cargo test --workspace --doc
 
       - name: Upload code coverage results
         if: github.actor != 'dependabot[bot]'
