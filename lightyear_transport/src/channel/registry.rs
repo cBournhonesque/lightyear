@@ -1,5 +1,5 @@
-use crate::channel::builder::ChannelSettings;
 use crate::channel::Channel;
+use crate::channel::builder::ChannelSettings;
 use bevy::app::App;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::{Resource, TypePath};
@@ -96,7 +96,7 @@ impl ChannelRegistry {
     pub fn get_net_from_kind(&self, kind: &ChannelKind) -> Option<&ChannelId> {
         self.kind_map.net_id(kind)
     }
-    
+
     pub fn finish(&mut self) -> RegistryHash {
         self.hasher.finish()
     }

@@ -8,8 +8,8 @@ use lightyear::input::input_buffer::InputBuffer;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::Replicate;
-use lightyear_sync::prelude::client::InputDelayConfig;
 use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::client::InputDelayConfig;
 use test_log::test;
 use tracing::info;
 
@@ -19,7 +19,9 @@ use tracing::info;
 fn test_buffer_inputs_with_delay() {
     let mut stepper = ClientServerStepper::host_server();
 
-    stepper.host_client_mut().get_mut::<InputTimeline>()
+    stepper
+        .host_client_mut()
+        .get_mut::<InputTimeline>()
         .unwrap()
         .input_delay_config = InputDelayConfig::fixed_input_delay(1);
 
@@ -63,11 +65,11 @@ fn test_buffer_inputs_with_delay() {
     // (i.e. the InputBuffer is empty for the current tick, and has the button press only with 1 tick of delay)
 
     // TODO: REMOVE DEBUG LOGS
-    let buffer =  stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<InputBuffer<ActionState<LeafwingInput1>>>();
+    let buffer = stepper
+        .server_app
+        .world()
+        .entity(server_entity)
+        .get::<InputBuffer<ActionState<LeafwingInput1>>>();
     info!("InputBuffer: {buffer:?}");
 
     assert!(

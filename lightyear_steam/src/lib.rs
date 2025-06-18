@@ -18,8 +18,7 @@ pub mod client;
 pub mod server;
 
 #[derive(thiserror::Error, Debug)]
-pub enum SteamError {
-}
+pub enum SteamError {}
 
 pub mod prelude {
     pub use crate::SteamError;

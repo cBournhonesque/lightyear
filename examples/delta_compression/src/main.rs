@@ -34,10 +34,7 @@ mod shared;
 fn main() {
     let cli = Cli::default();
 
-    let mut app = cli.build_app(
-        Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
-        true,
-    );
+    let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
 
     app.add_plugins(ProtocolPlugin);
     cli.spawn_connections(&mut app);

@@ -1,8 +1,10 @@
-use aeronet_io::connection::PeerAddr;
 use aeronet_io::Session;
-use aeronet_steam::server::{ListenTarget, SessionRequest, SessionResponse, SteamNetServer, SteamNetServerClient};
-use aeronet_steam::steamworks::ServerManager;
+use aeronet_io::connection::PeerAddr;
 use aeronet_steam::SessionConfig;
+use aeronet_steam::server::{
+    ListenTarget, SessionRequest, SessionResponse, SteamNetServer, SteamNetServerClient,
+};
+use aeronet_steam::steamworks::ServerManager;
 use bevy::prelude::*;
 use lightyear_aeronet::server::ServerAeronetPlugin;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
@@ -51,10 +53,7 @@ pub struct SteamServerIo {
 impl SteamServerPlugin {
     fn link(
         trigger: Trigger<LinkStart>,
-        query: Query<
-            (Entity, &SteamServerIo),
-            (Without<Linking>, Without<Linked>),
-        >,
+        query: Query<(Entity, &SteamServerIo), (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
         if let Ok((entity, io)) = query.get(trigger.target()) {
@@ -90,10 +89,9 @@ impl SteamServerPlugin {
                         RemoteId(PeerId::Steam(steam_conn.steam_id().raw())),
                     ))
                     .id();
-                commands.entity(trigger.target()).insert((
-                    AeronetLinkOf(link_entity),
-                    Name::from("SteamClientOf"),
-                ));
+                commands
+                    .entity(trigger.target())
+                    .insert((AeronetLinkOf(link_entity), Name::from("SteamClientOf")));
             }
         }
     }

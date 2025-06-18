@@ -30,20 +30,19 @@ pub mod server;
 mod shared;
 
 pub mod prelude {
+    pub use crate::Predicted;
+    pub use crate::PredictionMode;
     pub use crate::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
     pub use crate::manager::PredictionManager;
     pub use crate::plugin::PredictionPlugin;
     pub use crate::prespawn::PreSpawned;
     pub use crate::registry::{PredictionAppRegistrationExt, PredictionRegistrationExt};
-    pub use crate::Predicted;
-    pub use crate::PredictionMode;
 
     #[cfg(feature = "server")]
     pub mod server {
         pub use crate::server::ServerPlugin;
     }
 }
-
 
 pub use lightyear_core::prediction::Predicted;
 
@@ -59,8 +58,7 @@ pub(crate) fn predicted_on_add_hook(mut deferred_world: DeferredWorld, hook_cont
     let Some(resource) = deferred_world.get_resource::<PredictionResource>() else {
         return;
     };
-    let Some(mut manager) =
-        deferred_world.get_mut::<PredictionManager>(resource.link_entity)
+    let Some(mut manager) = deferred_world.get_mut::<PredictionManager>(resource.link_entity)
     else {
         return;
     };
@@ -71,31 +69,31 @@ pub(crate) fn predicted_on_add_hook(mut deferred_world: DeferredWorld, hook_cont
         .insert(confirmed, predicted);
 }
 
-pub(crate) fn predicted_on_remove_hook(mut deferred_world: DeferredWorld, hook_context: HookContext) {
-      let predicted = hook_context.entity;
-        let Some(confirmed) = deferred_world
-            .get::<Predicted>(predicted)
-            .unwrap()
-            .confirmed_entity
-        else {
-            return;
-        };
-        let Some(resource) = deferred_world.get_resource::<PredictionResource>() else {
-            return;
-        };
-        let Some(mut manager) =
-            deferred_world.get_mut::<PredictionManager>(resource.link_entity)
-        else {
-            return;
-        };
-        manager
-            .predicted_entity_map
-            .get_mut()
-            .confirmed_to_predicted
-            .remove(&confirmed);
-
+pub(crate) fn predicted_on_remove_hook(
+    mut deferred_world: DeferredWorld,
+    hook_context: HookContext,
+) {
+    let predicted = hook_context.entity;
+    let Some(confirmed) = deferred_world
+        .get::<Predicted>(predicted)
+        .unwrap()
+        .confirmed_entity
+    else {
+        return;
+    };
+    let Some(resource) = deferred_world.get_resource::<PredictionResource>() else {
+        return;
+    };
+    let Some(mut manager) = deferred_world.get_mut::<PredictionManager>(resource.link_entity)
+    else {
+        return;
+    };
+    manager
+        .predicted_entity_map
+        .get_mut()
+        .confirmed_to_predicted
+        .remove(&confirmed);
 }
-
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 /// Defines how a predicted or interpolated component will be replicated from confirmed to predicted/interpolated

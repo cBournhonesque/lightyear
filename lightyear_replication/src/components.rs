@@ -74,7 +74,6 @@ impl<C> Default for ComponentReplicationOverrides<C> {
     }
 }
 
-
 impl<C> ComponentReplicationOverrides<C> {
     /// Get component overrides for a specific sender
     pub(crate) fn get_overrides(&self, sender: Entity) -> Option<&ComponentReplicationOverride> {
@@ -95,8 +94,7 @@ impl<C> ComponentReplicationOverrides<C> {
     }
 
     pub fn disable_for(mut self, sender: Entity) -> Self {
-        let o = self.per_sender.entry(sender)
-            .or_default();
+        let o = self.per_sender.entry(sender).or_default();
         o.disable = true;
         o.enable = false;
         self
@@ -108,15 +106,14 @@ impl<C> ComponentReplicationOverrides<C> {
         o.enable = false;
         self
     }
-    
+
     pub fn enable_for(mut self, sender: Entity) -> Self {
-        let o = self.per_sender.entry(sender)
-            .or_default();
+        let o = self.per_sender.entry(sender).or_default();
         o.enable = true;
         o.disable = false;
         self
     }
-    
+
     pub fn enable_all(mut self, sender: Entity) -> Self {
         let o = self.all_senders.get_or_insert_default();
         o.enable = true;
@@ -125,8 +122,7 @@ impl<C> ComponentReplicationOverrides<C> {
     }
 
     pub fn replicate_once_for(mut self, sender: Entity) -> Self {
-        let o = self.per_sender.entry(sender)
-            .or_default();
+        let o = self.per_sender.entry(sender).or_default();
         o.replicate_once = true;
         o.replicate_always = false;
         self
@@ -593,7 +589,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                     ReplicationMode::SingleClient => {}
                     #[cfg(feature = "server")]
                     ReplicationMode::SingleServer(target) => {
-                        if link_of.is_some() && target.targets(&remote_peer_id) {
+                        if link_of.is_some() && target.targets(remote_peer_id) {
                             info!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
                             sender.add_replicated_entity(entity, true);
                             replicate.senders.insert(sender_entity);
@@ -602,13 +598,13 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                     ReplicationMode::Sender(_) => {}
                     #[cfg(feature = "server")]
                     ReplicationMode::Server(e, target) => {
-                        if target.targets(&remote_peer_id) && link_of.is_some_and(|c| c.server == *e) {
+                        if target.targets(remote_peer_id) && link_of.is_some_and(|c| c.server == *e) {
                             sender.add_replicated_entity(entity, true);
                             replicate.senders.insert(sender_entity);
                         }
                     }
                     ReplicationMode::Target(target) => {
-                        if target.targets(&remote_peer_id) {
+                        if target.targets(remote_peer_id) {
                             sender.add_replicated_entity(entity, true);
                             replicate.senders.insert(sender_entity);
                         }

@@ -1,17 +1,17 @@
 use super::pre_prediction::PrePredictionPlugin;
 use super::predicted_history::apply_confirmed_update;
 use super::resource_history::{
-    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
+    ResourceHistory, handle_tick_event_resource_history, update_resource_history,
 };
 use super::rollback::{
-    prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn, prepare_rollback_resource,
-    remove_prediction_disable, run_rollback, RollbackPlugin,
+    RollbackPlugin, prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn,
+    prepare_rollback_resource, remove_prediction_disable, run_rollback,
 };
 use super::spawn::spawn_predicted_entity;
 use crate::correction::{
     get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback,
 };
-use crate::despawn::{despawn_confirmed, PredictionDisable};
+use crate::despawn::{PredictionDisable, despawn_confirmed};
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
@@ -21,7 +21,9 @@ use crate::predicted_history::{
 };
 use crate::prespawn::{PreSpawned, PreSpawnedPlugin};
 use crate::registry::PredictionRegistry;
-use crate::{predicted_on_add_hook, predicted_on_remove_hook, Predicted, PredictionMode, SyncComponent};
+use crate::{
+    Predicted, PredictionMode, SyncComponent, predicted_on_add_hook, predicted_on_remove_hook,
+};
 use bevy::ecs::component::Mutable;
 use bevy::ecs::entity_disabling::DefaultQueryFilters;
 use bevy::prelude::*;
@@ -255,9 +257,10 @@ impl Plugin for PredictionPlugin {
         app.register_type::<Predicted>()
             .register_type::<PreSpawned>()
             .register_type::<PredictionDisable>();
-        
+
         // HOOKS
-        app.world_mut().register_component_hooks::<Predicted>()
+        app.world_mut()
+            .register_component_hooks::<Predicted>()
             .on_add(predicted_on_add_hook)
             .on_remove(predicted_on_remove_hook);
 

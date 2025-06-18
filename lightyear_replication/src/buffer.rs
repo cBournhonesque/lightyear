@@ -368,7 +368,7 @@ impl Replicate {
                     ReplicationMode::SingleClient => {}
                     #[cfg(feature = "server")]
                     ReplicationMode::SingleServer(target) => {
-                        if client_of.is_some() && target.targets(&remote_peer_id) {
+                        if client_of.is_some() && target.targets(remote_peer_id) {
                             debug!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
                             sender.add_replicated_entity(entity, replicate.authority);
                             replicate.senders.insert(sender_entity);
@@ -377,13 +377,13 @@ impl Replicate {
                     ReplicationMode::Sender(_) => {}
                     #[cfg(feature = "server")]
                     ReplicationMode::Server(e, target) => {
-                        if client_of.is_some_and(|c| c.server == *e) && target.targets(&remote_peer_id) {
+                        if client_of.is_some_and(|c| c.server == *e) && target.targets(remote_peer_id) {
                             sender.add_replicated_entity(entity, replicate.authority);
                             replicate.senders.insert(sender_entity);
                         }
                     }
                     ReplicationMode::Target(target) => {
-                        if target.targets(&remote_peer_id) {
+                        if target.targets(remote_peer_id) {
                             sender.add_replicated_entity(entity, replicate.authority);
                             replicate.senders.insert(sender_entity);
                         }

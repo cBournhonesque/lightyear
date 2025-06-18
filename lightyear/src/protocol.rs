@@ -11,8 +11,9 @@ use lightyear_messages::prelude::{AppTriggerExt, RemoteTrigger, TriggerSender};
 use lightyear_messages::registry::MessageRegistry;
 use lightyear_replication::message::MetadataChannel;
 use lightyear_replication::registry::registry::ComponentRegistry;
-use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelRegistry, ChannelSettings, ReliableSettings};
-
+use lightyear_transport::prelude::{
+    AppChannelExt, ChannelMode, ChannelRegistry, ChannelSettings, ReliableSettings,
+};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone, Copy, Event)]
 pub struct ProtocolCheck {
@@ -26,11 +27,11 @@ pub struct ProtocolCheckPlugin;
 #[derive(thiserror::Error, Debug)]
 pub enum ProtocolCheckError {
     #[error("the message protocol doesn't match")]
-    MessageProtocolMismatch,
+    Message,
     #[error("the component protocol doesn't match")]
-    ComponentProtocolMismatch,
+    Component,
     #[error("the channel protocol doesn't match")]
-    ChannelProtocolMismatch,
+    Channel,
 }
 
 impl ProtocolCheckPlugin {
@@ -42,10 +43,11 @@ impl ProtocolCheckPlugin {
         components: Option<ResMut<ComponentRegistry>>,
         channels: Option<ResMut<ChannelRegistry>>,
     ) {
-        let mut check_message = ProtocolCheck::default();
-        check_message.messages = messages.map(|mut m| m.finish());
-        check_message.components = components.map(|mut c| c.finish());
-        check_message.channels = channels.map(|mut c| c.finish());
+        let check_message = ProtocolCheck {
+            messages: messages.map(|mut m| m.finish()),
+            components: components.map(|mut c| c.finish()),
+            channels: channels.map(|mut c| c.finish()),
+        };
         if let Ok(mut s) = sender.get_mut(trigger.target()) {
             s.trigger::<MetadataChannel>(check_message);
         }
@@ -60,13 +62,15 @@ impl ProtocolCheckPlugin {
         let message = trigger.trigger;
         trace!("Received protocol check from server: {message:?}");
         if message.messages != messages.map(|mut m| m.finish()) {
-            return Err(BevyError::from(ProtocolCheckError::MessageProtocolMismatch))
+            return Err(BevyError::from(ProtocolCheckError::Message));
         }
         if message.components != components.map(|mut c| c.finish()) {
-            return Err(BevyError::from(ProtocolCheckError::ComponentProtocolMismatch))
+            return Err(BevyError::from(
+                ProtocolCheckError::Component,
+            ));
         }
         if message.channels != channels.map(|mut c| c.finish()) {
-            return Err(BevyError::from(ProtocolCheckError::ChannelProtocolMismatch))
+            return Err(BevyError::from(ProtocolCheckError::Channel));
         }
         Ok(())
     }
@@ -74,11 +78,11 @@ impl ProtocolCheckPlugin {
 
 impl Plugin for ProtocolCheckPlugin {
     fn build(&self, app: &mut App) {
-         // TODO: add these observers only on the server/client
+        // TODO: add these observers only on the server/client
         // app.add_observer(Self::send_verify_protocol);
         // app.add_observer(Self::receive_verify_protocol);
 
-         // try to re-add the Channel in case Replication is not enabled
+        // try to re-add the Channel in case Replication is not enabled
         app.add_channel::<MetadataChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             send_frequency: Duration::default(),

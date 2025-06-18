@@ -18,8 +18,8 @@ use lightyear_replication::prelude::{Confirmed, ShouldBePredicted};
 /// - We can stop updating its PredictionHistory, or only update it with empty values (None)
 /// - if the Confirmed entity is also despawned in the next few ticks, then the Predicted entity also gets despawned
 /// - we still do rollback checks using the Confirmed updates against the `PredictedDespawn` entity! If there is a rollback,
-///     we can remove the Disabled marker on all predicted entities, restore all their components to the Confirmed value, and then
-///     re-run the last few-ticks (which might re-Disable the entity)
+///   we can remove the Disabled marker on all predicted entities, restore all their components to the Confirmed value, and then
+///   re-run the last few-ticks (which might re-Disable the entity)
 pub struct PredictionDespawnCommand {
     entity: Entity,
 }

@@ -55,9 +55,9 @@ impl<K: TypeKind> TypeMapper<K> {
 }
 
 #[derive(Clone)]
-pub struct RegistryHasher{
+pub struct RegistryHasher {
     hasher: DefaultHasher,
-    hash: Option<RegistryHash>
+    hash: Option<RegistryHash>,
 }
 
 pub type RegistryHash = u64;
@@ -70,9 +70,9 @@ impl core::fmt::Debug for RegistryHasher {
 
 impl Default for RegistryHasher {
     fn default() -> Self {
-        Self{
-           hasher: FixedHasher.build_hasher(),
-           hash: None,
+        Self {
+            hasher: FixedHasher.build_hasher(),
+            hash: None,
         }
     }
 }
@@ -80,7 +80,10 @@ impl Default for RegistryHasher {
 impl RegistryHasher {
     pub fn hash<T>(&mut self) {
         if self.hash.is_some() {
-            panic!("Tried to register type {:?} after the protocol was finished", core::any::type_name::<T>())
+            panic!(
+                "Tried to register type {:?} after the protocol was finished",
+                core::any::type_name::<T>()
+            )
         }
         core::any::type_name::<T>().hash(&mut self.hasher);
     }
@@ -91,7 +94,7 @@ impl RegistryHasher {
                 self.hash = Some(hash);
                 hash
             }
-            Some(h) => h
+            Some(h) => h,
         }
     }
 }

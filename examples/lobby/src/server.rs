@@ -25,7 +25,7 @@ impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         // the server is using Rooms
         app.add_plugins(RoomPlugin);
-        
+
         app.add_observer(handle_new_client);
         app.add_systems(FixedUpdate, game::movement);
         app.add_observer(game::handle_disconnections);
@@ -37,7 +37,7 @@ impl Plugin for ExampleServerPlugin {
         //     )
         //         .run_if(is_host_server),
         // );
-        
+
         if self.is_dedicated_server {
             // start the dedicated server immediately (but not host servers)
             app.add_systems(Startup, start_dedicated_server);
@@ -58,10 +58,7 @@ impl Plugin for ExampleServerPlugin {
 fn start_dedicated_server(mut commands: Commands) {
     let mut lobbies = Lobbies::default();
     // add one empty lobby
-    let room = commands.spawn((
-        Room::default(),
-        Name::from("Room"))
-    ).id();
+    let room = commands.spawn((Room::default(), Name::from("Room"))).id();
     lobbies.lobbies.push(Lobby::new(room));
     commands.spawn((
         Name::from("Lobbies"),
@@ -190,7 +187,6 @@ mod lobby {
                 }
             })
         }
-        
     }
 
     /// A client has exited a lobby:

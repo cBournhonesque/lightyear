@@ -59,7 +59,10 @@ impl Input {
             timeline.input_delay_ticks = timeline
                 .input_delay_config
                 .input_delay_ticks(rtt, tick_duration.0);
-            trace!("Recomputing input delay on sync event! Input delay ticks: {}", timeline.input_delay_ticks);
+            trace!(
+                "Recomputing input delay on sync event! Input delay ticks: {}",
+                timeline.input_delay_ticks
+            );
         }
     }
 
@@ -75,7 +78,10 @@ impl Input {
                 .input_delay_config
                 .input_delay_ticks(rtt, tick_duration.0);
 
-            trace!("Recomputing input delay on config update! Input delay ticks: {}. Config: {:?}", timeline.input_delay_ticks, timeline.input_delay_config);
+            trace!(
+                "Recomputing input delay on config update! Input delay ticks: {}. Config: {:?}",
+                timeline.input_delay_ticks, timeline.input_delay_config
+            );
         });
     }
 }

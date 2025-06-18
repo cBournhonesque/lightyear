@@ -6,8 +6,8 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear_core::id::{PeerId, RemoteId};
-use lightyear_link::prelude::{Server, Unlinked};
 use lightyear_link::LinkStart;
+use lightyear_link::prelude::{Server, Unlinked};
 use tracing::trace;
 
 /// Errors related to the client connection
@@ -38,7 +38,6 @@ pub enum ClientState {
 pub struct Client {
     pub state: ClientState,
 }
-
 
 /// Trigger to connect the client
 #[derive(Event)]

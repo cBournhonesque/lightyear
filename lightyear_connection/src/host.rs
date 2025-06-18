@@ -61,12 +61,10 @@ impl HostPlugin {
                     LocalId(PeerId::Local(0)),
                     RemoteId(PeerId::Local(0)),
                     ClientOf,
-                   // NOTE: it's very important to insert Connected and HostClient at the same time
-                   //  to avoid race conditions between observers that depend on Connected, and those
+                    // NOTE: it's very important to insert Connected and HostClient at the same time
+                    //  to avoid race conditions between observers that depend on Connected, and those
                     // that depend on HostClient
-                   HostClient {
-                      buffer: Vec::new(),
-                   },
+                    HostClient { buffer: Vec::new() },
                 ));
                 commands.entity(link_of.server).insert(HostServer {
                     client: trigger.target(),
@@ -85,7 +83,8 @@ impl HostPlugin {
         if let Ok(link_of) = query.get(trigger.target()) {
             if server_query.get(link_of.server).is_ok() {
                 info!("Disconnected host-client");
-                commands.entity(trigger.target())
+                commands
+                    .entity(trigger.target())
                     .remove::<HostClient>()
                     .insert(Disconnected {
                         reason: Some("Client trigger".to_string()),

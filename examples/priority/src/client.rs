@@ -15,8 +15,6 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-
-
 /// The client input only gets applied to predicted entities that we own
 fn player_movement(mut query: Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>) {
     for (position, action_state) in query.iter_mut() {

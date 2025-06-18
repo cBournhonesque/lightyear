@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 
-
 /// Component added to client-side entities that are predicted.
 ///
 /// Prediction allows the client to simulate the game state locally without waiting for server confirmation,

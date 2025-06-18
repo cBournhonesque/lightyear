@@ -9,15 +9,15 @@ use std::str::FromStr;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 
+use bevy::DefaultPlugins;
 use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::state::app::StatesPlugin;
-use bevy::DefaultPlugins;
 use clap::{Parser, Subcommand};
 
-use crate::client::{connect, ClientTransports, ExampleClient};
+use crate::client::{ClientTransports, ExampleClient, connect};
 #[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
-use crate::server::{start, ExampleServer, ServerTransports, WebTransportCertificateSettings};
+use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
 #[cfg(all(feature = "gui", feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
 use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
@@ -101,8 +101,7 @@ impl Cli {
                 let client = app
                     .world_mut()
                     .spawn(ExampleClient {
-                        client_id: client_id
-                            .expect("You need to specify a client_id via `-c ID`"),
+                        client_id: client_id.expect("You need to specify a client_id via `-c ID`"),
                         client_port: CLIENT_PORT,
                         server_addr: SERVER_ADDR,
                         conditioner: Some(RecvLinkConditioner::new(
@@ -114,7 +113,7 @@ impl Cli {
                     })
                     .id();
                 app.add_systems(Startup, connect);
-            },
+            }
             #[cfg(feature = "server")]
             Some(Mode::Server) => {
                 let server = app
@@ -163,14 +162,13 @@ impl Cli {
                     .spawn((
                         Client::default(),
                         Name::new("HostClient"),
-                        LinkOf {
-                            server,
-                        }
-                    )).id();
+                        LinkOf { server },
+                    ))
+                    .id();
                 // NOTE: it's ugly but i believe that you need to start the server before
                 //  connecting the host-client for things to work properly
                 app.add_systems(Startup, (start, connect).chain());
-            },
+            }
             _ => {}
         }
     }

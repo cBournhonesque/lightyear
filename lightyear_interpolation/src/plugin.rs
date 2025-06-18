@@ -7,7 +7,10 @@ use crate::prelude::InterpolationRegistrationExt;
 use crate::registry::InterpolationRegistry;
 use crate::spawn::spawn_interpolated_entity;
 use crate::timeline::TimelinePlugin;
-use crate::{interpolated_on_add_hook, interpolated_on_remove_hook, Interpolated, InterpolationMode, SyncComponent};
+use crate::{
+    Interpolated, InterpolationMode, SyncComponent, interpolated_on_add_hook,
+    interpolated_on_remove_hook,
+};
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_connection::host::HostClient;
@@ -195,7 +198,8 @@ impl Plugin for InterpolationPlugin {
 
         // HOOKS
         // TODO: add tests for these!
-        app.world_mut().register_component_hooks::<Interpolated>()
+        app.world_mut()
+            .register_component_hooks::<Interpolated>()
             .on_add(interpolated_on_add_hook)
             .on_remove(interpolated_on_remove_hook);
 

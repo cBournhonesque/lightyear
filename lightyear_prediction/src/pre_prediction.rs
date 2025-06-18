@@ -1,9 +1,9 @@
 //! Module to handle pre-prediction logic (entities that are created on the client first),
 //! then the ownership gets transferred to the server.
 
+use crate::Predicted;
 use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::{PredictionFilter, PredictionSet};
-use crate::Predicted;
 use bevy::prelude::*;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
@@ -185,7 +185,7 @@ impl PrePredictionPlugin {
 mod tests {
     use super::*;
     use crate::prelude::server::AuthorityPeer;
-    use crate::prelude::{client, ClientId};
+    use crate::prelude::{ClientId, client};
     use crate::tests::host_server_stepper::HostServerStepper;
     use crate::tests::protocol::{ComponentClientToServer, PredictionModeFull};
     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};

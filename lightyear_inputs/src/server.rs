@@ -1,9 +1,9 @@
 //! Handle input messages received from the clients
 
+use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
-use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear_connection::client::Connected;
@@ -114,9 +114,9 @@ fn receive_input_message<S: ActionStateSequence>(
             &mut MessageReceiver<InputMessage<S>>,
             &RemoteId,
         ),
-        // We also receive inputs from the HostClient, in case we want the HostClient's inputs to be 
+        // We also receive inputs from the HostClient, in case we want the HostClient's inputs to be
         // rebroadcast to other clients (so that they can do prediction of the HostClient's entity)
-        With<Connected>
+        With<Connected>,
     >,
     mut query: Query<Option<&mut InputBuffer<S::State>>>,
     mut commands: Commands,

@@ -48,7 +48,10 @@ impl Plugin for ExampleClientPlugin {
             )
                 .run_if(in_state(AppState::Game)),
         );
-        app.add_systems(EguiContextPass, (lobby::lobby_ui, lobby::receive_start_game_message));
+        app.add_systems(
+            EguiContextPass,
+            (lobby::lobby_ui, lobby::receive_start_game_message),
+        );
         app.add_observer(on_disconnect);
     }
 }
@@ -84,7 +87,9 @@ fn on_disconnect(
         token_expire_secs: -1,
         ..default()
     };
-    commands.entity(trigger.target()).insert(NetcodeClient::new(auth, netcode_config)?);
+    commands
+        .entity(trigger.target())
+        .insert(NetcodeClient::new(auth, netcode_config)?);
     Ok(())
 }
 
@@ -216,11 +221,18 @@ mod lobby {
         mut contexts: EguiContexts,
         mut lobby_table: ResMut<LobbyTable>,
         lobbies: Option<Single<&Lobbies>>,
-        message_sender: Single<(Entity, &Client, &mut MessageSender<StartGame>, &mut MessageSender<JoinLobby>, &mut MessageSender<ExitLobby>)>,
+        message_sender: Single<(
+            Entity,
+            &Client,
+            &mut MessageSender<StartGame>,
+            &mut MessageSender<JoinLobby>,
+            &mut MessageSender<ExitLobby>,
+        )>,
         app_state: Res<State<AppState>>,
         mut next_app_state: ResMut<NextState<AppState>>,
     ) {
-        let (client_entity, client, mut send_start_game, mut send_join_lobby, mut exit_lobby) = message_sender.into_inner();
+        let (client_entity, client, mut send_start_game, mut send_join_lobby, mut exit_lobby) =
+            message_sender.into_inner();
         let window_name = match app_state.get() {
             AppState::Lobby { joined_lobby } => {
                 joined_lobby.map_or("Lobby List".to_string(), |i| format!("Lobby {i}"))
@@ -433,8 +445,9 @@ mod lobby {
                         token_expire_secs: -1,
                         ..default()
                     };
-                    let netcode_client =
-                    commands.entity(local_client).insert(NetcodeClient::new(auth, netcode_config)?);
+                    let netcode_client = commands
+                        .entity(local_client)
+                        .insert(NetcodeClient::new(auth, netcode_config)?);
                 }
                 commands.trigger(Connect);
             }

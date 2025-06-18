@@ -43,11 +43,11 @@
 //!   That system must run in the [`InputSet::BufferClientInputs`] system set, in the `FixedPreUpdate` stage.
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
 //!   will read the inputs using the [`InputBuffer`] component.
+use crate::InputChannel;
 use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
-use crate::InputChannel;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear_connection::host::HostClient;
@@ -58,14 +58,14 @@ use lightyear_core::timeline::LocalTimeline;
 use lightyear_core::timeline::SyncEvent;
 use lightyear_interpolation::plugin::InterpolationDelay;
 use lightyear_interpolation::prelude::InterpolationTimeline;
+use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
-use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;
 use lightyear_replication::components::{Confirmed, PrePredicted};
 use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::client::IsSynced;
 use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::client::IsSynced;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::ChannelRegistry;
 use tracing::trace;
@@ -353,7 +353,12 @@ fn prepare_input_message<S: ActionStateSequence>(
     tick_duration: Res<TickDuration>,
     input_config: Res<InputConfig<S::Action>>,
     sender: Single<
-        (&LocalTimeline, &InputTimeline, &MessageManager, Has<HostClient>),
+        (
+            &LocalTimeline,
+            &InputTimeline,
+            &MessageManager,
+            Has<HostClient>,
+        ),
         // the host-client doesn't need to send input messages since the ActionState is already on the entity
         // unless we want to rebroadcast the HostClient inputs to other clients (in which
         // case we prepare the input-message, which will be send_local to the server)
@@ -387,7 +392,9 @@ fn prepare_input_message<S: ActionStateSequence>(
     //  this system what the latest acked input tick is?
 
     let input_send_interval = channel_registry
-        .settings(ChannelKind::of::<InputChannel>()).unwrap().send_frequency;
+        .settings(ChannelKind::of::<InputChannel>())
+        .unwrap()
+        .send_frequency;
     // we send redundant inputs, so that if a packet is lost, we can still recover
     // A redundancy of 2 means that we can recover from 1 lost packet
     let mut num_tick: u16 = ((input_send_interval.as_nanos() / tick_duration.as_nanos()) + 1)
@@ -564,7 +571,10 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 fn send_input_messages<S: ActionStateSequence>(
     input_config: Res<InputConfig<S::Action>>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
-    sender: Single<(&mut MessageSender<InputMessage<S>>, Has<HostClient>), With<IsSynced<InputTimeline>>>,
+    sender: Single<
+        (&mut MessageSender<InputMessage<S>>, Has<HostClient>),
+        With<IsSynced<InputTimeline>>,
+    >,
     #[cfg(feature = "interpolation")] interpolation_query: Single<
         (&InputTimeline, &InterpolationTimeline),
         (

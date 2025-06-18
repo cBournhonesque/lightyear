@@ -1,11 +1,11 @@
 use crate::protocol::ProtocolPlugin;
 #[cfg(not(feature = "std"))]
 use alloc::vec;
+use bevy::MinimalPlugins;
 use bevy::input::InputPlugin;
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
-use bevy::MinimalPlugins;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
 use lightyear::prelude::{client::*, server::*, *};
@@ -299,8 +299,7 @@ impl ClientServerStepper {
                 .trigger_targets(Connect, self.client_entities[i]);
         }
         if let Some(host) = self.host_client_entity {
-            self.server_app.world_mut()
-                .trigger_targets(Connect, host);
+            self.server_app.world_mut().trigger_targets(Connect, host);
         }
         self.server_app
             .world_mut()

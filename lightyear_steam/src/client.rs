@@ -1,7 +1,10 @@
 use aeronet_io::connection::PeerAddr;
 use aeronet_steam::client::SteamNetClient;
 use aeronet_steam::steamworks::ClientManager;
-use aeronet_steam::{client::{ConnectTarget, SteamNetClientPlugin}, SessionConfig, };
+use aeronet_steam::{
+    SessionConfig,
+    client::{ConnectTarget, SteamNetClientPlugin},
+};
 use bevy::prelude::*;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
 use lightyear_core::id::{PeerId, RemoteId};
@@ -33,10 +36,7 @@ pub struct SteamClientIo {
 impl SteamClientPlugin {
     fn link(
         trigger: Trigger<LinkStart>,
-        query: Query<
-            (Entity, &SteamClientIo),
-            (Without<Linking>, Without<Linked>),
-        >,
+        query: Query<(Entity, &SteamClientIo), (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
         if let Ok((entity, client)) = query.get(trigger.target()) {

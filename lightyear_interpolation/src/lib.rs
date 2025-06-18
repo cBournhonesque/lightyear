@@ -37,7 +37,6 @@ pub mod prelude {
 
 pub use lightyear_core::interpolation::Interpolated;
 
-
 pub(crate) fn interpolated_on_add_hook(mut deferred_world: DeferredWorld, context: HookContext) {
     let interpolated = context.entity;
     let confirmed = deferred_world
@@ -52,9 +51,7 @@ pub(crate) fn interpolated_on_add_hook(mut deferred_world: DeferredWorld, contex
         );
         return;
     };
-    if let Some(mut manager) =
-        deferred_world.get_mut::<InterpolationManager>(replicated.receiver)
-    {
+    if let Some(mut manager) = deferred_world.get_mut::<InterpolationManager>(replicated.receiver) {
         manager
             .interpolated_entity_map
             .get_mut()
@@ -76,9 +73,7 @@ pub(crate) fn interpolated_on_remove_hook(mut deferred_world: DeferredWorld, con
         );
         return;
     };
-    if let Some(mut manager) =
-        deferred_world.get_mut::<InterpolationManager>(replicated.receiver)
-    {
+    if let Some(mut manager) = deferred_world.get_mut::<InterpolationManager>(replicated.receiver) {
         manager
             .interpolated_entity_map
             .get_mut()

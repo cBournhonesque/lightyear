@@ -184,8 +184,7 @@ pub(crate) fn interpolate(
     )>,
 ) {
     'outer: for (tail_entity, parent, tail_length, mut tail, tail_status) in tail_query.iter_mut() {
-        let Ok((mut parent_position, parent_status)) = parent_query
-            .get_mut(parent.0) else {
+        let Ok((mut parent_position, parent_status)) = parent_query.get_mut(parent.0) else {
             // TODO: could this be due that we don't sync at the same time?
             error!("Tail entity {tail_entity:?} has no parent entity!");
             continue;

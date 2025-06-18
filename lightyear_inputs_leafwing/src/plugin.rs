@@ -22,7 +22,6 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "client")]
         {
-            
             // TODO: this means that for host-server mode InputPlugin must be added before the ProtocolPlugin!
 
             // we add this check so that if we only have the ServerPlugins, but the client feature is enabled,
@@ -33,9 +32,13 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
                 app.add_plugins(lightyear_inputs::client::ClientInputPlugin::<
                     LeafwingSequence<A>,
                 >::new(self.config));
-                
+
                 // see: https://github.com/cBournhonesque/lightyear/pull/820
-                app.configure_sets(FixedPreUpdate, lightyear_inputs::client::InputSet::RestoreInputs.before(InputManagerSystem::Tick));
+                app.configure_sets(
+                    FixedPreUpdate,
+                    lightyear_inputs::client::InputSet::RestoreInputs
+                        .before(InputManagerSystem::Tick),
+                );
             }
         }
         #[cfg(feature = "server")]

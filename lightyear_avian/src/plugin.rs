@@ -13,8 +13,8 @@ use crate::sync;
 use bevy::prelude::TransformSystem::TransformPropagate;
 use bevy::prelude::*;
 use lightyear_frame_interpolation::FrameInterpolationSet;
-use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_interpolation::InterpolationMode;
+use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::plugin::PredictionSet;
 use lightyear_replication::prelude::TransformLinearInterpolation;
 

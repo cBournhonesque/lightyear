@@ -28,13 +28,7 @@ impl Plugin for ExampleClientPlugin {
             buffer_input.in_set(input::InputSystemSet::BufferInputs),
         );
         app.add_systems(FixedUpdate, player_movement);
-        app.add_systems(
-            Update,
-            (
-                handle_predicted_spawn,
-                handle_interpolated_spawn,
-            ),
-        );
+        app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
     }
 }
 

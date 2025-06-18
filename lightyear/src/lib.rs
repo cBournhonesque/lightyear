@@ -7,9 +7,9 @@ mod client;
 mod server;
 mod shared;
 
+mod protocol;
 #[cfg(target_family = "wasm")]
 mod web;
-mod protocol;
 
 pub mod core {
     pub use lightyear_core::*;

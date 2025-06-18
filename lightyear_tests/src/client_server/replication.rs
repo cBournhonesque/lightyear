@@ -2,7 +2,7 @@
 
 use crate::protocol::{CompA, CompDisabled, CompReplicateOnce};
 use crate::stepper::ClientServerStepper;
-use bevy::prelude::{default, Name, ResMut, Resource, Single};
+use bevy::prelude::{Name, ResMut, Resource, Single, default};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
@@ -857,21 +857,48 @@ fn test_reinsert_replicate() {
         .get_local(client_entity)
         .expect("entity is not present in entity map");
 
-    assert_eq!(stepper.client_app().world().get::<Replicate>(client_entity).unwrap().senders().collect::<Vec<_>>(), vec![client_sender]);
-    let replicated_entities = &stepper.client_app().world().get::<ReplicationSender>(client_sender).unwrap().replicated_entities;
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Replicate>(client_entity)
+            .unwrap()
+            .senders()
+            .collect::<Vec<_>>(),
+        vec![client_sender]
+    );
+    let replicated_entities = &stepper
+        .client_app()
+        .world()
+        .get::<ReplicationSender>(client_sender)
+        .unwrap()
+        .replicated_entities;
     assert_eq!(replicated_entities.len(), 1);
     assert!(replicated_entities.contains_key(&client_entity));
-    
+
     stepper
         .client_app()
         .world_mut()
         .entity_mut(client_entity)
         .insert(Replicate::to_server());
     stepper.frame_step(1);
-    
-    assert_eq!(stepper.client_app().world().get::<Replicate>(client_entity).unwrap().senders().collect::<Vec<_>>(), vec![client_sender]);
-    let replicated_entities = &stepper.client_app().world().get::<ReplicationSender>(client_sender).unwrap().replicated_entities;
+
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Replicate>(client_entity)
+            .unwrap()
+            .senders()
+            .collect::<Vec<_>>(),
+        vec![client_sender]
+    );
+    let replicated_entities = &stepper
+        .client_app()
+        .world()
+        .get::<ReplicationSender>(client_sender)
+        .unwrap()
+        .replicated_entities;
     assert_eq!(replicated_entities.len(), 1);
     assert!(replicated_entities.contains_key(&client_entity));
-
 }

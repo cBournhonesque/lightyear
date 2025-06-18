@@ -29,7 +29,6 @@ fn main() {
 
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
 
-
     app.add_plugins(SharedPlugin);
     cli.spawn_connections(&mut app);
 
@@ -71,14 +70,16 @@ fn main() {
 
 #[cfg(feature = "client")]
 fn add_input_delay(app: &mut App) {
-    let client = app.world_mut().query_filtered::<Entity, With<Client>>().single(app.world_mut()).unwrap();
+    let client = app
+        .world_mut()
+        .query_filtered::<Entity, With<Client>>()
+        .single(app.world_mut())
+        .unwrap();
 
     // set some input-delay since we are predicting all entities
     app.world_mut()
         .entity_mut(client)
-        .insert(
-            InputTimeline(Timeline::from(
-                Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
-            )),
-        );
+        .insert(InputTimeline(Timeline::from(
+            Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
+        )));
 }

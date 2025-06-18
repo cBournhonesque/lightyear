@@ -203,8 +203,8 @@ impl ComponentRegistry {
                 ContextDeserializeFns::new(serialize_fns.deserialize),
             ),
         );
-    } 
-    
+    }
+
     pub fn finish(&mut self) -> RegistryHash {
         self.hasher.finish()
     }

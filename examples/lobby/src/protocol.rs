@@ -198,6 +198,6 @@ impl Plugin for ProtocolPlugin {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             ..default()
         })
-            .add_direction(NetworkDirection::Bidirectional);
+        .add_direction(NetworkDirection::Bidirectional);
     }
 }

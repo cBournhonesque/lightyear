@@ -1,5 +1,5 @@
-use crate::manager::InterpolationManager;
 use crate::Interpolated;
+use crate::manager::InterpolationManager;
 use bevy::prelude::*;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::components::ShouldBeInterpolated;

@@ -35,14 +35,16 @@ pub(crate) fn spawn_local_cursor(
     if let Ok(client) = client.get(trigger.target()) {
         let client_id = client.0;
         // spawn a local cursor which will be replicated to the server
-        let id = commands.spawn((
-            PlayerId(client_id),
-            CursorPosition(Vec2::ZERO),
-            PlayerColor(color_from_id(client_id)),
-            Replicate::to_server(),
-            Name::from("Cursor"),
-            // TODO: maybe add Interpolation so that the server interpolates the cursor updates?
-        )).id();
+        let id = commands
+            .spawn((
+                PlayerId(client_id),
+                CursorPosition(Vec2::ZERO),
+                PlayerColor(color_from_id(client_id)),
+                Replicate::to_server(),
+                Name::from("Cursor"),
+                // TODO: maybe add Interpolation so that the server interpolates the cursor updates?
+            ))
+            .id();
         info!("Spawning local cursor {id:?} for client: {}", client_id);
     }
 }

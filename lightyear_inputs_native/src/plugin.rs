@@ -6,8 +6,8 @@ use bevy::prelude::FromReflect;
 use bevy::reflect::Reflectable;
 use core::fmt::Debug;
 use lightyear_inputs::config::InputConfig;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 pub struct InputPlugin<A> {
     pub config: InputConfig<A>,

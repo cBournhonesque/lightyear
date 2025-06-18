@@ -14,18 +14,16 @@ impl Plugin for SharedPlugins {
         if app.is_plugin_added::<CorePlugins>() {
             return;
         }
-        app
-            .add_plugins(CorePlugins {
-                tick_duration: self.tick_duration,
-            })
-            .add_plugins(lightyear_transport::plugin::TransportPlugin)
-            .add_plugins(lightyear_messages::plugin::MessagePlugin)
-            .add_plugins(lightyear_connection::ConnectionPlugin)
-            .add_plugins(crate::protocol::ProtocolCheckPlugin);
+        app.add_plugins(CorePlugins {
+            tick_duration: self.tick_duration,
+        })
+        .add_plugins(lightyear_transport::plugin::TransportPlugin)
+        .add_plugins(lightyear_messages::plugin::MessagePlugin)
+        .add_plugins(lightyear_connection::ConnectionPlugin)
+        .add_plugins(crate::protocol::ProtocolCheckPlugin);
 
         #[cfg(feature = "replication")]
-        app
-            .add_plugins(lightyear_replication::prelude::ReplicationSendPlugin)
+        app.add_plugins(lightyear_replication::prelude::ReplicationSendPlugin)
             .add_plugins(lightyear_replication::prelude::NetworkVisibilityPlugin)
             // TODO: this is dangerous because every registered message/component/etc.
             //  needs to be registered at the same time on client/server to guarantee that
