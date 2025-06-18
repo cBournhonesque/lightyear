@@ -55,7 +55,7 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 pub(crate) fn handle_connected(
     trigger: Trigger<OnAdd, Connected>,
     room: Single<Entity, With<Room>>,
-    mut query: Query<&RemoteId, With<ClientOf>>,
+    query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
 ) {
     let Ok(client_id) = query.get(trigger.target()) else {

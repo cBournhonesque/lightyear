@@ -8,6 +8,7 @@
 use bevy::prelude::*;
 
 use lightyear::client::input::InputSystemSet;
+use lightyear::input::native::prelude::{ActionState, InputMarker};
 use lightyear::inputs::native::{ActionState, InputMarker};
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -30,10 +31,6 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             Update,
             (
-                receive_message1,
-                receive_entity_spawn,
-                receive_entity_despawn,
-                receive_player_id_insert,
                 handle_predicted_spawn,
                 handle_interpolated_spawn,
             ),
@@ -49,7 +46,7 @@ impl Plugin for ExampleClientPlugin {
 /// `InputPlugin`, which contains more features.
 pub(crate) fn buffer_input(
     // Use new ActionState and InputManager paths
-    mut query: Query<&mut ActionState<Inputs>, With<InputManager<Inputs>>>,
+    mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
     query.iter_mut().for_each(|mut action_state| {

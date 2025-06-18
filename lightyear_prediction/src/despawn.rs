@@ -1,11 +1,10 @@
-use crate::Predicted;
 use crate::manager::PredictionResource;
 use crate::prespawn::PreSpawned;
+use crate::Predicted;
 use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
 use lightyear_connection::host::HostClient;
 use lightyear_replication::prelude::{Confirmed, ShouldBePredicted};
-use tracing::{error, trace};
 
 /// This command must be used to despawn Predicted entities.
 /// The reason is that we might want to not completely despawn the entity in case it gets 'restored' during a rollback.
@@ -48,7 +47,7 @@ impl Command for PredictionDespawnCommand {
                 // if this is a predicted entity, do not despawn the entity immediately but instead
                 // add a PredictionDisable component to it to mark it as disabled until the confirmed
                 // entity catches up to it
-                trace!("inserting prediction disable marker");
+                info!("inserting prediction disable marker");
                 entity.insert(PredictionDisable);
             } else if let Some(confirmed) = entity.get::<Confirmed>() {
                 // TODO: actually we should never despawn directly on the client a Confirmed entity

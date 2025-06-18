@@ -1,10 +1,7 @@
 # HOST-SERVER
 
-- check if input-delay is correctly enabled on host-server
-- check host-server rebroadcast inputs system
-- check if clean_buffers should run on client
-
-
+- it sounds like the host-server inputs are not rebroadcasted correctly to other clients?
+  there are big corrections in avian_physics.
 
 https://excalidraw.com/#room=6556b82e2cc953b853cd,eIOMjgsfWiA7iaFzjk1blA
 

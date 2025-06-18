@@ -60,6 +60,7 @@ fn add_visual_interpolation_components(
 }
 
 fn init(mut commands: Commands) {
+    
     commands.spawn(Camera2d);
 }
 

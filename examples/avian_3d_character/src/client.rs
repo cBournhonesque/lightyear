@@ -16,13 +16,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            FixedUpdate,
-            // In host-server mode, the server portion is already applying the
-            // character actions and so we don't want to apply the character
-            // actions twice.
-            handle_character_actions, // .run_if(not(is_host_server)),
-        );
+        app.add_systems(FixedUpdate, handle_character_actions);
         app.add_systems(
             Update,
             (handle_new_floor, handle_new_block, handle_new_character),
@@ -43,7 +37,11 @@ fn handle_character_actions(
         ),
         With<Predicted>,
     >,
-    timeline: Single<&LocalTimeline, With<Client>>,
+    // In host-server mode, the server portion is already applying the
+    // character actions and so we don't want to apply the character
+    // actions twice. This excludes host-server mode since there are multiple timelines
+    // when running in host-server mode.
+    timeline: Single<&LocalTimeline>,
 ) {
     let tick = timeline.tick();
     for (action_state, input_buffer, mut character) in &mut query {

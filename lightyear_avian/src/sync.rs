@@ -5,7 +5,7 @@ use avian2d::{
 };
 #[cfg(feature = "3d")]
 use avian3d::{
-    math::{AsF32, Quaternion},
+    math::AsF32,
     position::{Position, Rotation},
 };
 use bevy::prelude::*;

@@ -78,7 +78,7 @@ fn movement(
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(
-    trigger: Trigger<OnAdd, PlayerId>,
+    trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
     mut commands: Commands,
 ) {
@@ -176,16 +176,20 @@ pub(crate) fn debug_interpolate(
 pub(crate) fn interpolate(
     mut parent_query: Query<(&mut PlayerPosition, &InterpolateStatus<PlayerPosition>)>,
     mut tail_query: Query<(
+        Entity,
         &PlayerParent,
         &TailLength,
         &mut TailPoints,
         &InterpolateStatus<TailPoints>,
     )>,
 ) {
-    'outer: for (parent, tail_length, mut tail, tail_status) in tail_query.iter_mut() {
-        let (mut parent_position, parent_status) = parent_query
-            .get_mut(parent.0)
-            .expect("Tail entity has no parent entity!");
+    'outer: for (tail_entity, parent, tail_length, mut tail, tail_status) in tail_query.iter_mut() {
+        let Ok((mut parent_position, parent_status)) = parent_query
+            .get_mut(parent.0) else {
+            // TODO: could this be due that we don't sync at the same time?
+            error!("Tail entity {tail_entity:?} has no parent entity!");
+            continue;
+        };
         debug!(
             ?parent_position,
             ?tail,

@@ -38,10 +38,13 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 // Note: we only apply logic for the Predicted entity on the client (Interpolated is updated
 // during interpolation, and Confirmed is just replicated from Server)
 pub(crate) fn shared_tail_behaviour(
-    player_position: Query<Ref<PlayerPosition>, (Without<Interpolated>, Without<Confirmed>)>,
+    player_position: Query<
+        Ref<PlayerPosition>,
+        Or<(With<Predicted>, With<Replicate>)>
+    >,
     mut tails: Query<
         (&mut TailPoints, &PlayerParent, &TailLength),
-        (Without<Interpolated>, Without<Confirmed>),
+        Or<(With<Predicted>, With<ReplicateLike>)>
     >,
 ) {
     for (mut points, parent, length) in tails.iter_mut() {

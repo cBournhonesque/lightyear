@@ -100,8 +100,8 @@ fn main() {
                     transport: ServerTransports::WebTransport {
                         local_port: SERVER_PORT,
                         certificate: WebTransportCertificateSettings::FromFile {
-                            cert: "../certificates/cert.pem".to_string(),
-                            key: "../certificates/key.pem".to_string(),
+                            cert: "../../certificates/cert.pem".to_string(),
+                            key: "../../certificates/key.pem".to_string(),
                         },
                     },
                     shared: SHARED_SETTINGS,

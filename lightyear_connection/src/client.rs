@@ -6,8 +6,8 @@ use bevy::ecs::world::DeferredWorld;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear_core::id::{PeerId, RemoteId};
-use lightyear_link::LinkStart;
 use lightyear_link::prelude::{Server, Unlinked};
+use lightyear_link::LinkStart;
 use tracing::trace;
 
 /// Errors related to the client connection
@@ -24,7 +24,7 @@ pub enum ConnectionError {
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum ClientState {
     /// Client is connected to the server
-    Connected(PeerId),
+    Connected,
     /// Client is connecting to the server
     Connecting,
     Disconnecting,
@@ -39,14 +39,6 @@ pub struct Client {
     pub state: ClientState,
 }
 
-impl Client {
-    pub fn peer_id(&self) -> Option<PeerId> {
-        match self.state {
-            ClientState::Connected(peer_id) => Some(peer_id),
-            _ => None,
-        }
-    }
-}
 
 /// Trigger to connect the client
 #[derive(Event)]
@@ -71,7 +63,7 @@ impl Connected {
             .expect("A Connected entity must always have a RemoteId component")
             .0;
         if let Some(mut client) = world.get_mut::<Client>(context.entity) {
-            client.state = ClientState::Connected(peer_id);
+            client.state = ClientState::Connected;
         };
         world
             .commands()
