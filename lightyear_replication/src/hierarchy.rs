@@ -49,7 +49,7 @@ pub type ChildOfSync = RelationshipSync<ChildOf>;
 /// Updates entity's `R` component on change.
 /// Removes the parent if `None`.
 #[derive(Component, Reflect, Serialize, Deserialize)]
-#[reflect(Component)]
+#[reflect(Component, MapEntities)]
 pub struct RelationshipSync<R: Relationship> {
     pub entity: Option<Entity>,
     #[reflect(ignore)]
