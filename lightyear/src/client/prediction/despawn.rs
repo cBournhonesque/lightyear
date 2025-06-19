@@ -86,7 +86,7 @@ pub(crate) fn despawn_confirmed(
 ) -> Result {
     if let Some(predicted) = query.get(trigger.target())?.predicted {
         if let Ok(mut entity_mut) = commands.get_entity(predicted) {
-            entity_mut.despawn();
+            entity_mut.try_despawn();
         }
     }
     Ok(())
