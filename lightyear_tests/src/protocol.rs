@@ -6,6 +6,7 @@ use alloc::{
 };
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
+use bevy_enhanced_input::prelude::{InputAction, InputContext};
 use leafwing_input_manager::Actionlike;
 use lightyear::prelude::input::*;
 use lightyear::prelude::*;
@@ -25,17 +26,6 @@ pub struct StringTrigger(pub String);
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect, Event, MapEntities)]
 pub struct EntityTrigger(#[entities] pub Entity);
-
-// Protocol
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
-pub enum LeafwingInput1 {
-    Jump,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
-pub enum LeafwingInput2 {
-    Crouch,
-}
 
 // Channels
 #[derive(Reflect)]
@@ -80,13 +70,33 @@ impl Ease for CompCorr {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompNotNetworked(pub f32);
 
-// Inputs
+// Native Inputs
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
 pub struct NativeInput(pub i16);
 
 impl MapEntities for NativeInput {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
 }
+
+// Leafwing Inputs
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
+pub enum LeafwingInput1 {
+    Jump,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
+pub enum LeafwingInput2 {
+    Crouch,
+}
+
+// BEI Inputs
+#[derive(InputContext)]
+#[input_context(schedule = FixedPreUpdate)]
+pub struct BEIContext;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, InputAction)]
+#[input_action(output = bool)]
+pub struct BEIAction1;
 
 // Protocol
 pub(crate) struct ProtocolPlugin;
@@ -157,5 +167,12 @@ impl Plugin for ProtocolPlugin {
                 ..default()
             },
         });
+        app.add_plugins(bei::InputPlugin::<BEIContext> {
+            config: InputConfig::<BEIContext> {
+                rebroadcast_inputs: true,
+                ..default()
+            },
+        });
+        app.register_input_action::<BEIAction1>();
     }
 }

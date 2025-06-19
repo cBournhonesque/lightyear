@@ -1,16 +1,15 @@
 [package]
-name = "priority"
+name = "bevy_enhanced_inputs"
 version = "0.1.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
-description = "Examples for the lightyear server-client networking library for the Bevy game engine"
+description = "Examples for the lightyear networking library for the Bevy game engine"
 readme = "README.md"
 repository = "https://github.com/cBournhonesque/lightyear"
 keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
 categories = ["game-development", "network-programming"]
 license = "MIT OR Apache-2.0"
 publish = false
-
 
 [features]
 default = ["client", "gui", "server", "netcode", "udp"]
@@ -31,22 +30,35 @@ netcode = [
 ]
 udp = [
   "lightyear_examples_common/udp",
+  # udp requires std
   "lightyear/std",
   "lightyear/udp",
 ]
 
+
 [dependencies]
-lightyear = { workspace = true, features = [
+lightyear = { "workspace" = true, features = [
   "interpolation",
   "prediction",
   "replication",
   "input_bei",
-] }
+]}
+bevy_enhanced_input.workspace = true
 lightyear_examples_common.workspace = true
-
-leafwing-input-manager.workspace = true
 serde.workspace = true
 bevy.workspace = true
 
+[package.metadata.bevy_cli.web]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+default-features = false
+features = ["client", "netcode"]
+
 [lints]
 workspace = true
+
+[lib]
+doc = false
+
+[[bin]]
+name = "bevy_enhanced_inputs"
+doc = false

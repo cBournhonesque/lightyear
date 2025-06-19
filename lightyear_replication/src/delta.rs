@@ -5,15 +5,15 @@ use bevy::prelude::{Component, Entity};
 use bevy::ptr::Ptr;
 
 use crate::components::ReplicationGroupId;
-use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
+use crate::registry::ComponentKind;
 use alloc::collections::BTreeMap;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+use bevy::platform::collections::HashMap;
 use core::ptr::NonNull;
 use lightyear_core::prelude::Tick;
 use lightyear_messages::Message;
-use lightyear_utils::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]

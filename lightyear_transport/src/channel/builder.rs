@@ -9,11 +9,11 @@ use crate::packet::message::{MessageAck, MessageId};
 use crate::packet::packet::PacketId;
 use crate::packet::packet_builder::{PacketBuilder, RecvPayload};
 use crate::packet::priority_manager::PriorityManager;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::Component;
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_link::Link;
-use lightyear_utils::collections::HashMap;
 
 use crate::channel::Channel;
 use crate::error::TransportError;

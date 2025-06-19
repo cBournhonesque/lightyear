@@ -2,6 +2,7 @@ use crate::action_state::{ActionState, InputMarker};
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use bevy::ecs::entity::MapEntities;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::{EntityMapper, FromReflect, Reflect};
 use bevy::reflect::Reflectable;
 use core::cmp::max;
@@ -31,9 +32,11 @@ impl<
 > ActionStateSequence for NativeStateSequence<A>
 {
     type Action = A;
+    type Snapshot = ActionState<A>;
     type State = ActionState<A>;
-
     type Marker = InputMarker<A>;
+
+    type Context = ();
 
     fn is_empty(&self) -> bool {
         self.states.is_empty()
@@ -47,14 +50,14 @@ impl<
         self.states.len()
     }
 
-    fn update_buffer(&self, input_buffer: &mut InputBuffer<Self::State>, end_tick: Tick) {
+    fn update_buffer<'w, 's>(self, input_buffer: &mut InputBuffer<Self::State>, end_tick: Tick) {
         let start_tick = end_tick + 1 - self.len() as u16;
         // the first value is guaranteed to not be SameAsPrecedent
-        for (delta, input) in self.states.iter().enumerate() {
+        for (delta, input) in self.states.into_iter().enumerate() {
             let tick = start_tick + Tick(delta as u16);
             match input {
                 InputData::Absent => {
-                    input_buffer.set_raw(tick, InputData::Input(Self::State::default()));
+                    input_buffer.set_raw(tick, InputData::Absent);
                 }
                 InputData::SameAsPrecedent => {
                     input_buffer.set_raw(tick, InputData::SameAsPrecedent);
@@ -62,23 +65,17 @@ impl<
                 InputData::Input(input) => {
                     // do not set the value if it's equal to what's already in the buffer
                     if input_buffer.get(tick).is_some_and(|existing_value| {
-                        existing_value.value.as_ref().is_some_and(|v| v == input)
+                        existing_value.value.as_ref().is_some_and(|v| v == &input)
                     }) {
                         continue;
                     }
-
-                    input_buffer.set(
-                        tick,
-                        ActionState::<A> {
-                            value: Some(input.clone()),
-                        },
-                    );
+                    input_buffer.set(tick, ActionState::<A> { value: Some(input) });
                 }
             }
         }
     }
 
-    fn build_from_input_buffer(
+    fn build_from_input_buffer<'w, 's>(
         input_buffer: &InputBuffer<Self::State>,
         num_ticks: u16,
         end_tick: Tick,
@@ -110,6 +107,22 @@ impl<
         }
         Some(Self { states })
     }
+
+    fn to_snapshot<'w, 's>(
+        state: &Self::State,
+        _: &<Self::Context as SystemParam>::Item<'w, 's>,
+    ) -> Self::Snapshot {
+        state.clone()
+    }
+
+    fn from_snapshot<'w, 's>(
+        state: &mut Self::State,
+        snapshot: &Self::Snapshot,
+        _: &<Self::Context as SystemParam>::Item<'w, 's>,
+        is_local: bool,
+    ) {
+        *state = snapshot.clone();
+    }
 }
 
 impl<A: MapEntities> MapEntities for NativeStateSequence<A> {
@@ -125,71 +138,63 @@ impl<A: MapEntities> MapEntities for NativeStateSequence<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lightyear_inputs::input_message::{InputMessage, InputTarget, PerTargetData};
 
     #[test]
-    fn test_create_message() {
+    fn test_build_sequence_from_buffer() {
         let mut input_buffer = InputBuffer::default();
+        input_buffer.set(Tick(2), ActionState { value: None });
+        input_buffer.set(Tick(3), ActionState { value: Some(1) });
+        input_buffer.set(Tick(7), ActionState { value: Some(2) });
 
-        input_buffer.set(Tick(4), ActionState { value: Some(0) });
-        input_buffer.set(Tick(6), ActionState { value: Some(1) });
-        input_buffer.set(Tick(7), ActionState { value: Some(1) });
-
-        let mut message = InputMessage::<u8> {
-            // interpolation_delay: None,
-            end_tick: Tick(10),
-            inputs: vec![],
-        };
-        message.add_inputs(8, InputTarget::Entity(Entity::PLACEHOLDER), &input_buffer);
+        let sequence =
+            NativeStateSequence::<usize>::build_from_input_buffer(&input_buffer, 9, Tick(10))
+                .unwrap();
         assert_eq!(
-            message,
-            InputMessage {
-                // interpolation_delay: None,
-                end_tick: Tick(10),
-                inputs: vec![PerTargetData {
-                    target: InputTarget::Entity(Entity::PLACEHOLDER),
-                    states: vec![
-                        InputData::Input(0),
-                        InputData::SameAsPrecedent,
-                        InputData::Input(1),
-                        InputData::SameAsPrecedent,
-                        InputData::Absent,
-                        InputData::Absent,
-                        InputData::Absent,
-                    ]
-                },],
+            sequence,
+            NativeStateSequence::<usize> {
+                states: vec![
+                    // tick 2
+                    InputData::Absent,
+                    // tick 3
+                    InputData::Input(1),
+                    InputData::SameAsPrecedent,
+                    InputData::SameAsPrecedent,
+                    InputData::SameAsPrecedent,
+                    InputData::Input(2),
+                    // TODO: why is it marked as absent instead of SameAsPrecedent??
+                    //  by default, when inputs are absent should we mark them as SameAsPrecedent?
+                    InputData::Absent,
+                    InputData::Absent,
+                    InputData::Absent,
+                ],
             }
         );
     }
 
     #[test]
-    fn test_update_from_message() {
+    fn test_update_buffer_from_sequence() {
         let mut input_buffer = InputBuffer::default();
-        input_buffer.update_from_message(
-            Tick(20),
-            &vec![
+        let sequence = NativeStateSequence::<i32> {
+            states: vec![
+                // tick 13
                 InputData::Absent,
+                // tick 14
                 InputData::Input(0),
                 InputData::SameAsPrecedent,
+                // tick 16
                 InputData::Input(1),
                 InputData::SameAsPrecedent,
+                // tick 18
                 InputData::Absent,
                 InputData::SameAsPrecedent,
+                // Tick 20
                 InputData::SameAsPrecedent,
             ],
-        );
-        assert_eq!(
-            input_buffer.get(Tick(20)),
-            Some(&ActionState::<i32> { value: None })
-        );
-        assert_eq!(
-            input_buffer.get(Tick(19)),
-            Some(&ActionState::<i32> { value: None })
-        );
-        assert_eq!(
-            input_buffer.get(Tick(18)),
-            Some(&ActionState::<i32> { value: None })
-        );
+        };
+        sequence.update_buffer(&mut input_buffer, Tick(20));
+        assert_eq!(input_buffer.get(Tick(20)), None,);
+        assert_eq!(input_buffer.get(Tick(19)), None,);
+        assert_eq!(input_buffer.get(Tick(18)), None,);
         assert_eq!(
             input_buffer.get(Tick(17)),
             Some(&ActionState::<i32> { value: Some(1) })
@@ -206,9 +211,6 @@ mod tests {
             input_buffer.get(Tick(14)),
             Some(&ActionState::<i32> { value: Some(0) })
         );
-        assert_eq!(
-            input_buffer.get(Tick(13)),
-            Some(&ActionState::<i32> { value: None })
-        );
+        assert_eq!(input_buffer.get(Tick(13)), None,);
     }
 }

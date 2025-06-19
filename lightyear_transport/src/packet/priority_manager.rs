@@ -1,19 +1,19 @@
 use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
+use bevy::platform::collections::HashMap;
 use core::num::NonZeroU32;
-use lightyear_utils::collections::HashMap;
 
-use crate::channel::ChannelKind;
 use crate::channel::builder::SenderMetadata;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
+use crate::channel::ChannelKind;
 use crate::packet::message::{FragmentData, MessageData, SendMessage, SingleData};
 use governor::{DefaultDirectRateLimiter, Quota};
 use lightyear_core::network::NetId;
 use nonzero_ext::*;
-#[cfg(feature = "trace")]
-use tracing::{Level, instrument};
 use tracing::{debug, error, trace};
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
 
 const BYPASS_QUOTA_PRIORITY: f32 = 100000.0;
 

@@ -1,8 +1,8 @@
 use crate::packet::message::{FragmentIndex, MessageId};
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
+use bevy::platform::collections::HashMap;
 use core::time::Duration;
-use lightyear_utils::collections::HashMap;
 use tracing::{error, trace};
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
