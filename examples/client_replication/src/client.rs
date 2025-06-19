@@ -155,7 +155,9 @@ fn delete_player(
                 // the reason is that we actually keep the entity around for a while,
                 // in case we need to re-store it for rollback
                 entity_mut.prediction_despawn();
-                info!("Despawning the predicted/pre-predicted player because we received player action!");
+                info!(
+                    "Despawning the predicted/pre-predicted player because we received player action!"
+                );
             }
         }
     }

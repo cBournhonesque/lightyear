@@ -1,0 +1,24 @@
+repos:
+- repo: local
+  hooks:
+    - id: rustfmt
+      name: rustfmt
+      description: Check if all files follow the rustfmt style
+      entry: cargo fmt --all -- --check --color always
+      types: [rust]
+      language: system
+      pass_filenames: false
+    - id: clippy
+      name: clippy
+      description: Run clippy linter
+      entry: cargo clippy --features=lightyear_core/not_mock --workspace --exclude=compiletime --exclude=avian_3d_character --exclude=launcher --exclude=delta_compression --exclude=distributed_authority --no-deps -- -D warnings -A clippy::needless_lifetimes
+      types: [rust]
+      language: system
+      pass_filenames: false
+    - id: docs
+      name: docs
+      description: Build the documentation to ensure there are no errors
+      entry: env RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --features=lightyear_core/not_mock --workspace --exclude=avian_3d_character --document-private-items --no-deps --keep-going
+      types: [rust]
+      language: system
+      pass_filenames: false

@@ -427,7 +427,9 @@ mod lobby {
                     // config.net = NetConfig::Local { id: host.to_bits() };
                     commands.trigger(Start);
                 } else {
-                    info!("The game is hosted by another client ({host:?}). Connecting to the host...");
+                    info!(
+                        "The game is hosted by another client ({host:?}). Connecting to the host..."
+                    );
                     let host_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), HOST_SERVER_PORT);
                     let auth = Authentication::Manual {
                         server_addr: host_addr,

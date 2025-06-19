@@ -76,7 +76,9 @@ pub(crate) fn handle_connections(
             Name::from("Tail"),
         ))
         .id();
-    info!("New connection from client {client_id:?}, spawning player {player_entity:?} and tail {tail_entity:?}");
+    info!(
+        "New connection from client {client_id:?}, spawning player {player_entity:?} and tail {tail_entity:?}"
+    );
 }
 
 /// Read client inputs and move players

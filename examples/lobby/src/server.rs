@@ -235,7 +235,9 @@ mod lobby {
 
                 // the client was not part of the lobby, they are joining in the middle of the game
                 if !lobby.players.contains(&client_id) {
-                    info!("Receives start game for a player {client_id:?} who wasn't part of the lobby! They are joining in the middle of the game");
+                    info!(
+                        "Receives start game for a player {client_id:?} who wasn't part of the lobby! They are joining in the middle of the game"
+                    );
                     lobby.players.push(client_id);
                     if host.is_none() {
                         let entity = spawn_player_entity(&mut commands, sender, client_id, true);
@@ -252,7 +254,9 @@ mod lobby {
                     )?;
                 } else {
                     if host.is_none() {
-                        info!("Received start game for lobby {lobby_id:?}. Dedicated server is hosting.");
+                        info!(
+                            "Received start game for lobby {lobby_id:?}. Dedicated server is hosting."
+                        );
                         // one of the players asked for the game to start
                         for player in &lobby.players {
                             info!("Spawning player  {player:?} in server hosted  game");
