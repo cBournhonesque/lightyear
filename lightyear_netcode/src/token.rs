@@ -1,15 +1,15 @@
 use super::{
-    bytes::Bytes, crypto::{self, Key}, error::Error, utils,
-    CONNECTION_TIMEOUT_SEC,
-    CONNECT_TOKEN_BYTES,
-    NETCODE_VERSION,
-    PRIVATE_KEY_BYTES,
+    CONNECT_TOKEN_BYTES, CONNECTION_TIMEOUT_SEC, NETCODE_VERSION, PRIVATE_KEY_BYTES,
     USER_DATA_BYTES,
+    bytes::Bytes,
+    crypto::{self, Key},
+    error::Error,
+    utils,
 };
 use alloc::borrow::ToOwned;
 #[cfg(not(feature = "std"))]
 use alloc::format;
-use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305, XNonce};
+use chacha20poly1305::{AeadCore, XChaCha20Poly1305, XNonce, aead::OsRng};
 use core::mem::size_of;
 use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use lightyear_serde::reader::ReadInteger;

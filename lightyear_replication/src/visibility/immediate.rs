@@ -2,7 +2,7 @@
 
 # Network Visibility
 
-The **network visibility** is used to determine which entities are replicated to a client. The server will only replicate the entities that are relevant to a client. If the client stops being 
+The **network visibility** is used to determine which entities are replicated to a client. The server will only replicate the entities that are relevant to a client. If the client stops being
 relevant, the server will despawn that entity for that client. This lets you save bandwidth by only sending the necessary data to each client.
 
 

@@ -1,4 +1,4 @@
-use crate::{generate_key, ConnectToken, Error, Key};
+use crate::{ConnectToken, Error, Key, generate_key};
 use bevy::prelude::Resource;
 use core::net::SocketAddr;
 use core::str::FromStr;

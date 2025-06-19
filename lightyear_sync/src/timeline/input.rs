@@ -270,7 +270,7 @@ impl SyncedTimeline for InputTimeline {
     ///
     /// Most of the times this will just be slight nudges to modify the speed of the [`SyncedTimeline`].
     /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`RemoteTimeline`] by sending a SyncEvent
-    /// 
+    ///
     /// [`RemoteTimeline`]: super::remote::RemoteTimeline
     fn sync<T: SyncTargetTimeline>(
         &mut self,

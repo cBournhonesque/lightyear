@@ -2,7 +2,6 @@
 /// so that they can be used for lag compensation.
 use bevy::prelude::*;
 
-
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use avian2d::{math::Vector, prelude::*};
 #[cfg(all(feature = "3d", not(feature = "2d")))]
@@ -166,14 +165,7 @@ fn update_collider_history(
                 parent_query.get_mut(child_of.parent()).unwrap();
 
             // step 1. update the history buffer of the parent
-            history.add_update(
-                tick,
-                (
-                    *parent_position,
-                    *parent_rotation,
-                    *parent_aabb,
-                ),
-            );
+            history.add_update(tick, (*parent_position, *parent_rotation, *parent_aabb));
             history.clear_until_tick(tick - (config.max_collider_history_ticks as u16));
 
             // step 2. update the child's Position, Rotation, Collider so that the avian spatial query

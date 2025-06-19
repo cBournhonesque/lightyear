@@ -136,7 +136,7 @@ extern crate core;
 
 #[cfg(feature = "client")]
 pub use client_plugin::NetcodeClient;
-pub use crypto::{generate_key, try_generate_key, Key};
+pub use crypto::{Key, generate_key, try_generate_key};
 pub use error::{Error, Result};
 #[cfg(feature = "server")]
 pub use server::{Callback, Server, ServerConfig};

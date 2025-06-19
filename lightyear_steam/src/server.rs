@@ -1,10 +1,10 @@
-use aeronet_io::connection::PeerAddr;
 use aeronet_io::Session;
+use aeronet_io::connection::PeerAddr;
+use aeronet_steam::SessionConfig;
 use aeronet_steam::server::{
     ListenTarget, SessionRequest, SessionResponse, SteamNetServer, SteamNetServerClient,
 };
 use aeronet_steam::steamworks::ServerManager;
-use aeronet_steam::SessionConfig;
 use bevy::prelude::*;
 use lightyear_aeronet::server::ServerAeronetPlugin;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};

@@ -13,10 +13,10 @@ use bevy::prelude::*;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
+use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
-use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
 
@@ -156,7 +156,7 @@ impl<M: Message> MessageSender<M> {
 
 impl MessagePlugin {
     /// Take messages to send from the [`MessageSender<M>`] components
-        /// Serialize them into bytes that are buffered in a [`Transport`]
+    /// Serialize them into bytes that are buffered in a [`Transport`]
     pub fn send(
         mut transport_query: Query<
             (Entity, &Transport, &mut MessageManager),

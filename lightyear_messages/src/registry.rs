@@ -20,8 +20,8 @@ use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageError {
@@ -393,9 +393,9 @@ impl AppMessageExt for App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lightyear_serde::SerializationError;
     use lightyear_serde::reader::ReadInteger;
     use lightyear_serde::writer::WriteInteger;
-    use lightyear_serde::SerializationError;
     use serde::Deserialize;
 
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]

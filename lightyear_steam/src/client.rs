@@ -2,8 +2,8 @@ use aeronet_io::connection::PeerAddr;
 use aeronet_steam::client::SteamNetClient;
 use aeronet_steam::steamworks::ClientManager;
 use aeronet_steam::{
-    client::{ConnectTarget, SteamNetClientPlugin},
     SessionConfig,
+    client::{ConnectTarget, SteamNetClientPlugin},
 };
 use bevy::prelude::*;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};

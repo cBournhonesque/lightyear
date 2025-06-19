@@ -3,7 +3,7 @@
 //! by the receiver to determine how the InterpolationTime should be configured
 
 use bevy::prelude::*;
-use bevy::prelude::{default, Component, Deref, DerefMut, Reflect};
+use bevy::prelude::{Component, Deref, DerefMut, Reflect, default};
 use core::time::Duration;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_core::prelude::Rollback;
@@ -12,8 +12,8 @@ use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineContext};
 use lightyear_messages::prelude::RemoteTrigger;
 use lightyear_replication::message::SenderMetadata;
-use lightyear_sync::prelude::client::RemoteTimeline;
 use lightyear_sync::prelude::PingManager;
+use lightyear_sync::prelude::client::RemoteTimeline;
 use lightyear_sync::timeline::sync::{
     SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline, SyncedTimelinePlugin,
 };

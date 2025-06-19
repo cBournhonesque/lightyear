@@ -38,7 +38,7 @@ commands.trigger_targets(RoomEvent::AddSender(client), room);
 */
 
 use bevy::app::App;
-use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet, EntityIndexMap};
+use bevy::ecs::entity::{EntityIndexMap, hash_map::EntityHashMap, hash_set::EntityHashSet};
 use bevy::platform::collections::hash_map::Entry;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
