@@ -115,8 +115,8 @@
 //     }
 // }
 
-use crate::MessageManager;
 use crate::registry::MessageRegistry;
+use crate::MessageManager;
 use bevy::app::{App, Last, PostUpdate, PreUpdate};
 use bevy::ecs::system::{ParamBuilder, QueryParamBuilder};
 use bevy::prelude::*;
@@ -127,11 +127,11 @@ use lightyear_transport::plugin::{TransportPlugin, TransportSet};
 pub enum MessageSet {
     // PRE UPDATE
     /// Receive Bytes from the Transport, deserialize them into Messages
-    /// and buffer those in the MessageReceiver<M>
+    /// and buffer those in the [`MessageReceiver<M>`](crate::receive::MessageReceiver)
     Receive,
 
     // PostUpdate
-    /// Receive messages from the MessageSender<M>, serialize them into Bytes
+    /// Receive messages from the [`MessageSender<M>`](crate::send::MessageSender), serialize them into Bytes
     /// and buffer those in the Transport
     Send,
 }
@@ -270,12 +270,13 @@ mod tests {
     use crate::receive::{MessageReceiver, ReceivedMessage};
     use crate::registry::AppMessageExt;
     use crate::send::MessageSender;
+    use lightyear_core::id::{PeerId, RemoteId};
     use lightyear_core::plugin::CorePlugins;
-    use lightyear_core::prelude::Tick;
-    use lightyear_link::Link;
+    use lightyear_core::prelude::{LocalTimeline, Tick};
+    use lightyear_link::{Link, Linked};
     use lightyear_transport::channel::ChannelKind;
-    use lightyear_transport::plugin::tests::C;
     use lightyear_transport::plugin::tests::TestTransportPlugin;
+    use lightyear_transport::plugin::tests::C;
     use lightyear_transport::prelude::{ChannelRegistry, Transport};
     use serde::{Deserialize, Serialize};
     use test_log::test;
@@ -305,11 +306,16 @@ mod tests {
         let mut transport = Transport::default();
         transport.add_sender_from_registry::<C>(registry);
         transport.add_receiver_from_registry::<C>(registry);
+        // TODO: are these tests useful? they need so many components from other plugins..
         let mut entity_mut = app.world_mut().spawn((
             Link::default(),
             transport,
             MessageReceiver::<M>::default(),
             MessageSender::<M>::default(),
+            LocalTimeline::default(),
+            RemoteId(PeerId::Local(0)),
+            Linked,
+            Connected,
         ));
 
         let entity = entity_mut.id();
@@ -368,7 +374,11 @@ mod tests {
         app.add_plugins(MessagePlugin);
         app.finish();
 
-        let entity_mut = app.world_mut().spawn((MessageReceiver::<M>::default(),));
+        let entity_mut = app.world_mut().spawn((
+            MessageReceiver::<M>::default(),
+            RemoteId(PeerId::Local(0)),
+            Connected,
+        ));
 
         let entity = entity_mut.id();
 

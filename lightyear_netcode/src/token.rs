@@ -1,15 +1,15 @@
 use super::{
-    CONNECT_TOKEN_BYTES, CONNECTION_TIMEOUT_SEC, NETCODE_VERSION, PRIVATE_KEY_BYTES,
+    bytes::Bytes, crypto::{self, Key}, error::Error, utils,
+    CONNECTION_TIMEOUT_SEC,
+    CONNECT_TOKEN_BYTES,
+    NETCODE_VERSION,
+    PRIVATE_KEY_BYTES,
     USER_DATA_BYTES,
-    bytes::Bytes,
-    crypto::{self, Key},
-    error::Error,
-    utils,
 };
 use alloc::borrow::ToOwned;
 #[cfg(not(feature = "std"))]
 use alloc::format;
-use chacha20poly1305::{AeadCore, XChaCha20Poly1305, XNonce, aead::OsRng};
+use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305, XNonce};
 use core::mem::size_of;
 use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use lightyear_serde::reader::ReadInteger;
@@ -304,7 +304,7 @@ impl Bytes for ChallengeToken {
 /// assert_eq!(token_bytes.len(), CONNECT_TOKEN_BYTES);
 /// ```
 ///
-/// Alternatively, you can use [`Server::token`](crate::connection::netcode::server::NetcodeServer::token) to generate a connect token from an already existing [`Server`](crate::connection::netcode::server::NetcodeServer).
+/// Alternatively, you can use [`Server::token`](crate::server::Server::token) to generate a connect token from an already existing [`Server`](crate::server::Server).
 #[derive(Clone)]
 pub struct ConnectToken {
     pub(crate) version_info: [u8; NETCODE_VERSION.len()],

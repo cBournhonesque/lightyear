@@ -27,8 +27,9 @@ use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_transport::packet::message::MessageId;
 
-/// Bevy Event emitted when a `TriggerMessage<M>` is received and processed.
-/// Contains the original trigger `M` and the `PeerId` of the sender.
+/// Bevy Trigger emitted when a remote trigger is received and processed.
+///
+/// Contains the original trigger `M` and the [`PeerId`] of the sender.
 #[derive(Event)]
 pub struct RemoteTrigger<M: Message> {
     pub trigger: M,
@@ -63,12 +64,12 @@ impl<M: Message> Default for MessageReceiver<M> {
 // TODO: do we care about the channel that the message was sent from? user-specified message usually don't
 // TODO: we have access to the Tick, so we could decide at which timeline we want to receive the message!
 impl<M: Message> MessageReceiver<M> {
-    /// Take all messages from the MessageReceiver<M>, deserialize them, and return them
+    /// Take all messages from the [`MessageReceiver<M>`], deserialize them, and return them
     pub fn receive(&mut self) -> impl Iterator<Item = M> {
         self.recv.drain(..).map(|m| m.data)
     }
 
-    /// Take all messages from the MessageReceiver<M>, deserialize them, and return them
+    /// Take all messages from the [`MessageReceiver<M>`], deserialize them, and return them
     pub fn receive_with_tick(&mut self) -> impl Iterator<Item = ReceivedMessage<M>> {
         self.recv.drain(..)
     }
@@ -104,13 +105,13 @@ pub(crate) type ReceiveMessageFn = unsafe fn(
     entity_map: &mut ReceiveEntityMap,
 ) -> Result<(), MessageError>;
 
-/// Clear all messages in the MessageReceiver<M> buffer
+/// Clear all messages in the [`MessageReceiver<M>`] buffer
 pub(crate) type ClearMessageFn = unsafe fn(receiver: MutUntyped);
 
 impl<M: Message> MessageReceiver<M> {
     /// Receive a single message of type `M` from the channel
     ///
-    /// SAFETY: the `receiver` must be of type `MessageReceiver<M>`, and the `message_bytes` must be a valid serialized message of type `M`
+    /// SAFETY: the `receiver` must be of type [`MessageReceiver<M>`], and the `message_bytes` must be a valid serialized message of type `M`
     pub(crate) unsafe fn receive_message_typed(
         receiver: MutUntyped,
         reader: &mut Reader,

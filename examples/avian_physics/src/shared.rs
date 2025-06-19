@@ -1,12 +1,12 @@
 use crate::protocol::*;
 use avian2d::prelude::*;
 use bevy::prelude::*;
+use core::hash::{Hash, Hasher};
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::input::input_buffer::InputBuffer;
 use lightyear::prediction::correction::Correction;
 use lightyear::prelude::*;
-use std::hash::{Hash, Hasher};
 
 pub(crate) const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;

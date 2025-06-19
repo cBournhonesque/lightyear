@@ -3,21 +3,21 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
+use core::str::FromStr;
 use core::time::Duration;
-use std::str::FromStr;
 
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 
-use bevy::DefaultPlugins;
 use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::state::app::StatesPlugin;
+use bevy::DefaultPlugins;
 use clap::{Parser, Subcommand};
 
-use crate::client::{ClientTransports, ExampleClient, connect};
+use crate::client::{connect, ClientTransports, ExampleClient};
 #[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
-use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
+use crate::server::{start, ExampleServer, ServerTransports, WebTransportCertificateSettings};
 #[cfg(all(feature = "gui", feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
 use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
@@ -205,11 +205,11 @@ impl Default for Mode {
     fn default() -> Self {
         cfg_if::cfg_if! {
             if #[cfg(all(feature = "client", feature = "server"))] {
-                return Mode::HostClient { client_id: None };
+                Mode::HostClient { client_id: None }
             } else if #[cfg(feature = "server")] {
-                return Mode::Server;
+                Mode::Server
             } else {
-                return Mode::Client { client_id: None };
+                Mode::Client { client_id: None }
             }
         }
     }

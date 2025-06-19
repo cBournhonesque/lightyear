@@ -172,7 +172,7 @@ impl SyncConfig {
 
 /// Plugin to sync the Synced timeline to the Remote timeline
 ///
-/// The const generic is used to indicate if the timeline is driving/updating the Time<Virtual> and LocalTimeline.
+/// The const generic is used to indicate if the timeline is driving/updating the [`Time<Virtual>`] and [`LocalTimeline`].
 pub struct SyncedTimelinePlugin<Synced, Remote, const DRIVING: bool = false> {
     pub(crate) _marker: core::marker::PhantomData<(Synced, Remote)>,
 }
@@ -216,9 +216,9 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
         }
     }
 
-    /// Sync timeline T to timeline Remote by either
+    /// Sync timeline T to timeline [`RemoteTimeline`](super::remote::RemoteTimeline) by either
     /// - speeding up/slowing down the timeline T to match timeline Remote
-    /// - emitting a SyncEvent<T>
+    /// - emitting a [`SyncEvent<T>`]
     pub(crate) fn sync_timelines(
         tick_duration: Res<TickDuration>,
         mut commands: Commands,

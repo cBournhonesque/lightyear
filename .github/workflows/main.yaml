@@ -31,41 +31,9 @@ jobs:
       - name: Format
         run: |
           cargo fmt --all --check
-      # we cannot `cargo clippy --workspace` because it would activate all features found in any crate
-      # of the workspace (including avian2d, avian3d, test_utils), which causes issues
-      # TODO: put the Instant in a common crate
-      # TODO: put create lightyear_avian2d and lightyear_avian3d crates
       - name: Clippy lightyear
-        run: |-
-          crates=(
-            lightyear
-            lightyear_aeronet
-            lightyear_avian
-            lightyear_connection
-            lightyear_core
-            lightyear_crossbeam
-            lightyear_frame_interpolation
-            lightyear_inputs
-            # lightyear_inputs_leafwing  # needs client/server features
-            # lightyear_inputs_native  # needs client/server features
-            lightyear_interpolation
-            lightyear_link
-            lightyear_macros
-            lightyear_messages
-            lightyear_netcode
-            lightyear_prediction
-            lightyear_replication
-            lightyear_serde
-            lightyear_steam
-            lightyear_sync
-            lightyear_transport
-            lightyear_udp
-            lightyear_utils
-            lightyear_webtransport
-          )
-          for crate in "${crates[@]}"; do
-            cargo clippy -p $crate --no-deps  -- -D warnings -A clippy::wrong_self_convention -A clippy::needless_lifetimes
-          done
+        # exclude avian_3d_character to only use lightyear_avian/2d features
+        run: cargo clippy --workspace --no-deps -- -D warnings -A clippy::needless_lifetimes
 
   docs:
     name: Doc
@@ -83,8 +51,8 @@ jobs:
           # needs to be in sync with [package.metadata.docs.rs]
           RUSTFLAGS: --cfg docsrs_dep
           RUSTDOCFLAGS: --cfg=docsrs --generate-link-to-definition
-        # TODO: same, cannot use workspace right now
-        run: cargo doc -p lightyear --document-private-items --no-deps -D warnings
+        # exclude avian_3d_character to only use lightyear_avian/2d features
+        run: cargo doc --locked --workspace --exclude=avian_3d_character --document-private-items --no-deps --keep-going -D warnings
 
   test:
     name: Test
@@ -109,10 +77,7 @@ jobs:
         run: cargo install cargo-tarpaulin
 
       - name: Test
-        run: cargo tarpaulin -p lightyear_tests --engine llvm --out lcov
-
-      - name: Test doc
-        run: cargo test --workspace --doc
+        run: cargo tarpaulin --locked -p lightyear_tests --engine llvm --out lcov
 
       - name: Upload code coverage results
         if: github.actor != 'dependabot[bot]'
@@ -120,6 +85,9 @@ jobs:
         with:
           name: code-coverage-report
           path: lcov.info
+
+#      - name: Test doc
+#        run: cargo test --locked --workspace --doc
 
   codecov:
     name: Upload to Codecov

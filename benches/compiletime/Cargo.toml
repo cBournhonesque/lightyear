@@ -10,7 +10,10 @@ license.workspace = true
 [dependencies]
 lightyear.workspace = true
 bevy.workspace = true
-serde.workspace = true
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "compiletime"
+doc = false

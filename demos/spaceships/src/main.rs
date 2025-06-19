@@ -44,7 +44,7 @@ fn main() {
             add_input_delay(&mut app);
         }
         #[cfg(feature = "server")]
-        Some(Mode::Server { .. }) => {
+        Some(Mode::Server) => {
             app.add_plugins(ExampleServerPlugin { predict_all: true });
         }
         #[cfg(all(feature = "client", feature = "server"))]

@@ -1,26 +1,24 @@
-/*! Main network relevance module, where you can immediately update the network relevance of an entity for a given client
+/*! Main network visibility module, where you can immediately update the network visibility of an entity for a given client
 
-# Network Relevance
+# Network Visibility
 
-The **network relevance** is used to determine which entities are replicated to a client. The server will only replicate the entities that are relevant to a client. If the client stops being relevant, the server will despawn that entity for that client. This lets you save bandwidth by only sending the necessary data to each client.
+The **network visibility** is used to determine which entities are replicated to a client. The server will only replicate the entities that are relevant to a client. If the client stops being 
+relevant, the server will despawn that entity for that client. This lets you save bandwidth by only sending the necessary data to each client.
 
-This module provides a [`RelevanceManager`] resource that allows you to update the relevance of entities in an immediate fashion.
 
-Network Relevance are cached, so after you set an entity to `relevant` for a client, it will remain relevant
+You can update the [`NetworkVisibility`] component of an entity to control its relevance for specific clients.
+
+The visibility is cached, so after you set an entity as `visible` for a client, it will remain relevant
 until you change the setting again.
 
 ```rust
-use bevy::prelude::*;
-use lightyear::prelude::*;
-use lightyear::prelude::server::*;
+# use bevy::prelude::*;
+# use lightyear_replication::prelude::NetworkVisibility;
 
-fn my_system(
-    mut relevance_manager: ResMut<RelevanceManager>,
-) {
-    // you can update the relevance like so
-    relevance_manager.gain_relevance(PeerId::Netcode(1), Entity::PLACEHOLDER);
-    relevance_manager.lose_relevance(PeerId::Netcode(2), Entity::PLACEHOLDER);
-}
+# let mut client = Entity::from_bits(0);
+let mut visibility = NetworkVisibility::default();
+visibility.gain_visibility(client);
+visibility.lose_visibility(client);
 ```
 */
 
@@ -56,12 +54,12 @@ impl VisibilityState {
 /// We will replicate this entity to the clients specified in the `Replicate` component.
 /// On top of that, we will apply interest management logic to determine which peers should receive the entity
 ///
-/// You can use [`gain_relevance`](crate::prelude::server::RelevanceManager::gain_relevance) and [`lose_relevance`](crate::prelude::server::RelevanceManager::lose_relevance)
-/// to control the network relevance of entities.
+/// You can use [`gain_visibility`](NetworkVisibility::gain_visibility) and [`lose_visibility`](NetworkVisibility::lose_visibility)
+/// to control the network visibility of entities.
 ///
-/// You can also use the [`RoomManager`](crate::prelude::server::RoomManager) if you want to use rooms to control network relevance.
+/// You can also use [`Room`](super::room::Room)s for a more stateful approach to network visibility
 ///
-/// (the client still needs to be included in the [`Replicate`], the room is simply an additional constraint)
+/// (the client still needs to be included in the [`Replicate`](crate::buffer::Replicate), the room is simply an additional constraint)
 #[derive(Component, Clone, Default, PartialEq, Debug, Reflect)]
 #[reflect(Component)]
 pub struct NetworkVisibility {

@@ -13,9 +13,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
-#[cfg(not(feature = "test_utils"))]
+#[cfg(not(test))]
 use bevy::platform::time::Instant;
-#[cfg(feature = "test_utils")]
+#[cfg(test)]
 use mock_instant::global::Instant;
 
 mod conditioner;

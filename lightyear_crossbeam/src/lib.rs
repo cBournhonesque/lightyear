@@ -11,14 +11,14 @@
 extern crate alloc;
 
 use aeronet_io::connection::{LocalAddr, PeerAddr};
-#[cfg(not(feature = "test_utils"))]
+#[cfg(not(test))]
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked};
-#[cfg(feature = "test_utils")]
+#[cfg(test)]
 use mock_instant::global::Instant;
 use tracing::error;
 

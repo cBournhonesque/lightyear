@@ -37,25 +37,25 @@ use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::TickDelta;
 use lightyear_core::timeline::NetworkTimeline;
-use lightyear_messages::MessageNetId;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::TriggerSender;
 use lightyear_messages::registry::{MessageKind, MessageRegistry};
-use lightyear_serde::ToBytes;
+use lightyear_messages::MessageNetId;
 use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
 use lightyear_serde::writer::Writer;
+use lightyear_serde::ToBytes;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
-#[cfg(feature = "trace")]
-use tracing::{Level, instrument};
 use tracing::{debug, error, trace};
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = bevy::platform::collections::HashSet<K, EntityHash>;
 
-/// When a [`EntityUpdatesMessage`](super::EntityUpdatesMessage) message gets buffered (and we have access to its [`MessageId`]),
+/// When a [`UpdatesMessage`] message gets buffered (and we have access to its [`MessageId`]),
 /// we keep track of some information related to this message.
 /// It is useful when we get notified that the message was acked or lost.
 #[derive(Debug, PartialEq)]
@@ -949,7 +949,7 @@ impl ReplicationSender {
         });
     }
 
-    /// Prepare the [`EntityActionsMessage`](super::EntityActionsMessage) messages to send.
+    /// Prepare the [`ActionsMessage`] messages to send.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn send_actions_messages(
         &mut self,
@@ -1031,7 +1031,7 @@ impl ReplicationSender {
         })
     }
 
-    /// Buffer the [`EntityUpdatesMessage`](super::EntityUpdatesMessage) to send in the [`MessageManager`]
+    /// Buffer the [`UpdatesMessage`] to send in the [`Transport`]
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn send_updates_messages(
         &mut self,

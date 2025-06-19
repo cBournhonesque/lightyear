@@ -10,10 +10,10 @@ use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use lightyear_core::id::PeerId;
-use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
+use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
 
@@ -36,10 +36,10 @@ impl<M: Event> Default for TriggerSender<M> {
 }
 
 impl<M: Event> TriggerSender<M> {
-    /// Take all messages from the TriggerSender<M>, serialize them, and buffer them
-    /// on the appropriate ChannelSender<C>
+    /// Take all messages from the [`TriggerSender<M>`], serialize them, and buffer them
+    /// on the appropriate channel of the [`Transport`].
     ///
-    /// SAFETY: the `trigger_sender` must be of type `TriggerSender<M>`
+    /// SAFETY: the `trigger_sender` must be of type [`TriggerSender<M>`]
     pub(crate) unsafe fn send_trigger_typed(
         trigger_sender: MutUntyped,
         net_id: MessageNetId,
@@ -63,11 +63,11 @@ impl<M: Event> TriggerSender<M> {
         })
     }
 
-    /// Take all messages from the TriggerSender<M>, and trigger them as RemoteTrigger<M> events
+    /// Take all messages from the [`TriggerSender<M>`], and trigger them as [`RemoteTrigger<M>`] events
     ///
     /// # Safety
     ///
-    /// - the `trigger_sender` must be of type `TriggerSender<M>`
+    /// - the `trigger_sender` must be of type [`TriggerSender<M>`]
     pub(crate) unsafe fn send_local_trigger_typed(
         trigger_sender: MutUntyped,
         commands: &ParallelCommands,

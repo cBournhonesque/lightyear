@@ -68,10 +68,9 @@ impl Connected {
             .commands()
             .entity(context.entity)
             .remove::<(Connecting, Disconnected)>();
-        world
-            .resource_mut::<PeerMetadata>()
-            .mapping
-            .insert(peer_id, context.entity);
+        if let Some(mut metadata) = world.get_resource_mut::<PeerMetadata>() {
+            metadata.mapping.insert(peer_id, context.entity);
+        }
     }
 }
 

@@ -3,11 +3,11 @@
 //! See `<https://stackoverflow.com/questions/73725299/will-the-native-buffer-owned-by-bytesmut-keep-growing>`
 //! for more details.
 //!
-//! The idea is that we have one allocation under the [`BytesMut`], when we finish writing a message,
+//! The idea is that we have one allocation under the [`BytesMut`](bytes::BytesMut), when we finish writing a message,
 //! we can split the message of as a separate [`Bytes`], but
 
-use crate::SerializationError;
 use crate::varint::varint_len;
+use crate::SerializationError;
 use bytes::{BufMut, Bytes, BytesMut};
 use no_std_io2::io;
 use no_std_io2::io::{Result, Write};

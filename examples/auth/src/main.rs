@@ -7,6 +7,7 @@
 //! Run with
 //! - `cargo run -- server`
 //! - `cargo run -- client -c 1`
+#![allow(clippy::all)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]

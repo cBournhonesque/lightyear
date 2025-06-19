@@ -64,3 +64,10 @@ features = ["client", "netcode"]
 
 [lints]
 workspace = true
+
+[lib]
+doc = false
+
+[[bin]]
+name = "simple_box"
+doc = false

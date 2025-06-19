@@ -73,3 +73,6 @@ getrandom.workspace = true
 
 [lints]
 workspace = true
+
+[lib]
+doc = false

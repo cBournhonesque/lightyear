@@ -3,7 +3,7 @@
 //! by the receiver to determine how the InterpolationTime should be configured
 
 use bevy::prelude::*;
-use bevy::prelude::{Component, Deref, DerefMut, Reflect, default};
+use bevy::prelude::{default, Component, Deref, DerefMut, Reflect};
 use core::time::Duration;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_core::prelude::Rollback;
@@ -12,8 +12,8 @@ use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineContext};
 use lightyear_messages::prelude::RemoteTrigger;
 use lightyear_replication::message::SenderMetadata;
-use lightyear_sync::prelude::PingManager;
 use lightyear_sync::prelude::client::RemoteTimeline;
+use lightyear_sync::prelude::PingManager;
 use lightyear_sync::timeline::sync::{
     SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline, SyncedTimelinePlugin,
 };
@@ -135,10 +135,10 @@ impl SyncedTimeline for InterpolationTimeline {
     }
 
     // TODO: this code is duplicated in the Predicted timeline
-    /// Adjust the current timeline to stay in sync with the [`MainTimeline`].
+    /// Adjust the current timeline to stay in sync with the [`RemoteTimeline`].
     ///
     /// Most of the times this will just be slight nudges to modify the speed of the [`SyncedTimeline`].
-    /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`MainTimeline`] by sending a SyncEvent
+    /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`RemoteTimeline`] by sending a SyncEvent
     fn sync<T: SyncTargetTimeline>(
         &mut self,
         remote: &T,
@@ -220,7 +220,7 @@ impl TimelinePlugin {
         })
     }
 
-    /// Update the timeline in Update based on the Time<Virtual>
+    /// Update the timeline in Update based on the [`Time<Virtual>`]
     pub(crate) fn advance_timeline(
         time: Res<Time<Virtual>>,
         tick_duration: Res<TickDuration>,

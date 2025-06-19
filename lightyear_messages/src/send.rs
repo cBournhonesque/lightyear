@@ -13,10 +13,10 @@ use bevy::prelude::*;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
-use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
+use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
 
@@ -77,10 +77,10 @@ impl<M: Message> MessageSender<M> {
         self.send_with_priority::<C>(message, 1.0);
     }
 
-    /// Take all messages from the MessageSender<M>, serialize them, and buffer them
-    /// on the appropriate ChannelSender<C>
+    /// Take all messages from the [`MessageSender<M>`], serialize them, and buffer them
+    /// on the appropriate channel of the [`Transport`].
     ///
-    /// SAFETY: the `message_sender` must be of type `MessageSender<M>`
+    /// SAFETY: the `message_sender` must be of type [`MessageSender<M>`]
     pub(crate) unsafe fn send_message_typed(
         message_sender: MutUntyped,
         net_id: MessageNetId,
@@ -104,11 +104,11 @@ impl<M: Message> MessageSender<M> {
         })
     }
 
-    /// Take all messages from the MessageSender<M>, and add them to MessageReceiver<M>
+    /// Take all messages from the [`MessageSender<M>`], and add them to [`MessageReceiver<M>`]
     ///
     /// # Safety
-    /// - the `message_sender` must be of type `MessageSender<M>`
-    /// - the `message_receiver` must be of type `MessageReceiver<M>`
+    /// - the `message_sender` must be of type [`MessageSender<M>`]
+    /// - the `message_receiver` must be of type [`MessageReceiver<M>`]
     pub(crate) unsafe fn send_local_message_typed(
         message_sender: MutUntyped,
         message_receiver: MutUntyped,
@@ -155,8 +155,8 @@ impl<M: Message> MessageSender<M> {
 }
 
 impl MessagePlugin {
-    /// Take messages to send from the MessageSender<M> components
-    /// Serialize them into bytes that are buffered in a ChannelSender<C>
+    /// Take messages to send from the [`MessageSender<M>`] components
+        /// Serialize them into bytes that are buffered in a [`Transport`]
     pub fn send(
         mut transport_query: Query<
             (Entity, &Transport, &mut MessageManager),
@@ -253,9 +253,9 @@ impl MessagePlugin {
             })
     }
 
-    /// For the host-client, we take messages to send from the MessageSender<M> components
-    /// and add them directly to the MessageReceiver<M> compoments.
-    /// (there is no link)
+    /// For the host-client, we take messages to send from the [`MessageSender<M>`] components
+    /// and add them directly to the [`MessageReceiver<M>`] compoments.
+    /// (the [`Transport`] is not used)
     pub fn send_local(
         mut manager_query: Query<
             (Entity, &LocalTimeline, &mut MessageManager),

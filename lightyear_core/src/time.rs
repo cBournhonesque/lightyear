@@ -1,6 +1,4 @@
 /*!
-[`WrappedTime`] is a struct representing time.
-The network serialization uses a u32 which can only represent times up to 46 days.
 This module contains some helper functions to compute the difference between two times.
 */
 use crate::tick::Tick;

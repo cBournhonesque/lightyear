@@ -19,8 +19,8 @@ use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
 use crate::prelude::ComponentReplicationOverrides;
-use crate::registry::registry::ComponentRegistry;
 use crate::registry::ComponentKind;
+use crate::registry::registry::ComponentRegistry;
 use crate::send::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 

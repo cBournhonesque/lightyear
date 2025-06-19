@@ -1,5 +1,5 @@
 [package]
-name = "delta_compression_new"
+name = "delta_compression"
 version = "0.1.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
@@ -49,3 +49,7 @@ bevy.workspace = true
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "delta_compression"
+doc = false

@@ -1,12 +1,12 @@
 use crate::{
-    InterpolationMode, SyncComponent, add_interpolation_systems, add_prepare_interpolation_systems,
+    add_interpolation_systems, add_prepare_interpolation_systems, InterpolationMode, SyncComponent,
 };
 use bevy::math::Curve;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::{Component, Ease, EaseFunction, EasingCurve, Resource};
 use lightyear_replication::prelude::ComponentRegistration;
-use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::LerpFn;
+use lightyear_replication::registry::ComponentKind;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -76,7 +76,7 @@ impl InterpolationRegistry {
 
 pub trait InterpolationRegistrationExt<C> {
     /// Enable interpolation systems for this component.
-    /// You can specify the interpolation [`ComponentSyncMode`]
+    /// You can specify the interpolation [`InterpolationMode`]
     fn add_interpolation(self, interpolation_mode: InterpolationMode) -> Self
     where
         C: SyncComponent;
@@ -98,7 +98,7 @@ pub trait InterpolationRegistrationExt<C> {
 
 impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     /// Enable interpolation systems for this component.
-    /// You can specify the interpolation [`ComponentSyncMode`]
+    /// You can specify the interpolation [`InterpolationMode`]
     fn add_interpolation(self, interpolation_mode: InterpolationMode) -> Self
     where
         C: SyncComponent,

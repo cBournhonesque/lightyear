@@ -1,10 +1,10 @@
-use aeronet_io::Session;
 use aeronet_io::connection::PeerAddr;
-use aeronet_steam::SessionConfig;
+use aeronet_io::Session;
 use aeronet_steam::server::{
     ListenTarget, SessionRequest, SessionResponse, SteamNetServer, SteamNetServerClient,
 };
 use aeronet_steam::steamworks::ServerManager;
+use aeronet_steam::SessionConfig;
 use bevy::prelude::*;
 use lightyear_aeronet::server::ServerAeronetPlugin;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
@@ -34,10 +34,6 @@ impl Plugin for SteamServerPlugin {
 
 /// WebTransport server implementation which listens for client connections,
 /// and coordinates messaging between multiple clients.
-///
-/// Use [`WebTransportServer::open`] to start opening a server.
-///
-/// The [`LocalAddr`] component must be inserted to specify the server_addr.
 ///
 /// When a client attempts to connect, the server will trigger a
 /// [`SessionRequest`]. Your app **must** observe this, and use

@@ -143,7 +143,6 @@ impl ClientServerStepper {
                     // Send pings every frame, so that the Acks are sent every frame
                     PingManager::new(PingConfig {
                         ping_interval: Duration::default(),
-                        ..default()
                     }),
                     ReplicationSender::default(),
                     ReplicationReceiver::default(),
@@ -163,7 +162,6 @@ impl ClientServerStepper {
                     // Send pings every frame, so that the Acks are sent every frame
                     PingManager::new(PingConfig {
                         ping_interval: Duration::default(),
-                        ..default()
                     }),
                     // TODO: we want the ReplicationSender/Receiver to be added automatically when ClientOf is created, but with configs pre-specified by the server
                     ReplicationSender::default(),

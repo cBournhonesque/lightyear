@@ -21,9 +21,9 @@
 //!   - if there is a rollback, restart correction from the current corrected value
 //! - FixedUpdate: run the simulation to compute C(T+2).
 //! - FixedPostUpdate: set the component value to the interpolation between PT (predicted value at rollback start T) and C(T+2)
+use crate::SyncComponent;
 use crate::manager::PredictionManager;
 use crate::registry::PredictionRegistry;
-use crate::SyncComponent;
 use bevy::prelude::*;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;

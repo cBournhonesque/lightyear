@@ -19,27 +19,26 @@ This can be useful for games where you have physical instances of rooms:
 - a map could be divided into a grid of 2D squares, where each square is its own room
 
 ```rust
-use bevy::prelude::*;
-use bevy::ecs::entity::hash_map::EntityHashMap;
-use lightyear::prelude::*;
-use lightyear::prelude::server::*;
+# use bevy::prelude::*;
+# use lightyear_replication::prelude::*;
 
-fn room_system(mut manager: ResMut<RoomManager>) {
-   // the entity will now be visible to the client
-   manager.add_client(PeerId::Netcode(0), RoomId(0));
-   manager.add_entity(Entity::PLACEHOLDER, RoomId(0));
-}
+# let mut app = App::new();
+# let mut commands = app.world_mut().commands();
+// create a new room
+let room = commands.spawn(Room::default()).id();
+
+let entity = commands.spawn(Replicate::default()).id();
+let client = commands.spawn(ReplicationSender::default()).id();
+
+// add the client and entity to the same room: the entity will be replicated/visible to the client
+commands.trigger_targets(RoomEvent::AddEntity(entity), room);
+commands.trigger_targets(RoomEvent::AddSender(client), room);
 ```
-
-## Implementation
-
-Under the hood, the [`RoomManager`] uses the same functions as in the immediate-mode [`RelevanceManager`],
-it just caches the room metadata to keep track of the relevance of entities.
 
 */
 
 use bevy::app::App;
-use bevy::ecs::entity::{EntityIndexMap, hash_map::EntityHashMap, hash_set::EntityHashSet};
+use bevy::ecs::entity::{hash_map::EntityHashMap, hash_set::EntityHashSet, EntityIndexMap};
 use bevy::platform::collections::hash_map::Entry;
 use bevy::prelude::*;
 use bevy::reflect::Reflect;
@@ -182,7 +181,7 @@ pub enum RoomEvent {
 pub(crate) struct RoomEvents {
     /// List of events that have been triggered by room events
     ///
-    /// We cannot apply the [`RoomEvent`]s directly to the entity's [`NetworVisibility`] because
+    /// We cannot apply the [`RoomEvent`]s directly to the entity's [`NetworkVisibility`] because
     /// we need to handle concurrent room moves correctly:
     /// if entity E1 and sender A both leave room R1 and join room R2, the visibility should be
     /// unchanged.

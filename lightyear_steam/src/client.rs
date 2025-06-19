@@ -2,8 +2,8 @@ use aeronet_io::connection::PeerAddr;
 use aeronet_steam::client::SteamNetClient;
 use aeronet_steam::steamworks::ClientManager;
 use aeronet_steam::{
-    SessionConfig,
     client::{ConnectTarget, SteamNetClientPlugin},
+    SessionConfig,
 };
 use bevy::prelude::*;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
@@ -25,7 +25,7 @@ impl Plugin for SteamClientPlugin {
 /// Component to insert on an entity to start a Steam  socket client which
 /// can connect to a dedicated server or another peer.
 ///
-/// The [`SteamworksClient`] resource must have been created beforehand.
+/// The [`SteamworksClient`](aeronet_steam::SteamworksClient) resource must have been created beforehand.
 #[derive(Debug, Component)]
 #[require(Link)]
 pub struct SteamClientIo {

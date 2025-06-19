@@ -1,4 +1,4 @@
-use std::net::{Ipv4Addr, SocketAddr};
+use core::net::{Ipv4Addr, SocketAddr};
 
 use crate::protocol::*;
 use crate::HOST_SERVER_PORT;
@@ -184,7 +184,7 @@ mod game {
 }
 
 mod lobby {
-    use std::net::{Ipv4Addr, SocketAddr};
+    use core::net::{Ipv4Addr, SocketAddr};
 
     use super::*;
     use crate::client::{lobby, AppState};
@@ -299,14 +299,12 @@ mod lobby {
                                                                 host,
                                                             });
                                                         }
-                                                    } else {
-                                                        if ui.button("Join Lobby").clicked() {
-                                                            info!("Client joining lobby {lobby_id}");
-                                                            send_join_lobby.send::<Channel1>(JoinLobby { lobby_id });
-                                                            next_app_state.set(AppState::Lobby {
-                                                                joined_lobby: Some(lobby_id),
-                                                            });
-                                                        }
+                                                    } else if ui.button("Join Lobby").clicked() {
+                                                        info!("Client joining lobby {lobby_id}");
+                                                        send_join_lobby.send::<Channel1>(JoinLobby { lobby_id });
+                                                        next_app_state.set(AppState::Lobby {
+                                                            joined_lobby: Some(lobby_id),
+                                                        });
                                                     }
                                                 });
                                             });
@@ -367,7 +365,7 @@ mod lobby {
                     ClientState::Connecting => {
                         let _ = ui.button("Connecting");
                     }
-                    ClientState::Connected(client_id) => {
+                    ClientState::Connected => {
                         match app_state.get() {
                             AppState::Lobby { joined_lobby } => {
                                 if let Some(lobby_id) = joined_lobby {
@@ -388,10 +386,8 @@ mod lobby {
                                             host,
                                         });
                                     }
-                                } else {
-                                    if ui.button("Exit lobby list").clicked() {
-                                        commands.trigger_targets(Disconnect, client_entity);
-                                    }
+                                } else if ui.button("Exit lobby list").clicked() {
+                                    commands.trigger_targets(Disconnect, client_entity);
                                 }
                             }
                             AppState::Game => {

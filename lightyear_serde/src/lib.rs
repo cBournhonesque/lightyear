@@ -1,8 +1,8 @@
 //! # Lightyear Serde
 //!
 //! This crate provides serialization and deserialization utilities for Lightyear.
-//! It defines the `ToBytes` trait for converting types to and from byte representations,
-//! along with `Reader` and `Writer` utilities for handling byte streams.
+//! It defines the [`ToBytes`] trait for converting types to and from byte representations,
+//! along with [`Reader`] and [`Writer`](writer::Writer) utilities for handling byte streams.
 //!
 //! It includes implementations for common types and collections, and utilities for
 //! efficient serialization, such as varint encoding.
@@ -24,13 +24,13 @@ use no_std_io2::io;
 
 /// Utilities for mapping entities during serialization and deserialization.
 pub mod entity_map;
-/// Provides the `Reader` struct and traits for deserializing data from a byte stream.
+/// Provides the [`Reader`] struct and traits for deserializing data from a byte stream.
 pub mod reader;
 /// Defines traits and structures for registering serializable types.
 pub mod registry;
 /// Utilities for variable-length integer encoding and decoding.
 pub mod varint;
-/// Provides the `Writer` struct and traits for serializing data into a byte stream.
+/// Provides the [`Writer`](writer::Writer) struct and traits for serializing data into a byte stream.
 pub mod writer;
 
 /// Commonly used items from the `lightyear_serde` crate.
@@ -67,7 +67,7 @@ pub enum SerializationError {
 /// - Serialize the type into a buffer (`to_bytes`).
 /// - Deserialize the type from a buffer (`from_bytes`).
 ///
-/// It is implemented for various primitive types, collections, and `bytes::Bytes`.
+/// It is implemented for various primitive types, collections, and [`Bytes`].
 #[allow(clippy::len_without_is_empty)]
 pub trait ToBytes {
     fn bytes_len(&self) -> usize;

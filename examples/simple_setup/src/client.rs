@@ -1,11 +1,11 @@
 //! The client plugin.
 use crate::shared::*;
 use bevy::prelude::*;
+use core::net::Ipv4Addr;
 use core::net::{IpAddr, SocketAddr};
 use lightyear::netcode::Key;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use std::net::Ipv4Addr;
 
 pub struct ExampleClientPlugin;
 

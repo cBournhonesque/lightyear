@@ -9,6 +9,7 @@ use bevy::prelude::{
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 
+/// A timeline defines an independent progression of time.
 #[derive(Default, Debug, Clone, Reflect)]
 pub struct Timeline<T: TimelineContext> {
     pub context: T,
@@ -95,9 +96,9 @@ pub enum RollbackState {
     RollbackStart(Tick),
 }
 
-/// The local timeline that matches Time<Virtual>
+/// The local timeline that matches [`Time<Virtual>`]
 /// - the Tick is incremented every FixedUpdate (including during rollback)
-/// - the overstep is set by the overstep of Time<Fixed>
+/// - the overstep is set by the overstep of [`Time<Fixed>`]
 #[derive(Default, Clone, Reflect)]
 pub struct Local;
 
@@ -133,7 +134,7 @@ impl<T: NetworkTimeline> Plugin for NetworkTimelinePlugin<T> {
 /// Event that can be triggered to update the tick duration.
 ///
 /// If the trigger is global, it will update:
-/// - Time<Fixed>
+/// - [`Time<Fixed>`]
 /// - the various Timelines
 ///
 /// The event can also be triggered for a specific target to update only the components of that target.

@@ -32,7 +32,7 @@ members = [
   "examples/*",
 ]
 default-members = ["lightyear"]
-exclude = ["examples/certificates"]
+exclude = []
 
 
 [workspace.package]
@@ -116,7 +116,7 @@ no_std_io2 = { version = "0.9", features = ["alloc"] }
 
 # serialization
 
-bincode = { version = "2.0.0-rc.3", default-features = false, features = ["serde", "alloc"] }
+bincode = { version = "2.0.1", default-features = false, features = ["serde", "alloc"] }
 bytes = { version = "1.8", default-features = false, features = ["serde"] }
 serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
 
@@ -143,7 +143,7 @@ aeronet_webtransport = "0.14.0"
 aeronet_steam = "0.14.0"
 aeronet_io = "0.14.0"
 # we don't need any tokio features, we use only use the tokio channels
-tokio = { version = "1.44", features = [
+tokio = { version = "1.45", features = [
   "sync",
   "macros",
 ], default-features = false }
@@ -162,7 +162,7 @@ getrandom = { version = "0.3", features = [
 wasm-bindgen = "0.2.90"
 
 # dev deps
-mock_instant = "0.5"
+mock_instant = "0.6"
 approx = "0.5.1"
 
 # Bevy

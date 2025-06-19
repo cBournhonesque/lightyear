@@ -203,7 +203,7 @@ pub struct InputTimeline(pub Timeline<Input>);
 impl TimelineContext for Input {}
 
 impl InputTimeline {
-    /// The InputTimeline is the driving timeline (it is used to update Time<Virtual> and LocalTimeline)
+    /// The [`InputTimeline`] is the driving timeline (it is used to update [`Time<Virtual>`] and [`LocalTimeline`](lightyear_core::prelude::LocalTimeline))
     /// so we simply apply delta as the relative_speed is already applied
     pub(crate) fn advance_timeline(
         time: Res<Time>,
@@ -266,10 +266,12 @@ impl SyncedTimeline for InputTimeline {
         }
     }
 
-    /// Adjust the current timeline to stay in sync with the [`MainTimeline`].
+    /// Adjust the current timeline to stay in sync with the [`RemoteTimeline`].
     ///
     /// Most of the times this will just be slight nudges to modify the speed of the [`SyncedTimeline`].
-    /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`MainTimeline`] by sending a SyncEvent
+    /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`RemoteTimeline`] by sending a SyncEvent
+    /// 
+    /// [`RemoteTimeline`]: super::remote::RemoteTimeline
     fn sync<T: SyncTargetTimeline>(
         &mut self,
         main: &T,

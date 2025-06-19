@@ -83,9 +83,7 @@ impl<
         num_ticks: u16,
         end_tick: Tick,
     ) -> Option<Self> {
-        let Some(buffer_start_tick) = input_buffer.start_tick else {
-            return None;
-        };
+        let buffer_start_tick = input_buffer.start_tick?;
         // find the first tick for which we have an `ActionState` buffered
         let start_tick = max(end_tick - num_ticks + 1, buffer_start_tick);
 
