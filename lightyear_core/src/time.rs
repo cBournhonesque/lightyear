@@ -14,6 +14,12 @@ use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
 
+#[cfg(any(not(feature = "test_utils"), feature="not_mock"))]
+pub use bevy::platform::time::Instant;
+// We use global instead of a thread_local, because otherwise we would need to advance the Instant on all threads
+#[cfg(all(feature = "test_utils", not(feature="not_mock")))]
+pub use mock_instant::global::Instant;
+
 // TODO: maybe let the user choose between u8 or u16 for quantization?
 // quantization error for u8 is about 0.2%, for u16 is 0.0008%
 /// Overstep fraction towards the next tick

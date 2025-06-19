@@ -16,6 +16,9 @@ std = [
 ]
 prediction = []
 interpolation = []
+test_utils = ["dep:mock_instant"]
+# special feature to avoid using mock_instant when running cargo doc and cargo clippy
+not_mock = []
 
 [dependencies]
 lightyear_utils.workspace = true
@@ -31,6 +34,9 @@ bevy.workspace = true
 
 # serde
 serde.workspace = true
+
+# test
+mock_instant = { workspace = true, optional = true}
 
 [dev-dependencies]
 approx.workspace = true

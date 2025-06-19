@@ -1,13 +1,13 @@
-use crate::ping::PingChannel;
 use crate::ping::manager::PingManager;
 use crate::ping::message::{Ping, Pong};
-use bevy::platform::time::Instant;
+use crate::ping::PingChannel;
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::host::HostClient;
 use lightyear_core::tick::TickDuration;
+use lightyear_core::time::Instant;
 use lightyear_core::time::TickDelta;
 use lightyear_link::Link;
 use lightyear_messages::plugin::MessageSet;

@@ -1,6 +1,6 @@
 //! Store the latest pings sent to remote
 
-use bevy::platform::time::Instant;
+use lightyear_core::time::Instant;
 use lightyear_utils::sequence_buffer::SequenceBuffer;
 use lightyear_utils::wrapping_id;
 

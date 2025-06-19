@@ -131,11 +131,13 @@ tracing-subscriber = { version = "0.3.17", features = [
   "env-filter",
 ] }
 
+# doc
+document-features = "0.2.11"
+
 # server
 crossbeam-channel = { version = "0.5.13", features = [] }
 
 # metrics
-
 metrics = "0.24"
 
 # transport

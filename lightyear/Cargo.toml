@@ -31,6 +31,7 @@ std = [
   "lightyear_netcode?/std",
   "lightyear_prediction?/std",
 ]
+## enable client plugins
 client = [
   "lightyear_connection/client",
   "lightyear_netcode?/client",
@@ -41,6 +42,7 @@ client = [
   "lightyear_inputs_native?/client",
   "lightyear_webtransport?/client"
 ]
+## enable server plugins and server-only features
 server = [
   "lightyear_connection/server",
   "lightyear_netcode?/server",
@@ -53,15 +55,18 @@ server = [
   "lightyear_webtransport?/server",
   "lightyear_prediction?/server"
 ]
+## Enables replicating entities between two peers
 replication = [
   "dep:lightyear_replication"
 ]
+## Enables client-side prediction handling to mask latency for local player actions
 prediction = [
   "dep:lightyear_prediction",
   "dep:lightyear_replication",
   "lightyear_replication?/prediction",
   "lightyear_core/prediction",
 ]
+## Enables interpolation handling, to smooth entity updates received from the remote peer
 interpolation = [
   "dep:lightyear_interpolation",
   "dep:lightyear_replication",
@@ -70,6 +75,7 @@ interpolation = [
   "lightyear_core/interpolation"
 ]
 trace = []
+## enable metrics collection (via `metrics` crate)
 metrics = [
   "lightyear_interpolation?/metrics",
   "lightyear_replication?/metrics",
@@ -79,9 +85,13 @@ metrics = [
   "lightyear_inputs?/metrics",
   "lightyear_netcode?/metrics"
 ]
+## Enables netcode to provide persistent IDs to clients
+##
+## Note: currently, this must always be enabled when not using Steam
 netcode = [
   "dep:lightyear_netcode",
 ]
+## Enable WebTransport support as an IO layer (defers to aeronet_webtransport)
 webtransport = [
   "std",
   "dep:lightyear_webtransport"
@@ -89,27 +99,35 @@ webtransport = [
 webtransport_self_signed = [
   "lightyear_webtransport/self-signed"
 ]
+## Enable unsafe configurations for WebTransport (e.g. allowing unencrypted connections) as a convenience for testing
 webtransport_dangerous_configuration = [
   "lightyear_webtransport/dangerous-configuration"
 ]
+## Add support for handling inputs where you can define your own input structs
 input_native = [
   "dep:lightyear_inputs",
   "dep:lightyear_inputs_native",
 ]
+## Add support for handling inputs using the leafwing-input-manager crate
 leafwing = [
   "dep:lightyear_inputs",
   "dep:lightyear_inputs_leafwing",
 ]
 
-# NOTE: because lightyear doesn't enable any features of avian by default, your crate must
-#       enable essential features (like f32 or f64).
+## Adds support for Avian
+##
+## NOTE: because lightyear doesn't enable any features of avian by default, your crate must
+##       enable essential features (like f32 or f64).
 avian = [
   "dep:lightyear_avian"
 ]
+## Use avian2d
 avian2d = ["lightyear_avian/2d", "avian"]
+## Use avian3d
 avian3d = ["lightyear_avian/3d", "avian"]
 
 # IO LAYERS
+## Enables UDP as an IO layer
 udp = [
   "dep:lightyear_udp",
   "std",
@@ -117,20 +135,20 @@ udp = [
 websocket = [
   "std",
 ]
+## Enables crossbeam channels as an IO layer
+##
+## This is useful when running a client and server in two processes of the same machine so that a client can act as the host
 crossbeam = [
   "dep:lightyear_crossbeam",
 ]
 
 # CONNECTION LAYERS
+## Enables Steam as a connection layer
 steam = [
   "dep:steamworks",
   "std",
 ]
-# TODO: add netcode
 
-#lag_compensation = [
-#  "lightyear_avian?/lag_compensation",
-#]
 track_location = ["bevy/track_location"]
 
 [dependencies]
@@ -166,6 +184,9 @@ aeronet_io.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 
+# doc
+document-features.workspace = true
+
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
 lightyear_udp = { workspace = true, optional = true }
@@ -180,11 +201,6 @@ wasm-bindgen = { workspace = true, optional = true }
 [dev-dependencies]
 leafwing-input-manager.workspace = true
 
-# docs.rs-specific configuration
 [package.metadata.docs.rs]
-# we cannot use all-features = true, because we need to provide additional features for avian
-# when building the docs
-# NOTE: building docs.rs doesn't work if I include avian
-#all-features = true
-features = ["metrics", "udp", "webtransport", "leafwing", "websocket", "steam", "crossbeam", "lag_compensation"]
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = ["-Zunstable-options", "--generate-link-to-definition"]
+cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]

@@ -11,15 +11,12 @@
 extern crate alloc;
 
 use aeronet_io::connection::{LocalAddr, PeerAddr};
-#[cfg(not(test))]
-use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
+use lightyear_core::time::Instant;
 use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked};
-#[cfg(test)]
-use mock_instant::global::Instant;
 use tracing::error;
 
 /// Maximum transmission units; maximum size in bytes of a packet

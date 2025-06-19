@@ -1,11 +1,8 @@
 //! Contains the `LinkConditioner` struct which can be used to simulate network conditions
-#[cfg(not(test))]
-use bevy::platform::time::Instant;
 use bevy::reflect::Reflect;
 use core::time::Duration;
+use lightyear_core::time::Instant;
 use lightyear_utils::ready_buffer::ReadyBuffer;
-#[cfg(test)]
-use mock_instant::global::Instant;
 use rand::Rng;
 
 /// Contains configuration required to initialize a LinkConditioner
