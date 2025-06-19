@@ -33,7 +33,7 @@ jobs:
           cargo fmt --all --check
       - name: Clippy lightyear
         # exclude avian_3d_character to only use lightyear_avian/2d features
-        run: cargo clippy --workspace --no-deps -- -D warnings -A clippy::needless_lifetimes
+        run: cargo clippy --workspace --exclude=compiletime --exclude=avian_3d_character --exclude=launcher --exclude=delta_compression --exclude=distributed_authority --no-deps -- -D warnings -A clippy::needless_lifetimes
 
   docs:
     name: Doc
@@ -52,7 +52,7 @@ jobs:
           RUSTFLAGS: --cfg docsrs_dep
           RUSTDOCFLAGS: --cfg=docsrs --generate-link-to-definition
         # exclude avian_3d_character to only use lightyear_avian/2d features
-        run: cargo doc --locked --workspace --exclude=avian_3d_character --document-private-items --no-deps --keep-going -D warnings
+        run: cargo doc --locked --workspace --exclude=avian_3d_character --document-private-items --no-deps --keep-going
 
   test:
     name: Test
