@@ -1,3 +1,32 @@
+
+# BEI
+
+- in host-server mode:
+  - local-client:
+    - buffers into ActionState (potentially with delay)
+    - server::UpdateActionState gets the correct ActionState from the buffer
+
+- if UpdateActionState before Buffer:
+ - no input delay:
+   - 
+
+- users add BEIInputPlugin<C> context
+
+- we query the `Actions<C>` component in our plugin, and store in the `InputBuffer<Actions<C>>`
+
+- the message will only contain t
+
+- InputMarker: we will add a fake companion component `InputMarker` that is added only if the entity has any bindings. 
+ 
+
+TODO:
+- add a Context value so that the systems can use it (for example a registry) when building the input_message
+- maybe the InputBuffer should store something else than the state? 
+  - let's say that the state is Actions<C>
+  - the input buffer could store `InputBuffer<ActionsSnapshot<C>>`, which is a snapshot that can be used to restore the state (`Actions<C>`)
+- 
+
+
 # HOST-SERVER
 
 - it sounds like the host-server inputs are not rebroadcasted correctly to other clients?

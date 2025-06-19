@@ -49,6 +49,7 @@ use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
 use bevy::ecs::entity::MapEntities;
+use bevy::ecs::system::StaticSystemParam;
 use bevy::prelude::*;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{NetworkTimeline, Rollback, Tick};
@@ -75,9 +76,12 @@ pub enum InputSet {
     // PRE UPDATE
     /// Receive the InputMessage from other clients
     ReceiveInputMessages,
+
     // FIXED PRE UPDATE
     /// System Set where the user should emit InputEvents, they will be buffered in the InputBuffers in the BufferClientInputs set.
+    ///
     /// (For Leafwing, there is nothing to do because the ActionState is updated by leafwing)
+    /// (For BEI, there is nothing to do because the `Actions<C>` is updated by the BEI plugin)
     WriteClientInputs,
     /// System Set where we update the ActionState and the InputBuffers
     /// - no rollback: we write the ActionState to the InputBuffers
@@ -120,7 +124,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         if !app.is_plugin_added::<InputPlugin<S>>() {
             app.add_plugins(InputPlugin::<S>::default());
         }
-        app.insert_resource(self.config.clone());
+        app.insert_resource(self.config);
         app.init_resource::<MessageBuffer<S>>();
         // SETS
         // NOTE: this is subtle! We receive remote players messages after
@@ -205,20 +209,28 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
 ///
 /// We do not need to buffer inputs during rollback, as they have already been buffered
 fn buffer_action_state<S: ActionStateSequence>(
+    context: StaticSystemParam<S::Context>,
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
     sender: Single<(&InputTimeline, &LocalTimeline), Without<Rollback>>,
-    mut action_state_query: Query<(Entity, &S::State, &mut InputBuffer<S::State>), With<S::Marker>>,
+    mut action_state_query: Query<
+        (Entity, &S::State, &mut InputBuffer<S::Snapshot>),
+        With<S::Marker>,
+    >,
 ) {
     let (input_timeline, local_timeline) = sender.into_inner();
     let current_tick = local_timeline.tick();
     let tick = current_tick + input_timeline.input_delay() as i16;
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
-        InputBuffer::set(&mut input_buffer, tick, action_state.clone());
+        InputBuffer::set(
+            &mut input_buffer,
+            tick,
+            S::to_snapshot(action_state, &context),
+        );
         trace!(
             ?entity,
-            action_state = ?action_state.clone(),
+            // ?action_state,
             ?current_tick,
             delayed_tick = ?tick,
             input_buffer = %input_buffer.as_ref(),
@@ -238,6 +250,7 @@ fn buffer_action_state<S: ActionStateSequence>(
 
 /// Retrieve the ActionState for the current tick.
 fn get_action_state<S: ActionStateSequence>(
+    context: StaticSystemParam<S::Context>,
     // NOTE: we skip this for host-client because a similar system does the same thing
     //  in the server, and also clears the buffers
     sender: Single<(&LocalTimeline, &InputTimeline, Has<Rollback>), Without<HostClient>>,
@@ -245,7 +258,7 @@ fn get_action_state<S: ActionStateSequence>(
     // - local player: we need to get the input from the InputBuffer because of input delay
     // - remote player: we want to reduce the amount of rollbacks by updating the ActionState
     //   as fast as possible (the inputs are broadcasted with no delay)
-    mut action_state_query: Query<(Entity, &mut S::State, &InputBuffer<S::State>)>,
+    mut action_state_query: Query<(Entity, &mut S::State, &InputBuffer<S::Snapshot>)>,
 ) {
     let (local_timeline, input_timeline, is_rollback) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
@@ -258,13 +271,13 @@ fn get_action_state<S: ActionStateSequence>(
         // We only apply the ActionState from the buffer if we have one.
         // If we don't (which could happen for remote inputs), we won't do anything.
         // This is equivalent to considering that the remote player will keep playing the last action they played.
-        if let Some(action) = input_buffer.get(tick) {
-            *action_state = action.clone();
+        if let Some(snapshot) = input_buffer.get(tick) {
+            S::from_snapshot(action_state.as_mut(), snapshot, &context);
             trace!(
                 ?entity,
                 ?tick,
-                "fetched action state {:?} from input buffer: {:?}",
-                action_state,
+                // ?action_state,
+                "fetched action state from input buffer: {:?}",
                 // action_state.get_pressed(),
                 input_buffer
             );
@@ -275,9 +288,10 @@ fn get_action_state<S: ActionStateSequence>(
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<S: ActionStateSequence>(
+    context: StaticSystemParam<S::Context>,
     sender: Query<(&InputTimeline, &LocalTimeline, Has<Rollback>), With<IsSynced<InputTimeline>>>,
     mut action_state_query: Query<
-        (Entity, &mut S::State, &InputBuffer<S::State>),
+        (Entity, &mut S::State, &InputBuffer<S::Snapshot>),
         // Filter so that this is only for directly controlled players, not remote players
         With<S::Marker>,
     >,
@@ -294,12 +308,12 @@ fn get_delayed_action_state<S: ActionStateSequence>(
         // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
         //  the problem is that the Leafwing Plugin works on ActionState directly...
         if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
-            *action_state = delayed_action_state.clone();
+            S::from_snapshot(action_state.as_mut(), delayed_action_state, &context);
             trace!(
                 ?entity,
                 ?delayed_tick,
-                "fetched delayed action state {:?} from input buffer: {}",
-                action_state,
+                // ?action_state,
+                "fetched delayed action state from input buffer: {}",
                 input_buffer
             );
         }
@@ -312,7 +326,7 @@ fn clean_buffers<S: ActionStateSequence>(
     // NOTE: we skip this for host-client because the get_action_state system on the server
     //  also clears the buffers
     sender: Query<&LocalTimeline, (With<InputTimeline>, Without<HostClient>)>,
-    mut input_buffer_query: Query<&mut InputBuffer<S::State>>,
+    mut input_buffer_query: Query<&mut InputBuffer<S::Snapshot>>,
 ) {
     let Ok(local_timeline) = sender.single() else {
         return;
@@ -368,7 +382,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     input_buffer_query: Query<
         (
             Entity,
-            &InputBuffer<S::State>,
+            &InputBuffer<S::Snapshot>,
             Option<&Predicted>,
             Option<&PrePredicted>,
         ),
@@ -495,7 +509,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     // TODO: currently we do not handle entities that are controlled by multiple clients
     confirmed_query: Query<&Confirmed, Without<S::Marker>>,
     mut predicted_query: Query<
-        Option<&mut InputBuffer<S::State>>,
+        Option<&mut InputBuffer<S::Snapshot>>,
         // the host-client won't receive input messages from the Server
         (With<Predicted>, Without<S::Marker>, Without<HostClient>),
     >,
@@ -504,7 +518,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     let tick = timeline.tick();
     receiver.receive().for_each(|message| {
         trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", core::any::type_name::<S::Action>());
-        for target_data in &message.inputs {
+        for target_data in message.inputs {
             // - the input target has already been set to the server entity in the InputMessage
             // - it has been mapped to a client-entity on the client during deserialization
             //   ONLY if it's PrePredicted (look at the MapEntities implementation)
@@ -547,7 +561,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                                 }
                             } else {
                                 // add the ActionState or InputBuffer if they are missing
-                                let mut input_buffer = InputBuffer::<S::State>::default();
+                                let mut input_buffer = InputBuffer::<S::Snapshot>::default();
                                 target_data.states.update_buffer(&mut input_buffer, message.end_tick);
                                 // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
                                 commands.entity(predicted).insert((
@@ -626,7 +640,7 @@ fn send_input_messages<S: ActionStateSequence>(
 fn receive_tick_events<S: ActionStateSequence>(
     trigger: Trigger<SyncEvent<InputTimeline>>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
-    mut input_buffer_query: Query<&mut InputBuffer<S::State>>,
+    mut input_buffer_query: Query<&mut InputBuffer<S::Snapshot>>,
 ) {
     let delta = trigger.tick_delta;
     for mut input_buffer in input_buffer_query.iter_mut() {

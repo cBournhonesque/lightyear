@@ -7,6 +7,7 @@ members = [
   "lightyear_crossbeam",
   "lightyear_frame_interpolation",
   "lightyear_inputs",
+  "lightyear_inputs_bei",
   "lightyear_inputs_leafwing",
   "lightyear_inputs_native",
   "lightyear_interpolation",
@@ -72,6 +73,7 @@ lightyear_core = { path = "./lightyear_core", version = " 0.21.0-rc.1", default-
 lightyear_crossbeam = { path = "./lightyear_crossbeam", version = " 0.21.0-rc.1", default-features = false }
 lightyear_frame_interpolation = { path = "./lightyear_frame_interpolation", version = " 0.21.0-rc.1", default-features = false }
 lightyear_inputs = { path = "./lightyear_inputs", version = " 0.21.0-rc.1", default-features = false }
+lightyear_inputs_bei = { path = "./lightyear_inputs_bei", version = " 0.21.0-rc.1", default-features = false }
 lightyear_inputs_leafwing = { path = "./lightyear_inputs_leafwing", version = " 0.21.0-rc.1", default-features = false }
 lightyear_inputs_native = { path = "./lightyear_inputs_native", version = " 0.21.0-rc.1", default-features = false }
 lightyear_interpolation = { path = "./lightyear_interpolation", version = " 0.21.0-rc.1", default-features = false }
@@ -181,6 +183,7 @@ bevy = { version = "0.16", default-features = false, features = [
 ] }
 
 # input
+bevy_enhanced_input = { git = "https://github.com/cBournhonesque/bevy_enhanced_input.git", branch = "cb/networking" }
 leafwing-input-manager = { version = "0.17", default-features = false, features = [
   "keyboard",
 ] }

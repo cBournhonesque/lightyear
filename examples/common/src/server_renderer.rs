@@ -54,7 +54,7 @@ pub(crate) struct ServerButton;
 pub(crate) fn spawn_start_button(app: &mut App) {
     app.world_mut()
         .spawn(Node {
-            width: Val::Percent(50.0),
+            width: Val::Percent(30.0),
             height: Val::Percent(100.0),
             align_items: AlignItems::FlexEnd,
             justify_content: JustifyContent::FlexEnd,

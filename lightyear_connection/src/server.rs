@@ -1,13 +1,12 @@
-use crate::client::{Disconnected, Disconnecting};
+use crate::client::{Client, Disconnected, Disconnecting};
 use crate::client_of::ClientOf;
 use bevy::app::{App, Last, Plugin};
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Commands, Component, Entity, Event, OnAdd, Query, Reflect, Trigger, With};
+use bevy::prelude::*;
 use core::fmt::Debug;
 use lightyear_link::prelude::Server;
 use lightyear_link::{LinkStart, Unlinked};
-use tracing::trace;
 
 /// Errors related to the server connection
 #[derive(thiserror::Error, Debug)]
@@ -128,6 +127,23 @@ impl ConnectionPlugin {
                 .despawn();
         }
     }
+}
+
+/// RunCondition to check if the app is a server.
+///
+/// Note that the app could also have a host-client
+pub fn is_server(server_query: Query<(), With<Server>>) -> bool {
+    server_query.single().is_ok()
+}
+
+/// RunCondition to check if the app is a headless server:
+/// - there is an entity with the `Server` component
+/// - there are no entities with the `Client` component
+pub fn is_headless_server(
+    server_query: Query<(), With<Server>>,
+    query: Query<(), With<Client>>,
+) -> bool {
+    server_query.single().is_ok() && query.is_empty()
 }
 
 impl Plugin for ConnectionPlugin {

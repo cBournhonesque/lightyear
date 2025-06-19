@@ -16,7 +16,7 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/41a6d102-77a1-4a44-89
 - Run client with id 2: `cargo run client -c 2`
 - Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`
 - Run the server without a gui: `cargo run --no-default-features --features=server`
-- Run the client and server in "HostServer" mode, where the server is also a client (there is only one App): `cargo run host-server`
+- Run the client and server in "HostClient" mode, where the server is also a client (there is only one App): `cargo run host-client`
 
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server`.

@@ -14,6 +14,7 @@ use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::state::app::StatesPlugin;
 use clap::{Parser, Subcommand};
 
+#[cfg(feature = "client")]
 use crate::client::{ClientTransports, ExampleClient, connect};
 #[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;

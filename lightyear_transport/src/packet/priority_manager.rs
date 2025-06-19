@@ -1,8 +1,8 @@
 use alloc::collections::VecDeque;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
+use bevy::platform::collections::HashMap;
 use core::num::NonZeroU32;
-use lightyear_utils::collections::HashMap;
 
 use crate::channel::ChannelKind;
 use crate::channel::builder::SenderMetadata;
