@@ -41,7 +41,8 @@ jobs:
     name: Doc
     runs-on: ubuntu-latest
     steps:
-
+      - name: Install packages
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config libusb-1.0-0-dev libftdi1-dev libudev-dev;
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -78,6 +79,9 @@ jobs:
 
       - name: Install Tarpaulin
         run: cargo install cargo-tarpaulin
+
+      - name: Activate CI cargo config
+        run: mv .cargo/config_ci.toml .cargo/config.toml
 
       - name: Test
         run: cargo tarpaulin --locked -p lightyear_tests --test-threads=1 --engine llvm --out lcov
