@@ -193,7 +193,7 @@ impl Bytes for ConnectTokenPrivate {
         buf.write_i32(self.timeout_seconds)?;
         self.server_addresses
             .write_to(buf)
-            .map_err(|e| io::Error::other(e))?;
+            .map_err(io::Error::other)?;
         buf.write_all(&self.client_to_server_key)?;
         buf.write_all(&self.server_to_client_key)?;
         buf.write_all(&self.user_data)?;
@@ -204,7 +204,7 @@ impl Bytes for ConnectTokenPrivate {
         let client_id = reader.read_u64()?;
         let timeout_seconds = reader.read_i32()?;
         let server_addresses =
-            AddressList::read_from(reader).map_err(|e| io::Error::other(e))?;
+            AddressList::read_from(reader).map_err(io::Error::other)?;
 
         let mut client_to_server_key = [0; PRIVATE_KEY_BYTES];
         reader.read_exact(&mut client_to_server_key)?;

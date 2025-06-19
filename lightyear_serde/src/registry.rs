@@ -5,12 +5,12 @@ use crate::{SerializationError, ToBytes};
 use bevy::ecs::entity::MapEntities;
 use bevy::ptr::{Ptr, PtrMut};
 use core::any::TypeId;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 // TODO: this should be in lightyear_serde? it's not strictly related to messages?
 /// Stores function pointers related to serialization and deserialization
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ErasedSerializeFns {
     pub(crate) type_id: TypeId,
     pub type_name: &'static str,

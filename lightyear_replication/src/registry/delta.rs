@@ -16,8 +16,8 @@ use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::ContextDeserializeFns;
 use lightyear_serde::writer::Writer;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use tracing::trace;
 
 impl ComponentRegistry {
@@ -255,7 +255,7 @@ unsafe fn erased_drop<C>(data: NonNull<u8>) {
     let _ = unsafe { Box::from_raw(data.cast::<C>().as_ptr()) };
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub(crate) struct ErasedDeltaFns {
     pub(crate) type_id: TypeId,
     pub(crate) type_name: &'static str,

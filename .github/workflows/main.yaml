@@ -59,7 +59,7 @@ jobs:
       - name: Rustdoc
         env:
           # needs to be in sync with [package.metadata.docs.rs]
-          RUSTFLAGS: --cfg docsrs_dep
+          RUSTFLAGS: --cfg docsrs_dep -A mismatched_lifetime_syntaxes
           RUSTDOCFLAGS: --cfg=docsrs --generate-link-to-definition
         # exclude avian_3d_character to only use lightyear_avian/2d features
         run: cargo +nightly doc --features=lightyear_core/not_mock --workspace --exclude=avian_3d_character --document-private-items --no-deps --keep-going
@@ -68,12 +68,6 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - name: Install Linux dependencies
-        uses: ./.github/actions/install-linux-deps
-        with:
-          wayland: true
-          xkb: true
-          
       - name: Clone repo
         uses: actions/checkout@v4
 
@@ -82,6 +76,12 @@ jobs:
 
       - name: Cache crates
         uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux dependencies
+        uses: ./.github/actions/install-linux-deps
+        with:
+          wayland: true
+          xkb: true
 
       - name: Install LLVM tools
         run: rustup component add llvm-tools-preview
@@ -103,7 +103,7 @@ jobs:
           path: lcov.info
 
 #      - name: Test doc
-#        run: cargo test --locked --workspace --doc
+#        run: cargo test --test-threads=1 --locked --workspace --doc
 
   codecov:
     name: Upload to Codecov

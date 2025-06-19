@@ -20,8 +20,8 @@ use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageError {
@@ -69,7 +69,7 @@ impl From<TypeId> for MessageKind {
 use crate::receive_trigger::ReceiveTriggerFn;
 use crate::send_trigger::{SendLocalTriggerFn, SendTriggerFn};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct ReceiveMessageMetadata {
     /// ComponentId of the [`MessageReceiver<M>`] component (used if not a trigger)
     pub(crate) component_id: ComponentId,
@@ -77,7 +77,7 @@ pub struct ReceiveMessageMetadata {
     pub(crate) message_clear_fn: ClearMessageFn,
 }
 
-#[derive(Debug, Clone, PartialEq, TypePath)]
+#[derive(Debug, Clone, TypePath)]
 pub(crate) struct SendMessageMetadata {
     /// ComponentId of the [`MessageSender<M>`] component
     pub(crate) component_id: ComponentId,
@@ -85,7 +85,7 @@ pub(crate) struct SendMessageMetadata {
     pub(crate) send_local_message_fn: SendLocalMessageFn,
 }
 
-#[derive(Debug, Clone, PartialEq, TypePath)]
+#[derive(Debug, Clone, TypePath)]
 pub(crate) struct SendTriggerMetadata {
     /// ComponentId of the [`TriggerSender<M>`](crate::send_trigger::TriggerSender) component
     pub(crate) component_id: ComponentId,
@@ -393,9 +393,9 @@ impl AppMessageExt for App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lightyear_serde::SerializationError;
     use lightyear_serde::reader::ReadInteger;
     use lightyear_serde::writer::WriteInteger;
+    use lightyear_serde::SerializationError;
     use serde::Deserialize;
 
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
