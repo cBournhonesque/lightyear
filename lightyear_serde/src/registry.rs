@@ -5,8 +5,8 @@ use crate::{SerializationError, ToBytes};
 use bevy::ecs::entity::MapEntities;
 use bevy::ptr::{Ptr, PtrMut};
 use core::any::TypeId;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 // TODO: this should be in lightyear_serde? it's not strictly related to messages?
 /// Stores function pointers related to serialization and deserialization

@@ -200,7 +200,3 @@ wasm-bindgen = { workspace = true, optional = true }
 
 [dev-dependencies]
 leafwing-input-manager.workspace = true
-
-[package.metadata.docs.rs]
-rustdoc-args = ["-Zunstable-options"]
-cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]

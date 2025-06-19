@@ -6,10 +6,10 @@ use bevy::ecs::component::{Component, ComponentId, Immutable, Mutable};
 use bevy::prelude::*;
 use bytes::Bytes;
 use lightyear_core::prelude::Tick;
+use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{ContextDeserializeFns, ErasedSerializeFns};
-use lightyear_serde::ToBytes;
 
 #[derive(Debug, Clone)]
 pub struct ReplicationMetadata {

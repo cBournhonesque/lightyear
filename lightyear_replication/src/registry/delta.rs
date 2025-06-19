@@ -16,8 +16,8 @@ use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::ContextDeserializeFns;
 use lightyear_serde::writer::Writer;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tracing::trace;
 
 impl ComponentRegistry {

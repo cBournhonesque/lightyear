@@ -1,12 +1,12 @@
 use crate::{
-    add_interpolation_systems, add_prepare_interpolation_systems, InterpolationMode, SyncComponent,
+    InterpolationMode, SyncComponent, add_interpolation_systems, add_prepare_interpolation_systems,
 };
 use bevy::math::Curve;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::{Component, Ease, EaseFunction, EasingCurve, Resource};
 use lightyear_replication::prelude::ComponentRegistration;
-use lightyear_replication::registry::registry::LerpFn;
 use lightyear_replication::registry::ComponentKind;
+use lightyear_replication::registry::registry::LerpFn;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);

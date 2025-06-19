@@ -1,15 +1,15 @@
 use super::{
-    bytes::Bytes, crypto::{self, Key}, error::Error, utils,
-    CONNECTION_TIMEOUT_SEC,
-    CONNECT_TOKEN_BYTES,
-    NETCODE_VERSION,
-    PRIVATE_KEY_BYTES,
+    CONNECT_TOKEN_BYTES, CONNECTION_TIMEOUT_SEC, NETCODE_VERSION, PRIVATE_KEY_BYTES,
     USER_DATA_BYTES,
+    bytes::Bytes,
+    crypto::{self, Key},
+    error::Error,
+    utils,
 };
 use alloc::borrow::ToOwned;
 #[cfg(not(feature = "std"))]
 use alloc::format;
-use chacha20poly1305::{aead::OsRng, AeadCore, XChaCha20Poly1305, XNonce};
+use chacha20poly1305::{AeadCore, XChaCha20Poly1305, XNonce, aead::OsRng};
 use core::mem::size_of;
 use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use lightyear_serde::reader::ReadInteger;
@@ -203,8 +203,7 @@ impl Bytes for ConnectTokenPrivate {
     fn read_from(reader: &mut impl ReadInteger) -> Result<Self, io::Error> {
         let client_id = reader.read_u64()?;
         let timeout_seconds = reader.read_i32()?;
-        let server_addresses =
-            AddressList::read_from(reader).map_err(io::Error::other)?;
+        let server_addresses = AddressList::read_from(reader).map_err(io::Error::other)?;
 
         let mut client_to_server_key = [0; PRIVATE_KEY_BYTES];
         reader.read_exact(&mut client_to_server_key)?;
@@ -434,9 +433,7 @@ impl ConnectToken {
         let mut buf = [0u8; CONNECT_TOKEN_BYTES];
         let mut cursor = io::Cursor::new(&mut buf[..]);
         self.write_to(&mut cursor).map_err(|e| {
-            io::Error::other(
-                format!("failed to write token to buffer: {}", e).as_str(),
-            )
+            io::Error::other(format!("failed to write token to buffer: {}", e).as_str())
         })?;
         Ok(buf)
     }
