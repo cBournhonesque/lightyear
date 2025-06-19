@@ -21,8 +21,6 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - name: Install packages
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config libusb-1.0-0-dev libftdi1-dev libudev-dev;
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -30,6 +28,11 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-all-crates: true
           shared-key: lints
+      - name: Install Linux dependencies
+        uses: ./.github/actions/install-linux-deps
+        with:
+          wayland: true
+          xkb: true
       - name: Format
         run: |
           cargo fmt --all --check
@@ -41,8 +44,6 @@ jobs:
     name: Doc
     runs-on: ubuntu-latest
     steps:
-      - name: Install packages
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config libusb-1.0-0-dev libftdi1-dev libudev-dev;
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -50,6 +51,11 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-all-crates: true
           shared-key: lints
+      - name: Install Linux dependencies
+        uses: ./.github/actions/install-linux-deps
+        with:
+          wayland: true
+          xkb: true
       - name: Rustdoc
         env:
           # needs to be in sync with [package.metadata.docs.rs]
@@ -62,9 +68,12 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - name: Install packages
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config libusb-1.0-0-dev libftdi1-dev libudev-dev;
-
+      - name: Install Linux dependencies
+        uses: ./.github/actions/install-linux-deps
+        with:
+          wayland: true
+          xkb: true
+          
       - name: Clone repo
         uses: actions/checkout@v4
 
