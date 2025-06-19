@@ -25,9 +25,6 @@ impl<S> Default for InputPlugin<S> {
 
 impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
     fn build(&self, app: &mut App) {
-        app.register_type::<InputBuffer<S::State>>();
-        app.register_type::<S::State>();
-
         app.add_channel::<InputChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             // we send inputs every frame
