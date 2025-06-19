@@ -13,10 +13,10 @@ use bevy::prelude::*;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
+use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
-use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
 
