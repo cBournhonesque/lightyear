@@ -70,6 +70,7 @@ pub enum ReplicationMode {
 #[require(ReplicationGroup)]
 #[component(on_insert = Replicate::on_insert)]
 #[component(on_replace = Replicate::on_replace)]
+#[reflect(Component)]
 pub struct Replicate {
     mode: ReplicationMode,
     #[reflect(ignore)]
