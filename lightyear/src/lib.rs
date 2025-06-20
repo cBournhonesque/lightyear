@@ -49,12 +49,17 @@ pub mod webtransport {
     pub use lightyear_webtransport::*;
 }
 
-#[cfg(any(feature = "input_native", feature = "leafwing"))]
+#[cfg(any(feature = "input_native", feature = "leafwing", feature="input_bei"))]
 pub mod input {
     pub use lightyear_inputs::*;
     #[cfg(feature = "input_native")]
     pub mod native {
         pub use lightyear_inputs_native::*;
+    }
+
+    #[cfg(feature = "input_bei")]
+    pub mod bei {
+        pub use lightyear_inputs_bei::*;
     }
 
     #[cfg(feature = "leafwing")]
@@ -99,13 +104,22 @@ pub mod prelude {
     #[cfg(feature = "interpolation")]
     pub use lightyear_interpolation::prelude::*;
 
-    #[cfg(any(feature = "input_native", feature = "leafwing"))]
+    #[cfg(any(feature = "input_native", feature = "leafwing", feature="input_bei"))]
     pub mod input {
         pub use lightyear_inputs::prelude::*;
+
         #[cfg(feature = "input_native")]
         pub mod native {
             pub use lightyear_inputs_native::prelude::*;
         }
+
+        #[cfg(feature = "input_bei")]
+        pub mod bei {
+            pub use lightyear_inputs_bei::prelude::*;
+        }
+        #[cfg(feature = "input_bei")]
+        pub use lightyear_inputs_bei::prelude::InputRegistryExt;
+
         #[cfg(feature = "leafwing")]
         pub mod leafwing {
             pub use lightyear_inputs_leafwing::prelude::*;
@@ -123,7 +137,7 @@ pub mod prelude {
         #[cfg(feature = "webtransport")]
         pub use lightyear_webtransport::prelude::client::*;
 
-        #[cfg(any(feature = "input_native", feature = "leafwing"))]
+        #[cfg(any(feature = "input_native", feature = "leafwing", feature="input_bei"))]
         pub mod input {
             pub use lightyear_inputs::prelude::client::*;
         }
@@ -143,7 +157,7 @@ pub mod prelude {
         #[cfg(feature = "webtransport")]
         pub use lightyear_webtransport::prelude::server::*;
 
-        #[cfg(any(feature = "input_native", feature = "leafwing"))]
+        #[cfg(any(feature = "input_native", feature = "leafwing", feature="input_bei"))]
         pub mod input {
             pub use lightyear_inputs::prelude::server::*;
         }

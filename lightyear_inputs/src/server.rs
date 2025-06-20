@@ -5,6 +5,7 @@ use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
 use bevy::ecs::entity::MapEntities;
+use bevy::ecs::system::StaticSystemParam;
 use bevy::prelude::*;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
@@ -105,6 +106,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
 fn receive_input_message<S: ActionStateSequence>(
     config: Res<ServerInputConfig<S>>,
     server: Query<&Server>,
+    context: StaticSystemParam<S::Context>,
     mut sender: ServerMultiMessageSender,
     mut receivers: Query<
         (
@@ -118,7 +120,7 @@ fn receive_input_message<S: ActionStateSequence>(
         // rebroadcast to other clients (so that they can do prediction of the HostClient's entity)
         With<Connected>,
     >,
-    mut query: Query<Option<&mut InputBuffer<S::State>>>,
+    mut query: Query<Option<&mut InputBuffer<S::Snapshot>>>,
     mut commands: Commands,
 ) -> Result {
     // TODO: use par_iter_mut
@@ -143,7 +145,18 @@ fn receive_input_message<S: ActionStateSequence>(
                 commands.entity(client_entity).insert(interpolation_delay);
             }
 
-            for data in &message.inputs {
+            if config.rebroadcast_inputs {
+                trace!("Rebroadcast input message {message:?} from client {client_id:?} to other clients");
+                if let Ok(server) = server.get(server_entity) {
+                    sender.send::<_, InputChannel>(
+                        &message,
+                        server,
+                        &NetworkTarget::AllExceptSingle(client_id.0)
+                    )?;
+                }
+            }
+
+            for data in message.inputs {
                 match data.target {
                     // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
                     // (which is possible because the server received the entity)
@@ -156,15 +169,15 @@ fn receive_input_message<S: ActionStateSequence>(
 
                         if let Ok(buffer) = query.get_mut(entity) {
                             if let Some(mut buffer) = buffer {
-                                data.states.update_buffer(&mut buffer, message.end_tick);
-                                trace!(
-                                    "Updated InputBuffer: {} using InputMessage: {:?}",
+                               trace!(
+                                    "Updated InputBuffer: {} using: {:?}",
                                     buffer.as_ref(),
-                                    message
+                                    data.states
                                 );
+                                data.states.update_buffer(&mut buffer, message.end_tick);
                             } else {
                                 debug!("Adding InputBuffer and ActionState which are missing on the entity");
-                                let mut buffer = InputBuffer::<S::State>::default();
+                                let mut buffer = InputBuffer::<S::Snapshot>::default();
                                 data.states.update_buffer(&mut buffer, message.end_tick);
                                 commands.entity(entity).insert((
                                     buffer,
@@ -183,17 +196,6 @@ fn receive_input_message<S: ActionStateSequence>(
                     }
                 }
             }
-
-            if config.rebroadcast_inputs {
-                trace!("Rebroadcast input message {message:?} from client {client_id:?} to other clients");
-                if let Ok(server) = server.get(server_entity) {
-                    sender.send::<_, InputChannel>(
-                        &message,
-                        server,
-                        &NetworkTarget::AllExceptSingle(client_id.0)
-                    )?;
-                }
-            }
             Ok(())
         })
     })
@@ -205,11 +207,12 @@ fn receive_input_message<S: ActionStateSequence>(
 /// plugin for host-clients. This system also removes old inputs from the buffer, which is why we
 /// can also skip `clear_buffers` on host-clients
 fn update_action_state<S: ActionStateSequence>(
+    context: StaticSystemParam<S::Context>,
     // TODO: what if there are multiple servers? maybe we can use Replicate to figure out which inputs should be replicating on which servers?
     //  and use the timeline from that connection? i.e. find from which entity we got the first InputMessage?
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
     server: Query<(Entity, &LocalTimeline), With<Started>>,
-    mut action_state_query: Query<(Entity, &mut S::State, &mut InputBuffer<S::State>)>,
+    mut action_state_query: Query<(Entity, &mut S::State, &mut InputBuffer<S::Snapshot>)>,
 ) {
     let Ok((server, timeline)) = server.single() else {
         // We don't have a server timeline, so we can't update the action state
@@ -222,8 +225,8 @@ fn update_action_state<S: ActionStateSequence>(
         // We only apply the ActionState from the buffer if we have one.
         // If we don't (because the input packet is late or lost), we won't do anything.
         // This is equivalent to considering that the player will keep playing the last action they played.
-        if let Some(action) = input_buffer.get(tick) {
-            *action_state = action.clone();
+        if let Some(snapshot) = input_buffer.get(tick) {
+            S::from_snapshot(action_state.as_mut(), snapshot, &context);
             trace!(
                 ?tick,
                 ?entity,

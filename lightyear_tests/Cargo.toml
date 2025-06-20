@@ -30,7 +30,7 @@ std = [
 
 [dependencies]
 lightyear = { workspace = true, features = [
-    "client", "server", "crossbeam", "netcode", "input_native", "leafwing", "interpolation", "prediction", "replication",
+    "client", "server", "crossbeam", "netcode", "input_native", "input_bei", "leafwing", "interpolation", "prediction", "replication",
 ]}
 lightyear_macros.workspace = true
 lightyear_utils.workspace = true
@@ -48,6 +48,7 @@ lightyear_link = { workspace = true, features = ["test_utils"] }
 
 # inputs
 leafwing-input-manager.workspace = true
+bevy_enhanced_input.workspace = true
 
 # utils
 cfg-if.workspace = true

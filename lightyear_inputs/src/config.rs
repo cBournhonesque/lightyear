@@ -2,8 +2,8 @@ use bevy::prelude::{Reflect, Resource};
 use core::marker::PhantomData;
 use core::time::Duration;
 
-// TODO: make this a component
-#[derive(Debug, Clone, Copy, Reflect, Resource)]
+// TODO: make this a component ?
+#[derive(Debug, Reflect, Resource)]
 pub struct InputConfig<A> {
     #[cfg(feature = "interpolation")]
     /// If enabled, the client will send the interpolation_delay to the server so that the server
@@ -25,6 +25,14 @@ pub struct InputConfig<A> {
     /// to predict their actions
     pub rebroadcast_inputs: bool,
     pub marker: PhantomData<A>,
+}
+
+impl<A> Copy for InputConfig<A> {}
+
+impl<A> Clone for InputConfig<A> {
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 
 impl<A> Default for InputConfig<A> {

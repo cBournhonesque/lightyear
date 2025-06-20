@@ -5,8 +5,8 @@ use crate::input_buffer::InputBuffer;
 use alloc::{format, string::String, vec, vec::Vec};
 use bevy::ecs::component::Mutable;
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Component, Entity, EntityMapper, FromReflect, Reflect};
-use bevy::reflect::Reflectable;
+use bevy::ecs::system::SystemParam;
+use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
 use core::fmt::{Debug, Formatter, Write};
 use lightyear_core::prelude::Tick;
 #[cfg(feature = "interpolation")]
@@ -39,39 +39,50 @@ pub struct PerTargetData<S> {
 pub trait ActionStateSequence:
     Serialize + DeserializeOwned + Clone + Debug + Send + Sync + 'static
 {
-    type Action: Serialize
-        + DeserializeOwned
-        + Clone
-        + PartialEq
-        + Send
-        + Sync
-        + Debug
-        + Reflectable
-        + 'static;
-    type State: Component<Mutability = Mutable>
-        + Default
-        + Debug
-        + Clone
-        + PartialEq
-        + Reflectable
-        + FromReflect;
+    /// The type of the Action
+    type Action: Send + Sync + 'static;
+
+    /// Snapshot of the State that will be stored in the InputBuffer.
+    /// This should be enough to be able to reconstruct the State at a given tick.
+    type Snapshot: Send + Sync + Debug + PartialEq + Clone + 'static;
+
+    /// The component that is used by the user to get the list of active actions.
+    type State: Component<Mutability = Mutable> + Default;
 
     /// Marker component to identify the ActionState that the player is actively updating
     /// (as opposed to the ActionState of other players, for instance)
     type Marker: Component;
 
+    /// Extra context that needs to be fetched and is needed to build the state sequence from the input buffer
+    type Context: SystemParam;
+
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
 
-    fn update_buffer(&self, input_buffer: &mut InputBuffer<Self::State>, end_tick: Tick);
+    /// Update the given input buffer with the data from this state sequence
+    fn update_buffer(self, input_buffer: &mut InputBuffer<Self::Snapshot>, end_tick: Tick);
 
+    /// Build the state sequence (which will be sent over the network) from the input buffer
     fn build_from_input_buffer(
-        input_buffer: &InputBuffer<Self::State>,
+        input_buffer: &InputBuffer<Self::Snapshot>,
         num_ticks: u16,
         end_tick: Tick,
     ) -> Option<Self>
     where
         Self: Sized;
+
+    /// Create a snapshot from the given state.
+    fn to_snapshot<'w, 's>(
+        state: &Self::State,
+        context: &<Self::Context as SystemParam>::Item<'w, 's>,
+    ) -> Self::Snapshot;
+
+    /// Modify the given state to reflect the given snapshot.
+    fn from_snapshot<'w, 's>(
+        state: &mut Self::State,
+        snapshot: &Self::Snapshot,
+        context: &<Self::Context as SystemParam>::Item<'w, 's>,
+    );
 }
 
 /// Message used to send client inputs to the server.

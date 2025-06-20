@@ -113,6 +113,10 @@ leafwing = [
   "dep:lightyear_inputs",
   "dep:lightyear_inputs_leafwing",
 ]
+input_bei = [
+  "dep:lightyear_inputs",
+  "dep:lightyear_inputs_bei",
+]
 
 ## Adds support for Avian
 ##
@@ -169,6 +173,7 @@ lightyear_transport.workspace = true
 lightyear_serde.workspace = true
 lightyear_utils.workspace = true
 lightyear_inputs = {workspace = true, optional = true}
+lightyear_inputs_bei = {workspace = true, optional = true}
 lightyear_inputs_leafwing = {workspace = true, optional = true}
 lightyear_inputs_native = {workspace = true, optional = true}
 lightyear_crossbeam = {workspace = true, optional = true}
