@@ -5,9 +5,8 @@
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //! predicted entity and the server entity)
 use async_compat::Compat;
-use std::io::Read;
-use std::net::SocketAddr;
-use std::str::FromStr;
+use core::net::SocketAddr;
+use core::str::FromStr;
 
 use bevy::prelude::*;
 use bevy::tasks::futures_lite::future;

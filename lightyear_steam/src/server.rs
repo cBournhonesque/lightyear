@@ -35,10 +35,6 @@ impl Plugin for SteamServerPlugin {
 /// WebTransport server implementation which listens for client connections,
 /// and coordinates messaging between multiple clients.
 ///
-/// Use [`WebTransportServer::open`] to start opening a server.
-///
-/// The [`LocalAddr`] component must be inserted to specify the server_addr.
-///
 /// When a client attempts to connect, the server will trigger a
 /// [`SessionRequest`]. Your app **must** observe this, and use
 /// [`SessionRequest::respond`] to set how the server should respond to this

@@ -550,7 +550,7 @@ impl Iterator for ActionsIterator<'_> {
 ///
 /// The first element is the remote tick, the second is the message
 #[derive(Debug)]
-pub struct UpdatesBuffer(Vec<(Tick, UpdatesMessage)>);
+pub(crate) struct UpdatesBuffer(Vec<(Tick, UpdatesMessage)>);
 
 /// Update that is given to `apply_world`
 #[derive(Debug, PartialEq)]

@@ -65,9 +65,7 @@ impl ProtocolCheckPlugin {
             return Err(BevyError::from(ProtocolCheckError::Message));
         }
         if message.components != components.map(|mut c| c.finish()) {
-            return Err(BevyError::from(
-                ProtocolCheckError::Component,
-            ));
+            return Err(BevyError::from(ProtocolCheckError::Component));
         }
         if message.channels != channels.map(|mut c| c.finish()) {
             return Err(BevyError::from(ProtocolCheckError::Channel));

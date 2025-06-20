@@ -1,5 +1,5 @@
 [package]
-name = "lobby_new"
+name = "lobby"
 version = "0.1.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
@@ -55,3 +55,7 @@ bevy.workspace = true
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "lobby"
+doc = false

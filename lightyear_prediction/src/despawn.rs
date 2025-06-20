@@ -1,6 +1,6 @@
+use crate::Predicted;
 use crate::manager::PredictionResource;
 use crate::prespawn::PreSpawned;
-use crate::Predicted;
 use bevy::ecs::system::EntityCommands;
 use bevy::prelude::*;
 use lightyear_connection::host::HostClient;

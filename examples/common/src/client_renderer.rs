@@ -133,7 +133,7 @@ pub(crate) fn update_button_text(
             ClientState::Connecting => {
                 text.0 = "Connecting".to_string();
             }
-            ClientState::Connected { .. } => {
+            ClientState::Connected => {
                 text.0 = "Disconnect".to_string();
             }
         }

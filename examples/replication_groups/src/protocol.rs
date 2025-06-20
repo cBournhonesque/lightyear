@@ -1,3 +1,5 @@
+extern crate alloc;
+use alloc::collections::VecDeque;
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::math::Curve;
@@ -6,7 +8,6 @@ use core::ops::{Add, Mul};
 use lightyear::input::native::plugin::InputPlugin;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
 use tracing::trace;
 
 // Components

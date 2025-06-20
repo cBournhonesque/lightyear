@@ -13,7 +13,7 @@ fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     curve.sample_unchecked(t)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct InterpolationMetadata {
     pub interpolation_mode: InterpolationMode,
     pub interpolation: Option<unsafe fn()>,
@@ -76,7 +76,7 @@ impl InterpolationRegistry {
 
 pub trait InterpolationRegistrationExt<C> {
     /// Enable interpolation systems for this component.
-    /// You can specify the interpolation [`ComponentSyncMode`]
+    /// You can specify the interpolation [`InterpolationMode`]
     fn add_interpolation(self, interpolation_mode: InterpolationMode) -> Self
     where
         C: SyncComponent;
@@ -98,7 +98,7 @@ pub trait InterpolationRegistrationExt<C> {
 
 impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     /// Enable interpolation systems for this component.
-    /// You can specify the interpolation [`ComponentSyncMode`]
+    /// You can specify the interpolation [`InterpolationMode`]
     fn add_interpolation(self, interpolation_mode: InterpolationMode) -> Self
     where
         C: SyncComponent,

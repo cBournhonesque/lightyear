@@ -193,7 +193,7 @@ impl Bytes for ConnectTokenPrivate {
         buf.write_i32(self.timeout_seconds)?;
         self.server_addresses
             .write_to(buf)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            .map_err(io::Error::other)?;
         buf.write_all(&self.client_to_server_key)?;
         buf.write_all(&self.server_to_client_key)?;
         buf.write_all(&self.user_data)?;
@@ -203,8 +203,7 @@ impl Bytes for ConnectTokenPrivate {
     fn read_from(reader: &mut impl ReadInteger) -> Result<Self, io::Error> {
         let client_id = reader.read_u64()?;
         let timeout_seconds = reader.read_i32()?;
-        let server_addresses =
-            AddressList::read_from(reader).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let server_addresses = AddressList::read_from(reader).map_err(io::Error::other)?;
 
         let mut client_to_server_key = [0; PRIVATE_KEY_BYTES];
         reader.read_exact(&mut client_to_server_key)?;
@@ -304,7 +303,7 @@ impl Bytes for ChallengeToken {
 /// assert_eq!(token_bytes.len(), CONNECT_TOKEN_BYTES);
 /// ```
 ///
-/// Alternatively, you can use [`Server::token`](crate::connection::netcode::server::NetcodeServer::token) to generate a connect token from an already existing [`Server`](crate::connection::netcode::server::NetcodeServer).
+/// Alternatively, you can use [`Server::token`](crate::server::Server::token) to generate a connect token from an already existing [`Server`](crate::server::Server).
 #[derive(Clone)]
 pub struct ConnectToken {
     pub(crate) version_info: [u8; NETCODE_VERSION.len()],
@@ -434,10 +433,7 @@ impl ConnectToken {
         let mut buf = [0u8; CONNECT_TOKEN_BYTES];
         let mut cursor = io::Cursor::new(&mut buf[..]);
         self.write_to(&mut cursor).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("failed to write token to buffer: {}", e).as_str(),
-            )
+            io::Error::other(format!("failed to write token to buffer: {}", e).as_str())
         })?;
         Ok(buf)
     }

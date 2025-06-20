@@ -143,7 +143,6 @@ impl ClientServerStepper {
                     // Send pings every frame, so that the Acks are sent every frame
                     PingManager::new(PingConfig {
                         ping_interval: Duration::default(),
-                        ..default()
                     }),
                     ReplicationSender::default(),
                     ReplicationReceiver::default(),
@@ -163,7 +162,6 @@ impl ClientServerStepper {
                     // Send pings every frame, so that the Acks are sent every frame
                     PingManager::new(PingConfig {
                         ping_interval: Duration::default(),
-                        ..default()
                     }),
                     // TODO: we want the ReplicationSender/Receiver to be added automatically when ClientOf is created, but with configs pre-specified by the server
                     ReplicationSender::default(),
@@ -288,6 +286,12 @@ impl ClientServerStepper {
             .get_resource_mut::<Time<Real>>()
             .unwrap()
             .update_with_instant(now);
+        self.server_app
+            .world_mut()
+            .trigger_targets(Start, self.server_entity);
+        // For HostServer, the server needs to be started before the client,
+        // so make sure it is started
+        self.server_app.world_mut().flush();
         for i in 0..self.client_entities.len() {
             self.client_apps[i]
                 .world_mut()
@@ -301,9 +305,7 @@ impl ClientServerStepper {
         if let Some(host) = self.host_client_entity {
             self.server_app.world_mut().trigger_targets(Connect, host);
         }
-        self.server_app
-            .world_mut()
-            .trigger_targets(Start, self.server_entity);
+
         self.wait_for_connection();
         self.wait_for_sync();
     }

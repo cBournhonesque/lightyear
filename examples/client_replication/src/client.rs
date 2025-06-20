@@ -155,7 +155,9 @@ fn delete_player(
                 // the reason is that we actually keep the entity around for a while,
                 // in case we need to re-store it for rollback
                 entity_mut.prediction_despawn();
-                info!("Despawning the predicted/pre-predicted player because we received player action!");
+                info!(
+                    "Despawning the predicted/pre-predicted player because we received player action!"
+                );
             }
         }
     }
@@ -188,9 +190,7 @@ fn cursor_movement(
 
 // Get the cursor position relative to the window
 fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
-    let Some(cursor_pos) = window.cursor_position() else {
-        return None;
-    };
+    let cursor_pos = window.cursor_position()?;
 
     Some(Vec2::new(
         cursor_pos.x - (window.width() / 2.0),

@@ -3,8 +3,8 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
+use core::str::FromStr;
 use core::time::Duration;
-use std::str::FromStr;
 
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
@@ -205,11 +205,11 @@ impl Default for Mode {
     fn default() -> Self {
         cfg_if::cfg_if! {
             if #[cfg(all(feature = "client", feature = "server"))] {
-                return Mode::HostClient { client_id: None };
+                Mode::HostClient { client_id: None }
             } else if #[cfg(feature = "server")] {
-                return Mode::Server;
+                Mode::Server
             } else {
-                return Mode::Client { client_id: None };
+                Mode::Client { client_id: None }
             }
         }
     }

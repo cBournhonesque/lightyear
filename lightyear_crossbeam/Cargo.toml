@@ -11,10 +11,13 @@ repository = "https://github.com/cBournhonesque/lightyear"
 [features]
 default = ["std"]
 std = [
+    "bevy/std",
+    "bytes/std",
+    "lightyear_link/std"
 ]
-test_utils = ["dep:mock_instant"]
 
 [dependencies]
+lightyear_core.workspace = true
 lightyear_link.workspace = true
 
 # bevy
@@ -27,9 +30,6 @@ tracing.workspace = true
 
 # serde
 bytes.workspace = true
-
-# test
-mock_instant = {workspace = true, optional = true}
 
 [lints]
 workspace = true

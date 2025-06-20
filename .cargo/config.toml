@@ -1,0 +1,5 @@
+[alias]
+# we need to run all tests with a single thread otherwise the `mock_instant::global::Instant` gets
+# overwritten in parallel tests
+t = "test -- --test-threads=1"
+clip = "clippy --workspace --features=lightyear_core/not_mock --exclude=compiletime --exclude=avian_3d_character --exclude=launcher --exclude=delta_compression --exclude=distributed_authority --no-deps -- -D warnings -A clippy::needless_lifetimes"

@@ -20,7 +20,7 @@ use {
 /// A system parameter for performing [spatial queries](spatial_query) while doing
 /// lag compensation.
 ///
-/// Systems using this parameter should run after the [`LagCompensationSet::UpdateHistory`] set.
+/// Systems using this parameter should run after the [`LagCompensationSet::UpdateHistory`](super::history::LagCompensationSet) set.
 #[derive(SystemParam)]
 pub struct LagCompensationSpatialQuery<'w, 's> {
     pub timeline: Single<'w, &'static LocalTimeline, With<Server>>,
@@ -55,6 +55,7 @@ impl LagCompensationSpatialQuery<'_, '_> {
 
     /// Similar to [`SpatialQuery::cast_ray_predicate`], but does lag compensation by
     /// using the history buffer of the entity.
+    #[allow(clippy::too_many_arguments)]
     pub fn cast_ray_predicate(
         &self,
         interpolation_delay: InterpolationDelay,
@@ -110,7 +111,7 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     return false;
                 };
                 let (_, (target_position, target_rotation, _)) =
-                    history.into_iter().skip(source_idx + 1).next().unwrap();
+                    history.into_iter().nth(source_idx + 1).unwrap();
                 // we assume that the collider itself doesn't change so we don't need to interpolate it
                 let interpolated_position =
                     start_position.lerp(**target_position, interpolation_overstep);

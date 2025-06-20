@@ -1,7 +1,7 @@
 //! This module introduces a settings struct that can be used to configure the server and client.
 #![allow(unused_imports)]
 #![allow(unused_variables)]
-use std::net::{Ipv4Addr, SocketAddr};
+use core::net::{Ipv4Addr, SocketAddr};
 
 use bevy::asset::ron;
 use bevy::prelude::*;

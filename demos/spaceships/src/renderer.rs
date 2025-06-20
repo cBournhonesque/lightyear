@@ -9,6 +9,8 @@ use bevy::core_pipeline::bloom::Bloom;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
+use core::f32::consts::PI;
+use core::f32::consts::TAU;
 use core::time::Duration;
 use leafwing_input_manager::action_state::ActionState;
 use lightyear::connection::client_of::ClientOf;
@@ -16,8 +18,6 @@ use lightyear::connection::identity::is_server;
 use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
-use std::f32::consts::PI;
-use std::f32::consts::TAU;
 
 pub struct ExampleRendererPlugin;
 

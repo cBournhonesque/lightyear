@@ -48,7 +48,7 @@ fn main() {
             app.add_plugins(ExampleClientPlugin);
         }
         #[cfg(feature = "server")]
-        Some(Mode::Server { .. }) => {
+        Some(Mode::Server) => {
             app.add_plugins(ExampleServerPlugin);
         }
         #[cfg(all(feature = "client", feature = "server"))]

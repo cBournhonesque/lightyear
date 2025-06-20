@@ -69,25 +69,25 @@ impl From<TypeId> for MessageKind {
 use crate::receive_trigger::ReceiveTriggerFn;
 use crate::send_trigger::{SendLocalTriggerFn, SendTriggerFn};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct ReceiveMessageMetadata {
-    /// ComponentId of the MessageReceiver<M> component (used if not a trigger)
+    /// ComponentId of the [`MessageReceiver<M>`] component (used if not a trigger)
     pub(crate) component_id: ComponentId,
     pub(crate) receive_message_fn: ReceiveMessageFn,
     pub(crate) message_clear_fn: ClearMessageFn,
 }
 
-#[derive(Debug, Clone, PartialEq, TypePath)]
+#[derive(Debug, Clone, TypePath)]
 pub(crate) struct SendMessageMetadata {
-    /// ComponentId of the MessageSender<M> component
+    /// ComponentId of the [`MessageSender<M>`] component
     pub(crate) component_id: ComponentId,
     pub(crate) send_message_fn: SendMessageFn,
     pub(crate) send_local_message_fn: SendLocalMessageFn,
 }
 
-#[derive(Debug, Clone, PartialEq, TypePath)]
+#[derive(Debug, Clone, TypePath)]
 pub(crate) struct SendTriggerMetadata {
-    /// ComponentId of the TriggerSender<M> component
+    /// ComponentId of the [`TriggerSender<M>`](crate::send_trigger::TriggerSender) component
     pub(crate) component_id: ComponentId,
     pub(crate) send_trigger_fn: SendTriggerFn,
     pub(crate) send_local_trigger_fn: SendLocalTriggerFn,
@@ -99,8 +99,8 @@ pub(crate) struct SendTriggerMetadata {
 ///
 /// ### Adding Messages
 ///
-/// You register messages by calling the [`add_message`](AppMessageExt::register_message) method directly on the App.
-/// You can provide a [`ChannelDirection`] to specify if the message should be sent from the client to the server, from the server to the client, or both.
+/// You register messages by calling the [`add_message`](AppMessageExt::add_message) method directly on the App.
+/// You can provide a [`NetworkDirection`] to specify if the message should be sent from the client to the server, from the server to the client, or both.
 ///
 /// ```rust,ignore
 /// use bevy::prelude::*;

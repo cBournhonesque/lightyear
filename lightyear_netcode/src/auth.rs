@@ -11,23 +11,23 @@ use core::str::FromStr;
 /// an unreliable unordered transport such as UDP.
 /// You can read more about it here: `<https://github.com/mas-bandwidth/netcode/blob/main/STANDARD.md>`
 ///
-/// The client sends a `ConnectToken` to the game server to start the connection process.
+/// The client sends a [`ConnectToken`] to the game server to start the connection process.
 ///
-/// There are several ways to obtain a `ConnectToken`:
-/// - the client can request a `ConnectToken` via a secure (e.g. HTTPS) connection from a backend server.
+/// There are several ways to obtain a [`ConnectToken`]:
+/// - the client can request a [`ConnectToken`] via a secure (e.g. HTTPS) connection from a backend server.
 ///   The server must use the same `protocol_id` and `private_key` as the game servers.
 ///   The backend server could be a dedicated webserver; or the game server itself, if it has a way to
 ///   establish secure connection.
-/// - when testing, it can be convenient for the client to create its own `ConnectToken` manually.
+/// - when testing, it can be convenient for the client to create its own [`ConnectToken`] manually.
 ///   You can use `Authentication::Manual` for those cases.
 pub enum Authentication {
-    /// Use a `ConnectToken` to authenticate with the game server.
+    /// Use a [`ConnectToken`] to authenticate with the game server.
     ///
-    /// The client must have already received the `ConnectToken` from the backend.
+    /// The client must have already received the [`ConnectToken`] from the backend.
     /// (The backend will generate a new `client_id` for the user, and use that to generate the
-    /// `ConnectToken`)
+    /// [`ConnectToken`])
     Token(ConnectToken),
-    /// The client can build a `ConnectToken` manually.
+    /// The client can build a [`ConnectToken`] manually.
     ///
     /// This is only useful for testing purposes. In production, the client should not have access
     /// to the `private_key`.
@@ -38,10 +38,10 @@ pub enum Authentication {
         protocol_id: u64,
     },
     #[default]
-    /// The client has no `ConnectToken`, so it cannot connect to the game server yet.
+    /// The client has no [`ConnectToken`], so it cannot connect to the game server yet.
     ///
-    /// This is provided so that you can still build a [`ClientConnection`] `Resource` while waiting
-    /// to receive a `ConnectToken` from the backend.
+    /// This is provided so that you can still build a Client while waiting
+    /// to receive a [`ConnectToken`] from the backend.
     None,
 }
 

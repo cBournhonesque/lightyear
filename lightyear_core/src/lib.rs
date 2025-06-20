@@ -26,7 +26,7 @@ pub mod id;
 pub mod plugin;
 /// Utilities for time management, including interpolation and synchronization.
 pub mod time;
-/// Defines `Timeline` for managing different views of time (local, network).
+/// Defines [`Timeline`](timeline::Timeline) for managing different views of time (local, network).
 pub mod timeline;
 
 #[cfg(feature = "interpolation")]

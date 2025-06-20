@@ -13,10 +13,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
-#[cfg(not(feature = "test_utils"))]
-use bevy::platform::time::Instant;
-#[cfg(feature = "test_utils")]
-use mock_instant::global::Instant;
+use lightyear_core::time::Instant;
 
 mod conditioner;
 
@@ -132,7 +129,7 @@ impl LinkReceiver {
         self.buffer.len()
     }
 
-    #[cfg(any(test, feature = "test_utils"))]
+    #[cfg(feature = "test_utils")]
     pub fn iter(&self) -> impl Iterator<Item = &SendPayload> {
         self.buffer.iter()
     }
@@ -161,7 +158,7 @@ impl LinkSender {
         self.0.len()
     }
 
-    #[cfg(any(test, feature = "test_utils"))]
+    #[cfg(feature = "test_utils")]
     pub fn iter(&self) -> impl Iterator<Item = &SendPayload> {
         self.0.iter()
     }

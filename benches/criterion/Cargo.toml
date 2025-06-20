@@ -28,6 +28,7 @@ divan = "0.1.14"
 [[bin]]
 name = "replication_profiling"
 path = "src/replication_profiling.rs"
+doc = false
 
 [[bench]]
 name = "replication"

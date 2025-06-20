@@ -6,10 +6,12 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
+extern crate alloc;
+use alloc::sync::Arc;
 use anyhow::Context;
 use async_compat::Compat;
-use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
+use core::net::SocketAddr;
+use std::sync::RwLock;
 
 use bevy::platform::collections::HashSet;
 use bevy::prelude::*;

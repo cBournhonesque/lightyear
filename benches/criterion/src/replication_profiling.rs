@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use lightyear::prelude::{NetworkTarget, Replicate};
-use lightyear_benches::protocol::Component1;
+use lightyear_tests::protocol::CompFull;
 use lightyear_tests::stepper::ClientServerStepper;
 use std::fs::File;
 
@@ -11,7 +11,7 @@ fn main() {
     for _ in 0..N {
         let mut stepper = ClientServerStepper::single();
         let entities =
-            vec![(Component1(0.0), Replicate::to_clients(NetworkTarget::All)); NUM_ENTITIES];
+            vec![(CompFull(0.0), Replicate::to_clients(NetworkTarget::All)); NUM_ENTITIES];
         stepper.server_app.world_mut().spawn_batch(entities);
 
         // advance time by one frame

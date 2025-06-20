@@ -40,7 +40,7 @@ pub struct TransportPlugin;
 impl TransportPlugin {
     /// Receives packets from the [`Link`],
     /// Depending on the [`ChannelId`], buffer the messages in the packet
-    /// in the appropriate [`ChannelReceiver`]
+    /// in the appropriate channel receiver
     fn buffer_receive(
         time: Res<Time<Real>>,
         par_commands: ParallelCommands,

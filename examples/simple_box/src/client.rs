@@ -3,7 +3,7 @@
 //! - connecting to the server at Startup
 //! - sending inputs to the server
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
-//! predicted entity and the server entity)
+//!   predicted entity and the server entity)
 
 use crate::protocol::Direction;
 use crate::protocol::*;

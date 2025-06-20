@@ -79,14 +79,14 @@ loop {
 /*!
  ## Client
 
- The netcode client connects to the server and communicates using the same protocol.
+The netcode client connects to the server and communicates using the same protocol.
 
- Like the server, the game client should run in a loop to process incoming data,
- send updates to the server, and maintain a stable connection.
+Like the server, the game client should run in a loop to process incoming data,
+send updates to the server, and maintain a stable connection.
 
- To create a client:
-  * Provide a **connect token** - a `u8` array of length 2048 serialized from a [`ConnectToken`].
-  * Optionally provide a [`ClientConfig`] - a struct that allows you to customize the client's behavior.
+To create a client:
+ * Provide a **connect token** - a `u8` array of length 2048 serialized from a [`ConnectToken`].
+ * Optionally provide a [`ClientConfig`](crate::client::ClientConfig) - a struct that allows you to customize the client's behavior.
 
 */
 #![cfg_attr(

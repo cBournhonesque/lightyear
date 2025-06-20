@@ -1,12 +1,13 @@
+extern crate alloc;
 use crate::protocol::*;
 use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
+use alloc::collections::VecDeque;
 use bevy::prelude::*;
 use lightyear::input::native::prelude::ActionState;
 use lightyear::prediction::Predicted;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
-use std::collections::VecDeque;
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
@@ -75,7 +76,9 @@ pub(crate) fn handle_connections(
             Name::from("Tail"),
         ))
         .id();
-    info!("New connection from client {client_id:?}, spawning player {player_entity:?} and tail {tail_entity:?}");
+    info!(
+        "New connection from client {client_id:?}, spawning player {player_entity:?} and tail {tail_entity:?}"
+    );
 }
 
 /// Read client inputs and move players

@@ -135,10 +135,10 @@ impl SyncedTimeline for InterpolationTimeline {
     }
 
     // TODO: this code is duplicated in the Predicted timeline
-    /// Adjust the current timeline to stay in sync with the [`MainTimeline`].
+    /// Adjust the current timeline to stay in sync with the [`RemoteTimeline`].
     ///
     /// Most of the times this will just be slight nudges to modify the speed of the [`SyncedTimeline`].
-    /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`MainTimeline`] by sending a SyncEvent
+    /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`RemoteTimeline`] by sending a SyncEvent
     fn sync<T: SyncTargetTimeline>(
         &mut self,
         remote: &T,
@@ -220,7 +220,7 @@ impl TimelinePlugin {
         })
     }
 
-    /// Update the timeline in Update based on the Time<Virtual>
+    /// Update the timeline in Update based on the [`Time<Virtual>`]
     pub(crate) fn advance_timeline(
         time: Res<Time<Virtual>>,
         tick_duration: Res<TickDuration>,

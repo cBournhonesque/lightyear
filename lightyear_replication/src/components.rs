@@ -325,8 +325,8 @@ impl ToBytes for ReplicationGroupId {
 ///
 /// In general, when an entity is replicated from the server to the client, multiple entities can be created on the client:
 /// - an entity that simply contains the replicated components. It will have the marker component [`Confirmed`]
-/// - an entity that is in the future compared to the confirmed entity, and does prediction with rollback. It will have the marker component [`Predicted`](crate::client::prediction::Predicted)
-/// - an entity that is in the past compared to the confirmed entity and interpolates between multiple server updates. It will have the marker component [`Interpolated`](crate::client::interpolation::Interpolated)
+/// - an entity that is in the future compared to the confirmed entity, and does prediction with rollback. It will have the marker component [`Predicted`](lightyear_core::prediction::Predicted)
+/// - an entity that is in the past compared to the confirmed entity and interpolates between multiple server updates. It will have the marker component [`Interpolated`](lightyear_core::interpolation::Interpolated)
 #[derive(Component, Reflect, Default, Debug)]
 #[reflect(Component)]
 pub struct Confirmed {

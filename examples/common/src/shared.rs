@@ -1,5 +1,5 @@
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 use core::time::Duration;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub const FIXED_TIMESTEP_HZ: f64 = 64.0;
 pub const SERVER_PORT: u16 = 5000;

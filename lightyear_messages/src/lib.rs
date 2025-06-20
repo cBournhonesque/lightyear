@@ -64,17 +64,17 @@ pub type MessageNetId = NetId;
 /// Manages sending and receiving messages for an entity.
 ///
 /// This component is added to entities that need to send or receive messages.
-/// It keeps track of the `MessageSender<M>` and `MessageReceiver<M>` components
+/// It keeps track of the [`MessageSender<M>`](send::MessageSender) and [`MessageReceiver<M>`](receive::MessageReceiver) components
 /// attached to the entity, allowing the messaging system to interact with them.
-/// It also holds a `RemoteEntityMap` for mapping entities between client and server.
+/// It also holds a [`RemoteEntityMap`] for mapping entities between client and server.
 #[derive(Component, Default, Reflect)]
 #[require(Transport)]
 pub struct MessageManager {
-    /// List of component ids of the MessageSender<M> present on this entity
+    /// List of component ids of the [`MessageSender<M>`](send::MessageSender) present on this entity
     pub(crate) send_messages: Vec<(MessageKind, ComponentId)>,
-    /// List of component ids of the TriggerSender<M> present on this entity
+    /// List of component ids of the [`TriggerSender<M>`](send_trigger::TriggerSender) present on this entity
     pub(crate) send_triggers: Vec<(MessageKind, ComponentId)>,
-    /// List of component ids of the MessageReceiver<M> present on this entity
+    /// List of component ids of the [`MessageReceiver<M>`](receive::MessageReceiver) present on this entity
     pub(crate) receive_messages: Vec<(MessageKind, ComponentId)>,
     pub entity_mapper: RemoteEntityMap,
 }

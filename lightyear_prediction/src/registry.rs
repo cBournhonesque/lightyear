@@ -18,9 +18,9 @@ fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     curve.sample_unchecked(t)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct PredictionMetadata {
-    /// Id of the PredictionHistory<C> component
+    /// Id of the [`PredictionHistory<C>`] component
     pub history_id: Option<ComponentId>,
     pub sync_mode: PredictionMode,
     pub correction: Option<unsafe fn()>,

@@ -14,10 +14,10 @@ use crate::UdpError;
 use aeronet_io::connection::{LocalAddr, PeerAddr};
 use bevy::platform::collections::HashMap;
 use bevy::platform::collections::hash_map::Entry;
-use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::{BufMut, BytesMut};
 use core::net::SocketAddr;
+use lightyear_core::time::Instant;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Linking, Unlink, Unlinked};
 

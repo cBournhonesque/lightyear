@@ -35,14 +35,14 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// ### Adding Components
 ///
 /// You register components by calling the [`register_component`](AppComponentExt::register_component) method directly on the App.
-/// You can provide a [`NetworkDirection`] to specify if the component should be sent from the client to the server, from the server to the client, or both.
+/// You can provide a `NetworkDirection` to specify if the component should be sent from the client to the server, from the server to the client, or both.
 ///
 /// A component needs to implement the `Serialize`, `Deserialize` and `PartialEq` traits.
 ///
 /// ```rust
-/// use bevy::prelude::*;
-/// use serde::{Deserialize, Serialize};
-/// use lightyear::prelude::*;
+/// # use bevy::prelude::*;
+/// # use serde::{Deserialize, Serialize};
+/// # use lightyear_replication::registry::registry::AppComponentExt;
 ///
 /// #[derive(Component, PartialEq, Serialize, Deserialize)]
 /// struct MyComponent;
@@ -68,17 +68,17 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// The Confirmed entity will just get updated when the client receives the server updates, while the Predicted entity will be updated by the client's prediction system.
 ///
 /// Components are not synced from the Confirmed entity to the Predicted entity by default, you have to enable this behaviour.
-/// You can do this by calling the [`add_prediction`](ComponentRegistration::add_prediction) method.
-/// You will have to provide a [`ComponentSyncMode`] that defines the behaviour of the prediction system.
+/// You can do this by calling the `add_prediction` method.
+/// You will have to provide a `PredictionMode` that defines the behaviour of the prediction system.
 ///
 /// #### Correction
 /// When client-prediction is enabled, there might be cases where there is a mismatch between the state of the Predicted entity
 /// and the state of the Confirmed entity. In this case, we rollback by snapping the Predicted entity to the Confirmed entity and replaying the last few frames.
 ///
 /// However, rollbacks that do an instant update can be visually jarring, so we provide the option to smooth the rollback process over a few frames.
-/// You can do this by calling the [`add_correction_fn`](ComponentRegistration::add_correction_fn) method.
+/// You can do this by calling the `add_correction_fn` method.
 ///
-/// If your component implements the [`Linear`] trait, you can use the [`add_linear_correction_fn`](ComponentRegistration::add_linear_correction_fn) method,
+/// If your component implements the [`Ease`](bevy::prelude::Ease) trait, you can use the `add_linear_correction_fn` method,
 /// which provides linear interpolation.
 ///
 /// #### Interpolation
@@ -87,14 +87,14 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// which will interpolate between two Confirmed states.
 ///
 /// Components are not synced from the Confirmed entity to the Interpolated entity by default, you have to enable this behaviour.
-/// You can do this by calling the [`add_interpolation`](ComponentRegistration::add_interpolation) method.
-/// You will have to provide a [`ComponentSyncMode`] that defines the behaviour of the interpolation system.
+/// You can do this by calling the `add_interpolation` method.
+/// You will have to provide a `InterpolationMode` that defines the behaviour of the interpolation system.
 ///
 /// You will also need to provide an interpolation function that will be used to interpolate between two states.
-/// If your component implements the [`Linear`] trait, you can use the [`add_linear_interpolation_fn`](ComponentRegistration::add_linear_interpolation_fn) method,
+/// If your component implements the [`Ease`](bevy::prelude::Ease) trait, you can use the `add_linear_interpolation_fn` method,
 /// which means that we will interpolate using linear interpolation.
 ///
-/// You can also use your own interpolation function by using the [`add_interpolation_fn`](ComponentRegistration::add_interpolation_fn) method.
+/// You can also use your own interpolation function by using the `add_interpolation_fn` method.
 ///
 /// ```rust
 /// use bevy::prelude::*;

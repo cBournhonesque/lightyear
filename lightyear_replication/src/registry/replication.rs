@@ -11,7 +11,7 @@ use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{ContextDeserializeFns, ErasedSerializeFns};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct ReplicationMetadata {
     pub config: ComponentReplicationConfig,
     pub overrides_component_id: ComponentId,

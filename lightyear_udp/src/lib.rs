@@ -18,9 +18,9 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use aeronet_io::connection::{LocalAddr, PeerAddr};
-use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bytes::{BufMut, BytesMut};
+use lightyear_core::time::Instant;
 use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Linking, Unlink, Unlinked};
 
 /// Provides server-specific UDP IO functionalities.
