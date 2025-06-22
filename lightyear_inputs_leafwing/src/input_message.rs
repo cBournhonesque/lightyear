@@ -3,6 +3,7 @@ use crate::action_state::LeafwingUserAction;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::ecs::entity::MapEntities;
+use bevy::ecs::system::SystemParam;
 use bevy::platform::time::Instant;
 use bevy::prelude::EntityMapper;
 use leafwing_input_manager::Actionlike;
@@ -14,20 +15,22 @@ use lightyear_inputs::input_message::ActionStateSequence;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LeafwingSequence<A: Actionlike> {
     pub(crate) start_state: ActionState<A>,
     pub(crate) diffs: Vec<Vec<ActionDiff<A>>>,
 }
 
 impl<A: LeafwingUserAction> MapEntities for LeafwingSequence<A> {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
+    fn map_entities<M: EntityMapper>(&mut self, _: &mut M) {}
 }
 
 impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     type Action = A;
+    type Snapshot = ActionState<A>;
     type State = ActionState<A>;
     type Marker = InputMap<A>;
+    type Context = ();
 
     fn is_empty(&self) -> bool {
         self.diffs
@@ -39,12 +42,12 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
         self.diffs.len()
     }
 
-    fn update_buffer(&self, input_buffer: &mut InputBuffer<Self::State>, end_tick: Tick) {
+    fn update_buffer<'w, 's>(self, input_buffer: &mut InputBuffer<Self::State>, end_tick: Tick) {
         let start_tick = end_tick - self.len() as u16;
         input_buffer.set(start_tick, self.start_state.clone());
 
         let mut value = self.start_state.clone();
-        for (delta, diffs_for_tick) in self.diffs.iter().enumerate() {
+        for (delta, diffs_for_tick) in self.diffs.into_iter().enumerate() {
             // TODO: there's an issue; we use the diffs to set future ticks after the start value, but those values
             //  have not been ticked correctly! As a workaround, we tick them manually so that JustPressed becomes Pressed,
             //  but it will NOT work for timing-related features
@@ -66,7 +69,7 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     ///
     /// If we don't have a starting `ActionState` from the `input_buffer`, we start from the first tick for which
     /// we have an `ActionState`.
-    fn build_from_input_buffer(
+    fn build_from_input_buffer<'w, 's>(
         input_buffer: &InputBuffer<Self::State>,
         num_ticks: u16,
         end_tick: Tick,
@@ -85,7 +88,6 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
         if start_tick > end_tick {
             return None;
         }
-
         let start_state = input_buffer.get(start_tick).unwrap().clone();
         let mut tick = start_tick + 1;
         while tick <= end_tick {
@@ -103,14 +105,28 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
         }
         Some(Self { start_state, diffs })
     }
+
+    fn to_snapshot<'w, 's>(
+        state: &Self::State,
+        _: &<Self::Context as SystemParam>::Item<'w, 's>,
+    ) -> Self::Snapshot {
+        state.clone()
+    }
+
+    fn from_snapshot<'w, 's>(
+        state: &mut Self::State,
+        snapshot: &Self::Snapshot,
+        _: &<Self::Context as SystemParam>::Item<'w, 's>,
+    ) {
+        *state = snapshot.clone();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::prelude::{Entity, Reflect};
+    use bevy::prelude::Reflect;
     use leafwing_input_manager::Actionlike;
-    use lightyear_inputs::input_message::{InputMessage, InputTarget, PerTargetData};
     use serde::{Deserialize, Serialize};
 
     #[derive(
@@ -124,39 +140,36 @@ mod tests {
     fn test_create_message() {
         let mut input_buffer = InputBuffer::default();
         let mut action_state = ActionState::<Action>::default();
-        input_buffer.set(Tick(2), &ActionState::default());
+        input_buffer.set(Tick(2), ActionState::default());
         action_state.press(&Action::Jump);
-        input_buffer.set(Tick(3), &action_state);
+        input_buffer.set(Tick(3), action_state.clone());
         action_state.release(&Action::Jump);
-        input_buffer.set(Tick(7), &action_state);
+        input_buffer.set(Tick(7), action_state.clone());
 
-        let message =
-            ActionStateSequence::build_from_input_buffer(&input_buffer, 9, Tick(10)).unwrap();
+        let sequence =
+            LeafwingSequence::<Action>::build_from_input_buffer(&input_buffer, 9, Tick(10))
+                .unwrap();
         assert_eq!(
-            message,
-            InputMessage {
-                interpolation_delay: None,
-                end_tick: Tick(10),
-                inputs: vec![PerTargetData::<LeafwingSequence<Action>> {
-                    target: InputTarget::Entity(Entity::PLACEHOLDER),
-                    states: LeafwingSequence::<Action> {
-                        start_state: ActionState::default(),
-                        diffs: vec![
-                            vec![],
-                            // tick 3
-                            vec![ActionDiff::Pressed {
-                                action: Action::Jump,
-                            }],
-                            vec![],
-                            vec![],
-                            vec![],
-                            // tick 7
-                            vec![ActionDiff::Released {
-                                action: Action::Jump,
-                            }]
-                        ]
-                    }
-                }],
+            sequence,
+            LeafwingSequence::<Action> {
+                // tick 2
+                start_state: ActionState::default(),
+                diffs: vec![
+                    // tick 3
+                    vec![ActionDiff::Pressed {
+                        action: Action::Jump,
+                    }],
+                    vec![],
+                    vec![],
+                    vec![],
+                    // tick 7
+                    vec![ActionDiff::Released {
+                        action: Action::Jump,
+                    }],
+                    vec![],
+                    vec![],
+                    vec![],
+                ]
             }
         );
     }

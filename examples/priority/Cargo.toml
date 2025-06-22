@@ -40,13 +40,12 @@ lightyear = { workspace = true, features = [
   "interpolation",
   "prediction",
   "replication",
-  "leafwing",
+  "input_bei",
 ] }
 lightyear_examples_common.workspace = true
 
 leafwing-input-manager.workspace = true
 serde.workspace = true
-tracing.workspace = true
 bevy.workspace = true
 
 [lints]

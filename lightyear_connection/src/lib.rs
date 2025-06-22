@@ -72,7 +72,9 @@ pub mod prelude {
     #[cfg(feature = "server")]
     pub mod server {
         pub use crate::client_of::ClientOf;
-        pub use crate::server::{ConnectionError, Start, Started, Starting, Stop, Stopped};
+        pub use crate::server::{
+            ConnectionError, Start, Started, Starting, Stop, Stopped, is_headless_server,
+        };
     }
 }
 

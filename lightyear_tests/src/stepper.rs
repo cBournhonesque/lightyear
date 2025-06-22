@@ -15,6 +15,8 @@ const PROTOCOL_ID: u64 = 0;
 const KEY: [u8; 32] = [0; 32];
 const SERVER_ADDR: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0));
 
+pub(crate) const TICK_DURATION: Duration = Duration::from_millis(10);
+
 /// Stepper with:
 /// - n client in one 'client' App
 /// - 1 server in another App, with n ClientOf connected to each client
@@ -205,8 +207,8 @@ impl ClientServerStepper {
     }
 
     pub(crate) fn default_no_init() -> Self {
-        let frame_duration = Duration::from_millis(10);
-        let tick_duration = Duration::from_millis(10);
+        let frame_duration = TICK_DURATION;
+        let tick_duration = TICK_DURATION;
         Self::new(tick_duration, frame_duration)
     }
 

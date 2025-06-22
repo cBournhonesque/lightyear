@@ -3,7 +3,7 @@
 use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage};
-use bevy::app::{App, Plugin};
+use bevy::app::*;
 use bevy::ecs::entity::MapEntities;
 use core::time::Duration;
 use lightyear_connection::direction::NetworkDirection;
@@ -25,9 +25,6 @@ impl<S> Default for InputPlugin<S> {
 
 impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
     fn build(&self, app: &mut App) {
-        app.register_type::<InputBuffer<S::State>>();
-        app.register_type::<S::State>();
-
         app.add_channel::<InputChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             // we send inputs every frame
@@ -45,10 +42,9 @@ impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
             // - input itself containing entities
             .add_map_entities()
             .add_direction(NetworkDirection::Bidirectional);
-        // .add_map_entities();
 
-        app.register_required_components::<S::State, InputBuffer<S::State>>();
-        app.register_required_components::<InputBuffer<S::State>, S::State>();
+        app.register_required_components::<S::State, InputBuffer<S::Snapshot>>();
+        app.register_required_components::<InputBuffer<S::Snapshot>, S::State>();
         app.try_register_required_components::<S::Marker, S::State>()
             .ok();
     }

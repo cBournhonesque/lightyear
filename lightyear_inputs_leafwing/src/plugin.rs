@@ -1,10 +1,13 @@
 use crate::action_state::LeafwingUserAction;
-use crate::input_message::LeafwingSequence;
-use bevy::app::{App, FixedPreUpdate, Plugin};
-use bevy::prelude::IntoScheduleConfigs;
-use leafwing_input_manager::plugin::InputManagerSystem;
-use leafwing_input_manager::prelude::InputManagerPlugin;
+use bevy::app::{App, Plugin};
+use leafwing_input_manager::action_state::ActionState;
 use lightyear_inputs::config::InputConfig;
+use lightyear_inputs::input_buffer::InputBuffer;
+
+#[cfg(any(feature = "client", feature = "server"))]
+use crate::input_message::LeafwingSequence;
+#[cfg(any(feature = "client", feature = "server"))]
+use leafwing_input_manager::plugin::InputManagerPlugin;
 
 pub struct InputPlugin<A> {
     pub config: InputConfig<A>,
@@ -20,8 +23,13 @@ impl<A> Default for InputPlugin<A> {
 
 impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
+        app.register_type::<InputBuffer<ActionState<A>>>();
+        app.register_type::<ActionState<A>>();
+
         #[cfg(feature = "client")]
         {
+            use bevy::prelude::*;
+            use leafwing_input_manager::plugin::InputManagerSystem;
             // TODO: this means that for host-server mode InputPlugin must be added before the ProtocolPlugin!
 
             // we add this check so that if we only have the ServerPlugins, but the client feature is enabled,

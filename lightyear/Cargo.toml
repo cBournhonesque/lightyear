@@ -27,6 +27,10 @@ std = [
   # needed for bevy_transform parallel
   "bevy/async_executor",
   "lightyear_interpolation?/std",
+  "lightyear_inputs?/std",
+  "lightyear_inputs_bei?/std",
+  "lightyear_inputs_leafwing?/std",
+  "lightyear_inputs_native?/std",
   "lightyear_udp?/std",
   "lightyear_netcode?/std",
   "lightyear_prediction?/std",
@@ -38,6 +42,7 @@ client = [
   "lightyear_sync/client",
   "lightyear_replication?/client",
   "lightyear_inputs?/client",
+  "lightyear_inputs_bei?/client",
   "lightyear_inputs_leafwing?/client",
   "lightyear_inputs_native?/client",
   "lightyear_webtransport?/client"
@@ -49,6 +54,7 @@ server = [
   "lightyear_sync/server",
   "lightyear_replication?/server",
   "lightyear_inputs?/server",
+  "lightyear_inputs_bei?/server",
   "lightyear_inputs_leafwing?/server",
   "lightyear_inputs_native?/server",
   "lightyear_udp?/server",
@@ -113,6 +119,10 @@ leafwing = [
   "dep:lightyear_inputs",
   "dep:lightyear_inputs_leafwing",
 ]
+input_bei = [
+  "dep:lightyear_inputs",
+  "dep:lightyear_inputs_bei",
+]
 
 ## Adds support for Avian
 ##
@@ -169,6 +179,7 @@ lightyear_transport.workspace = true
 lightyear_serde.workspace = true
 lightyear_utils.workspace = true
 lightyear_inputs = {workspace = true, optional = true}
+lightyear_inputs_bei = {workspace = true, optional = true}
 lightyear_inputs_leafwing = {workspace = true, optional = true}
 lightyear_inputs_native = {workspace = true, optional = true}
 lightyear_crossbeam = {workspace = true, optional = true}

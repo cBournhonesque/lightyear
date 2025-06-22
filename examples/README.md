@@ -9,6 +9,7 @@ The top level `Cargo.toml` workspace defines the deps that examples can use and 
 
 - `simple_setup`: minimal example that just shows how to create the lightyear client and server plugins
 - `simple_box`: example that showcases how to send inputs from client to server, and how to add client-prediction and interpolation
+- `bevy_enhanced_input`: example that shows how to integrate lightyear with the `bevy_enhanced_input` crate to handle inputs.
 
 ## Medium
 
@@ -36,12 +37,13 @@ The top level `Cargo.toml` workspace defines the deps that examples can use and 
 
 ## Running an example
 
-- Run the server with a gui: `cargo run server`
-- Run client with id 1: `cargo run client -c 1`
-- Run client with id 2: `cargo run client -c 2`
-- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`
-- Run the server without a gui: `cargo run --no-default-features --features=server`
-- Run the client and server in "HostServer" mode, where the server is also a client (there is only one App): `cargo run host-server`
+- Run the server with a gui: `cargo run -- server`
+- Run client with id 1: `cargo run -- client -c 1`
+- Run client with id 2: `cargo run -- client -c 2`
+
+[//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
+- Run the server without a gui: `cargo run --no-default-features --features=server -- server`
+- Run the client and server in "HostServer" mode, where the server is also a client (there is only one App): `cargo run -- host-client -c 0`
 
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server`.
