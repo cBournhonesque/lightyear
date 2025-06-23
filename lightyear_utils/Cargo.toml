@@ -9,8 +9,7 @@ description = "Utils shared by lightyear crates"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
-default = ["std"]
-std = []
+default = []
 
 [dependencies]
 lightyear_serde.workspace = true

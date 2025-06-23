@@ -4,8 +4,6 @@
 
 extern crate alloc;
 extern crate core;
-#[cfg(feature = "std")]
-extern crate std;
 
 pub mod free_list;
 
