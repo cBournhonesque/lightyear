@@ -1,5 +1,3 @@
-#![cfg_attr(not(feature = "std"), no_std)]
-
 extern crate alloc;
 
 use alloc::format;
@@ -9,10 +7,20 @@ pub mod server;
 use aeronet_io::connection::{Disconnect, Disconnected, LocalAddr, PeerAddr};
 use aeronet_io::server::{Close, Server};
 use aeronet_io::{IoSet, Session, SessionEndpoint};
-use bevy::app::{App, Plugin, PostUpdate, PreUpdate};
-use bevy::ecs::relationship::Relationship;
-use bevy::prelude::*;
+use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::query::{Has, With};
+use bevy_ecs::relationship::Relationship;
+use bevy_ecs::schedule::IntoScheduleConfigs;
+use bevy_ecs::{
+    component::Component,
+    entity::Entity,
+    observer::Trigger,
+    system::{Commands, Query},
+    world::OnAdd,
+};
+use bevy_reflect::Reflect;
 use lightyear_link::{Link, LinkPlugin, LinkSet, Linked, Linking, Unlink, Unlinked};
+use tracing::trace;
 
 #[derive(Component, Reflect)]
 #[relationship_target(relationship = AeronetLinkOf, linked_spawn)]
@@ -88,7 +96,7 @@ impl AeronetPlugin {
                         format!("Disconnected by remote: {reason}")
                     }
                     Disconnected::ByError(err) => {
-                        format!("Disconnected due to error: {:?}", err)
+                        format!("Disconnected due to error: {err:?}")
                     }
                 };
                 c.insert(Unlinked { reason });

@@ -1,9 +1,13 @@
 use alloc::format;
+use bevy_app::{App, Plugin};
+use bevy_ecs::{
+    observer::Trigger,
+    system::{Commands, Query},
+    world::OnAdd,
+};
 
 use crate::AeronetLinkOf;
 use aeronet_io::server::{Closed, Server, ServerEndpoint};
-use bevy::app::{App, Plugin};
-use bevy::prelude::{Commands, OnAdd, Query, Trigger};
 use lightyear_link::server::ServerLinkPlugin;
 use lightyear_link::{Linked, Linking, Unlinked};
 
@@ -42,7 +46,7 @@ impl ServerAeronetPlugin {
                         format!("Closed by user: {reason}")
                     }
                     Closed::ByError(err) => {
-                        format!("Closed due to error: {:?}", err)
+                        format!("Closed due to error: {err:?}")
                     }
                 };
                 c.insert(Unlinked { reason });
