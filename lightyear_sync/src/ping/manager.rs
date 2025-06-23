@@ -2,11 +2,10 @@
 use crate::ping::estimator::RttEstimatorEwma;
 use crate::ping::message::{Ping, Pong};
 use crate::ping::store::{PingId, PingStore};
-#[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::prelude::{Component, Real, Time};
-use bevy::reflect::Reflect;
-use bevy::time::Stopwatch;
+use bevy_ecs::component::Component;
+use bevy_reflect::Reflect;
+use bevy_time::{Real, Stopwatch, Time};
 use core::time::Duration;
 use lightyear_core::time::Instant;
 use lightyear_core::time::TickDelta;
@@ -166,6 +165,7 @@ impl PingManager {
             now,
         ))
     }
+
     pub(crate) fn take_pending_pongs(&mut self) -> Vec<(Pong, Instant)> {
         core::mem::take(&mut self.pongs_to_send)
     }

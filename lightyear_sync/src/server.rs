@@ -1,5 +1,6 @@
+use bevy_app::{App, Plugin};
+
 use crate::plugin::TimelineSyncPlugin;
-use bevy::app::{App, Plugin};
 
 pub struct ServerPlugin;
 
