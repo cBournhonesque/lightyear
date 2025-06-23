@@ -38,7 +38,7 @@ pub(crate) fn confirmed_log(
 ) {
     let tick = timeline.tick();
     for status in players.iter() {
-        info!(?tick, ?status, "Confirmed Updated");
+        trace!(?tick, ?status, "Confirmed Updated");
     }
 }
 
