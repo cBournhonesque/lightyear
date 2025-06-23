@@ -1,6 +1,5 @@
 use alloc::collections::VecDeque;
-use bevy::prelude::{Real, Time, Timer};
-use bevy::time::TimerMode;
+use bevy_time::{Real, Time, Timer, TimerMode};
 use core::time::Duration;
 
 use crate::channel::senders::ChannelSend;

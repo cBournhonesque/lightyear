@@ -1,8 +1,7 @@
 use alloc::collections::{BTreeMap, VecDeque};
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::platform::collections::HashSet;
-use bevy::prelude::{Real, Time, Timer, TimerMode};
+use bevy_platform::collections::HashSet;
+use bevy_time::{Real, Time, Timer, TimerMode};
 
 use crate::channel::builder::ReliableSettings;
 use crate::channel::senders::ChannelSend;

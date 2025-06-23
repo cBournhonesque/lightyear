@@ -1,6 +1,5 @@
 use crate::packet::message::{FragmentData, FragmentIndex, MessageId};
 use crate::packet::packet::FRAGMENT_SIZE;
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bytes::Bytes;
 
@@ -45,7 +44,6 @@ impl FragmentSender {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "std"))]
     use alloc::vec;
 
     use bytes::Bytes;

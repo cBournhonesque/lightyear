@@ -6,8 +6,22 @@ use crate::error::TransportError;
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, ReceiveMessage, SingleData};
-use bevy::app::App;
-use bevy::prelude::*;
+#[cfg(feature = "test_utils")]
+use crate::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
+use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::schedule::IntoScheduleConfigs;
+use bevy_ecs::{
+    entity::Entity,
+    event::Event,
+    query::{With, Without},
+    schedule::SystemSet,
+    system::{ParallelCommands, Query, Res},
+};
+#[cfg(any(feature = "client", feature = "server"))]
+use bevy_ecs::{observer::Trigger, world::OnAdd};
+use bevy_time::{Real, Time};
+#[cfg(feature = "test_utils")]
+use bevy_utils::default;
 use bytes::Bytes;
 use lightyear_connection::host::HostClient;
 #[cfg(any(feature = "client", feature = "server"))]
@@ -349,31 +363,34 @@ impl Plugin for TransportPlugin {
     }
 }
 
-#[cfg(any(test, feature = "test_utils"))]
+#[cfg(feature = "test_utils")]
+pub struct TestTransportChannel;
+
+#[cfg(feature = "test_utils")]
+pub struct TestTransportPlugin;
+
+#[cfg(feature = "test_utils")]
+impl Plugin for TestTransportPlugin {
+    fn build(&self, app: &mut App) {
+        // add all channels before adding the TransportPlugin
+        app.init_resource::<ChannelRegistry>();
+        app.add_channel::<TestTransportChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            ..default()
+        });
+        // add required resources
+        app.init_resource::<Time<Real>>();
+        // add the TransportPlugin
+        app.add_plugins(TransportPlugin);
+    }
+}
+
+#[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::channel::registry::AppChannelExt;
 
-    use crate::prelude::{ChannelMode, ChannelSettings};
-
-    pub struct C;
-
-    pub struct TestTransportPlugin;
-
-    impl Plugin for TestTransportPlugin {
-        fn build(&self, app: &mut App) {
-            // add all channels before adding the TransportPlugin
-            app.init_resource::<ChannelRegistry>();
-            app.add_channel::<C>(ChannelSettings {
-                mode: ChannelMode::UnorderedUnreliable,
-                ..default()
-            });
-            // add required resources
-            app.init_resource::<Time<Real>>();
-            // add the TransportPlugin
-            app.add_plugins(TransportPlugin);
-        }
-    }
+    use alloc::vec;
+    use bevy_app::App;
 
     /// Check that we can buffer Bytes to a ChannelSender and a packet will get added to the Link
     /// Check that if we put that packet on the receive side of the Link, the Transport will process
@@ -385,11 +402,11 @@ pub mod tests {
 
         let registry = app.world().resource::<ChannelRegistry>();
         let channel_id = *registry
-            .get_net_from_kind(&crate::channel::ChannelKind::of::<C>())
+            .get_net_from_kind(&crate::channel::ChannelKind::of::<TestTransportChannel>())
             .unwrap();
         let mut transport = Transport::default();
-        transport.add_sender_from_registry::<C>(registry);
-        transport.add_receiver_from_registry::<C>(registry);
+        transport.add_sender_from_registry::<TestTransportChannel>(registry);
+        transport.add_receiver_from_registry::<TestTransportChannel>(registry);
         let entity_mut = app.world_mut().spawn((Link::default(), transport));
         let entity = entity_mut.id();
 
@@ -398,7 +415,7 @@ pub mod tests {
         entity_mut
             .get::<Transport>()
             .unwrap()
-            .send::<C>(send_bytes.clone())
+            .send::<TestTransportChannel>(send_bytes.clone())
             .unwrap();
         app.update();
         // check that the send-payload was added to the link

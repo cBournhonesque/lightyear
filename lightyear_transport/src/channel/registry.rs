@@ -1,8 +1,9 @@
 use crate::channel::Channel;
 use crate::channel::builder::ChannelSettings;
-use bevy::app::App;
-use bevy::platform::collections::HashMap;
-use bevy::prelude::{Resource, TypePath};
+use bevy_app::App;
+use bevy_ecs::resource::Resource;
+use bevy_platform::collections::HashMap;
+use bevy_reflect::TypePath;
 use core::any::TypeId;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;

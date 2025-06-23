@@ -5,7 +5,6 @@ use crate::packet::message::{FragmentData, MessageAck, SingleData};
 use crate::packet::packet::{FRAGMENT_SIZE, Packet};
 use crate::packet::packet_type::PacketType;
 use alloc::collections::VecDeque;
-#[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use bytes::Bytes;
 use core::time::Duration;
@@ -315,7 +314,7 @@ impl PacketBuilder {
         packet.prewritten_size = packet
             .prewritten_size
             .checked_sub(varint_len(channel_id as u64) + 1)
-            .ok_or(SerializationError::SubstractionOverflow)?;
+            .ok_or(SerializationError::SubtractionOverflow)?;
         if *num_messages > 0 {
             trace!("Writing packet with {} messages", *num_messages);
             channel_id.to_bytes(&mut packet.payload)?;
@@ -329,7 +328,7 @@ impl PacketBuilder {
                 packet.prewritten_size = packet
                     .prewritten_size
                     .checked_sub(message.bytes_len())
-                    .ok_or(SerializationError::SubstractionOverflow)?;
+                    .ok_or(SerializationError::SubtractionOverflow)?;
                 // only send a MessageAck when the message has an id (otherwise we don't expect an ack)
                 if let Some(id) = message.id {
                     packet.message_acks.push((
@@ -433,13 +432,15 @@ impl PacketBuilder {
 #[cfg(test)]
 mod tests {
     use alloc::collections::VecDeque;
+    use bevy_app::App;
+    use bevy_reflect::TypePath;
+    use bevy_utils::default;
 
     use crate::channel::builder::{ChannelMode, ChannelSettings};
     use crate::channel::registry::{AppChannelExt, ChannelKind, ChannelRegistry};
     use crate::channel::senders::fragment_sender::FragmentSender;
     use crate::packet::error::PacketError;
     use crate::packet::message::{FragmentIndex, MessageId};
-    use bevy::prelude::{App, TypePath, default};
     use bytes::Bytes;
 
     use super::*;

@@ -1,7 +1,6 @@
 use crate::packet::message::{FragmentIndex, MessageId};
-#[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::platform::collections::HashMap;
+use bevy_platform::collections::HashMap;
 use core::time::Duration;
 use tracing::{error, trace};
 

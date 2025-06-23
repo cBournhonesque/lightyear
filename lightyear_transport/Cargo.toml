@@ -10,24 +10,10 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = [
-    "lightyear_core/std",
-    "lightyear_link/std",
-    "lightyear_serde/std",
-    "lightyear_utils/std",
-    "lightyear_connection/std",
-    "indexmap/std"
-]
-client = [
-    "lightyear_connection/client"
-]
-server = [
-    "lightyear_connection/server"
-]
-metrics = [
-    "dep:metrics",
-    "std"
-]
+std = []
+client = ["lightyear_connection/client"]
+server = ["lightyear_connection/server"]
+metrics = ["dep:metrics", "std"]
 trace = []
 
 test_utils = []
@@ -41,25 +27,31 @@ lightyear_serde.workspace = true
 lightyear_utils.workspace = true
 lightyear_connection.workspace = true
 
-
 # bevy
-bevy.workspace = true
+bevy_app.workspace = true
+bevy_ecs = { workspace = true, features = ["std"] }
+bevy_platform.workspace = true
+bevy_reflect.workspace = true
+bevy_time.workspace = true
+bevy_utils.workspace = true
 
 # serde
 serde.workspace = true
 
 # utils
 bytes.workspace = true
-chrono.workspace = true
 crossbeam-channel.workspace = true
 enum_dispatch.workspace = true
 indexmap.workspace = true
 governor.workspace = true
-metrics = {workspace = true, optional = true}
+metrics = { workspace = true, optional = true }
 nonzero_ext.workspace = true
 ringbuffer.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+lightyear_transport = { workspace = true, features = ["test_utils"] }
 
 [lints]
 workspace = true

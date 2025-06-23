@@ -3,9 +3,11 @@
 Packet handling for the lightyear networking library.
 This crate builds up on top of lightyear-io, to add packet fragmentation, channels, and reliability.
 */
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 pub mod channel;
 

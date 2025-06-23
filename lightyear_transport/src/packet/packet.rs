@@ -2,7 +2,6 @@
 use crate::channel::registry::ChannelId;
 use crate::packet::message::MessageAck;
 use crate::packet::packet_builder::Payload;
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use lightyear_serde::ToBytes;
 use lightyear_utils::wrapping_id;
@@ -65,9 +64,10 @@ mod tests {
     use crate::packet::header::PacketHeader;
     use crate::packet::message::{FragmentData, SingleData};
     use crate::packet::packet_type::PacketType;
-    use bevy::app::App;
-    use bevy::platform::collections::HashMap;
-    use bevy::prelude::{Reflect, default};
+    use bevy_app::App;
+    use bevy_platform::collections::HashMap;
+    use bevy_reflect::Reflect;
+    use bevy_utils::default;
     use bytes::Bytes;
 
     use super::*;

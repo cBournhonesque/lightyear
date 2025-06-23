@@ -5,7 +5,7 @@ use crate::channel::senders::unordered_unreliable_with_acks::UnorderedUnreliable
 use crate::packet::message::{MessageAck, MessageId, SendMessage};
 use crate::prelude::{ChannelMode, ChannelSettings};
 use alloc::collections::VecDeque;
-use bevy::prelude::{Real, Time};
+use bevy_time::{Real, Time};
 use bytes::Bytes;
 use enum_dispatch::enum_dispatch;
 use lightyear_link::LinkStats;

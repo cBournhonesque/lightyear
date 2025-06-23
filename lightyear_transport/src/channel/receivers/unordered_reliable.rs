@@ -1,5 +1,5 @@
 use alloc::collections::{BTreeMap, btree_map};
-use bevy::platform::collections::HashSet;
+use bevy_platform::collections::HashSet;
 use core::time::Duration;
 
 use super::error::ChannelReceiveError;
