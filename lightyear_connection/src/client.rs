@@ -1,10 +1,18 @@
-#[cfg(not(feature = "std"))]
 use alloc::{format, string::String};
-use bevy::app::{App, Plugin};
-use bevy::ecs::component::HookContext;
-use bevy::ecs::world::DeferredWorld;
-use bevy::platform::collections::HashMap;
-use bevy::prelude::*;
+use bevy_app::{App, Plugin};
+use bevy_ecs::{
+    component::{Component, HookContext},
+    entity::Entity,
+    event::Event,
+    observer::Trigger,
+    query::Without,
+    reflect::ReflectResource,
+    resource::Resource,
+    system::{Commands, Query},
+    world::{DeferredWorld, OnAdd},
+};
+use bevy_platform::collections::HashMap;
+use bevy_reflect::Reflect;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::LinkStart;
 use lightyear_link::prelude::{Server, Unlinked};

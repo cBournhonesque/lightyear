@@ -1,12 +1,20 @@
 use crate::client::{Client, Disconnected, Disconnecting};
 use crate::client_of::ClientOf;
-use bevy::app::{App, Last, Plugin};
-use bevy::ecs::component::HookContext;
-use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::*;
+use bevy_app::{App, Last, Plugin};
+use bevy_ecs::{
+    component::{Component, HookContext},
+    entity::Entity,
+    event::Event,
+    observer::Trigger,
+    query::With,
+    system::{Commands, Query},
+    world::{DeferredWorld, OnAdd},
+};
+use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use lightyear_link::prelude::Server;
 use lightyear_link::{LinkStart, Unlinked};
+use tracing::trace;
 
 /// Errors related to the server connection
 #[derive(thiserror::Error, Debug)]

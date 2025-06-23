@@ -1,4 +1,5 @@
-use bevy::prelude::*;
+use bevy_ecs::{component::Component, reflect::ReflectComponent};
+use bevy_reflect::Reflect;
 
 /// Marker component to identify this link as a LinkOf
 ///

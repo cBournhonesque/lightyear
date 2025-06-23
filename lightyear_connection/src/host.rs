@@ -6,17 +6,35 @@
 //! - the Server is started
 
 #[cfg(feature = "server")]
+use alloc::string::ToString;
+use alloc::vec::Vec;
+
+#[cfg(feature = "server")]
 use crate::{
     client::{Client, Connect, Connected, Disconnect, Disconnected},
     client_of::ClientOf,
     server::Started,
 };
-use bevy::prelude::*;
+use bevy_app::{App, Plugin};
+use bevy_ecs::component::Component;
+#[cfg(feature = "server")]
+use bevy_ecs::{
+    entity::Entity,
+    observer::Trigger,
+    query::{With, Without},
+    relationship::RelationshipTarget,
+    system::{Commands, Query},
+    world::OnAdd,
+};
+#[cfg(feature = "server")]
+use bevy_reflect::Reflect;
 use bytes::Bytes;
 #[cfg(feature = "server")]
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 #[cfg(feature = "server")]
 use lightyear_link::prelude::{LinkOf, Server};
+#[cfg(feature = "server")]
+use tracing::info;
 
 // we want the component to be available even if the server feature is not enabled
 /// Marker component inserted on a client that acts as a Host
