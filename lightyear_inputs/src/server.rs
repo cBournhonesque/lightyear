@@ -170,7 +170,7 @@ fn receive_input_message<S: ActionStateSequence>(
                         if let Ok(buffer) = query.get_mut(entity) {
                             if let Some(mut buffer) = buffer {
                                trace!(
-                                    "Updated InputBuffer: {} using: {:?}",
+                                    "Updating InputBuffer: {} using: {:?}",
                                     buffer.as_ref(),
                                     data.states
                                 );
@@ -211,14 +211,10 @@ fn update_action_state<S: ActionStateSequence>(
     // TODO: what if there are multiple servers? maybe we can use Replicate to figure out which inputs should be replicating on which servers?
     //  and use the timeline from that connection? i.e. find from which entity we got the first InputMessage?
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
-    server: Query<(Entity, &LocalTimeline), With<Started>>,
+    server: Single<(Entity, &LocalTimeline), With<Started>>,
     mut action_state_query: Query<(Entity, &mut S::State, &mut InputBuffer<S::Snapshot>)>,
 ) {
-    let Ok((server, timeline)) = server.single() else {
-        // We don't have a server timeline, so we can't update the action state
-        return;
-    };
-
+    let (server, timeline) = server.into_inner();
     let tick = timeline.tick();
     for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
         trace!(?tick, ?server, ?input_buffer, "input buffer on server");
@@ -249,6 +245,7 @@ fn update_action_state<S: ActionStateSequence>(
 
         // TODO: in host-server mode, if we rebroadcast inputs, we might want to keep a bit of a history
         //  in the buffer so that we have redundancy when we broadcast to other clients
+        // TODO: + we also want to keep enough inputs on the client to be able to do prediction effectively!
         // remove all the previous values
         // we keep the current value in the InputBuffer so that if future messages are lost, we can still
         // fallback on the last known value

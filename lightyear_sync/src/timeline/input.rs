@@ -73,11 +73,11 @@ impl Input {
         mut query: Query<(&Link, &mut InputTimeline), Changed<InputTimeline>>,
     ) {
         query.iter_mut().for_each(|(link, mut timeline)| {
+            // TODO: we want to limit this when only the config updates, not the timeline itself!
             let rtt = link.stats.rtt;
             timeline.input_delay_ticks = timeline
                 .input_delay_config
                 .input_delay_ticks(rtt, tick_duration.0);
-
             trace!(
                 "Recomputing input delay on config update! Input delay ticks: {}. Config: {:?}",
                 timeline.input_delay_ticks, timeline.input_delay_config

@@ -55,7 +55,7 @@ pub(crate) fn write_inputs(
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
     if let Ok(mut action_state) = query.single_mut() {
-        let mut input = None;
+        let mut input;
         let mut direction = Direction {
             up: false,
             down: false,
@@ -74,9 +74,7 @@ pub(crate) fn write_inputs(
         if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
             direction.right = true;
         }
-        if !direction.is_none() {
-            input = Some(Inputs::Direction(direction));
-        }
+        input = Some(Inputs::Direction(direction));
         if keypress.pressed(KeyCode::KeyK) {
             input = Some(Inputs::Delete);
         }
