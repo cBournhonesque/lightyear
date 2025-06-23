@@ -1,11 +1,13 @@
 //! Module to handle the various possible ClientIds
-use bevy::prelude::{Component, Deref};
-use bevy::reflect::Reflect;
 use core::fmt::Formatter;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
+
+use bevy_derive::Deref;
+use bevy_ecs::component::Component;
+use bevy_reflect::Reflect;
 
 /// Stores the PeerId of the local peer for the connection
 #[derive(

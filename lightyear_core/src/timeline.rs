@@ -1,11 +1,14 @@
 use crate::prelude::Tick;
 use crate::tick::TickDuration;
 use crate::time::{Overstep, TickDelta, TickInstant};
-use bevy::app::{App, FixedFirst, Plugin};
-use bevy::ecs::component::Mutable;
-use bevy::prelude::{
-    Component, Deref, DerefMut, Event, Fixed, Query, Reflect, ResMut, Time, Trigger,
-};
+use bevy_app::{App, FixedFirst, Plugin};
+use bevy_derive::{Deref, DerefMut};
+use bevy_ecs::component::{Component, Mutable};
+use bevy_ecs::event::Event;
+use bevy_ecs::observer::Trigger;
+use bevy_ecs::system::{Query, ResMut};
+use bevy_reflect::Reflect;
+use bevy_time::{Fixed, Time};
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 

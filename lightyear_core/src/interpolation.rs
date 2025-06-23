@@ -1,4 +1,5 @@
-use bevy::prelude::*;
+use bevy_ecs::{component::Component, entity::Entity, reflect::ReflectComponent};
+use bevy_reflect::Reflect;
 
 /// Component added to client-side entities that are visually interpolated.
 ///

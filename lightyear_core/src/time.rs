@@ -2,11 +2,11 @@
 This module contains some helper functions to compute the difference between two times.
 */
 use crate::tick::Tick;
-use bevy::prelude::*;
 use core::cmp::Ordering;
 use core::fmt::{Debug, Formatter};
 use core::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
+use bevy_reflect::Reflect;
 use core::time::Duration;
 use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::reader::Reader;
@@ -15,7 +15,7 @@ use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
 
 #[cfg(any(not(feature = "test_utils"), feature = "not_mock"))]
-pub use bevy::platform::time::Instant;
+pub use bevy_platform::time::Instant;
 // We use global instead of a thread_local, because otherwise we would need to advance the Instant on all threads
 #[cfg(all(feature = "test_utils", not(feature = "not_mock")))]
 pub use mock_instant::global::Instant;

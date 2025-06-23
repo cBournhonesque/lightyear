@@ -7,7 +7,7 @@
 //! - History buffers for state management (`history_buffer`).
 //! - Core plugin structures (`plugin`).
 
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
 extern crate core;
