@@ -3,18 +3,23 @@
 Low-level IO primitives for the lightyear networking library.
 This crate provides abstractions for sending and receiving raw bytes over the network.
 */
-#![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::component::Component;
+use bevy_ecs::entity::Entity;
+use bevy_ecs::error::Result;
+use bevy_ecs::observer::Trigger;
+use bevy_ecs::query::{With, Without};
+use bevy_ecs::relationship::RelationshipTarget;
+use bevy_ecs::schedule::IntoScheduleConfigs;
+use bevy_ecs::system::{Commands, ParallelCommands, Query};
+use tracing::{error, info};
 
 use crate::UdpError;
 use aeronet_io::connection::{LocalAddr, PeerAddr};
-use bevy::platform::collections::HashMap;
-use bevy::platform::collections::hash_map::Entry;
-use bevy::prelude::*;
+use bevy_platform::collections::{HashMap, hash_map::Entry};
 use bytes::{BufMut, BytesMut};
 use core::net::SocketAddr;
 use lightyear_core::time::Instant;
