@@ -1,20 +1,22 @@
+#![no_std]
+
+pub mod server;
+
 extern crate alloc;
 
 use alloc::format;
-
-pub mod server;
 
 use aeronet_io::connection::{Disconnect, Disconnected, LocalAddr, PeerAddr};
 use aeronet_io::server::{Close, Server};
 use aeronet_io::{IoSet, Session, SessionEndpoint};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
-use bevy_ecs::query::{Has, With};
-use bevy_ecs::relationship::Relationship;
-use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::{
     component::Component,
     entity::Entity,
     observer::Trigger,
+    query::{Has, With},
+    relationship::Relationship,
+    schedule::IntoScheduleConfigs,
     system::{Commands, Query},
     world::OnAdd,
 };
