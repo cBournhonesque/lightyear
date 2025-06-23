@@ -1,7 +1,17 @@
 use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig};
 use alloc::sync::Arc;
-use bevy::ecs::entity::unique_slice::UniqueEntitySlice;
-use bevy::prelude::*;
+use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::{
+    component::Component,
+    entity::{Entity, UniqueEntitySlice},
+    error::Result,
+    observer::Trigger,
+    query::{Has, With, Without},
+    relationship::RelationshipTarget,
+    schedule::IntoScheduleConfigs,
+    system::{Commands, ParallelCommands, Query, Res},
+};
+use bevy_time::{Real, Time};
 use lightyear_connection::client::{Connected, Disconnected, Disconnecting};
 use lightyear_connection::host::HostClient;
 use lightyear_connection::prelude::{server::*, *};

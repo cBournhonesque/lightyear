@@ -7,8 +7,6 @@ use super::{
     utils,
 };
 use alloc::borrow::ToOwned;
-#[cfg(not(feature = "std"))]
-use alloc::format;
 use chacha20poly1305::{AeadCore, XChaCha20Poly1305, XNonce, aead::OsRng};
 use core::mem::size_of;
 use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -432,9 +430,8 @@ impl ConnectToken {
     pub fn try_into_bytes(self) -> Result<[u8; CONNECT_TOKEN_BYTES], io::Error> {
         let mut buf = [0u8; CONNECT_TOKEN_BYTES];
         let mut cursor = io::Cursor::new(&mut buf[..]);
-        self.write_to(&mut cursor).map_err(|e| {
-            io::Error::other(format!("failed to write token to buffer: {}", e).as_str())
-        })?;
+        self.write_to(&mut cursor)
+            .map_err(|e| io::Error::other(format!("failed to write token to buffer: {e}")))?;
         Ok(buf)
     }
 
@@ -516,8 +513,6 @@ impl Bytes for ConnectToken {
 mod tests {
     use super::*;
     use crate::utils::ToSocketAddrs;
-    #[cfg(not(feature = "std"))]
-    use alloc::vec::Vec;
 
     #[test]
     fn encrypt_decrypt_private_token() {

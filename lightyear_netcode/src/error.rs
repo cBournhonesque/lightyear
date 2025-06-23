@@ -1,4 +1,4 @@
-use bevy::prelude::Entity;
+use bevy_ecs::entity::Entity;
 use core::array::TryFromSliceError;
 use lightyear_core::id::PeerId;
 use thiserror::Error;
@@ -43,10 +43,10 @@ pub enum Error {
     Denied(PeerId),
     #[error("client_id {0} server ignored non-connection-request packet")]
     Ignored(Entity),
-    #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("clock went backwards (did you invent a time machine?): {0}")]
     SystemTime(#[from] std::time::SystemTimeError),
-    #[cfg(all(feature = "std", target_arch = "wasm32"))]
+    #[cfg(target_arch = "wasm32")]
     #[error("clock went backwards (did you invent a time machine?): {0}")]
     SystemTime(#[from] web_time::SystemTimeError),
     #[error("invalid connect token: {0}")]

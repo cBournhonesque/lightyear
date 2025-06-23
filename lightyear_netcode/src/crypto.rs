@@ -13,7 +13,6 @@ pub enum Error {
     Io(#[from] io::Error),
     #[error("buffer size mismatch")]
     BufferSizeMismatch,
-    #[cfg(feature = "std")]
     #[error("failed to encrypt: {0}")]
     Failed(#[from] chacha20poly1305::aead::Error),
     #[error("failed to generate key: {0}")]
@@ -77,10 +76,7 @@ pub fn chacha_encrypt(
         associated_data.unwrap_or_default(),
         &mut buf[..size - MAC_BYTES],
     );
-    #[cfg(feature = "std")]
     let mac = mac?;
-    #[cfg(not(feature = "std"))]
-    let mac = mac.expect("could not encrypt ConnectToken");
     buf[size - MAC_BYTES..].copy_from_slice(mac.as_ref());
     Ok(())
 }
@@ -104,10 +100,7 @@ pub fn chacha_decrypt(
         buf,
         Tag::from_slice(mac),
     );
-    #[cfg(feature = "std")]
     res?;
-    #[cfg(not(feature = "std"))]
-    res.expect("could not decrypt ConnectToken");
     Ok(())
 }
 
@@ -127,10 +120,7 @@ pub fn xchacha_encrypt(
         associated_data.unwrap_or_default(),
         &mut buf[..size - MAC_BYTES],
     );
-    #[cfg(feature = "std")]
     let mac = mac?;
-    #[cfg(not(feature = "std"))]
-    let mac = mac.expect("could not encrypt ConnectToken");
     buf[size - MAC_BYTES..].copy_from_slice(mac.as_ref());
     Ok(())
 }
@@ -152,10 +142,7 @@ pub fn xchacha_decrypt(
         buf,
         Tag::from_slice(mac),
     );
-    #[cfg(feature = "std")]
     res?;
-    #[cfg(not(feature = "std"))]
-    res.expect("could not decrypt ConnectToken");
     Ok(())
 }
 
