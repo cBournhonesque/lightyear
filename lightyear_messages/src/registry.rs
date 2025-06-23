@@ -1,10 +1,9 @@
 use crate::receive::{ClearMessageFn, MessageReceiver, ReceiveMessageFn};
 use crate::send::{MessageSender, SendLocalMessageFn, SendMessageFn};
 use crate::{Message, MessageNetId};
-use bevy::ecs::component::ComponentId;
-use bevy::ecs::entity::MapEntities;
-use bevy::platform::collections::HashMap;
-use bevy::prelude::*;
+use bevy_app::App;
+use bevy_ecs::{component::ComponentId, entity::MapEntities, error::Result, resource::Resource};
+use bevy_reflect::{Reflect, TypePath};
 use core::any::TypeId;
 use core::cell::UnsafeCell;
 use core::hash::Hash;
@@ -19,6 +18,7 @@ use lightyear_serde::registry::{
 use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::ChannelKind;
+use lightyear_utils::collections::HashMap;
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -393,6 +393,7 @@ impl AppMessageExt for App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy_ecs::entity::{Entity, EntityMapper};
     use lightyear_serde::SerializationError;
     use lightyear_serde::reader::ReadInteger;
     use lightyear_serde::writer::WriteInteger;

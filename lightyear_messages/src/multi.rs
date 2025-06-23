@@ -1,9 +1,11 @@
 use crate::registry::MessageRegistry;
 use crate::send::Priority;
 use crate::{Message, MessageManager};
-use bevy::ecs::entity::EntitySet;
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::*;
+use bevy_ecs::{
+    entity::EntitySet,
+    error::{BevyError, Result},
+    system::{Local, Query, Res, SystemParam},
+};
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::writer::Writer;
 use lightyear_transport::channel::Channel;

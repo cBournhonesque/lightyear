@@ -5,8 +5,12 @@ use crate::registry::MessageRegistration;
 use crate::send::Priority;
 use crate::send_trigger::TriggerSender;
 use crate::trigger::TriggerRegistration;
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::*;
+use bevy_ecs::{
+    error::Result,
+    event::Event,
+    relationship::RelationshipTarget,
+    system::{Res, SystemParam},
+};
 use lightyear_connection::client::PeerMetadata;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
