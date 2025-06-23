@@ -18,14 +18,11 @@ lightyear_serde.workspace = true
 # utils
 hashbrown.workspace = true
 paste.workspace = true
-seahash.workspace = true
 
 # bevy
-bevy.workspace = true
-
-# serde
-serde.workspace = true
-
+bevy_ecs.workspace = true
+bevy_platform.workspace = true
+bevy_reflect.workspace = true
 
 [lints]
 workspace = true

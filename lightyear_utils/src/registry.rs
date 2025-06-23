@@ -1,5 +1,5 @@
 use crate::collections::HashMap;
-use bevy::platform::hash::{DefaultHasher, FixedHasher};
+use bevy_platform::hash::{DefaultHasher, FixedHasher};
 use core::any::TypeId;
 use core::fmt::Formatter;
 use core::hash::{BuildHasher, Hash, Hasher};

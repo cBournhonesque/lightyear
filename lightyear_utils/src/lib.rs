@@ -1,9 +1,11 @@
 //! Contains a set of useful utilities
 
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
 extern crate core;
+#[cfg(feature = "std")]
+extern crate std;
 
 pub mod free_list;
 

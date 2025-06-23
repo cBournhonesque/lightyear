@@ -1,8 +1,7 @@
 //! Wrapper around a min-heap
 use alloc::collections::BinaryHeap;
-#[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::prelude::Reflect;
+use bevy_reflect::Reflect;
 use core::cmp::Ordering;
 
 /// A buffer that contains items associated with a key (a Tick, Instant, etc.)
