@@ -69,7 +69,7 @@ impl<C: InputContext> Plugin for InputPlugin<C> {
                 app.configure_sets(
                     FixedPreUpdate,
                     EnhancedInputSet::Update
-                        .run_if(lightyear_connection::server::is_headless_server),
+                        .run_if(not(lightyear_connection::server::is_headless_server)),
                 );
             }
 

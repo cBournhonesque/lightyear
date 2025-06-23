@@ -97,7 +97,9 @@ jobs:
         run: mv .cargo/config_ci.toml .cargo/config.toml
 
       - name: Test
-        run: cargo tarpaulin --locked -p lightyear_tests --engine llvm --out lcov -- --test-threads=1 -A mismatched-lifetime-syntaxes
+        env:
+          RUSTFLAGS: -A mismatched_lifetime_syntaxes
+        run: cargo tarpaulin --locked -p lightyear_tests --engine llvm --out lcov -- --test-threads=1
 
       - name: Upload code coverage results
         if: github.actor != 'dependabot[bot]'

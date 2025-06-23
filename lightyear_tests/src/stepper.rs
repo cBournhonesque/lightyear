@@ -2,6 +2,7 @@ use crate::protocol::ProtocolPlugin;
 #[cfg(not(feature = "std"))]
 use alloc::vec;
 use bevy::MinimalPlugins;
+use bevy::app::PluginsState;
 use bevy::input::InputPlugin;
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
@@ -277,8 +278,13 @@ impl ClientServerStepper {
     }
 
     pub(crate) fn init(&mut self) {
-        self.server_app.finish();
-        self.server_app.cleanup();
+        if matches!(
+            self.server_app.plugins_state(),
+            PluginsState::Ready | PluginsState::Adding
+        ) {
+            self.server_app.finish();
+            self.server_app.cleanup();
+        }
 
         // Initialize Real time (needed only for the first TimeSystem run)
         let now = bevy::platform::time::Instant::now();
