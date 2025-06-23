@@ -44,6 +44,8 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
 
     fn update_buffer<'w, 's>(self, input_buffer: &mut InputBuffer<Self::State>, end_tick: Tick) {
         let start_tick = end_tick - self.len() as u16;
+        input_buffer.extend_to_range(start_tick, end_tick);
+
         input_buffer.set(start_tick, self.start_state.clone());
 
         let mut value = self.start_state.clone();
@@ -134,6 +136,7 @@ mod tests {
     )]
     enum Action {
         Jump,
+        Run,
     }
 
     #[test]
@@ -172,5 +175,91 @@ mod tests {
                 ]
             }
         );
+    }
+
+    #[test]
+    fn test_build_from_input_buffer_empty() {
+        let input_buffer: InputBuffer<ActionState<Action>> = InputBuffer::default();
+        let sequence =
+            LeafwingSequence::<Action>::build_from_input_buffer(&input_buffer, 5, Tick(10));
+        assert!(sequence.is_none());
+    }
+
+    #[test]
+    fn test_build_from_input_buffer_partial_overlap() {
+        let mut input_buffer = InputBuffer::default();
+        let mut action_state = ActionState::<Action>::default();
+        action_state.press(&Action::Jump);
+        input_buffer.set(Tick(8), action_state.clone());
+        action_state.release(&Action::Jump);
+        action_state.press(&Action::Run);
+        input_buffer.set(Tick(10), action_state.clone());
+
+        // Only ticks 8 and 10 are set, so sequence should start at 8
+        let sequence =
+            LeafwingSequence::<Action>::build_from_input_buffer(&input_buffer, 5, Tick(12))
+                .unwrap();
+        assert_eq!(
+            sequence.start_state,
+            input_buffer.get(Tick(8)).unwrap().clone()
+        );
+        assert_eq!(sequence.diffs.len(), 4);
+    }
+
+    #[test]
+    fn test_update_buffer_extends_left_and_right() {
+        let mut input_buffer = InputBuffer::default();
+        let mut action_state = ActionState::<Action>::default();
+        action_state.press(&Action::Jump);
+        input_buffer.set(Tick(6), action_state.clone());
+        let sequence = LeafwingSequence::<Action> {
+            // Tick 5
+            start_state: action_state.clone(),
+            diffs: vec![
+                // Tick 6
+                vec![ActionDiff::Pressed {
+                    action: Action::Run,
+                }],
+                vec![],
+                // Tick 8
+                vec![ActionDiff::Released {
+                    action: Action::Jump,
+                }],
+            ],
+        };
+        // This should extend the buffer to fit ticks 5..=8
+        sequence.update_buffer(&mut input_buffer, Tick(8));
+        assert_eq!(input_buffer.get(Tick(5)).unwrap(), &action_state);
+
+        // NOTE: The action_state from the sequence are ticked to avoid having JustPressed on each tick!
+        let mut expected = action_state.clone();
+        expected.tick(Instant::now(), Instant::now());
+        expected.press(&Action::Run);
+        assert_eq!(input_buffer.get(Tick(6)).unwrap(), &expected);
+        expected.tick(Instant::now(), Instant::now());
+        assert_eq!(input_buffer.get(Tick(7)).unwrap(), &expected);
+        expected.tick(Instant::now(), Instant::now());
+        expected.release(&Action::Jump);
+        assert_eq!(input_buffer.get(Tick(8)).unwrap(), &expected);
+    }
+
+    #[test]
+    fn test_update_buffer_overwrites_existing() {
+        let mut input_buffer = InputBuffer::default();
+        let mut action_state = ActionState::<Action>::default();
+        action_state.press(&Action::Jump);
+        input_buffer.set(Tick(2), action_state.clone());
+        let sequence = LeafwingSequence::<Action> {
+            start_state: action_state.clone(),
+            diffs: vec![vec![ActionDiff::Released {
+                action: Action::Jump,
+            }]],
+        };
+        // Should overwrite tick 3
+        sequence.update_buffer(&mut input_buffer, Tick(3));
+        assert_eq!(input_buffer.get(Tick(2)).unwrap(), &action_state);
+        let mut expected = action_state.clone();
+        expected.release(&Action::Jump);
+        assert_eq!(input_buffer.get(Tick(3)).unwrap(), &expected);
     }
 }

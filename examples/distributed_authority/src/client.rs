@@ -59,7 +59,6 @@ pub(crate) fn buffer_input(
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
     query.iter_mut().for_each(|mut action_state| {
-        let mut input = None;
         let mut direction = Direction {
             up: false,
             down: false,
@@ -78,10 +77,7 @@ pub(crate) fn buffer_input(
         if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
             direction.right = true;
         }
-        if !direction.is_none() {
-            input = Some(Inputs::Direction(direction));
-        }
-        action_state.value = input;
+        action_state.value = Some(Inputs::Direction(direction));
     });
 }
 

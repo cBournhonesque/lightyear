@@ -52,7 +52,18 @@ impl<
 
     fn update_buffer<'w, 's>(self, input_buffer: &mut InputBuffer<Self::State>, end_tick: Tick) {
         let start_tick = end_tick + 1 - self.len() as u16;
-        // the first value is guaranteed to not be SameAsPrecedent
+        // extend the input buffer to the required size
+        input_buffer.extend_to_range(start_tick, end_tick);
+
+        // TODO: this creates bugs, because while this is True, the input buffer might start
+        //  with a lower tick than the sequence's start tick.
+        //  So if input_message: tick 10=1, tick11=SameAsPrecedent, tick12=SameAsPrecedent,
+        //  and input buffer starts at tick 11, then the first tick that is looked at will actually be
+        //  SameAsPrecedent, which is NOT what we want!
+        //  For the 1st tick, we want to set the buffer to SameAsPrecedent ONLY if it's not the first tick
+        //  of the buffer
+
+        // the first value of the input message is guaranteed to not be SameAsPrecedent
         for (delta, input) in self.states.into_iter().enumerate() {
             let tick = start_tick + Tick(delta as u16);
             match input {
@@ -137,6 +148,7 @@ impl<A: MapEntities> MapEntities for NativeStateSequence<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
 
     #[test]
     fn test_build_sequence_from_buffer() {
@@ -211,5 +223,112 @@ mod tests {
             Some(&ActionState::<i32> { value: Some(0) })
         );
         assert_eq!(input_buffer.get(Tick(13)), None,);
+    }
+
+    /// Test that the sequence updates the buffer correctly when the sequence's start tick is lower than the input
+    /// buffer's start tick
+    #[test]
+    fn test_update_buffer_from_sequence_lower_start_tick() {
+        let mut input_buffer = InputBuffer {
+            start_tick: Some(Tick(10)),
+            buffer: VecDeque::from([
+                InputData::Input(ActionState { value: Some(0) }),
+                InputData::SameAsPrecedent,
+                InputData::SameAsPrecedent,
+            ]),
+        };
+        let sequence = NativeStateSequence::<usize> {
+            states: vec![
+                // tick 7
+                InputData::Absent,
+                InputData::SameAsPrecedent,
+                // tick 9
+                InputData::Input(0),
+                InputData::SameAsPrecedent,
+                InputData::SameAsPrecedent,
+                InputData::SameAsPrecedent,
+                InputData::SameAsPrecedent,
+                InputData::Input(1),
+            ],
+        };
+        sequence.update_buffer(&mut input_buffer, Tick(14));
+        assert_eq!(
+            input_buffer.get(Tick(14)),
+            Some(&ActionState { value: Some(1) })
+        );
+        assert_eq!(
+            input_buffer.get(Tick(13)),
+            Some(&ActionState { value: Some(0) })
+        );
+        assert_eq!(
+            input_buffer.get(Tick(12)),
+            Some(&ActionState { value: Some(0) })
+        );
+        assert_eq!(
+            input_buffer.get(Tick(11)),
+            Some(&ActionState { value: Some(0) })
+        );
+        assert_eq!(
+            input_buffer.get(Tick(10)),
+            Some(&ActionState { value: Some(0) })
+        );
+        assert_eq!(
+            input_buffer.get(Tick(9)),
+            Some(&ActionState { value: Some(0) })
+        );
+        assert_eq!(input_buffer.get(Tick(8)), None,);
+        assert_eq!(input_buffer.get(Tick(7)), None,);
+    }
+
+    #[test]
+    fn test_update_buffer_from_sequence_absent() {
+        let mut input_buffer = InputBuffer {
+            start_tick: Some(Tick(10)),
+            buffer: VecDeque::from([
+                InputData::Input(ActionState { value: Some(0) }),
+                InputData::Absent,
+                InputData::SameAsPrecedent,
+            ]),
+        };
+        let sequence = NativeStateSequence::<usize> {
+            states: vec![
+                // Tick 11
+                InputData::Absent,
+                // Tick 12
+                InputData::SameAsPrecedent,
+            ],
+        };
+        sequence.update_buffer(&mut input_buffer, Tick(12));
+        assert_eq!(input_buffer.get(Tick(12)), None);
+        assert_eq!(input_buffer.get(Tick(11)), None);
+        assert_eq!(
+            input_buffer.get(Tick(10)),
+            Some(&ActionState { value: Some(0) })
+        );
+    }
+
+    #[test]
+    fn test_update_buffer_from_sequence_present() {
+        let mut input_buffer = InputBuffer {
+            start_tick: Some(Tick(10)),
+            buffer: VecDeque::from([InputData::Absent, InputData::SameAsPrecedent]),
+        };
+        let sequence = NativeStateSequence::<usize> {
+            states: vec![
+                // Tick 9
+                InputData::Input(0),
+                // Tick 10
+                InputData::Absent,
+                // Tick 11
+                InputData::SameAsPrecedent,
+            ],
+        };
+        sequence.update_buffer(&mut input_buffer, Tick(11));
+        assert_eq!(input_buffer.get(Tick(11)), None);
+        assert_eq!(input_buffer.get(Tick(10)), None);
+        assert_eq!(
+            input_buffer.get(Tick(9)),
+            Some(&ActionState { value: Some(0) })
+        );
     }
 }

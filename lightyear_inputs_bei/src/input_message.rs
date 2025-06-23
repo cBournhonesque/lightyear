@@ -202,6 +202,7 @@ impl<C: InputContext> ActionStateSequence for BEIStateSequence<C> {
 
     fn update_buffer<'w, 's>(self, input_buffer: &mut InputBuffer<Self::Snapshot>, end_tick: Tick) {
         let start_tick = end_tick + 1 - self.len() as u16;
+        // input_buffer.extend_to_range(start_tick, end_tick);
         // the first value is guaranteed to not be SameAsPrecedent
         for (delta, input) in self.states.into_iter().enumerate() {
             let tick = start_tick + Tick(delta as u16);
@@ -409,5 +410,73 @@ mod tests {
                 marker: Default::default(),
             }
         );
+    }
+
+    #[test]
+    fn test_build_from_input_buffer_empty() {
+        let input_buffer: InputBuffer<ActionsSnapshot<Context1>> = InputBuffer::default();
+        let sequence =
+            BEIStateSequence::<Context1>::build_from_input_buffer(&input_buffer, 5, Tick(10));
+        assert!(sequence.is_none());
+    }
+
+    #[test]
+    fn test_build_from_input_buffer_partial_overlap() {
+        let mut registry = InputRegistry::default();
+        registry.add::<Action1>();
+        let type_id = TypeId::of::<Action1>();
+        let net_id = *registry
+            .kind_map
+            .net_id(&InputActionKind::from(type_id))
+            .unwrap();
+        let mut input_buffer = InputBuffer::default();
+        let mut action_state = Actions::<Context1>::default();
+        action_state.bind::<Action1>();
+        input_buffer.set(
+            Tick(8),
+            ActionsSnapshot::<Context1> {
+                state: ActionsMessage::from_actions(&action_state, &registry),
+                _marker: Default::default(),
+            },
+        );
+        let state = action_state.get_mut_by_id(type_id).unwrap();
+        state.state = ActionState::Fired;
+        state.value = ActionValue::Bool(true);
+        input_buffer.set(
+            Tick(10),
+            ActionsSnapshot::<Context1> {
+                state: ActionsMessage::from_actions(&action_state, &registry),
+                _marker: Default::default(),
+            },
+        );
+
+        let sequence =
+            BEIStateSequence::<Context1>::build_from_input_buffer(&input_buffer, 5, Tick(12))
+                .unwrap();
+        assert!(matches!(&sequence.states[0], InputData::Input(_)));
+        assert_eq!(sequence.states.len(), 5);
+    }
+
+    #[test]
+    fn test_update_buffer_extends_left_and_right() {
+        let mut registry = InputRegistry::default();
+        registry.add::<Action1>();
+        let mut input_buffer = InputBuffer::default();
+        let mut action_state = Actions::<Context1>::default();
+        action_state.bind::<Action1>();
+        let actions_msg = ActionsMessage::from_actions(&action_state, &registry);
+        let sequence = BEIStateSequence::<Context1> {
+            states: vec![
+                InputData::Input(actions_msg.clone()),
+                InputData::SameAsPrecedent,
+                InputData::Absent,
+            ],
+            marker: Default::default(),
+        };
+        // This should extend the buffer to fit ticks 5..=7
+        sequence.update_buffer(&mut input_buffer, Tick(7));
+        assert!(input_buffer.get(Tick(5)).is_some());
+        assert!(input_buffer.get(Tick(6)).is_some());
+        assert!(input_buffer.get(Tick(7)).is_none());
     }
 }

@@ -41,7 +41,6 @@ pub(crate) fn buffer_input(
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
     if let Ok(mut action_state) = query.single_mut() {
-        let mut input = None;
         let mut direction = Direction {
             up: false,
             down: false,
@@ -60,10 +59,9 @@ pub(crate) fn buffer_input(
         if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
             direction.right = true;
         }
-        if !direction.is_none() {
-            input = Some(Inputs::Direction(direction));
-        }
-        action_state.value = input;
+        // we always set the value. Setting it to None means that the input was missing, it's not the same
+        // as saying that the input was 'no keys pressed'
+        action_state.value = Some(Inputs::Direction(direction));
     }
 }
 
@@ -77,7 +75,7 @@ fn player_movement(
     // let tick = timeline.tick();
     for (position, input) in position_query.iter_mut() {
         if let Some(input) = &input.value {
-            // info!(?tick, ?position, ?input, "client");
+            // trace!(?tick, ?position, ?input, "client");
             // NOTE: be careful to directly pass Mut<PlayerPosition>
             // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
             shared::shared_movement_behaviour(position, input);

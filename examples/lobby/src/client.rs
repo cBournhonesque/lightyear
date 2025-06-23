@@ -107,7 +107,6 @@ mod game {
         keypress: Res<ButtonInput<KeyCode>>,
     ) {
         if let Ok(mut action_state) = query.single_mut() {
-            let mut input = None;
             let mut direction = Direction {
                 up: false,
                 down: false,
@@ -126,10 +125,7 @@ mod game {
             if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
                 direction.right = true;
             }
-            if !direction.is_none() {
-                input = Some(Inputs::Direction(direction));
-            }
-            action_state.value = input;
+            action_state.value = Some(Inputs::Direction(direction));
         }
     }
 
