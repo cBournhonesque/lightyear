@@ -6,18 +6,26 @@
 //!
 //! It defines `CrossbeamIo` for channel-based communication and `CrossbeamPlugin`
 //! to integrate this transport into a Bevy application.
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
 
 use aeronet_io::connection::{LocalAddr, PeerAddr};
-use bevy::prelude::*;
+use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::{
+    component::Component,
+    error::Result,
+    observer::Trigger,
+    query::With,
+    schedule::IntoScheduleConfigs,
+    system::{Commands, Query},
+};
 use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use lightyear_core::time::Instant;
 use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked};
-use tracing::error;
+use tracing::{error, trace};
 
 /// Maximum transmission units; maximum size in bytes of a packet
 pub(crate) const MTU: usize = 1472;
