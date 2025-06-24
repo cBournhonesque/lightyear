@@ -9,7 +9,8 @@ description = "IO primitives for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
-default = []
+default = ["std"]
+std = []
 test_utils = []
 
 [dependencies]
