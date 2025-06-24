@@ -7,6 +7,7 @@ use super::{
     utils,
 };
 use alloc::borrow::ToOwned;
+use alloc::format;
 use chacha20poly1305::{AeadCore, XChaCha20Poly1305, XNonce, aead::OsRng};
 use core::mem::size_of;
 use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -512,7 +513,9 @@ impl Bytes for ConnectToken {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::utils::ToSocketAddrs;
+    use alloc::vec::Vec;
 
     #[test]
     fn encrypt_decrypt_private_token() {

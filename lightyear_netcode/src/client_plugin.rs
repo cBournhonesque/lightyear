@@ -1,3 +1,5 @@
+use alloc::{format, string::ToString};
+
 use crate::Error;
 use crate::auth::Authentication;
 use crate::client::{ClientConfig, ClientState};

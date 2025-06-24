@@ -1,4 +1,4 @@
-use alloc::sync::Arc;
+use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use bevy_ecs::{entity::Entity, system::EntityCommands};
 use core::net::SocketAddr;
 use lightyear_utils::collections::HashMap;

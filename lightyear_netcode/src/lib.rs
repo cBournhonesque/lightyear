@@ -129,9 +129,12 @@ loop {
 ```
 "##
 )]
+#![no_std]
 
 extern crate alloc;
 extern crate core;
+#[cfg(feature = "std")]
+extern crate std;
 
 #[cfg(feature = "client")]
 pub use client_plugin::NetcodeClient;

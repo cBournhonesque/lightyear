@@ -10,10 +10,12 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = [
+  "std",
   # TODO: split between client/server features
   "client",
   "server",
 ]
+std = ["no_std_io2/std", "chacha20poly1305/std", "lightyear_transport?/std"]
 client = [
   "lightyear_connection/client",
   "lightyear_transport",
@@ -47,7 +49,7 @@ bevy_reflect = { workspace = true, optional = true }
 bevy_time = { workspace = true, optional = true }
 
 # no_std
-no_std_io2 = { workspace = true, features = ["std"] }
+no_std_io2.workspace = true
 
 # utils
 aeronet_io = { workspace = true, optional = true }
@@ -55,7 +57,7 @@ bytes.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 rand = { workspace = true, optional = true }
-chacha20poly1305 = { workspace = true, features = ["std"] }
+chacha20poly1305.workspace = true
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 web-time.workspace = true

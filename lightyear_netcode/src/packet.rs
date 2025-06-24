@@ -1,3 +1,4 @@
+use alloc::{borrow::ToOwned, boxed::Box, string::String, vec};
 use bytes::BytesMut;
 use core::mem::size_of;
 use std::io::{self, Read, Write};
@@ -574,8 +575,10 @@ pub fn sequence_len(sequence: u64) -> u8 {
 mod tests {
     use super::*;
 
+    use alloc::vec::Vec;
     use chacha20poly1305::{AeadCore, XChaCha20Poly1305, aead::OsRng};
     use lightyear_serde::writer::Writer;
+    use std::dbg;
 
     use crate::{MAX_PACKET_SIZE, USER_DATA_BYTES, crypto::generate_key, token::AddressList};
 
