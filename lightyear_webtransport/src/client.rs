@@ -1,9 +1,16 @@
 use crate::WebTransportError;
 use aeronet_io::connection::PeerAddr;
 use aeronet_webtransport::client::{ClientConfig, WebTransportClient};
-use bevy::prelude::*;
+use alloc::{format, string::String, vec::Vec};
+use bevy_app::{App, Plugin};
+use bevy_ecs::{
+    error::Result,
+    prelude::{Commands, Component, Entity, EntityCommand, Name, Query, Trigger, Without, World},
+};
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
 use lightyear_link::{Link, LinkStart, Linked, Linking};
+#[cfg(all(not(target_family = "wasm"), feature = "dangerous-configuration"))]
+use tracing::warn;
 
 pub struct WebTransportClientPlugin;
 
