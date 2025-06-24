@@ -30,6 +30,8 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 // TODO: in post-update, interpolate the visual state of the game between with 1 tick of delay.
 // - we need to store the component values of the previous tick
