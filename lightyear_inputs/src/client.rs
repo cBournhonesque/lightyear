@@ -47,6 +47,8 @@ use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
+#[cfg(feature = "metrics")]
+use alloc::format;
 use alloc::{vec, vec::Vec};
 use bevy_app::{
     App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, RunFixedMainLoop,

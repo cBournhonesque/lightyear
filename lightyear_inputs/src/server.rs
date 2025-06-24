@@ -4,6 +4,8 @@ use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
+#[cfg(feature = "metrics")]
+use alloc::format;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
 use bevy_ecs::entity::{Entity, MapEntities};
 use bevy_ecs::error::Result;
