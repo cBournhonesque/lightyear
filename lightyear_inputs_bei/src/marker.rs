@@ -1,6 +1,13 @@
 //! Add an [`InputMarker<C>`] component for each entity that have an [`Actions<C>`] where there is at least one [`InputBinding`](bevy_enhanced_input::prelude::InputBinding).
 
-use bevy::prelude::*;
+use bevy_ecs::{
+    component::Component,
+    entity::Entity,
+    event::{Event, EventReader, EventWriter},
+    observer::Trigger,
+    query::Without,
+    system::{Commands, Query},
+};
 use bevy_enhanced_input::input_context::{Bind, InputContext};
 use bevy_enhanced_input::prelude::Actions;
 
