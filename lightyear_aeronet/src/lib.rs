@@ -1,8 +1,10 @@
 #![no_std]
 
-pub mod server;
-
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
+
+pub mod server;
 
 use alloc::format;
 
