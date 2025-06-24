@@ -26,16 +26,25 @@
 //!     commands.spawn().insert(VisualInterpolateStatus::<Component1>::default());
 //! }
 //! ```
-#![cfg_attr(not(feature = "std"), no_std)]
+
+#![no_std]
 
 extern crate alloc;
-use bevy::ecs::component::Mutable;
+
 // TODO: in post-update, interpolate the visual state of the game between with 1 tick of delay.
 // - we need to store the component values of the previous tick
 // - then in PostUpdate (visual interpolation) we interpolate between the previous tick and the current tick using the overstep
 // - in PreUpdate, we restore the component value to the previous tick values
-use bevy::prelude::*;
-use bevy::transform::TransformSystem::TransformPropagate;
+use bevy_app::{App, FixedLast, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::{
+    change_detection::{DetectChanges, DetectChangesMut},
+    component::{Component, Mutable},
+    query::{With, Without},
+    schedule::{IntoScheduleConfigs, SystemSet, common_conditions::not},
+    system::{Query, Res, Single},
+    world::Ref,
+};
+use bevy_transform::TransformSystem;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::correction::Correction;
@@ -72,7 +81,6 @@ pub enum FrameInterpolationSet {
 ///
 /// # Example
 /// ```rust,ignore
-/// use bevy::prelude::*;
 /// use lightyear_frame_interpolation::FrameInterpolationPlugin;
 /// use lightyear_protocols::prelude::client::Ease; // Assuming Ease is defined here
 ///
@@ -132,7 +140,7 @@ impl<C: Component<Mutability = Mutable> + Clone> Plugin for FrameInterpolationPl
         app.configure_sets(
             PostUpdate,
             FrameInterpolationSet::Interpolate
-                .before(TransformPropagate)
+                .before(TransformSystem::TransformPropagate)
                 // we don't want the visual interpolation value to be the one replicated!
                 .after(ReplicationSet::Send),
         );
