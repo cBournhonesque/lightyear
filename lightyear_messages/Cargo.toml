@@ -9,11 +9,12 @@ description = "IO primitives for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
-default = []
+default = ["std"]
+std = ["lightyear_transport/std"]
 client = ["lightyear_connection/client"]
 server = ["lightyear_link", "lightyear_connection/server"]
 test_utils = []
-test_log = ["test-log"]
+test_log = ["test-log", "std"]
 
 [dependencies]
 lightyear_link = { workspace = true, optional = true }

@@ -9,7 +9,7 @@
 #![no_std]
 
 extern crate alloc;
-#[cfg(feature = "test_log")]
+#[cfg(feature = "std")]
 extern crate std;
 
 use bevy_ecs::component::{Component, ComponentId};
