@@ -3,9 +3,10 @@
 //! This crate provides an integration between `lightyear` and `bevy-enhanced-input`.
 #![no_std]
 
-#[cfg(feature = "std")]
 extern crate alloc;
 extern crate core;
+#[cfg(feature = "std")]
+extern crate std;
 
 pub mod input_message;
 
