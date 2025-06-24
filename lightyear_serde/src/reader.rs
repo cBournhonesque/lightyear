@@ -11,6 +11,8 @@ pub use std::Reader;
 #[cfg(feature = "std")]
 pub(crate) mod std {
     use super::*;
+
+    use alloc::vec::Vec;
     use bytes::Buf;
 
     #[derive(Clone)]
@@ -291,7 +293,6 @@ mod tests {
     use crate::writer::WriteInteger;
     use no_std_io2::io;
 
-    #[cfg(not(feature = "std"))]
     use alloc::vec;
 
     #[test]

@@ -9,13 +9,14 @@
 //!
 //! This crate is fundamental for preparing data to be sent over the network and for
 //! reconstructing data received from remote peers.
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 use crate::reader::{ReadInteger, ReadVarInt, Reader};
 use crate::varint::varint_len;
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy_platform::collections::HashMap;
 use bytes::Bytes;
@@ -263,7 +264,6 @@ impl<K: ToBytes + Eq + Hash, V: ToBytes, S: Default + BuildHasher> ToBytes for H
 mod tests {
     use super::*;
     use crate::writer::Writer;
-    #[cfg(not(feature = "std"))]
     use alloc::vec;
     use bevy_ecs::entity::Entity;
 
