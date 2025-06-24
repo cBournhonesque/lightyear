@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::action_diff::ActionDiff;
 use crate::action_state::LeafwingUserAction;
 use alloc::vec::Vec;
@@ -8,7 +10,7 @@ use bevy_ecs::{
 use leafwing_input_manager::Actionlike;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
-use lightyear_core::{prelude::Tick, time::Instant};
+use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::InputBuffer;
 use lightyear_inputs::input_message::ActionStateSequence;
 use serde::{Deserialize, Serialize};
