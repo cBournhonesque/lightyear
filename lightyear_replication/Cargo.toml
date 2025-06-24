@@ -9,8 +9,8 @@ description = "IO primitives for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
-default = []
-std = []
+default = ["std"]
+std = ["lightyear_transport/std"]
 client = []
 server = ["lightyear_connection/server"]
 prediction = ["lightyear_core/prediction"]
