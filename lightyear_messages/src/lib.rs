@@ -6,12 +6,17 @@
 //! utilities for managing message sending and receiving, including `MessageSender`,
 //! `MessageReceiver`, and `MessageManager`.
 
+#![no_std]
+
 extern crate alloc;
+#[cfg(feature = "test_log")]
+extern crate std;
 
 use bevy_ecs::component::{Component, ComponentId};
 use bevy_reflect::Reflect;
 
 use crate::registry::MessageKind;
+use alloc::vec::Vec;
 use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::prelude::Transport;

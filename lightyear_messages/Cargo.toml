@@ -13,6 +13,7 @@ default = []
 client = ["lightyear_connection/client"]
 server = ["lightyear_link", "lightyear_connection/server"]
 test_utils = []
+test_log = ["test-log"]
 
 [dependencies]
 lightyear_link = { workspace = true, optional = true }
@@ -36,10 +37,12 @@ bevy_app.workspace = true
 bevy_ecs = { workspace = true, features = ["serialize"] }
 bevy_reflect.workspace = true
 
+# testing, added here instead of on `dev-dependencies` to be able to have it as an optional
+test-log = { workspace = true, optional = true }
+
 [dev-dependencies]
 lightyear_link.workspace = true
 lightyear_transport = { workspace = true, features = ["test_utils"] }
-test-log.workspace = true
 
 [lints]
 workspace = true

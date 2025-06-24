@@ -2,6 +2,7 @@ use crate::MessageManager;
 use crate::plugin::MessagePlugin;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
 use crate::{Message, MessageNetId};
+use alloc::vec::Vec;
 use bevy_ecs::{
     change_detection::MutUntyped,
     component::{Component, HookContext},

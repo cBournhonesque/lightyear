@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use bevy_app::App;
 use bevy_ecs::{
     entity::{Entity, EntityMapper, MapEntities},
