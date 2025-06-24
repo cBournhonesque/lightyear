@@ -3,7 +3,7 @@
 
 extern crate alloc;
 extern crate core;
-#[cfg(feature = "metrics")]
+#[cfg(feature = "std")]
 extern crate std;
 
 use crate::manager::{PredictionManager, PredictionResource};
