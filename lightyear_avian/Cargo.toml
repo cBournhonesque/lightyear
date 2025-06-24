@@ -17,20 +17,20 @@ publish = true
 [features]
 default = []
 2d = [
-    "dep:lightyear_replication",
-    "dep:lightyear_prediction",
-    "dep:lightyear_interpolation",
-    "dep:lightyear_frame_interpolation",
-    "avian2d/2d",
-    "avian2d/parry-f32",
+  "dep:lightyear_replication",
+  "dep:lightyear_prediction",
+  "dep:lightyear_interpolation",
+  "dep:lightyear_frame_interpolation",
+  "avian2d/2d",
+  "avian2d/parry-f32",
 ]
 3d = [
-    "dep:lightyear_replication",
-    "dep:lightyear_prediction",
-    "dep:lightyear_interpolation",
-    "dep:lightyear_frame_interpolation",
-    "avian3d/3d",
-    "avian3d/parry-f32",
+  "dep:lightyear_replication",
+  "dep:lightyear_prediction",
+  "dep:lightyear_interpolation",
+  "dep:lightyear_frame_interpolation",
+  "avian3d/3d",
+  "avian3d/parry-f32",
 ]
 lag_compensation = ["dep:lightyear_core", "dep:lightyear_link"]
 
@@ -52,5 +52,5 @@ tracing.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_math.workspace = true
-bevy_transform = { workspace = true, features = ["bevy-support", "std"] }
+bevy_transform = { workspace = true, features = ["bevy-support", "libm"] }
 bevy_utils.workspace = true

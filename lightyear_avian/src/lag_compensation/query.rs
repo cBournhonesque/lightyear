@@ -1,4 +1,6 @@
 //! Provides a system parameter for performing spatial queries while doing lag compensation.
+use core::cell::RefCell;
+
 use super::history::{AabbEnvelopeHolder, LagCompensationConfig, LagCompensationHistory};
 use bevy_ecs::{
     entity::Entity,
@@ -9,7 +11,6 @@ use bevy_ecs::{
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_interpolation::plugin::InterpolationDelay;
 use lightyear_link::prelude::Server;
-use std::cell::RefCell;
 use tracing::{debug, error};
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use {

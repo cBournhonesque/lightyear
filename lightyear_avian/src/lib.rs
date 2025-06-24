@@ -4,6 +4,8 @@
 //!
 //! It currently includes utilities for lag compensation.
 
+#![no_std]
+
 /// Provides systems and components for lag compensation with Avian.
 #[cfg(feature = "lag_compensation")]
 pub mod lag_compensation;
