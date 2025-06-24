@@ -1,13 +1,12 @@
 //! Handles client-side prediction
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
 extern crate core;
+#[cfg(feature = "metrics")]
+extern crate std;
 
 use crate::manager::{PredictionManager, PredictionResource};
-use bevy::ecs::component::{HookContext, Mutable};
-use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::Component;
 use core::fmt::Debug;
 
 #[allow(unused)]
@@ -44,6 +43,10 @@ pub mod prelude {
     }
 }
 
+use bevy_ecs::{
+    component::{Component, HookContext, Mutable},
+    world::DeferredWorld,
+};
 pub use lightyear_core::prediction::Predicted;
 
 pub(crate) fn predicted_on_add_hook(mut deferred_world: DeferredWorld, hook_context: HookContext) {

@@ -1,6 +1,12 @@
 //! There's a lot of overlap with `client::prediction_history` because resources are components in ECS so rollback is going to look similar.
 use crate::manager::PredictionManager;
-use bevy::prelude::*;
+use bevy_ecs::{
+    change_detection::DetectChanges,
+    observer::Trigger,
+    query::With,
+    resource::Resource,
+    system::{Res, ResMut, Single},
+};
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::timeline::SyncEvent;

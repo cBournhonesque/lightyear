@@ -24,10 +24,17 @@
 use crate::SyncComponent;
 use crate::manager::PredictionManager;
 use crate::registry::PredictionRegistry;
-use bevy::prelude::*;
+use bevy_ecs::{
+    change_detection::DetectChangesMut,
+    component::Component,
+    entity::Entity,
+    query::{Added, With},
+    system::{Commands, Query, Res, Single},
+};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_utils::easings::ease_out_quad;
+use tracing::trace;
 
 #[derive(Component, Debug, PartialEq)]
 pub struct Correction<C: Component> {

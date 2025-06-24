@@ -6,11 +6,19 @@ use crate::plugin::{PredictionFilter, PredictionSet};
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
 use crate::{Predicted, PredictionMode, SyncComponent};
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::app::App;
-use bevy::ecs::component::ComponentId;
-use bevy::prelude::*;
+use bevy_app::{App, PreUpdate};
+use bevy_ecs::{
+    change_detection::DetectChanges,
+    component::{Component, ComponentId},
+    entity::Entity,
+    event::{Event, Events},
+    observer::{Observer, Trigger},
+    query::{Or, With, Without},
+    schedule::IntoScheduleConfigs,
+    system::{Commands, Query, Res, ResMut, Single},
+    world::{EntityRef, Mut, OnAdd, OnInsert, OnRemove, Ref, World},
+};
 use core::fmt::Debug;
 use core::ops::Deref;
 use lightyear_core::history_buffer::HistoryBuffer;
@@ -20,6 +28,7 @@ use lightyear_replication::components::PrePredicted;
 use lightyear_replication::prelude::{Confirmed, ReplicationSet};
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::InputTimeline;
+use tracing::trace;
 
 pub type PredictionHistory<C> = HistoryBuffer<C>;
 

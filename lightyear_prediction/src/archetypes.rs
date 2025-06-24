@@ -1,11 +1,13 @@
 use crate::Predicted;
 use crate::registry::PredictionRegistry;
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::ecs::archetype::{ArchetypeGeneration, ArchetypeId, Archetypes};
-use bevy::ecs::component::{ComponentId, Components};
-use bevy::platform::collections::HashMap;
-use bevy::prelude::{FromWorld, Resource, World};
+use bevy_ecs::{
+    archetype::{ArchetypeGeneration, ArchetypeId, Archetypes},
+    component::{ComponentId, Components},
+    resource::Resource,
+    world::{FromWorld, World},
+};
+use bevy_platform::collections::HashMap;
 use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use tracing::trace;

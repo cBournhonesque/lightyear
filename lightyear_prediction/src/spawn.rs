@@ -1,9 +1,14 @@
 //! Logic to handle spawning Predicted entities
 use crate::Predicted;
 use crate::manager::PredictionManager;
-use bevy::prelude::*;
+use bevy_ecs::{
+    entity::Entity,
+    query::{Added, With},
+    system::{Commands, Query, Single},
+};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver, ShouldBePredicted};
+use tracing::debug;
 
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
 /// The `Confirmed` entity could already exist because we share the Confirmed component for prediction and interpolation.

@@ -4,7 +4,15 @@
 use crate::Predicted;
 use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::{PredictionFilter, PredictionSet};
-use bevy::prelude::*;
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_ecs::{
+    entity::Entity,
+    observer::Trigger,
+    query::{Added, With},
+    schedule::{IntoScheduleConfigs, SystemSet},
+    system::{Commands, Query, Single},
+    world::{OnAdd, World},
+};
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
@@ -13,7 +21,7 @@ use lightyear_replication::prelude::{
     Confirmed, DisableReplicateHierarchy, Replicate, ReplicateLike, ReplicateLikeChildren,
     Replicating, ReplicationBufferSet, ReplicationGroup, ReplicationSender, ShouldBePredicted,
 };
-use tracing::debug;
+use tracing::{debug, info};
 
 #[derive(Default)]
 pub(crate) struct PrePredictionPlugin;

@@ -3,10 +3,19 @@
 use crate::Predicted;
 use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::{PredictionFilter, PredictionSet};
-use bevy::ecs::archetype::Archetype;
-use bevy::ecs::component::{Components, HookContext, Mutable, StorageType};
-use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::*;
+use alloc::vec::Vec;
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_ecs::{
+    archetype::Archetype,
+    component::{Component, ComponentHooks, Components, HookContext, Mutable, StorageType},
+    observer::Trigger,
+    query::{Or, With, Without},
+    reflect::ReflectComponent,
+    schedule::{IntoScheduleConfigs, SystemSet},
+    system::{Commands, Query, Single},
+    world::{DeferredWorld, OnAdd, World},
+};
+use bevy_reflect::Reflect;
 use core::any::TypeId;
 use core::hash::{Hash, Hasher};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
@@ -305,7 +314,7 @@ impl Component for PreSpawned {
 
     type Mutability = Mutable;
 
-    fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
+    fn register_component_hooks(hooks: &mut ComponentHooks) {
         hooks.on_add(|mut deferred_world: DeferredWorld, context: HookContext| {
             let entity = context.entity;
             let prespawned_obj = deferred_world.entity(entity).get::<PreSpawned>().unwrap();
