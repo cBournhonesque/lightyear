@@ -1,6 +1,5 @@
 use crate::marker::InputMarker;
 use crate::registry::{InputActionKind, InputRegistry};
-#[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use bevy_ecs::{
     entity::{EntityMapper, MapEntities},

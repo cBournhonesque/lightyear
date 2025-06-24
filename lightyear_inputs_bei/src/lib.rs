@@ -1,8 +1,9 @@
 //! # Lightyear Inputs BEI
 //!
 //! This crate provides an integration between `lightyear` and `bevy-enhanced-input`.
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
+#[cfg(feature = "std")]
 extern crate alloc;
 extern crate core;
 
