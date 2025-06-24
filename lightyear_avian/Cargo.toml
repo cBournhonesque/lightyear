@@ -15,7 +15,8 @@ publish = true
 
 
 [features]
-default = []
+default = ["std"]
+std = ["lightyear_replication/std"]
 2d = [
   "dep:lightyear_replication",
   "dep:lightyear_prediction",
@@ -33,7 +34,6 @@ default = []
   "avian3d/parry-f32",
 ]
 lag_compensation = ["dep:lightyear_core", "dep:lightyear_link"]
-
 
 [dependencies]
 lightyear_core = { workspace = true, optional = true }
