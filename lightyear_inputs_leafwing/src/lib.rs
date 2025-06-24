@@ -4,10 +4,12 @@
 //!
 //! It allows you to use `leafwing-input-manager`'s `ActionState` as the input type for `lightyear`.
 //! The inputs are sent from the client to the server and are predicted on the client.
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
 extern crate core;
+#[cfg(feature = "std")]
+extern crate std;
 
 pub(crate) mod action_diff;
 

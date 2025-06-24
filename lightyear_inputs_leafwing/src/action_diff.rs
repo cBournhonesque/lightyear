@@ -1,8 +1,7 @@
 use crate::action_state::LeafwingUserAction;
-#[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::math::{Vec2, Vec3};
-use bevy::prelude::Reflect;
+use bevy_math::{Vec2, Vec3};
+use bevy_reflect::Reflect;
 use leafwing_input_manager::action_state::{ActionKindData, ActionState};
 use serde::{Deserialize, Serialize};
 
@@ -175,10 +174,7 @@ impl<A: LeafwingUserAction> ActionDiff<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::{
-        math::{Vec2, Vec3},
-        prelude::Reflect,
-    };
+
     use leafwing_input_manager::{Actionlike, action_state::ActionState};
 
     #[derive(

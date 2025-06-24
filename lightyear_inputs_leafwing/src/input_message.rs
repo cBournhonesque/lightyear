@@ -1,15 +1,14 @@
 use crate::action_diff::ActionDiff;
 use crate::action_state::LeafwingUserAction;
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::ecs::entity::MapEntities;
-use bevy::ecs::system::SystemParam;
-use bevy::platform::time::Instant;
-use bevy::prelude::EntityMapper;
+use bevy_ecs::{
+    entity::{EntityMapper, MapEntities},
+    system::SystemParam,
+};
 use leafwing_input_manager::Actionlike;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
-use lightyear_core::prelude::Tick;
+use lightyear_core::{prelude::Tick, time::Instant};
 use lightyear_inputs::input_buffer::InputBuffer;
 use lightyear_inputs::input_message::ActionStateSequence;
 use serde::{Deserialize, Serialize};
@@ -127,7 +126,9 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::prelude::Reflect;
+
+    use alloc::vec;
+    use bevy_reflect::Reflect;
     use leafwing_input_manager::Actionlike;
     use serde::{Deserialize, Serialize};
 
