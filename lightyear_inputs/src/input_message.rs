@@ -2,9 +2,11 @@
 #![allow(clippy::module_inception)]
 use crate::input_buffer::InputBuffer;
 use alloc::{format, string::String, vec, vec::Vec};
-use bevy_ecs::component::{Component, Mutable};
-use bevy_ecs::entity::{Entity, EntityMapper, MapEntities};
-use bevy_ecs::system::SystemParam;
+use bevy_ecs::{
+    component::{Component, Mutable},
+    entity::{Entity, EntityMapper, MapEntities},
+    system::SystemParam,
+};
 use bevy_reflect::Reflect;
 use core::fmt::{Debug, Formatter, Write};
 use lightyear_core::prelude::Tick;

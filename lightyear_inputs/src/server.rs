@@ -7,12 +7,14 @@ use crate::plugin::InputPlugin;
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
-use bevy_ecs::entity::{Entity, MapEntities};
-use bevy_ecs::error::Result;
-use bevy_ecs::query::With;
-use bevy_ecs::resource::Resource;
-use bevy_ecs::schedule::{IntoScheduleConfigs, SystemSet};
-use bevy_ecs::system::{Commands, Query, Res, Single, StaticSystemParam};
+use bevy_ecs::{
+    entity::{Entity, MapEntities},
+    error::Result,
+    query::With,
+    resource::Resource,
+    schedule::{IntoScheduleConfigs, SystemSet},
+    system::{Commands, Query, Res, Single, StaticSystemParam},
+};
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::prelude::NetworkTarget;

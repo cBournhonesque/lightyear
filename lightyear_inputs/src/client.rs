@@ -54,12 +54,14 @@ use bevy_app::{
     App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, RunFixedMainLoop,
     RunFixedMainLoopSystem,
 };
-use bevy_ecs::entity::{Entity, MapEntities};
-use bevy_ecs::observer::Trigger;
-use bevy_ecs::query::{Has, With, Without};
-use bevy_ecs::resource::Resource;
-use bevy_ecs::schedule::{IntoScheduleConfigs, SystemSet};
-use bevy_ecs::system::{Commands, Query, Res, ResMut, Single, StaticSystemParam};
+use bevy_ecs::{
+    entity::{Entity, MapEntities},
+    observer::Trigger,
+    query::{Has, With, Without},
+    resource::Resource,
+    schedule::{IntoScheduleConfigs, SystemSet},
+    system::{Commands, Query, Res, ResMut, Single, StaticSystemParam},
+};
 use lightyear_connection::host::HostClient;
 #[cfg(feature = "interpolation")]
 use lightyear_core::prelude::Tick;
