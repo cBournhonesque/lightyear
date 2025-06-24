@@ -9,36 +9,35 @@ description = "IO primitives for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
-default = ["std"]
-std = [
-    "bevy/std",
-    "bytes/std",
-    "serde/std",
-]
-metrics = [
-    "dep:metrics", "std"
-]
-
+default = []
+metrics = ["dep:metrics"]
 
 [dependencies]
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
-lightyear_core = {workspace = true, features = ["interpolation"]}
+lightyear_core.workspace = true
 lightyear_connection.workspace = true
-lightyear_messages = {workspace = true, features = ["client"]}
-lightyear_replication = {workspace = true, features = ["client", "interpolation"]}
-lightyear_sync = {workspace = true, features = ["client"]}
+lightyear_messages.workspace = true
+lightyear_replication = { workspace = true, features = ["interpolation"] }
+lightyear_sync = { workspace = true, features = ["client"] }
 
 # utils
-metrics = { workspace= true, optional=true}
+metrics = { workspace = true, optional = true }
 tracing.workspace = true
 
 # serde
 serde.workspace = true
-bytes.workspace = true
+bytes = { workspace = true, optional = true }
 
 # bevy
-bevy.workspace = true
+bevy_app.workspace = true
+bevy_derive.workspace = true
+bevy_ecs.workspace = true
+bevy_math = { workspace = true, features = ["curve"] }
+bevy_platform.workspace = true
+bevy_reflect.workspace = true
+bevy_time.workspace = true
+bevy_utils.workspace = true
 
 [lints]
 workspace = true

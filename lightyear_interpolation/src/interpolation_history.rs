@@ -5,7 +5,15 @@ use crate::manager::InterpolationManager;
 use crate::registry::InterpolationRegistry;
 use crate::timeline::InterpolationTimeline;
 use crate::{Interpolated, InterpolationMode, SyncComponent};
-use bevy::prelude::*;
+use bevy_ecs::{
+    change_detection::DetectChanges,
+    component::Component,
+    entity::Entity,
+    error::Result,
+    query::{With, Without},
+    system::{Commands, Query, Res, Single},
+    world::Ref,
+};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::registry::registry::ComponentRegistry;

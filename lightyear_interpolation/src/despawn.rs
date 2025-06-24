@@ -1,7 +1,12 @@
 use crate::SyncComponent;
 use crate::interpolate::InterpolateStatus;
 use crate::interpolation_history::ConfirmedHistory;
-use bevy::prelude::*;
+use bevy_ecs::{
+    error::Result,
+    observer::Trigger,
+    system::{Commands, Query},
+    world::OnRemove,
+};
 use lightyear_replication::prelude::Confirmed;
 
 /// Remove the component from interpolated entities when it gets removed from confirmed

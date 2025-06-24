@@ -11,7 +11,12 @@ use crate::{
     Interpolated, InterpolationMode, SyncComponent, interpolated_on_add_hook,
     interpolated_on_remove_hook,
 };
-use bevy::prelude::*;
+use bevy_app::{App, Plugin, Update};
+use bevy_ecs::{
+    component::Component,
+    schedule::{IntoScheduleConfigs, SystemSet},
+};
+use bevy_reflect::Reflect;
 use core::time::Duration;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::Tick;
@@ -132,7 +137,7 @@ pub enum InterpolationSet {
     SpawnHistory,
     /// Update component history, interpolation status
     Prepare,
-    /// Interpolate between last 2 server states. Has to be overriden if
+    /// Interpolate between last 2 server states. Has to be overridden if
     /// `InterpolationConfig.custom_interpolation_logic` is set to true
     Interpolate,
 
