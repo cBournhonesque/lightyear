@@ -8,7 +8,12 @@ use avian3d::{
     math::AsF32,
     position::{Position, Rotation},
 };
-use bevy::prelude::*;
+use bevy_ecs::{
+    hierarchy::{ChildOf, Children},
+    query::{Changed, Or, With},
+    system::Query,
+};
+use bevy_transform::components::{GlobalTransform, Transform};
 
 type PosToTransformComponents = (
     &'static mut Transform,

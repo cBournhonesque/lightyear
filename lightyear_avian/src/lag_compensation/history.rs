@@ -1,14 +1,27 @@
-/// This plugin maintains a history buffer of the Position, Rotation and ColliderAabb of server entities
-/// so that they can be used for lag compensation.
-use bevy::prelude::*;
+//! This plugin maintains a history buffer of the Position, Rotation and ColliderAabb of server entities
+//! so that they can be used for lag compensation.
 
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use avian2d::{math::Vector, prelude::*};
 #[cfg(all(feature = "3d", not(feature = "2d")))]
 use avian3d::{math::Vector, prelude::*};
+use bevy_app::{App, FixedPostUpdate, Plugin};
+use bevy_ecs::{
+    change_detection::DetectChanges,
+    component::Component,
+    hierarchy::{ChildOf, Children},
+    observer::Trigger,
+    query::{With, Without},
+    resource::Resource,
+    schedule::{IntoScheduleConfigs, SystemSet},
+    system::{Commands, Query, Res, Single},
+    world::OnAdd,
+};
 use lightyear_core::history_buffer::HistoryBuffer;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_link::prelude::Server;
+use tracing::debug;
+use tracing::trace;
 
 /// Add this plugin to enable lag compensation on the server
 #[derive(Resource)]
@@ -129,7 +142,7 @@ fn update_collision_layers(
     parent_query.iter_mut().for_each(|(layers, children)| {
         if layers.is_changed() || !layers.is_added() {
             for child in children.iter() {
-                if let Ok(mut child_layers) = child_query.get_mut(child) {
+                if let Ok(mut child_layers) = child_query.get_mut(*child) {
                     *child_layers = *layers;
                 }
             }
@@ -189,7 +202,7 @@ fn update_collider_history(
                 ?tick,
                 ?history,
                 ?aabb_envelope,
-                "update collider history and aabb envlope"
+                "update collider history and aabb envelope"
             );
         });
 }

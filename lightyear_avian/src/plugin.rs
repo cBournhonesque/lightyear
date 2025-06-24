@@ -8,10 +8,14 @@ use avian3d::{
     prelude::*,
     sync::{SyncConfig, SyncSet},
 };
+use bevy_app::{
+    App, FixedPostUpdate, Plugin, PostUpdate, RunFixedMainLoop, RunFixedMainLoopSystem,
+};
+use bevy_ecs::schedule::IntoScheduleConfigs;
+use bevy_transform::{TransformSystem, components::Transform};
+use bevy_utils::default;
 
 use crate::sync;
-use bevy::prelude::TransformSystem::TransformPropagate;
-use bevy::prelude::*;
 use lightyear_frame_interpolation::FrameInterpolationSet;
 use lightyear_interpolation::InterpolationMode;
 use lightyear_interpolation::prelude::InterpolationRegistry;
@@ -79,13 +83,13 @@ impl Plugin for LightyearAvianPlugin {
             PhysicsSet::Sync.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
         );
         // TODO: this only works if Position/Rotation are replicated and Transform is FrameInterpolated!
-        // Sync Pos/Rotation to Transform before applying frame interpolation to Transfrom
+        // Sync Pos/Rotation to Transform before applying frame interpolation to Transform
         app.configure_sets(
             PostUpdate,
             (
                 PhysicsSet::Sync,
                 FrameInterpolationSet::Interpolate,
-                TransformPropagate,
+                TransformSystem::TransformPropagate,
             )
                 .chain(),
         );

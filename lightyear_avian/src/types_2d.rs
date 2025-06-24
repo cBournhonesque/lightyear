@@ -1,7 +1,7 @@
 //! Implement lightyear traits for some common bevy types
 use avian2d::math::Scalar;
 use avian2d::prelude::*;
-use bevy::prelude::*;
+use tracing::trace;
 
 pub mod position {
     use super::*;
