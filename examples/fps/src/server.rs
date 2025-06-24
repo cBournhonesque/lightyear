@@ -84,6 +84,7 @@ pub(crate) fn spawn_player(
         Transform::from_xyz(0.0, y, 0.0),
         ColorComponent(color),
         ActionState::<PlayerActions>::default(),
+        PlayerMarker,
         Name::new("Player"),
     ));
 }
@@ -133,7 +134,7 @@ pub(crate) fn compute_hit_lag_compensation(
     // (the server creates one entity for each client to store client-specific
     // metadata)
     client_query: Query<&InterpolationDelay, With<ClientOf>>,
-    mut player_query: Query<(&mut Score, &PlayerId)>,
+    mut player_query: Query<(&mut Score, &PlayerId), With<PlayerMarker>>,
 ) {
     let tick = timeline.tick();
     bullets
@@ -181,7 +182,7 @@ pub(crate) fn compute_hit_prediction(
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
     // metadata)
-    mut player_query: Query<(&mut Score, &PlayerId)>,
+    mut player_query: Query<(&mut Score, &PlayerId), With<PlayerMarker>>,
 ) {
     let tick = timeline.tick();
     bullets.iter().for_each(|(entity, id, position, velocity)| {

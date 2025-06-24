@@ -212,7 +212,7 @@ pub(crate) fn remove_prediction_disable(
     query: Query<Entity, (With<Predicted>, With<PredictionDisable>)>,
 ) {
     query.iter().for_each(|e| {
-        commands.entity(e).remove::<PredictionDisable>();
+        commands.entity(e).try_remove::<PredictionDisable>();
     });
 }
 
@@ -296,7 +296,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             // confirm does not exist, remove on predicted
             None => {
                 predicted_history.add_remove(rollback_tick);
-                entity_mut.remove::<C>();
+                entity_mut.try_remove::<C>();
             }
             // confirm exist, update or insert on predicted
             Some(confirmed_component) => {
@@ -447,7 +447,7 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
                         "Component for prespawned entity didn't exist at time of rollback, removing it"
                     );
                     // the component didn't exist at the time, remove it!
-                    commands.entity(prespawned_entity).remove::<C>();
+                    commands.entity(prespawned_entity).try_remove::<C>();
                 }
             }
             Some(HistoryState::Updated(c)) => {
@@ -518,7 +518,7 @@ pub(crate) fn prepare_rollback_non_networked<
                         "Non-networked component for predicted entity didn't exist at time of rollback, removing it"
                     );
                     // the component didn't exist at the time, remove it!
-                    commands.entity(entity).remove::<C>();
+                    commands.entity(entity).try_remove::<C>();
                 }
             }
             Some(HistoryState::Updated(c)) => {
