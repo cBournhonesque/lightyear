@@ -1,5 +1,7 @@
 //! Bevy [`Plugin`] used by both the server and the client
-use bevy::prelude::*;
+use bevy_app::{App, Plugin};
+#[cfg(feature = "replication")]
+use bevy_ecs::hierarchy::ChildOf;
 use core::time::Duration;
 use lightyear_core::plugin::CorePlugins;
 

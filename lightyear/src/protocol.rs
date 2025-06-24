@@ -1,7 +1,12 @@
 //! Module to verify that the protocols of the client and server match
 
-use bevy::prelude::*;
-use bevy::reflect::erased_serde::__private::serde::{Deserialize, Serialize};
+use bevy_app::{App, Plugin};
+use bevy_ecs::error::{BevyError, Result};
+use bevy_ecs::event::Event;
+use bevy_ecs::observer::Trigger;
+use bevy_ecs::query::{With, Without};
+use bevy_ecs::system::{Query, ResMut};
+use bevy_ecs::world::OnAdd;
 use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
@@ -14,6 +19,8 @@ use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_transport::prelude::{
     AppChannelExt, ChannelMode, ChannelRegistry, ChannelSettings, ReliableSettings,
 };
+use serde::{Deserialize, Serialize};
+use tracing::trace;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone, Copy, Event)]
 pub struct ProtocolCheck {

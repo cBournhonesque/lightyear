@@ -8,9 +8,9 @@
 //! while keeping the rest of the features intact.
 //!
 //! Most plugins are truly necessary for the server functionality to work properly, but some could be disabled.
+use bevy_app::{PluginGroup, PluginGroupBuilder};
+
 use crate::shared::SharedPlugins;
-use bevy::app::PluginGroupBuilder;
-use bevy::prelude::*;
 use core::time::Duration;
 
 /// A plugin group containing all the server plugins.

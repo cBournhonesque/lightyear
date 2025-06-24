@@ -1,5 +1,6 @@
+use bevy_app::{PluginGroup, PluginGroupBuilder};
+
 use crate::shared::SharedPlugins;
-use bevy::app::{PluginGroup, PluginGroupBuilder};
 use core::time::Duration;
 
 /// A plugin group containing all the client plugins.
