@@ -10,7 +10,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = []
+std = ["bevy_ecs/std"]
 client = ["lightyear_connection/client"]
 server = ["lightyear_connection/server"]
 metrics = ["dep:metrics", "std"]
@@ -29,7 +29,7 @@ lightyear_connection.workspace = true
 
 # bevy
 bevy_app.workspace = true
-bevy_ecs = { workspace = true, features = ["std"] }
+bevy_ecs.workspace = true
 bevy_platform.workspace = true
 bevy_reflect.workspace = true
 bevy_time.workspace = true
