@@ -1,19 +1,25 @@
 //! General struct handling replication
 use alloc::collections::BTreeMap;
+use bevy_app::{App, Plugin, PreUpdate};
+use bevy_ecs::{
+    component::Component,
+    entity::{Entity, EntityHash, EntityIndexMap},
+    observer::Trigger,
+    query::{QueryState, With},
+    schedule::IntoScheduleConfigs,
+    system::{Commands, Local, Query},
+    world::{OnAdd, World},
+};
+use bevy_platform::collections::{HashMap, HashSet};
 
 use crate::components::{Confirmed, InitialReplicated, Replicated, ReplicationGroupId};
 use crate::message::{ActionsMessage, SpawnAction, UpdatesMessage};
 use crate::registry::registry::ComponentRegistry;
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::app::{App, Plugin, PreUpdate};
-use bevy::ecs::entity::{EntityHash, EntityIndexMap};
-use bevy::platform::collections::HashSet;
-use bevy::prelude::*;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::packet::message::MessageId;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::plugin;
 use crate::plugin::ReplicationSet;
@@ -30,7 +36,7 @@ use lightyear_transport::prelude::Transport;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
 
-type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 
 pub struct ReplicationReceivePlugin;
 

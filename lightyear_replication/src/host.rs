@@ -6,14 +6,22 @@ use crate::hierarchy::ReplicateLike;
 use crate::prelude::InterpolationTarget;
 #[cfg(feature = "prediction")]
 use crate::prelude::PredictionTarget;
-use bevy::ecs::query::QueryData;
-use bevy::prelude::*;
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_ecs::{
+    change_detection::DetectChanges,
+    component::Component,
+    entity::Entity,
+    query::{Or, QueryData, With, Without},
+    system::{Commands, Query, Single},
+    world::Ref,
+};
 use lightyear_connection::host::HostClient;
 use lightyear_core::id::LocalId;
 #[cfg(feature = "interpolation")]
 use lightyear_core::interpolation::Interpolated;
 #[cfg(feature = "prediction")]
 use lightyear_core::prediction::Predicted;
+use tracing::info;
 // impl ControlledBy {
 //     /// In Host-Server mode, any entity that is marked as ControlledBy the host
 //     /// should also have Controlled assigned to them

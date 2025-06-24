@@ -1,6 +1,5 @@
-#[cfg(not(feature = "std"))]
 use alloc::string::String;
-use bevy::prelude::Reflect;
+use bevy_reflect::Reflect;
 use core::any::TypeId;
 use lightyear_core::network::NetId;
 use lightyear_serde::SerializationError;

@@ -12,7 +12,6 @@ The visibility is cached, so after you set an entity as `visible` for a client, 
 until you change the setting again.
 
 ```rust
-# use bevy::prelude::*;
 # use lightyear_replication::prelude::NetworkVisibility;
 
 # let mut client = Entity::from_bits(0);
@@ -22,11 +21,20 @@ visibility.lose_visibility(client);
 ```
 */
 
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_ecs::{
+    component::Component,
+    entity::{Entity, EntityHashMap},
+    reflect::ReflectComponent,
+    relationship::RelationshipTarget,
+    schedule::{IntoScheduleConfigs, SystemSet},
+    system::Query,
+};
+use bevy_platform::collections::hash_map::Entry;
+use bevy_reflect::Reflect;
+
 use crate::prelude::{ReplicateLikeChildren, ReplicationSender};
 use crate::send::ReplicationBufferSet;
-use bevy::ecs::entity::hash_map::EntityHashMap;
-use bevy::platform::collections::hash_map::Entry;
-use bevy::prelude::*;
 
 /// Event related to [`Entities`](Entity) which are relevant to a client
 #[derive(Debug, PartialEq, Clone, Copy, Reflect)]

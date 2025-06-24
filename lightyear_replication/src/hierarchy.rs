@@ -5,11 +5,22 @@ use crate::plugin::ReplicationSet;
 use crate::prelude::PrePredicted;
 use crate::registry::registry::AppComponentExt;
 use crate::send::ReplicationBufferSet;
-use bevy::ecs::entity::MapEntities;
-use bevy::ecs::reflect::ReflectMapEntities;
-use bevy::ecs::relationship::Relationship;
-use bevy::prelude::*;
-use bevy::reflect::GetTypeRegistration;
+use alloc::vec::Vec;
+use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::{
+    change_detection::DetectChangesMut,
+    component::Component,
+    entity::{Entity, EntityMapper, MapEntities},
+    hierarchy::{ChildOf, Children},
+    observer::Trigger,
+    query::{Added, Changed, Has, Or, With, Without},
+    reflect::{ReflectComponent, ReflectMapEntities},
+    relationship::Relationship,
+    schedule::{IntoScheduleConfigs, SystemSet},
+    system::{Commands, Query},
+    world::{OnAdd, OnRemove},
+};
+use bevy_reflect::{GetTypeRegistration, Reflect, TypePath};
 use core::fmt::{Debug, Formatter};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -385,7 +396,9 @@ impl HierarchySendPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::buffer::Replicate;
+    use alloc::vec;
 
     fn setup_hierarchy() -> (App, Entity, Entity, Entity) {
         let mut app = App::default();

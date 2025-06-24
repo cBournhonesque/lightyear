@@ -21,15 +21,22 @@ use crate::plugin::ReplicationSet;
 use crate::prelude::NetworkVisibility;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
-#[cfg(not(feature = "std"))]
 use alloc::{string::ToString, vec::Vec};
-use bevy::app::{App, Plugin, PostUpdate};
-use bevy::ecs::component::Tick as BevyTick;
-use bevy::ecs::entity::{EntityHash, EntityIndexMap};
-use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
-use bevy::platform::collections::HashMap;
-use bevy::prelude::*;
-use bevy::ptr::Ptr;
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_ecs::{
+    component::{Component, Tick as BevyTick},
+    entity::{Entity, EntityHash, EntityIndexMap},
+    observer::{Observer, Trigger},
+    query::With,
+    resource::Resource,
+    schedule::{IntoScheduleConfigs, SystemSet},
+    system::{ParamBuilder, Query, QueryParamBuilder, Res, SystemChangeTick, SystemParamBuilder},
+    world::OnAdd,
+};
+use bevy_platform::collections::{HashMap, HashSet};
+use bevy_ptr::Ptr;
+use bevy_reflect::Reflect;
+use bevy_time::{Real, Time, Timer, TimerMode};
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_connection::client::{Connected, Disconnected};
@@ -50,10 +57,10 @@ use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, warn};
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
-type EntityHashSet<K> = bevy::platform::collections::HashSet<K, EntityHash>;
+type EntityHashSet<K> = HashSet<K, EntityHash>;
 
 /// When a [`UpdatesMessage`] message gets buffered (and we have access to its [`MessageId`]),
 /// we keep track of some information related to this message.

@@ -19,7 +19,6 @@ This can be useful for games where you have physical instances of rooms:
 - a map could be divided into a grid of 2D squares, where each square is its own room
 
 ```rust
-# use bevy::prelude::*;
 # use lightyear_replication::prelude::*;
 
 # let mut app = App::new();
@@ -37,11 +36,20 @@ commands.trigger_targets(RoomEvent::AddSender(client), room);
 
 */
 
-use bevy::app::App;
-use bevy::ecs::entity::{EntityIndexMap, hash_map::EntityHashMap, hash_set::EntityHashSet};
-use bevy::platform::collections::hash_map::Entry;
-use bevy::prelude::*;
-use bevy::reflect::Reflect;
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_ecs::{
+    component::Component,
+    entity::{Entity, EntityHashMap, EntityHashSet, EntityIndexMap},
+    error::Result,
+    event::Event,
+    observer::Trigger,
+    resource::Resource,
+    schedule::{IntoScheduleConfigs, SystemSet},
+    system::{Commands, Query, ResMut},
+};
+use bevy_platform::collections::hash_map::Entry;
+use bevy_reflect::Reflect;
+use tracing::trace;
 
 use crate::send::ReplicationBufferSet;
 use crate::visibility::error::NetworkVisibilityError;
@@ -135,7 +143,7 @@ impl RoomPlugin {
         mut room_events: ResMut<RoomEvents>,
         mut query: Query<&mut NetworkVisibility>,
     ) {
-        // TODO: should we use iter_mut here to keep the allocated NetworkVisibilty?
+        // TODO: should we use iter_mut here to keep the allocated NetworkVisibility?
         room_events
             .events
             .drain(..)
@@ -264,7 +272,8 @@ impl Plugin for RoomPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::ecs::system::RunSystemOnce;
+
+    use bevy_ecs::system::RunSystemOnce;
     use test_log::test;
 
     #[test]

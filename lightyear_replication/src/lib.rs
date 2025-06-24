@@ -9,7 +9,6 @@
 //! - Receiving and applying replication updates on clients.
 //! - Managing entity authority and visibility (e.g., interest management, rooms).
 //! - Handling component registration for replication.
-#![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 

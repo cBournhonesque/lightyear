@@ -1,4 +1,4 @@
-use bevy::prelude::Entity;
+use bevy_ecs::entity::Entity;
 
 #[derive(thiserror::Error, Debug)]
 pub enum NetworkVisibilityError {

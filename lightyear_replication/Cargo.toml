@@ -9,39 +9,13 @@ description = "IO primitives for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
-default = ["std"]
-std = [
-    "bevy/std",
-    "bytes/std",
-    "serde/std",
-    "lightyear_connection/std",
-    "lightyear_transport/std",
-    "lightyear_messages/std",
-    "lightyear_serde/std",
-    "lightyear_utils/std",
-    "lightyear_core/std",
-]
-client = [
-    "lightyear_connection/client",
-    "lightyear_messages/client",
-    "lightyear_transport/client"
-]
-server = [
-    "lightyear_connection/server",
-    "lightyear_messages/server",
-    "lightyear_transport/server"
-]
-prediction = [
-    "lightyear_core/prediction"
-]
-interpolation = [
-    "lightyear_core/interpolation"
-]
+default = []
+client = []
+server = ["lightyear_connection/server"]
+prediction = ["lightyear_core/prediction"]
+interpolation = ["lightyear_core/interpolation"]
 trace = []
-metrics = [
-    "dep:metrics",
-    "std"
-]
+metrics = ["dep:metrics"]
 test_utils = []
 
 [dependencies]
@@ -54,7 +28,7 @@ lightyear_messages.workspace = true
 lightyear_transport.workspace = true
 
 # utils
-metrics = { workspace= true, optional=true}
+metrics = { workspace = true, optional = true }
 smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -64,7 +38,13 @@ serde.workspace = true
 bytes.workspace = true
 
 # bevy
-bevy.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_platform.workspace = true
+bevy_ptr.workspace = true
+bevy_reflect.workspace = true
+bevy_time = { workspace = true, features = ["bevy_reflect"] }
+bevy_transform = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
 test-log.workspace = true

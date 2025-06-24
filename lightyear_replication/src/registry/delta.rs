@@ -4,11 +4,12 @@ use crate::registry::buffered::BufferedEntity;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::replication::ReplicationMetadata;
 use crate::registry::{ComponentError, ComponentKind};
-#[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
-use bevy::ecs::component::{ComponentId, Mutable};
-use bevy::prelude::{Component, World};
-use bevy::ptr::{Ptr, PtrMut};
+use bevy_ecs::{
+    component::{Component, ComponentId, Mutable},
+    world::World,
+};
+use bevy_ptr::{Ptr, PtrMut};
 use core::any::TypeId;
 use core::ptr::NonNull;
 use lightyear_core::tick::Tick;
@@ -288,10 +289,11 @@ impl ErasedDeltaFns {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(not(feature = "std"))]
+
     use alloc::{vec, vec::Vec};
-    use bevy::platform::collections::HashSet;
-    use bevy::prelude::Reflect;
+    use bevy_ecs::component::Component;
+    use bevy_platform::collections::HashSet;
+    use bevy_reflect::Reflect;
     use serde::Deserialize;
 
     #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]

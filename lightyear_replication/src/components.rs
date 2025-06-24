@@ -2,14 +2,22 @@
 
 use crate::buffer::{Replicate, ReplicationMode};
 use crate::prelude::ReplicationSender;
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::ecs::component::HookContext;
-use bevy::ecs::entity::EntityIndexSet;
-use bevy::ecs::reflect::ReflectComponent;
-use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::*;
-use bevy::time::{Timer, TimerMode};
+#[cfg(feature = "server")]
+use bevy_ecs::relationship::RelationshipTarget;
+#[cfg(feature = "prediction")]
+use bevy_ecs::system::Commands;
+use bevy_ecs::{
+    component::{Component, HookContext},
+    entity::{Entity, EntityIndexSet},
+    observer::Trigger,
+    query::{Or, With},
+    reflect::ReflectComponent,
+    system::Query,
+    world::{DeferredWorld, OnAdd, World},
+};
+use bevy_reflect::Reflect;
+use bevy_time::{Timer, TimerMode};
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 #[cfg(feature = "server")]
@@ -26,6 +34,11 @@ use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::collections::EntityHashMap;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "client")]
+use tracing::debug;
+use tracing::error;
+#[cfg(feature = "server")]
+use tracing::{info, trace};
 // TODO: how to define which subset of components a sender iterates through?
 //  if a sender is only interested in a few components it might be expensive
 //  maybe we can have a 'direction' in ComponentReplicationConfig and Client/ClientOf peers can precompute

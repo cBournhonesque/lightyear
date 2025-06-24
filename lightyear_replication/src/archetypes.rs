@@ -4,16 +4,14 @@ use crate::components::Replicating;
 use crate::hierarchy::ReplicateLike;
 use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
-use bevy::ecs::archetype::Archetypes;
-use bevy::ecs::component::Components;
-use bevy::platform::collections::HashMap;
-use bevy::{
-    ecs::{
-        archetype::{ArchetypeGeneration, ArchetypeId},
-        component::ComponentId,
-    },
-    prelude::*,
+use alloc::vec::Vec;
+use bevy_ecs::{
+    archetype::{ArchetypeGeneration, ArchetypeId, Archetypes},
+    component::{ComponentId, Components},
+    resource::Resource,
+    world::{FromWorld, World},
 };
+use bevy_platform::collections::HashMap;
 use core::mem;
 use tracing::trace;
 

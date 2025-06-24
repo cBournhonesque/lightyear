@@ -1,18 +1,20 @@
 use crate::components::ReplicationGroupId;
 use crate::registry::ComponentNetId;
-use bevy::ecs::entity::EntityHash;
-use bevy::platform::collections::HashMap;
-use bevy::prelude::{Entity, Event};
+use bevy_ecs::{
+    entity::{Entity, EntityHash},
+    error::Result,
+    event::Event,
+};
+use bevy_platform::collections::HashMap;
 use bytes::Bytes;
 use lightyear_core::tick::Tick;
+use lightyear_core::time::PositiveTickDelta;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::packet::message::MessageId;
 
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use lightyear_core::time::PositiveTickDelta;
 
 /// Default channel to replicate entity actions.
 /// This is an Unordered Reliable channel.
@@ -264,14 +266,11 @@ impl ToBytes for SenderMetadata {
         self.send_interval.bytes_len()
     }
 
-    fn to_bytes(
-        &self,
-        buffer: &mut impl WriteInteger,
-    ) -> bevy::prelude::Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         self.send_interval.to_bytes(buffer)
     }
 
-    fn from_bytes(buffer: &mut Reader) -> bevy::prelude::Result<Self, SerializationError>
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {

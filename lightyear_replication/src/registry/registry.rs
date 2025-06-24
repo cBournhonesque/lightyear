@@ -4,13 +4,17 @@ use crate::prelude::ComponentReplicationOverrides;
 use crate::registry::delta::ErasedDeltaFns;
 use crate::registry::replication::{GetWriteFns, ReplicationMetadata};
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
-use bevy::app::App;
-use bevy::ecs::change_detection::Mut;
-use bevy::ecs::component::{Component, ComponentId, Mutable};
-use bevy::ecs::entity::MapEntities;
-use bevy::platform::collections::HashMap;
-use bevy::prelude::{Resource, Transform, TypePath, World};
-use bevy::ptr::Ptr;
+use bevy_app::App;
+use bevy_ecs::{
+    component::{Component, ComponentId, Mutable},
+    entity::MapEntities,
+    resource::Resource,
+    world::{Mut, World},
+};
+use bevy_platform::collections::HashMap;
+use bevy_ptr::Ptr;
+use bevy_reflect::TypePath;
+use bevy_transform::components::Transform;
 use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;

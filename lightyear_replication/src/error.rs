@@ -1,6 +1,5 @@
 //! Replication-related errors
 
-#[cfg(not(feature = "std"))]
 use alloc::string::String;
 
 use crate::registry::ComponentError;
