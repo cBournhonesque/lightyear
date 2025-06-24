@@ -5,7 +5,11 @@ use aeronet_steam::{
     SessionConfig,
     client::{ConnectTarget, SteamNetClientPlugin},
 };
-use bevy::prelude::*;
+use bevy_app::{App, Plugin};
+use bevy_ecs::{
+    error::Result,
+    prelude::{Commands, Component, Entity, EntityCommand, Name, Query, Trigger, Without, World},
+};
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::{Link, LinkStart, Linked, Linking};
@@ -41,7 +45,7 @@ impl SteamClientPlugin {
     ) -> Result {
         if let Ok((entity, client)) = query.get(trigger.target()) {
             let config = client.config.clone();
-            let target = client.target.clone();
+            let target = client.target;
             commands.queue(move |world: &mut World| -> Result {
                 let mut entity_mut =
                     world.spawn((AeronetLinkOf(entity), Name::from("SteamClient")));

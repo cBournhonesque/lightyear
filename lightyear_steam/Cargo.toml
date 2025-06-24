@@ -10,42 +10,45 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
+std = []
 client = [
-    "aeronet_steam/client"
+    "aeronet_io",
+    "aeronet_steam/client",
+    "lightyear_aeronet",
+    "lightyear_core",
+    "lightyear_link",
 ]
 server = [
+    "aeronet_io",
     "aeronet_steam/server",
-]
-std = [
-    "lightyear_link/std",
-    "lightyear_transport/std",
-    "no_std_io2/std",
-    "bytes/std",
-    "chacha20poly1305/std",
+    "lightyear_aeronet",
+    "lightyear_core",
+    "lightyear_link",
+    "tracing",
 ]
 
 [dependencies]
 # local crates
-lightyear_aeronet.workspace = true
-lightyear_core.workspace = true
-lightyear_link.workspace = true
-lightyear_transport.workspace = true
+lightyear_aeronet = { workspace = true, optional = true }
+lightyear_core = { workspace = true, optional = true }
+lightyear_link = { workspace = true, optional = true }
 
 # bevy
-bevy.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
 
 # aeronet
-aeronet_steam.workspace = true
-aeronet_io.workspace = true
+aeronet_steam = { workspace = true, optional = true }
+aeronet_io = { workspace = true, optional = true }
 
 # no_std
-no_std_io2.workspace = true
+no_std_io2 = { workspace = true, optional = true }
 
 # utils
-bytes.workspace = true
+bytes = { workspace = true, optional = true }
 thiserror.workspace = true
-tracing.workspace = true
-chacha20poly1305.workspace = true
+tracing = { workspace = true, optional = true }
+chacha20poly1305 = { workspace = true, optional = true }
 
 [lints]
 workspace = true
