@@ -2,7 +2,7 @@
 #![no_std]
 
 extern crate alloc;
-#[cfg(feature = "metrics")]
+#[cfg(feature = "std")]
 extern crate std;
 
 use bevy_ecs::{
