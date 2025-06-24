@@ -1,5 +1,8 @@
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{Component, EntityMapper, Reflect};
+use bevy_ecs::{
+    component::Component,
+    entity::{EntityMapper, MapEntities},
+};
+use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 use lightyear_inputs::input_buffer::InputData;

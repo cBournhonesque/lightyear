@@ -2,10 +2,9 @@
 use crate::action_state::ActionState;
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::input_message::NativeStateSequence;
-use bevy::app::{App, Plugin};
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::FromReflect;
-use bevy::reflect::Reflectable;
+use bevy_app::{App, Plugin};
+use bevy_ecs::entity::MapEntities;
+use bevy_reflect::{FromReflect, Reflectable};
 use core::fmt::Debug;
 use lightyear_inputs::config::InputConfig;
 use lightyear_inputs::input_buffer::InputBuffer;
