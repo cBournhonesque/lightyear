@@ -16,6 +16,7 @@
 //! You can then add the input type by adding the `InputPlugin<InputType>` to your app.
 //!
 //! ```rust
+//! use bevy_ecs::entity::{EntityMapper, MapEntities};
 //! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
