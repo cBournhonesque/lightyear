@@ -8,13 +8,13 @@
 //!   Therefore, we will store the computed ActionState at tick t + delay, but then we load the ActionState at tick t
 //!   from the buffer
 use alloc::collections::VecDeque;
-#[cfg(not(feature = "std"))]
 use alloc::{
     format,
     string::{String, ToString},
     vec::Vec,
 };
-use bevy::prelude::{Component, Reflect};
+use bevy_ecs::component::Component;
+use bevy_reflect::Reflect;
 use core::fmt::{Debug, Formatter};
 use lightyear_core::tick::Tick;
 use serde::{Deserialize, Serialize};

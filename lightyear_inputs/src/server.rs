@@ -4,9 +4,13 @@ use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
-use bevy::ecs::entity::MapEntities;
-use bevy::ecs::system::StaticSystemParam;
-use bevy::prelude::*;
+use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
+use bevy_ecs::entity::{Entity, MapEntities};
+use bevy_ecs::error::Result;
+use bevy_ecs::query::With;
+use bevy_ecs::resource::Resource;
+use bevy_ecs::schedule::{IntoScheduleConfigs, SystemSet};
+use bevy_ecs::system::{Commands, Query, Res, Single, StaticSystemParam};
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::prelude::NetworkTarget;
@@ -17,7 +21,7 @@ use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
-use tracing::trace;
+use tracing::{debug, error, trace};
 
 pub struct ServerInputPlugin<S> {
     pub rebroadcast_inputs: bool,
@@ -130,7 +134,7 @@ fn receive_input_message<S: ActionStateSequence>(
         let server_entity = link_of.server;
         receiver.receive().try_for_each(|message| {
             // ignore input messages from the local client (if running in host-server mode)
-            // if we're not doin rebroadcasting
+            // if we're not doing rebroadcasting
             if client_id.is_local() && !config.rebroadcast_inputs {
                 error!("Received input message from HostClient for action {:?} even though rebroadcasting is disabled. Ignoring the message.", core::any::type_name::<S::Action>());
                 return Ok(())

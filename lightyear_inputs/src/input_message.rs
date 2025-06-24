@@ -1,12 +1,11 @@
 // lightyear_inputs/src/input_message.rs
 #![allow(clippy::module_inception)]
 use crate::input_buffer::InputBuffer;
-#[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec, vec::Vec};
-use bevy::ecs::component::Mutable;
-use bevy::ecs::entity::MapEntities;
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::{Component, Entity, EntityMapper, Reflect};
+use bevy_ecs::component::{Component, Mutable};
+use bevy_ecs::entity::{Entity, EntityMapper, MapEntities};
+use bevy_ecs::system::SystemParam;
+use bevy_reflect::Reflect;
 use core::fmt::{Debug, Formatter, Write};
 use lightyear_core::prelude::Tick;
 #[cfg(feature = "interpolation")]

@@ -10,56 +10,50 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = [
-    "bevy/std",
-    "serde/std",
-    "lightyear_sync/std",
-    "lightyear_core/std",
-    "lightyear_messages/std",
-    "lightyear_connection/std"
-]
+std = ["lightyear_transport/std"]
 client = [
-    "lightyear_connection/client",
-    "lightyear_messages/client",
-    "lightyear_sync/client",
-    "lightyear_transport/client",
+  "lightyear_connection/client",
+  "lightyear_messages/client",
+  "lightyear_sync/client",
+  "lightyear_replication/client",
+  "lightyear_prediction",
+  "lightyear_transport/client",
 ]
 server = [
-    "lightyear_connection/server",
-    "lightyear_messages/server",
-    "lightyear_sync/server",
-    "lightyear_transport/server",
+  "lightyear_connection/server",
+  "lightyear_messages/server",
+  "lightyear_sync/server",
+  "lightyear_link",
+  "lightyear_transport/server",
 ]
-metrics = [
-    "dep:metrics", "std"
-]
-interpolation = [
-    "dep:lightyear_interpolation"
-]
+metrics = ["dep:metrics", "std"]
+interpolation = ["dep:lightyear_interpolation"]
 
 
 [dependencies]
 lightyear_connection.workspace = true
 lightyear_core.workspace = true
-lightyear_sync.workspace = true
+lightyear_sync = { workspace = true, optional = true }
+lightyear_link = { workspace = true, optional = true }
 lightyear_messages.workspace = true
+lightyear_transport.workspace = true
 # NOTE: this is only needed to handle Predicted/PrePredicted/PredictionDisabled inputs correctly.
 #  - ideally this should be feature-gated
-lightyear_prediction.workspace = true
-lightyear_replication.workspace = true
-lightyear_transport.workspace = true
-lightyear_link.workspace = true
-lightyear_interpolation = { workspace = true, optional = true}
+lightyear_replication = { workspace = true, optional = true }
+lightyear_prediction = { workspace = true, optional = true }
+lightyear_interpolation = { workspace = true, optional = true }
 
 # utils
-metrics = { workspace= true, optional=true}
+metrics = { workspace = true, optional = true }
 tracing.workspace = true
 
 # serde
 serde.workspace = true
 
 # bevy
-bevy.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_reflect.workspace = true
 
 [lints]
 workspace = true
