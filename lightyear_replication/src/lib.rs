@@ -10,7 +10,11 @@
 //! - Managing entity authority and visibility (e.g., interest management, rooms).
 //! - Handling component registration for replication.
 
+#![no_std]
+
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 /// Handles the registration of components for replication.
 pub mod registry;

@@ -274,6 +274,7 @@ mod tests {
     use super::*;
 
     use bevy_ecs::system::RunSystemOnce;
+    #[cfg(feature = "test_log")]
     use test_log::test;
 
     #[test]

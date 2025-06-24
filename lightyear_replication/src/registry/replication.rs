@@ -2,6 +2,8 @@ use crate::prelude::ComponentReplicationConfig;
 use crate::registry::buffered::BufferedEntity;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
+#[cfg(feature = "metrics")]
+use alloc::format;
 use bevy_ecs::component::{Component, ComponentId, Immutable, Mutable};
 use bytes::Bytes;
 use lightyear_core::prelude::Tick;

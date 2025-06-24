@@ -10,13 +10,15 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = []
+std = []
 client = []
 server = ["lightyear_connection/server"]
 prediction = ["lightyear_core/prediction"]
 interpolation = ["lightyear_core/interpolation"]
 trace = []
-metrics = ["dep:metrics"]
+metrics = ["dep:metrics", "std"]
 test_utils = []
+test_log = ["test-log", "std"]
 
 [dependencies]
 lightyear_link.workspace = true
@@ -44,10 +46,10 @@ bevy_platform.workspace = true
 bevy_ptr.workspace = true
 bevy_reflect.workspace = true
 bevy_time = { workspace = true, features = ["bevy_reflect"] }
-bevy_transform = { workspace = true, features = ["std"] }
+bevy_transform = { workspace = true, features = ["libm"] }
 
-[dev-dependencies]
-test-log.workspace = true
+# testing, added here instead of on `dev-dependencies` to be able to have it as an optional
+test-log = { workspace = true, optional = true }
 
 [lints]
 workspace = true
