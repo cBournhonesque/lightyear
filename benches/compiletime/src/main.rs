@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use lightyear::prelude::*;
+use serde::{Deserialize, Serialize};
 
 macro_rules! register_components {
     ($($component:ident)*) => {

@@ -19,8 +19,10 @@ impl Plugin for SharedPlugins {
         })
         .add_plugins(lightyear_transport::plugin::TransportPlugin)
         .add_plugins(lightyear_messages::plugin::MessagePlugin)
-        .add_plugins(lightyear_connection::ConnectionPlugin)
-        .add_plugins(crate::protocol::ProtocolCheckPlugin);
+        .add_plugins(lightyear_connection::ConnectionPlugin);
+
+        #[cfg(feature = "replication")]
+        app.add_plugins(crate::protocol::ProtocolCheckPlugin);
 
         #[cfg(feature = "replication")]
         app.add_plugins(lightyear_replication::prelude::ReplicationSendPlugin)
