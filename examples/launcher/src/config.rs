@@ -116,7 +116,7 @@ mod duration_serde {
 
 // Need FromStr for Example to be used in UI Combobox or initial default parsing if needed elsewhere
 // Note: Clap will no longer use this directly.
-impl std::str::FromStr for Example {
+impl core::str::FromStr for Example {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {

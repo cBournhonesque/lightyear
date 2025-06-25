@@ -232,7 +232,7 @@ fn ui_system(mut contexts: EguiContexts, mut config: ResMut<LauncherConfig>) {
                     ui.label("Client Transport:");
                     let current_transport_text = match &config.client_transport {
                         Some(ClientTransports::Udp) => "UDP",
-                        Some(ClientTransports::WebTransport { .. }) => "WebTransport",
+                        Some(ClientTransports::WebTransport) => "WebTransport",
                         Some(transport) => "None",
                         None => "None",
                     };
@@ -243,7 +243,7 @@ fn ui_system(mut contexts: EguiContexts, mut config: ResMut<LauncherConfig>) {
                                 config.client_transport = Some(ClientTransports::Udp);
                             }
                             // Basic WebTransport selection - assumes native variant
-                            if ui.selectable_label(matches!(config.client_transport, Some(ClientTransports::WebTransport { .. })), "WebTransport").clicked() {
+                            if ui.selectable_label(matches!(config.client_transport, Some(ClientTransports::WebTransport)), "WebTransport").clicked() {
                                 config.client_transport = Some(ClientTransports::WebTransport{
                                     #[cfg(target_family = "wasm")]
                                     certificate_digest: "".to_string()
