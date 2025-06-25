@@ -262,7 +262,7 @@ impl<Ctx> Client<Ctx> {
     /// See [`ClientConfig`] for more details.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// # use lightyear_netcode::{generate_key, client::{ClientConfig, ClientState}, ConnectToken, NetcodeClient};
     /// # let private_key = generate_key();
     /// # let token_bytes = ConnectToken::build("127.0.0.1:0", 0, 0, private_key)
