@@ -284,7 +284,6 @@ mod tests {
     use lightyear_transport::plugin::TestTransportPlugin;
     use lightyear_transport::prelude::{ChannelRegistry, Transport};
     use serde::{Deserialize, Serialize};
-    #[cfg(feature = "test_log")]
     use test_log::test;
 
     /// Message
