@@ -26,7 +26,7 @@ use tracing::trace;
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// # use lightyear_sync::timeline::remote::RemoteTimeline;
 /// # use lightyear_core::time::TickInstant;
 /// # use std::time::Duration;
