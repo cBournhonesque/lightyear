@@ -28,7 +28,6 @@ tracing.workspace = true
 
 # serde
 serde.workspace = true
-bytes = { workspace = true, optional = true }
 
 # bevy
 bevy_app.workspace = true
