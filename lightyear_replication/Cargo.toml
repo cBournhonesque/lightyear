@@ -18,7 +18,6 @@ interpolation = ["lightyear_core/interpolation"]
 trace = []
 metrics = ["dep:metrics", "std"]
 test_utils = []
-test_log = ["test-log", "std"]
 
 [dependencies]
 lightyear_link.workspace = true
@@ -48,8 +47,9 @@ bevy_reflect.workspace = true
 bevy_time = { workspace = true, features = ["bevy_reflect"] }
 bevy_transform = { workspace = true, features = ["libm"] }
 
-# testing, added here instead of on `dev-dependencies` to be able to have it as an optional
-test-log = { workspace = true, optional = true }
+[dev-dependencies]
+lightyear_replication = { workspace = true, features = ["std"] }
+test-log.workspace = true
 
 [lints]
 workspace = true

@@ -323,7 +323,6 @@ lightyear_prediction:
 
 lightyear_replication:
     # `lightyear_replication` only works in `std`
-    # `test_log` only affects `--tests`
     # cargo clippy -p lightyear_replication --no-default-features -- -D warnings --no-deps
     cargo clippy -p lightyear_replication --no-default-features --features="std client" -- -D warnings --no-deps
     cargo clippy -p lightyear_replication --no-default-features --features="std server" -- -D warnings --no-deps
@@ -341,7 +340,6 @@ lightyear_replication:
     cargo clippy -p lightyear_replication --tests --no-default-features --features="std trace" -- -D warnings --no-deps
     cargo clippy -p lightyear_replication --tests --no-default-features --features="metrics" -- -D warnings --no-deps
     cargo clippy -p lightyear_replication --tests --no-default-features --features="std test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --tests --no-default-features --features="test_log" -- -D warnings --no-deps
     cargo clippy -p lightyear_replication --tests --all-features -- -D warnings --no-deps
 
 lightyear_serde:
