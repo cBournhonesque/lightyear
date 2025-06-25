@@ -16,9 +16,11 @@ std = [
     "bevy/std",
     "bytes/std",
     "serde/std",
-    "lightyear_sync/std",
+    "lightyear/std",
     "lightyear_messages/std",
+    "lightyear_netcode/std",
     "lightyear_serde/std",
+    "lightyear_sync/std",
     "lightyear_transport/std",
 ]
 
@@ -67,7 +69,7 @@ serde.workspace = true
 bytes.workspace = true
 
 # bevy
-bevy.workspace = true
+bevy = { workspace = true, features = ["bevy_state"] }
 
 # test
 mock_instant.workspace = true
