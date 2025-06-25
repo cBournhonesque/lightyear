@@ -14,7 +14,6 @@ use tracing::info;
 
 /// Test a remote client's replicated entity sending inputs to the server
 #[test]
-#[ignore = "Broken on main"]
 fn test_remote_client_replicated_input() {
     let mut stepper = ClientServerStepper::single();
 

@@ -21,7 +21,6 @@ use test_log::test;
 use tracing::info;
 
 #[test]
-#[ignore = "Broken on main"]
 fn test_compute_hash() {
     let mut stepper = ClientServerStepper::single();
 
@@ -346,7 +345,6 @@ fn test_prespawn_client_missing() {
 /// before it gets matched to a server entity.
 /// The entity should be kept around in case of a match, and then cleanup via the cleanup system.
 #[test]
-#[ignore = "Broken on main"]
 fn test_prespawn_local_despawn_no_match() {
     let mut stepper = ClientServerStepper::single();
 
@@ -399,7 +397,6 @@ fn panic_on_rollback() {
 /// The match should work normally without causing any rollbacks, since the server components
 /// on the PreSpawned entity should match the client history when it was spawned.
 #[test]
-#[ignore = "Broken on main"]
 fn test_prespawn_local_despawn_match() {
     let mut stepper = ClientServerStepper::default_no_init();
     let tick_duration = stepper.tick_duration;

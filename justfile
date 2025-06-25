@@ -71,7 +71,8 @@ test:
     cargo test -p lightyear_udp --all-features
     cargo test -p lightyear_utils --all-features
     cargo test -p lightyear_webtransport --all-features
-    cargo test -p lightyear_tests --all-features
+    # Limit to 1 test thread to prevent mocked GlobalTime from going crazy
+    cargo test -p lightyear_tests --all-features -- --test-threads=1
 
 # Clippy
 lightyear:

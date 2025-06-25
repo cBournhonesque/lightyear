@@ -102,7 +102,6 @@ fn setup(
 /// - normal correction
 /// - rollback that happens while correction was under way
 #[test]
-#[ignore = "Broken on main"]
 fn test_correction() {
     let frame_duration = Duration::from_millis(10);
     let tick_duration = Duration::from_millis(10);
