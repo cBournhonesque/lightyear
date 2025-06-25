@@ -77,7 +77,8 @@ impl RttEstimatorEwma {
         // --- Outlier Clamping Logic ---
         // Only apply clamping if we have established estimates (e.g., after a few samples)
         // and if there are previous SRTT and Dev values to compare against.
-        if self.samples_processed > 2 {
+        if self.samples_processed > 2 && prev_srtt_secs.is_some() && prev_rtt_abs_dev_secs.is_some()
+        {
             let prev_srtt_secs = prev_srtt_secs.unwrap();
             let prev_rtt_abs_dev_secs = prev_rtt_abs_dev_secs.unwrap();
 
