@@ -23,10 +23,51 @@
   - two flavours of Delta:
     - Diffable where you compute the diff manually between two values (For example two f32)
     - A version where you already know what the diff is at each tick (new points added)
-  - Sender:
-    - need to keep track of the past component values (shared across all senders) so that we can compute the diff
-      between current state and past state. Each client might have different past delta_ack_tick.
-      I should store the
+
+  DIFFABLE
+  SinceLastAck
+    - Sender:
+      - need to keep track of the past component values (shared across all senders) so that we can compute the diff
+        between current state and past state. Each client might have different past delta_ack_tick.
+        - for example, group1-entity1: (client 1: store C-10) (client 2: store C-14)
+
+      - when we send a message, we also include the list of delta (entity, components) that we sent in that message.
+        When we have a confirmation that that message got acked for tick T:
+          - we can update the delta-ticks for each of the (entity, components) (so that we know for each client what previous value to use to complete the diff)
+          - we know that the client is at least at tick T. If all clients are past tick T, we can remove from the component store all values that are older than tick T.
+            Or we could maintain a ref count for each past-value with the number of users that use this ack-tick as ref value. As soon as no clients don't use an ack tick, we can drop it.
+
+      - Maybe we can use a Rc or Arc to do this?
+      - The Server should keep the DeltaManager component. Or if there is no server, we keep it on the Client itself.
+        - if any component gets updated and has delta-compression enabled, we update the DeltaManager of the server.
+    - Receiver
+      - we might receive Diff2->5 and then Diff2->9 because the server still hasn't receive the ack for 5.
+        Therefore we maintain a history of past values on the client, so that we can restore the value '2' and then apply Diff2->9.
+
+  SinceLastSend
+    - Sender
+      - instead of computing the diff since last-ack, we compute the diff since last-send.
+        i.e. Diff2->5, then Diff5->9, etc.
+      - same thing, if we have received a NACK, we compute the diff since the last ack again. However let's say:
+        - send_tick = 2 -> we compute diffs from tick 2
+        - Diff2->5: send_tick = 5
+        - Diff5->9: send_tick = 9
+        - Diff5->9: ack_tick = 9 for (entity, component)
+        - Diff2->5: nack. In this case we cannot go back to ack_tick = 9! We have to go back to send_tick = 2 and send Diff2->9.
+        - So the data structure we could use is a linked-list?
+          We have send_ticks = 2 [ACK] -> 5 [NACK] -> 9 [ACK] and we need to go back to the first ACK that doesn't have any NACKs before.
+          We only remove an element from the list if all the previous elements have been ACK. So if we had 2 [ACK] -> 5 [ACK], we can drop the 2.
+      - we only remove an element from the component store if all clients have an ack-tick that is past that tick.
+        This is not necessarily if all clients received a tick
+    - Receiver:
+      - we maintain a buffer of the updates we receive. So that if we receive Diff5->9 before Diff2->5, we wait for Diff2->5
+        before applying Diff5->9.
+      - on the receiver, we don't need to maintain any component history, just a buffer of the updates.
+        When we are at comp for tick 2, we will always eventually receive a Diff that starts at tick 2.
+      - How do we avoid waiting for Diff2->5 for too long if it's missing? Maybe we do nothing! The sender
+        will eventually get a nack for Diff2->5 and resend Diff2->13 (current server tick)
+
+
 
 # HOST-SERVER
 
