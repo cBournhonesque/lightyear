@@ -283,7 +283,6 @@ lightyear_link:
 
 lightyear_messages:
     # `lightyear_messages` only works in `std`
-    # `test_log` only affects `--tests`
     # cargo clippy -p lightyear_messages --no-default-features -- -D warnings --no-deps
     cargo clippy -p lightyear_messages --no-default-features --features="std client" -- -D warnings --no-deps
     cargo clippy -p lightyear_messages --no-default-features --features="std server" -- -D warnings --no-deps
@@ -293,7 +292,6 @@ lightyear_messages:
     cargo clippy -p lightyear_messages --tests --no-default-features --features="std client" -- -D warnings --no-deps
     cargo clippy -p lightyear_messages --tests --no-default-features --features="std server" -- -D warnings --no-deps
     cargo clippy -p lightyear_messages --tests --no-default-features --features="std test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_messages --tests --no-default-features --features="test_log" -- -D warnings --no-deps
     cargo clippy -p lightyear_messages --tests --all-features -- -D warnings --no-deps
 
 lightyear_netcode:
