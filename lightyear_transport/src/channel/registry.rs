@@ -38,7 +38,8 @@ impl From<TypeId> for ChannelKind {
 ///
 /// ```rust
 /// use lightyear_transport::prelude::*;
-/// use bevy::prelude::*;
+/// use bevy_app::App;
+/// use bevy_utils::default;
 ///
 /// struct MyChannel;
 ///
