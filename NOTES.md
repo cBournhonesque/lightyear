@@ -1,36 +1,34 @@
+# CHANGES FOR REPLICATION
 
-# BEI
+- SinceLastAck:
+  - for each group, we have an AckBevyTick, which is the bevy_tick when we received an ack for the entire group.
+  - then we only send changes since that AckBevyTick.
+  - issue: when there is a change, we will keep sending changes since that ack, so we potentially send
+  multiple messages it the replication interval is short compared to the RTT
+- SinceLastSend:
+  - for each group, we have a SendBevyTick and a AckBevyTick.
+  - when we send, we increment the SendBevyTick, and we will only send changes since that SendBevyTick.
+  - if we have an ack, we downgrade the SendBevyTick to the AckBevyTick.
+  - doesn't work in this scenario:
+    - C2-tick 2: send-bevy-tick = 2
+    - C1-tick 3: send-bevy-tick = 3
+    - receive ACK for tick 3: ack-bevy-tick = 3
+    - now we only send changes since tick 3, so if tick 2 message is lost the update will never get sent.
+  - instead:
+    - option 1: store the send/ack bevy ticks per (entity, component)
 
-- in host-server mode:
-  - local-client:
-    - buffers into ActionState (potentially with delay)
-    - server::UpdateActionState gets the correct ActionState from the buffer
 
-- if UpdateActionState before Buffer:
- - no input delay:
-   - 
-
-- users add BEIInputPlugin<C> context
-
-- we query the `Actions<C>` component in our plugin, and store in the `InputBuffer<Actions<C>>`
-
-- the message will only contain t
-
-- InputMarker: we will add a fake companion component `InputMarker` that is added only if the entity has any bindings. 
- 
-
-TODO:
-- add a Context value so that the systems can use it (for example a registry) when building the input_message
-- maybe the InputBuffer should store something else than the state? 
-  - let's say that the state is Actions<C>
-  - the input buffer could store `InputBuffer<ActionsSnapshot<C>>`, which is a snapshot that can be used to restore the state (`Actions<C>`)
-- 
-
+- Delta:
+  - fix by re-enabling the Write-Delta method
+  - two flavours of Delta:
+    - Diffable where you compute the diff manually between two values (For example two f32)
+    - A version where you already know what the diff is at each tick (new points added)
+  - Sender:
+    - need to keep track of the past component values (shared across all senders) so that we can compute the diff
+      between current state and past state. Each client might have different past delta_ack_tick.
+      I should store the
 
 # HOST-SERVER
-
-- it sounds like the host-server inputs are not rebroadcasted correctly to other clients?
-  there are big corrections in avian_physics.
 
 https://excalidraw.com/#room=6556b82e2cc953b853cd,eIOMjgsfWiA7iaFzjk1blA
 
@@ -99,7 +97,7 @@ TODO:
 - in netcode: the difference between `send_packets` and `send_netcode_packets` is a bit awkward...
 - add compression in Transport before splitting bytes into fragments.
 - refactor replication to not use hashmaps if no replication group is used.
-    
+
 
 NEEDS UNIT TEST:
 - check that we don't send replication-updates for entities that are not visible
@@ -142,10 +140,10 @@ BUGS:
 TODOs:
 - Maybe have a DummyConnection that is just pass-through on top of the io? and then everything else can react to Connected/Disconnected events?
   Maybe we can have some Access or bitmask of all connections, and the access could have `accept_all`, etc.?
- 
+
 - Most systems (for example ReplicationPlugin), need to only run if the timeline is synced, or if the senders are connected.
   How to handle this gracefully?
-  
+
 
 TEST TODO:
  - There seems to be a very weird ordering issue? Adding MessageDirection messed up some of the message receive/send
@@ -153,18 +151,18 @@ TEST TODO:
 
 # Messages
 
-- Maybe we remove NetworkDirection, and the user can add required_components to specify which of their entities 
+- Maybe we remove NetworkDirection, and the user can add required_components to specify which of their entities
   will add which components?
   - and we add by default some required components, for example for Inputs?
 
 - Need to find a way to broadcast messages from other players to a player.
   - option 1: all messages are wrapped with FromPeer<M> which indicates the original sender?
-   
+
 - Client sends message to Server, with a given target.
   - maybe it's wrapped as BroadcastMessage<>?
   - the client-of receives it
   - the target is mapped to the correct client-of entities on the server
-    
+
 - or the message itself should support it? i.e. we have InputMessage<> (for the server) and RebroadcastInput? Rebroadcast input gets added only if the user requests it in the registry.
 
 
@@ -182,12 +180,12 @@ TEST TODO:
 # Host-server
 
 - You have a server with n ClientOf.
-- HostServer 
+- HostServer
   - The Server will have its own ServerMessageSender? send_to_target() and kllllll
   - OPTION1: one of the ClientOfs is also a Client? with Transport via Channels? has a an extra component Host/Local
     - PredictionManager and InterpolationManager are disabled
     - Messages hjj
-  - OPTION2: the ClientOf has a Link but no io (or just a dummy io). 
+  - OPTION2: the ClientOf has a Link but no io (or just a dummy io).
 
 
 
@@ -210,7 +208,7 @@ But if you add a direction we will handle it automatically for the client-server
   - by default an entity is replicated to all clients specified in Senders.
   - you can add NetworkVisibility on the replicated entity; where you specify which clients lost/gain visibility
   - you can also add SenderNetworkVisibility on a sender, to specify which clients lost/gain visibility
-   
+
   - Maybe enable whitelist/blacklist (currently it's only whitelist, i.e. by default no entities are visible). Can be done by simply adding all clients once as visible?
 
 - Hierarchy:
@@ -219,7 +217,7 @@ But if you add a direction we will handle it automatically for the client-server
       - when ReplicateLike is added, should we update the Sender's replicated entities? or should we add Replicate?
         Or do we also go through every entity that is in ReplicatedEntities?
 
-  - Other idea: 
+  - Other idea:
     - the 'root entity' is the ReplicationGroup. All children or ReplicateLike are part of the group.
       - then the SendInterval data is part of the ReplicationGroup.
 
@@ -227,7 +225,7 @@ But if you add a direction we will handle it automatically for the client-server
 - How to start replication?
   - ideally we would have M:N relationships. because one sender replicated many entities, and each entity can be replicated by multiple senders.
   - **right now we will constrain each entity to be only replicated by one sender.**
-    - ReplicateOn<Entity> -> sender will replicate that entity 
+    - ReplicateOn<Entity> -> sender will replicate that entity
     - ReplicateOnServer<Entity> -> each sender that is a ClientOf that entity will replicate it.
     - Ideally we also want the relationship to hold data. For example `is_replicating`, etc.
   - Should we do it by triggers? i.e. you trigger ReplicateOn<Entity> for your target entity?
@@ -248,7 +246,6 @@ But if you add a direction we will handle it automatically for the client-server
 - Authority: we want seamless authority transfers so states where the client is connected to 2 servers; maybe it starts accepting the
   packets from both server for a while, buffers them internally (instead of applying to world), and the AuthorityTransfer has a Tick after
   which the transfer is truly effective. We can have Transferring/Transferred.
-
 
 - we want integration tests
   - with client-server with netcode
@@ -349,13 +346,6 @@ SEND FLOW
   - on server, we can define a LocalTimeline, where the Tick is incremented every FixedUpdate.
   - the transport should be using the LocalTimeline to get the tick information.
 
-
-# Refactoring
-
-- Io: raw io (channels, WebTransport, Websocket)
-- Link/Transport: component that will store raw bytes that we receive/send from the network (webtransport, udp, etc.). Link between two peers to send data.
-- Channel: component adds reliability by allowing you to specify multiple channels depending on the the channel_id, we buffer the stuff to be processed on the channels
-- Session: component that tracks the long-term state of the link.
 
 
 
@@ -480,7 +470,6 @@ TODO:
     - if an entity has a priority, then they need to use a replication group? i.e we recreate a replication group for them?
     - to write the ActualMessage:
       - serialize the message_id
-
 
 - Serialization strategy:
   - SEND:
