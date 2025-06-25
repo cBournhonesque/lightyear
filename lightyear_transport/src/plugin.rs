@@ -364,7 +364,7 @@ impl Plugin for TransportPlugin {
 }
 
 #[cfg(feature = "test_utils")]
-pub struct TestTransportChannel;
+pub struct TestChannel;
 
 #[cfg(feature = "test_utils")]
 pub struct TestTransportPlugin;
@@ -374,7 +374,7 @@ impl Plugin for TestTransportPlugin {
     fn build(&self, app: &mut App) {
         // add all channels before adding the TransportPlugin
         app.init_resource::<ChannelRegistry>();
-        app.add_channel::<TestTransportChannel>(ChannelSettings {
+        app.add_channel::<TestChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             ..default()
         });
@@ -403,11 +403,11 @@ pub mod tests {
 
         let registry = app.world().resource::<ChannelRegistry>();
         let channel_id = *registry
-            .get_net_from_kind(&crate::channel::ChannelKind::of::<TestTransportChannel>())
+            .get_net_from_kind(&crate::channel::ChannelKind::of::<TestChannel>())
             .unwrap();
         let mut transport = Transport::default();
-        transport.add_sender_from_registry::<TestTransportChannel>(registry);
-        transport.add_receiver_from_registry::<TestTransportChannel>(registry);
+        transport.add_sender_from_registry::<TestChannel>(registry);
+        transport.add_receiver_from_registry::<TestChannel>(registry);
         let entity_mut = app.world_mut().spawn((Link::default(), transport));
         let entity = entity_mut.id();
 
@@ -416,7 +416,7 @@ pub mod tests {
         entity_mut
             .get::<Transport>()
             .unwrap()
-            .send::<TestTransportChannel>(send_bytes.clone())
+            .send::<TestChannel>(send_bytes.clone())
             .unwrap();
         app.update();
         // check that the send-payload was added to the link

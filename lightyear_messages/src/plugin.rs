@@ -280,7 +280,7 @@ mod tests {
     use lightyear_core::prelude::{LocalTimeline, Tick};
     use lightyear_link::{Link, Linked};
     use lightyear_transport::channel::ChannelKind;
-    use lightyear_transport::plugin::TestTransportChannel;
+    use lightyear_transport::plugin::TestChannel;
     use lightyear_transport::plugin::TestTransportPlugin;
     use lightyear_transport::prelude::{ChannelRegistry, Transport};
     use serde::{Deserialize, Serialize};
@@ -310,8 +310,8 @@ mod tests {
         // Add the Transport component with a receiver/sender for channel C, and a receiver/sender for message M
         let registry = app.world().resource::<ChannelRegistry>();
         let mut transport = Transport::default();
-        transport.add_sender_from_registry::<TestTransportChannel>(registry);
-        transport.add_receiver_from_registry::<TestTransportChannel>(registry);
+        transport.add_sender_from_registry::<TestChannel>(registry);
+        transport.add_receiver_from_registry::<TestChannel>(registry);
         // TODO: are these tests useful? they need so many components from other plugins..
         let mut entity_mut = app.world_mut().spawn((
             Link::default(),
@@ -331,7 +331,7 @@ mod tests {
         entity_mut
             .get_mut::<MessageSender<M>>()
             .unwrap()
-            .send::<TestTransportChannel>(message.clone());
+            .send::<TestChannel>(message.clone());
         app.update();
 
         // check that the send-payload was added to the Transport
@@ -396,7 +396,7 @@ mod tests {
             .push(ReceivedMessage {
                 data: M(2),
                 remote_tick: Tick::default(),
-                channel_kind: ChannelKind::of::<TestTransportChannel>(),
+                channel_kind: ChannelKind::of::<TestChannel>(),
                 message_id: None,
             });
         app.update();
