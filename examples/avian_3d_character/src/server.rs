@@ -1,4 +1,4 @@
-use std::f32::consts::TAU;
+use core::f32::consts::TAU;
 
 use avian3d::prelude::*;
 use bevy::color::palettes::css;
@@ -123,7 +123,7 @@ fn player_shoot(
                     lifetime: Duration::from_millis(5000),
                 },
                 RigidBody::Dynamic,
-                position.clone(), // Use current position
+                *position, // Use current position
                 Rotation::default(),
                 LinearVelocity(Vec3::Z * 10.),
                 Replicate::to_clients(NetworkTarget::All),

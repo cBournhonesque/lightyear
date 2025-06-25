@@ -1,7 +1,7 @@
 use bevy::ecs::query::QueryData;
 use bevy::math::VectorSpace;
 use bevy::prelude::*;
-use std::hash::Hash;
+use core::hash::Hash;
 
 use avian3d::prelude::*;
 use avian3d::sync::position_to_transform;
