@@ -1,7 +1,7 @@
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(feature = "std", target_arch = "wasm32"))]
 use web_time::SystemTime;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 use std::time::SystemTime;
 
 use core::net::{
@@ -10,11 +10,18 @@ use core::net::{
 use core::{iter, option, slice};
 
 /// Return the number of seconds since unix epoch
+#[cfg(feature = "std")]
 pub(crate) fn now() -> Result<u64, super::Error> {
     // number of seconds since unix epoch
     Ok(SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)?
         .as_secs())
+}
+
+#[cfg(not(feature = "std"))]
+pub(crate) fn now() -> Result<u64, super::Error> {
+    // TODO: test if this works
+    Ok(0)
 }
 
 pub trait ToSocketAddrs {
