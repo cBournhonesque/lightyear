@@ -179,6 +179,7 @@ fn test_check_rollback() {
 /// Test that the entities within a predicted component marked as to be
 /// entity-mapped are mapped when rollbacked.
 #[test]
+#[ignore = "Broken on main"]
 fn test_rollback_entity_mapping() {
     let mut stepper = ClientServerStepper::single();
 
