@@ -4,9 +4,11 @@ use crate::reader::{ReadInteger, ReadVarInt, Reader};
 use crate::varint::varint_len;
 use crate::writer::WriteInteger;
 use crate::{SerializationError, ToBytes};
-use bevy::ecs::entity::{EntityMapper, hash_map::EntityHashMap};
-use bevy::prelude::{Deref, DerefMut, Entity, EntityWorldMut, World};
-use bevy::reflect::Reflect;
+use bevy_derive::{Deref, DerefMut};
+use bevy_ecs::entity::Entity;
+use bevy_ecs::entity::{EntityMapper, hash_map::EntityHashMap};
+use bevy_ecs::world::{EntityWorldMut, World};
+use bevy_reflect::Reflect;
 use tracing::{debug, error, trace};
 
 const MARKED: u64 = 1 << 62;

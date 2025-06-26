@@ -10,18 +10,20 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = [
-    "bevy/std",
-]
-
+std = ["lightyear_link/std"]
 test_utils = []
 
 [dependencies]
-aeronet_io.workspace = true
 lightyear_link.workspace = true
 
+aeronet_io.workspace = true
+
+tracing.workspace = true
+
 # bevy
-bevy.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_reflect.workspace = true
 
 [lints]
 workspace = true

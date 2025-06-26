@@ -9,15 +9,16 @@
 //!
 //! This crate is fundamental for preparing data to be sent over the network and for
 //! reconstructing data received from remote peers.
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 use crate::reader::{ReadInteger, ReadVarInt, Reader};
 use crate::varint::varint_len;
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::platform::collections::HashMap;
+use bevy_platform::collections::HashMap;
 use bytes::Bytes;
 use core::hash::{BuildHasher, Hash};
 use no_std_io2::io;
@@ -52,8 +53,8 @@ pub enum SerializationError {
     InvalidPacketType,
     #[error("Invalid value")]
     InvalidValue,
-    #[error("Substraction overflow")]
-    SubstractionOverflow,
+    #[error("Subtraction overflow")]
+    SubtractionOverflow,
     #[error(transparent)]
     BincodeEncode(#[from] bincode::error::EncodeError),
     #[error(transparent)]
@@ -263,9 +264,8 @@ impl<K: ToBytes + Eq + Hash, V: ToBytes, S: Default + BuildHasher> ToBytes for H
 mod tests {
     use super::*;
     use crate::writer::Writer;
-    #[cfg(not(feature = "std"))]
     use alloc::vec;
-    use bevy::prelude::Entity;
+    use bevy_ecs::entity::Entity;
 
     #[test]
     fn test_serialize_bytes() {

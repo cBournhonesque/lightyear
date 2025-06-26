@@ -1,10 +1,10 @@
 use crate::marker::InputMarker;
 use crate::registry::{InputActionKind, InputRegistry};
-#[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::ecs::entity::MapEntities;
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::*;
+use bevy_ecs::{
+    entity::{EntityMapper, MapEntities},
+    system::{Res, SystemParam},
+};
 use bevy_enhanced_input::action_value::ActionValue;
 use bevy_enhanced_input::input_context::InputContext;
 use bevy_enhanced_input::prelude::{ActionEvents, ActionState, Actions};
@@ -15,6 +15,7 @@ use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::input_message::ActionStateSequence;
 use serde::{Deserialize, Serialize};
+use tracing::{error, trace};
 
 pub struct BEIStateSequence<C> {
     // TODO: use InputData for each action separately to optimize the diffs
@@ -192,7 +193,7 @@ impl<C: InputContext> ActionStateSequence for BEIStateSequence<C> {
             || self
                 .states
                 .iter()
-                // TODO: is this correct? we culd have all SameAsPrecedent but similar to something non-empty?
+                // TODO: is this correct? we could have all SameAsPrecedent but similar to something non-empty?
                 .all(|s| matches!(s, InputData::Absent | InputData::SameAsPrecedent))
     }
 
@@ -310,8 +311,9 @@ impl<C: InputContext> ActionStateSequence for BEIStateSequence<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::prelude::Reflect;
+
     use bevy_enhanced_input::prelude::{InputAction, InputContext};
+    use bevy_reflect::Reflect;
     use core::any::TypeId;
 
     #[derive(InputContext)]

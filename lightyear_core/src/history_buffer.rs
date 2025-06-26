@@ -1,9 +1,10 @@
 use crate::tick::Tick;
 use alloc::collections::VecDeque;
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::prelude::{Component, Reflect, Resource};
-use bevy::prelude::{ReflectComponent, ReflectResource};
+use bevy_ecs::component::Component;
+use bevy_ecs::reflect::{ReflectComponent, ReflectResource};
+use bevy_ecs::resource::Resource;
+use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use core::iter::FilterMap;
 use tracing::debug;
@@ -215,7 +216,6 @@ impl<R: Clone> HistoryBuffer<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(not(feature = "std"))]
     use alloc::vec;
 
     #[derive(Clone, PartialEq, Debug)]

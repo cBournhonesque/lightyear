@@ -1,20 +1,26 @@
 //! Provides a system parameter for performing spatial queries while doing lag compensation.
+use core::cell::RefCell;
+
 use super::history::{AabbEnvelopeHolder, LagCompensationConfig, LagCompensationHistory};
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::*;
+use bevy_ecs::{
+    entity::Entity,
+    hierarchy::ChildOf,
+    query::With,
+    system::{Query, Res, Single, SystemParam},
+};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_interpolation::plugin::InterpolationDelay;
 use lightyear_link::prelude::Server;
-use std::cell::RefCell;
+use tracing::{debug, error};
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use {
     avian2d::{math::*, prelude::*},
-    bevy::math::Dir2 as Dir,
+    bevy_math::Dir2 as Dir,
 };
 #[cfg(all(feature = "3d", not(feature = "2d")))]
 use {
     avian3d::{math::*, prelude::*},
-    bevy::math::Dir3 as Dir,
+    bevy_math::Dir3 as Dir,
 };
 
 /// A system parameter for performing [spatial queries](spatial_query) while doing

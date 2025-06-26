@@ -1,16 +1,16 @@
 //! Logic related to delta compression (sending only the changes between two states, instead of the new state)
 
-use bevy::ecs::entity::EntityHash;
-use bevy::prelude::{Component, Entity};
-use bevy::ptr::Ptr;
-
 use crate::components::ReplicationGroupId;
 use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
 use alloc::collections::BTreeMap;
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::platform::collections::HashMap;
+use bevy_ecs::{
+    component::Component,
+    entity::{Entity, EntityHash},
+};
+use bevy_platform::collections::HashMap;
+use bevy_ptr::Ptr;
 use core::ptr::NonNull;
 use lightyear_core::prelude::Tick;
 use lightyear_messages::Message;
@@ -139,7 +139,7 @@ impl DeltaManager {
     }
 }
 
-type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 
 /// We have a shared store of the component values for diffable components.
 /// We keep some of the values in memory so that we can compute the delta between the previously

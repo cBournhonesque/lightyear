@@ -1,6 +1,7 @@
 use crate::client::Client;
 use crate::host::HostClient;
-use bevy::prelude::*;
+use bevy_ecs::query::{With, Without};
+use bevy_ecs::system::Query;
 use lightyear_link::server::Server;
 
 /// Returns true if the peer is a client (host-server counts as a server)

@@ -3,8 +3,8 @@
 use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage};
-use bevy::app::*;
-use bevy::ecs::entity::MapEntities;
+use bevy_app::{App, Plugin};
+use bevy_ecs::entity::MapEntities;
 use core::time::Duration;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_messages::prelude::AppMessageExt;

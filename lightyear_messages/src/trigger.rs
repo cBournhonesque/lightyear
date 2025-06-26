@@ -1,12 +1,15 @@
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+use bevy_app::App;
+use bevy_ecs::{
+    entity::{Entity, EntityMapper, MapEntities},
+    event::Event,
+};
+use tracing::trace;
 
 use crate::Message;
 use crate::receive_trigger::receive_trigger_typed;
 use crate::registry::{MessageKind, MessageRegistry, SendTriggerMetadata};
 use crate::send_trigger::TriggerSender;
-use bevy::ecs::entity::MapEntities;
-use bevy::prelude::*;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::{ReadVarInt, Reader};

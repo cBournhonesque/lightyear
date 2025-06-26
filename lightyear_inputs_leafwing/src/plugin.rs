@@ -1,5 +1,9 @@
 use crate::action_state::LeafwingUserAction;
-use bevy::app::{App, Plugin};
+#[cfg(feature = "client")]
+use bevy_app::FixedPreUpdate;
+use bevy_app::{App, Plugin};
+#[cfg(feature = "client")]
+use bevy_ecs::schedule::IntoScheduleConfigs;
 use leafwing_input_manager::action_state::ActionState;
 use lightyear_inputs::config::InputConfig;
 use lightyear_inputs::input_buffer::InputBuffer;
@@ -28,14 +32,13 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
 
         #[cfg(feature = "client")]
         {
-            use bevy::prelude::*;
             use leafwing_input_manager::plugin::InputManagerSystem;
             // TODO: this means that for host-server mode InputPlugin must be added before the ProtocolPlugin!
 
             // we add this check so that if we only have the ServerPlugins, but the client feature is enabled,
             // we don't panic (otherwise we would because leafwing expects the bevy InputPlugin)
             // We only want the client or server leafwing plugin, not both
-            if app.is_plugin_added::<bevy::input::InputPlugin>() {
+            if app.is_plugin_added::<bevy_input::InputPlugin>() {
                 app.add_plugins(InputManagerPlugin::<A>::default());
                 app.add_plugins(lightyear_inputs::client::ClientInputPlugin::<
                     LeafwingSequence<A>,

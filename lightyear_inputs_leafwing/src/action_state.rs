@@ -14,7 +14,7 @@ pub trait LeafwingUserAction:
     + 'static
     + Copy
     + Actionlike
-    + bevy::reflect::GetTypeRegistration
+    + bevy_reflect::GetTypeRegistration
 {
 }
 
@@ -29,7 +29,7 @@ impl<
         + 'static
         + Copy
         + Actionlike
-        + bevy::reflect::GetTypeRegistration,
+        + bevy_reflect::GetTypeRegistration,
 > LeafwingUserAction for A
 {
 }

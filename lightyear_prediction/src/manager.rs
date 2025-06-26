@@ -1,12 +1,14 @@
 //! Defines bevy resources needed for Prediction
 
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+use bevy_ecs::{
+    component::{Component, HookContext},
+    entity::{Entity, EntityHash},
+    resource::Resource,
+    world::{DeferredWorld, World},
+};
+use bevy_reflect::Reflect;
 
-use bevy::ecs::component::HookContext;
-use bevy::ecs::entity::EntityHash;
-use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::{Component, Entity, Reflect, Resource, World};
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::{RollbackState, Tick};
@@ -25,7 +27,7 @@ pub struct PredictionResource {
     pub(crate) link_entity: Entity,
 }
 
-type EntityHashMap<K, V> = bevy::platform::collections::HashMap<K, V, EntityHash>;
+type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>;
 
 #[derive(Default, Debug, Reflect)]
 pub struct PredictedEntityMap {

@@ -1,11 +1,14 @@
 //! Handles interpolation of entities between server updates
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
-use bevy::ecs::component::{HookContext, Mutable};
-use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::Component;
+use bevy_ecs::{
+    component::{Component, HookContext, Mutable},
+    world::DeferredWorld,
+};
 pub use interpolate::InterpolateStatus;
 pub use interpolation_history::ConfirmedHistory;
 use lightyear_replication::prelude::Replicated;
@@ -46,7 +49,7 @@ pub(crate) fn interpolated_on_add_hook(mut deferred_world: DeferredWorld, contex
     // TODO: maybe we need InitialReplicated? in case Replicated gets removed?
     let Some(replicated) = deferred_world.get::<Replicated>(confirmed) else {
         error!(
-            "Could not find the receiver assocaited with the interpolated entity {:?}",
+            "Could not find the receiver associated with the interpolated entity {:?}",
             interpolated
         );
         return;

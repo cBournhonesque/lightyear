@@ -1,5 +1,5 @@
 //! Contains the `LinkConditioner` struct which can be used to simulate network conditions
-use bevy::reflect::Reflect;
+use bevy_reflect::Reflect;
 use core::time::Duration;
 use lightyear_core::time::Instant;
 use lightyear_utils::ready_buffer::ReadyBuffer;

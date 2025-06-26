@@ -1,7 +1,13 @@
 use crate::ping::PingChannel;
 use crate::ping::manager::PingManager;
 use crate::ping::message::{Ping, Pong};
-use bevy::prelude::*;
+use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::observer::Trigger;
+use bevy_ecs::query::{With, Without};
+use bevy_ecs::schedule::{IntoScheduleConfigs, SystemSet};
+use bevy_ecs::system::{Query, Res};
+use bevy_ecs::world::OnAdd;
+use bevy_time::{Real, Time};
 use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::direction::NetworkDirection;
@@ -15,6 +21,7 @@ use lightyear_messages::prelude::AppMessageExt;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, Transport};
+use tracing::trace;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PingSet {

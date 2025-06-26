@@ -1,8 +1,10 @@
-#[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::platform::collections::{HashMap, HashSet};
-use bevy::platform::hash::FixedHasher;
-use bevy::prelude::{Entity, Reflect};
+use bevy_ecs::entity::Entity;
+use bevy_platform::{
+    collections::{HashMap, HashSet},
+    hash::FixedHasher,
+};
+use bevy_reflect::Reflect;
 use core::hash::Hash;
 use lightyear_core::id::PeerId;
 use lightyear_serde::reader::{ReadInteger, Reader};

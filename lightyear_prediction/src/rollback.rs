@@ -8,19 +8,27 @@ use crate::manager::PredictionManager;
 use crate::plugin::PredictionSet;
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
-use bevy::app::FixedMain;
-use bevy::ecs::component::Mutable;
-use bevy::ecs::entity::hash_set::EntityHashSet;
-use bevy::ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
-use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
-use bevy::prelude::*;
-use bevy::time::{Fixed, Time};
+use bevy_app::{App, FixedMain, Plugin, PreUpdate};
+use bevy_ecs::{
+    component::{Component, Mutable},
+    entity::{Entity, EntityHashSet},
+    query::{Has, With, Without},
+    resource::Resource,
+    schedule::IntoScheduleConfigs,
+    system::{
+        Commands, ParallelCommands, ParamBuilder, Query, QueryParamBuilder, Res, ResMut, Single,
+        SystemChangeTick, SystemParamBuilder,
+    },
+    world::{FilteredEntityMut, FilteredEntityRef, Ref, World},
+};
+use bevy_time::{Fixed, Time};
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::timeline::Rollback;
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
+use tracing::{debug, debug_span, error, trace, trace_span};
 
 pub struct RollbackPlugin;
 
@@ -241,8 +249,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         debug_assert_eq!(
             manager.get_rollback_start_tick(),
             Some(rollback_tick),
-            "The rollback tick (LEFT) does not match the confirmed tick (RIGHT) for confirmed entity {:?}. Are all predicted entities in the same replication group?",
-            confirmed_entity
+            "The rollback tick (LEFT) does not match the confirmed tick (RIGHT) for confirmed entity {confirmed_entity:?}. Are all predicted entities in the same replication group?",
         );
 
         let Some(predicted_entity) = confirmed.predicted else {

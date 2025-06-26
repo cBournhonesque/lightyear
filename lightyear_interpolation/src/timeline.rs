@@ -2,8 +2,17 @@
 //! a trigger to inform the receiver of its SendInterval. This interval is used
 //! by the receiver to determine how the InterpolationTime should be configured
 
-use bevy::prelude::*;
-use bevy::prelude::{Component, Deref, DerefMut, Reflect, default};
+use bevy_app::{App, Plugin, PreUpdate};
+use bevy_derive::{Deref, DerefMut};
+use bevy_ecs::{
+    component::Component,
+    observer::Trigger,
+    query::{With, Without},
+    system::{Query, Res},
+};
+use bevy_reflect::Reflect;
+use bevy_time::{Time, Virtual};
+use bevy_utils::default;
 use core::time::Duration;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_core::prelude::Rollback;
@@ -17,7 +26,7 @@ use lightyear_sync::prelude::client::RemoteTimeline;
 use lightyear_sync::timeline::sync::{
     SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline, SyncedTimelinePlugin,
 };
-use tracing::trace;
+use tracing::{debug, trace};
 
 /// Config to specify how the snapshot interpolation should behave
 #[derive(Clone, Copy, Debug, Reflect)]

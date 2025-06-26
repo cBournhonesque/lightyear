@@ -4,12 +4,16 @@ use crate::receive::ReceivedMessage;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
 use crate::{Message, MessageManager, MessageNetId};
 use alloc::sync::Arc;
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::ecs::change_detection::MutUntyped;
-use bevy::ecs::component::HookContext;
-use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
-use bevy::prelude::*;
+use bevy_ecs::{
+    change_detection::MutUntyped,
+    component::{Component, HookContext},
+    entity::Entity,
+    query::{With, Without},
+    system::{ParallelCommands, Query, Res},
+    world::{DeferredWorld, FilteredEntityMut, World},
+};
+use bevy_reflect::Reflect;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
@@ -19,6 +23,7 @@ use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
+use tracing::{error, trace};
 
 pub type Priority = f32;
 
@@ -254,7 +259,7 @@ impl MessagePlugin {
     }
 
     /// For the host-client, we take messages to send from the [`MessageSender<M>`] components
-    /// and add them directly to the [`MessageReceiver<M>`] compoments.
+    /// and add them directly to the [`MessageReceiver<M>`] components.
     /// (the [`Transport`] is not used)
     pub fn send_local(
         mut manager_query: Query<

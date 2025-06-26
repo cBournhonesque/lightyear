@@ -10,25 +10,32 @@
 //! - Link conditioning (simulating latency, jitter, packet loss) via `LinkConditioner`.
 //! - Link state management (`Linked`, `Linking`, `Unlinked`).
 //! - Basic link statistics (`LinkStats`).
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
-use lightyear_core::time::Instant;
+#[cfg(feature = "std")]
+extern crate std;
 
 mod conditioner;
-
 mod id;
 pub mod server;
 
-use alloc::collections::vec_deque::Drain;
+use alloc::{collections::vec_deque::Drain, string::String};
 
 use crate::conditioner::LinkConditioner;
 use alloc::collections::VecDeque;
-use bevy::ecs::component::HookContext;
-use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::*;
+use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::{
+    component::{Component, HookContext},
+    event::Event,
+    observer::Trigger,
+    schedule::{IntoScheduleConfigs, SystemSet},
+    system::{Commands, Query},
+    world::DeferredWorld,
+};
 use bytes::Bytes;
 use core::time::Duration;
+use lightyear_core::time::Instant;
 
 /// Commonly used items from the `lightyear_link` crate.
 pub mod prelude {

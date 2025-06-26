@@ -1,9 +1,17 @@
-use bevy::prelude::*;
+use bevy_app::{App, Plugin};
+use bevy_ecs::{
+    entity::Entity,
+    observer::Trigger,
+    query::With,
+    system::{Commands, Query},
+    world::OnAdd,
+};
 use lightyear_link::Linked;
 use lightyear_link::prelude::LinkOf;
 use lightyear_messages::MessageManager;
 use lightyear_replication::components::{PrePredicted, Replicated};
 use lightyear_replication::prelude::ReplicationSender;
+use tracing::trace;
 
 pub struct ServerPlugin;
 

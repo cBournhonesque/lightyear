@@ -1,10 +1,10 @@
 use crate::action_state::{ActionState, InputMarker};
-#[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::ecs::entity::MapEntities;
-use bevy::ecs::system::SystemParam;
-use bevy::prelude::{EntityMapper, FromReflect, Reflect};
-use bevy::reflect::Reflectable;
+use bevy_ecs::{
+    entity::{EntityMapper, MapEntities},
+    system::SystemParam,
+};
+use bevy_reflect::{FromReflect, Reflect, Reflectable};
 use core::cmp::max;
 use core::fmt::Debug;
 use lightyear_core::prelude::Tick;
@@ -148,7 +148,7 @@ impl<A: MapEntities> MapEntities for NativeStateSequence<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::VecDeque;
+    use alloc::collections::VecDeque;
 
     #[test]
     fn test_build_sequence_from_buffer() {

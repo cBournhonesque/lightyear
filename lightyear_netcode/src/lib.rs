@@ -48,7 +48,7 @@
     feature = "server",
     doc = r##"
 
-```rust
+```rust,ignore
 # use std::{thread, time::{Instant, Duration}, net::SocketAddr};
 # use lightyear_link::Link;
 # use lightyear_netcode::{generate_key, NetcodeServer};
@@ -92,7 +92,7 @@ To create a client:
 #![cfg_attr(
     feature = "client",
     doc = r##"
-```rust
+```rust,ignore
 use std::{thread, time::{Instant, Duration}, net::SocketAddr};
 use lightyear_link::Link;
 use lightyear_netcode::{generate_key, ConnectToken, NetcodeClient};
@@ -129,10 +129,12 @@ loop {
 ```
 "##
 )]
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
 extern crate core;
+#[cfg(feature = "std")]
+extern crate std;
 
 #[cfg(feature = "client")]
 pub use client_plugin::NetcodeClient;

@@ -7,6 +7,8 @@ pub mod client;
 #[cfg(all(feature = "server", not(target_family = "wasm")))]
 pub mod server;
 
+use alloc::string::String;
+
 #[derive(thiserror::Error, Debug)]
 pub enum WebTransportError {
     #[error("the certificate hash `{0}` is invalid")]

@@ -1,6 +1,6 @@
 use crate::ping::plugin::PingPlugin;
-use bevy::app::{App, Plugin};
-use bevy::prelude::*;
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_ecs::schedule::SystemSet;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SyncSet {

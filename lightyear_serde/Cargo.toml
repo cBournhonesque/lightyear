@@ -10,13 +10,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = [
-    "bincode/std",
-    "bevy/std", 
-    "bytes/std",
-    "serde/std",
-    "no_std_io2/std"
-]
+std = ["bincode/std", "bytes/std", "no_std_io2/std"]
 
 [dependencies]
 # utils
@@ -30,7 +24,11 @@ bincode.workspace = true
 serde.workspace = true
 
 # bevy
-bevy.workspace = true
+bevy_derive.workspace = true
+bevy_ecs = { workspace = true, features = ["bevy_reflect"] }
+bevy_platform.workspace = true
+bevy_ptr.workspace = true
+bevy_reflect.workspace = true
 
 # no_std
 no_std_io2.workspace = true

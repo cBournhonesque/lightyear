@@ -1,4 +1,3 @@
-#[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 use core::time::Duration;
 use indexmap::{IndexMap, IndexSet};

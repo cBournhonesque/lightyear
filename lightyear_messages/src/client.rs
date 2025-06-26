@@ -3,7 +3,7 @@ use crate::prelude::{MessageReceiver, MessageSender};
 use crate::registry::MessageRegistration;
 use crate::send_trigger::TriggerSender;
 use crate::trigger::TriggerRegistration;
-use bevy::prelude::Event;
+use bevy_ecs::event::Event;
 use lightyear_connection::client::Client;
 use lightyear_connection::direction::NetworkDirection;
 

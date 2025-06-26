@@ -1,8 +1,10 @@
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bevy::ecs::component::ComponentId;
-use bevy::prelude::{Component, EntityWorldMut, TypePath};
-use bevy::ptr::OwningPtr;
+use bevy_ecs::{
+    component::{Component, ComponentId},
+    world::EntityWorldMut,
+};
+use bevy_ptr::OwningPtr;
+use bevy_reflect::TypePath;
 use core::alloc::Layout;
 use core::ptr::NonNull;
 use tracing::info;

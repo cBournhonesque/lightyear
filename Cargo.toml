@@ -66,7 +66,7 @@ debug = false
 [workspace.dependencies]
 lightyear_aeronet = { path = "./lightyear_aeronet", version = " 0.21.0-rc.1", default-features = false }
 lightyear_avian = { path = "./lightyear_avian", version = " 0.21.0-rc.1", default-features = false }
-lightyear_macros = { path = "./lightyear_macros", version = " 0.21.0-rc.1", default-features = false}
+lightyear_macros = { path = "./lightyear_macros", version = " 0.21.0-rc.1", default-features = false }
 lightyear_netcode = { path = "./lightyear_netcode", version = " 0.21.0-rc.1", default-features = false }
 lightyear_connection = { path = "./lightyear_connection", version = " 0.21.0-rc.1", default-features = false }
 lightyear_core = { path = "./lightyear_core", version = " 0.21.0-rc.1", default-features = false }
@@ -101,11 +101,11 @@ chrono = "0.4.38"
 cfg-if = "1.0"
 enum_dispatch = "0.3"
 governor = "0.10"
-hashbrown = "0.15"
+hashbrown = { version = "0.15", default-features = false }
 indexmap = { version = "2.9.0", default-features = false }
 nonzero_ext = "0.3.0"
 parking_lot = "0.12.3"
-paste = "1.0"
+paste = { version = "1.0", default-features = false }
 rand = "0.9"
 ringbuffer = "0.15"
 thiserror = "2.0.3"
@@ -118,15 +118,24 @@ no_std_io2 = { version = "0.9", features = ["alloc"] }
 
 # serialization
 
-bincode = { version = "2.0.1", default-features = false, features = ["serde", "alloc"] }
+bincode = { version = "2.0.1", default-features = false, features = [
+  "serde",
+  "alloc",
+] }
 bytes = { version = "1.8", default-features = false, features = ["serde"] }
-serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
+serde = { version = "1", default-features = false, features = [
+  "alloc",
+  "derive",
+] }
 
 # netcode
 chacha20poly1305 = { version = "0.10" }
 
 # tracing
-test-log =  { version = "0.2.17", default-features = false, features = ["trace", "color"] }
+test-log = { version = "0.2.17", default-features = false, features = [
+  "trace",
+  "color",
+] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.17", features = [
   "registry",
@@ -171,16 +180,23 @@ approx = "0.5.1"
 
 # Bevy
 # (we add back features needed for gui clients if desired)
-bevy = { version = "0.16", default-features = false, features = [
-  "bevy_state",
-  "bevy_log",
-  "serialize",
-  "bevy_asset",
-  "bevy_state",
-  "bevy_color",
-  "multi_threaded",
-  "sysinfo_plugin",
-] }
+bevy = { version = "0.16", default-features = false }
+bevy_app = { version = "0.16", default-features = false }
+bevy_asset = { version = "0.16", default-features = false }
+bevy_color = { version = "0.16", default-features = false }
+bevy_derive = { version = "0.16", default-features = false }
+bevy_diagnostic = { version = "0.16", default-features = false }
+bevy_ecs = { version = "0.16", default-features = false }
+bevy_input = { version = "0.16", default-features = false }
+bevy_log = { version = "0.16", default-features = false }
+bevy_math = { version = "0.16", default-features = false }
+bevy_platform = { version = "0.16", default-features = false }
+bevy_ptr = { version = "0.16", default-features = false }
+bevy_reflect = { version = "0.16", default-features = false }
+bevy_state = { version = "0.16", default-features = false }
+bevy_time = { version = "0.16", default-features = false }
+bevy_transform = { version = "0.16", default-features = false }
+bevy_utils = { version = "0.16", default-features = false }
 
 # input
 bevy_enhanced_input = { git = "https://github.com/cBournhonesque/bevy_enhanced_input.git", branch = "cb/networking" }
@@ -204,7 +220,7 @@ bevy_egui = { version = "0.34", default-features = false, features = [
   "default_fonts",
   "render",
 ] }
-bevy_metrics_dashboard = { version = "0.7", features = ["bevy_egui"]}
+bevy_metrics_dashboard = { version = "0.7", features = ["bevy_egui"] }
 egui_extras = "0.31"
 
 [workspace.lints.rust]

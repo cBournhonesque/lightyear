@@ -1,6 +1,7 @@
 //! Defines bevy resources needed for Interpolation
 use crate::timeline::InterpolationTimeline;
-use bevy::prelude::*;
+use bevy_ecs::component::Component;
+use bevy_reflect::Reflect;
 use core::cell::UnsafeCell;
 use lightyear_replication::registry::ComponentError;
 use lightyear_replication::registry::registry::ComponentRegistry;

@@ -10,18 +10,23 @@
 //! `Link` component.
 //!
 //! It also includes server-specific UDP IO handling when the "server" feature is enabled.
-#![cfg_attr(not(feature = "std"), no_std)]
 
-extern crate alloc;
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use std::{io::ErrorKind, net::UdpSocket};
 
 use aeronet_io::connection::{LocalAddr, PeerAddr};
-use bevy::prelude::*;
+use bevy_app::{App, Plugin, PreUpdate};
+use bevy_ecs::{
+    component::Component,
+    error::Result,
+    observer::Trigger,
+    query::{With, Without},
+    schedule::IntoScheduleConfigs,
+    system::{Commands, Query},
+};
 use bytes::{BufMut, BytesMut};
 use lightyear_core::time::Instant;
 use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Linking, Unlink, Unlinked};
+use tracing::{error, info, trace};
 
 /// Provides server-specific UDP IO functionalities.
 /// This module is only available when the "server" feature is enabled.
@@ -52,7 +57,7 @@ pub(crate) const MTU: usize = 1472;
 #[require(Link)]
 // TODO: add LocalAddr using Construct
 pub struct UdpIo {
-    socket: Option<std::net::UdpSocket>,
+    socket: Option<UdpSocket>,
     buffer: BytesMut,
 }
 
@@ -92,7 +97,7 @@ impl UdpPlugin {
         trace!("In LinkStart::UDP trigger");
         if let Ok((mut udp_io, local_addr)) = query.get_mut(trigger.target()) {
             let local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?.0;
-            let socket = std::net::UdpSocket::bind(local_addr)?;
+            let socket = UdpSocket::bind(local_addr)?;
             info!("UDP socket bound to {}", local_addr);
             socket.set_nonblocking(true)?;
             udp_io.socket = Some(socket);
@@ -163,7 +168,7 @@ impl UdpPlugin {
                         let payload = udp_io.buffer.split_to(recv_len);
                         link.recv.push(payload.freeze(), Instant::now());
                     }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => return,
+                    Err(ref e) if e.kind() == ErrorKind::WouldBlock => return,
                     Err(e) => {
                         error!("Error receiving UDP packet: {}", e);
                         return;

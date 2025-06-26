@@ -2,14 +2,16 @@ use crate::prelude::ComponentReplicationConfig;
 use crate::registry::buffered::BufferedEntity;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
-use bevy::ecs::component::{Component, ComponentId, Immutable, Mutable};
-use bevy::prelude::*;
+#[cfg(feature = "metrics")]
+use alloc::format;
+use bevy_ecs::component::{Component, ComponentId, Immutable, Mutable};
 use bytes::Bytes;
 use lightyear_core::prelude::Tick;
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{ContextDeserializeFns, ErasedSerializeFns};
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub struct ReplicationMetadata {

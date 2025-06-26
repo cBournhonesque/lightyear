@@ -1,6 +1,5 @@
-#[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
-use bevy::platform::collections::HashMap;
+use bevy_platform::collections::HashMap;
 
 use crate::packet::message::{FragmentData, MessageId};
 use crate::packet::packet::FRAGMENT_SIZE;

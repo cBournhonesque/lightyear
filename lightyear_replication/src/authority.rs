@@ -7,13 +7,22 @@
 //!
 
 use crate::send::ReplicationSender;
-use bevy::prelude::*;
+use bevy_app::{App, Plugin};
+use bevy_ecs::{
+    component::Component,
+    entity::Entity,
+    event::Event,
+    observer::Trigger,
+    system::{Query, Res},
+};
+use bevy_reflect::Reflect;
 use lightyear_connection::client::PeerMetadata;
 use lightyear_connection::prelude::NetworkDirection;
 use lightyear_core::id::PeerId;
 use lightyear_messages::prelude::{AppTriggerExt, RemoteTrigger, TriggerSender};
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, ReliableSettings};
 use serde::{Deserialize, Serialize};
+use tracing::trace;
 
 // Authority:
 // - each replicating entity can have a AuthorityOf relationship to a sender to signify that that sender has authority over the entity

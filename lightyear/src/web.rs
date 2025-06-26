@@ -1,6 +1,5 @@
 //! Module containing extra behaviour that we need when running in wasm
 
-use bevy::prelude::*;
 use bevy_web_keepalive::WebKeepalivePlugin;
 
 /// In wasm, the main thread gets quickly throttled by the browser when it is hidden (e.g. when the user switches tabs).

@@ -1,13 +1,4 @@
 //! Client replication plugins
-use bevy::prelude::*;
-
-use super::*;
-use bevy::ecs::archetype::Archetypes;
-use bevy::ecs::component::{ComponentTicks, Components, HookContext};
-use bevy::ecs::entity::EntityIndexSet;
-use bevy::ecs::system::SystemChangeTick;
-use bevy::ecs::world::{DeferredWorld, FilteredEntityMut, FilteredEntityRef};
-use bevy::ptr::Ptr;
 
 use crate::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
 #[cfg(feature = "interpolation")]
@@ -23,6 +14,24 @@ use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
 use crate::send::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
+use alloc::vec::Vec;
+use bevy_ecs::{
+    archetype::Archetypes,
+    change_detection::DetectChanges,
+    component::{Component, ComponentTicks, Components, HookContext},
+    entity::{Entity, EntityIndexSet},
+    observer::Trigger,
+    query::{Changed, Has, Or, With},
+    reflect::ReflectComponent,
+    relationship::RelationshipTarget,
+    system::{Commands, Local, Query, Res, SystemChangeTick},
+    world::{DeferredWorld, FilteredEntityMut, FilteredEntityRef, OnAdd, OnRemove, Ref, World},
+};
+use bevy_ptr::Ptr;
+use bevy_reflect::Reflect;
+#[cfg(any(feature = "client", feature = "server"))]
+use tracing::debug;
+use tracing::{error, trace, trace_span};
 
 use crate::control::{Controlled, ControlledBy};
 use lightyear_connection::client::{Client, Connected};

@@ -1,6 +1,13 @@
 use crate::ping::manager::PingManager;
 use crate::timeline::sync::SyncTargetTimeline;
-use bevy::prelude::*;
+use bevy_derive::{Deref, DerefMut};
+use bevy_ecs::component::Component;
+use bevy_ecs::observer::Trigger;
+use bevy_ecs::query::{With, Without};
+use bevy_ecs::system::{Query, Res};
+use bevy_ecs::world::OnAdd;
+use bevy_reflect::Reflect;
+use bevy_time::Time;
 use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_core::prelude::Rollback;
@@ -19,7 +26,7 @@ use tracing::trace;
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// # use lightyear_sync::timeline::remote::RemoteTimeline;
 /// # use lightyear_core::time::TickInstant;
 /// # use std::time::Duration;

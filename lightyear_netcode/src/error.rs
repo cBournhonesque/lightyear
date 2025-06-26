@@ -1,4 +1,4 @@
-use bevy::prelude::Entity;
+use bevy_ecs::entity::Entity;
 use core::array::TryFromSliceError;
 use lightyear_core::id::PeerId;
 use thiserror::Error;

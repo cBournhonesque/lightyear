@@ -26,7 +26,7 @@ macro_rules! wrapping_id {
             use serde::{Deserialize, Serialize};
             use core::ops::{Add, AddAssign, Deref, Sub};
             use core::cmp::Ordering;
-            use bevy::reflect::Reflect;
+            use bevy_reflect::Reflect;
             use lightyear_serde::{SerializationError, reader::{Reader, ReadInteger}, writer::WriteInteger, ToBytes};
             use lightyear_utils::wrapping_id::{wrapping_diff, WrappedId};
 

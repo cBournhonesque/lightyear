@@ -1,8 +1,7 @@
 use crate::id::{LocalId, RemoteId};
 use crate::timeline::TimelinePlugin;
-use bevy::app::App;
-use bevy::prelude::Plugin;
-use bevy::time::TimePlugin;
+use bevy_app::{App, Plugin};
+use bevy_time::TimePlugin;
 use core::time::Duration;
 
 pub struct CorePlugins {

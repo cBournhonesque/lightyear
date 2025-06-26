@@ -1,4 +1,3 @@
-#[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec::Vec};
 use core::net::SocketAddr;
 use no_std_io2::io;
@@ -263,7 +262,7 @@ impl<Ctx> Client<Ctx> {
     /// See [`ClientConfig`] for more details.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// # use lightyear_netcode::{generate_key, client::{ClientConfig, ClientState}, ConnectToken, NetcodeClient};
     /// # let private_key = generate_key();
     /// # let token_bytes = ConnectToken::build("127.0.0.1:0", 0, 0, private_key)

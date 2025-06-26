@@ -1,17 +1,24 @@
 use aeronet_io::Session;
-use aeronet_io::connection::PeerAddr;
 use aeronet_steam::SessionConfig;
 use aeronet_steam::server::{
     ListenTarget, SessionRequest, SessionResponse, SteamNetServer, SteamNetServerClient,
 };
 use aeronet_steam::steamworks::ServerManager;
-use bevy::prelude::*;
+use bevy_app::{App, Plugin};
+use bevy_ecs::{
+    error::Result,
+    prelude::{
+        ChildOf, Commands, Component, Entity, EntityCommand, Name, OnAdd, Query, Trigger, Without,
+        World,
+    },
+};
 use lightyear_aeronet::server::ServerAeronetPlugin;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::prelude::LinkOf;
 use lightyear_link::server::Server;
 use lightyear_link::{Link, LinkStart, Linked, Linking};
+use tracing::info;
 
 /// Enables starting a Steam server
 pub struct SteamServerPlugin;
@@ -54,7 +61,7 @@ impl SteamServerPlugin {
     ) -> Result {
         if let Ok((entity, io)) = query.get(trigger.target()) {
             let config = io.config.clone();
-            let target = io.target.clone();
+            let target = io.target;
             commands.queue(move |world: &mut World| {
                 info!("Server Steam starting at {:?}", target);
                 let child = world.spawn((AeronetLinkOf(entity), Name::from("SteamServer")));

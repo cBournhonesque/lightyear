@@ -16,8 +16,7 @@
 //! You can then add the input type by adding the `InputPlugin<InputType>` to your app.
 //!
 //! ```rust
-//! use bevy::ecs::entity::MapEntities;
-//! use bevy::prelude::*;
+//! use bevy_ecs::entity::{EntityMapper, MapEntities};
 //! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -43,21 +42,39 @@
 //!   That system must run in the [`InputSet::BufferClientInputs`] system set, in the `FixedPreUpdate` stage.
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
 //!   will read the inputs using the [`InputBuffer`] component.
+
 use crate::InputChannel;
 use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
-use bevy::ecs::entity::MapEntities;
-use bevy::ecs::system::StaticSystemParam;
-use bevy::prelude::*;
+#[cfg(feature = "metrics")]
+use alloc::format;
+use alloc::{vec, vec::Vec};
+use bevy_app::{
+    App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, RunFixedMainLoop,
+    RunFixedMainLoopSystem,
+};
+use bevy_ecs::{
+    entity::{Entity, MapEntities},
+    observer::Trigger,
+    query::{Has, With, Without},
+    resource::Resource,
+    schedule::{IntoScheduleConfigs, SystemSet},
+    system::{Commands, Query, Res, ResMut, Single, StaticSystemParam},
+};
 use lightyear_connection::host::HostClient;
-use lightyear_core::prelude::{NetworkTimeline, Rollback, Tick};
+#[cfg(feature = "interpolation")]
+use lightyear_core::prelude::Tick;
+use lightyear_core::prelude::{NetworkTimeline, Rollback};
 use lightyear_core::tick::TickDuration;
+#[cfg(feature = "interpolation")]
 use lightyear_core::time::TickDelta;
 use lightyear_core::timeline::LocalTimeline;
 use lightyear_core::timeline::SyncEvent;
+#[cfg(feature = "interpolation")]
 use lightyear_interpolation::plugin::InterpolationDelay;
+#[cfg(feature = "interpolation")]
 use lightyear_interpolation::prelude::InterpolationTimeline;
 use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
@@ -69,7 +86,7 @@ use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::ChannelRegistry;
-use tracing::trace;
+use tracing::{debug, error, trace};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSet {
@@ -623,6 +640,10 @@ fn send_input_messages<S: ActionStateSequence>(
         }
     };
 
+    #[cfg_attr(
+        not(feature = "interpolation"),
+        expect(unused_mut, reason = "Used by expression behind feature flag")
+    )]
     for mut message in message_buffer.0.drain(..) {
         // if lag compensation is enabled, we send the current delay to the server
         // (this runs here because the delay is only correct after the SyncSet has run)

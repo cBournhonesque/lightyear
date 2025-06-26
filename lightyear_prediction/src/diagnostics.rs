@@ -1,9 +1,14 @@
 //! Collect diagnostics for the prediction systems.
 
-use bevy::diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
-use bevy::prelude::*;
-use bevy::time::common_conditions::on_timer;
 use core::time::Duration;
+
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_diagnostic::{Diagnostic, DiagnosticPath, Diagnostics, RegisterDiagnostic};
+use bevy_ecs::{
+    reflect::ReflectResource, resource::Resource, schedule::IntoScheduleConfigs, system::ResMut,
+};
+use bevy_reflect::Reflect;
+use bevy_time::common_conditions::on_timer;
 
 /// Plugin in charge of collecting diagnostics for the prediction systems.
 pub struct PredictionDiagnosticsPlugin {

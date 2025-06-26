@@ -16,26 +16,41 @@ publish = true
 
 [features]
 default = ["std"]
-std = [
-    "lightyear_prediction/std",
-    "lightyear_replication/std",
-    "lightyear_interpolation/std"
+std = ["lightyear_replication/std"]
+2d = [
+  "dep:lightyear_replication",
+  "dep:lightyear_prediction",
+  "dep:lightyear_interpolation",
+  "dep:lightyear_frame_interpolation",
+  "avian2d/2d",
+  "avian2d/parry-f32",
 ]
-2d = ["avian2d/2d"]
-3d = ["avian3d/3d"]
-lag_compensation = [
-    "dep:lightyear_link",
+3d = [
+  "dep:lightyear_replication",
+  "dep:lightyear_prediction",
+  "dep:lightyear_interpolation",
+  "dep:lightyear_frame_interpolation",
+  "avian3d/3d",
+  "avian3d/parry-f32",
 ]
-
+lag_compensation = ["dep:lightyear_core", "dep:lightyear_link"]
 
 [dependencies]
+lightyear_core = { workspace = true, optional = true }
+lightyear_link = { workspace = true, optional = true }
+lightyear_prediction = { workspace = true, optional = true }
+lightyear_interpolation = { workspace = true, optional = true }
+lightyear_frame_interpolation = { workspace = true, optional = true }
+lightyear_replication = { workspace = true, optional = true }
+
 avian2d = { workspace = true, optional = true }
 avian3d = { workspace = true, optional = true }
-bevy = { workspace = true }
-# TODO: gate these behind features?
-lightyear_core.workspace = true
-lightyear_link = { workspace = true, optional = true }
-lightyear_prediction.workspace = true
-lightyear_interpolation.workspace = true
-lightyear_frame_interpolation.workspace = true
-lightyear_replication.workspace = true
+
+tracing.workspace = true
+
+# bevy
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_math.workspace = true
+bevy_transform = { workspace = true, features = ["bevy-support", "libm"] }
+bevy_utils.workspace = true

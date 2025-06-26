@@ -3,10 +3,12 @@
 Low-level IO primitives for the lightyear networking library.
 This crate provides abstractions for sending and receiving raw bytes over the network.
 */
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
 extern crate core;
+#[cfg(feature = "std")]
+extern crate std;
 
 #[cfg(feature = "client")]
 pub mod client;

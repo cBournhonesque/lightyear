@@ -23,114 +23,107 @@ default = [
   "interpolation",
 ]
 std = [
-  "bevy/std",
   # needed for bevy_transform parallel
-  "bevy/async_executor",
-  "lightyear_interpolation?/std",
+  "lightyear_aeronet?/std",
+  "lightyear_avian?/std",
+  "lightyear_frame_interpolation?/std",
   "lightyear_inputs?/std",
   "lightyear_inputs_bei?/std",
   "lightyear_inputs_leafwing?/std",
   "lightyear_inputs_native?/std",
-  "lightyear_udp?/std",
+  "lightyear_interpolation?/std",
+  "lightyear_link/std",
+  "lightyear_messages/std",
   "lightyear_netcode?/std",
   "lightyear_prediction?/std",
+  "lightyear_replication/std",
+  "lightyear_serde/std",
+  "lightyear_steam?/std",
+  "lightyear_sync/std",
+  "lightyear_transport/std",
 ]
 ## enable client plugins
 client = [
   "lightyear_connection/client",
-  "lightyear_netcode?/client",
-  "lightyear_sync/client",
-  "lightyear_replication?/client",
   "lightyear_inputs?/client",
   "lightyear_inputs_bei?/client",
   "lightyear_inputs_leafwing?/client",
   "lightyear_inputs_native?/client",
-  "lightyear_webtransport?/client"
+  "lightyear_messages/client",
+  "lightyear_netcode?/client",
+  "lightyear_replication/client",
+  "lightyear_steam?/client",
+  "lightyear_sync/client",
+  "lightyear_transport/client",
+  "lightyear_webtransport?/client",
 ]
 ## enable server plugins and server-only features
 server = [
   "lightyear_connection/server",
-  "lightyear_netcode?/server",
-  "lightyear_sync/server",
-  "lightyear_replication?/server",
   "lightyear_inputs?/server",
   "lightyear_inputs_bei?/server",
   "lightyear_inputs_leafwing?/server",
   "lightyear_inputs_native?/server",
+  "lightyear_messages/server",
+  "lightyear_netcode?/server",
+  "lightyear_prediction?/server",
+  "lightyear_replication/server",
+  "lightyear_steam?/server",
+  "lightyear_sync/server",
+  "lightyear_transport/server",
   "lightyear_udp?/server",
   "lightyear_webtransport?/server",
-  "lightyear_prediction?/server"
 ]
 ## Enables replicating entities between two peers
-replication = [
-  "dep:lightyear_replication"
-]
+replication = []
 ## Enables client-side prediction handling to mask latency for local player actions
 prediction = [
   "dep:lightyear_prediction",
-  "dep:lightyear_replication",
-  "lightyear_replication?/prediction",
   "lightyear_core/prediction",
+  "lightyear_replication/prediction",
 ]
 ## Enables interpolation handling, to smooth entity updates received from the remote peer
 interpolation = [
   "dep:lightyear_interpolation",
-  "dep:lightyear_replication",
-  "lightyear_replication?/interpolation",
   "lightyear_inputs?/interpolation",
-  "lightyear_core/interpolation"
+  "lightyear_core/interpolation",
+  "lightyear_replication/interpolation",
 ]
-trace = []
+trace = [
+  "lightyear_netcode?/trace",
+  "lightyear_replication/trace",
+  "lightyear_transport/trace",
+]
 ## enable metrics collection (via `metrics` crate)
 metrics = [
-  "lightyear_interpolation?/metrics",
-  "lightyear_replication?/metrics",
-  "lightyear_sync/metrics",
-  "lightyear_transport/metrics",
-  "lightyear_prediction?/metrics",
   "lightyear_inputs?/metrics",
-  "lightyear_netcode?/metrics"
+  "lightyear_interpolation?/metrics",
+  "lightyear_prediction?/metrics",
+  "lightyear_replication/metrics",
+  "lightyear_transport/metrics",
 ]
 ## Enables netcode to provide persistent IDs to clients
 ##
 ## Note: currently, this must always be enabled when not using Steam
-netcode = [
-  "dep:lightyear_netcode",
-]
+netcode = ["dep:lightyear_netcode"]
 ## Enable WebTransport support as an IO layer (defers to aeronet_webtransport)
-webtransport = [
-  "std",
-  "dep:lightyear_webtransport"
-]
-webtransport_self_signed = [
-  "lightyear_webtransport/self-signed"
-]
+webtransport = ["std", "dep:lightyear_webtransport"]
+webtransport_self_signed = ["lightyear_webtransport/self-signed"]
 ## Enable unsafe configurations for WebTransport (e.g. allowing unencrypted connections) as a convenience for testing
 webtransport_dangerous_configuration = [
-  "lightyear_webtransport/dangerous-configuration"
+  "lightyear_webtransport/dangerous-configuration",
 ]
 ## Add support for handling inputs where you can define your own input structs
-input_native = [
-  "dep:lightyear_inputs",
-  "dep:lightyear_inputs_native",
-]
+input_native = ["dep:lightyear_inputs", "dep:lightyear_inputs_native"]
 ## Add support for handling inputs using the leafwing-input-manager crate
-leafwing = [
-  "dep:lightyear_inputs",
-  "dep:lightyear_inputs_leafwing",
-]
-input_bei = [
-  "dep:lightyear_inputs",
-  "dep:lightyear_inputs_bei",
-]
+leafwing = ["dep:lightyear_inputs", "dep:lightyear_inputs_leafwing"]
+input_bei = ["dep:lightyear_inputs", "dep:lightyear_inputs_bei"]
 
 ## Adds support for Avian
 ##
 ## NOTE: because lightyear doesn't enable any features of avian by default, your crate must
 ##       enable essential features (like f32 or f64).
-avian = [
-  "dep:lightyear_avian"
-]
+avian = ["dep:lightyear_avian"]
 ## Use avian2d
 avian2d = ["lightyear_avian/2d", "avian"]
 ## Use avian3d
@@ -138,55 +131,47 @@ avian3d = ["lightyear_avian/3d", "avian"]
 
 # IO LAYERS
 ## Enables UDP as an IO layer
-udp = [
-  "dep:lightyear_udp",
-  "std",
-]
-websocket = [
-  "std",
-]
+udp = ["dep:lightyear_udp", "std"]
+websocket = ["std"]
 ## Enables crossbeam channels as an IO layer
 ##
 ## This is useful when running a client and server in two processes of the same machine so that a client can act as the host
-crossbeam = [
-  "dep:lightyear_crossbeam",
-]
+crossbeam = ["dep:lightyear_crossbeam"]
 
 # CONNECTION LAYERS
 ## Enables Steam as a connection layer
-steam = [
-  "dep:steamworks",
-  "std",
-]
-
-track_location = ["bevy/track_location"]
+steam = ["dep:steamworks", "std"]
 
 [dependencies]
 # local crates
+lightyear_aeronet = { workspace = true, optional = true }
 lightyear_avian = { workspace = true, optional = true }
 lightyear_macros.workspace = true
 lightyear_connection.workspace = true
 lightyear_core.workspace = true
 lightyear_frame_interpolation = { workspace = true, optional = true }
 lightyear_link.workspace = true
-lightyear_netcode = {workspace = true, optional = true}
-lightyear_interpolation = {workspace = true, optional = true}
-lightyear_prediction = {workspace = true, optional = true}
+lightyear_netcode = { workspace = true, optional = true }
+lightyear_interpolation = { workspace = true, optional = true }
+lightyear_prediction = { workspace = true, optional = true }
 lightyear_messages.workspace = true
-lightyear_replication = {workspace = true, optional = true}
+lightyear_replication.workspace = true
 lightyear_sync.workspace = true
 lightyear_transport.workspace = true
 lightyear_serde.workspace = true
 lightyear_utils.workspace = true
-lightyear_inputs = {workspace = true, optional = true}
-lightyear_inputs_bei = {workspace = true, optional = true}
-lightyear_inputs_leafwing = {workspace = true, optional = true}
-lightyear_inputs_native = {workspace = true, optional = true}
-lightyear_crossbeam = {workspace = true, optional = true}
-lightyear_webtransport = {workspace = true, optional = true}
+lightyear_inputs = { workspace = true, optional = true }
+lightyear_inputs_bei = { workspace = true, optional = true }
+lightyear_inputs_leafwing = { workspace = true, optional = true }
+lightyear_inputs_native = { workspace = true, optional = true }
+lightyear_crossbeam = { workspace = true, optional = true }
+lightyear_webtransport = { workspace = true, optional = true }
+lightyear_steam = { workspace = true, optional = true }
 
 # bevy
-bevy.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_reflect.workspace = true
 
 # io
 aeronet_io.workspace = true
@@ -194,6 +179,7 @@ aeronet_io.workspace = true
 # utils
 thiserror.workspace = true
 serde.workspace = true
+tracing.workspace = true
 
 # doc
 document-features.workspace = true

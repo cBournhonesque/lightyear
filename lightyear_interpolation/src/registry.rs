@@ -1,9 +1,12 @@
 use crate::{
     InterpolationMode, SyncComponent, add_interpolation_systems, add_prepare_interpolation_systems,
 };
-use bevy::math::Curve;
-use bevy::platform::collections::HashMap;
-use bevy::prelude::{Component, Ease, EaseFunction, EasingCurve, Resource};
+use bevy_ecs::{component::Component, resource::Resource};
+use bevy_math::{
+    Curve,
+    curve::{Ease, EaseFunction, EasingCurve},
+};
+use bevy_platform::collections::HashMap;
 use lightyear_replication::prelude::ComponentRegistration;
 use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::LerpFn;

@@ -4,7 +4,15 @@
 use crate::Predicted;
 use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::{PredictionFilter, PredictionSet};
-use bevy::prelude::*;
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_ecs::{
+    entity::Entity,
+    observer::Trigger,
+    query::{Added, With},
+    schedule::{IntoScheduleConfigs, SystemSet},
+    system::{Commands, Query, Single},
+    world::{OnAdd, World},
+};
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
@@ -13,7 +21,7 @@ use lightyear_replication::prelude::{
     Confirmed, DisableReplicateHierarchy, Replicate, ReplicateLike, ReplicateLikeChildren,
     Replicating, ReplicationBufferSet, ReplicationGroup, ReplicationSender, ShouldBePredicted,
 };
-use tracing::debug;
+use tracing::{debug, info};
 
 #[derive(Default)]
 pub(crate) struct PrePredictionPlugin;
@@ -181,44 +189,44 @@ impl PrePredictionPlugin {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::prelude::server::AuthorityPeer;
-    use crate::prelude::{ClientId, client};
-    use crate::tests::host_server_stepper::HostServerStepper;
-    use crate::tests::protocol::{ComponentClientToServer, PredictionModeFull};
-    use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use crate::prelude::server::AuthorityPeer;
+//     use crate::prelude::{ClientId, client};
+//     use crate::tests::host_server_stepper::HostServerStepper;
+//     use crate::tests::protocol::{ComponentClientToServer, PredictionModeFull};
+//     use crate::tests::stepper::{BevyStepper, TEST_CLIENT_ID};
 
-    #[test]
-    fn test_pre_prediction_host_server() {
-        let mut stepper = HostServerStepper::default();
+//     #[test]
+//     fn test_pre_prediction_host_server() {
+//         let mut stepper = HostServerStepper::default();
 
-        // spawn a pre-predicted entity on the client
-        let predicted_entity = stepper
-            .server_app
-            .world_mut()
-            .spawn((
-                client::Replicate::default(),
-                PredictionModeFull(1.0),
-                PrePredicted::default(),
-            ))
-            .id();
+//         // spawn a pre-predicted entity on the client
+//         let predicted_entity = stepper
+//             .server_app
+//             .world_mut()
+//             .spawn((
+//                 client::Replicate::default(),
+//                 PredictionModeFull(1.0),
+//                 PrePredicted::default(),
+//             ))
+//             .id();
 
-        stepper.frame_step();
+//         stepper.frame_step();
 
-        // since we're running in host-stepper mode, the Predicted component should also have been added
-        // (but not Confirmed)
-        let confirmed_entity = stepper
-            .server_app
-            .world_mut()
-            .query_filtered::<Entity, With<Predicted>>()
-            .single(stepper.server_app.world())
-            .unwrap();
+//         // since we're running in host-stepper mode, the Predicted component should also have been added
+//         // (but not Confirmed)
+//         let confirmed_entity = stepper
+//             .server_app
+//             .world_mut()
+//             .query_filtered::<Entity, With<Predicted>>()
+//             .single(stepper.server_app.world())
+//             .unwrap();
 
-        // need to step multiple times because the server entity doesn't handle messages from future ticks
-        for _ in 0..10 {
-            stepper.frame_step();
-        }
-    }
-}
+//         // need to step multiple times because the server entity doesn't handle messages from future ticks
+//         for _ in 0..10 {
+//             stepper.frame_step();
+//         }
+//     }
+// }

@@ -1,5 +1,6 @@
+use bevy_ecs::resource::Resource;
+
 use crate::{ConnectToken, Error, Key, generate_key};
-use bevy::prelude::Resource;
 use core::net::SocketAddr;
 use core::str::FromStr;
 

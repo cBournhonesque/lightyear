@@ -10,22 +10,13 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = [
-    "lightyear_utils/std",
-    "lightyear_serde/std",
-    "lightyear_core/std",
-    "lightyear_transport/std",
-    "bevy/std",
-    "bincode/std",
-    "bytes/std",
-    "serde/std",
-]
+std = ["lightyear_transport/std"]
 client = ["lightyear_connection/client"]
-server = ["lightyear_connection/server"]
+server = ["lightyear_link", "lightyear_connection/server"]
 test_utils = []
 
 [dependencies]
-lightyear_link.workspace = true
+lightyear_link = { workspace = true, optional = true }
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_core.workspace = true
@@ -37,16 +28,19 @@ tracing.workspace = true
 thiserror.workspace = true
 
 # serde
-bincode.workspace = true
+bincode = { workspace = true, optional = true }
 serde.workspace = true
 bytes.workspace = true
 
 # bevy
-bevy.workspace = true
+bevy_app.workspace = true
+bevy_ecs = { workspace = true, features = ["serialize"] }
+bevy_reflect.workspace = true
 
 [dev-dependencies]
 lightyear_link.workspace = true
-lightyear_transport = {workspace = true, features = ["test_utils"]}
+lightyear_transport = { workspace = true, features = ["test_utils"] }
+lightyear_messages = { workspace = true, features = ["std"] }
 test-log.workspace = true
 
 [lints]

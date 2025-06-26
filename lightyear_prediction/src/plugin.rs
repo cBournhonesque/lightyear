@@ -24,9 +24,20 @@ use crate::registry::PredictionRegistry;
 use crate::{
     Predicted, PredictionMode, SyncComponent, predicted_on_add_hook, predicted_on_remove_hook,
 };
-use bevy::ecs::component::Mutable;
-use bevy::ecs::entity_disabling::DefaultQueryFilters;
-use bevy::prelude::*;
+#[cfg(feature = "metrics")]
+use alloc::format;
+use bevy_app::{
+    App, FixedPostUpdate, FixedPreUpdate, Plugin, PreUpdate, RunFixedMainLoop,
+    RunFixedMainLoopSystem,
+};
+use bevy_ecs::{
+    component::{Component, Mutable},
+    entity_disabling::DefaultQueryFilters,
+    query::{With, Without},
+    resource::Resource,
+    schedule::{IntoScheduleConfigs, SystemSet, common_conditions::not},
+    system::Query,
+};
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::timeline::Rollback;

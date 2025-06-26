@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy_ecs::component::Component;
 
 pub mod input;
 pub mod remote;

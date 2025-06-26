@@ -3,14 +3,12 @@ use crate::channel::receivers::ChannelReceiverEnum;
 use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::ChannelSend;
 use crate::channel::senders::ChannelSenderEnum;
-#[cfg(feature = "trace")]
-use crate::channel::stats::send::ChannelSendStats;
 use crate::packet::message::{MessageAck, MessageId};
 use crate::packet::packet::PacketId;
 use crate::packet::packet_builder::{PacketBuilder, RecvPayload};
 use crate::packet::priority_manager::PriorityManager;
-use bevy::platform::collections::HashMap;
-use bevy::prelude::Component;
+use bevy_ecs::component::Component;
+use bevy_platform::collections::HashMap;
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_link::Link;
@@ -23,7 +21,6 @@ use lightyear_core::prelude::LocalTimeline;
 use lightyear_link::SendPayload;
 // TODO: hook when you insert ChannelSettings, it creates a ChannelSender and ChannelReceiver component
 
-#[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 
 pub const DEFAULT_MESSAGE_PRIORITY: f32 = 1.0;

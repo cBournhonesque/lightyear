@@ -10,51 +10,60 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = [
-    "std",
-    # TODO: split between client/server features
-    "client",
-    "server",
+  "std",
+  # TODO: split between client/server features
+  "client",
+  "server",
 ]
-std = [
-    "lightyear_link/std",
-    "lightyear_transport/std",
-    "lightyear_serde/std",
-    "lightyear_connection/std",
-    "no_std_io2/std",
-    "bytes/std",
-    "chacha20poly1305/std",
+std = ["no_std_io2/std", "chacha20poly1305/std", "lightyear_transport?/std"]
+client = [
+  "lightyear_connection/client",
+  "lightyear_transport",
+  "aeronet_io",
+  "bevy_ecs/std",
+  "bevy_reflect",
+  "bevy_time",
 ]
-client = ["lightyear_connection/client"]
-server = ["lightyear_connection/server"]
-test_utils = []
+server = [
+  "lightyear_connection/server",
+  "lightyear_transport",
+  "rand",
+  "bevy_ecs/std",
+  "bevy_time",
+]
 trace = []
-metrics = []
 
 [dependencies]
 # local crates
 lightyear_connection.workspace = true
 lightyear_core.workspace = true
 lightyear_link.workspace = true
-lightyear_transport.workspace = true
+lightyear_transport = { workspace = true, optional = true }
 lightyear_serde.workspace = true
 lightyear_utils.workspace = true
 
 # bevy
-bevy.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_reflect = { workspace = true, optional = true }
+bevy_time = { workspace = true, optional = true }
 
 # no_std
 no_std_io2.workspace = true
 
 # utils
-aeronet_io.workspace = true
+aeronet_io = { workspace = true, optional = true }
 bytes.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-rand.workspace = true
+rand = { workspace = true, optional = true }
 chacha20poly1305.workspace = true
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 web-time.workspace = true
+
+[dev-dependencies]
+lightyear_serde = { workspace = true, features = ["std"] }
 
 [lints]
 workspace = true

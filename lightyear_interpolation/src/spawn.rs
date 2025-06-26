@@ -1,6 +1,11 @@
 use crate::Interpolated;
 use crate::manager::InterpolationManager;
-use bevy::prelude::*;
+use bevy_ecs::{
+    entity::Entity,
+    error::Result,
+    query::{Added, With},
+    system::{Commands, Query, Single},
+};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::components::ShouldBeInterpolated;
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};

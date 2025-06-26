@@ -1,7 +1,12 @@
 use crate::channel::Channel;
 use crate::channel::registry::ChannelRegistration;
 use crate::prelude::{ChannelRegistry, Transport};
-use bevy::prelude::{OnInsert, Query, Res, Trigger, With};
+use bevy_ecs::{
+    observer::Trigger,
+    query::With,
+    system::{Query, Res},
+    world::OnInsert,
+};
 use lightyear_connection::client::Client;
 use lightyear_connection::direction::NetworkDirection;
 

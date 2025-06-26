@@ -8,9 +8,11 @@
 //!
 //! The core idea is to allow peers to maintain a synchronized understanding of game time,
 //! which is crucial for consistent simulation and prediction.
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 #[cfg(feature = "client")]
 /// Client-specific synchronization logic.

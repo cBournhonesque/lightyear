@@ -1,10 +1,19 @@
 use crate::Predicted;
 use crate::manager::PredictionResource;
 use crate::prespawn::PreSpawned;
-use bevy::ecs::system::EntityCommands;
-use bevy::prelude::*;
+use bevy_ecs::{
+    component::Component,
+    entity::Entity,
+    error::Result,
+    observer::Trigger,
+    reflect::ReflectComponent,
+    system::{Command, Commands, EntityCommands, Query},
+    world::{EntityWorldMut, OnRemove, World},
+};
+use bevy_reflect::Reflect;
 use lightyear_connection::host::HostClient;
 use lightyear_replication::prelude::{Confirmed, ShouldBePredicted};
+use tracing::{error, info};
 
 /// This command must be used to despawn Predicted entities.
 /// The reason is that we might want to not completely despawn the entity in case it gets 'restored' during a rollback.

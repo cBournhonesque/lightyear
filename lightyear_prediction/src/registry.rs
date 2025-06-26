@@ -2,16 +2,27 @@ use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::{add_non_networked_rollback_systems, add_prediction_systems};
 use crate::predicted_history::PredictionHistory;
 use crate::{PredictionMode, SyncComponent};
-use bevy::ecs::component::{ComponentId, Mutable};
-use bevy::ecs::world::{FilteredEntityMut, FilteredEntityRef};
-use bevy::platform::collections::HashMap;
-use bevy::prelude::*;
+#[cfg(feature = "metrics")]
+use alloc::format;
+use bevy_app::App;
+use bevy_ecs::{
+    component::{Component, ComponentId, Mutable},
+    entity::{ContainsEntity, Entity},
+    resource::Resource,
+    world::{FilteredEntityMut, FilteredEntityRef, World},
+};
+use bevy_math::{
+    Curve,
+    curve::{Ease, EaseFunction, EasingCurve},
+};
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::tick::Tick;
 use lightyear_replication::prelude::ComponentRegistration;
 use lightyear_replication::registry::buffered::BufferedChanges;
 use lightyear_replication::registry::registry::{ComponentRegistry, LerpFn};
 use lightyear_replication::registry::{ComponentError, ComponentKind};
+use lightyear_utils::collections::HashMap;
+use tracing::{debug, trace, trace_span};
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -26,7 +37,7 @@ pub struct PredictionMetadata {
     pub correction: Option<unsafe fn()>,
     /// Function used to compare the confirmed component with the predicted component's history
     /// to determine if a rollback is needed. Returns true if we should do a rollback.
-    /// Will default to a PartialEq::ne implementation, but can be overriden.
+    /// Will default to a PartialEq::ne implementation, but can be overridden.
     pub should_rollback: unsafe fn(),
     pub buffer_sync: SyncFn,
     pub check_rollback: CheckRollbackFn,

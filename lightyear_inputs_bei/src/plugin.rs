@@ -1,7 +1,15 @@
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::input_message::BEIStateSequence;
 use crate::marker::AddInputMarkers;
-use bevy::prelude::*;
+#[cfg(any(feature = "client", feature = "server"))]
+use bevy_app::FixedPreUpdate;
+use bevy_app::{App, Plugin};
+#[cfg(feature = "client")]
+use bevy_app::{RunFixedMainLoop, RunFixedMainLoopSystem};
+#[cfg(any(feature = "client", feature = "server"))]
+use bevy_ecs::schedule::IntoScheduleConfigs;
+#[cfg(all(feature = "client", feature = "server"))]
+use bevy_ecs::schedule::common_conditions::not;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_enhanced_input::EnhancedInputSet;
 use bevy_enhanced_input::input_context::{InputContext, InputContextAppExt};

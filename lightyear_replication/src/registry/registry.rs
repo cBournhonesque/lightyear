@@ -4,13 +4,17 @@ use crate::prelude::ComponentReplicationOverrides;
 use crate::registry::delta::ErasedDeltaFns;
 use crate::registry::replication::{GetWriteFns, ReplicationMetadata};
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
-use bevy::app::App;
-use bevy::ecs::change_detection::Mut;
-use bevy::ecs::component::{Component, ComponentId, Mutable};
-use bevy::ecs::entity::MapEntities;
-use bevy::platform::collections::HashMap;
-use bevy::prelude::{Resource, Transform, TypePath, World};
-use bevy::ptr::Ptr;
+use bevy_app::App;
+use bevy_ecs::{
+    component::{Component, ComponentId, Mutable},
+    entity::MapEntities,
+    resource::Resource,
+    world::{Mut, World},
+};
+use bevy_platform::collections::HashMap;
+use bevy_ptr::Ptr;
+use bevy_reflect::TypePath;
+use bevy_transform::components::Transform;
 use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
@@ -40,7 +44,8 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// A component needs to implement the `Serialize`, `Deserialize` and `PartialEq` traits.
 ///
 /// ```rust
-/// # use bevy::prelude::*;
+/// # use bevy_app::App;
+/// # use bevy_ecs::component::Component;
 /// # use serde::{Deserialize, Serialize};
 /// # use lightyear_replication::registry::registry::AppComponentExt;
 ///
@@ -96,11 +101,11 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 ///
 /// You can also use your own interpolation function by using the `add_interpolation_fn` method.
 ///
-/// ```rust
-/// use bevy::prelude::*;
+/// ```rust,ignore
+/// use bevy_app::App;
+/// use bevy_ecs::component::Component;
 /// use serde::{Deserialize, Serialize};
-/// use lightyear::prelude::*;
-/// use lightyear::prelude::client::*;
+/// use lightyear_replication::prelude::AppComponentExt;
 ///
 /// #[derive(Component, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 /// struct MyComponent(f32);
@@ -108,7 +113,6 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// fn my_lerp_fn(start: MyComponent, other: MyComponent, t: f32) -> MyComponent {
 ///    MyComponent(start.0 * (1.0 - t) + other.0 * t)
 /// }
-///
 ///
 /// fn add_messages(app: &mut App) {
 ///   app.register_component::<MyComponent>()

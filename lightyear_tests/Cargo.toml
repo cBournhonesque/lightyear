@@ -10,40 +10,50 @@ repository = "https://github.com/cBournhonesque/lightyear"
 publish = false
 
 [features]
-default = [
-    "std",
-    "lightyear/interpolation"
-]
-leafwing = [
-    "lightyear/leafwing"
-]
+default = ["std", "lightyear/interpolation"]
+leafwing = ["lightyear/leafwing"]
 std = [
     "bevy/std",
     "bytes/std",
     "serde/std",
-    "lightyear_sync/std",
+    "lightyear/std",
     "lightyear_messages/std",
+    "lightyear_netcode/std",
     "lightyear_serde/std",
+    "lightyear_sync/std",
     "lightyear_transport/std",
 ]
 
 
 [dependencies]
 lightyear = { workspace = true, features = [
-    "client", "server", "crossbeam", "netcode", "input_native", "input_bei", "leafwing", "interpolation", "prediction", "replication",
-]}
+    "client",
+    "server",
+    "crossbeam",
+    "netcode",
+    "input_native",
+    "input_bei",
+    "leafwing",
+    "interpolation",
+    "prediction",
+    "replication",
+] }
 lightyear_macros.workspace = true
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_transport = { workspace = true, features = ["client", "server"] }
 lightyear_core = { workspace = true, features = ["test_utils"] }
-lightyear_netcode = { workspace = true, features = ["client", "server", "test_utils"] }
+lightyear_netcode = { workspace = true, features = ["client", "server"] }
 lightyear_messages = { workspace = true, features = ["client", "server"] }
-lightyear_replication =  { workspace = true, features = ["client", "server", "test_utils"]}
+lightyear_replication = { workspace = true, features = [
+    "client",
+    "server",
+    "test_utils",
+] }
 lightyear_crossbeam.workspace = true
-lightyear_connection = { workspace = true, features = ["client", "server"]}
+lightyear_connection = { workspace = true, features = ["client", "server"] }
 lightyear_sync = { workspace = true, features = ["client", "server"] }
-lightyear_prediction = { workspace = true, features = ["test_utils"] }
+lightyear_prediction = { workspace = true }
 lightyear_link = { workspace = true, features = ["test_utils"] }
 
 # inputs
@@ -59,7 +69,7 @@ serde.workspace = true
 bytes.workspace = true
 
 # bevy
-bevy.workspace = true
+bevy = { workspace = true, features = ["bevy_state"] }
 
 # test
 mock_instant.workspace = true

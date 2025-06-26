@@ -10,15 +10,11 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = [
-    "bevy/std",
-    "bytes/std",
-    "serde/std",
-]
+std = ["lightyear_replication/std"]
 
 [dependencies]
 lightyear_core.workspace = true
-lightyear_replication = {workspace = true, features = ["interpolation"]}
+lightyear_replication.workspace = true
 lightyear_prediction.workspace = true
 lightyear_interpolation.workspace = true
 
@@ -26,11 +22,13 @@ lightyear_interpolation.workspace = true
 tracing.workspace = true
 
 # serde
-serde.workspace = true
-bytes.workspace = true
+serde = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
 
 # bevy
-bevy.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_transform = { workspace = true, features = ["bevy-support"] }
 
 [lints]
 workspace = true

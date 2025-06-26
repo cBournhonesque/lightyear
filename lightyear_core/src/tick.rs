@@ -1,6 +1,9 @@
-use bevy::prelude::{Deref, DerefMut, Reflect, Resource};
 use core::time::Duration;
 use lightyear_utils::wrapping_id;
+
+use bevy_derive::{Deref, DerefMut};
+use bevy_ecs::resource::Resource;
+use bevy_reflect::Reflect;
 
 // Internal id that tracks the Tick value for the server and the client
 wrapping_id!(Tick);

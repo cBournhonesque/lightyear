@@ -2,9 +2,16 @@ use crate::MessageManager;
 use crate::plugin::MessagePlugin;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
 use crate::{Message, MessageNetId};
-use bevy::ecs::change_detection::MutUntyped;
-use bevy::ecs::world::{DeferredWorld, FilteredEntityMut};
-use bevy::prelude::*;
+use alloc::vec::Vec;
+use bevy_ecs::{
+    change_detection::MutUntyped,
+    component::{Component, HookContext},
+    entity::Entity,
+    event::Event,
+    query::With,
+    system::{ParallelCommands, Query, Res},
+    world::{DeferredWorld, FilteredEntityMut, World},
+};
 use lightyear_core::tick::Tick;
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
@@ -13,12 +20,7 @@ use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::prelude::Transport;
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-
 use alloc::sync::Arc;
-use bevy::ecs::component::HookContext;
-use bevy::prelude::Event;
 use bytes::Bytes;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
@@ -26,6 +28,7 @@ use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_transport::packet::message::MessageId;
+use tracing::{error, trace};
 
 /// Bevy Trigger emitted when a remote trigger is received and processed.
 ///

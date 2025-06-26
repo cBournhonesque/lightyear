@@ -9,19 +9,15 @@ description = "IO primitives for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
-default = ["std"]
-std = [
-    "bevy/std",
-    "bytes/std",
-    "lightyear_link/std"
-]
+default = []
 
 [dependencies]
 lightyear_core.workspace = true
 lightyear_link.workspace = true
 
 # bevy
-bevy.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
 
 # utils
 aeronet_io.workspace = true

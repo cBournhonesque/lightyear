@@ -1,6 +1,8 @@
-use bevy::prelude::{Reflect, Resource};
 use core::marker::PhantomData;
 use core::time::Duration;
+
+use bevy_ecs::resource::Resource;
+use bevy_reflect::Reflect;
 
 // TODO: make this a component ?
 #[derive(Debug, Reflect, Resource)]

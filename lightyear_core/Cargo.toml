@@ -9,11 +9,7 @@ description = "Core types shared by lightyear crates"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
-default = ["std"]
-std = [
-    "bevy/std",
-    "serde/std",
-]
+default = []
 prediction = []
 interpolation = []
 test_utils = ["dep:mock_instant"]
@@ -26,17 +22,21 @@ lightyear_serde.workspace = true
 
 # utils
 chrono.workspace = true
-paste.workspace = true
 tracing.workspace = true
 
 # bevy
-bevy.workspace = true
+bevy_app = { workspace = true, features = ["bevy_reflect"] }
+bevy_derive.workspace = true
+bevy_ecs.workspace = true
+bevy_platform.workspace = true
+bevy_reflect.workspace = true
+bevy_time.workspace = true
 
 # serde
 serde.workspace = true
 
 # test
-mock_instant = { workspace = true, optional = true}
+mock_instant = { workspace = true, optional = true }
 
 [dev-dependencies]
 approx.workspace = true

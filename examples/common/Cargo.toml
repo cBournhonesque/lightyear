@@ -47,7 +47,7 @@ gui = [
 ]
 
 [dependencies]
-lightyear = {"workspace" = true, features = [
+lightyear = { "workspace" = true, features = [
   "interpolation",
   "prediction",
   "replication",
@@ -55,12 +55,12 @@ lightyear = {"workspace" = true, features = [
   "webtransport_self_signed",
   "webtransport_dangerous_configuration",
   "udp",
-]}
+] }
 async-compat.workspace = true
 cfg-if.workspace = true
 clap.workspace = true
 serde.workspace = true
-bevy.workspace = true
+bevy = { workspace = true, features = ["bevy_state", "bevy_log"] }
 bevy-inspector-egui = { workspace = true, optional = true }
 bevy_metrics_dashboard = { workspace = true, optional = true }
 bevy_egui = { workspace = true, optional = true }

@@ -1,10 +1,22 @@
+use alloc::{format, string::ToString};
+
 use crate::Error;
 use crate::auth::Authentication;
 use crate::client::{ClientConfig, ClientState};
 use aeronet_io::connection::PeerAddr;
-use bevy::ecs::component::HookContext;
-use bevy::ecs::world::DeferredWorld;
-use bevy::prelude::*;
+use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::{
+    component::{Component, HookContext},
+    entity::Entity,
+    error::Result,
+    observer::Trigger,
+    query::{Has, With, Without},
+    schedule::IntoScheduleConfigs,
+    system::{Commands, ParallelCommands, Query, Res},
+    world::DeferredWorld,
+};
+use bevy_reflect::Reflect;
+use bevy_time::{Real, Time};
 use lightyear_connection::ConnectionSet;
 use lightyear_connection::client::{
     Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected,
@@ -12,7 +24,7 @@ use lightyear_connection::client::{
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::{Link, LinkSet, Linked};
 use lightyear_transport::plugin::TransportSet;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 pub struct NetcodeClientPlugin;
 
@@ -172,7 +184,7 @@ impl NetcodeClientPlugin {
                         info!("Client {} disconnected. State: {state:?}", client.id());
                         parallel_commands.command_scope(|mut commands| {
                             commands.entity(entity).insert(Disconnected {
-                                reason: Some(format!("Client disconnected: {:?}", state)),
+                                reason: Some(format!("Client disconnected: {state:?}")),
                             });
                         });
                     }

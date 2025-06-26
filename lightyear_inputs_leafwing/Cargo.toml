@@ -10,15 +10,9 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = [
-    "bevy/std",
-]
-client = [
-    "lightyear_inputs/client"
-]
-server = [
-    "lightyear_inputs/server"
-]
+std = []
+client = ["lightyear_inputs/client"]
+server = ["lightyear_inputs/server"]
 
 [dependencies]
 lightyear_inputs.workspace = true
@@ -31,10 +25,13 @@ tracing.workspace = true
 
 # serde
 serde.workspace = true
-bytes.workspace = true
 
 # bevy
-bevy.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_input.workspace = true
+bevy_math.workspace = true
+bevy_reflect.workspace = true
 
 [lints]
 workspace = true
