@@ -661,7 +661,7 @@ impl ReplicationSender {
             }) => {
                 match self.group_channels.get_mut(&group_id) { Some(channel) => {
                     // update the ack tick for the channel
-                    debug!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
+                    trace!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
                     channel.ack_bevy_tick = Some(bevy_tick);
                     // `delta_ack_ticks` won't grow indefinitely thanks to the cleanup systems
                     for (entity, component_kind) in delta {

@@ -7,7 +7,7 @@ use bevy_ptr::OwningPtr;
 use bevy_reflect::TypePath;
 use core::alloc::Layout;
 use core::ptr::NonNull;
-use tracing::info;
+use tracing::trace;
 
 /// An [`EntityWorldMut`] that buffers all insertions and removals so that they are all applied at once.
 pub struct BufferedEntity<'w, 'b> {
@@ -36,7 +36,7 @@ impl BufferedChanges {
     pub fn apply(&mut self, entity: &mut EntityWorldMut) {
         let entity_id = entity.id();
         if !self.removals.is_empty() {
-            info!("Removing on {entity_id}");
+            trace!("Removing on {entity_id}");
             entity.remove_by_ids(&self.removals);
         }
         self.removals.clear();

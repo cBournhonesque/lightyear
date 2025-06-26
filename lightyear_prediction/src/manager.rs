@@ -9,14 +9,19 @@ use bevy_ecs::{
 };
 use bevy_reflect::Reflect;
 
+use bevy_ecs::observer::Trigger;
+use bevy_ecs::query::With;
+use bevy_ecs::system::Single;
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
-use lightyear_core::prelude::{RollbackState, Tick};
+use lightyear_connection::client::Connected;
+use lightyear_core::prelude::{RollbackState, SyncEvent, Tick};
 use lightyear_replication::registry::ComponentError;
 use lightyear_replication::registry::buffered::BufferedChanges;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_serde::entity_map::EntityMap;
 use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::timeline::input::Input;
 use lightyear_utils::ready_buffer::ReadyBuffer;
 use parking_lot::RwLock;
 
@@ -143,5 +148,17 @@ impl PredictionManager {
     /// Set the rollback state to `ShouldRollback` with the given tick
     pub fn set_rollback_tick(&self, tick: Tick) {
         *self.rollback.write().deref_mut() = RollbackState::RollbackStart(tick)
+    }
+
+    pub(crate) fn handle_tick_sync(
+        trigger: Trigger<SyncEvent<Input>>,
+        mut manager: Single<&mut PredictionManager, With<Connected>>,
+    ) {
+        let data: Vec<_> = manager.prespawn_tick_to_hash.drain().collect();
+        data.into_iter().for_each(|(tick, hash)| {
+            manager
+                .prespawn_tick_to_hash
+                .push(tick + trigger.tick_delta, hash);
+        });
     }
 }
