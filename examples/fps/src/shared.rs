@@ -28,6 +28,8 @@ impl Plugin for SharedPlugin {
         app.add_plugins(ProtocolPlugin);
         app.register_type::<PlayerId>();
 
+        app.add_systems(PreUpdate, despawn_after);
+
         // debug systems
         app.add_systems(FixedLast, fixed_update_log);
         app.add_systems(FixedLast, log_predicted_bot_transform);
@@ -100,7 +102,7 @@ fn player_movement(
             &ActionState<PlayerActions>,
             &PlayerId,
         ),
-        Or<(With<Predicted>, With<Replicate>)>,
+        (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
     >,
 ) {
     for (position, rotation, action_state, player_id) in player_query.iter_mut() {
@@ -136,12 +138,11 @@ fn log_predicted_bot_transform(
 
 pub(crate) fn fixed_update_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
-    player: Query<(Entity, &Transform), (With<PlayerId>, Without<Confirmed>)>,
+    player: Query<(Entity, &Transform), (With<PlayerMarker>, With<PlayerId>, Without<Confirmed>)>,
     predicted_bullet: Query<
         (Entity, &Transform, Option<&PredictionHistory<Transform>>),
         (With<BulletMarker>, Without<Confirmed>),
     >,
-    interpolated_ball: Query<(Entity, &Transform), (With<BulletMarker>, With<Interpolated>)>,
 ) {
     let (timeline, is_rollback) = timeline.into_inner();
     let tick = timeline.tick();
@@ -179,7 +180,7 @@ pub(crate) fn shoot_bullet(
             &mut ActionState<PlayerActions>,
             Option<&ControlledBy>,
         ),
-        Or<(With<Predicted>, With<Replicate>)>,
+        (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
     >,
 ) {
     let tick = timeline.tick();
@@ -221,6 +222,7 @@ pub(crate) fn shoot_bullet(
                         // NOTE: if you don't add the salt, the 'left' bullet on the server might get matched with the
                         // 'right' bullet on the client, and vice versa. This is not critical, but it will cause a rollback
                         PreSpawned::default_with_salt(salt),
+                        DespawnAfter(Timer::new(Duration::from_secs(2), TimerMode::Once)),
                         Replicate::to_clients(NetworkTarget::All),
                         PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
                         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
@@ -233,6 +235,23 @@ pub(crate) fn shoot_bullet(
                     commands.spawn((bullet_bundle, PreSpawned::default_with_salt(salt)));
                 }
             }
+        }
+    }
+}
+
+#[derive(Component)]
+struct DespawnAfter(pub Timer);
+
+/// Despawn entities after their timer has finished
+fn despawn_after(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut DespawnAfter)>,
+) {
+    for (entity, mut despawn_after) in query.iter_mut() {
+        despawn_after.0.tick(time.delta());
+        if despawn_after.0.finished() {
+            commands.entity(entity).despawn();
         }
     }
 }

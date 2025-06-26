@@ -11,7 +11,7 @@ use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{ContextDeserializeFns, ErasedSerializeFns};
-use tracing::debug;
+use tracing::{debug, trace};
 
 #[derive(Debug, Clone)]
 pub struct ReplicationMetadata {
@@ -91,6 +91,11 @@ impl ComponentRegistry {
             .kind_map
             .kind(net_id)
             .ok_or(ComponentError::NotRegistered)?;
+        trace!(
+            "Buffering components for entity {:?} with net_id {:?}",
+            entity_mut.entity.id(),
+            net_id
+        );
         let replication_metadata = self
             .replication_map
             .get(kind)
@@ -200,7 +205,7 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
     let component_id = entity_mut.component_id::<C>();
     let component = deserialize.deserialize(entity_map, reader)?;
     let entity = entity_mut.entity.id();
-    debug!(
+    trace!(
         "Insert component {} to entity {entity:?}",
         core::any::type_name::<C>()
     );

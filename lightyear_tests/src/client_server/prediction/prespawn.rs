@@ -176,7 +176,6 @@ fn test_multiple_prespawn() {
 
 /// Client and server run the same system to prespawn an entity
 /// Server's should take over authority over the entity
-///
 #[test]
 fn test_prespawn_success() {
     let mut stepper = ClientServerStepper::single();

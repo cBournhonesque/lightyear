@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 use tracing::error;
 #[cfg(feature = "server")]
-use tracing::{info, trace};
+use tracing::trace;
 // TODO: how to define which subset of components a sender iterates through?
 //  if a sender is only interested in a few components it might be expensive
 //  maybe we can have a 'direction' in ComponentReplicationConfig and Client/ClientOf peers can precompute
@@ -377,6 +377,7 @@ impl PredictionTarget {
         trigger: Trigger<OnAdd, PredictionTarget>,
         mut commands: Commands,
     ) {
+        // note: we don't need to handle this for ReplicateLike entities because they take the ReplicationGroup from the root entity
         commands.entity(trigger.target()).insert(PREDICTION_GROUP);
     }
 }
@@ -603,7 +604,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                     #[cfg(feature = "server")]
                     ReplicationMode::SingleServer(target) => {
                         if link_of.is_some() && target.targets(remote_peer_id) {
-                            info!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
+                            debug!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
                             sender.add_replicated_entity(entity, true);
                             replicate.senders.insert(sender_entity);
                         }
