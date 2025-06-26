@@ -123,7 +123,15 @@ impl PreSpawnedPlugin {
             // NOTE: we cannot use Added<Replicated> because Added only checks components added
             //  since the last time the observer has run, and if multiple entities are in the same
             //  ReplicationGroup then the observer could run several times in a row
-            With<Replicated>,
+            //
+            // We also require ShouldBePredicted to be present as an extra guarantee that this is the first
+            // time we have received the server entity. We could receive PreSpawned multiple
+            // times in a row for the same entity (because of ReplicationMode=SinceLastAck); and on the
+            // second time we would try again to match the entity, since on the first insert we would
+            // do a match and remove the PreSpawned component. ShouldBePredicted is guaranteed to be present
+            // on the entity the first time thanks to batch inserts. After the initial match, ShouldBePredicted
+            // gets removed so we are safe.
+            (With<Replicated>, With<ShouldBePredicted>),
         >,
         manager_query: Single<(&ReplicationReceiver, &mut PredictionManager), PredictionFilter>,
     ) {
@@ -155,7 +163,7 @@ impl PreSpawnedPlugin {
             // if there are multiple entities, we will use the first one
             let client_entity = client_entity_list.pop().unwrap();
             debug!(
-                "found a client pre-spawned entity corresponding to server pre-spawned entity! Spawning/finding a Predicted entity for it {}",
+                "found a client pre-spawned entity {client_entity:?} corresponding to server pre-spawned entity {confirmed_entity:?}! Spawning/finding a Predicted entity for it {}",
                 server_hash
             );
 
@@ -168,7 +176,7 @@ impl PreSpawnedPlugin {
                     {
                         metrics::counter!("prespawn::match::found").increment(1);
                     }
-                    debug!("re-using existing entity");
+                    trace!("re-using existing entity");
                     entity_commands.remove::<PreSpawned>().insert(Predicted {
                         confirmed_entity: Some(confirmed_entity),
                     });
@@ -178,8 +186,9 @@ impl PreSpawnedPlugin {
                     {
                         metrics::counter!("prespawn::match::missing").increment(1);
                     }
-                    debug!("spawning new entity");
-                    // 1.b if the client_entity does not exist, re-create it (because server has authority)
+                    trace!("spawning new entity");
+                    // 1.b if the client_entity does not exist (for example it was despawned on the client),
+                    // re-create it (because server has authority)
                     commands
                         .spawn(Predicted {
                             confirmed_entity: Some(confirmed_entity),
@@ -208,8 +217,10 @@ impl PreSpawnedPlugin {
                 // remove ShouldBePredicted so that we don't spawn another Predicted entity
                 .remove::<(PreSpawned, ShouldBePredicted)>();
             debug!(
+                ?confirmed_tick,
                 "Added/Spawned the Predicted entity: {:?} for the confirmed entity: {:?}",
-                predicted_entity, confirmed_entity
+                predicted_entity,
+                confirmed_entity
             );
 
             // 3. re-add the remaining entities in the map
@@ -240,9 +251,10 @@ impl PreSpawnedPlugin {
                 .flatten()
                 .for_each(|entity| {
                     if let Ok(mut entity_commands) = commands.get_entity(*entity) {
-                        trace!(
+                        debug!(
                             ?tick,
                             ?entity,
+                            ?hash,
                             "Cleaning up prespawned player object up to past tick: {:?}",
                             past_tick
                         );

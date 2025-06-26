@@ -275,6 +275,9 @@ impl Plugin for PredictionPlugin {
             .on_add(predicted_on_add_hook)
             .on_remove(predicted_on_remove_hook);
 
+        // OBSERVERS
+        app.add_observer(PredictionManager::handle_tick_sync);
+
         // RESOURCES
         app.init_resource::<PredictionRegistry>();
 

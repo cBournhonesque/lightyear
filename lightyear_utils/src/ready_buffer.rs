@@ -124,6 +124,10 @@ impl<K: Ord + Clone, T> ReadyBuffer<K, T> {
         val
     }
 
+    pub fn drain(&mut self) -> impl Iterator<Item = (K, T)> {
+        self.heap.drain().map(|item| (item.key, item.item))
+    }
+
     /// Pop all items that are more recent or equal than the provided key, then return all the values that were popped
     pub fn drain_after(&mut self, key: &K) -> Vec<(K, T)> {
         if self.heap.is_empty() {

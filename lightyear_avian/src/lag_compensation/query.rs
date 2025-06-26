@@ -116,6 +116,7 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     );
                     return false;
                 };
+                // TODO: handle this in host-server mode!
                 let (_, (target_position, target_rotation, _)) =
                     history.into_iter().nth(source_idx + 1).unwrap();
                 // we assume that the collider itself doesn't change so we don't need to interpolate it

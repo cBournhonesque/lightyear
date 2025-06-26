@@ -33,9 +33,11 @@ pub(crate) fn despawn_interpolated(
     query: Query<&Confirmed>,
     mut commands: Commands,
 ) -> Result {
-    if let Some(interpolated) = query.get(trigger.target())?.interpolated {
-        if let Ok(mut entity_mut) = commands.get_entity(interpolated) {
-            entity_mut.try_despawn();
+    if let Ok(confirmed) = query.get(trigger.target()) {
+        if let Some(interpolated) = confirmed.interpolated {
+            if let Ok(mut entity_mut) = commands.get_entity(interpolated) {
+                entity_mut.try_despawn();
+            }
         }
     }
     Ok(())

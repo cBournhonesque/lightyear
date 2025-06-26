@@ -97,9 +97,11 @@ pub(crate) fn despawn_confirmed(
     query: Query<&Confirmed>,
     mut commands: Commands,
 ) -> Result {
-    if let Some(predicted) = query.get(trigger.target())?.predicted {
-        if let Ok(mut entity_mut) = commands.get_entity(predicted) {
-            entity_mut.despawn();
+    if let Ok(confirmed) = query.get(trigger.target()) {
+        if let Some(predicted) = confirmed.predicted {
+            if let Ok(mut entity_mut) = commands.get_entity(predicted) {
+                entity_mut.try_despawn();
+            }
         }
     }
     Ok(())

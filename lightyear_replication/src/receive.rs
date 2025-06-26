@@ -367,7 +367,7 @@ impl ReplicationReceiver {
         // apply all actions first
         // TODO: it's extremely strange, but it seems like the value of TempWriteBuffer can linger from previous
         //  frames. Let's clear it manually for now
-        self.buffer = BufferedChanges::default();
+        // self.buffer = BufferedChanges::default();
         self.group_channels
             .iter_mut()
             .for_each(|(group_id, channel)| {
@@ -810,6 +810,7 @@ impl GroupChannel {
                 continue;
             }
 
+            trace!(?entity, "Temp write buffer: {temp_write_buffer:?}");
             let mut buffered_entity = BufferedEntity {
                 entity: local_entity_mut,
                 buffered: temp_write_buffer,
@@ -868,6 +869,8 @@ impl GroupChannel {
                         error!("could not write the component to the entity: {:?}", e)
                     });
             }
+
+            buffered_entity.apply();
         }
 
         // Flush commands because the entities that were inserted might have triggered some observers
