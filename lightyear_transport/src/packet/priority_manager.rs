@@ -119,6 +119,18 @@ impl PriorityManager {
                             let MessageData::Single(single) = message.data else {
                                 unreachable!()
                             };
+                            // we don't actually use the `messages_sent` field when the priority filter is disabled
+                            // but we still include it so that we can easily check in tests how many messages were sent
+                            #[cfg(feature = "test_utils")]
+                            if let Some(message_id) = single.id {
+                                let channel_kind =
+                                    channel_registry.get_kind_from_net_id(net_id).unwrap();
+                                senders
+                                    .get_mut(channel_kind)
+                                    .unwrap()
+                                    .messages_sent
+                                    .push(message_id);
+                            }
                             single
                         })
                         .collect(),

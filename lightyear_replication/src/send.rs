@@ -1173,3 +1173,187 @@ impl Default for GroupChannel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+    use lightyear_transport::prelude::{ChannelMode, ChannelRegistry, ChannelSettings};
+
+    #[cfg(feature = "std")]
+    use test_log::test;
+
+    fn setup() -> (ReplicationSender, Transport) {
+        let mut channel_registry = ChannelRegistry::default();
+        channel_registry.add_channel::<UpdatesChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliableWithAcks,
+            // we do not send the send_frequency to `replication_interval` here
+            // because we want to make sure that the entity updates for tick T
+            // are sent on tick T, so we will set the `replication_interval`
+            // directly on the replication_sender
+            send_frequency: Duration::default(),
+            priority: 1.0,
+        });
+        let mut transport = Transport::default();
+        transport.add_sender_from_registry::<UpdatesChannel>(&channel_registry);
+        let sender =
+            ReplicationSender::new(Duration::default(), SendUpdatesMode::SinceLastSend, false);
+        (sender, transport)
+    }
+
+    /// Test that in mode SinceLastSend, the `send_tick` is updated correctly:
+    /// - updated immediately after sending a message
+    /// - reverts back to the `ack_tick` when a message is lost
+    #[test]
+    fn test_send_tick_no_priority() {
+        let (mut sender, mut transport) = setup();
+
+        let entity = Entity::from_raw(1);
+        let group_1 = ReplicationGroupId(0);
+        sender
+            .group_channels
+            .insert(group_1, GroupChannel::default());
+
+        let message_1 = MessageId(0);
+        let message_2 = MessageId(1);
+        let message_3 = MessageId(2);
+        let bevy_tick_1 = BevyTick::new(0);
+        let bevy_tick_2 = BevyTick::new(2);
+        let bevy_tick_3 = BevyTick::new(4);
+        let tick_1 = Tick(0);
+        let tick_2 = Tick(2);
+        let tick_3 = Tick(4);
+
+        // when we buffer a message to be sent, we update the `send_tick`
+        sender.prepare_component_update(entity, group_1, Bytes::new());
+        sender
+            .send_updates_messages(tick_1, bevy_tick_1, &mut transport, MessageNetId::default())
+            .unwrap();
+
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert_eq!(
+            sender.updates_message_id_to_group_id.get(&message_1),
+            Some(&UpdateMessageMetadata {
+                group_id: group_1,
+                bevy_tick: bevy_tick_1,
+                tick: tick_1,
+                delta: vec![],
+            })
+        );
+        assert_eq!(group.send_tick, Some(bevy_tick_1));
+        assert_eq!(group.ack_bevy_tick, None);
+
+        // if we buffer a second message, we update the `send_tick`
+        sender.prepare_component_update(entity, group_1, Bytes::new());
+        sender
+            .send_updates_messages(tick_2, bevy_tick_2, &mut transport, MessageNetId::default())
+            .unwrap();
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert_eq!(
+            sender.updates_message_id_to_group_id.get(&message_2),
+            Some(&UpdateMessageMetadata {
+                group_id: group_1,
+                bevy_tick: bevy_tick_2,
+                tick: tick_2,
+                delta: vec![],
+            })
+        );
+        assert_eq!(group.send_tick, Some(bevy_tick_2));
+        assert_eq!(group.ack_bevy_tick, None);
+
+        // if we receive an ack for the second message, we update the `ack_tick`
+        let mut delta_manager = DeltaManager::default();
+        let component_registry = ComponentRegistry::default();
+        sender.handle_acks(
+            &component_registry,
+            &mut delta_manager,
+            &mut vec![message_2],
+        );
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert!(
+            !sender
+                .updates_message_id_to_group_id
+                .contains_key(&message_2)
+        );
+        assert_eq!(group.send_tick, Some(bevy_tick_2));
+        assert_eq!(group.ack_bevy_tick, Some(bevy_tick_2));
+
+        // if we buffer a third message, we update the `send_tick`
+        sender.prepare_component_update(entity, group_1, Bytes::new());
+        sender
+            .send_updates_messages(tick_3, bevy_tick_3, &mut transport, MessageNetId::default())
+            .unwrap();
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert_eq!(
+            sender.updates_message_id_to_group_id.get(&message_3),
+            Some(&UpdateMessageMetadata {
+                group_id: group_1,
+                bevy_tick: bevy_tick_3,
+                tick: tick_3,
+                delta: vec![],
+            })
+        );
+        assert_eq!(group.send_tick, Some(bevy_tick_3));
+        assert_eq!(group.ack_bevy_tick, Some(bevy_tick_2));
+
+        // if we receive a nack for the first message, we don't care because that message's bevy tick
+        // is lower than our ack tick
+        sender.handle_nacks(BevyTick::new(10), &mut vec![message_1]);
+        // make sure that the send tick wasn't updated
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert_eq!(group.send_tick, Some(bevy_tick_3));
+
+        // however if we receive a nack for the third message, we update the `send_tick` back to the `ack_tick`
+        sender.handle_nacks(BevyTick::new(10), &mut vec![message_3]);
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert!(
+            !sender
+                .updates_message_id_to_group_id
+                .contains_key(&message_3),
+        );
+        // this time the `send_tick` is updated to the `ack_tick`
+        assert_eq!(group.send_tick, Some(bevy_tick_2));
+        assert_eq!(group.ack_bevy_tick, Some(bevy_tick_2));
+    }
+
+    #[test]
+    fn test_send_tick_priority() {
+        let (mut sender, mut transport) = setup();
+        sender.bandwidth_cap_enabled = true;
+
+        let entity = Entity::from_raw(1);
+        let group_1 = ReplicationGroupId(0);
+        sender
+            .group_channels
+            .insert(group_1, GroupChannel::default());
+
+        let message_1 = MessageId(0);
+        let bevy_tick_1 = BevyTick::new(0);
+        let tick_1 = Tick(0);
+
+        // when we buffer a message to be sent, we don't update the `send_tick`
+        // (because we wait until the message is actually send)
+        sender.prepare_component_update(entity, group_1, Bytes::new());
+        sender
+            .send_updates_messages(tick_1, bevy_tick_1, &mut transport, MessageNetId::default())
+            .unwrap();
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert_eq!(
+            sender.updates_message_id_to_group_id.get(&message_1),
+            Some(&UpdateMessageMetadata {
+                group_id: group_1,
+                bevy_tick: bevy_tick_1,
+                tick: tick_1,
+                delta: vec![],
+            })
+        );
+        assert_eq!(group.send_tick, None);
+        assert_eq!(group.ack_bevy_tick, None);
+
+        // when the message is actually sent, we update the `send_tick`
+        sender.recv_send_notification(&mut vec![message_1]);
+        let group = sender.group_channels.get(&group_1).unwrap();
+        assert_eq!(group.send_tick, Some(bevy_tick_1));
+        assert_eq!(group.ack_bevy_tick, None);
+    }
+}

@@ -41,7 +41,7 @@ lightyear = { workspace = true, features = [
 lightyear_macros.workspace = true
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
-lightyear_transport = { workspace = true, features = ["client", "server"] }
+lightyear_transport = { workspace = true, features = ["client", "server", "test_utils"] }
 lightyear_core = { workspace = true, features = ["test_utils"] }
 lightyear_netcode = { workspace = true, features = ["client", "server"] }
 lightyear_messages = { workspace = true, features = ["client", "server"] }

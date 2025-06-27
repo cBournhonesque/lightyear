@@ -740,7 +740,6 @@ impl GroupChannel {
                     );
                     continue;
                 }
-                // TODO: optimization: spawn the bundle of insert components
 
                 // TODO: spawning all entities with Confirmed:
                 //  - is inefficient because we don't need the receive tick in most cases (only for prediction/interpolation)
@@ -755,10 +754,8 @@ impl GroupChannel {
                 //     tick,
                 // });
 
-                // TODO: add abstractions to protect against this, maybe create a MappedEntity type?
                 // NOTE: at this point we know that the remote entity was not mapped!
 
-                // TODO: maybe use command-batching?
                 let local_entity = world.spawn((
                     Replicated {
                         receiver: receiver_entity,
