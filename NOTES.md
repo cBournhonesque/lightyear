@@ -1,36 +1,75 @@
+# CHANGES FOR REPLICATION
 
-# BEI
+- SinceLastAck:
+  - for each group, we have an AckBevyTick, which is the bevy_tick when we received an ack for the entire group.
+  - then we only send changes since that AckBevyTick.
+  - issue: when there is a change, we will keep sending changes since that ack, so we potentially send
+  multiple messages it the replication interval is short compared to the RTT
+- SinceLastSend:
+  - for each group, we have a SendBevyTick and a AckBevyTick.
+  - when we send, we increment the SendBevyTick, and we will only send changes since that SendBevyTick.
+  - if we have an ack, we downgrade the SendBevyTick to the AckBevyTick.
+  - doesn't work in this scenario:
+    - C2-tick 2: send-bevy-tick = 2
+    - C1-tick 3: send-bevy-tick = 3
+    - receive ACK for tick 3: ack-bevy-tick = 3
+    - now we only send changes since tick 3, so if tick 2 message is lost the update will never get sent.
+  - instead:
+    - option 1: store the send/ack bevy ticks per (entity, component)
 
-- in host-server mode:
-  - local-client:
-    - buffers into ActionState (potentially with delay)
-    - server::UpdateActionState gets the correct ActionState from the buffer
 
-- if UpdateActionState before Buffer:
- - no input delay:
-   - 
+- Delta:
+  - fix by re-enabling the Write-Delta method
+  - two flavours of Delta:
+    - Diffable where you compute the diff manually between two values (For example two f32)
+    - A version where you already know what the diff is at each tick (new points added)
 
-- users add BEIInputPlugin<C> context
+  DIFFABLE
+  SinceLastAck
+    - Sender:
+      - need to keep track of the past component values (shared across all senders) so that we can compute the diff
+        between current state and past state. Each client might have different past delta_ack_tick.
+        - for example, group1-entity1: (client 1: store C-10) (client 2: store C-14)
 
-- we query the `Actions<C>` component in our plugin, and store in the `InputBuffer<Actions<C>>`
+      - when we send a message, we also include the list of delta (entity, components) that we sent in that message.
+        When we have a confirmation that that message got acked for tick T:
+          - we can update the delta-ticks for each of the (entity, components) (so that we know for each client what previous value to use to complete the diff)
+          - we know that the client is at least at tick T. If all clients are past tick T, we can remove from the component store all values that are older than tick T.
+            Or we could maintain a ref count for each past-value with the number of users that use this ack-tick as ref value. As soon as no clients don't use an ack tick, we can drop it.
 
-- the message will only contain t
+      - Maybe we can use a Rc or Arc to do this?
+      - The Server should keep the DeltaManager component. Or if there is no server, we keep it on the Client itself.
+        - if any component gets updated and has delta-compression enabled, we update the DeltaManager of the server.
+    - Receiver
+      - we might receive Diff2->5 and then Diff2->9 because the server still hasn't receive the ack for 5.
+        Therefore we maintain a history of past values on the client, so that we can restore the value '2' and then apply Diff2->9.
 
-- InputMarker: we will add a fake companion component `InputMarker` that is added only if the entity has any bindings. 
- 
+  SinceLastSend
+    - Sender
+      - instead of computing the diff since last-ack, we compute the diff since last-send.
+        i.e. Diff2->5, then Diff5->9, etc.
+      - same thing, if we have received a NACK, we compute the diff since the last ack again. However let's say:
+        - send_tick = 2 -> we compute diffs from tick 2
+        - Diff2->5: send_tick = 5
+        - Diff5->9: send_tick = 9
+        - Diff5->9: ack_tick = 9 for (entity, component)
+        - Diff2->5: nack. In this case we cannot go back to ack_tick = 9! We have to go back to send_tick = 2 and send Diff2->9.
+        - So the data structure we could use is a linked-list?
+          We have send_ticks = 2 [ACK] -> 5 [NACK] -> 9 [ACK] and we need to go back to the first ACK that doesn't have any NACKs before.
+          We only remove an element from the list if all the previous elements have been ACK. So if we had 2 [ACK] -> 5 [ACK], we can drop the 2.
+      - we only remove an element from the component store if all clients have an ack-tick that is past that tick.
+        This is not necessarily if all clients received a tick
+    - Receiver:
+      - we maintain a buffer of the updates we receive. So that if we receive Diff5->9 before Diff2->5, we wait for Diff2->5
+        before applying Diff5->9.
+      - on the receiver, we don't need to maintain any component history, just a buffer of the updates.
+        When we are at comp for tick 2, we will always eventually receive a Diff that starts at tick 2.
+      - How do we avoid waiting for Diff2->5 for too long if it's missing? Maybe we do nothing! The sender
+        will eventually get a nack for Diff2->5 and resend Diff2->13 (current server tick)
 
-TODO:
-- add a Context value so that the systems can use it (for example a registry) when building the input_message
-- maybe the InputBuffer should store something else than the state? 
-  - let's say that the state is Actions<C>
-  - the input buffer could store `InputBuffer<ActionsSnapshot<C>>`, which is a snapshot that can be used to restore the state (`Actions<C>`)
-- 
 
 
 # HOST-SERVER
-
-- it sounds like the host-server inputs are not rebroadcasted correctly to other clients?
-  there are big corrections in avian_physics.
 
 https://excalidraw.com/#room=6556b82e2cc953b853cd,eIOMjgsfWiA7iaFzjk1blA
 
@@ -99,7 +138,7 @@ TODO:
 - in netcode: the difference between `send_packets` and `send_netcode_packets` is a bit awkward...
 - add compression in Transport before splitting bytes into fragments.
 - refactor replication to not use hashmaps if no replication group is used.
-    
+
 
 NEEDS UNIT TEST:
 - check that we don't send replication-updates for entities that are not visible
@@ -142,10 +181,10 @@ BUGS:
 TODOs:
 - Maybe have a DummyConnection that is just pass-through on top of the io? and then everything else can react to Connected/Disconnected events?
   Maybe we can have some Access or bitmask of all connections, and the access could have `accept_all`, etc.?
- 
+
 - Most systems (for example ReplicationPlugin), need to only run if the timeline is synced, or if the senders are connected.
   How to handle this gracefully?
-  
+
 
 TEST TODO:
  - There seems to be a very weird ordering issue? Adding MessageDirection messed up some of the message receive/send
@@ -153,18 +192,18 @@ TEST TODO:
 
 # Messages
 
-- Maybe we remove NetworkDirection, and the user can add required_components to specify which of their entities 
+- Maybe we remove NetworkDirection, and the user can add required_components to specify which of their entities
   will add which components?
   - and we add by default some required components, for example for Inputs?
 
 - Need to find a way to broadcast messages from other players to a player.
   - option 1: all messages are wrapped with FromPeer<M> which indicates the original sender?
-   
+
 - Client sends message to Server, with a given target.
   - maybe it's wrapped as BroadcastMessage<>?
   - the client-of receives it
   - the target is mapped to the correct client-of entities on the server
-    
+
 - or the message itself should support it? i.e. we have InputMessage<> (for the server) and RebroadcastInput? Rebroadcast input gets added only if the user requests it in the registry.
 
 
@@ -182,12 +221,12 @@ TEST TODO:
 # Host-server
 
 - You have a server with n ClientOf.
-- HostServer 
+- HostServer
   - The Server will have its own ServerMessageSender? send_to_target() and kllllll
   - OPTION1: one of the ClientOfs is also a Client? with Transport via Channels? has a an extra component Host/Local
     - PredictionManager and InterpolationManager are disabled
     - Messages hjj
-  - OPTION2: the ClientOf has a Link but no io (or just a dummy io). 
+  - OPTION2: the ClientOf has a Link but no io (or just a dummy io).
 
 
 
@@ -210,7 +249,7 @@ But if you add a direction we will handle it automatically for the client-server
   - by default an entity is replicated to all clients specified in Senders.
   - you can add NetworkVisibility on the replicated entity; where you specify which clients lost/gain visibility
   - you can also add SenderNetworkVisibility on a sender, to specify which clients lost/gain visibility
-   
+
   - Maybe enable whitelist/blacklist (currently it's only whitelist, i.e. by default no entities are visible). Can be done by simply adding all clients once as visible?
 
 - Hierarchy:
@@ -219,7 +258,7 @@ But if you add a direction we will handle it automatically for the client-server
       - when ReplicateLike is added, should we update the Sender's replicated entities? or should we add Replicate?
         Or do we also go through every entity that is in ReplicatedEntities?
 
-  - Other idea: 
+  - Other idea:
     - the 'root entity' is the ReplicationGroup. All children or ReplicateLike are part of the group.
       - then the SendInterval data is part of the ReplicationGroup.
 
@@ -227,7 +266,7 @@ But if you add a direction we will handle it automatically for the client-server
 - How to start replication?
   - ideally we would have M:N relationships. because one sender replicated many entities, and each entity can be replicated by multiple senders.
   - **right now we will constrain each entity to be only replicated by one sender.**
-    - ReplicateOn<Entity> -> sender will replicate that entity 
+    - ReplicateOn<Entity> -> sender will replicate that entity
     - ReplicateOnServer<Entity> -> each sender that is a ClientOf that entity will replicate it.
     - Ideally we also want the relationship to hold data. For example `is_replicating`, etc.
   - Should we do it by triggers? i.e. you trigger ReplicateOn<Entity> for your target entity?
@@ -248,7 +287,6 @@ But if you add a direction we will handle it automatically for the client-server
 - Authority: we want seamless authority transfers so states where the client is connected to 2 servers; maybe it starts accepting the
   packets from both server for a while, buffers them internally (instead of applying to world), and the AuthorityTransfer has a Tick after
   which the transfer is truly effective. We can have Transferring/Transferred.
-
 
 - we want integration tests
   - with client-server with netcode
@@ -349,13 +387,6 @@ SEND FLOW
   - on server, we can define a LocalTimeline, where the Tick is incremented every FixedUpdate.
   - the transport should be using the LocalTimeline to get the tick information.
 
-
-# Refactoring
-
-- Io: raw io (channels, WebTransport, Websocket)
-- Link/Transport: component that will store raw bytes that we receive/send from the network (webtransport, udp, etc.). Link between two peers to send data.
-- Channel: component adds reliability by allowing you to specify multiple channels depending on the the channel_id, we buffer the stuff to be processed on the channels
-- Session: component that tracks the long-term state of the link.
 
 
 
@@ -480,7 +511,6 @@ TODO:
     - if an entity has a priority, then they need to use a replication group? i.e we recreate a replication group for them?
     - to write the ActualMessage:
       - serialize the message_id
-
 
 - Serialization strategy:
   - SEND:
