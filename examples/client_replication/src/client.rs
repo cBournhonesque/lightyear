@@ -192,7 +192,7 @@ fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
 
     Some(Vec2::new(
         cursor_pos.x - (window.width() / 2.0),
-        (cursor_pos.y - (window.height() / 2.0)) * -1.0,
+        -(cursor_pos.y - (window.height() / 2.0)),
     ))
 }
 

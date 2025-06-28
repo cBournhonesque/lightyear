@@ -96,6 +96,23 @@ impl<C> ComponentReplicationOverrides<C> {
         self.all_senders.as_ref()
     }
 
+    /// Returns true if the component is disabled for all senders
+    pub(crate) fn is_disabled_for_all(&self, mut registry_disable: bool) -> bool {
+        let disable = &mut registry_disable;
+        if let Some(all) = &self.all_senders {
+            if all.disable {
+                *disable = true;
+            }
+            if all.enable {
+                *disable = false;
+            }
+        }
+        // if all_senders is disabled, we only return true if no per_sender overrides are enabled
+        *disable && !self.per_sender.values().any(|o| o.enable)
+
+        // TODO: there is the edge case where all the senders have enabled the component!
+    }
+
     /// Add an override for all senders
     pub fn global_override(&mut self, overrides: ComponentReplicationOverride) {
         self.all_senders = Some(overrides);

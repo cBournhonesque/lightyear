@@ -353,9 +353,58 @@ impl Plugin for ReplicationSendPlugin {
             .remove_resource::<ComponentRegistry>()
             .unwrap();
 
+        // let replicate = (
+        //     QueryParamBuilder::new(|builder| {
+        //         // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
+        //         builder.or(|b| {
+        //             b.with::<ReplicateLikeChildren>();
+        //             b.with::<ReplicateLike>();
+        //             b.and(|b| {
+        //                 b.with::<Replicating>();
+        //                 b.with::<Replicate>();
+        //             });
+        //         });
+        //         builder.optional(|b| {
+        //             b.data::<(
+        //                 &Replicate,
+        //                 &ReplicationGroup,
+        //                 &NetworkVisibility,
+        //                 &ReplicateLikeChildren,
+        //                 &ReplicateLike,
+        //                 &ControlledBy,
+        //             )>();
+        //             #[cfg(feature = "prediction")]
+        //             b.data::<&PredictionTarget>();
+        //             #[cfg(feature = "interpolation")]
+        //             b.data::<&InterpolationTarget>();
+        //             // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
+        //             component_registry
+        //                 .replication_map
+        //                 .iter()
+        //                 .for_each(|(kind, _)| {
+        //                     let id = component_registry.kind_to_component_id.get(kind).unwrap();
+        //                     b.ref_id(*id);
+        //                     let override_id = component_registry
+        //                         .replication_map
+        //                         .get(kind)
+        //                         .unwrap()
+        //                         .overrides_component_id;
+        //                     b.ref_id(override_id);
+        //                 });
+        //         });
+        //     }),
+        //     ParamBuilder,
+        //     ParamBuilder,
+        //     ParamBuilder,
+        //     ParamBuilder,
+        //     ParamBuilder,
+        //     ParamBuilder,
+        // )
+        //     .build_state(app.world_mut())
+        //     .build_system(buffer::replicate);
         let replicate = (
             QueryParamBuilder::new(|builder| {
-                // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
+                // Or<(With<ReplicateLike>, With<ReplicateLikeChildren>, (With<Replicating>, With<Replicate>))>
                 builder.or(|b| {
                     b.with::<ReplicateLikeChildren>();
                     b.with::<ReplicateLike>();
@@ -399,9 +448,11 @@ impl Plugin for ReplicationSendPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
         )
             .build_state(app.world_mut())
-            .build_system(buffer::replicate);
+            .build_system(buffer::replicate_bis);
 
         let buffer_component_remove = (
             QueryParamBuilder::new(|builder| {
@@ -861,7 +912,7 @@ impl ReplicationSender {
         kind: ComponentKind,
         component_data: Ptr,
         registry: &ComponentRegistry,
-        delta_manager: &mut DeltaManager,
+        delta_manager: &DeltaManager,
         _tick: Tick,
         remote_entity_map: &mut RemoteEntityMap,
     ) -> Result<(), ReplicationError> {
@@ -880,7 +931,7 @@ impl ReplicationSender {
                 let old_data = delta_manager
                     .data
                     // NOTE: remember to use the local entity for local bookkeeping
-                    .get_component_value(entity, ack_tick, kind, group_id)
+                    .get_component_value(entity, ack_tick, kind)
                     .ok_or(ReplicationError::DeltaCompressionError(
                         "could not find old component value to compute delta".to_string(),
                     ))

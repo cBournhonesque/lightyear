@@ -50,7 +50,7 @@ impl WebTransportClientPlugin {
             let digest = client.certificate_digest.clone();
             commands.queue(move |world: &mut World| -> Result {
                 let config = Self::client_config(digest)?;
-                let server_url = format!("https://{}", server_addr);
+                let server_url = format!("https://{server_addr}");
                 let target = {
                     #[cfg(target_family = "wasm")]
                     {

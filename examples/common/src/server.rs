@@ -182,14 +182,14 @@ impl From<&WebTransportCertificateSettings> for Identity {
                 let mut sans = sans.clone();
                 // Are we running on edgegap?
                 if let Ok(public_ip) = std::env::var("ARBITRIUM_PUBLIC_IP") {
-                    println!("🔐 SAN += ARBITRIUM_PUBLIC_IP: {}", public_ip);
+                    println!("🔐 SAN += ARBITRIUM_PUBLIC_IP: {public_ip}");
                     sans.push(public_ip);
                     sans.push("*.pr.edgegap.net".to_string());
                 }
                 // generic env to add domains and ips to SAN list:
                 // SELF_SIGNED_SANS="example.org,example.com,127.1.1.1"
                 if let Ok(san) = std::env::var("SELF_SIGNED_SANS") {
-                    println!("🔐 SAN += SELF_SIGNED_SANS: {}", san);
+                    println!("🔐 SAN += SELF_SIGNED_SANS: {san}");
                     sans.extend(san.split(',').map(|s| s.to_string()));
                 }
                 println!("🔐 Generating self-signed certificate with SANs: {sans:?}");
@@ -203,8 +203,7 @@ impl From<&WebTransportCertificateSettings> for Identity {
                 key: private_key_pem_path,
             } => {
                 println!(
-                    "Reading certificate PEM files:\n * cert: {}\n * key: {}",
-                    cert_pem_path, private_key_pem_path
+                    "Reading certificate PEM files:\n * cert: {cert_pem_path}\n * key: {private_key_pem_path}",
                 );
                 // this is async because we need to load the certificate from io
                 // we need async_compat because wtransport expects a tokio reactor
@@ -243,10 +242,7 @@ pub fn parse_private_key_from_env() -> Option<[u8; PRIVATE_KEY_BYTES]> {
         .collect();
 
     if private_key.len() != PRIVATE_KEY_BYTES {
-        panic!(
-            "Private key must contain exactly {} numbers",
-            PRIVATE_KEY_BYTES
-        );
+        panic!("Private key must contain exactly {PRIVATE_KEY_BYTES} numbers",);
     }
 
     let mut bytes = [0u8; PRIVATE_KEY_BYTES];

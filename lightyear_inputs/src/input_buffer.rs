@@ -42,13 +42,13 @@ impl<T: Debug> core::fmt::Display for InputBuffer<T> {
                 let str = match item {
                     InputData::Absent => "Absent".to_string(),
                     InputData::SameAsPrecedent => "SameAsPrecedent".to_string(),
-                    InputData::Input(data) => format!("{:?}", data),
+                    InputData::Input(data) => format!("{data:?}"),
                 };
                 format!("{:?}: {}\n", tick + i as i16, str)
             })
             .collect::<Vec<String>>()
             .join("");
-        write!(f, "InputBuffer<{:?}>:\n {}", ty, buffer_str)
+        write!(f, "InputBuffer<{ty:?}>:\n {buffer_str}")
     }
 }
 

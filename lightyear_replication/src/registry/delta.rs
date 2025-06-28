@@ -5,6 +5,7 @@ use crate::registry::registry::ComponentRegistry;
 use crate::registry::replication::ReplicationMetadata;
 use crate::registry::{ComponentError, ComponentKind};
 use alloc::boxed::Box;
+use alloc::format;
 use bevy_ecs::{
     component::{Component, ComponentId, Mutable},
     world::World,
@@ -156,12 +157,38 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
         "Writing component delta {} to entity",
         core::any::type_name::<C>()
     );
+    let entity = entity_mut.entity.id();
     let delta = deserialize.deserialize(entity_map, reader)?;
     match delta.delta_type {
         DeltaType::Normal { previous_tick } => {
-            unreachable!(
-                "buffer_insert_delta should only be called for FromBase deltas since the component is being inserted"
-            );
+            let Some(mut history) = entity_mut.entity.get_mut::<DeltaComponentHistory<C>>() else {
+                return Err(ComponentError::DeltaCompressionError(format!(
+                    "Entity {entity:?} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression",
+                    core::any::type_name::<C>()
+                )));
+            };
+            let Some(past_value) = history.buffer.get(&previous_tick) else {
+                return Err(ComponentError::DeltaCompressionError(format!(
+                    "Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
+                    core::any::type_name::<C>()
+                )));
+            };
+            // TODO: is it possible to have one clone instead of 2?
+            let mut new_value = past_value.clone();
+            new_value.apply_diff(&delta.delta);
+            // we can remove all the values strictly older than previous_tick in the component history
+            // (since we now know that the sender has received an ack for previous_tick, otherwise it wouldn't
+            // have sent a diff based on the previous_tick)
+            history.buffer = history.buffer.split_off(&previous_tick);
+            // store the new value in the history
+            history.buffer.insert(tick, new_value.clone());
+            let Some(mut c) = entity_mut.entity.get_mut::<C>() else {
+                return Err(ComponentError::DeltaCompressionError(format!(
+                    "Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
+                    core::any::type_name::<C>()
+                )));
+            };
+            *c = new_value;
         }
         DeltaType::FromBase => {
             let mut new_value = C::base_value();

@@ -179,11 +179,18 @@ mock_instant = "0.6"
 approx = "0.5.1"
 
 # Bevy
-# (we add back features needed for gui clients if desired)
-bevy = { version = "0.16", default-features = false }
+# (the full app is used for examples)
+bevy = { version = "0.16", default-features = false, features = [
+  "bevy_state",
+  "bevy_log",
+  "serialize",
+  "bevy_asset",
+  "bevy_state",
+  "bevy_color",
+  "multi_threaded",
+  "sysinfo_plugin",
+] }
 bevy_app = { version = "0.16", default-features = false }
-bevy_asset = { version = "0.16", default-features = false }
-bevy_color = { version = "0.16", default-features = false }
 bevy_derive = { version = "0.16", default-features = false }
 bevy_diagnostic = { version = "0.16", default-features = false }
 bevy_ecs = { version = "0.16", default-features = false }
@@ -193,10 +200,10 @@ bevy_math = { version = "0.16", default-features = false }
 bevy_platform = { version = "0.16", default-features = false }
 bevy_ptr = { version = "0.16", default-features = false }
 bevy_reflect = { version = "0.16", default-features = false }
-bevy_state = { version = "0.16", default-features = false }
 bevy_time = { version = "0.16", default-features = false }
 bevy_transform = { version = "0.16", default-features = false }
 bevy_utils = { version = "0.16", default-features = false }
+tracy-client = { version = "=0.18.0" }
 
 # input
 bevy_enhanced_input = { git = "https://github.com/cBournhonesque/bevy_enhanced_input.git", branch = "cb/networking" }

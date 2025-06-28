@@ -5,6 +5,7 @@
 use crate::buffer::{Replicate, ReplicationMode};
 use crate::components::*;
 use crate::control::{Controlled, ControlledBy, ControlledByRemote};
+use crate::delta::DeltaManager;
 use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike, ReplicateLikeChildren};
 use crate::message::{ActionsChannel, MetadataChannel, SenderMetadata, UpdatesChannel};
 use crate::prelude::{ActionsMessage, AppComponentExt, UpdatesMessage};
@@ -53,6 +54,12 @@ impl Plugin for SharedPlugin {
             .register_type::<ReplicationGroupId>();
 
         app.register_component::<Controlled>();
+
+        #[cfg(feature = "server")]
+        {
+            use lightyear_link::prelude::Server;
+            app.register_required_components::<Server, DeltaManager>();
+        }
 
         #[cfg(feature = "interpolation")]
         {

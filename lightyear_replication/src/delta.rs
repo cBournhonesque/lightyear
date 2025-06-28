@@ -4,7 +4,6 @@ use crate::components::ReplicationGroupId;
 use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
 use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
 use bevy_ecs::{
     component::Component,
     entity::{Entity, EntityHash},
@@ -149,11 +148,7 @@ type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 #[derive(Default, Debug)]
 pub struct DeltaComponentStore {
     // TODO: maybe store the values on the components directly?
-    data: EntityHashMap<
-        ReplicationGroupId,
-        // Using a vec seems faster than using nested HashMaps
-        BTreeMap<Tick, Vec<(ComponentKind, Entity, NonNull<u8>)>>,
-    >,
+    data: HashMap<(ComponentKind, Entity), BTreeMap<Tick, NonNull<u8>>>,
 }
 
 unsafe impl Send for DeltaComponentStore {}
@@ -166,17 +161,17 @@ impl DeltaComponentStore {
         tick: Tick,
         kind: ComponentKind,
         component: Ptr,
-        replication_group: ReplicationGroupId,
         registry: &ComponentRegistry,
     ) {
-        // SAFETY: the component Ptr corresponds to kind
-        let cloned = unsafe { registry.erased_clone(component, kind).unwrap() };
+        // TODO: avoid calling this for each ReplicationSender; we only have to do it once per server!
         self.data
-            .entry(replication_group)
+            .entry((kind, entity))
             .or_default()
             .entry(tick)
-            .or_default()
-            .push((kind, entity, cloned));
+            .or_insert_with(|| {
+                // SAFETY: the component Ptr corresponds to kind
+                unsafe { registry.erased_clone(component, kind).unwrap() }
+            });
     }
 
     pub(crate) fn get_component_value(
@@ -184,19 +179,9 @@ impl DeltaComponentStore {
         entity: Entity,
         tick: Tick,
         kind: ComponentKind,
-        replication_group: ReplicationGroupId,
     ) -> Option<Ptr> {
-        self.data
-            .get(&replication_group)?
-            .get(&tick)?
-            .iter()
-            .find_map(|(k, e, ptr)| {
-                if *k == kind && *e == entity {
-                    Some(unsafe { Ptr::new(*ptr) })
-                } else {
-                    None
-                }
-            })
+        let ptr = self.data.get(&(kind, entity))?.get(&tick)?;
+        Some(unsafe { Ptr::new(*ptr) })
     }
 
     pub(crate) fn delete_old_data(
