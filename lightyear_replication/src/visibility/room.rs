@@ -38,6 +38,9 @@ commands.trigger_targets(RoomEvent::AddSender(client), room);
 
 */
 
+use crate::send::plugin::ReplicationBufferSet;
+use crate::visibility::error::NetworkVisibilityError;
+use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilityState};
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::{
     component::Component,
@@ -52,10 +55,6 @@ use bevy_ecs::{
 use bevy_platform::collections::hash_map::Entry;
 use bevy_reflect::Reflect;
 use tracing::trace;
-
-use crate::send::ReplicationBufferSet;
-use crate::visibility::error::NetworkVisibilityError;
-use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilityState};
 
 /// A [`Room`] is a data structure that is used to perform interest management.
 ///

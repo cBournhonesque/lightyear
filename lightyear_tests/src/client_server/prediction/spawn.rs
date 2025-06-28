@@ -2,8 +2,7 @@ use crate::stepper::ClientServerStepper;
 use bevy::ecs::hierarchy::ChildOf;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
-use lightyear_replication::components::{Confirmed, PredictionTarget};
-use lightyear_replication::prelude::Replicate;
+use lightyear_replication::prelude::{Confirmed, PredictionTarget, Replicate};
 use test_log::test;
 use tracing::info;
 

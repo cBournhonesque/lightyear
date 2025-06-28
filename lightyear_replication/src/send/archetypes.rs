@@ -1,9 +1,8 @@
 //! Keep track of the archetypes that should be replicated
-use crate::buffer::Replicate;
-use crate::components::Replicating;
 use crate::hierarchy::ReplicateLike;
 use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
+use crate::send::components::{Replicate, Replicating};
 use alloc::vec::Vec;
 use bevy_ecs::{
     archetype::{ArchetypeGeneration, ArchetypeId, Archetypes},

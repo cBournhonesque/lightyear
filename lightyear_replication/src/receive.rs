@@ -12,7 +12,7 @@ use bevy_ecs::{
 };
 use bevy_platform::collections::{HashMap, HashSet};
 
-use crate::components::{Confirmed, InitialReplicated, Replicated, ReplicationGroupId};
+use crate::components::{Confirmed, InitialReplicated, Replicated};
 use crate::message::{ActionsMessage, SpawnAction, UpdatesMessage};
 use crate::registry::registry::ComponentRegistry;
 use alloc::vec::Vec;
@@ -23,7 +23,7 @@ use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::plugin;
 use crate::plugin::ReplicationSet;
-use crate::prelude::ReplicationSender;
+use crate::prelude::{ReplicationGroupId, ReplicationSender};
 use crate::registry::buffered::{BufferedChanges, BufferedEntity};
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::id::{PeerId, RemoteId};

@@ -20,10 +20,10 @@ use core::any::TypeId;
 use core::hash::{Hash, Hasher};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
 use lightyear_link::prelude::Server;
-use lightyear_replication::components::{PrePredicted, Replicated, ShouldBeInterpolated};
+use lightyear_replication::components::{PrePredicted, Replicated};
 use lightyear_replication::control::Controlled;
 use lightyear_replication::prelude::{
-    Confirmed, ReplicateLike, ReplicationReceiver, ShouldBePredicted,
+    Confirmed, ReplicateLike, ReplicationReceiver, ShouldBeInterpolated, ShouldBePredicted,
 };
 use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::ComponentRegistry;

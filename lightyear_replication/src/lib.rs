@@ -19,7 +19,6 @@ extern crate std;
 /// Handles the registration of components for replication.
 pub mod registry;
 
-pub(crate) mod archetypes;
 /// Defines components related to replication, such as `Replicate` and `ParentSync`.
 pub mod components;
 
@@ -31,9 +30,8 @@ pub(crate) mod plugin;
 /// Handles receiving and applying replication updates on the client.
 pub mod receive;
 
-pub(crate) mod send;
+pub mod send;
 
-pub(crate) mod buffer;
 pub mod delta;
 /// Defines the structure of messages used for replication.
 pub mod message;
@@ -50,7 +48,6 @@ pub mod prelude {
         AuthorityPlugin, AuthorityTransfer, AuthorityTransferRequest, AuthorityTransferResponse,
         GiveAuthority, RequestAuthority,
     };
-    pub use crate::buffer::Replicate;
     pub use crate::components::*;
     pub use crate::control::{Controlled, ControlledBy, ControlledByRemote, Lifetime};
     pub use crate::hierarchy::{
@@ -63,9 +60,9 @@ pub mod prelude {
     pub use crate::registry::registry::{
         AppComponentExt, ComponentRegistration, TransformLinearInterpolation,
     };
-    pub use crate::send::{
-        ReplicationBufferSet, ReplicationSendPlugin, ReplicationSender, SendUpdatesMode,
-    };
+    pub use crate::send::components::*;
+    pub use crate::send::plugin::{ReplicationBufferSet, ReplicationSendPlugin};
+    pub use crate::send::sender::{ReplicationSender, SendUpdatesMode};
     pub use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin};
     pub use crate::visibility::room::{Room, RoomEvent, RoomPlugin};
 }

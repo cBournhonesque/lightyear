@@ -13,8 +13,9 @@ use lightyear_prediction::diagnostics::PredictionMetrics;
 use lightyear_prediction::plugin::{PredictionSet, is_in_rollback};
 use lightyear_prediction::predicted_history::PredictionHistory;
 use lightyear_prediction::prelude::{PreSpawned, PredictionManager};
-use lightyear_replication::components::{Confirmed, Replicated, ReplicationGroup};
-use lightyear_replication::prelude::{PredictionTarget, Replicate};
+use lightyear_replication::prelude::{
+    Confirmed, PredictionTarget, Replicate, Replicated, ReplicationGroup,
+};
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_utils::ready_buffer::ItemWithReadyKey;
 use test_log::test;

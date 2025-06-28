@@ -1,8 +1,8 @@
 //! Logic related to delta compression (sending only the changes between two states, instead of the new state)
 
-use crate::components::ReplicationGroupId;
 use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
+use crate::send::components::ReplicationGroupId;
 use alloc::collections::BTreeMap;
 use bevy_ecs::{
     component::Component,

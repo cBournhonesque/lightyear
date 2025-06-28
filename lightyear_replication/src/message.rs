@@ -1,4 +1,3 @@
-use crate::components::ReplicationGroupId;
 use crate::registry::ComponentNetId;
 use bevy_ecs::{
     entity::{Entity, EntityHash},
@@ -14,6 +13,7 @@ use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::packet::message::MessageId;
 
+use crate::prelude::ReplicationGroupId;
 use alloc::vec::Vec;
 
 /// Default channel to replicate entity actions.

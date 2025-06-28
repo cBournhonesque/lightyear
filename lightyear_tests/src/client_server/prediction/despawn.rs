@@ -5,8 +5,7 @@ use lightyear_connection::prelude::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
 use lightyear_prediction::prelude::PredictionManager;
-use lightyear_replication::components::{Confirmed, PredictionTarget};
-use lightyear_replication::prelude::Replicate;
+use lightyear_replication::prelude::{Confirmed, PredictionTarget, Replicate};
 
 #[derive(Component, Debug, PartialEq)]
 struct TestComponent(usize);

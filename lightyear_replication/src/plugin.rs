@@ -2,13 +2,12 @@
 //! the replication of entities and resources.
 //!
 
-use crate::buffer::{Replicate, ReplicationMode};
-use crate::components::*;
 use crate::control::{Controlled, ControlledBy, ControlledByRemote};
+#[cfg(feature = "server")]
 use crate::delta::DeltaManager;
 use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike, ReplicateLikeChildren};
 use crate::message::{ActionsChannel, MetadataChannel, SenderMetadata, UpdatesChannel};
-use crate::prelude::{ActionsMessage, AppComponentExt, UpdatesMessage};
+use crate::prelude::*;
 use bevy_app::{App, Plugin};
 use bevy_ecs::schedule::SystemSet;
 use core::time::Duration;

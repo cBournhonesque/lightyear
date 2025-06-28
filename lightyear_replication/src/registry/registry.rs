@@ -1,6 +1,5 @@
-use crate::components::ComponentReplicationConfig;
 use crate::delta::Diffable;
-use crate::prelude::ComponentReplicationOverrides;
+use crate::prelude::{ComponentReplicationConfig, ComponentReplicationOverrides};
 use crate::registry::delta::ErasedDeltaFns;
 use crate::registry::replication::{GetWriteFns, ReplicationMetadata};
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
