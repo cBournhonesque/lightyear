@@ -43,7 +43,7 @@ fn main() {
             app.add_plugins(ClientPlugins {
                 tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
             });
-            // NOTE: the ProtocolPlugin must be added AFTER the Client/Server plugins
+            // NOTE: the ProtocolPlugin must be added AFTER the Client/Server plugins,
             app.add_plugins(SharedPlugin);
             // add client-specific plugins
             app.add_plugins(client::ExampleClientPlugin);

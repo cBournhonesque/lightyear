@@ -1,4 +1,4 @@
-use crate::delta_mut::{DeltaComponentHistory, DeltaMessage, DeltaType, Diffable};
+use crate::delta::{DeltaComponentHistory, DeltaMessage, DeltaType, Diffable};
 use crate::prelude::ComponentReplicationConfig;
 use crate::registry::buffered::BufferedEntity;
 use crate::registry::registry::ComponentRegistry;
@@ -47,6 +47,9 @@ impl ComponentRegistry {
                 buffer_insert_delta::<C>,
             ),
         );
+        if let Some(metadata) = self.replication_map.get_mut(&kind) {
+            metadata.config.delta_compression = true;
+        }
     }
 
     /// # Safety
@@ -90,6 +93,10 @@ impl ComponentRegistry {
         kind: ComponentKind,
         entity_map: &mut SendEntityMap,
     ) -> Result<(), ComponentError> {
+        trace!(
+            ?kind,
+            "Serializing diff from previous value for delta component",
+        );
         let delta_fns = self
             .delta_fns_map
             .get(&kind)
@@ -117,6 +124,10 @@ impl ComponentRegistry {
         kind: ComponentKind,
         entity_map: &mut SendEntityMap,
     ) -> Result<(), ComponentError> {
+        trace!(
+            ?kind,
+            "Serializing diff from base value for delta component",
+        );
         let delta_fns = self
             .delta_fns_map
             .get(&kind)
@@ -151,14 +162,15 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
 ) -> Result<(), ComponentError> {
     let kind = ComponentKind::of::<C>();
     let component_id = entity_mut.component_id::<C>();
+    let entity = entity_mut.entity.id();
+    let delta = deserialize.deserialize(entity_map, reader)?;
     trace!(
         ?kind,
         ?component_id,
+        delta_type = ?delta.delta_type,
         "Writing component delta {} to entity",
         core::any::type_name::<C>()
     );
-    let entity = entity_mut.entity.id();
-    let delta = deserialize.deserialize(entity_map, reader)?;
     match delta.delta_type {
         DeltaType::Normal { previous_tick } => {
             let Some(mut history) = entity_mut.entity.get_mut::<DeltaComponentHistory<C>>() else {

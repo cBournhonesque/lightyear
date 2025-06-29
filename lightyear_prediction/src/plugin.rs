@@ -264,6 +264,9 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
 
 impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
+        // RESOURCES
+        app.init_resource::<PredictionRegistry>();
+
         // REFLECTION
         app.register_type::<Predicted>()
             .register_type::<PreSpawned>()
@@ -277,9 +280,6 @@ impl Plugin for PredictionPlugin {
 
         // OBSERVERS
         app.add_observer(PredictionManager::handle_tick_sync);
-
-        // RESOURCES
-        app.init_resource::<PredictionRegistry>();
 
         // Custom entity disabling
         let prediction_disable_id = app.world_mut().register_component::<PredictionDisable>();

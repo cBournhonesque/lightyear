@@ -32,8 +32,6 @@ pub mod receive;
 
 pub mod send;
 
-pub mod delta_mut;
-
 pub mod delta;
 
 /// Defines the structure of messages used for replication.

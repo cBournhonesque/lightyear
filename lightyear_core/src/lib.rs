@@ -35,6 +35,9 @@ pub mod interpolation;
 #[cfg(feature = "prediction")]
 pub mod prediction;
 
+#[cfg(feature = "test_utils")]
+pub mod test;
+
 /// Commonly used items from the `lightyear_core` crate.
 pub mod prelude {
     #[cfg(feature = "interpolation")]

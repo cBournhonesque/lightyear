@@ -106,13 +106,17 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent,
     {
-        let Some(mut registry) = self
+        if !self
             .app
-            .world_mut()
-            .get_resource_mut::<InterpolationRegistry>()
-        else {
-            return self;
-        };
+            .world()
+            .contains_resource::<InterpolationRegistry>()
+        {
+            self.app
+                .world_mut()
+                .insert_resource(InterpolationRegistry::default());
+        }
+        let mut registry = self.app.world_mut().resource_mut::<InterpolationRegistry>();
+
         registry.set_interpolation_mode::<C>(interpolation_mode);
         add_prepare_interpolation_systems::<C>(self.app, interpolation_mode);
         if interpolation_mode == InterpolationMode::Full {

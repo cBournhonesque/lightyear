@@ -138,6 +138,13 @@ impl NetworkVisibilityPlugin {
     //
     /// Update the visibility for each replicated entity.
     /// Gained becomes Maintained, Lost becomes cleared.
+    ///
+    /// We run this only if the ReplicationSender systems run, otherwise `Gained` would to go `Maintained` and
+    /// senders would only see entities as `Maintained`.
+    // TODO: this is buggy since the visibility should depend on the sender! Maybe we should store a tick
+    //  for when the visibility last changed. Then if the maintained tick is more recent than the previous sender's tick
+    //  it means that the entity became visible for the sender, so it should be treated as `Gained`.
+    //  Maybe we don't even need `Gained` and `Maintained`. just `Visible(Tick)` and `NotVisible`
     fn update_network_visibility(
         mut query: Query<&mut NetworkVisibility>,
         root_query: Query<&ReplicateLikeChildren>,

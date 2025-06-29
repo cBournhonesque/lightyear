@@ -395,7 +395,7 @@ impl HierarchySendPlugin {
 mod tests {
     use super::*;
 
-    use crate::buffer::Replicate;
+    use crate::send::components::Replicate;
     use alloc::vec;
 
     fn setup_hierarchy() -> (App, Entity, Entity, Entity) {

@@ -3,8 +3,6 @@
 //!
 
 use crate::control::{Controlled, ControlledBy, ControlledByRemote};
-#[cfg(feature = "server")]
-use crate::delta_mut::DeltaManager;
 use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike, ReplicateLikeChildren};
 use crate::message::{ActionsChannel, MetadataChannel, SenderMetadata, UpdatesChannel};
 use crate::prelude::*;
@@ -53,12 +51,6 @@ impl Plugin for SharedPlugin {
             .register_type::<ReplicationGroupId>();
 
         app.register_component::<Controlled>();
-
-        #[cfg(feature = "server")]
-        {
-            use lightyear_link::prelude::Server;
-            app.register_required_components::<Server, DeltaManager>();
-        }
 
         #[cfg(feature = "interpolation")]
         {

@@ -50,7 +50,7 @@ lightyear_replication = { workspace = true, features = [
     "server",
     "test_utils",
 ] }
-lightyear_crossbeam.workspace = true
+lightyear_crossbeam = { workspace = true, features = ["test_utils"] }
 lightyear_connection = { workspace = true, features = ["client", "server"] }
 lightyear_sync = { workspace = true, features = ["client", "server"] }
 lightyear_prediction = { workspace = true }

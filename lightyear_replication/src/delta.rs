@@ -10,6 +10,7 @@ use dashmap::DashMap;
 use lightyear_core::prelude::Tick;
 use lightyear_messages::Message;
 use serde::{Deserialize, Serialize};
+use tracing::trace;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum DeltaType {
@@ -107,6 +108,10 @@ unsafe impl Sync for PerComponentData {}
 /// so that the sender can compute deltas between the last sent state and the current state.
 ///
 /// The state is shared between all ReplicationSenders that use the same DeltaManager.
+///
+/// You have to insert this component manually, either on:
+/// - on your Sender entity, since the DeltaManager is shared across all clients that are connected to the same server
+/// - on your Client entity if you're doing client-to-server replication
 #[derive(Default, Component, Debug)]
 pub struct DeltaManager {
     // TODO: how to do we cleanup old keys?
@@ -139,10 +144,16 @@ impl DeltaManager {
                 }
             })
             .num_acks += 1;
+        trace!(
+            ?kind,
+            ?entity,
+            ?tick,
+            "DeltaManager: storing component value"
+        );
     }
 
     /// Get the stored component value so that we can compute deltas from it.
-    pub(crate) fn get(&self, entity: Entity, tick: Tick, kind: ComponentKind) -> Option<Ptr> {
+    pub fn get(&self, entity: Entity, tick: Tick, kind: ComponentKind) -> Option<Ptr> {
         let tick_data = self.state.get(&(kind, entity))?;
         let ptr = tick_data.data.get(&tick)?;
         Some(unsafe { Ptr::new(ptr.ptr) })
@@ -151,7 +162,7 @@ impl DeltaManager {
     /// We receive an ack from a client for a specific tick.
     /// Update the ack information;
     pub(crate) fn receive_ack(
-        &mut self,
+        &self,
         entity: Entity,
         tick: Tick,
         kind: ComponentKind,
@@ -161,14 +172,21 @@ impl DeltaManager {
             if let Some(per_tick_data) = group_data.data.get_mut(&tick) {
                 if per_tick_data.num_acks == 1 {
                     // TODO: maybe optimize this by keeping track in each message of which delta compression components were included?
+                    trace!(
+                        ?kind,
+                        ?entity,
+                        "DeltaManager: removing data for ticks older to {tick:?}",
+                    );
 
                     // if all clients have acked this tick, we can remove the data
-                    // for all ticks older or equal to this one
+                    // for all ticks older than this one
 
                     // we can remove all the keys older or equal than the acked key
-                    let recent_data = group_data.data.split_off(&(tick + 1));
+                    let recent_data = group_data.data.split_off(&tick);
                     // call drop on all the data that we are removing
                     group_data.data.values_mut().for_each(|tick_data| {
+                        // TODO: maybe this is not necessary, because it is extremely unlikely that the component
+                        //  will have anything to drop
                         // SAFETY: the ptr corresponds to the correct kind
                         unsafe { registry.erased_drop(tick_data.ptr, kind) }
                             .expect("unable to drop component value");
@@ -192,5 +210,114 @@ impl DeltaManager {
             group_data.data.retain(|k, _| *k - current_tick > delta);
             group_data
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prelude::AppComponentExt;
+    use bevy_app::App;
+    use bevy_ecs::component::Component;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+    pub struct Comp1(pub usize);
+
+    impl Diffable for Comp1 {
+        type Delta = usize;
+
+        fn base_value() -> Self {
+            Self(0)
+        }
+
+        fn diff(&self, other: &Self) -> Self::Delta {
+            other.0 - self.0
+        }
+
+        fn apply_diff(&mut self, delta: &Self::Delta) {
+            self.0 += *delta;
+        }
+    }
+
+    #[test]
+    fn test_receive_ack() {
+        let mut app = App::new();
+        app.register_component::<Comp1>().add_delta_compression();
+        let entity = Entity::from_raw(1);
+        let kind = ComponentKind::of::<Comp1>();
+        let registry = app.world().resource::<ComponentRegistry>();
+        let mut delta_manager = DeltaManager::default();
+
+        let tick_0 = Tick(0);
+        let tick_1 = Tick(1);
+        let tick_2 = Tick(2);
+        let comp1 = Comp1(10);
+
+        // store a component value for tick 1
+        delta_manager.store(entity, tick_1, kind, Ptr::from(&comp1), registry);
+        // store a component value for tick 1: when a component already exists, the pointer is not used
+        // here we provide the pointer for a value that is not in the registry, to make sure
+        // that we don't get a panic
+        delta_manager.store(entity, tick_1, kind, Ptr::from(&tick_1), registry);
+        assert_eq!(
+            delta_manager
+                .state
+                .get(&(kind, entity))
+                .expect("should have stored the component value")
+                .data
+                .get(&tick_1)
+                .unwrap()
+                .num_acks,
+            2
+        );
+
+        delta_manager.store(entity, tick_0, kind, Ptr::from(&comp1), registry);
+        delta_manager.store(entity, tick_2, kind, Ptr::from(&comp1), registry);
+
+        // receive an ack for tick 1: the number of acks should be decremented
+        delta_manager.receive_ack(entity, tick_1, kind, registry);
+        assert_eq!(
+            delta_manager
+                .state
+                .get(&(kind, entity))
+                .expect("should have stored the component value")
+                .data
+                .get(&tick_1)
+                .unwrap()
+                .num_acks,
+            1
+        );
+
+        // receive an ack for tick 1 again: the number of acks is now 0,
+        // so the data for ticks 1 and older should be removed, only the data for tick 2 should remain.
+        delta_manager.receive_ack(entity, tick_1, kind, registry);
+        assert!(
+            delta_manager
+                .state
+                .get(&(kind, entity))
+                .expect("should have stored the component value")
+                .data
+                .get(&tick_0)
+                .is_none()
+        );
+        assert!(
+            delta_manager
+                .state
+                .get(&(kind, entity))
+                .expect("should have stored the component value")
+                .data
+                .get(&tick_1)
+                .is_none()
+        );
+        assert!(
+            delta_manager
+                .state
+                .get(&(kind, entity))
+                .expect("should have stored the component value")
+                .data
+                .get(&tick_2)
+                .is_some()
+        );
     }
 }
