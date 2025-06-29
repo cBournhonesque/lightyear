@@ -57,6 +57,7 @@ lightyear_examples_common.workspace = true
 serde.workspace = true
 bevy.workspace = true
 
+
 [package.metadata.bevy_cli.web]
 rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
 default-features = false

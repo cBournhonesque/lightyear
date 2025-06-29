@@ -117,7 +117,7 @@ impl<S: ActionStateSequence + core::fmt::Display> core::fmt::Display for InputMe
         let ty = core::any::type_name::<S::Action>();
 
         if self.inputs.is_empty() {
-            return write!(f, "EmptyInputMessage<{:?}>", ty);
+            return write!(f, "EmptyInputMessage<{ty:?}>");
         }
         let buffer_str = self
             .inputs
@@ -131,8 +131,8 @@ impl<S: ActionStateSequence + core::fmt::Display> core::fmt::Display for InputMe
             .join("\n");
         write!(
             f,
-            "InputMessage<{:?}> (End Tick: {:?}):\n{}",
-            ty, self.end_tick, buffer_str
+            "InputMessage<{ty:?}> (End Tick: {:?}):\n{buffer_str}",
+            self.end_tick
         )
     }
 }

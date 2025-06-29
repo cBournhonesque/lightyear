@@ -12,6 +12,7 @@ use lightyear_replication::prelude::{
 };
 use lightyear_sync::prelude::InputTimeline;
 use test_log::test;
+use tracing::info;
 
 #[test]
 fn test_spawn() {
@@ -634,6 +635,7 @@ fn test_component_replicate_once_overrides() {
 fn test_component_disabled_overrides() {
     let mut stepper = ClientServerStepper::single();
 
+    info!("start");
     let client_entity = stepper
         .client_app()
         .world_mut()
@@ -656,6 +658,7 @@ fn test_component_disabled_overrides() {
             .is_none()
     );
 
+    info!("enabled global");
     let mut overrides = ComponentReplicationOverrides::<CompDisabled>::default();
     overrides.global_override(ComponentReplicationOverride {
         enable: true,
@@ -684,6 +687,7 @@ fn test_component_disabled_overrides() {
         &CompDisabled(2.0)
     );
 
+    info!("disabled for sender");
     stepper.client_apps[0]
         .world_mut()
         .entity_mut(client_entity)

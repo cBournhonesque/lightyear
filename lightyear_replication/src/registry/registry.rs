@@ -1,6 +1,5 @@
-use crate::components::ComponentReplicationConfig;
-use crate::delta::Diffable;
-use crate::prelude::ComponentReplicationOverrides;
+use crate::delta_mut::Diffable;
+use crate::prelude::{ComponentReplicationConfig, ComponentReplicationOverrides};
 use crate::registry::delta::ErasedDeltaFns;
 use crate::registry::replication::{GetWriteFns, ReplicationMetadata};
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
@@ -27,6 +26,8 @@ use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeMapper};
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
+#[cfg(feature = "trace")]
+use tracing::{Level, instrument};
 use tracing::{debug, trace};
 
 /// Function used to interpolate from one component state (`start`) to another (`other`)
@@ -276,6 +277,7 @@ impl ComponentRegistry {
         )
     }
 
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     /// SAFETY: the Ptr must correspond to the correct ComponentKind
     pub(crate) fn erased_serialize(
         &self,

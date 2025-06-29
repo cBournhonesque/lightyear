@@ -6,7 +6,7 @@
 //! In this case C1 has authority even though the server is still replicating some states.
 //!
 
-use crate::send::ReplicationSender;
+use crate::send::sender::ReplicationSender;
 use bevy_app::{App, Plugin};
 use bevy_ecs::{
     component::Component,
@@ -23,7 +23,6 @@ use lightyear_messages::prelude::{AppTriggerExt, RemoteTrigger, TriggerSender};
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, ReliableSettings};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
-
 // Authority:
 // - each replicating entity can have a AuthorityOf relationship to a sender to signify that that sender has authority over the entity
 // - only one sender can have authority over an entity at a time

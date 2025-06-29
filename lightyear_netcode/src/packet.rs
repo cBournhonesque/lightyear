@@ -1,6 +1,12 @@
 use alloc::{borrow::ToOwned, boxed::Box, string::String, vec};
 use bytes::BytesMut;
 use core::mem::size_of;
+#[cfg(not(feature = "std"))]
+use no_std_io2::{
+    io,
+    io::{Read, Write},
+};
+#[cfg(feature = "std")]
 use std::io::{self, Read, Write};
 
 use super::{

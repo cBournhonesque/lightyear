@@ -1,10 +1,8 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
 
-use crate::buffer::Replicate;
 use crate::plugin::ReplicationSet;
-use crate::prelude::PrePredicted;
+use crate::prelude::{PrePredicted, Replicate, ReplicationBufferSet};
 use crate::registry::registry::AppComponentExt;
-use crate::send::ReplicationBufferSet;
 use alloc::vec::Vec;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::{

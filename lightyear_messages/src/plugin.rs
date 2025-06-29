@@ -197,7 +197,8 @@ impl Plugin for MessagePlugin {
             ParamBuilder,
         )
             .build_state(app.world_mut())
-            .build_system(Self::recv);
+            .build_system(Self::recv)
+            .with_name("MessagePlugin::recv");
 
         let clear = (
             ParamBuilder,
@@ -211,7 +212,8 @@ impl Plugin for MessagePlugin {
             ParamBuilder,
         )
             .build_state(app.world_mut())
-            .build_system(Self::clear);
+            .build_system(Self::clear)
+            .with_name("MessagePlugin::clear");
 
         let send = (
             ParamBuilder,
@@ -231,7 +233,8 @@ impl Plugin for MessagePlugin {
             ParamBuilder,
         )
             .build_state(app.world_mut())
-            .build_system(Self::send);
+            .build_system(Self::send)
+            .with_name("MessagePlugin::send");
 
         let send_local = (
             ParamBuilder,
@@ -255,7 +258,8 @@ impl Plugin for MessagePlugin {
             ParamBuilder,
         )
             .build_state(app.world_mut())
-            .build_system(Self::send_local);
+            .build_system(Self::send_local)
+            .with_name("MessagePlugin::send_local");
 
         app.configure_sets(PreUpdate, MessageSet::Receive.after(TransportSet::Receive));
         app.configure_sets(PostUpdate, MessageSet::Send.before(TransportSet::Send));

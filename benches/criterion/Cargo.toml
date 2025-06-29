@@ -19,11 +19,15 @@ lightyear_tests = { workspace = true }
 
 # enable all the bevy defaults:
 bevy = { workspace = true, default-features = true }
+tracy-client = { version = "=0.18.0" }
 
 # crates specific to benchmarks, so not in top-level Cargo workspace
 pprof = { version = "0.14.0", features = ["flamegraph", "frame-pointer"] }
 criterion = { version = "0.6", features = ["html_reports"] }
 divan = "0.1.14"
+
+[lib]
+bench = false
 
 [[bin]]
 name = "replication_profiling"

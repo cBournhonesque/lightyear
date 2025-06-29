@@ -1,4 +1,3 @@
-use crate::buffer::Replicate;
 use crate::components::{ComponentReplicationOverrides, InitialReplicated, Replicated};
 use crate::control::{Controlled, ControlledBy};
 use crate::hierarchy::ReplicateLike;
@@ -6,6 +5,7 @@ use crate::hierarchy::ReplicateLike;
 use crate::prelude::InterpolationTarget;
 #[cfg(feature = "prediction")]
 use crate::prelude::PredictionTarget;
+use crate::prelude::Replicate;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::{
     change_detection::DetectChanges,

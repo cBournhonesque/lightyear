@@ -99,6 +99,7 @@ anyhow = { version = "1.0.75", features = [] }
 clap = { version = "4.5.4", features = ["derive"] }
 chrono = "0.4.38"
 cfg-if = "1.0"
+dashmap = "6.1.0"
 enum_dispatch = "0.3"
 governor = "0.10"
 hashbrown = { version = "0.15", default-features = false }
@@ -117,7 +118,6 @@ variadics_please = "1.1.0"
 no_std_io2 = { version = "0.9", features = ["alloc"] }
 
 # serialization
-
 bincode = { version = "2.0.1", default-features = false, features = [
   "serde",
   "alloc",
@@ -179,11 +179,18 @@ mock_instant = "0.6"
 approx = "0.5.1"
 
 # Bevy
-# (we add back features needed for gui clients if desired)
-bevy = { version = "0.16", default-features = false }
+# (the full app is used for examples)
+bevy = { version = "0.16", default-features = false, features = [
+  "bevy_state",
+  "bevy_log",
+  "serialize",
+  "bevy_asset",
+  "bevy_state",
+  "bevy_color",
+  "multi_threaded",
+  "sysinfo_plugin",
+] }
 bevy_app = { version = "0.16", default-features = false }
-bevy_asset = { version = "0.16", default-features = false }
-bevy_color = { version = "0.16", default-features = false }
 bevy_derive = { version = "0.16", default-features = false }
 bevy_diagnostic = { version = "0.16", default-features = false }
 bevy_ecs = { version = "0.16", default-features = false }
@@ -193,10 +200,10 @@ bevy_math = { version = "0.16", default-features = false }
 bevy_platform = { version = "0.16", default-features = false }
 bevy_ptr = { version = "0.16", default-features = false }
 bevy_reflect = { version = "0.16", default-features = false }
-bevy_state = { version = "0.16", default-features = false }
 bevy_time = { version = "0.16", default-features = false }
 bevy_transform = { version = "0.16", default-features = false }
 bevy_utils = { version = "0.16", default-features = false }
+tracy-client = { version = "=0.18.0" }
 
 # input
 bevy_enhanced_input = { git = "https://github.com/cBournhonesque/bevy_enhanced_input.git", branch = "cb/networking" }

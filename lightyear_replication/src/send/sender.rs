@@ -1,37 +1,16 @@
-//! General struct handling replication
-use core::iter::Extend;
-
-use super::message::{
-    ActionsChannel, EntityActions, MetadataChannel, SendEntityActionsMessage, SenderMetadata,
-    SpawnAction, UpdatesChannel, UpdatesSendMessage,
-};
-use super::message::{ActionsMessage, UpdatesMessage};
-use crate::buffer;
-use crate::buffer::Replicate;
-#[cfg(feature = "interpolation")]
-use crate::components::InterpolationTarget;
-#[cfg(feature = "prediction")]
-use crate::components::PredictionTarget;
-use crate::components::{Replicating, ReplicationGroup, ReplicationGroupId};
-use crate::control::ControlledBy;
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
-use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
-use crate::plugin::ReplicationSet;
-use crate::prelude::NetworkVisibility;
+use crate::message::{
+    ActionsChannel, EntityActions, SendEntityActionsMessage, SpawnAction, UpdatesChannel,
+    UpdatesSendMessage,
+};
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
+use crate::send::components::ReplicationGroupId;
 use alloc::{string::ToString, vec::Vec};
-use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::{
     component::{Component, Tick as BevyTick},
     entity::{Entity, EntityHash, EntityIndexMap},
-    observer::{Observer, Trigger},
-    query::With,
-    resource::Resource,
-    schedule::{IntoScheduleConfigs, SystemSet},
-    system::{ParamBuilder, Query, QueryParamBuilder, Res, SystemChangeTick, SystemParamBuilder},
-    world::OnAdd,
 };
 use bevy_platform::collections::{HashMap, HashSet};
 use bevy_ptr::Ptr;
@@ -39,54 +18,20 @@ use bevy_reflect::Reflect;
 use bevy_time::{Real, Time, Timer, TimerMode};
 use bytes::Bytes;
 use core::time::Duration;
-use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::prelude::LocalTimeline;
-use lightyear_core::tick::{Tick, TickDuration};
-use lightyear_core::time::TickDelta;
-use lightyear_core::timeline::NetworkTimeline;
+use lightyear_core::tick::Tick;
 use lightyear_messages::MessageNetId;
-use lightyear_messages::plugin::MessageSet;
-use lightyear_messages::prelude::TriggerSender;
-use lightyear_messages::registry::{MessageKind, MessageRegistry};
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
 use lightyear_serde::writer::Writer;
-use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::packet::message::MessageId;
-use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, trace};
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = HashSet<K, EntityHash>;
-
-/// When a [`UpdatesMessage`] message gets buffered (and we have access to its [`MessageId`]),
-/// we keep track of some information related to this message.
-/// It is useful when we get notified that the message was acked or lost.
-#[derive(Debug, PartialEq)]
-pub(crate) struct UpdateMessageMetadata {
-    /// The group id that this message is about
-    group_id: ReplicationGroupId,
-    /// The BevyTick at which we buffered the message
-    bevy_tick: BevyTick,
-    /// The tick at which we buffered the message
-    tick: Tick,
-    /// The (entity, component) pairs that were included in the message
-    delta: Vec<(Entity, ComponentKind)>,
-}
-
-/// System sets to order systems that buffer updates that need to be replicated
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum ReplicationBufferSet {
-    BeforeBuffer,
-    // Buffer any replication updates in the ReplicationSender
-    Buffer,
-    AfterBuffer,
-    // Flush the buffered replication messages to the Transport
-    Flush,
-}
 
 #[derive(Clone, Copy, Debug, Reflect)]
 pub enum SendUpdatesMode {
@@ -106,353 +51,6 @@ pub enum SendUpdatesMode {
     ///
     /// If we receive a NACK (i.e. the packet got lost), we will send the updates since the last ACK.
     SinceLastSend,
-}
-
-pub struct ReplicationSendPlugin;
-
-#[derive(Resource, Debug)]
-pub(crate) struct SendIntervalTimer {
-    pub(crate) timer: Option<Timer>,
-}
-
-impl ReplicationSendPlugin {
-    /// Before buffering messages, tick the timers and handle the acks
-    fn handle_acks(
-        time: Res<Time<Real>>,
-        component_registry: Res<ComponentRegistry>,
-        change_tick: SystemChangeTick,
-        mut query: Query<
-            (&mut ReplicationSender, &mut DeltaManager, &mut Transport),
-            With<Connected>,
-        >,
-    ) {
-        query
-            .par_iter_mut()
-            .for_each(|(mut sender, mut delta, mut transport)| {
-                let bevy_tick = change_tick.this_run();
-                sender.send_timer.tick(time.delta());
-                let update_nacks = &mut transport
-                    .senders
-                    .get_mut(&ChannelKind::of::<UpdatesChannel>())
-                    .unwrap()
-                    .message_nacks;
-                sender.handle_nacks(bevy_tick, update_nacks);
-                let update_acks = &mut transport
-                    .senders
-                    .get_mut(&ChannelKind::of::<UpdatesChannel>())
-                    .unwrap()
-                    .message_acks;
-                sender.handle_acks(&component_registry, &mut delta, update_acks);
-            });
-    }
-
-    fn send_replication_messages(
-        time: Res<Time<Real>>,
-        message_registry: Res<MessageRegistry>,
-        change_tick: SystemChangeTick,
-        // We send messages directly through the transport instead of MessageSender<EntityActionsMessage>
-        // but I don't remember why
-        mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline), With<Connected>>,
-    ) {
-        let actions_net_id = *message_registry
-            .kind_map
-            .net_id(&MessageKind::of::<ActionsMessage>())
-            .unwrap();
-        let updates_net_id = *message_registry
-            .kind_map
-            .net_id(&MessageKind::of::<UpdatesMessage>())
-            .unwrap();
-        query
-            .par_iter_mut()
-            .for_each(|(mut sender, mut transport, timeline)| {
-                if !sender.send_timer.finished() {
-                    return;
-                }
-                let bevy_tick = change_tick.this_run();
-                sender.send_timer.reset();
-                // TODO: also tick ReplicationGroups?
-                sender.accumulate_priority(&time);
-                sender
-                    .send_actions_messages(
-                        timeline.tick(),
-                        bevy_tick,
-                        &mut transport,
-                        actions_net_id,
-                    )
-                    .inspect_err(|e| error!("Error buffering ActionsMessage: {e:?}"))
-                    .ok();
-                sender
-                    .send_updates_messages(
-                        timeline.tick(),
-                        bevy_tick,
-                        &mut transport,
-                        updates_net_id,
-                    )
-                    .inspect_err(|e| error!("Error buffering UpdatesMessage: {e:?}"))
-                    .ok();
-            });
-    }
-
-    /// Check which replication messages were actually sent, and update the
-    /// priority accordingly
-    fn update_priority(
-        mut query: Query<(&mut ReplicationSender, &mut Transport), With<Connected>>,
-    ) {
-        query
-            .par_iter_mut()
-            .for_each(|(mut sender, mut transport)| {
-                if !sender.send_timer.finished() {
-                    return;
-                }
-                let messages_sent = &mut transport
-                    .senders
-                    .get_mut(&ChannelKind::of::<UpdatesChannel>())
-                    .unwrap()
-                    .messages_sent;
-                sender.recv_send_notification(messages_sent);
-            });
-    }
-
-    /// Send a message containing metadata about the sender
-    fn send_sender_metadata(
-        // NOTE: it's important to trigger on both OnAdd<Connected> and OnAdd<ReplicationSender> because the ClientOf could be
-        //  added BEFORE the ReplicationSender is added. (ClientOf is spawned by netcode, ReplicationSender is added by the user)
-        trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
-        tick_duration: Res<TickDuration>,
-        mut query: Query<(&ReplicationSender, &mut TriggerSender<SenderMetadata>), With<Connected>>,
-    ) {
-        if let Ok((sender, mut trigger_sender)) = query.get_mut(trigger.target()) {
-            let send_interval = sender.send_interval();
-            let send_interval_delta = TickDelta::from_duration(send_interval, tick_duration.0);
-            let metadata = SenderMetadata {
-                send_interval: send_interval_delta.into(),
-            };
-            trigger_sender.trigger::<MetadataChannel>(metadata);
-        }
-    }
-
-    /// On disconnect, reset the replication sender to its original state
-    fn handle_disconnection(
-        trigger: Trigger<OnAdd, Disconnected>,
-        mut query: Query<&mut ReplicationSender>,
-    ) {
-        if let Ok(mut sender) = query.get_mut(trigger.target()) {
-            *sender = ReplicationSender::new(
-                sender.send_interval(),
-                sender.send_updates_mode,
-                sender.bandwidth_cap_enabled,
-            );
-        }
-    }
-
-    // /// Tick the internal timers of all replication groups.
-    // fn tick_replication_group_timers(
-    //     time_manager: Res<TimeManager>,
-    //     mut replication_groups: Query<&mut ReplicationGroup, With<Replicating>>,
-    // ) {
-    //     for mut replication_group in replication_groups.iter_mut() {
-    //         if let Some(send_frequency) = &mut replication_group.send_frequency {
-    //             send_frequency.tick(time_manager.delta());
-    //             if send_frequency.finished() {
-    //                 replication_group.should_send = true;
-    //             }
-    //         }
-    //     }
-    // }
-
-    // /// After we buffer updates, reset all the `should_send` to false
-    // /// for the replication groups that have a `send_frequency`
-    // fn update_replication_group_should_send(
-    //     mut replication_groups: Query<&mut ReplicationGroup, With<Replicating>>,
-    // ) {
-    //     for mut replication_group in replication_groups.iter_mut() {
-    //         if replication_group.send_frequency.is_some() {
-    //             replication_group.should_send = false;
-    //         }
-    //     }
-    // }
-}
-
-impl Plugin for ReplicationSendPlugin {
-    fn build(&self, app: &mut App) {
-        // PLUGINS
-        if !app.is_plugin_added::<crate::plugin::SharedPlugin>() {
-            app.add_plugins(crate::plugin::SharedPlugin);
-        }
-
-        // SETS
-        app.configure_sets(
-            PostUpdate,
-            (
-                // buffer the messages before we send them
-                (ReplicationSet::Send, MessageSet::Send).chain(),
-                (
-                    ReplicationBufferSet::BeforeBuffer,
-                    ReplicationBufferSet::Buffer,
-                    ReplicationBufferSet::AfterBuffer,
-                    ReplicationBufferSet::Flush,
-                )
-                    .chain()
-                    .in_set(ReplicationSet::Send),
-            ),
-        );
-
-        // SYSTEMS
-        app.add_observer(buffer::buffer_entity_despawn_replicate_remove);
-        app.add_observer(Self::send_sender_metadata);
-        app.add_observer(Replicate::handle_connection);
-        #[cfg(feature = "prediction")]
-        {
-            app.add_observer(PredictionTarget::handle_connection);
-            app.add_observer(PredictionTarget::add_replication_group);
-        }
-        #[cfg(feature = "interpolation")]
-        app.add_observer(InterpolationTarget::handle_connection);
-        app.add_observer(Self::handle_disconnection);
-
-        app.add_observer(ControlledBy::handle_disconnection);
-
-        app.add_systems(
-            PostUpdate,
-            Self::handle_acks.in_set(ReplicationBufferSet::BeforeBuffer),
-        );
-        app.add_systems(
-            PostUpdate,
-            buffer::buffer_entity_despawn_replicate_updated.in_set(ReplicationBufferSet::Buffer),
-        );
-        app.add_systems(
-            PostUpdate,
-            buffer::update_cached_replicate_post_buffer.in_set(ReplicationBufferSet::AfterBuffer),
-        );
-        app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
-        app.add_systems(
-            PostUpdate,
-            Self::send_replication_messages.in_set(ReplicationBufferSet::Flush),
-        );
-
-        // app.add_systems(
-        //     PostUpdate,
-        //     (
-        //         crate::send_plugin::ReplicationSendPlugin::tick_replication_group_timers
-        //             .in_set(InternalReplicationSet::<R::SetMarker>::BeforeBuffer),
-        //         crate::send_plugin::ReplicationSendPlugin::update_replication_group_should_send
-        //             // note that this runs every send_interval
-        //             .in_set(InternalReplicationSet::<R::SetMarker>::AfterBuffer),
-        //     ),
-        // );
-    }
-
-    fn finish(&self, app: &mut App) {
-        if !app.world().contains_resource::<ComponentRegistry>() {
-            warn!("ReplicationSendPlugin: ComponentRegistry not found, adding it");
-            app.world_mut().init_resource::<ComponentRegistry>();
-        }
-        // temporarily remove component_registry from the app to enable split borrows
-        let component_registry = app
-            .world_mut()
-            .remove_resource::<ComponentRegistry>()
-            .unwrap();
-
-        let replicate = (
-            QueryParamBuilder::new(|builder| {
-                // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
-                builder.or(|b| {
-                    b.with::<ReplicateLikeChildren>();
-                    b.with::<ReplicateLike>();
-                    b.and(|b| {
-                        b.with::<Replicating>();
-                        b.with::<Replicate>();
-                    });
-                });
-                builder.optional(|b| {
-                    b.data::<(
-                        &Replicate,
-                        &ReplicationGroup,
-                        &NetworkVisibility,
-                        &ReplicateLikeChildren,
-                        &ReplicateLike,
-                        &ControlledBy,
-                    )>();
-                    #[cfg(feature = "prediction")]
-                    b.data::<&PredictionTarget>();
-                    #[cfg(feature = "interpolation")]
-                    b.data::<&InterpolationTarget>();
-                    // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
-                    component_registry
-                        .replication_map
-                        .iter()
-                        .for_each(|(kind, _)| {
-                            let id = component_registry.kind_to_component_id.get(kind).unwrap();
-                            b.ref_id(*id);
-                            let override_id = component_registry
-                                .replication_map
-                                .get(kind)
-                                .unwrap()
-                                .overrides_component_id;
-                            b.ref_id(override_id);
-                        });
-                });
-            }),
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-        )
-            .build_state(app.world_mut())
-            .build_system(buffer::replicate);
-
-        let buffer_component_remove = (
-            QueryParamBuilder::new(|builder| {
-                // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
-                builder.or(|b| {
-                    b.with::<ReplicateLike>();
-                    b.and(|b| {
-                        b.with::<Replicating>();
-                        b.with::<Replicate>();
-                    });
-                });
-                builder.optional(|b| {
-                    b.data::<(&ReplicateLike, &Replicate, &ReplicationGroup)>();
-                    // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
-                    component_registry
-                        .replication_map
-                        .iter()
-                        .for_each(|(kind, _)| {
-                            let id = component_registry.kind_to_component_id.get(kind).unwrap();
-                            b.ref_id(*id);
-                            let override_id = component_registry
-                                .replication_map
-                                .get(kind)
-                                .unwrap()
-                                .overrides_component_id;
-                            b.ref_id(override_id);
-                        });
-                });
-            }),
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-        )
-            .build_state(app.world_mut())
-            .build_system_with_input(buffer::buffer_component_removed);
-
-        let mut buffer_component_remove_observer = Observer::new(buffer_component_remove);
-        for component in component_registry.component_id_to_kind.keys() {
-            buffer_component_remove_observer =
-                buffer_component_remove_observer.with_component(*component);
-        }
-        app.world_mut().spawn(buffer_component_remove_observer);
-
-        app.add_systems(
-            PostUpdate,
-            // TODO: putting it here means we might miss entities that are spawned and despawned within the send_interval? bug or feature?
-            replicate.in_set(ReplicationBufferSet::Buffer),
-        );
-
-        app.world_mut().insert_resource(component_registry);
-    }
 }
 
 #[derive(Component, Debug)]
@@ -479,9 +77,9 @@ pub struct ReplicationSender {
     pub(crate) last_run: BevyTick,
     /// Tick when we last did a cleanup
     pub(crate) last_cleanup_tick: Option<Tick>,
-    send_updates_mode: SendUpdatesMode,
+    pub(crate) send_updates_mode: SendUpdatesMode,
     // TODO: detect automatically if priority manager is enabled!
-    bandwidth_cap_enabled: bool,
+    pub(crate) bandwidth_cap_enabled: bool,
 }
 
 impl Default for ReplicationSender {
@@ -668,10 +266,8 @@ impl ReplicationSender {
                         channel
                             .delta_ack_ticks
                             .insert((entity, component_kind), tick);
+                        delta_manager.receive_ack(entity, tick, component_kind, component_registry);
                     }
-
-                    // update the acks for the delta manager
-                    delta_manager.receive_ack(tick, group_id, component_registry);
                 } _ => {
                     error!("Received an update message-id ack but the corresponding group channel does not exist");
                 }}
@@ -786,7 +382,7 @@ impl ReplicationSender {
     // we want to send all component inserts that happen together for the same entity in a single message
     // (because otherwise the inserts might be received at different packets/ticks by the remote, and
     // the remote might expect the components insert to be received at the same time)
-    // #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_component_insert(
         &mut self,
         entity: Entity,
@@ -857,11 +453,12 @@ impl ReplicationSender {
     pub(crate) fn prepare_delta_component_update(
         &mut self,
         entity: Entity,
+        mapped_entity: Entity,
         group_id: ReplicationGroupId,
         kind: ComponentKind,
         component_data: Ptr,
         registry: &ComponentRegistry,
-        delta_manager: &mut DeltaManager,
+        delta_manager: &DeltaManager,
         _tick: Tick,
         remote_entity_map: &mut RemoteEntityMap,
     ) -> Result<(), ReplicationError> {
@@ -878,9 +475,8 @@ impl ReplicationSender {
                 // we have an ack tick for this replication group, get the corresponding component value
                 // so we can compute a diff
                 let old_data = delta_manager
-                    .data
                     // NOTE: remember to use the local entity for local bookkeeping
-                    .get_component_value(entity, ack_tick, kind, group_id)
+                    .get(entity, ack_tick, kind)
                     .ok_or(ReplicationError::DeltaCompressionError(
                         "could not find old component value to compute delta".to_string(),
                     ))
@@ -891,7 +487,7 @@ impl ReplicationSender {
                             "Could not find old component value from tick {:?} to compute delta: {e:?}",
                             ack_tick,
                         );
-                        error!("DeltaManager data: {:?}", delta_manager.data);
+                        error!("DeltaManager: {:?}", delta_manager);
                     })?;
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
                 unsafe {
@@ -921,13 +517,10 @@ impl ReplicationSender {
             })?;
         trace!(?kind, "Inserting pending update!");
         // use the network entity when serializing
-        let entity = remote_entity_map.to_remote(entity);
-        self.prepare_component_update(entity, group_id, raw_data);
-        self.group_channels
-            .entry(group_id)
-            .or_default()
+        group_channel
             .pending_delta_updates
-            .push((entity, kind));
+            .push((mapped_entity, kind));
+        self.prepare_component_update(mapped_entity, group_id, raw_data);
         Ok(())
     }
 
@@ -1102,6 +695,21 @@ impl ReplicationSender {
         })
         // TODO: also return for each message a list of the components that have delta-compression data?
     }
+}
+
+/// When a [`UpdatesMessage`] message gets buffered (and we have access to its [`MessageId`]),
+/// we keep track of some information related to this message.
+/// It is useful when we get notified that the message was acked or lost.
+#[derive(Debug, PartialEq)]
+pub(crate) struct UpdateMessageMetadata {
+    /// The group id that this message is about
+    group_id: ReplicationGroupId,
+    /// The BevyTick at which we buffered the message
+    bevy_tick: BevyTick,
+    /// The tick at which we buffered the message
+    tick: Tick,
+    /// The (entity, component) pairs that were included in the message
+    delta: Vec<(Entity, ComponentKind)>,
 }
 
 /// Channel to keep track of sending replication messages for a given Group

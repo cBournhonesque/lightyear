@@ -34,8 +34,9 @@ use bevy_ecs::{
 use bevy_platform::collections::hash_map::Entry;
 use bevy_reflect::Reflect;
 
-use crate::prelude::{ReplicateLikeChildren, ReplicationSender};
-use crate::send::ReplicationBufferSet;
+use crate::prelude::ReplicateLikeChildren;
+use crate::send::plugin::ReplicationBufferSet;
+use crate::send::sender::ReplicationSender;
 
 /// Event related to [`Entities`](Entity) which are relevant to a client
 #[derive(Debug, PartialEq, Clone, Copy, Reflect)]

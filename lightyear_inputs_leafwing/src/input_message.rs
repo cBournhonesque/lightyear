@@ -1,4 +1,4 @@
-use std::time::Instant;
+use bevy_platform::time::Instant;
 
 use crate::action_diff::ActionDiff;
 use crate::action_state::LeafwingUserAction;

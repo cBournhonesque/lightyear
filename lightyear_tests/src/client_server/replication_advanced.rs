@@ -2,9 +2,8 @@
 
 use crate::protocol::CompA;
 use crate::stepper::ClientServerStepper;
-use lightyear_replication::components::ReplicationGroupId;
 use lightyear_replication::message::UpdatesChannel;
-use lightyear_replication::prelude::{Replicate, ReplicationSender};
+use lightyear_replication::prelude::{Replicate, ReplicationGroupId, ReplicationSender};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::Transport;
 

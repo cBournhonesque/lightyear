@@ -1,17 +1,12 @@
 //! Logic related to delta compression (sending only the changes between two states, instead of the new state)
 
-use crate::components::ReplicationGroupId;
 use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
 use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
-use bevy_ecs::{
-    component::Component,
-    entity::{Entity, EntityHash},
-};
-use bevy_platform::collections::HashMap;
+use bevy_ecs::{component::Component, entity::Entity};
 use bevy_ptr::Ptr;
 use core::ptr::NonNull;
+use dashmap::DashMap;
 use lightyear_core::prelude::Tick;
 use lightyear_messages::Message;
 use serde::{Deserialize, Serialize};
@@ -78,48 +73,111 @@ impl<C> Default for DeltaComponentHistory<C> {
     }
 }
 
+#[derive(Debug)]
+struct PerTickData {
+    /// The data for each tick, stored as a NonNull<u8> pointer to the component value
+    /// This is used to avoid copying the component value for each connection
+    ///
+    /// The data will be used to compute deltas between the last sent state and the current state.
+    ptr: NonNull<u8>,
+    /// The number of remote peers that we have yet to receive an ack from.
+    /// Incremented by 1 when we send the component.
+    /// Decremented by 1 when receive the ack.
+    /// When it reaches 0, we can delete the data for this tick and all older ticks.
+    num_acks: usize,
+}
+
+#[derive(Debug, Default)]
+struct PerComponentData {
+    /// The data for each tick, stored as a NonNull<u8> pointer to the component value
+    /// This is used to avoid copying the component value for each connection
+    ///
+    /// We also store the number of remote peers that we have sent the component value
+    /// for this tick to.
+    ///
+    /// The data will be used to compute deltas between the last sent state and the current state.
+    data: BTreeMap<Tick, PerTickData>,
+}
+
+unsafe impl Send for PerComponentData {}
+unsafe impl Sync for PerComponentData {}
+
+// TODO: handle TickSyncEvent
+/// Component that will manage keeping the old state of diffable components
+/// so that the sender can compute deltas between the last sent state and the current state.
+///
+/// The state is shared between all ReplicationSenders that use the same DeltaManager.
 #[derive(Default, Component, Debug)]
 pub struct DeltaManager {
-    pub(crate) data: DeltaComponentStore,
-    /// Keeps track of how many clients have acked a specific tick for a specific replication group
-    /// Used to track when we can drop old data.
-    // TODO: maybe we don't need this and we can just drop data after 100 tick?
-    // TODO: this should be per component! especially if do the send updates since `send_tick` which needs
-    //  to be done since (entity, component)
-    pub(crate) acks: EntityHashMap<ReplicationGroupId, HashMap<Tick, usize>>,
+    // TODO: how to do we cleanup old keys?
+    state: DashMap<(ComponentKind, Entity), PerComponentData>,
 }
 
 impl DeltaManager {
+    /// Notify the DeltaManager that we are sending an update for a specific entity and component.
+    ///
+    /// - Store the component value for this tick, so that we can compute deltas from it later
+    /// - Remember that we sent this tick for this entity and component, so that we can track how many clients have acked it.
+    pub(crate) fn store(
+        &self,
+        entity: Entity,
+        tick: Tick,
+        kind: ComponentKind,
+        component: Ptr,
+        registry: &ComponentRegistry,
+    ) {
+        self.state
+            .entry((kind, entity))
+            .or_default()
+            .data
+            .entry(tick)
+            .or_insert_with(|| {
+                PerTickData {
+                    // SAFETY: the component Ptr corresponds to kind
+                    ptr: unsafe { registry.erased_clone(component, kind).unwrap() },
+                    num_acks: 0,
+                }
+            })
+            .num_acks += 1;
+    }
+
+    /// Get the stored component value so that we can compute deltas from it.
+    pub(crate) fn get(&self, entity: Entity, tick: Tick, kind: ComponentKind) -> Option<Ptr> {
+        let tick_data = self.state.get(&(kind, entity))?;
+        let ptr = tick_data.data.get(&tick)?;
+        Some(unsafe { Ptr::new(ptr.ptr) })
+    }
+
     /// We receive an ack from a client for a specific tick.
     /// Update the ack information;
     pub(crate) fn receive_ack(
         &mut self,
+        entity: Entity,
         tick: Tick,
-        replication_group: ReplicationGroupId,
-        component_registry: &ComponentRegistry,
+        kind: ComponentKind,
+        registry: &ComponentRegistry,
     ) {
-        // check if we can remove the stored data because all clients have acked this tick
-        let mut delete = false;
-        if let Some(group_data) = self.acks.get_mut(&replication_group) {
-            if let Some(sent_number) = group_data.get_mut(&tick) {
-                if *sent_number == 1 {
+        if let Some(mut group_data) = self.state.get_mut(&(kind, entity)) {
+            if let Some(per_tick_data) = group_data.data.get_mut(&tick) {
+                if per_tick_data.num_acks == 1 {
                     // TODO: maybe optimize this by keeping track in each message of which delta compression components were included?
-                    // all the clients have acked this message, we can remove the data for all ticks older than this one
-                    delete = true;
+
+                    // if all clients have acked this tick, we can remove the data
+                    // for all ticks older or equal to this one
+
+                    // we can remove all the keys older or equal than the acked key
+                    let recent_data = group_data.data.split_off(&(tick + 1));
+                    // call drop on all the data that we are removing
+                    group_data.data.values_mut().for_each(|tick_data| {
+                        // SAFETY: the ptr corresponds to the correct kind
+                        unsafe { registry.erased_drop(tick_data.ptr, kind) }
+                            .expect("unable to drop component value");
+                    });
+                    group_data.data = recent_data;
                 } else {
-                    *sent_number -= 1;
+                    per_tick_data.num_acks -= 1;
                 }
             }
-        }
-        if delete {
-            // remove data strictly older than the tick
-            self.data
-                .delete_old_data(tick, replication_group, component_registry);
-            // remove all ack data older or equal to the tick
-            self.acks
-                .get_mut(&replication_group)
-                .unwrap()
-                .retain(|k, _| *k > tick);
         }
     }
 
@@ -130,94 +188,9 @@ impl DeltaManager {
     /// we will be sending a full component value)
     pub(crate) fn tick_cleanup(&mut self, current_tick: Tick) {
         let delta = (u16::MAX / 3) as i16;
-        self.acks.values_mut().for_each(|group_data| {
-            group_data.retain(|k, _| *k - current_tick > delta);
+        self.state.alter_all(|_, mut group_data| {
+            group_data.data.retain(|k, _| *k - current_tick > delta);
+            group_data
         });
-        self.data.data.values_mut().for_each(|group_data| {
-            group_data.retain(|k, _| *k - current_tick > delta);
-        });
-    }
-}
-
-type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
-
-/// We have a shared store of the component values for diffable components.
-/// We keep some of the values in memory so that we can compute the delta between the previously
-/// send state and the current state.
-/// We want this store to be shared across all ReplicationSenders (if there are multiple connections),
-/// to avoid copying the component value for each connection
-#[derive(Default, Debug)]
-pub struct DeltaComponentStore {
-    // TODO: maybe store the values on the components directly?
-    data: EntityHashMap<
-        ReplicationGroupId,
-        // Using a vec seems faster than using nested HashMaps
-        BTreeMap<Tick, Vec<(ComponentKind, Entity, NonNull<u8>)>>,
-    >,
-}
-
-unsafe impl Send for DeltaComponentStore {}
-unsafe impl Sync for DeltaComponentStore {}
-
-impl DeltaComponentStore {
-    pub(crate) fn store_component_value(
-        &mut self,
-        entity: Entity,
-        tick: Tick,
-        kind: ComponentKind,
-        component: Ptr,
-        replication_group: ReplicationGroupId,
-        registry: &ComponentRegistry,
-    ) {
-        // SAFETY: the component Ptr corresponds to kind
-        let cloned = unsafe { registry.erased_clone(component, kind).unwrap() };
-        self.data
-            .entry(replication_group)
-            .or_default()
-            .entry(tick)
-            .or_default()
-            .push((kind, entity, cloned));
-    }
-
-    pub(crate) fn get_component_value(
-        &self,
-        entity: Entity,
-        tick: Tick,
-        kind: ComponentKind,
-        replication_group: ReplicationGroupId,
-    ) -> Option<Ptr> {
-        self.data
-            .get(&replication_group)?
-            .get(&tick)?
-            .iter()
-            .find_map(|(k, e, ptr)| {
-                if *k == kind && *e == entity {
-                    Some(unsafe { Ptr::new(*ptr) })
-                } else {
-                    None
-                }
-            })
-    }
-
-    pub(crate) fn delete_old_data(
-        &mut self,
-        tick: Tick,
-        replication_group: ReplicationGroupId,
-        registry: &ComponentRegistry,
-    ) {
-        todo!()
-        // if let Some(data) = self.data.get_mut(&replication_group) {
-        //     // we can remove all the keys older than the acked key
-        //     let recent_data = data.split_off(&tick).into_iter().collect();
-        //     // call drop on all the data that we are removing
-        //     data.values_mut().for_each(|tick_data| {
-        //         tick_data.iter().for_each(|(kind, _, owned_ptr)| unsafe {
-        //             // SAFETY: the ptr corresponds to the kind
-        //             registry.erased_drop(*owned_ptr, *kind).unwrap();
-        //         });
-        //     });
-        //     // only keep the data that is more recent (inclusive) than the acked tick
-        //     *data = recent_data;
-        // }
     }
 }
