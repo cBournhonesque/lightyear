@@ -7,6 +7,7 @@ use leafwing_input_manager::Actionlike;
 use lightyear::prelude::input::*;
 use lightyear::prelude::*;
 use lightyear_connection::direction::NetworkDirection;
+use lightyear_replication::delta::Diffable;
 use serde::{Deserialize, Serialize};
 
 // Messages
@@ -65,6 +66,24 @@ impl Ease for CompCorr {
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompNotNetworked(pub f32);
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompDelta(pub usize);
+impl Diffable for CompDelta {
+    type Delta = usize;
+
+    fn base_value() -> Self {
+        Self(0)
+    }
+
+    fn diff(&self, other: &Self) -> Self::Delta {
+        other.0 - self.0
+    }
+
+    fn apply_diff(&mut self, delta: &Self::Delta) {
+        self.0 += *delta;
+    }
+}
 
 // Native Inputs
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
@@ -139,7 +158,6 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<CompMap>()
             .add_prediction(PredictionMode::Full)
             .add_map_entities();
-        app.add_rollback::<CompNotNetworked>();
         app.register_component::<CompDisabled>()
             .with_replication_config(ComponentReplicationConfig {
                 disable: true,
@@ -150,6 +168,9 @@ impl Plugin for ProtocolPlugin {
                 replicate_once: true,
                 ..default()
             });
+        app.add_rollback::<CompNotNetworked>();
+        app.register_component::<CompDelta>()
+            .add_delta_compression();
         // inputs
         app.add_plugins(native::InputPlugin::<NativeInput> {
             config: InputConfig::<NativeInput> {

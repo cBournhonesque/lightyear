@@ -5,8 +5,11 @@ use core::time::Duration;
 
 /// A plugin group containing all the client plugins.
 ///
-/// By default, the following plugins will be added:
-///
+/// The order in which the plugins are added matters!
+/// You need to add:
+/// - first add the `ClientPlugins`
+/// - then build your protocol (usually in a `ProtocolPlugin`)
+/// - then spawn your `Client` entity
 pub struct ClientPlugins {
     /// The tick interval for the client. This is used to determine how often the client should tick.
     /// The default value is 1/60 seconds.
@@ -17,6 +20,7 @@ impl PluginGroup for ClientPlugins {
     #[allow(clippy::let_and_return)]
     fn build(self) -> PluginGroupBuilder {
         let builder = PluginGroupBuilder::start::<Self>();
+
         let builder = builder.add(lightyear_sync::client::ClientPlugin);
 
         let builder = builder.add(SharedPlugins {

@@ -27,6 +27,7 @@ use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::TickDelta;
 use lightyear_core::timeline::NetworkTimeline;
+use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::TriggerSender;
 use lightyear_messages::registry::{MessageKind, MessageRegistry};
@@ -44,13 +45,24 @@ impl ReplicationSendPlugin {
         component_registry: Res<ComponentRegistry>,
         change_tick: SystemChangeTick,
         mut query: Query<
-            (&mut ReplicationSender, &mut DeltaManager, &mut Transport),
+            (
+                &mut ReplicationSender,
+                &mut Transport,
+                Option<&DeltaManager>,
+                Option<&LinkOf>,
+            ),
             With<Connected>,
         >,
+        delta_query: Query<&DeltaManager, With<Server>>,
     ) {
         query
             .par_iter_mut()
-            .for_each(|(mut sender, mut delta, mut transport)| {
+            .for_each(|(mut sender, mut transport, delta, link_of)| {
+                // TODO: maybe precompute for every entity DeltaManagerChildOf?
+                // delta: either the delta manager is present on the sender directly (Client)
+                // or the delta is on the server
+                let delta = delta.or_else(|| link_of.and_then(|l| delta_query.get(l.server).ok()));
+
                 let bevy_tick = change_tick.this_run();
                 sender.send_timer.tick(time.delta());
                 let update_nacks = &mut transport
@@ -64,7 +76,8 @@ impl ReplicationSendPlugin {
                     .get_mut(&ChannelKind::of::<UpdatesChannel>())
                     .unwrap()
                     .message_acks;
-                sender.handle_acks(&component_registry, delta.as_mut(), update_acks);
+                // TODO: should we also handle ActionsChannel acks?
+                sender.handle_acks(&component_registry, delta, update_acks);
             });
     }
 

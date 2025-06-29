@@ -56,7 +56,6 @@ pub enum SendUpdatesMode {
 #[derive(Component, Debug)]
 #[require(Transport)]
 #[require(LocalTimeline)]
-#[require(DeltaManager)]
 pub struct ReplicationSender {
     pub replicated_entities: EntityIndexMap<bool>,
     pub(crate) writer: Writer,
@@ -245,10 +244,13 @@ impl ReplicationSender {
     pub(crate) fn handle_acks(
         &mut self,
         component_registry: &ComponentRegistry,
-        delta_manager: &mut DeltaManager,
+        delta_manager: Option<&DeltaManager>,
         update_acks: &mut Vec<MessageId>,
     ) {
         update_acks.drain(..).for_each(|message_id| {
+            // TODO: lost messages would result in memory-leakage here, since
+            //  we would never remove them from this map!!!
+
             // remember to remove the entry from the map to avoid memory leakage
             match self.updates_message_id_to_group_id.remove(&message_id)
             { Some(UpdateMessageMetadata {
@@ -259,14 +261,14 @@ impl ReplicationSender {
             }) => {
                 match self.group_channels.get_mut(&group_id) { Some(channel) => {
                     // update the ack tick for the channel
-                    trace!(?group_id, ?bevy_tick, ?tick, "Update channel ack_tick");
+                    trace!(?group_id, ?bevy_tick, ?tick, ?delta, "Update channel ack_tick");
                     channel.ack_bevy_tick = Some(bevy_tick);
                     // `delta_ack_ticks` won't grow indefinitely thanks to the cleanup systems
                     for (entity, component_kind) in delta {
                         channel
                             .delta_ack_ticks
                             .insert((entity, component_kind), tick);
-                        delta_manager.receive_ack(entity, tick, component_kind, component_registry);
+                        delta_manager.as_ref().unwrap().receive_ack(entity, tick, component_kind, component_registry);
                     }
                 } _ => {
                     error!("Received an update message-id ack but the corresponding group channel does not exist");
@@ -596,6 +598,12 @@ impl ReplicationSender {
             // This is ok to do even if we don't get an actual send notification because EntityActions messages are
             // guaranteed to be sent at some point. (since the actions channel is reliable)
             channel.send_tick = Some(bevy_tick);
+
+            // same reasoning as above, we know that the message will eventually be acked
+            // so we set the ack_tick so that we only send components values
+            // that changed after this tick
+            channel.ack_bevy_tick = Some(bevy_tick);
+
             let priority = channel.accumulated_priority;
             let message_id = channel.actions_next_send_message_id;
             channel.actions_next_send_message_id += 1;
@@ -685,6 +693,8 @@ impl ReplicationSender {
             // so we can set the `send_tick` right away
             // TODO: but doesn't that mean we double send it?
             if !self.bandwidth_cap_enabled {
+                // we are guaranteed to send the message, so reset the priority
+                channel.accumulated_priority = 0.0;
                 channel.send_tick = Some(bevy_tick);
             }
 

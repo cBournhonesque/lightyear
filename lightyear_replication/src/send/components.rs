@@ -9,14 +9,15 @@ use bevy_ecs::reflect::ReflectComponent;
 use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::Reflect;
 use bevy_time::{Timer, TimerMode};
-#[cfg(feature = "server")]
-use lightyear_connection::client::PeerMetadata;
 use lightyear_connection::client::{Client, Connected};
-use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::network_target::NetworkTarget;
+#[cfg(feature = "server")]
+use lightyear_connection::{client::PeerMetadata, client_of::ClientOf};
 use lightyear_core::id::RemoteId;
-use lightyear_link::server::{LinkOf, Server};
+use lightyear_link::server::LinkOf;
+#[cfg(feature = "server")]
+use lightyear_link::server::Server;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};

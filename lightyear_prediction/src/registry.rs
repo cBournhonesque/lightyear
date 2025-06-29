@@ -403,15 +403,12 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
                 .world_mut()
                 .register_component::<PredictionHistory<C>>()
         });
-        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
-        // NOTE: this means that the protocol registration needs to happen after other plugins
-        let Some(mut registry) = self
-            .app
-            .world_mut()
-            .get_resource_mut::<PredictionRegistry>()
-        else {
-            return self;
-        };
+        if !self.app.world().contains_resource::<PredictionRegistry>() {
+            self.app
+                .world_mut()
+                .insert_resource(PredictionRegistry::default());
+        }
+        let mut registry = self.app.world_mut().resource_mut::<PredictionRegistry>();
         trace!(
             "Adding prediction for component {:?} with mode {:?}",
             core::any::type_name::<C>(),

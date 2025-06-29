@@ -1,4 +1,4 @@
-use crate::delta_mut::Diffable;
+use crate::delta::Diffable;
 use crate::prelude::{ComponentReplicationConfig, ComponentReplicationOverrides};
 use crate::registry::delta::ErasedDeltaFns;
 use crate::registry::replication::{GetWriteFns, ReplicationMetadata};

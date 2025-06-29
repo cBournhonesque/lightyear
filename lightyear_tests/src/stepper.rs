@@ -11,7 +11,9 @@ use bevy::time::TimeUpdateStrategy;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
 use lightyear::prelude::{client::*, server::*, *};
+use lightyear_core::test::TestHelper;
 use lightyear_netcode::client_plugin::NetcodeConfig;
+use lightyear_replication::delta::DeltaManager;
 
 const PROTOCOL_ID: u64 = 0;
 const KEY: [u8; 32] = [0; 32];
@@ -71,16 +73,17 @@ impl ClientServerStepper {
             LogPlugin::default(),
         ));
         server_app.add_plugins(server::ServerPlugins { tick_duration });
-        // ProtocolPlugin needs to be added AFTER ClientPlugins, InputPlugin, because we need the PredictionRegistry to exist
+        // ProtocolPlugin needs to be added AFTER InputPlugin
         server_app.add_plugins(ProtocolPlugin);
         let server_entity = server_app
             .world_mut()
-            .spawn(NetcodeServer::new(
-                lightyear_netcode::server_plugin::NetcodeConfig {
+            .spawn((
+                NetcodeServer::new(lightyear_netcode::server_plugin::NetcodeConfig {
                     protocol_id: PROTOCOL_ID,
                     private_key: KEY,
                     ..Default::default()
-                },
+                }),
+                DeltaManager::default(),
             ))
             .id();
         Self {
@@ -112,13 +115,8 @@ impl ClientServerStepper {
                         server: self.server_entity,
                     },
                     // Note: no need to add ReplicationSender/Receiver on the host-client entity
-                    // we will act like each client has a different port
                     // TODO: maybe don't add Link either?
                     Link::new(None),
-                    // PeerAddr(SocketAddr::new(
-                    //     core::net::IpAddr::V4(Ipv4Addr::LOCALHOST),
-                    //     0,
-                    // )),
                     // For Crossbeam we need to mark the IO as Linked, as there is no ServerLink to do that for us
                     Linked,
                 ))
@@ -158,6 +156,7 @@ impl ClientServerStepper {
                     ReplicationReceiver::default(),
                     NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
                     crossbeam_client,
+                    TestHelper::default(),
                     PredictionManager::default(),
                 ))
                 .id(),
@@ -185,6 +184,7 @@ impl ClientServerStepper {
                     // For Crossbeam we need to mark the IO as Linked, as there is no ServerLink to do that for us
                     Linked,
                     crossbeam_server,
+                    TestHelper::default(),
                 ))
                 .id(),
         );

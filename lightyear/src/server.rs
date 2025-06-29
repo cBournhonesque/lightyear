@@ -15,6 +15,12 @@ use core::time::Duration;
 
 /// A plugin group containing all the server plugins.
 ///
+/// The order in which the plugins are added matters!
+/// You need to add:
+/// - first add the `ServerPlugins`
+/// - then build your protocol (usually in a `ProtocolPlugin`)
+/// - then spawn your `Server` entity
+///
 /// By default, the following plugins will be added:
 ///   IO
 /// - [`ServerLinkPlugin`](lightyear_link::server::ServerLinkPlugin): Handles how the server reacts to links getting established/disconnected

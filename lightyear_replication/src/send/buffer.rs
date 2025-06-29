@@ -630,20 +630,18 @@ fn replicate_component_update(
         update = true;
     }
     if insert || update {
-        if delta_compression {
-            let delta = delta.expect("Delta compression on component {component_kind:?} is enabled, but no DeltaManager was provided");
-            delta.store(
-                unmapped_entity,
-                current_tick,
-                component_kind,
-                component_data,
-                component_registry,
-            );
-        }
         if insert {
             let writer = &mut sender.writer;
             trace!(?component_kind, ?entity, "Try to buffer component insert");
             if delta_compression {
+                let delta = delta.expect("Delta compression on component {component_kind:?} is enabled, but no DeltaManager was provided");
+                delta.store(
+                    unmapped_entity,
+                    current_tick,
+                    component_kind,
+                    component_data,
+                    component_registry,
+                );
                 // SAFETY: the component_data corresponds to the kind
                 unsafe {
                     component_registry.serialize_diff_from_base_value(
@@ -682,6 +680,13 @@ fn replicate_component_update(
                 );
                 if delta_compression {
                     let delta = delta.expect("Delta compression on component {component_kind:?} is enabled, but no DeltaManager was provided");
+                    delta.store(
+                        unmapped_entity,
+                        current_tick,
+                        component_kind,
+                        component_data,
+                        component_registry,
+                    );
                     sender.prepare_delta_component_update(
                         unmapped_entity,
                         entity,

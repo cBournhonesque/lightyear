@@ -195,6 +195,9 @@ impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TimelinePlugin);
 
+        // RESOURCES
+        app.init_resource::<InterpolationRegistry>();
+
         // PROTOCOL
         app.register_component::<Controlled>()
             .add_interpolation(InterpolationMode::Once);
@@ -215,9 +218,6 @@ impl Plugin for InterpolationPlugin {
         app.register_type::<InterpolationConfig>()
             .register_type::<InterpolationDelay>()
             .register_type::<Interpolated>();
-
-        // RESOURCES
-        app.init_resource::<InterpolationRegistry>();
 
         // SETS
         app.configure_sets(

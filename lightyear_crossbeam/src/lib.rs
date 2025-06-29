@@ -12,6 +12,7 @@ extern crate alloc;
 
 use aeronet_io::connection::{LocalAddr, PeerAddr};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::query::QueryData;
 use bevy_ecs::{
     component::Component,
     error::Result,
@@ -65,16 +66,28 @@ impl CrossbeamIo {
 /// via `crossbeam-channel` when a `Link` component is present and active.
 pub struct CrossbeamPlugin;
 
+#[derive(QueryData)]
+#[query_data(mutable)]
+struct IOQuery {
+    link: &'static mut Link,
+    crossbeam_io: &'static CrossbeamIo,
+    #[cfg(feature = "test_utils")]
+    helper: Option<&'static lightyear_core::test::TestHelper>,
+}
+
 impl CrossbeamPlugin {
     fn link(trigger: Trigger<LinkStart>, mut commands: Commands) {
         commands.entity(trigger.target()).insert(Linked);
     }
 
-    fn send(mut query: Query<(&mut Link, &mut CrossbeamIo), With<Linked>>) -> Result {
-        query.iter_mut().try_for_each(|(mut link, crossbeam_io)| {
-            link.send.drain().try_for_each(|payload| {
-                trace!("send data: {payload:?}");
-                crossbeam_io.sender.try_send(payload)
+    fn send(mut query: Query<IOQuery, With<Linked>>) -> Result {
+        query.iter_mut().try_for_each(|mut io| {
+            io.link.send.drain().try_for_each(|payload| {
+                #[cfg(feature = "test_utils")]
+                if io.helper.is_some_and(|h| h.block_send) {
+                    return Ok(());
+                }
+                io.crossbeam_io.sender.try_send(payload)
             })
         })?;
         Ok(())

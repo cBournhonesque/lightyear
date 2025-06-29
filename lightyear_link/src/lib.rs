@@ -22,7 +22,7 @@ pub mod server;
 
 use alloc::{collections::vec_deque::Drain, string::String};
 
-use crate::conditioner::LinkConditioner;
+pub use crate::conditioner::LinkConditioner;
 use alloc::collections::VecDeque;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::{
