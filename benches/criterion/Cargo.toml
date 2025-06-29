@@ -33,7 +33,6 @@ bench = false
 name = "replication_profiling"
 path = "src/replication_profiling.rs"
 doc = false
-bench = false
 
 [[bench]]
 name = "replication"

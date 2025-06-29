@@ -26,6 +26,8 @@ use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
 use lightyear_serde::writer::Writer;
 use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::prelude::Transport;
+#[cfg(feature = "trace")]
+use tracing::{Level, instrument};
 use tracing::{debug, error, trace};
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
@@ -264,10 +266,8 @@ impl ReplicationSender {
                         channel
                             .delta_ack_ticks
                             .insert((entity, component_kind), tick);
+                        delta_manager.receive_ack(entity, tick, component_kind, component_registry);
                     }
-
-                    // update the acks for the delta manager
-                    delta_manager.receive_ack(tick, group_id, component_registry);
                 } _ => {
                     error!("Received an update message-id ack but the corresponding group channel does not exist");
                 }}
@@ -382,7 +382,7 @@ impl ReplicationSender {
     // we want to send all component inserts that happen together for the same entity in a single message
     // (because otherwise the inserts might be received at different packets/ticks by the remote, and
     // the remote might expect the components insert to be received at the same time)
-    // #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prepare_component_insert(
         &mut self,
         entity: Entity,
@@ -453,6 +453,7 @@ impl ReplicationSender {
     pub(crate) fn prepare_delta_component_update(
         &mut self,
         entity: Entity,
+        mapped_entity: Entity,
         group_id: ReplicationGroupId,
         kind: ComponentKind,
         component_data: Ptr,
@@ -474,9 +475,8 @@ impl ReplicationSender {
                 // we have an ack tick for this replication group, get the corresponding component value
                 // so we can compute a diff
                 let old_data = delta_manager
-                    .data
                     // NOTE: remember to use the local entity for local bookkeeping
-                    .get_component_value(entity, ack_tick, kind)
+                    .get(entity, ack_tick, kind)
                     .ok_or(ReplicationError::DeltaCompressionError(
                         "could not find old component value to compute delta".to_string(),
                     ))
@@ -487,7 +487,7 @@ impl ReplicationSender {
                             "Could not find old component value from tick {:?} to compute delta: {e:?}",
                             ack_tick,
                         );
-                        error!("DeltaManager data: {:?}", delta_manager.data);
+                        error!("DeltaManager: {:?}", delta_manager);
                     })?;
                 // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
                 unsafe {
@@ -517,13 +517,10 @@ impl ReplicationSender {
             })?;
         trace!(?kind, "Inserting pending update!");
         // use the network entity when serializing
-        let entity = remote_entity_map.to_remote(entity);
-        self.prepare_component_update(entity, group_id, raw_data);
-        self.group_channels
-            .entry(group_id)
-            .or_default()
+        group_channel
             .pending_delta_updates
-            .push((entity, kind));
+            .push((mapped_entity, kind));
+        self.prepare_component_update(mapped_entity, group_id, raw_data);
         Ok(())
     }
 

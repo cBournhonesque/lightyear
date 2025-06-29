@@ -123,6 +123,7 @@ impl NetcodeServerPlugin {
         let client_query = Arc::new(client_query);
         server_query
             .par_iter_mut()
+            // .iter_mut()
             .for_each(|(mut netcode_server, server)| {
                 // SAFETY: we know that each client is unique to a single server so we won't
                 //  violate aliasing rules

@@ -64,7 +64,7 @@ impl ReplicationSendPlugin {
                     .get_mut(&ChannelKind::of::<UpdatesChannel>())
                     .unwrap()
                     .message_acks;
-                sender.handle_acks(&component_registry, &mut delta, update_acks);
+                sender.handle_acks(&component_registry, delta.as_mut(), update_acks);
             });
     }
 
@@ -275,58 +275,9 @@ impl Plugin for ReplicationSendPlugin {
             .remove_resource::<ComponentRegistry>()
             .unwrap();
 
-        // let replicate = (
-        //     QueryParamBuilder::new(|builder| {
-        //         // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
-        //         builder.or(|b| {
-        //             b.with::<ReplicateLikeChildren>();
-        //             b.with::<ReplicateLike>();
-        //             b.and(|b| {
-        //                 b.with::<Replicating>();
-        //                 b.with::<Replicate>();
-        //             });
-        //         });
-        //         builder.optional(|b| {
-        //             b.data::<(
-        //                 &Replicate,
-        //                 &ReplicationGroup,
-        //                 &NetworkVisibility,
-        //                 &ReplicateLikeChildren,
-        //                 &ReplicateLike,
-        //                 &ControlledBy,
-        //             )>();
-        //             #[cfg(feature = "prediction")]
-        //             b.data::<&PredictionTarget>();
-        //             #[cfg(feature = "interpolation")]
-        //             b.data::<&InterpolationTarget>();
-        //             // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
-        //             component_registry
-        //                 .replication_map
-        //                 .iter()
-        //                 .for_each(|(kind, _)| {
-        //                     let id = component_registry.kind_to_component_id.get(kind).unwrap();
-        //                     b.ref_id(*id);
-        //                     let override_id = component_registry
-        //                         .replication_map
-        //                         .get(kind)
-        //                         .unwrap()
-        //                         .overrides_component_id;
-        //                     b.ref_id(override_id);
-        //                 });
-        //         });
-        //     }),
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        // )
-        //     .build_state(app.world_mut())
-        //     .build_system(buffer::replicate);
         let replicate = (
             QueryParamBuilder::new(|builder| {
-                // Or<(With<ReplicateLike>, With<ReplicateLikeChildren>, (With<Replicating>, With<Replicate>))>
+                // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
                 builder.or(|b| {
                     b.with::<ReplicateLikeChildren>();
                     b.with::<ReplicateLike>();
@@ -371,10 +322,62 @@ impl Plugin for ReplicationSendPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
-            ParamBuilder,
         )
             .build_state(app.world_mut())
-            .build_system(buffer::replicate_bis);
+            .build_system(buffer::replicate)
+            .with_name("ReplicationSendPlugin::replicate");
+        // let replicate = (
+        //     QueryParamBuilder::new(|builder| {
+        //         // Or<(With<ReplicateLike>, With<ReplicateLikeChildren>, (With<Replicating>, With<Replicate>))>
+        //         builder.or(|b| {
+        //             b.with::<ReplicateLikeChildren>();
+        //             b.with::<ReplicateLike>();
+        //             b.and(|b| {
+        //                 b.with::<Replicating>();
+        //                 b.with::<Replicate>();
+        //             });
+        //         });
+        //         builder.optional(|b| {
+        //             b.data::<(
+        //                 &Replicate,
+        //                 &ReplicationGroup,
+        //                 &NetworkVisibility,
+        //                 &ReplicateLikeChildren,
+        //                 &ReplicateLike,
+        //                 &ControlledBy,
+        //             )>();
+        //             #[cfg(feature = "prediction")]
+        //             b.data::<&PredictionTarget>();
+        //             #[cfg(feature = "interpolation")]
+        //             b.data::<&InterpolationTarget>();
+        //             // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
+        //             component_registry
+        //                 .replication_map
+        //                 .iter()
+        //                 .for_each(|(kind, _)| {
+        //                     let id = component_registry.kind_to_component_id.get(kind).unwrap();
+        //                     b.ref_id(*id);
+        //                     let override_id = component_registry
+        //                         .replication_map
+        //                         .get(kind)
+        //                         .unwrap()
+        //                         .overrides_component_id;
+        //                     b.ref_id(override_id);
+        //                 });
+        //         });
+        //     }),
+        //     ParamBuilder,
+        //     ParamBuilder,
+        //     ParamBuilder,
+        //     ParamBuilder,
+        //     ParamBuilder,
+        //     ParamBuilder,
+        //     ParamBuilder,
+        //     ParamBuilder,
+        // )
+        //     .build_state(app.world_mut())
+        //     .build_system(buffer::replicate_bis)
+        //     .with_name("ReplicationSendPlugin::replicate_bis");
 
         let buffer_component_remove = (
             QueryParamBuilder::new(|builder| {
@@ -409,7 +412,8 @@ impl Plugin for ReplicationSendPlugin {
             ParamBuilder,
         )
             .build_state(app.world_mut())
-            .build_system_with_input(buffer::buffer_component_removed);
+            .build_system_with_input(buffer::buffer_component_removed)
+            .with_name("ReplicationSendPlugin::buffer_component_removed");
 
         let mut buffer_component_remove_observer = Observer::new(buffer_component_remove);
         for component in component_registry.component_id_to_kind.keys() {

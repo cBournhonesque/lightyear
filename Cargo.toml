@@ -99,6 +99,7 @@ anyhow = { version = "1.0.75", features = [] }
 clap = { version = "4.5.4", features = ["derive"] }
 chrono = "0.4.38"
 cfg-if = "1.0"
+dashmap = "6.1.0"
 enum_dispatch = "0.3"
 governor = "0.10"
 hashbrown = { version = "0.15", default-features = false }
@@ -117,7 +118,6 @@ variadics_please = "1.1.0"
 no_std_io2 = { version = "0.9", features = ["alloc"] }
 
 # serialization
-
 bincode = { version = "2.0.1", default-features = false, features = [
   "serde",
   "alloc",

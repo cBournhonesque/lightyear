@@ -4,7 +4,7 @@
 
 use crate::control::{Controlled, ControlledBy, ControlledByRemote};
 #[cfg(feature = "server")]
-use crate::delta::DeltaManager;
+use crate::delta_mut::DeltaManager;
 use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike, ReplicateLikeChildren};
 use crate::message::{ActionsChannel, MetadataChannel, SenderMetadata, UpdatesChannel};
 use crate::prelude::*;

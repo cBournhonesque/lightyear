@@ -4,6 +4,7 @@ use alloc::vec;
 use bevy::MinimalPlugins;
 use bevy::app::PluginsState;
 use bevy::input::InputPlugin;
+use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
@@ -62,7 +63,13 @@ impl ClientServerStepper {
 impl ClientServerStepper {
     pub fn new(tick_duration: Duration, frame_duration: Duration) -> Self {
         let mut server_app = App::new();
-        server_app.add_plugins((MinimalPlugins, StatesPlugin, InputPlugin));
+        // NOTE: we add LogPlugin so that tracing works
+        server_app.add_plugins((
+            MinimalPlugins,
+            StatesPlugin,
+            InputPlugin,
+            LogPlugin::default(),
+        ));
         server_app.add_plugins(server::ServerPlugins { tick_duration });
         // ProtocolPlugin needs to be added AFTER ClientPlugins, InputPlugin, because we need the PredictionRegistry to exist
         server_app.add_plugins(ProtocolPlugin);
@@ -380,6 +387,25 @@ impl ClientServerStepper {
                 client_app.update();
             });
             self.server_app.update();
+        }
+    }
+
+    /// Advance the world by one frame duration
+    pub fn frame_step_server_first(&mut self, n: usize) {
+        for _ in 0..n {
+            self.advance_time(self.frame_duration);
+            // we want to log the next frame's tick before the frame starts
+            let client_tick = if self.client_entities.is_empty() {
+                None
+            } else {
+                Some(self.client_tick(0) + 1)
+            };
+            let server_tick = self.server_tick() + 1;
+            info!(?client_tick, ?server_tick, "Frame step");
+            self.server_app.update();
+            self.client_apps.iter_mut().for_each(|client_app| {
+                client_app.update();
+            });
         }
     }
 

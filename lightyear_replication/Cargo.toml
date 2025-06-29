@@ -29,6 +29,7 @@ lightyear_messages.workspace = true
 lightyear_transport.workspace = true
 
 # utils
+dashmap.workspace = true
 metrics = { workspace = true, optional = true }
 smallvec.workspace = true
 thiserror.workspace = true

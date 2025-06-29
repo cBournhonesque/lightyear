@@ -1,4 +1,4 @@
-use crate::delta::{DeltaComponentHistory, DeltaMessage, DeltaType, Diffable};
+use crate::delta_mut::{DeltaComponentHistory, DeltaMessage, DeltaType, Diffable};
 use crate::prelude::ComponentReplicationConfig;
 use crate::registry::buffered::BufferedEntity;
 use crate::registry::registry::ComponentRegistry;

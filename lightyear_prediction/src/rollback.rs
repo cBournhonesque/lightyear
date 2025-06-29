@@ -87,7 +87,8 @@ impl Plugin for RollbackPlugin {
             ParamBuilder,
         )
             .build_state(app.world_mut())
-            .build_system(check_rollback);
+            .build_system(check_rollback)
+            .with_name("RollbackPlugin::check_rollback");
 
         app.add_systems(
             PreUpdate,
