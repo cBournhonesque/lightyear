@@ -16,6 +16,7 @@
     - now we only send changes since tick 3, so if tick 2 message is lost the update will never get sent.
   - instead:
     - option 1: store the send/ack bevy ticks per (entity, component)
+    - or whenever we receive a NACK, we send the component value again
 
 
 - Delta:

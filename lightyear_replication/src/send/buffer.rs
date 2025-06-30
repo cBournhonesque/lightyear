@@ -1,8 +1,8 @@
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
-use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
+use crate::registry::ComponentKind;
 #[cfg(feature = "interpolation")]
 use crate::send::components::{InterpolationTarget, ShouldBeInterpolated};
 #[cfg(feature = "prediction")]
@@ -18,9 +18,9 @@ use bevy_ecs::{
     world::{FilteredEntityMut, FilteredEntityRef, OnRemove, Ref},
 };
 use bevy_ptr::Ptr;
-#[cfg(feature = "trace")]
-use tracing::{Level, instrument};
 use tracing::{error, info_span, trace};
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
 
 use crate::components::ComponentReplicationOverrides;
 use crate::control::{Controlled, ControlledBy};
@@ -663,8 +663,9 @@ fn replicate_component_update(
             sender.prepare_component_insert(entity, group_id, raw_data);
         } else {
             // trace!(?component_kind, ?entity, "Try to buffer component update");
+
             // check the send_tick, i.e. we will send all updates more recent than this tick
-            let send_tick = sender.get_send_tick(group_id);
+            let send_tick = sender.get_send_tick(group_id, entity, component_kind);
 
             // send the update for all changes newer than the last send bevy tick for the group
             if send_tick

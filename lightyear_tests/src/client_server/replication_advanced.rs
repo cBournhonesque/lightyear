@@ -96,5 +96,27 @@ fn test_since_last_ack() {
         .get(&group_id)
         .unwrap();
     assert_ne!(group_channel.ack_bevy_tick, None);
-    //
+}
+
+
+// C1 insert - send + ack
+// C1 update send
+// C2 insert ack
+// C1 update lost
+
+/// Test that ReplicationMode::SinceLastSend works when we send multiple components
+/// 
+/// This is what would happen if we had one ack_tick and send_tick per replication_group:
+/// Spawn Component1 and Component2.
+/// Tick1: Component2 is updated: SendTick = 1.
+/// Tick2: Component1 is updated. We don't send the Component2 update since it didn't update since last send. SendTick = 2.
+/// Tick3: Component2 is acked. AckTick = SendTick = 3
+/// Tick4: Component1 is nacked. SendTick = 3.
+/// Then we never send the update for Component1 again...
+/// 
+/// Solution: maintain (ack_tick, send_tick) per (entity, component) 
+#[test]
+fn test_since_last_send_multiple_components() {
+    
+    
 }

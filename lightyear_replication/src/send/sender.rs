@@ -21,14 +21,14 @@ use core::time::Duration;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
 use lightyear_messages::MessageNetId;
-use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
 use lightyear_serde::writer::Writer;
+use lightyear_serde::ToBytes;
 use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::prelude::Transport;
-#[cfg(feature = "trace")]
-use tracing::{Level, instrument};
 use tracing::{debug, error, trace};
+#[cfg(feature = "trace")]
+use tracing::{instrument, Level};
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = HashSet<K, EntityHash>;
@@ -146,13 +146,10 @@ impl ReplicationSender {
     ///
     /// This is a bevy `Tick` and is used for change-detection.
     /// We will send all updates that happened after this bevy tick.
-    pub(crate) fn get_send_tick(&self, group_id: ReplicationGroupId) -> Option<BevyTick> {
+    pub(crate) fn get_send_tick(&self, group_id: ReplicationGroupId, entity: Entity, component_kind: ComponentKind) -> Option<BevyTick> {
         self.group_channels
             .get(&group_id)
-            .and_then(|channel| match self.send_updates_mode {
-                SendUpdatesMode::SinceLastSend => channel.send_tick,
-                SendUpdatesMode::SinceLastAck => channel.ack_bevy_tick,
-            })
+            .and_then(|channel| channel.tick_metadata.get_send_tick(entity, component_kind))
     }
 
     /// Internal bookkeeping:
@@ -165,27 +162,21 @@ impl ReplicationSender {
             { Some(UpdateMessageMetadata {
                 group_id,
                 bevy_tick,
+                mut components,
+                mut delta,
                 ..
             }) => {
                 if let SendUpdatesMode::SinceLastSend = self.send_updates_mode {
                     match self.group_channels.get_mut(&group_id) { Some(channel) => {
-                        // when we know an update message has been lost, we need to reset our send_tick
-                        // to our previous ack_tick
                         trace!(
-                            "Update channel send_tick back to ack_tick because a message has been lost"
+                            ?group_id, sent_bevy_tick = ?bevy_tick, ?message_id,
+                            "Received NACK for UpdateMessage"
                         );
-                        // only reset the send tick if the bevy_tick of the message that was lost is
-                        // newer than the current ack_tick
-                        // (otherwise it just means we lost some old message, and we don't need to do anything)
-                        if channel
-                            .ack_bevy_tick
-                            .is_some_and(|ack_tick| bevy_tick.is_newer_than(ack_tick, world_tick))
-                        {
-                            channel.send_tick = channel.ack_bevy_tick;
-                        }
-
-                        // TODO: if all clients lost a given message, than we can immediately drop the
-                        //  delta-compression data for that tick
+                        components.drain(..).chain(delta.drain(..)).for_each(|(entity, kind)| {
+                            // if we have a nack for an entity, we need to reset the send_tick for that entity
+                            // to the ack_tick, so that we can resend the update
+                            channel.tick_metadata.handle_nack(entity, kind, bevy_tick, world_tick);
+                        });
                     } _ => {
                         error!("Received an update message-id nack but the corresponding group channel does not exist");
                     }}
@@ -213,6 +204,8 @@ impl ReplicationSender {
             { Some(UpdateMessageMetadata {
                 group_id,
                 bevy_tick,
+                delta,
+                components,
                 ..
             }) => {
                 match self.group_channels.get_mut(group_id) { Some(channel) => {
@@ -223,7 +216,9 @@ impl ReplicationSender {
                         ?group_id,
                         "successfully sent message for replication group! Updating send_tick"
                     );
-                    channel.send_tick = Some(*bevy_tick);
+                    delta.iter().chain(components.iter()).for_each(|(entity, kind)| {
+                        channel.tick_metadata.handle_send(*entity, *kind, *bevy_tick);
+                    });
                     channel.accumulated_priority = 0.0;
                 } _ => {
                     error!(?message_id, ?group_id, "Received a send message-id notification but the corresponding group channel does not exist");
@@ -258,17 +253,35 @@ impl ReplicationSender {
                 bevy_tick,
                 tick,
                 delta,
+                components,
             }) => {
                 match self.group_channels.get_mut(&group_id) { Some(channel) => {
-                    // update the ack tick for the channel
                     trace!(?group_id, ?bevy_tick, ?tick, ?delta, "Update channel ack_tick");
-                    channel.ack_bevy_tick = Some(bevy_tick);
-                    // `delta_ack_ticks` won't grow indefinitely thanks to the cleanup systems
-                    for (entity, component_kind) in delta {
-                        channel
-                            .delta_ack_ticks
-                            .insert((entity, component_kind), tick);
-                        delta_manager.as_ref().unwrap().receive_ack(entity, tick, component_kind, component_registry);
+                    match &mut channel.tick_metadata {
+                        TickMetadata::SinceLastAck { ack_bevy_tick, delta_ack_ticks } => {
+                            // update the ack tick for the channel
+                            *ack_bevy_tick = Some(bevy_tick);
+                            // `delta_ack_ticks` won't grow indefinitely thanks to the cleanup systems
+                            for (entity, component_kind) in delta {
+                                delta_ack_ticks.insert((entity, component_kind), tick);
+                                delta_manager.as_ref().unwrap().receive_ack(entity, tick, component_kind, component_registry);
+                            }
+                        }
+                        TickMetadata::SinceLastSend { ticks } => {
+                            // `delta_ack_ticks` won't grow indefinitely thanks to the cleanup systems
+                            for (entity, component_kind) in delta {
+                                let entry = ticks.entry((entity, component_kind))
+                                    .or_default();
+                                entry.ack_bevy_tick = Some(bevy_tick);
+                                entry.delta_ack_tick = Some(tick);
+                                delta_manager.as_ref().unwrap().receive_ack(entity, tick, component_kind, component_registry);
+                            }
+                            for (entity, component_kind) in components {
+                                ticks.entry((entity, component_kind))
+                                    .or_default()
+                                    .ack_bevy_tick = Some(bevy_tick);
+                            }
+                        }
                     }
                 } _ => {
                     error!("Received an update message-id ack but the corresponding group channel does not exist");
@@ -305,9 +318,18 @@ impl ReplicationSender {
                     group_channel.last_action_tick = None;
                 }
             }
-            group_channel
-                .delta_ack_ticks
-                .retain(|_, ack_tick| tick - *ack_tick <= delta);
+            match &mut group_channel
+                .tick_metadata {
+                TickMetadata::SinceLastAck { delta_ack_ticks, .. } => {
+                    // TODO: convert from tick to BevyTick
+                    delta_ack_ticks
+                        .retain(|_, ack_tick| tick - *ack_tick <= delta);
+                }
+                TickMetadata::SinceLastSend { .. } => {
+                    // TODO: convert from tick to BevyTick, and drop all the elements
+                    //  that have an ack_bevy_tick older than `delta`
+                }
+            }
         }
     }
 }
@@ -471,9 +493,9 @@ impl ReplicationSender {
         let group_channel = self.group_channels.entry(group_id).or_default();
         // Get the latest acked tick for this entity/component
         let raw_data = group_channel
-            .delta_ack_ticks
-            .get(&(entity, kind))
-            .map(|&ack_tick| {
+            .tick_metadata
+            .get_delta_ack_tick(entity, kind)
+            .map(|ack_tick| {
                 // we have an ack tick for this replication group, get the corresponding component value
                 // so we can compute a diff
                 let old_data = delta_manager
@@ -576,6 +598,14 @@ impl ReplicationSender {
                         .or_default()
                         .updates
                         .extend(components);
+                    
+                    // TODO: get component kind
+                    // if let TickMetadata::SinceLastSend { ticks} = &mut channel.tick_metadata {
+                    //     let entry = ticks.entry((entity, kind))
+                    //         .or_default();
+                    //     entry.ack_bevy_tick = Some(bevy_tick);
+                    //     entry.send_tick = Some(bevy_tick);
+                    // }
                 }
                 //  We can consider that we received an ack for the current tick because the message is sent reliably,
                 //  so we know that we should eventually receive an ack.
@@ -586,23 +616,25 @@ impl ReplicationSender {
                 //      - tick 4: C2 insert. C1 update. (if we send all updates since last_ack) !!!! We need to update the ack from the Insert only AFTER all the Updates are prepared!!!
                 //      - tick 5: Before, we would send C1 update again, since we didn't receive an ack for C1 yet. But now we stop sending it because we know that the message from tick 4 will be received.
                 for (entity, component_kind) in channel.pending_delta_updates.drain(..) {
-                    channel
-                        .delta_ack_ticks
-                        .insert((entity, component_kind), tick);
+                    if let TickMetadata::SinceLastSend { ticks} = &mut channel.tick_metadata {
+                        let entry = ticks.entry((entity, component_kind))
+                            .or_default();
+                        entry.ack_bevy_tick = Some(bevy_tick);
+                        entry.send_tick = Some(bevy_tick);
+                    }
+                    channel.tick_metadata.insert_delta_ack_tick(entity, component_kind, tick);
                 }
             }
-
-            // update the send tick so that we don't send updates immediately after an insert message.
-            // (which would happen because the send_tick is only set to Some(x) after an Update message is sent, so
-            // when an entity is first spawned the send_tick is still None)
-            // This is ok to do even if we don't get an actual send notification because EntityActions messages are
-            // guaranteed to be sent at some point. (since the actions channel is reliable)
-            channel.send_tick = Some(bevy_tick);
-
-            // same reasoning as above, we know that the message will eventually be acked
-            // so we set the ack_tick so that we only send components values
-            // that changed after this tick
-            channel.ack_bevy_tick = Some(bevy_tick);
+            
+            // TODO: get component kind for actions
+            if let TickMetadata::SinceLastAck { ack_bevy_tick, .. } = &mut channel.tick_metadata {
+                // update the send tick so that we don't send updates immediately after an insert message.
+                // (which would happen because the send_tick is only set to Some(x) after an Update message is sent, so
+                // when an entity is first spawned the send_tick is still None)
+                // This is ok to do even if we don't get an actual send notification because EntityActions messages are
+                // guaranteed to be sent at some point. (since the actions channel is reliable)
+                *ack_bevy_tick = Some(bevy_tick);
+            }
 
             let priority = channel.accumulated_priority;
             let message_id = channel.actions_next_send_message_id;
@@ -695,6 +727,7 @@ impl ReplicationSender {
             if !self.bandwidth_cap_enabled {
                 // we are guaranteed to send the message, so reset the priority
                 channel.accumulated_priority = 0.0;
+                
                 channel.send_tick = Some(bevy_tick);
             }
 
@@ -720,7 +753,11 @@ pub(crate) struct UpdateMessageMetadata {
     tick: Tick,
     /// The (entity, component) pairs that were included in the message
     delta: Vec<(Entity, ComponentKind)>,
+    /// The non-delta (entity, component) pairs that were included in the message.
+    /// Only present if the `SendUpdatesMode` is `SinceLastSend`.
+    components: Vec<(Entity, ComponentKind)>,
 }
+
 
 /// Channel to keep track of sending replication messages for a given Group
 #[derive(Debug)]
@@ -736,34 +773,7 @@ pub struct GroupChannel {
     pub pending_delta_updates: Vec<(Entity, ComponentKind)>,
 
     pub actions_next_send_message_id: MessageId,
-
-    // TODO: maybe also keep track of which Tick this bevy-tick corresponds to? (will enable doing diff-compression)
-    /// Bevy Tick when we last sent an update for this group.
-    /// This is used to collect updates that we will replicate; we replicate any update that happened after this tick.
-    /// (and not after the last ack_tick, because 99% of the time the packet won't be lost so there is no need
-    /// to wait for an ack. If we keep sending updates since the last ack, we would be sending a lot of duplicate messages)
-    ///
-    /// at the start, it's `None` (meaning that we send any changes)
-    pub send_tick: Option<BevyTick>,
-    /// Bevy Tick when we last received an ack for an update message for this group.
-    ///
-    /// If a message is acked, we bump the ack_tick to the `send_tick` at which we sent the update.
-    /// (meaning that we don't need to send updates that happened before that `send_tick` anymore)
-    ///
-    /// If a message is lost, we bump the `send_tick` back to the `ack_tick`, because we might need to re-send those updates.
-    pub ack_bevy_tick: Option<BevyTick>,
-    /// For delta compression, we need to keep the last ack-tick that we compute the diff from
-    /// for each (entity, component) pair.
-    /// Keeping a tick for the entire replication group is not enough.
-    /// For example:
-    /// - tick 1: send C1A
-    /// - tick 2: send C2. After it's received, ack_tick = 2
-    /// - tick 3: send C1B as diff-C1A-C1B. The receiver cannot process it if the ack_tick = 2, because the receiver stored (C1A, tick 1) in its buffer
-    ///
-    /// Another solution might be that the receiver also only keeps track of a single ack tick
-    /// for the entire replication group, but that needs to be fleshed out more.
-    pub delta_ack_ticks: HashMap<(Entity, ComponentKind), Tick>,
-
+    pub tick_metadata: TickMetadata,
     /// Last tick for which we sent an action message. Needed because we want the receiver to only
     /// process Updates if they have processed all Actions that happened before them.
     pub last_action_tick: Option<Tick>,
@@ -775,6 +785,143 @@ pub struct GroupChannel {
     pub base_priority: f32,
 }
 
+/// Maintains metadata about:
+/// - the send_tick/ack_tick, so that we know how to detect if a component changed recently
+/// and we need to replicate it
+/// - the delta_ack_ticks, so that we know which tick we should use as base for the delta-compression
+/// 
+/// We use an enum because the data structures might be different depending on the SendMode chosen
+#[derive(Debug)]
+enum TickMetadata {
+    SinceLastAck {
+        /// Bevy Tick when we last received an ack for an update message for this group.
+        ///
+        /// If a message is acked, we bump the ack_tick to the `send_tick` at which we sent the update.
+        /// (meaning that we don't need to send updates that happened before that `send_tick` anymore)
+        ///
+        /// If a message is lost, we bump the `send_tick` back to the `ack_tick`, because we might need to re-send those updates.
+        ack_bevy_tick: Option<BevyTick>,
+        /// For delta compression, we need to keep the last ack-tick that we compute the diff from
+        /// for each (entity, component) pair.
+        /// Keeping a tick for the entire replication group is not enough.
+        /// For example:
+        /// - tick 1: send C1A
+        /// - tick 2: send C2. After it's received, ack_tick = 2
+        /// - tick 3: send C1B as diff-C1A-C1B. The receiver cannot process it if the ack_tick = 2, because the receiver stored (C1A, tick 1) in its buffer
+        ///
+        /// Another solution might be that the receiver also only keeps track of a single ack tick
+        /// for the entire replication group, but that needs to be fleshed out more.
+        delta_ack_ticks: HashMap<(Entity, ComponentKind), Tick>,
+    },
+    SinceLastSend {
+        // TODO: how do we handle memory leakage? via tick cleanup?
+        ticks: HashMap<(Entity, ComponentKind), PerEntityComponentTickMetadata>
+    }
+}
+
+impl TickMetadata {
+    /// Get the `send_tick` for a given group.
+    ///
+    /// This is a bevy `Tick` and is used for change-detection.
+    /// We will send all updates that happened after this bevy tick.
+    pub(crate) fn get_send_tick(&self, entity: Entity, component_kind: ComponentKind) -> Option<BevyTick> {
+        match self {
+            Self::SinceLastAck { ack_bevy_tick, .. } => *ack_bevy_tick,
+            Self::SinceLastSend { ticks } => {
+                ticks.get(&(entity, component_kind)).and_then(|m| m.send_tick)
+            }
+        }
+    }
+    
+    /// Handle the fact that we successfully sent a message for the given `entity` and `component_kind`.
+    /// 
+    /// (this is not guaranteed because of the priority manager)
+
+    fn handle_send(&mut self, entity: Entity, component_kind: ComponentKind, sent_bevy_tick: BevyTick) {
+        match self {
+            Self::SinceLastAck { .. } => {}
+            Self::SinceLastSend { ticks } => {
+                ticks.get_mut(&(entity, component_kind)).map(|metadata| {
+                    metadata.send_tick = Some(sent_bevy_tick);
+                });
+            }
+        }
+    }
+
+    /// Handle the fact that we received a NACK for a message that we sent at `sent_bevy_tick`
+    /// for the given `entity` and `component_kind`.
+    fn handle_nack(&mut self, entity: Entity, component_kind: ComponentKind, sent_bevy_tick: BevyTick, world_tick: BevyTick) {
+        match self {
+            Self::SinceLastAck { .. } => {}
+            Self::SinceLastSend { ticks } => {
+                ticks.get_mut(&(entity, component_kind)).map(|metadata| {
+                    // only reset the send tick if the bevy_tick of the message that was lost is
+                    // newer than the current ack_tick
+                    // (otherwise it just means we lost some old message, and we don't need to do anything)
+                    if metadata
+                        .ack_bevy_tick
+                        .is_some_and(|ack_tick| sent_bevy_tick.is_newer_than(ack_tick, world_tick))
+                    {
+                        // when we know an update message has been lost, we need to reset our send_tick
+                        // to our previous ack_tick
+                        trace!("Update channel send_tick back to ack_tick because a message has been lost");
+                        metadata.send_tick = metadata.ack_bevy_tick;
+                    }
+                });
+            }
+        }
+    }
+    
+    fn get_delta_ack_tick(&self, entity: Entity, component_kind: ComponentKind) -> Option<Tick> {
+        match self {
+            Self::SinceLastAck { delta_ack_ticks, .. } => delta_ack_ticks.get(&(entity, component_kind)).copied(),
+            Self::SinceLastSend { ticks } => ticks.get(&(entity, component_kind)).and_then(|m| m.delta_ack_tick),
+        }
+    }
+    
+    fn insert_delta_ack_tick(&mut self, entity: Entity, component_kind: ComponentKind, ack_tick: Tick) {
+        match self {
+            Self::SinceLastAck { delta_ack_ticks, .. } => {
+                // insert the ack tick for the given entity and component kind
+                delta_ack_ticks.insert((entity, component_kind), ack_tick);
+            }
+            Self::SinceLastSend { ticks } => {
+                // insert the ack tick for the given entity and component kind
+                ticks.entry((entity, component_kind)).or_default().delta_ack_tick = Some(ack_tick);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct PerEntityComponentTickMetadata {
+    /// Bevy Tick when we last sent an update for this group.
+    /// This is used to collect updates that we will replicate; we replicate any update that happened after this tick.
+    /// (and not after the last ack_tick, because 99% of the time the packet won't be lost so there is no need
+    /// to wait for an ack. If we keep sending updates since the last ack, we would be sending a lot of duplicate messages)
+    ///
+    /// at the start, it's `None` (meaning that we send any changes)
+    send_tick: Option<BevyTick>,
+    /// Bevy Tick when we last received an ack for an update message for this group.
+    ///
+    /// If a message is acked, we bump the ack_tick to the `send_tick` at which we sent the update.
+    /// (meaning that we don't need to send updates that happened before that `send_tick` anymore)
+    ///
+    /// If a message is lost, we bump the `send_tick` back to the `ack_tick`, because we might need to re-send those updates.
+    ack_bevy_tick: Option<BevyTick>,
+    /// For delta compression, we need to keep the last ack-tick that we compute the diff from
+    /// for each (entity, component) pair.
+    /// Keeping a tick for the entire replication group is not enough.
+    /// For example:
+    /// - tick 1: send C1A
+    /// - tick 2: send C2. After it's received, ack_tick = 2
+    /// - tick 3: send C1B as diff-C1A-C1B. The receiver cannot process it if the ack_tick = 2, because the receiver stored (C1A, tick 1) in its buffer
+    ///
+    /// Another solution might be that the receiver also only keeps track of a single ack tick
+    /// for the entire replication group, but that needs to be fleshed out more.
+    delta_ack_tick: Option<Tick>,
+}
+
 impl Default for GroupChannel {
     fn default() -> Self {
         Self {
@@ -782,9 +929,7 @@ impl Default for GroupChannel {
             pending_actions: EntityHashMap::default(),
             pending_delta_updates: Vec::default(),
             actions_next_send_message_id: MessageId(0),
-            send_tick: None,
-            ack_bevy_tick: None,
-            delta_ack_ticks: HashMap::default(),
+            tick_metadata: TickMetadata::default(),
             last_action_tick: None,
             accumulated_priority: 0.0,
             base_priority: 1.0,
@@ -801,7 +946,7 @@ mod tests {
     #[cfg(feature = "std")]
     use test_log::test;
 
-    fn setup() -> (ReplicationSender, Transport) {
+    fn setup_since_last_send() -> (ReplicationSender, Transport) {
         let mut channel_registry = ChannelRegistry::default();
         channel_registry.add_channel::<UpdatesChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliableWithAcks,
@@ -823,8 +968,8 @@ mod tests {
     /// - updated immediately after sending a message
     /// - reverts back to the `ack_tick` when a message is lost
     #[test]
-    fn test_send_tick_no_priority() {
-        let (mut sender, mut transport) = setup();
+    fn test_since_last_send_send_tick_no_priority() {
+        let (mut sender, mut transport) = setup_since_last_send();
 
         let entity = Entity::from_raw(1);
         let group_1 = ReplicationGroupId(0);
@@ -935,8 +1080,8 @@ mod tests {
     }
 
     #[test]
-    fn test_send_tick_priority() {
-        let (mut sender, mut transport) = setup();
+    fn test_since_last_send_send_tick_priority() {
+        let (mut sender, mut transport) = setup_since_last_send();
         sender.bandwidth_cap_enabled = true;
 
         let entity = Entity::from_raw(1);
