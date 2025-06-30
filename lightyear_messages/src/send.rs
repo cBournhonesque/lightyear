@@ -17,16 +17,24 @@ use bevy_reflect::Reflect;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
-use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
+use lightyear_serde::ToBytes;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
 use tracing::{error, trace};
 
 pub type Priority = f32;
 
+/// A component that allows an entity to send messages of type `M` over the network.
+///
+/// You can send a message by simplify buffering the messages into the `MessageSender<M>` component.
+/// ```rust,ignore
+/// let mut message_sender = commands.spawn(MessageSender::<M>::default());
+/// let message = M::default();
+/// message_sender.send::<Channel>(message);
+/// ```
 #[derive(Component, Reflect)]
 #[component(on_add = MessageSender::<M>::on_add_hook)]
 #[require(MessageManager)]

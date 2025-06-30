@@ -13,6 +13,7 @@ use crate::input_message::LeafwingSequence;
 #[cfg(any(feature = "client", feature = "server"))]
 use leafwing_input_manager::plugin::InputManagerPlugin;
 
+
 pub struct InputPlugin<A> {
     pub config: InputConfig<A>,
 }

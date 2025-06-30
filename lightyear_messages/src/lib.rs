@@ -1,10 +1,14 @@
 //! # Lightyear Messages
 //!
-//! This crate provides the system for sending and receiving messages over the network.
-//!
-//! It defines the `Message` trait, which all messages must implement, and provides
-//! utilities for managing message sending and receiving, including `MessageSender`,
-//! `MessageReceiver`, and `MessageManager`.
+//! This crate provides a [`MessagePlugin`](Plugin) to handle sending and receiving messages over the network.
+//! 
+//! A [`Message`] is simply any type that can be (de)serialized.
+//! 
+//! You can add the [`MessageSender<M>`](send::MessageSender) or [`MessageReceiver<M>`](receive::MessageReceiver) components to your Link entity to enable sending and receiving messages of type `M`.
+//! 
+//! The crate also provides a [`MessageManager`] component that manages the process of sending and receiving messages for an entity.
+//! It stores a [`RemoteEntityMap`] that holds a mapping between the local and remote entities.
+
 
 #![no_std]
 
@@ -37,7 +41,7 @@ pub mod prelude {
     pub use crate::plugin::MessageSet;
     pub use crate::receive::MessageReceiver;
     pub use crate::receive_trigger::RemoteTrigger;
-    pub use crate::registry::AppMessageExt;
+    pub use crate::registry::{AppMessageExt, MessageRegistry};
     pub use crate::send::MessageSender;
     pub use crate::send_trigger::TriggerSender;
     pub use crate::trigger::AppTriggerExt;

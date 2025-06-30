@@ -59,7 +59,7 @@ pub mod prelude {
     pub use crate::plugin::ReplicationSet;
     pub use crate::receive::{ReplicationReceivePlugin, ReplicationReceiver};
     pub use crate::registry::registry::{
-        AppComponentExt, ComponentRegistration, TransformLinearInterpolation,
+        AppComponentExt, ComponentRegistration, ComponentRegistry, TransformLinearInterpolation,
     };
     pub use crate::send::components::*;
     pub use crate::send::plugin::{ReplicationBufferSet, ReplicationSendPlugin};

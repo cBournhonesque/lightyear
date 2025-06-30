@@ -12,13 +12,13 @@ use bevy_app::{
     App, FixedPostUpdate, Plugin, PostUpdate, RunFixedMainLoop, RunFixedMainLoopSystem,
 };
 use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_transform::{TransformSystem, components::Transform};
+use bevy_transform::{components::Transform, TransformSystem};
 use bevy_utils::default;
 
 use crate::sync;
 use lightyear_frame_interpolation::FrameInterpolationSet;
-use lightyear_interpolation::InterpolationMode;
 use lightyear_interpolation::prelude::InterpolationRegistry;
+use lightyear_interpolation::InterpolationMode;
 use lightyear_prediction::plugin::PredictionSet;
 use lightyear_replication::prelude::TransformLinearInterpolation;
 
@@ -95,9 +95,10 @@ impl Plugin for LightyearAvianPlugin {
         );
 
         // Sync Position/Rotation to Transform even for non RigidBody entities
+        // Disable the transform to position sync because we are doing it manually with our custom position_to_transform systems
         app.insert_resource(SyncConfig {
             transform_to_position: false,
-            position_to_transform: true,
+            position_to_transform: false,
             ..default()
         });
         app.add_systems(

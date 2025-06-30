@@ -28,11 +28,16 @@ pub const DEFAULT_MESSAGE_PRIORITY: f32 = 1.0;
 /// [`ChannelSettings`] are used to specify how the [`Channel`] behaves (reliability, ordering, direction)
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ChannelSettings {
+    /// The ordering and reliability guarantees of the channel.
     pub mode: ChannelMode,
     /// How often should we try to send messages on this channel.
     /// Set to `Duration::default()` to send messages every frame if possible.
     pub send_frequency: Duration,
-    /// Sets the priority of the channel. The final priority of a message will be `MessagePriority * ChannelPriority`
+    /// Sets the priority of the channel. The priority is used to choose which bytes to send when we don't have enough
+    /// bandwidth to send all bytes. The bytes will be sent in order of highest priority to lowest priority.
+    /// The final priority of a message will be `MessagePriority * ChannelPriority`
+    /// 
+    /// See [`PriorityManager`] for more information.
     pub priority: f32,
 }
 
