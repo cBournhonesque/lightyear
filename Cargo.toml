@@ -203,7 +203,7 @@ bevy_reflect = { version = "0.16", default-features = false }
 bevy_time = { version = "0.16", default-features = false }
 bevy_transform = { version = "0.16", default-features = false }
 bevy_utils = { version = "0.16", default-features = false }
-tracy-client = { version = "=0.18.0" }
+tracy-client = { version = "=0.18.2" }
 
 # input
 bevy_enhanced_input = { version = "0.14.1" }
