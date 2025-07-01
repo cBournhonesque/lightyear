@@ -48,7 +48,6 @@ bevy_time.workspace = true
 bevy_utils.workspace = true
 
 [dev-dependencies]
-lightyear_sync = { workspace = true, features = ["std"] }
 test-log.workspace = true
 
 [lints]

@@ -429,4 +429,4 @@ release_dryrun:
     cargo smart-release lightyear --allow-dirty -v -u --no-changelog-preview
 
 release:
-    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-preview
+    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-preview --execute

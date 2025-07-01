@@ -5,27 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## v0.21.0-rc.1 (2025-06-08)
+## v0.21.0-rc.2 (2025-07-01)
 
+<csr-id-cedab052a0f47cf91b15267b8d83eb87524a8f4d/>
+<csr-id-72ecbb9604bbb7add8e911cf9d72f21fd00eed6c/>
+<csr-id-cc8433c61122e6f8c712c3463d0e91d5230290e7/>
+<csr-id-f9bc3e3d8322d252d80363f716d5e78782520cff/>
+<csr-id-9436dd60efc0604f874dc09abe43c4dff12579fb/>
+<csr-id-ade88cad9e463e79f3251e55e8eeb18182deb5e3/>
+<csr-id-fe0bb4a24112a308eaf9c829fe5cfae0180ef946/>
+<csr-id-249b40f358977f6f85e269967d3912bfb4080f73/>
+<csr-id-f55c117c1627368978d26c788efbcb2ddda1da01/>
+<csr-id-bc7cf371f822ff7a2667c329b6f77e5a694a93d4/>
+<csr-id-411733089f59eb90d405f7ad327b5440b55ef060/>
+<csr-id-7f2e8a07187bf71db4d2c7efcd1eaa650ca83735/>
+<csr-id-307f947d03668b272beab1a4285dc9cc3463b867/>
 <csr-id-87806d0c9cb6fef22978cf7b170089e37711d329/>
 <csr-id-ba64c1f649c57b57aa6f726d6cb9de2e03128f8f/>
 <csr-id-4103090a52afc050c1de6dcbd7eb278af5ffe94a/>
 <csr-id-4adee75a35e02cc8f02a87fefc4dc6ee8e178fa7/>
-<csr-id-f241c9deba7c584a345cd2e267a60ab95e0aeb70/>
-<csr-id-7f2e8a07187bf71db4d2c7efcd1eaa650ca83735/>
-<csr-id-307f947d03668b272beab1a4285dc9cc3463b867/>
 
-Release of refactor
+### Chore
 
-### Other
+ - <csr-id-cedab052a0f47cf91b15267b8d83eb87524a8f4d/> add release command to ci
+ - <csr-id-72ecbb9604bbb7add8e911cf9d72f21fd00eed6c/> add tests for delta-compression
+ - <csr-id-cc8433c61122e6f8c712c3463d0e91d5230290e7/> fix compiletime benchmark
+ - <csr-id-f9bc3e3d8322d252d80363f716d5e78782520cff/> fix ci
+ - <csr-id-9436dd60efc0604f874dc09abe43c4dff12579fb/> fix
+ - <csr-id-ade88cad9e463e79f3251e55e8eeb18182deb5e3/> cargo fmt
+ - <csr-id-fe0bb4a24112a308eaf9c829fe5cfae0180ef946/> fix tests, cargo doc, cargo clippy
+ - <csr-id-249b40f358977f6f85e269967d3912bfb4080f73/> fix clippy
+ - <csr-id-f55c117c1627368978d26c788efbcb2ddda1da01/> cargo fmt
+ - <csr-id-bc7cf371f822ff7a2667c329b6f77e5a694a93d4/> enable host-server for all examples
+ - <csr-id-411733089f59eb90d405f7ad327b5440b55ef060/> enable host-client mode on simple box
+ - <csr-id-7f2e8a07187bf71db4d2c7efcd1eaa650ca83735/> fix warns
+ - <csr-id-307f947d03668b272beab1a4285dc9cc3463b867/> fix typo in docs
 
- - <csr-id-87806d0c9cb6fef22978cf7b170089e37711d329/> add option to trigger change detection
-   * add option to trigger change detection
-   
-   * fix bug
- - <csr-id-ba64c1f649c57b57aa6f726d6cb9de2e03128f8f/> add close method to packet sender / packet receiver
- - <csr-id-4103090a52afc050c1de6dcbd7eb278af5ffe94a/> small ownership issues
- - <csr-id-4adee75a35e02cc8f02a87fefc4dc6ee8e178fa7/> add unit tests
+### Documentation
+
+ - <csr-id-f4985d9f1c6c3fec718f11925060448f22c8be93/> fix typos, update ring
+
+### New Features
+
+ - <csr-id-117b0841a25dba5c6ffaadad88a8c4dba09d3cbb/> support BEI inputs
+ - <csr-id-d11f597140a81b73656dabb585e2ecca62fd208b/> implement wasm & fix small mistakes
+ - <csr-id-7781029b8c17f1558400b7095cedeb85c6f269c9/> add non-working native ws impl
 
 ### Bug Fixes
 
@@ -37,28 +61,23 @@ Release of refactor
  - <csr-id-c3f1faf98d770390323f1821861bf80e3e9d0415/> use io task pool instead of tokio::spawn and change receiver / sender
  - <csr-id-2293aed17794c1a2017a78145258bdf9a84bca6a/> recv impl
 
-### New Features
+### Other
 
- - <csr-id-d11f597140a81b73656dabb585e2ecca62fd208b/> implement wasm & fix small mistakes
- - <csr-id-7781029b8c17f1558400b7095cedeb85c6f269c9/> add non-working native ws impl
-
-### Documentation
-
- - <csr-id-f4985d9f1c6c3fec718f11925060448f22c8be93/> fix typos, update ring
-
-### Chore
-
- - <csr-id-f241c9deba7c584a345cd2e267a60ab95e0aeb70/> fix std flag
- - <csr-id-7f2e8a07187bf71db4d2c7efcd1eaa650ca83735/> fix warns
- - <csr-id-307f947d03668b272beab1a4285dc9cc3463b867/> fix typo in docs
+ - <csr-id-87806d0c9cb6fef22978cf7b170089e37711d329/> add option to trigger change detection
+   * add option to trigger change detection
+   
+   * fix bug
+ - <csr-id-ba64c1f649c57b57aa6f726d6cb9de2e03128f8f/> add close method to packet sender / packet receiver
+ - <csr-id-4103090a52afc050c1de6dcbd7eb278af5ffe94a/> small ownership issues
+ - <csr-id-4adee75a35e02cc8f02a87fefc4dc6ee8e178fa7/> add unit tests
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 1264 commits contributed to the release.
- - 17 commits were understood as [conventional](https://www.conventionalcommits.org).
- - 193 unique issues were worked on: [#1001](https://github.com/cBournhonesque/lightyear/issues/1001), [#1003](https://github.com/cBournhonesque/lightyear/issues/1003), [#1004](https://github.com/cBournhonesque/lightyear/issues/1004), [#1006](https://github.com/cBournhonesque/lightyear/issues/1006), [#1007](https://github.com/cBournhonesque/lightyear/issues/1007), [#1008](https://github.com/cBournhonesque/lightyear/issues/1008), [#464](https://github.com/cBournhonesque/lightyear/issues/464), [#512](https://github.com/cBournhonesque/lightyear/issues/512), [#513](https://github.com/cBournhonesque/lightyear/issues/513), [#515](https://github.com/cBournhonesque/lightyear/issues/515), [#523](https://github.com/cBournhonesque/lightyear/issues/523), [#525](https://github.com/cBournhonesque/lightyear/issues/525), [#528](https://github.com/cBournhonesque/lightyear/issues/528), [#530](https://github.com/cBournhonesque/lightyear/issues/530), [#531](https://github.com/cBournhonesque/lightyear/issues/531), [#534](https://github.com/cBournhonesque/lightyear/issues/534), [#537](https://github.com/cBournhonesque/lightyear/issues/537), [#538](https://github.com/cBournhonesque/lightyear/issues/538), [#542](https://github.com/cBournhonesque/lightyear/issues/542), [#543](https://github.com/cBournhonesque/lightyear/issues/543), [#544](https://github.com/cBournhonesque/lightyear/issues/544), [#548](https://github.com/cBournhonesque/lightyear/issues/548), [#549](https://github.com/cBournhonesque/lightyear/issues/549), [#554](https://github.com/cBournhonesque/lightyear/issues/554), [#555](https://github.com/cBournhonesque/lightyear/issues/555), [#556](https://github.com/cBournhonesque/lightyear/issues/556), [#557](https://github.com/cBournhonesque/lightyear/issues/557), [#558](https://github.com/cBournhonesque/lightyear/issues/558), [#559](https://github.com/cBournhonesque/lightyear/issues/559), [#561](https://github.com/cBournhonesque/lightyear/issues/561), [#566](https://github.com/cBournhonesque/lightyear/issues/566), [#567](https://github.com/cBournhonesque/lightyear/issues/567), [#570](https://github.com/cBournhonesque/lightyear/issues/570), [#572](https://github.com/cBournhonesque/lightyear/issues/572), [#575](https://github.com/cBournhonesque/lightyear/issues/575), [#578](https://github.com/cBournhonesque/lightyear/issues/578), [#581](https://github.com/cBournhonesque/lightyear/issues/581), [#583](https://github.com/cBournhonesque/lightyear/issues/583), [#588](https://github.com/cBournhonesque/lightyear/issues/588), [#589](https://github.com/cBournhonesque/lightyear/issues/589), [#591](https://github.com/cBournhonesque/lightyear/issues/591), [#592](https://github.com/cBournhonesque/lightyear/issues/592), [#594](https://github.com/cBournhonesque/lightyear/issues/594), [#597](https://github.com/cBournhonesque/lightyear/issues/597), [#598](https://github.com/cBournhonesque/lightyear/issues/598), [#600](https://github.com/cBournhonesque/lightyear/issues/600), [#601](https://github.com/cBournhonesque/lightyear/issues/601), [#602](https://github.com/cBournhonesque/lightyear/issues/602), [#606](https://github.com/cBournhonesque/lightyear/issues/606), [#607](https://github.com/cBournhonesque/lightyear/issues/607), [#612](https://github.com/cBournhonesque/lightyear/issues/612), [#615](https://github.com/cBournhonesque/lightyear/issues/615), [#622](https://github.com/cBournhonesque/lightyear/issues/622), [#623](https://github.com/cBournhonesque/lightyear/issues/623), [#632](https://github.com/cBournhonesque/lightyear/issues/632), [#636](https://github.com/cBournhonesque/lightyear/issues/636), [#638](https://github.com/cBournhonesque/lightyear/issues/638), [#642](https://github.com/cBournhonesque/lightyear/issues/642), [#646](https://github.com/cBournhonesque/lightyear/issues/646), [#647](https://github.com/cBournhonesque/lightyear/issues/647), [#653](https://github.com/cBournhonesque/lightyear/issues/653), [#654](https://github.com/cBournhonesque/lightyear/issues/654), [#656](https://github.com/cBournhonesque/lightyear/issues/656), [#657](https://github.com/cBournhonesque/lightyear/issues/657), [#661](https://github.com/cBournhonesque/lightyear/issues/661), [#665](https://github.com/cBournhonesque/lightyear/issues/665), [#666](https://github.com/cBournhonesque/lightyear/issues/666), [#670](https://github.com/cBournhonesque/lightyear/issues/670), [#671](https://github.com/cBournhonesque/lightyear/issues/671), [#672](https://github.com/cBournhonesque/lightyear/issues/672), [#674](https://github.com/cBournhonesque/lightyear/issues/674), [#675](https://github.com/cBournhonesque/lightyear/issues/675), [#682](https://github.com/cBournhonesque/lightyear/issues/682), [#687](https://github.com/cBournhonesque/lightyear/issues/687), [#693](https://github.com/cBournhonesque/lightyear/issues/693), [#694](https://github.com/cBournhonesque/lightyear/issues/694), [#695](https://github.com/cBournhonesque/lightyear/issues/695), [#698](https://github.com/cBournhonesque/lightyear/issues/698), [#700](https://github.com/cBournhonesque/lightyear/issues/700), [#703](https://github.com/cBournhonesque/lightyear/issues/703), [#705](https://github.com/cBournhonesque/lightyear/issues/705), [#706](https://github.com/cBournhonesque/lightyear/issues/706), [#708](https://github.com/cBournhonesque/lightyear/issues/708), [#709](https://github.com/cBournhonesque/lightyear/issues/709), [#710](https://github.com/cBournhonesque/lightyear/issues/710), [#711](https://github.com/cBournhonesque/lightyear/issues/711), [#713](https://github.com/cBournhonesque/lightyear/issues/713), [#714](https://github.com/cBournhonesque/lightyear/issues/714), [#722](https://github.com/cBournhonesque/lightyear/issues/722), [#723](https://github.com/cBournhonesque/lightyear/issues/723), [#724](https://github.com/cBournhonesque/lightyear/issues/724), [#726](https://github.com/cBournhonesque/lightyear/issues/726), [#732](https://github.com/cBournhonesque/lightyear/issues/732), [#736](https://github.com/cBournhonesque/lightyear/issues/736), [#741](https://github.com/cBournhonesque/lightyear/issues/741), [#746](https://github.com/cBournhonesque/lightyear/issues/746), [#748](https://github.com/cBournhonesque/lightyear/issues/748), [#749](https://github.com/cBournhonesque/lightyear/issues/749), [#754](https://github.com/cBournhonesque/lightyear/issues/754), [#757](https://github.com/cBournhonesque/lightyear/issues/757), [#759](https://github.com/cBournhonesque/lightyear/issues/759), [#761](https://github.com/cBournhonesque/lightyear/issues/761), [#764](https://github.com/cBournhonesque/lightyear/issues/764), [#766](https://github.com/cBournhonesque/lightyear/issues/766), [#767](https://github.com/cBournhonesque/lightyear/issues/767), [#768](https://github.com/cBournhonesque/lightyear/issues/768), [#769](https://github.com/cBournhonesque/lightyear/issues/769), [#770](https://github.com/cBournhonesque/lightyear/issues/770), [#771](https://github.com/cBournhonesque/lightyear/issues/771), [#772](https://github.com/cBournhonesque/lightyear/issues/772), [#773](https://github.com/cBournhonesque/lightyear/issues/773), [#774](https://github.com/cBournhonesque/lightyear/issues/774), [#775](https://github.com/cBournhonesque/lightyear/issues/775), [#776](https://github.com/cBournhonesque/lightyear/issues/776), [#778](https://github.com/cBournhonesque/lightyear/issues/778), [#780](https://github.com/cBournhonesque/lightyear/issues/780), [#781](https://github.com/cBournhonesque/lightyear/issues/781), [#783](https://github.com/cBournhonesque/lightyear/issues/783), [#787](https://github.com/cBournhonesque/lightyear/issues/787), [#788](https://github.com/cBournhonesque/lightyear/issues/788), [#794](https://github.com/cBournhonesque/lightyear/issues/794), [#796](https://github.com/cBournhonesque/lightyear/issues/796), [#798](https://github.com/cBournhonesque/lightyear/issues/798), [#799](https://github.com/cBournhonesque/lightyear/issues/799), [#802](https://github.com/cBournhonesque/lightyear/issues/802), [#803](https://github.com/cBournhonesque/lightyear/issues/803), [#804](https://github.com/cBournhonesque/lightyear/issues/804), [#805](https://github.com/cBournhonesque/lightyear/issues/805), [#806](https://github.com/cBournhonesque/lightyear/issues/806), [#808](https://github.com/cBournhonesque/lightyear/issues/808), [#810](https://github.com/cBournhonesque/lightyear/issues/810), [#811](https://github.com/cBournhonesque/lightyear/issues/811), [#812](https://github.com/cBournhonesque/lightyear/issues/812), [#813](https://github.com/cBournhonesque/lightyear/issues/813), [#815](https://github.com/cBournhonesque/lightyear/issues/815), [#819](https://github.com/cBournhonesque/lightyear/issues/819), [#820](https://github.com/cBournhonesque/lightyear/issues/820), [#821](https://github.com/cBournhonesque/lightyear/issues/821), [#822](https://github.com/cBournhonesque/lightyear/issues/822), [#823](https://github.com/cBournhonesque/lightyear/issues/823), [#824](https://github.com/cBournhonesque/lightyear/issues/824), [#825](https://github.com/cBournhonesque/lightyear/issues/825), [#826](https://github.com/cBournhonesque/lightyear/issues/826), [#831](https://github.com/cBournhonesque/lightyear/issues/831), [#832](https://github.com/cBournhonesque/lightyear/issues/832), [#838](https://github.com/cBournhonesque/lightyear/issues/838), [#841](https://github.com/cBournhonesque/lightyear/issues/841), [#844](https://github.com/cBournhonesque/lightyear/issues/844), [#845](https://github.com/cBournhonesque/lightyear/issues/845), [#846](https://github.com/cBournhonesque/lightyear/issues/846), [#849](https://github.com/cBournhonesque/lightyear/issues/849), [#853](https://github.com/cBournhonesque/lightyear/issues/853), [#854](https://github.com/cBournhonesque/lightyear/issues/854), [#856](https://github.com/cBournhonesque/lightyear/issues/856), [#857](https://github.com/cBournhonesque/lightyear/issues/857), [#860](https://github.com/cBournhonesque/lightyear/issues/860), [#861](https://github.com/cBournhonesque/lightyear/issues/861), [#862](https://github.com/cBournhonesque/lightyear/issues/862), [#864](https://github.com/cBournhonesque/lightyear/issues/864), [#871](https://github.com/cBournhonesque/lightyear/issues/871), [#872](https://github.com/cBournhonesque/lightyear/issues/872), [#873](https://github.com/cBournhonesque/lightyear/issues/873), [#874](https://github.com/cBournhonesque/lightyear/issues/874), [#876](https://github.com/cBournhonesque/lightyear/issues/876), [#877](https://github.com/cBournhonesque/lightyear/issues/877), [#881](https://github.com/cBournhonesque/lightyear/issues/881), [#884](https://github.com/cBournhonesque/lightyear/issues/884), [#896](https://github.com/cBournhonesque/lightyear/issues/896), [#902](https://github.com/cBournhonesque/lightyear/issues/902), [#903](https://github.com/cBournhonesque/lightyear/issues/903), [#908](https://github.com/cBournhonesque/lightyear/issues/908), [#913](https://github.com/cBournhonesque/lightyear/issues/913), [#916](https://github.com/cBournhonesque/lightyear/issues/916), [#917](https://github.com/cBournhonesque/lightyear/issues/917), [#919](https://github.com/cBournhonesque/lightyear/issues/919), [#923](https://github.com/cBournhonesque/lightyear/issues/923), [#924](https://github.com/cBournhonesque/lightyear/issues/924), [#925](https://github.com/cBournhonesque/lightyear/issues/925), [#928](https://github.com/cBournhonesque/lightyear/issues/928), [#935](https://github.com/cBournhonesque/lightyear/issues/935), [#943](https://github.com/cBournhonesque/lightyear/issues/943), [#950](https://github.com/cBournhonesque/lightyear/issues/950), [#951](https://github.com/cBournhonesque/lightyear/issues/951), [#954](https://github.com/cBournhonesque/lightyear/issues/954), [#955](https://github.com/cBournhonesque/lightyear/issues/955), [#958](https://github.com/cBournhonesque/lightyear/issues/958), [#959](https://github.com/cBournhonesque/lightyear/issues/959), [#962](https://github.com/cBournhonesque/lightyear/issues/962), [#965](https://github.com/cBournhonesque/lightyear/issues/965), [#976](https://github.com/cBournhonesque/lightyear/issues/976), [#982](https://github.com/cBournhonesque/lightyear/issues/982), [#989](https://github.com/cBournhonesque/lightyear/issues/989), [#999](https://github.com/cBournhonesque/lightyear/issues/999)
+ - 1273 commits contributed to the release.
+ - 28 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 205 unique issues were worked on: [#1001](https://github.com/cBournhonesque/lightyear/issues/1001), [#1003](https://github.com/cBournhonesque/lightyear/issues/1003), [#1004](https://github.com/cBournhonesque/lightyear/issues/1004), [#1006](https://github.com/cBournhonesque/lightyear/issues/1006), [#1007](https://github.com/cBournhonesque/lightyear/issues/1007), [#1008](https://github.com/cBournhonesque/lightyear/issues/1008), [#1017](https://github.com/cBournhonesque/lightyear/issues/1017), [#1018](https://github.com/cBournhonesque/lightyear/issues/1018), [#1019](https://github.com/cBournhonesque/lightyear/issues/1019), [#1021](https://github.com/cBournhonesque/lightyear/issues/1021), [#1023](https://github.com/cBournhonesque/lightyear/issues/1023), [#1024](https://github.com/cBournhonesque/lightyear/issues/1024), [#1029](https://github.com/cBournhonesque/lightyear/issues/1029), [#1039](https://github.com/cBournhonesque/lightyear/issues/1039), [#1043](https://github.com/cBournhonesque/lightyear/issues/1043), [#1049](https://github.com/cBournhonesque/lightyear/issues/1049), [#1051](https://github.com/cBournhonesque/lightyear/issues/1051), [#1054](https://github.com/cBournhonesque/lightyear/issues/1054), [#464](https://github.com/cBournhonesque/lightyear/issues/464), [#512](https://github.com/cBournhonesque/lightyear/issues/512), [#513](https://github.com/cBournhonesque/lightyear/issues/513), [#515](https://github.com/cBournhonesque/lightyear/issues/515), [#523](https://github.com/cBournhonesque/lightyear/issues/523), [#525](https://github.com/cBournhonesque/lightyear/issues/525), [#528](https://github.com/cBournhonesque/lightyear/issues/528), [#530](https://github.com/cBournhonesque/lightyear/issues/530), [#531](https://github.com/cBournhonesque/lightyear/issues/531), [#534](https://github.com/cBournhonesque/lightyear/issues/534), [#537](https://github.com/cBournhonesque/lightyear/issues/537), [#538](https://github.com/cBournhonesque/lightyear/issues/538), [#542](https://github.com/cBournhonesque/lightyear/issues/542), [#543](https://github.com/cBournhonesque/lightyear/issues/543), [#544](https://github.com/cBournhonesque/lightyear/issues/544), [#548](https://github.com/cBournhonesque/lightyear/issues/548), [#549](https://github.com/cBournhonesque/lightyear/issues/549), [#554](https://github.com/cBournhonesque/lightyear/issues/554), [#555](https://github.com/cBournhonesque/lightyear/issues/555), [#556](https://github.com/cBournhonesque/lightyear/issues/556), [#557](https://github.com/cBournhonesque/lightyear/issues/557), [#558](https://github.com/cBournhonesque/lightyear/issues/558), [#559](https://github.com/cBournhonesque/lightyear/issues/559), [#561](https://github.com/cBournhonesque/lightyear/issues/561), [#566](https://github.com/cBournhonesque/lightyear/issues/566), [#567](https://github.com/cBournhonesque/lightyear/issues/567), [#570](https://github.com/cBournhonesque/lightyear/issues/570), [#572](https://github.com/cBournhonesque/lightyear/issues/572), [#575](https://github.com/cBournhonesque/lightyear/issues/575), [#578](https://github.com/cBournhonesque/lightyear/issues/578), [#581](https://github.com/cBournhonesque/lightyear/issues/581), [#583](https://github.com/cBournhonesque/lightyear/issues/583), [#588](https://github.com/cBournhonesque/lightyear/issues/588), [#589](https://github.com/cBournhonesque/lightyear/issues/589), [#591](https://github.com/cBournhonesque/lightyear/issues/591), [#592](https://github.com/cBournhonesque/lightyear/issues/592), [#594](https://github.com/cBournhonesque/lightyear/issues/594), [#597](https://github.com/cBournhonesque/lightyear/issues/597), [#598](https://github.com/cBournhonesque/lightyear/issues/598), [#600](https://github.com/cBournhonesque/lightyear/issues/600), [#601](https://github.com/cBournhonesque/lightyear/issues/601), [#602](https://github.com/cBournhonesque/lightyear/issues/602), [#606](https://github.com/cBournhonesque/lightyear/issues/606), [#607](https://github.com/cBournhonesque/lightyear/issues/607), [#612](https://github.com/cBournhonesque/lightyear/issues/612), [#615](https://github.com/cBournhonesque/lightyear/issues/615), [#622](https://github.com/cBournhonesque/lightyear/issues/622), [#623](https://github.com/cBournhonesque/lightyear/issues/623), [#632](https://github.com/cBournhonesque/lightyear/issues/632), [#636](https://github.com/cBournhonesque/lightyear/issues/636), [#638](https://github.com/cBournhonesque/lightyear/issues/638), [#642](https://github.com/cBournhonesque/lightyear/issues/642), [#646](https://github.com/cBournhonesque/lightyear/issues/646), [#647](https://github.com/cBournhonesque/lightyear/issues/647), [#653](https://github.com/cBournhonesque/lightyear/issues/653), [#654](https://github.com/cBournhonesque/lightyear/issues/654), [#656](https://github.com/cBournhonesque/lightyear/issues/656), [#657](https://github.com/cBournhonesque/lightyear/issues/657), [#661](https://github.com/cBournhonesque/lightyear/issues/661), [#665](https://github.com/cBournhonesque/lightyear/issues/665), [#666](https://github.com/cBournhonesque/lightyear/issues/666), [#670](https://github.com/cBournhonesque/lightyear/issues/670), [#671](https://github.com/cBournhonesque/lightyear/issues/671), [#672](https://github.com/cBournhonesque/lightyear/issues/672), [#674](https://github.com/cBournhonesque/lightyear/issues/674), [#675](https://github.com/cBournhonesque/lightyear/issues/675), [#682](https://github.com/cBournhonesque/lightyear/issues/682), [#687](https://github.com/cBournhonesque/lightyear/issues/687), [#693](https://github.com/cBournhonesque/lightyear/issues/693), [#694](https://github.com/cBournhonesque/lightyear/issues/694), [#695](https://github.com/cBournhonesque/lightyear/issues/695), [#698](https://github.com/cBournhonesque/lightyear/issues/698), [#700](https://github.com/cBournhonesque/lightyear/issues/700), [#703](https://github.com/cBournhonesque/lightyear/issues/703), [#705](https://github.com/cBournhonesque/lightyear/issues/705), [#706](https://github.com/cBournhonesque/lightyear/issues/706), [#708](https://github.com/cBournhonesque/lightyear/issues/708), [#709](https://github.com/cBournhonesque/lightyear/issues/709), [#710](https://github.com/cBournhonesque/lightyear/issues/710), [#711](https://github.com/cBournhonesque/lightyear/issues/711), [#713](https://github.com/cBournhonesque/lightyear/issues/713), [#714](https://github.com/cBournhonesque/lightyear/issues/714), [#722](https://github.com/cBournhonesque/lightyear/issues/722), [#723](https://github.com/cBournhonesque/lightyear/issues/723), [#724](https://github.com/cBournhonesque/lightyear/issues/724), [#726](https://github.com/cBournhonesque/lightyear/issues/726), [#732](https://github.com/cBournhonesque/lightyear/issues/732), [#736](https://github.com/cBournhonesque/lightyear/issues/736), [#741](https://github.com/cBournhonesque/lightyear/issues/741), [#746](https://github.com/cBournhonesque/lightyear/issues/746), [#748](https://github.com/cBournhonesque/lightyear/issues/748), [#749](https://github.com/cBournhonesque/lightyear/issues/749), [#754](https://github.com/cBournhonesque/lightyear/issues/754), [#757](https://github.com/cBournhonesque/lightyear/issues/757), [#759](https://github.com/cBournhonesque/lightyear/issues/759), [#761](https://github.com/cBournhonesque/lightyear/issues/761), [#764](https://github.com/cBournhonesque/lightyear/issues/764), [#766](https://github.com/cBournhonesque/lightyear/issues/766), [#767](https://github.com/cBournhonesque/lightyear/issues/767), [#768](https://github.com/cBournhonesque/lightyear/issues/768), [#769](https://github.com/cBournhonesque/lightyear/issues/769), [#770](https://github.com/cBournhonesque/lightyear/issues/770), [#771](https://github.com/cBournhonesque/lightyear/issues/771), [#772](https://github.com/cBournhonesque/lightyear/issues/772), [#773](https://github.com/cBournhonesque/lightyear/issues/773), [#774](https://github.com/cBournhonesque/lightyear/issues/774), [#775](https://github.com/cBournhonesque/lightyear/issues/775), [#776](https://github.com/cBournhonesque/lightyear/issues/776), [#778](https://github.com/cBournhonesque/lightyear/issues/778), [#780](https://github.com/cBournhonesque/lightyear/issues/780), [#781](https://github.com/cBournhonesque/lightyear/issues/781), [#783](https://github.com/cBournhonesque/lightyear/issues/783), [#787](https://github.com/cBournhonesque/lightyear/issues/787), [#788](https://github.com/cBournhonesque/lightyear/issues/788), [#794](https://github.com/cBournhonesque/lightyear/issues/794), [#796](https://github.com/cBournhonesque/lightyear/issues/796), [#798](https://github.com/cBournhonesque/lightyear/issues/798), [#799](https://github.com/cBournhonesque/lightyear/issues/799), [#802](https://github.com/cBournhonesque/lightyear/issues/802), [#803](https://github.com/cBournhonesque/lightyear/issues/803), [#804](https://github.com/cBournhonesque/lightyear/issues/804), [#805](https://github.com/cBournhonesque/lightyear/issues/805), [#806](https://github.com/cBournhonesque/lightyear/issues/806), [#808](https://github.com/cBournhonesque/lightyear/issues/808), [#810](https://github.com/cBournhonesque/lightyear/issues/810), [#811](https://github.com/cBournhonesque/lightyear/issues/811), [#812](https://github.com/cBournhonesque/lightyear/issues/812), [#813](https://github.com/cBournhonesque/lightyear/issues/813), [#815](https://github.com/cBournhonesque/lightyear/issues/815), [#819](https://github.com/cBournhonesque/lightyear/issues/819), [#820](https://github.com/cBournhonesque/lightyear/issues/820), [#821](https://github.com/cBournhonesque/lightyear/issues/821), [#822](https://github.com/cBournhonesque/lightyear/issues/822), [#823](https://github.com/cBournhonesque/lightyear/issues/823), [#824](https://github.com/cBournhonesque/lightyear/issues/824), [#825](https://github.com/cBournhonesque/lightyear/issues/825), [#826](https://github.com/cBournhonesque/lightyear/issues/826), [#831](https://github.com/cBournhonesque/lightyear/issues/831), [#832](https://github.com/cBournhonesque/lightyear/issues/832), [#838](https://github.com/cBournhonesque/lightyear/issues/838), [#841](https://github.com/cBournhonesque/lightyear/issues/841), [#844](https://github.com/cBournhonesque/lightyear/issues/844), [#845](https://github.com/cBournhonesque/lightyear/issues/845), [#846](https://github.com/cBournhonesque/lightyear/issues/846), [#849](https://github.com/cBournhonesque/lightyear/issues/849), [#853](https://github.com/cBournhonesque/lightyear/issues/853), [#854](https://github.com/cBournhonesque/lightyear/issues/854), [#856](https://github.com/cBournhonesque/lightyear/issues/856), [#857](https://github.com/cBournhonesque/lightyear/issues/857), [#860](https://github.com/cBournhonesque/lightyear/issues/860), [#861](https://github.com/cBournhonesque/lightyear/issues/861), [#862](https://github.com/cBournhonesque/lightyear/issues/862), [#864](https://github.com/cBournhonesque/lightyear/issues/864), [#871](https://github.com/cBournhonesque/lightyear/issues/871), [#872](https://github.com/cBournhonesque/lightyear/issues/872), [#873](https://github.com/cBournhonesque/lightyear/issues/873), [#874](https://github.com/cBournhonesque/lightyear/issues/874), [#876](https://github.com/cBournhonesque/lightyear/issues/876), [#877](https://github.com/cBournhonesque/lightyear/issues/877), [#881](https://github.com/cBournhonesque/lightyear/issues/881), [#884](https://github.com/cBournhonesque/lightyear/issues/884), [#896](https://github.com/cBournhonesque/lightyear/issues/896), [#902](https://github.com/cBournhonesque/lightyear/issues/902), [#903](https://github.com/cBournhonesque/lightyear/issues/903), [#908](https://github.com/cBournhonesque/lightyear/issues/908), [#913](https://github.com/cBournhonesque/lightyear/issues/913), [#916](https://github.com/cBournhonesque/lightyear/issues/916), [#917](https://github.com/cBournhonesque/lightyear/issues/917), [#919](https://github.com/cBournhonesque/lightyear/issues/919), [#923](https://github.com/cBournhonesque/lightyear/issues/923), [#924](https://github.com/cBournhonesque/lightyear/issues/924), [#925](https://github.com/cBournhonesque/lightyear/issues/925), [#928](https://github.com/cBournhonesque/lightyear/issues/928), [#935](https://github.com/cBournhonesque/lightyear/issues/935), [#943](https://github.com/cBournhonesque/lightyear/issues/943), [#950](https://github.com/cBournhonesque/lightyear/issues/950), [#951](https://github.com/cBournhonesque/lightyear/issues/951), [#954](https://github.com/cBournhonesque/lightyear/issues/954), [#955](https://github.com/cBournhonesque/lightyear/issues/955), [#958](https://github.com/cBournhonesque/lightyear/issues/958), [#959](https://github.com/cBournhonesque/lightyear/issues/959), [#962](https://github.com/cBournhonesque/lightyear/issues/962), [#965](https://github.com/cBournhonesque/lightyear/issues/965), [#976](https://github.com/cBournhonesque/lightyear/issues/976), [#982](https://github.com/cBournhonesque/lightyear/issues/982), [#989](https://github.com/cBournhonesque/lightyear/issues/989), [#999](https://github.com/cBournhonesque/lightyear/issues/999)
 
 ### Commit Details
 
@@ -78,6 +97,30 @@ Release of refactor
     - Make AppTriggerExt pub ([`779c0d1`](https://github.com/cBournhonesque/lightyear/commit/779c0d13d9d59f854020cc201d517c54a255427c))
  * **[#1008](https://github.com/cBournhonesque/lightyear/issues/1008)**
     - Fix examples and upgrade avian ([`a70fc44`](https://github.com/cBournhonesque/lightyear/commit/a70fc44d1e7c78b6ae533c8ce051af0c5329920a))
+ * **[#1017](https://github.com/cBournhonesque/lightyear/issues/1017)**
+    - Release 0.21 rc1 ([`dc0e61e`](https://github.com/cBournhonesque/lightyear/commit/dc0e61e06fe68309ed8cbfdcdfead633ad567537))
+ * **[#1018](https://github.com/cBournhonesque/lightyear/issues/1018)**
+    - Separate Connected from LocalId/RemoteId ([`89ce3e7`](https://github.com/cBournhonesque/lightyear/commit/89ce3e705fb262fe819ac1d254468caf3fc5fce5))
+ * **[#1019](https://github.com/cBournhonesque/lightyear/issues/1019)**
+    - Add steam ([`c1de749`](https://github.com/cBournhonesque/lightyear/commit/c1de749a142b763874596d131b1a9f673e4ea5a1))
+ * **[#1021](https://github.com/cBournhonesque/lightyear/issues/1021)**
+    - Fix lobby example (without HostServer) and add protocolhash ([`0beb664`](https://github.com/cBournhonesque/lightyear/commit/0beb664f0161f73e4a53c06530ae139078ed8763))
+ * **[#1023](https://github.com/cBournhonesque/lightyear/issues/1023)**
+    - Add HostServer ([`5b6af7e`](https://github.com/cBournhonesque/lightyear/commit/5b6af7edd3b41c05333d14dde258ea5e89c07c2d))
+ * **[#1024](https://github.com/cBournhonesque/lightyear/issues/1024)**
+    - Enable host-client mode on simple box ([`4117330`](https://github.com/cBournhonesque/lightyear/commit/411733089f59eb90d405f7ad327b5440b55ef060))
+ * **[#1029](https://github.com/cBournhonesque/lightyear/issues/1029)**
+    - Enable host-server for all examples ([`bc7cf37`](https://github.com/cBournhonesque/lightyear/commit/bc7cf371f822ff7a2667c329b6f77e5a694a93d4))
+ * **[#1039](https://github.com/cBournhonesque/lightyear/issues/1039)**
+    - Support BEI inputs ([`117b084`](https://github.com/cBournhonesque/lightyear/commit/117b0841a25dba5c6ffaadad88a8c4dba09d3cbb))
+ * **[#1043](https://github.com/cBournhonesque/lightyear/issues/1043)**
+    - Make workspace crates depend on individual bevy crates ([`5dc3dc3`](https://github.com/cBournhonesque/lightyear/commit/5dc3dc3e17a8b821c35162b904b73eea0e1c69be))
+ * **[#1049](https://github.com/cBournhonesque/lightyear/issues/1049)**
+    - Alternative replication system + fix delta-compression ([`4d5e690`](https://github.com/cBournhonesque/lightyear/commit/4d5e69072485faa3975543792a8e11be7608a0ea))
+ * **[#1051](https://github.com/cBournhonesque/lightyear/issues/1051)**
+    - Add tests for delta-compression ([`72ecbb9`](https://github.com/cBournhonesque/lightyear/commit/72ecbb9604bbb7add8e911cf9d72f21fd00eed6c))
+ * **[#1054](https://github.com/cBournhonesque/lightyear/issues/1054)**
+    - Chore(docs) ([`59b9f7e`](https://github.com/cBournhonesque/lightyear/commit/59b9f7eb37b036488d3ceab780074274074a9bd6))
  * **[#464](https://github.com/cBournhonesque/lightyear/issues/464)**
     - Upgrade to bevy 0.14 ([`61809eb`](https://github.com/cBournhonesque/lightyear/commit/61809eb3d38d61a874c6a6d948c597873808f1ba))
  * **[#512](https://github.com/cBournhonesque/lightyear/issues/512)**
@@ -299,7 +342,7 @@ Release of refactor
  * **[#780](https://github.com/cBournhonesque/lightyear/issues/780)**
     - Use ComponentHooks to maintain the prediction/confirmed map in sync ([`44c251e`](https://github.com/cBournhonesque/lightyear/commit/44c251ee84401d89f062016e529658e759e4442b))
  * **[#781](https://github.com/cBournhonesque/lightyear/issues/781)**
-    - Update entity map to return Entity::PLACEHOLDER if the mapping fails ([`3bbc380`](https://github.com/cBournhonesque/lightyear/commit/3bbc3800f73953d578f993722b59b24f3924e496))
+    - Update entity map to return Entity::PLACEHOLDER if the mapping fials ([`3bbc380`](https://github.com/cBournhonesque/lightyear/commit/3bbc3800f73953d578f993722b59b24f3924e496))
  * **[#783](https://github.com/cBournhonesque/lightyear/issues/783)**
     - Fix ([`d9073b3`](https://github.com/cBournhonesque/lightyear/commit/d9073b354be755b90f4b05d8e6e5660a0c0b1641))
  * **[#787](https://github.com/cBournhonesque/lightyear/issues/787)**
@@ -453,24 +496,21 @@ Release of refactor
  * **[#999](https://github.com/cBournhonesque/lightyear/issues/999)**
     - Cb/0.20 ([`e7a259a`](https://github.com/cBournhonesque/lightyear/commit/e7a259ab58b6c0caa10d7f7924d443268b2a456d))
  * **Uncategorized**
-    - Release lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`56fce65`](https://github.com/cBournhonesque/lightyear/commit/56fce65f2ba11827e34d115d9767dd6bb0867342))
-    - Release lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`5298f30`](https://github.com/cBournhonesque/lightyear/commit/5298f301264be20e888e346fee3ff7aa53efee08))
-    - Release lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`d1f8de0`](https://github.com/cBournhonesque/lightyear/commit/d1f8de07feada99788ad76b2649463c18fd182bd))
-    - Release lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`a83da5c`](https://github.com/cBournhonesque/lightyear/commit/a83da5c78e6fa5291c302ab1acafc8f2b3d4cdef))
-    - Release lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`a3c7dfc`](https://github.com/cBournhonesque/lightyear/commit/a3c7dfc27fc99d5244d4b727274014500e220246))
-    - Release lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`1d2457f`](https://github.com/cBournhonesque/lightyear/commit/1d2457f21490e2e2d7cdc8fa652db12972ef2a12))
-    - Release lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`e2421e0`](https://github.com/cBournhonesque/lightyear/commit/e2421e0f880bd761093b629783657fdcb2d4bdeb))
-    - Release lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`41dc70e`](https://github.com/cBournhonesque/lightyear/commit/41dc70e0bf0685b3dc4719a5b107bc25f2801e0f))
-    - Release lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`c21009a`](https://github.com/cBournhonesque/lightyear/commit/c21009afc6d98a0c771f8b7406cec5d36ad19439))
-    - Release lightyear_sync v0.21.0-rc.1, lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`5e965d4`](https://github.com/cBournhonesque/lightyear/commit/5e965d4430740dcdf337dac32a4ec4227088dfc9))
-    - Release lightyear_replication v0.21.0-rc.1, lightyear_sync v0.21.0-rc.1, lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`ff75efe`](https://github.com/cBournhonesque/lightyear/commit/ff75efe04c8c69265d498049e43a8576357e4aeb))
-    - Release lightyear_replication v0.21.0-rc.1, lightyear_sync v0.21.0-rc.1, lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`e844fdf`](https://github.com/cBournhonesque/lightyear/commit/e844fdfe74b2dd7a6d51b89219d17f143478d1c5))
-    - Release lightyear_replication v0.21.0-rc.1, lightyear_sync v0.21.0-rc.1, lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`52ab726`](https://github.com/cBournhonesque/lightyear/commit/52ab7260b3a412b75b29103fd476231e0ff4b4ae))
-    - Release lightyear_connection v0.21.0-rc.1, lightyear_macros v0.21.0-rc.1, lightyear_transport v0.21.0-rc.1, lightyear_messages v0.21.0-rc.1, lightyear_replication v0.21.0-rc.1, lightyear_sync v0.21.0-rc.1, lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`d672813`](https://github.com/cBournhonesque/lightyear/commit/d6728136b45914fe33247dabec063ee68f62d704))
-    - Release lightyear_connection v0.21.0-rc.1, lightyear_macros v0.21.0-rc.1, lightyear_transport v0.21.0-rc.1, lightyear_messages v0.21.0-rc.1, lightyear_replication v0.21.0-rc.1, lightyear_sync v0.21.0-rc.1, lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`1a77fff`](https://github.com/cBournhonesque/lightyear/commit/1a77fff3835086a2a81b1954ca2901585b371540))
-    - Release lightyear_serde v0.21.0-rc.1, lightyear_utils v0.21.0-rc.1, lightyear_core v0.21.0-rc.1, lightyear_link v0.21.0-rc.1, lightyear_connection v0.21.0-rc.1, lightyear_macros v0.21.0-rc.1, lightyear_transport v0.21.0-rc.1, lightyear_messages v0.21.0-rc.1, lightyear_replication v0.21.0-rc.1, lightyear_sync v0.21.0-rc.1, lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`6f57c1f`](https://github.com/cBournhonesque/lightyear/commit/6f57c1fce6fc32deb836e2ea33e8152a85498dcf))
-    - Fix std flag ([`f241c9d`](https://github.com/cBournhonesque/lightyear/commit/f241c9deba7c584a345cd2e267a60ab95e0aeb70))
-    - Adjusting changelogs prior to release of lightyear_serde v0.21.0-rc.1, lightyear_utils v0.21.0-rc.1, lightyear_core v0.21.0-rc.1, lightyear_link v0.21.0-rc.1, lightyear_connection v0.21.0-rc.1, lightyear_macros v0.21.0-rc.1, lightyear_transport v0.21.0-rc.1, lightyear_messages v0.21.0-rc.1, lightyear_replication v0.21.0-rc.1, lightyear_sync v0.21.0-rc.1, lightyear_interpolation v0.21.0-rc.1, lightyear_prediction v0.21.0-rc.1, lightyear_frame_interpolation v0.21.0-rc.1, lightyear_avian v0.21.0-rc.1, lightyear_crossbeam v0.21.0-rc.1, lightyear_inputs v0.21.0-rc.1, lightyear_inputs_leafwing v0.21.0-rc.1, lightyear_inputs_native v0.21.0-rc.1, lightyear_netcode v0.21.0-rc.1, lightyear_aeronet v0.21.0-rc.1, lightyear_webtransport v0.21.0-rc.1, lightyear_udp v0.21.0-rc.1, lightyear v0.21.0-rc.1 ([`e73f1da`](https://github.com/cBournhonesque/lightyear/commit/e73f1da540c2fea3d997f0525899176c922fc3c0))
+    - Release lightyear_sync v0.21.0-rc.2, lightyear_interpolation v0.21.0-rc.2, lightyear_prediction v0.21.0-rc.2, lightyear_frame_interpolation v0.21.0-rc.2, lightyear_avian v0.21.0-rc.2, lightyear_crossbeam v0.21.0-rc.2, lightyear_inputs v0.21.0-rc.2, lightyear_inputs_bei v0.21.0-rc.2, lightyear_inputs_leafwing v0.21.0-rc.2, lightyear_inputs_native v0.21.0-rc.2, lightyear_netcode v0.21.0-rc.2, lightyear_steam v0.21.0-rc.2, lightyear_webtransport v0.21.0-rc.2, lightyear_udp v0.21.0-rc.2, lightyear v0.21.0-rc.2 ([`9b73324`](https://github.com/cBournhonesque/lightyear/commit/9b73324f087e10cdc3328e937b70a7a7352a647e))
+    - Release lightyear_replication v0.21.0-rc.2, lightyear_sync v0.21.0-rc.2, lightyear_interpolation v0.21.0-rc.2, lightyear_prediction v0.21.0-rc.2, lightyear_frame_interpolation v0.21.0-rc.2, lightyear_avian v0.21.0-rc.2, lightyear_crossbeam v0.21.0-rc.2, lightyear_inputs v0.21.0-rc.2, lightyear_inputs_bei v0.21.0-rc.2, lightyear_inputs_leafwing v0.21.0-rc.2, lightyear_inputs_native v0.21.0-rc.2, lightyear_netcode v0.21.0-rc.2, lightyear_steam v0.21.0-rc.2, lightyear_webtransport v0.21.0-rc.2, lightyear_udp v0.21.0-rc.2, lightyear v0.21.0-rc.2 ([`b6dc58a`](https://github.com/cBournhonesque/lightyear/commit/b6dc58ac14426fb5ed211fc07af46be137a3cb34))
+    - Release lightyear_messages v0.21.0-rc.2, lightyear_replication v0.21.0-rc.2, lightyear_sync v0.21.0-rc.2, lightyear_interpolation v0.21.0-rc.2, lightyear_prediction v0.21.0-rc.2, lightyear_frame_interpolation v0.21.0-rc.2, lightyear_avian v0.21.0-rc.2, lightyear_crossbeam v0.21.0-rc.2, lightyear_inputs v0.21.0-rc.2, lightyear_inputs_bei v0.21.0-rc.2, lightyear_inputs_leafwing v0.21.0-rc.2, lightyear_inputs_native v0.21.0-rc.2, lightyear_netcode v0.21.0-rc.2, lightyear_steam v0.21.0-rc.2, lightyear_webtransport v0.21.0-rc.2, lightyear_udp v0.21.0-rc.2, lightyear v0.21.0-rc.2 ([`156d504`](https://github.com/cBournhonesque/lightyear/commit/156d5044566e38244b1761401e799f33f84009bb))
+    - Release lightyear_transport v0.21.0-rc.2, lightyear_messages v0.21.0-rc.2, lightyear_replication v0.21.0-rc.2, lightyear_sync v0.21.0-rc.2, lightyear_interpolation v0.21.0-rc.2, lightyear_prediction v0.21.0-rc.2, lightyear_frame_interpolation v0.21.0-rc.2, lightyear_avian v0.21.0-rc.2, lightyear_crossbeam v0.21.0-rc.2, lightyear_inputs v0.21.0-rc.2, lightyear_inputs_bei v0.21.0-rc.2, lightyear_inputs_leafwing v0.21.0-rc.2, lightyear_inputs_native v0.21.0-rc.2, lightyear_netcode v0.21.0-rc.2, lightyear_steam v0.21.0-rc.2, lightyear_webtransport v0.21.0-rc.2, lightyear_udp v0.21.0-rc.2, lightyear v0.21.0-rc.2 ([`a52b3b8`](https://github.com/cBournhonesque/lightyear/commit/a52b3b89dcbdf7dc99d55255c37bb1197f906abd))
+    - Release lightyear_transport v0.21.0-rc.2, lightyear_messages v0.21.0-rc.2, lightyear_replication v0.21.0-rc.2, lightyear_sync v0.21.0-rc.2, lightyear_interpolation v0.21.0-rc.2, lightyear_prediction v0.21.0-rc.2, lightyear_frame_interpolation v0.21.0-rc.2, lightyear_avian v0.21.0-rc.2, lightyear_crossbeam v0.21.0-rc.2, lightyear_inputs v0.21.0-rc.2, lightyear_inputs_bei v0.21.0-rc.2, lightyear_inputs_leafwing v0.21.0-rc.2, lightyear_inputs_native v0.21.0-rc.2, lightyear_netcode v0.21.0-rc.2, lightyear_steam v0.21.0-rc.2, lightyear_webtransport v0.21.0-rc.2, lightyear_udp v0.21.0-rc.2, lightyear v0.21.0-rc.2 ([`af910bc`](https://github.com/cBournhonesque/lightyear/commit/af910bc2c162ec521b55003610a54023f6c034ce))
+    - Release lightyear_transport v0.21.0-rc.2, lightyear_messages v0.21.0-rc.2, lightyear_replication v0.21.0-rc.2, lightyear_sync v0.21.0-rc.2, lightyear_interpolation v0.21.0-rc.2, lightyear_prediction v0.21.0-rc.2, lightyear_frame_interpolation v0.21.0-rc.2, lightyear_avian v0.21.0-rc.2, lightyear_crossbeam v0.21.0-rc.2, lightyear_inputs v0.21.0-rc.2, lightyear_inputs_bei v0.21.0-rc.2, lightyear_inputs_leafwing v0.21.0-rc.2, lightyear_inputs_native v0.21.0-rc.2, lightyear_netcode v0.21.0-rc.2, lightyear_steam v0.21.0-rc.2, lightyear_webtransport v0.21.0-rc.2, lightyear_udp v0.21.0-rc.2, lightyear v0.21.0-rc.2 ([`244077f`](https://github.com/cBournhonesque/lightyear/commit/244077f9e729f0c267e6b865c244ac915f6d244f))
+    - Release lightyear_serde v0.21.0-rc.2, lightyear_utils v0.21.0-rc.2, lightyear_core v0.21.0-rc.2, lightyear_link v0.21.0-rc.2, lightyear_aeronet v0.21.0-rc.2, lightyear_connection v0.21.0-rc.2, lightyear_macros v0.21.0-rc.2, lightyear_transport v0.21.0-rc.2, lightyear_messages v0.21.0-rc.2, lightyear_replication v0.21.0-rc.2, lightyear_sync v0.21.0-rc.2, lightyear_interpolation v0.21.0-rc.2, lightyear_prediction v0.21.0-rc.2, lightyear_frame_interpolation v0.21.0-rc.2, lightyear_avian v0.21.0-rc.2, lightyear_crossbeam v0.21.0-rc.2, lightyear_inputs v0.21.0-rc.2, lightyear_inputs_bei v0.21.0-rc.2, lightyear_inputs_leafwing v0.21.0-rc.2, lightyear_inputs_native v0.21.0-rc.2, lightyear_netcode v0.21.0-rc.2, lightyear_steam v0.21.0-rc.2, lightyear_webtransport v0.21.0-rc.2, lightyear_udp v0.21.0-rc.2, lightyear v0.21.0-rc.2 ([`89f1549`](https://github.com/cBournhonesque/lightyear/commit/89f1549f6d9e79719561dadaa8ff1f8d6772f77d))
+    - Add release command to ci ([`cedab05`](https://github.com/cBournhonesque/lightyear/commit/cedab052a0f47cf91b15267b8d83eb87524a8f4d))
+    - Fix compiletime benchmark ([`cc8433c`](https://github.com/cBournhonesque/lightyear/commit/cc8433c61122e6f8c712c3463d0e91d5230290e7))
+    - Fix ci ([`f9bc3e3`](https://github.com/cBournhonesque/lightyear/commit/f9bc3e3d8322d252d80363f716d5e78782520cff))
+    - Fix ([`9436dd6`](https://github.com/cBournhonesque/lightyear/commit/9436dd60efc0604f874dc09abe43c4dff12579fb))
+    - Cargo fmt ([`ade88ca`](https://github.com/cBournhonesque/lightyear/commit/ade88cad9e463e79f3251e55e8eeb18182deb5e3))
+    - Fix tests, cargo doc, cargo clippy ([`fe0bb4a`](https://github.com/cBournhonesque/lightyear/commit/fe0bb4a24112a308eaf9c829fe5cfae0180ef946))
+    - Fix clippy ([`249b40f`](https://github.com/cBournhonesque/lightyear/commit/249b40f358977f6f85e269967d3912bfb4080f73))
+    - Cargo fmt ([`f55c117`](https://github.com/cBournhonesque/lightyear/commit/f55c117c1627368978d26c788efbcb2ddda1da01))
     - Fix lints ([`9040874`](https://github.com/cBournhonesque/lightyear/commit/904087429078e4bbda90a01edd0a0bad68801767))
     - Fix simple_setup example ([`b0b392b`](https://github.com/cBournhonesque/lightyear/commit/b0b392bb319c0fc79ec71111b5366b6726edad41))
     - Fix for wtransport ([`67a9063`](https://github.com/cBournhonesque/lightyear/commit/67a90632748a4fe3b92f06775140babbf8ebca42))
@@ -661,7 +701,7 @@ Release of refactor
     - Taplo ([`468b4e7`](https://github.com/cBournhonesque/lightyear/commit/468b4e75ca383cce01a1a92e78dac01e4fdb0b42))
     - Add trace feature with lots of trace instrumentation ([`54a41aa`](https://github.com/cBournhonesque/lightyear/commit/54a41aa7f027e5c83d0cc01baab4e7ff150e4cea))
     - Merge pull request #417 from cBournhonesque/cb/remove-none-state ([`886d0a7`](https://github.com/cBournhonesque/lightyear/commit/886d0a77fef9f4fa5e4845d28c90bae52e3fccf7))
-    - Cleanup ([`b2f5ae1`](https://github.com/cBournhonesque/lightyear/commit/b2f5ae1194fd0e9178fdd3fcd2febce2d153bc3f))
+    - Cleanpu ([`b2f5ae1`](https://github.com/cBournhonesque/lightyear/commit/b2f5ae1194fd0e9178fdd3fcd2febce2d153bc3f))
     - Remove None state and instead init NetworkingState without entering OnDisconnect ([`97fa229`](https://github.com/cBournhonesque/lightyear/commit/97fa2291b8aef5ecd38a67cc6f7ce99e9a280c52))
     - Merge pull request #416 from cBournhonesque/cb/add-disconnection-error ([`90a7a6d`](https://github.com/cBournhonesque/lightyear/commit/90a7a6d2fdf47903e85b13735b9bf82864b1145f))
     - Merge branch 'main' into cb/add-disconnection-error ([`2326bb6`](https://github.com/cBournhonesque/lightyear/commit/2326bb6fbe36d196821300e2b2334d722635a7a6))
@@ -813,7 +853,7 @@ Release of refactor
     - Improve io ([`1e8521a`](https://github.com/cBournhonesque/lightyear/commit/1e8521ab20c08bbf7bdcfc690a1f9174ea18773b))
     - Update io ([`fb6f56e`](https://github.com/cBournhonesque/lightyear/commit/fb6f56eef338ff2311d4f4ab741e4b6152eb8c49))
     - Update readme ([`5239752`](https://github.com/cBournhonesque/lightyear/commit/5239752b40f4da9ad56346c434d6a144a0403977))
-    - Merge pull request #338 from cBournhonesque/cb/override-rollback-check ([`6edge0cb`](https://github.com/cBournhonesque/lightyear/commit/6ede0cb5c7c8ab5dda900545027aef2cb226c3b8))
+    - Merge pull request #338 from cBournhonesque/cb/override-rollback-check ([`6ede0cb`](https://github.com/cBournhonesque/lightyear/commit/6ede0cb5c7c8ab5dda900545027aef2cb226c3b8))
     - Update rollback to use the registered rollback check function ([`3143653`](https://github.com/cBournhonesque/lightyear/commit/314365384a60e0a13dc096cf752dea6b2040a6d0))
     - Add docs ([`4cfd353`](https://github.com/cBournhonesque/lightyear/commit/4cfd3539da8c4a94919d36cff35a48cbf8fe0165))
     - Merge pull request #337 from cBournhonesque/cb/visual-interpolation-rollback ([`5c334ae`](https://github.com/cBournhonesque/lightyear/commit/5c334ae0ca55e6098f711069771e6d950655f449))
@@ -862,7 +902,7 @@ Release of refactor
     - Update wtransport requirement from =0.1.11 to =0.1.13 ([`9074541`](https://github.com/cBournhonesque/lightyear/commit/90745415fb7822af9d4fe69db0326572ccc2b5a1))
     - Merge pull request #312 from cBournhonesque/cb/provide-auth-thread ([`9834e12`](https://github.com/cBournhonesque/lightyear/commit/9834e128db27c37d40991c8447f37d8b7a99239a))
     - Merge pull request #311 from msvbg/xpbd-f64 ([`1bde835`](https://github.com/cBournhonesque/lightyear/commit/1bde8356513774e8c76154099f6f72977402e72a))
-    - Added client tcp stream ([`9f0c23f`](https://github.com/cBournhonesque/lightyear/commit/9f0c23f9ca2072fdab40598c67ed2aee582313fa))
+    - Addded client tcp stream ([`9f0c23f`](https://github.com/cBournhonesque/lightyear/commit/9f0c23f9ca2072fdab40598c67ed2aee582313fa))
     - Support bevy_xpbd with double precision ([`0153b15`](https://github.com/cBournhonesque/lightyear/commit/0153b153245c5869005689c741d0b9da8d3b88fa))
     - Fix doc ([`7ab78f8`](https://github.com/cBournhonesque/lightyear/commit/7ab78f82b1930dbe592bbc7000ec922e75587881))
     - Merge pull request #310 from cBournhonesque/cb/clarify-connect-token ([`2f087fc`](https://github.com/cBournhonesque/lightyear/commit/2f087fc5704f8cdd3e6467945e575392d78ed625))
@@ -871,7 +911,7 @@ Release of refactor
     - Try to compile zstd for wasm ([`15deeb3`](https://github.com/cBournhonesque/lightyear/commit/15deeb3cc81792d5be6ecfbc58be9e0fa546e8eb))
     - Merge pull request #306 from cBournhonesque/cb/book-preprediction ([`fa8fd83`](https://github.com/cBournhonesque/lightyear/commit/fa8fd83e7d114e92fcaa6e68f7f012127a86b554))
     - Fix ([`ba8e493`](https://github.com/cBournhonesque/lightyear/commit/ba8e49317a79cf9d91456a6ebaf4ee491535209a))
-    - Merge pull request #305 from cBournhonesque/cb/remove-clone-bound ([`and5fd3`](https://github.com/cBournhonesque/lightyear/commit/abd5fd349b10dfd2f3d6328b96090b9af54c106e))
+    - Merge pull request #305 from cBournhonesque/cb/remove-clone-bound ([`abd5fd3`](https://github.com/cBournhonesque/lightyear/commit/abd5fd349b10dfd2f3d6328b96090b9af54c106e))
     - Remove clone bound on bitserializable ([`b4ff7a5`](https://github.com/cBournhonesque/lightyear/commit/b4ff7a566f5336410a91f3b42dd35d3e746d1b66))
     - Merge pull request #303 from cBournhonesque/cb/bidirectional-resource-replicate ([`dce3362`](https://github.com/cBournhonesque/lightyear/commit/dce33620a707827c674d7afa38aad920ab1b9148))
     - Lints ([`b3b977a`](https://github.com/cBournhonesque/lightyear/commit/b3b977a4f0c217d93879930fe9ec0e5a7726aa36))
@@ -985,7 +1025,7 @@ Release of refactor
     - Merge pull request #256 from cBournhonesque/cb/io-connect-non-block ([`d8a46cb`](https://github.com/cBournhonesque/lightyear/commit/d8a46cb35961857131691576fd47b4ee7743eff7))
     - Disconnecting the netclient also disconnects the io early ([`685a7b8`](https://github.com/cBournhonesque/lightyear/commit/685a7b87b305dd75db9fdf43c17bac191436a1c5))
     - Add wasm ([`b4961c8`](https://github.com/cBournhonesque/lightyear/commit/b4961c8e1b1833eb6adb8d7e37fd8c712d63cf33))
-    - Compiles. Pass a channel to receive the error from io connection ([`1be1e43`](https://github.com/cBournhonesque/lightyear/commit/1be1e4300f311b4201f862f34ce317d4d50ec085))
+    - Compiles. Pass a channel to receive the error from io conenction ([`1be1e43`](https://github.com/cBournhonesque/lightyear/commit/1be1e4300f311b4201f862f34ce317d4d50ec085))
     - Merge pull request #245 from cBournhonesque/dependabot/cargo/xwt-web-sys-0.9 ([`aac41eb`](https://github.com/cBournhonesque/lightyear/commit/aac41eba4cac7e25fb5c675bb84b35b1db16d4a1))
     - Wasm works ([`7a7b8e7`](https://github.com/cBournhonesque/lightyear/commit/7a7b8e7c0aec6315389560df2255dbdf57b5d97b))
     - Merge pull request #252 from simbleau/docs-update ([`c8aac52`](https://github.com/cBournhonesque/lightyear/commit/c8aac52b8d7f115b0e8deabd68ea49119d9da327))
@@ -1035,7 +1075,7 @@ Release of refactor
     - Disable interpolation plugin when client is not synced ([`9519c00`](https://github.com/cBournhonesque/lightyear/commit/9519c0071bc6e5b694b6cbdd0b1a852f9d8da732))
     - Make predict work ([`4758455`](https://github.com/cBournhonesque/lightyear/commit/4758455e8f11c5941493597f4d8f4962f7ca54d7))
     - Fix ([`de67ed2`](https://github.com/cBournhonesque/lightyear/commit/de67ed27b50554e9881ad93e83e75e086964c79c))
-    - Readd prediction ([`dcc2453`](https://github.com/cBournhonesque/lightyear/commit/dcc24533187805d653803926a9a4fea416561e7f))
+    - Readd prediciton ([`dcc2453`](https://github.com/cBournhonesque/lightyear/commit/dcc24533187805d653803926a9a4fea416561e7f))
     - Debug ([`c2f53fb`](https://github.com/cBournhonesque/lightyear/commit/c2f53fb13293fe3286e6e92ac72935ee2a00b75f))
     - Merge branch 'main' into cb/lobby-example ([`cb4ed49`](https://github.com/cBournhonesque/lightyear/commit/cb4ed4951d6319d16d1e93a408881838d359519f))
     - Merge pull request #236 from cBournhonesque/cb/update-tutorial ([`604d886`](https://github.com/cBournhonesque/lightyear/commit/604d8869fd4279d66e523b1f46b89f5ac97be255))
@@ -1072,7 +1112,7 @@ Release of refactor
     - Merge pull request #225 from cBournhonesque/cb/circumvent-orphan-rule ([`b07368d`](https://github.com/cBournhonesque/lightyear/commit/b07368ddeea9cb8082801aa15f1b708d7540ca6b))
     - Fix tests by adding run conditions to only run the networking systems if io is connected ([`0167cde`](https://github.com/cBournhonesque/lightyear/commit/0167cde1171adcc664e7ac3277d28aa18c4d9d63))
     - Some tests failing still ([`05835d2`](https://github.com/cBournhonesque/lightyear/commit/05835d2fcb4d08e2de48a6f5c6dbffae1c35da8d))
-    - Update all examples ([`ad619b8`](https://github.com/cBournhonesque/lightyear/commit/ad619b8c5d65038c9454d8183ebb02825ef3185e))
+    - Update all exampels ([`ad619b8`](https://github.com/cBournhonesque/lightyear/commit/ad619b8c5d65038c9454d8183ebb02825ef3185e))
     - Require Message to be BitSerializable ([`f5c1065`](https://github.com/cBournhonesque/lightyear/commit/f5c106518ea3262f0746da9d592b253a054a96a3))
     - Remove named ([`d27fbcb`](https://github.com/cBournhonesque/lightyear/commit/d27fbcb33ef86d541badc7e0828c167344dc3c9b))
     - Tests pass ([`4e8c568`](https://github.com/cBournhonesque/lightyear/commit/4e8c568755380377b3df30db957bc861e540548c))
@@ -1190,7 +1230,7 @@ Release of refactor
     - Add steam prototype ([`041ac34`](https://github.com/cBournhonesque/lightyear/commit/041ac34b645109eb6e24e0d532ce129c3f54d597))
     - Add steam ([`5329b90`](https://github.com/cBournhonesque/lightyear/commit/5329b90408025103b4b4725be6b4e4f58401dba3))
     - Merge pull request #151 from cBournhonesque/cb/0.13 ([`491ff18`](https://github.com/cBournhonesque/lightyear/commit/491ff18e07ca56b1d17cae2edd76f5a4009bfa32))
-    - Upgrade version ([`03f0531`](https://github.com/cBournhonesque/lightyear/commit/03f0531e6fafe7cdae376e53751735077cc74537))
+    - Uprade version ([`03f0531`](https://github.com/cBournhonesque/lightyear/commit/03f0531e6fafe7cdae376e53751735077cc74537))
     - Fix benchmark ([`9f29345`](https://github.com/cBournhonesque/lightyear/commit/9f2934540315b50e1225c5a30cea1c199e74512d))
     - Clean logs ([`e7aa368`](https://github.com/cBournhonesque/lightyear/commit/e7aa368f35fb986df0970994384792f274d6677c))
     - Continue removing FixedUpdate ([`ab0fda5`](https://github.com/cBournhonesque/lightyear/commit/ab0fda581807beb8eb18c37c13d5ec17c93db8a6))
@@ -1290,7 +1330,7 @@ Release of refactor
     - Fix all CI ([`e6c774e`](https://github.com/cBournhonesque/lightyear/commit/e6c774e6d50ab7e5ccaf461ad79cb0e0a09f9b3f))
     - Improving tests ([`140e95b`](https://github.com/cBournhonesque/lightyear/commit/140e95b3d43981c9efda233ce0347ee93c525704))
     - Tests work apart from diagnostics ([`822f76b`](https://github.com/cBournhonesque/lightyear/commit/822f76b734fb3a0f05932c9d9c81bdda2adf7e7b))
-    - Introduce the ClientConnection and ServerConnection connection wrappers ([`f011445`](https://github.com/cBournhonesque/lightyear/commit/f011445fa4c3f7a7f75ca1996044018f36c234df))
+    - Introduce the ClientConnection anad ServerConnection conneciton wrappers ([`f011445`](https://github.com/cBournhonesque/lightyear/commit/f011445fa4c3f7a7f75ca1996044018f36c234df))
     - Wip ([`03d0d85`](https://github.com/cBournhonesque/lightyear/commit/03d0d850ba17dd6b5780078f13580d00b3255349))
     - Start adding rivet support ([`08c3b02`](https://github.com/cBournhonesque/lightyear/commit/08c3b02149871f08bfbd35558e292a5ec94eabc3))
     - Update cargo.toml ([`010e225`](https://github.com/cBournhonesque/lightyear/commit/010e225dcb769164c8b7642cd69b65c4bc9271d9))
@@ -1299,14 +1339,14 @@ Release of refactor
     - Remove info! logs ([`4f0f81c`](https://github.com/cBournhonesque/lightyear/commit/4f0f81caf06cc3df0fae858eef4755bf38169f4d))
     - Fix test ([`1b4f859`](https://github.com/cBournhonesque/lightyear/commit/1b4f85980a38730554a3a4821b04df320b133b54))
     - Clean up the example ([`0c27e30`](https://github.com/cBournhonesque/lightyear/commit/0c27e302a91c3fcd165fc3cedb2c6baf54e28676))
-    - Trying xxhash ([`b2be9f`](https://github.com/cBournhonesque/lightyear/commit/b2dbe9f390a134f0cccbf643ce8f6a3635debfbe))
+    - Trying xxhash ([`b2dbe9f`](https://github.com/cBournhonesque/lightyear/commit/b2dbe9f390a134f0cccbf643ce8f6a3635debfbe))
     - Log hash for prespawn ([`1d48513`](https://github.com/cBournhonesque/lightyear/commit/1d485130cd5d6496ee9c262cef951dd0cff0c759))
     - Stop using the hash of TypeId for prespawning ([`9a746f2`](https://github.com/cBournhonesque/lightyear/commit/9a746f2a229ae49adeb5d3d194dc5f7560ac6d7f))
     - Merge pull request #16 from cBournhonesque/cb/wasm-support ([`258a673`](https://github.com/cBournhonesque/lightyear/commit/258a673223d594a0d9a86470c8eb5fed99a5b157))
     - Fix gh actions ([`eb2285a`](https://github.com/cBournhonesque/lightyear/commit/eb2285a86b980aa74383a8d8fe06f58e6a7bbd12))
     - Replace all std::time ([`3409c1e`](https://github.com/cBournhonesque/lightyear/commit/3409c1efb926311bb4d0e0ce7c551d4f034a2653))
     - Working wasm, but with mispredictions ([`8df1bcb`](https://github.com/cBournhonesque/lightyear/commit/8df1bcbb61531bf8f1dbd4895800efe13bda71ff))
-    - Improve example ([`d1c2e5c`](https://github.com/cBournhonesque/lightyear/commit/d1c2e5c8e7703cb398da52fd0293ea653ddf2dde))
+    - Improve exampel ([`d1c2e5c`](https://github.com/cBournhonesque/lightyear/commit/d1c2e5c8e7703cb398da52fd0293ea653ddf2dde))
     - Add book page about priority ([`bfad77d`](https://github.com/cBournhonesque/lightyear/commit/bfad77df293d382af00a3d4cf5ac69532cf43630))
     - Adding priority example ([`703bc13`](https://github.com/cBournhonesque/lightyear/commit/703bc1339907737dc07c1d954b1bae9a5ef41f56))
     - Merge branch 'main' into cb/wasm-support ([`6987be4`](https://github.com/cBournhonesque/lightyear/commit/6987be4078410f396e92c504c18659331732a84b))
@@ -1320,7 +1360,7 @@ Release of refactor
     - Allow WebTransport clients to gracefully disconnect ([`d77966f`](https://github.com/cBournhonesque/lightyear/commit/d77966f0ace3e5dc039db376d00bf1230500a604))
     - Set original tick in the single-data for when the message was created. Quota kind of works, but the end result is pretty bad; probably because they are all part of the same rpelicatio ngroup? ([`001ed4d`](https://github.com/cBournhonesque/lightyear/commit/001ed4ddcc3789f17e8d7cee3f92f0b5f042f334))
     - Kind of works? but we get a panic with packet too big ([`eac1a39`](https://github.com/cBournhonesque/lightyear/commit/eac1a39682108d71f6022c552c930445f8953661))
-    - Wip priority ([`31af428`](https://github.com/cBournhonesque/lightyear/commit/31af428431011bbf09cea6283cf0364aa1b3d370))
+    - Wip priotity ([`31af428`](https://github.com/cBournhonesque/lightyear/commit/31af428431011bbf09cea6283cf0364aa1b3d370))
     - Merge pull request #91 from cBournhonesque/cb/object-pre-spawning ([`7ca8ba0`](https://github.com/cBournhonesque/lightyear/commit/7ca8ba0a50be6189ddb5fa50ee718c72db91a3d6))
     - Add missing files ([`3ca9a5b`](https://github.com/cBournhonesque/lightyear/commit/3ca9a5b87b3d2f34405b3d190f909a97654dc99f))
     - Improving interpolation behaviour for low send interval: only spawn interpolate components once there is 2 server updates ([`52a9e75`](https://github.com/cBournhonesque/lightyear/commit/52a9e75ba6a70f5fbe0620d99a091e1be6194dc2))
@@ -1401,7 +1441,7 @@ Release of refactor
     - Enable updating the replication behaviour per component ([`42ea7da`](https://github.com/cBournhonesque/lightyear/commit/42ea7daa3b48b963ba1a102224db7dd810d0b66d))
     - Fix bug by adding both predicted entities to the same replication group ([`7e4184c`](https://github.com/cBournhonesque/lightyear/commit/7e4184c2ccfd5ebf381466a8cc9d8332f35a650d))
     - Improve ([`8eb41f2`](https://github.com/cBournhonesque/lightyear/commit/8eb41f23977e841ab60e070d18ee90bcdfa331b1))
-    - Improve example ([`572dead7`](https://github.com/cBournhonesque/lightyear/commit/572ded74148b73f586f4530e0d50bf615d90996f))
+    - Improve example ([`572ded7`](https://github.com/cBournhonesque/lightyear/commit/572ded74148b73f586f4530e0d50bf615d90996f))
     - Improve xpbd example ([`73cce5c`](https://github.com/cBournhonesque/lightyear/commit/73cce5cb3b32c558eabbd7644da802e3ebb64d45))
     - Merge pull request #50 from cBournhonesque/cb/just-pressed ([`e467f0b`](https://github.com/cBournhonesque/lightyear/commit/e467f0bbda670488cc93fe0db8d09a7bfb8f12bc))
     - Lint ([`0294abc`](https://github.com/cBournhonesque/lightyear/commit/0294abc8778eca37a3f05a8a8f2af48c67dbd791))
@@ -1466,7 +1506,7 @@ Release of refactor
     - Improve interpolation ([`c3bde49`](https://github.com/cBournhonesque/lightyear/commit/c3bde4922681c9a66c0f6eaf47f6ffcaadd6bd49))
     - Interpolation works wellgau! maybe some slight problem in the interpolation logic; some tearing sometimes ([`b394ac1`](https://github.com/cBournhonesque/lightyear/commit/b394ac105bf5a39c713e718c464430286fbebd72))
     - Make interpolation more flexible ([`86c8382`](https://github.com/cBournhonesque/lightyear/commit/86c8382040dafc7960f2fd04569410a6ee38bd74))
-    - In general, it seems to be working, but problems with prediction ([`b057dead`](https://github.com/cBournhonesque/lightyear/commit/b057ded292251f509e1aebe9001245d16b91a28c))
+    - In general, it seems to be working, but problems with prediction ([`b057ded`](https://github.com/cBournhonesque/lightyear/commit/b057ded292251f509e1aebe9001245d16b91a28c))
     - Overhaul map-entities to work within replication groups ([`f69b04c`](https://github.com/cBournhonesque/lightyear/commit/f69b04c80b79c49586a5969774fd7648b2f04953))
     - Working snake example, now need to fix client ([`c58f620`](https://github.com/cBournhonesque/lightyear/commit/c58f6205e20eae0b7d576d8771a48fecba9fb978))
     - Update readme ([`bb043f5`](https://github.com/cBournhonesque/lightyear/commit/bb043f55279caf521e5308eddef74b9fae25a353))
@@ -1525,4 +1565,51 @@ Release of refactor
     - Cleanup and move to naia 0.16 ([`15fa3f6`](https://github.com/cBournhonesque/lightyear/commit/15fa3f66bfb279d1f39cc1860bc7ce5ede050787))
     - Add all files ([`bebb48d`](https://github.com/cBournhonesque/lightyear/commit/bebb48d4d287fb93560976e901c920343e518a70))
 </details>
+
+## v0.21.0-rc.1 (2025-06-08)
+
+<csr-id-87806d0c9cb6fef22978cf7b170089e37711d329/>
+<csr-id-ba64c1f649c57b57aa6f726d6cb9de2e03128f8f/>
+<csr-id-4103090a52afc050c1de6dcbd7eb278af5ffe94a/>
+<csr-id-4adee75a35e02cc8f02a87fefc4dc6ee8e178fa7/>
+<csr-id-f241c9deba7c584a345cd2e267a60ab95e0aeb70/>
+<csr-id-7f2e8a07187bf71db4d2c7efcd1eaa650ca83735/>
+<csr-id-307f947d03668b272beab1a4285dc9cc3463b867/>
+
+Release of refactor
+
+### Other
+
+ - <csr-id-87806d0c9cb6fef22978cf7b170089e37711d329/> add option to trigger change detection
+   * add option to trigger change detection
+   
+   * fix bug
+ - <csr-id-ba64c1f649c57b57aa6f726d6cb9de2e03128f8f/> add close method to packet sender / packet receiver
+ - <csr-id-4103090a52afc050c1de6dcbd7eb278af5ffe94a/> small ownership issues
+ - <csr-id-4adee75a35e02cc8f02a87fefc4dc6ee8e178fa7/> add unit tests
+
+### Bug Fixes
+
+ - <csr-id-7d9dbbf435e94e1bc85e631a1df76951150f5aad/> register prespawned entity in predicted_entity_map during server/client match
+ - <csr-id-ae2f4b2a5caf60eabbbd83877a5c5c8a3486588e/> Remove `ring` to fix wasm32 web builds
+ - <csr-id-b77f2eeb5e7751016e9a981407710c60a9c75c88/> expose ReplicateToServer
+ - <csr-id-86f20c79f6930d19ecc3cbf5b97a7e36b6b5b7a7/> Add try_from_bytes method to ConnectToken
+ - <csr-id-f96c5fa8fcaabb61d884baf1ee9ce6d6f37d5322/> sending now after opening socket and uncomment packetsender impl code
+ - <csr-id-c3f1faf98d770390323f1821861bf80e3e9d0415/> use io task pool instead of tokio::spawn and change receiver / sender
+ - <csr-id-2293aed17794c1a2017a78145258bdf9a84bca6a/> recv impl
+
+### New Features
+
+ - <csr-id-d11f597140a81b73656dabb585e2ecca62fd208b/> implement wasm & fix small mistakes
+ - <csr-id-7781029b8c17f1558400b7095cedeb85c6f269c9/> add non-working native ws impl
+
+### Documentation
+
+ - <csr-id-f4985d9f1c6c3fec718f11925060448f22c8be93/> fix typos, update ring
+
+### Chore
+
+ - <csr-id-f241c9deba7c584a345cd2e267a60ab95e0aeb70/> fix std flag
+ - <csr-id-7f2e8a07187bf71db4d2c7efcd1eaa650ca83735/> fix warns
+ - <csr-id-307f947d03668b272beab1a4285dc9cc3463b867/> fix typo in docs
 

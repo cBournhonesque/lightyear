@@ -206,7 +206,7 @@ bevy_utils = { version = "0.16", default-features = false }
 tracy-client = { version = "=0.18.0" }
 
 # input
-bevy_enhanced_input = { git = "https://github.com/cBournhonesque/bevy_enhanced_input.git", branch = "cb/networking" }
+bevy_enhanced_input = { version = "0.14.1" }
 leafwing-input-manager = { version = "0.17", default-features = false, features = [
   "keyboard",
 ] }

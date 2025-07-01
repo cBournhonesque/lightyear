@@ -50,8 +50,5 @@ ringbuffer.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-[dev-dependencies]
-lightyear_transport = { workspace = true, features = ["test_utils"] }
-
 [lints]
 workspace = true

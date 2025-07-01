@@ -49,7 +49,6 @@ bevy_time = { workspace = true, features = ["bevy_reflect"] }
 bevy_transform = { workspace = true, features = ["libm"] }
 
 [dev-dependencies]
-lightyear_replication = { workspace = true, features = ["std"] }
 test-log.workspace = true
 
 [lints]
