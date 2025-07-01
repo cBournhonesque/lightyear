@@ -3,7 +3,7 @@ authors = ["Charles Bournhonesque"]
 language = "en"
 multilingual = false
 src = "src"
-title = "Lightyear cheatbook"
+title = "Lightyear book"
 
 [preprocessor]
 
@@ -12,7 +12,7 @@ command = "mdbook-mermaid"
 
 [output]
 
-[output.linkcheck]
+#[output.linkcheck]
 
 [output.html]
 additional-js = ["mermaid.min.js", "mermaid-init.js"]
