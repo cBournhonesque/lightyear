@@ -1,6 +1,6 @@
+use crate::MessageManager;
 use crate::plugin::MessagePlugin;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
-use crate::MessageManager;
 use crate::{Message, MessageNetId};
 use alloc::vec::Vec;
 use bevy_ecs::{
@@ -13,11 +13,11 @@ use bevy_ecs::{
     world::{DeferredWorld, FilteredEntityMut, World},
 };
 use lightyear_core::tick::Tick;
+use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
-use lightyear_serde::ToBytes;
-use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::channel::ChannelKind;
+use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::prelude::Transport;
 
 use alloc::sync::Arc;

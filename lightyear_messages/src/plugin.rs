@@ -1,5 +1,5 @@
-use crate::registry::MessageRegistry;
 use crate::MessageManager;
+use crate::registry::MessageRegistry;
 use bevy_app::{App, Last, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::{
     observer::Trigger,

@@ -26,9 +26,9 @@ use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeMapper};
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
-use tracing::{debug, trace};
 #[cfg(feature = "trace")]
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
+use tracing::{debug, trace};
 
 /// Function used to interpolate from one component state (`start`) to another (`other`)
 /// t goes from 0.0 (`start`) to 1.0 (`other`)
@@ -84,7 +84,7 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// However, rollbacks that do an instant update can be visually jarring, so we provide the option to smooth the rollback process over a few frames.
 /// You can do this by calling the `add_correction_fn` method.
 ///
-/// If your component implements the [`Ease`](bevy::prelude::Ease) trait, you can use the `add_linear_correction_fn` method,
+/// If your component implements the `Ease` trait, you can use the `add_linear_correction_fn` method,
 /// which provides linear interpolation.
 ///
 /// #### Interpolation
@@ -97,7 +97,7 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// You will have to provide a `InterpolationMode` that defines the behaviour of the interpolation system.
 ///
 /// You will also need to provide an interpolation function that will be used to interpolate between two states.
-/// If your component implements the [`Ease`](bevy::prelude::Ease) trait, you can use the `add_linear_interpolation_fn` method,
+/// If your component implements the `Ease` trait, you can use the `add_linear_interpolation_fn` method,
 /// which means that we will interpolate using linear interpolation.
 ///
 /// You can also use your own interpolation function by using the `add_interpolation_fn` method.

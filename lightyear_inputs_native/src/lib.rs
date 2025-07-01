@@ -5,13 +5,11 @@
 //! - the history of inputs might need to be saved on the client to perform rollback and client-prediction
 //! - we not only send the input for tick T, but we also include the inputs for the last N ticks before T. This redundancy helps ensure
 //!   that the server isn't missing any client inputs even if a packet gets lost
-//! - we must provide [`SystemSet`]s so that the user can order their systems before and after the input handling
+//! - we must provide [`SystemSet`](bevy_ecs::prelude::SystemSet)s so that the user can order their systems before and after the input handling
 //!
 //! ### Adding a new input type
 //!
-//! An input type is an enum that implements the [`UserAction`] trait.
-//! This trait is a marker trait that is used to tell Lightyear that this type can be used as an input.
-//! In particular inputs must be `Serialize`, `Deserialize`, `Clone` and `PartialEq`.
+//! An input type must be serializable, `Reflect`, `MapEntities`, `Clone`, `PartialEq`, and `Debug`.
 //!
 //! You can then add the input type by adding the [`InputPlugin<InputType>`](prelude::InputPlugin) to your app.
 //!
@@ -43,10 +41,12 @@
 //!
 //! There are several steps to use the `InputPlugin`:
 //! - (optional) read the inputs from an external signal (mouse click or keyboard press, for instance)
-//! - to buffer inputs for each tick. This is done by calling [`add_input`](InputManager::add_input) in a system.
+//! - to buffer inputs for each tick. This is done by setting the input value in the [`ActionState`](action_state::ActionState) component.
 //!   That system must run in the [`WriteClientInputs`](lightyear_inputs::prelude::client::InputSet::WriteClientInputs) system set, in the `FixedPreUpdate` stage.
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
 //!   will read the inputs using the `ActionState` component
+//!
+//! [`FixedUpdate`]: bevy_app::prelude::FixedUpdate
 
 #![no_std]
 

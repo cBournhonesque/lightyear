@@ -38,50 +38,52 @@ fn main() {
 It is also possible to use the subcrates directly:
 
 **IO** (How to send bytes over the network)
-- lightyear_link: provides a transport-agnostic `Link` component which is responsible for sending and receiving bytes over the network.
-- lightyear_crossbeam: IO layer that uses crossbeam channels. Useful for testing or for local networking (by having a server process and a client process on the same machine).
-- lightyear_udp / lightyear_webtransport: IO layers for the UDP protocol and WebTransport protocol respectively.
-- lightyear_aeronet: provides an integration layer to use [aeronet] as the IO layer.
+- [`lightyear_link`]: provides a transport-agnostic `Link` component which is responsible for sending and receiving bytes over the network.
+- [`lightyear_crossbeam`]: IO layer that uses crossbeam channels. Useful for testing or for local networking (by having a server process and a client process on the same machine).
+- [`lightyear_udp`] / [`lightyear_webtransport`]: IO layers for the UDP protocol and WebTransport protocol respectively.
 
 **Connection**
-- lightyear_connection: this layer wraps the IO layer by providing a long-running `PeerId` identifier component that is used to identify a peer in the network.
+- [`lightyear_connection`]: this layer wraps the IO layer by providing a long-running `PeerId` identifier component that is used to identify a peer in the network.
 Also provides the `Client` and `Server` components for client-server topologies.
-- lightyear_netcode: a connection layer that uses the [netcode.io](https://github.com/mas-bandwidth/netcode/blob/main/STANDARD.md) standard for creating secure connections over an unreliable IO
+- [`lightyear_netcode`]: a connection layer that uses the [netcode.io](https://github.com/mas-bandwidth/netcode/blob/main/STANDARD.md) standard for creating secure connections over an unreliable IO
 such as UDP.
-- lightyear_steam: a connection layer that uses the Steam networking API to both send the bytes and to provide a long-running identifier. This layer operates at both the IO and the connection level.
+- [`lightyear_steam`]: a connection layer that uses the Steam networking API to both send the bytes and to provide a long-running identifier. This layer operates at both the IO and
+the connection
+level.
 
 Currently it is not possible to use an IO layer without a connection layer.
 
 **Messages**
-- lightyear_transport: provides a `Transport` component that is provides several channels with different reliability/ordering guarantees when sending raw bytes. This crate also organizes the raw
+- [`lightyear_transport`]: provides a [`Transport`](prelude::Transport) component that is provides several channels with different reliability/ordering guarantees when sending raw bytes. This crate
+also organizes
+the
+raw
 bytes into messages that are assembled into packets.
-- lightyear_messages: provides a `MessageManager` component responsible for handling the serialization of `Messages` (serializable structs) into raw bytes that can be sent over the network.
+- [`lightyear_messages`]: provides a [`MessageManager`](prelude::MessageManager) component responsible for handling the serialization of `Messages` (serializable structs) into raw bytes that can be
+sent over
+the network.
 
 **Replication**
-- lightyear_replication: provides utilities to replicate the state of the Bevy World between two peers.
-- lightyear_sync: helps synchronize the timelines between two peers.
-- lightyear_prediction: provides client-side prediction and rollback to help hide latency
-- lightyear_interpolation: provides interpolation for replicated entities to smooth out the network updates received from the remote peer.
-- lightyear_frame_interpolation: most of the game logic should run in the FixedMain schedule, but the rendering is done in the PostUpdate schedule. To avoid visual artifacts, we need some interpolation to interpolate the rendering between the FixedMain states.
+- [`lightyear_replication`]: provides utilities to replicate the state of the Bevy World between two peers.
+- [`lightyear_sync`]: helps synchronize the timelines between two peers.
+- [`lightyear_prediction`]: provides client-side prediction and rollback to help hide latency
+- [`lightyear_interpolation`]: provides interpolation for replicated entities to smooth out the network updates received from the remote peer.
+- [`lightyear_frame_interpolation`]: most of the game logic should run in the FixedMain schedule, but the rendering is done in the PostUpdate schedule. To avoid visual artifacts, we need some
+interpolation to interpolate the rendering between the FixedMain states.
 
 **Inputs**
-- lightyear_inputs: backend-agnostic general input queue plugin to network client inputs
-- lightyear_inputs_native: provides support to use any user-defined struct as an input type
-- lightyear_inputs_leafwing: provides support to network [leafwing_input_manager] inputs
-- lightyear_inputs_bei: provides support to network [bevy_enhanced_input] inputs
+- [`lightyear_inputs`]: backend-agnostic general input queue plugin to network client inputs
+- [`lightyear_inputs_native`]: provides support to use any user-defined struct as an input type
+- [`lightyear_inputs_leafwing`]: provides support to network [leafwing_input_manager](https://github.com/Leafwing-Studios/leafwing-input-manager) inputs
+- [`lightyear_inputs_bei`]: provides support to network [bevy_enhanced_input](https://github.com/projectharmonia/bevy_enhanced_input) inputs
 
 **Extra**
-- lightyear_avian: provides a plugin to help handle networking Avian components. This sets the correct system ordering, etc.
-
-**Utilities**
-- lightyear_core: core components used by all the other crates.
-- lightyear_utils: useful datastructures used by the other crates
-- lightyear_serde: provides tools to serialize and deserialize structs while minimizing allocations.
+- [`lightyear_avian`]: provides a plugin to help handle networking Avian components. This sets the correct system ordering, etc.
 
 
 ### Implement the Protocol
 
-The [`Protocol`](protocol) is a shared configuration between the local and remote peers that defines which types will be sent over the network.
+The `Protocol` is a shared configuration between the local and remote peers that defines which types will be sent over the network.
 
 You will have to define your protocol in a shared module that is accessible to both the client and the server.
 
@@ -104,30 +106,51 @@ Usually you will add more components on that entity to customize its behavior:
 - define its role using the [`Client`](prelude::Client) or [`Server`](prelude::Server) components. Most of the lightyear plugins currently
 expect the [`Link`](prelude::Link) entity to have one of these components.
 - make it able to receive/send replication data using the [`ReplicationSender`](prelude::ReplicationSender) or [`ReplicationReceiver`](prelude::ReplicationReceiver) components.
-- add 
+- add a [`MessageManager`](prelude::MessageManager) component to handle the serialization and deserialization of messages.
+- etc.
 
-The `Link`
+The `Server` entity works a bit differently. It starts a server that listens for incoming connections. When a new client connects, a new entity is spawned with the [`LinkOf`](prelude::LinkOf)
+component.
+You can add a trigger to listen to this event and add the extra components to customize the behaviour of this connection.
 
-
+```rust,ignore
+fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+    commands.entity(trigger.target()).insert((
+        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        Name::from("Client"),
+    ));
+}
+```
 
 ## Using lightyear
 
-Lightyear provides various commands and resources that can you can use to interact with the plugin.
+### Linking
 
-### Connecting/Disconnecting
+There is a set that reflects if the [`Link`](prelude::Link) is established. The link represents an IO connection to send bytes to a remote peer.
+You can trigger [`LinkStart`](prelude::LinkStart) to start the link, and [`Unlink`](prelude::Unlink) to stop it.
 
-On the client, you can initiate the connection by using the [`connect_client`](prelude::client::ClientCommands::connect_client) Command.
-You can also disconnect with the [`disconnect_client`](prelude::client::ClientCommands::disconnect_client) Command.
+The [`Unlinked`](prelude::Unlinked), [`Linking`](prelude::Linking), [`Linked`](prelude::Linked) components represent the current state of the link.
 
-On the server, you can start listening for connections by using the [`start_server`](prelude::server::ServerCommandsExt::start_server) Command.
-You can stop the server using the [`stop_server`](prelude::server::ServerCommandsExt::stop_server) Command.
+### Connections
 
-While the client or server are disconnected, you can update the [`ClientConfig`](prelude::client::ClientConfig) and [`ServerConfig`](prelude::server::ServerConfig) resources,
-and the new configuration will take effect on the next connection attempt.
+A connection is a wrapper around a [`Link`](prelude::Link) that provides a long-running identifier for the peer.
+You can use the [`PeerId`](prelude::PeerId) component to identify the remote peer that the link is connected to, and [`LocalId`](prelude::LocalId) to identify the local peer.
+
+The lifecycle of a connection is controlled by several sets of components.
+
+You can trigger [`Connect`](prelude::Connect) to start the connection, and [`Disconnect`](prelude::Disconnect) to stop it.
+
+The [`Disconnected`](prelude::Disconnected), [`Connecting`](prelude::Connecting), [`Connected`](prelude::Connected) components represent the current state of the connection.
+
+On the server, [`Start`](prelude::server::Start) and [`Stop`](prelude::server::Stop) components are used to control the server's listening state.
+The [`Stopped`](prelude::server::Stopped), [`Starting`](prelude::server::Starting), [`Started`](prelude::server::Started) components represent the current state of the connection.
+
+While a client is disconnected, you can update its configuration (`ReplicationSender`, `MessageManager`, etc.), it will be applied on the next connection attemp.
+
 
 ### Sending messages
 
-On both the [client](prelude::client::ConnectionManager) and the [server](prelude::server::ConnectionManager), you can send messages using the `ConnectionManager` resource.
+The [`MessageSender`](prelude::MessageSender) component is used to send messages that you have defined in your protocol.
 
 ```rust
 use bevy::prelude::*;
@@ -140,17 +163,15 @@ struct MyMessage;
 #[derive(Channel)]
 struct MyChannel;
 
-fn send_message(mut connection_manager: ResMut<ConnectionManager>) {
-    let _ = connection_manager.send_message_to_target::<MyChannel, MyMessage>(&MyMessage, NetworkTarget::All);
+fn send_message(mut sender: Query<&mut MesssageSender<MyMessage>>) {
+    let _ = sender.send::<MyChannel>(MyMessage);
 }
 ```
 
 ### Receiving messages
 
-All network events are sent as Bevy events.
-The full list is available [here](client::events) for the client, and [here](server::events) for the server.
+The [`MessageReceiver`](prelude::MessageReceiver) component is used to receive messages that you have defined in your protocol.
 
-Since they are Bevy events, you can use the Bevy event system to react to them.
 ```rust
 use bevy::prelude::*;
 use lightyear::prelude::*;
@@ -159,49 +180,28 @@ use lightyear::prelude::server::*;
 # #[derive(Serialize, Deserialize)]
 # struct MyMessage;
 
-fn receive_message(mut message_reader: EventReader<ServerReceiveMessage<MyMessage>>) {
-    for message_event in message_reader.read() {
-       // the message itself
-       let message = message_event.message();
-       // the client who sent the message
-       let client = message_event.from;
+fn send_message(mut receivers: Query<&mut MesssageReceiver<MyMessage>>) {
+    for mut receiver in receivers.iter_mut() {
+        let _ = receiver.receiver().for_each(|message| {
+        });
     }
+
+    let _ = sender.send::<MyChannel>(MyMessage);
 }
 ```
 
 ### Starting replication
 
-To replicate an entity from the local world to the remote world, you can just add the [`Replicate`](prelude::server::Replicate) bundle to the entity.
-The [`Replicate`](prelude::server::Replicate) bundle contains many components to customize how the entity is replicated.
+To replicate an entity from the local world to the remote world, you can just add the [`Replicate`](prelude::Replicate) component to the entity.
 
-The marker component [`Replicating`] indicates that the entity is getting replicated to a remote peer.
-You can remove the [`Replicating`] component to pause the replication. This will not despawn the entity on the remote world; it will simply
-stop sending replication updates.
-
-In contrast, the [`ReplicationTarget`] component is used to indicate which clients you want to replicate this entity to.
-If you update the target to exclude a given client, the entity will get despawned on that client.
-
-On the receiver side, entities that are replicated from a remote peer will have the [`Replicated`] marker component.
+The marker component [`Replicating`](prelude::Replicating) indicates that the entity is getting replicated to a remote peer.
+You can remove the [`Replicating`](prelude::Replicating) component to pause the replication. This will not despawn the entity on the remote world; it will simply stop sending replication updates.
 
 
 ### Reacting to replication events
 
-Similarly to messages, you can react to replication events using Bevy's event system.
-```rust
-use bevy::prelude::*;
-use lightyear::prelude::*;
-use lightyear::prelude::client::*;
 
-# #[derive(Component, Serialize, Deserialize)]
-# struct MyComponent;
-
-fn component_inserted(mut events: EventReader<ComponentInsertEvent<MyComponent>>) {
-    for event in events.read() {
-       // the entity on which the component was inserted
-       let entity = event.entity();
-    }
-}
-```
+On the receiver side, entities that are replicated from a remote peer will have the [`Replicated`](prelude::Replicated) marker component.
 
 Lightyear also inserts the [`Replicated`] marker component on every entity that was spawned via replication,
 so you can achieve the same result with:
@@ -221,9 +221,8 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 ```
 
 [`Replicated`]: prelude::Replicated
-[`ReplicationTarget`]: prelude::server::ReplicateToClient
 [`Replicating`]: prelude::Replicating
-[`SharedConfig`]: prelude::SharedConfig
+[`lightyear_steam`]: lightyear_steam
  */
 //!
 //! ### Feature Flags
@@ -269,6 +268,11 @@ pub mod interpolation {
 #[cfg(feature = "prediction")]
 pub mod prediction {
     pub use lightyear_prediction::*;
+}
+
+#[cfg(feature = "steam")]
+pub mod steam {
+    pub use lightyear_steam::*;
 }
 
 #[cfg(feature = "webtransport")]

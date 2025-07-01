@@ -3,16 +3,16 @@ use alloc::{vec, vec::Vec};
 use bevy_platform::collections::HashMap;
 use core::num::NonZeroU32;
 
+use crate::channel::ChannelKind;
 use crate::channel::builder::SenderMetadata;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
-use crate::channel::ChannelKind;
 use crate::packet::message::{FragmentData, MessageData, SendMessage, SingleData};
 use governor::{DefaultDirectRateLimiter, Quota};
 use lightyear_core::network::NetId;
 use nonzero_ext::*;
-use tracing::{debug, error, trace};
 #[cfg(feature = "trace")]
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
+use tracing::{debug, error, trace};
 
 const BYPASS_QUOTA_PRIORITY: f32 = 100000.0;
 

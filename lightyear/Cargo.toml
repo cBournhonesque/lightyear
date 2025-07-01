@@ -83,6 +83,7 @@ prediction = [
   "dep:lightyear_prediction",
   "lightyear_core/prediction",
   "lightyear_replication/prediction",
+  "dep:lightyear_frame_interpolation",
 ]
 ## Enables interpolation handling, to smooth entity updates received from the remote peer
 interpolation = [
@@ -142,13 +143,12 @@ crossbeam = ["dep:lightyear_crossbeam"]
 
 # CONNECTION LAYERS
 ## Enables Steam as a connection layer
-steam = ["dep:steamworks", "std"]
+steam = ["dep:steamworks", "dep:lightyear_steam", "std"]
 
 [dependencies]
 # local crates
 lightyear_aeronet = { workspace = true, optional = true }
 lightyear_avian = { workspace = true, optional = true }
-lightyear_macros.workspace = true
 lightyear_connection.workspace = true
 lightyear_core.workspace = true
 lightyear_frame_interpolation = { workspace = true, optional = true }
@@ -173,7 +173,6 @@ lightyear_steam = { workspace = true, optional = true }
 # bevy
 bevy_app.workspace = true
 bevy_ecs.workspace = true
-bevy_reflect.workspace = true
 
 # io
 aeronet_io.workspace = true
@@ -195,7 +194,3 @@ steamworks = { workspace = true, optional = true }
 console_error_panic_hook.workspace = true
 bevy_web_keepalive.workspace = true
 wasm-bindgen = { workspace = true, optional = true }
-
-
-[dev-dependencies]
-leafwing-input-manager.workspace = true

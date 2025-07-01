@@ -1,14 +1,13 @@
 //! # Lightyear Messages
 //!
-//! This crate provides a [`MessagePlugin`](Plugin) to handle sending and receiving messages over the network.
-//! 
+//! This crate provides a [`MessagePlugin`](crate::plugin::MessagePlugin) to handle sending and receiving messages over the network.
+//!
 //! A [`Message`] is simply any type that can be (de)serialized.
-//! 
+//!
 //! You can add the [`MessageSender<M>`](send::MessageSender) or [`MessageReceiver<M>`](receive::MessageReceiver) components to your Link entity to enable sending and receiving messages of type `M`.
-//! 
+//!
 //! The crate also provides a [`MessageManager`] component that manages the process of sending and receiving messages for an entity.
 //! It stores a [`RemoteEntityMap`] that holds a mapping between the local and remote entities.
-
 
 #![no_std]
 

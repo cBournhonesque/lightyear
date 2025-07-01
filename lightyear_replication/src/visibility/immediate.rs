@@ -69,7 +69,7 @@ impl VisibilityState {
 ///
 /// You can also use [`Room`](super::room::Room)s for a more stateful approach to network visibility
 ///
-/// (the client still needs to be included in the [`Replicate`](crate::buffer::Replicate), the room is simply an additional constraint)
+/// (the client still needs to be included in the [`Replicate`](crate::prelude::Replicate), the room is simply an additional constraint)
 #[derive(Component, Clone, Default, PartialEq, Debug, Reflect)]
 #[reflect(Component)]
 pub struct NetworkVisibility {

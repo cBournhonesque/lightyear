@@ -20,8 +20,8 @@ use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_utils::collections::HashMap;
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageError {
@@ -123,7 +123,7 @@ pub(crate) struct SendTriggerMetadata {
 /// ### Customizing Message behaviour
 ///
 /// There are some cases where you might want to define additional behaviour for a message.
-/// For example, if the message contains [`Entities`](Entity), you need to specify how those en
+/// For example, if the message contains Entities, you need to specify how those en
 /// entities will be mapped from the remote world to the local world.
 ///
 /// Provided that your type implements [`MapEntities`], you can extend the protocol to support this behaviour, by
@@ -399,9 +399,9 @@ impl AppMessageExt for App {
 mod tests {
     use super::*;
     use bevy_ecs::entity::{Entity, EntityMapper};
+    use lightyear_serde::SerializationError;
     use lightyear_serde::reader::ReadInteger;
     use lightyear_serde::writer::WriteInteger;
-    use lightyear_serde::SerializationError;
     use serde::Deserialize;
 
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]

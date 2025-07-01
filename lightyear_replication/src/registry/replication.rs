@@ -25,7 +25,7 @@ pub struct ReplicationMetadata {
 
 type RawBufferRemoveFn = fn(&ComponentRegistry, &mut BufferedEntity);
 
-/// Function to perform a buffered insert of a component into the [`EntityWorldMut`]
+/// Function to perform a buffered insert of a component into the [`EntityWorldMut`](bevy_ecs::world::EntityWorldMut).
 type RawBufferFn = fn(
     &ReplicationMetadata,
     &ErasedSerializeFns,

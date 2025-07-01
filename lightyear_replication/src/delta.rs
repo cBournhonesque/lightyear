@@ -76,7 +76,7 @@ impl<C> Default for DeltaComponentHistory<C> {
 
 #[derive(Debug)]
 struct PerTickData {
-    /// The data for each tick, stored as a NonNull<u8> pointer to the component value
+    /// The data for each tick, stored as a `NonNull<u8>` pointer to the component value
     /// This is used to avoid copying the component value for each connection
     ///
     /// The data will be used to compute deltas between the last sent state and the current state.
@@ -90,7 +90,7 @@ struct PerTickData {
 
 #[derive(Debug, Default)]
 struct PerComponentData {
-    /// The data for each tick, stored as a NonNull<u8> pointer to the component value
+    /// The data for each tick, stored as a `NonNull<u8>` pointer to the component value
     /// This is used to avoid copying the component value for each connection
     ///
     /// We also store the number of remote peers that we have sent the component value

@@ -36,7 +36,7 @@ pub struct ChannelSettings {
     /// Sets the priority of the channel. The priority is used to choose which bytes to send when we don't have enough
     /// bandwidth to send all bytes. The bytes will be sent in order of highest priority to lowest priority.
     /// The final priority of a message will be `MessagePriority * ChannelPriority`
-    /// 
+    ///
     /// See [`PriorityManager`] for more information.
     pub priority: f32,
 }

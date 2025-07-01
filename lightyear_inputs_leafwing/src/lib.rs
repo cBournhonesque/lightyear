@@ -4,11 +4,11 @@
 //!
 //! You first need to create Inputs that are defined using the [`leafwing_input_manager`](https://github.com/Leafwing-Studios/leafwing-input-manager) crate.
 //! (see the documentation of the crate for more information)
-//! In particular your inputs should implement the [`Actionlike`] trait.
+//! In particular your inputs should implement the [`Actionlike`](leafwing_input_manager::Actionlike) trait.
 //!
 //! ```rust
 //! # use bevy_app::App;
-//! # use bevy_reflect::Reflect; 
+//! # use bevy_reflect::Reflect;
 //! # use serde::{Deserialize, Serialize};
 //! use leafwing_input_manager::Actionlike;
 //! use lightyear_inputs_leafwing::prelude::InputPlugin;
@@ -31,6 +31,11 @@
 //! Make sure that all your systems that depend on user inputs are added to the [`FixedUpdate`] [`Schedule`].
 //!
 //! Currently, global inputs (that are stored in a [`Resource`] instead of being attached to a specific [`Entity`] are not supported)
+//!
+//! [`FixedUpdate`]: bevy_app::prelude::FixedUpdate
+//! [`Resource`]: bevy_ecs::prelude::Resource
+//! [`Entity`]: bevy_ecs::prelude::Entity
+//! [`Schedule`]: bevy_ecs::prelude::Schedule
 #![no_std]
 
 extern crate alloc;
