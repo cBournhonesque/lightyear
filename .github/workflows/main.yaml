@@ -64,13 +64,7 @@ jobs:
           RUSTFLAGS: --cfg docsrs_dep -A mismatched_lifetime_syntaxes
           RUSTDOCFLAGS: --cfg=docsrs
         # exclude avian_3d_character to only use lightyear_avian/2d features
-        run: cargo +nightly doc \
-          --features=lightyear_core/not_mock,lightyear/steam \
-          --workspace \
-          --exclude=avian_3d_character \
-          --document-private-items \
-          --no-deps \
-          --keep-going
+        run: cargo +nightly doc --features="lightyear_core/not_mock,lightyear/steam" --workspace --exclude=avian_3d_character --document-private-items --no-deps --keep-going
 
   test:
     name: Test
@@ -102,7 +96,7 @@ jobs:
       - name: Activate CI cargo config
         run: mv .cargo/config_ci.toml .cargo/config.toml
 
-      - name: Test
+      - name: lightyear_tests
         env:
           RUSTFLAGS: -A mismatched_lifetime_syntaxes
         run: cargo tarpaulin --locked -p lightyear_tests --engine llvm --out lcov -- --test-threads=1
@@ -114,8 +108,8 @@ jobs:
           name: code-coverage-report
           path: lcov.info
 
-#      - name: Test doc
-#        run: cargo test --test-threads=1 --locked --workspace --doc
+      - name: Test doc
+        run: cargo test --locked --workspace --doc --exclude=avian_3d_character --features=lightyear_core/not_mock --no-fail-fast
 
   codecov:
     name: Upload to Codecov

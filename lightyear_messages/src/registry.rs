@@ -32,7 +32,7 @@ pub enum MessageError {
     #[error("missing serialization functions for message")]
     MissingSerializationFns,
     #[error(transparent)]
-    Serialization(#[from] lightyear_serde::SerializationError),
+    Serialization(#[from] SerializationError),
     #[error(transparent)]
     Packet(#[from] lightyear_transport::packet::error::PacketError),
     #[error("the component id {0:?} is missing from the entity")]
@@ -146,7 +146,7 @@ pub(crate) struct SendTriggerMetadata {
 /// }
 ///
 /// fn add_messages(app: &mut App) {
-///   app.register_message::<MyMessage>()
+///   app.add_message::<MyMessage>()
 ///       .add_map_entities();
 /// }
 /// ```

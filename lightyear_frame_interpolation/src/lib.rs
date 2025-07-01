@@ -11,19 +11,23 @@
 //!
 //! Another way to solve this would to run an extra 'partial' simulation step with 0.7 dt and use this for the visual state.
 //!
-//! To enable VisualInterpolation:
+//! To enable FrameInterpolation:
 //! - you will have to register an interpolation function for the component in the protocol
-//! - VisualInterpolation is not enabled by default, you have to add the plugin manually
-//! ```rust,no_run,ignore
-//! # use crate::tests::protocol::*;
-//! use lightyear::prelude::client::VisualInterpolationPlugin;
-//! let mut app = bevy::app::App::new();
-//! app.add_plugins(VisualInterpolationPlugin::<Component1>::default());
-//! ```
-//! - To enable VisualInterpolation on a given entity, you need to add the `VisualInterpolateStatus` component to it manually
-//! ```rust,no_run,ignore
+//! - FrameInterpolation is not enabled by default, you have to add the plugin manually
+//! - To enable VisualInterpolation on a given entity, you need to add the `FrameInterpolate` component to it manually
+//! ```rust
+//! # use lightyear_frame_interpolation::prelude::*;
+//! # use bevy_app::App;
+//! # use bevy_ecs::prelude::*;
+//!
+//! # #[derive(Component, PartialEq, Clone, Debug)]
+//! # struct Component1;
+//!
+//! let mut app = App::new();
+//! app.add_plugins(FrameInterpolationPlugin::<Component1>::default());
+//!
 //! fn spawn_entity(mut commands: Commands) {
-//!     commands.spawn().insert(VisualInterpolateStatus::<Component1>::default());
+//!     commands.spawn(FrameInterpolate::<Component1>::default());
 //! }
 //! ```
 
@@ -32,6 +36,10 @@
 extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
+
+pub mod prelude {
+    pub use crate::{FrameInterpolate, FrameInterpolationPlugin, FrameInterpolationSet};
+}
 
 // #[cfg(test)]
 // mod tests;
@@ -73,6 +81,7 @@ pub enum FrameInterpolationSet {
     /// Interpolate the visual state of the game with 1 tick of delay
     Interpolate,
 }
+
 /// Bevy plugin to enable visual interpolation for a specific component `C`.
 ///
 /// This plugin adds systems to store the state of component `C` at each `FixedUpdate` tick
@@ -80,34 +89,10 @@ pub enum FrameInterpolationSet {
 /// schedule, using the `Time<Fixed>::overstep_percentage`. This helps smooth
 /// visuals when the rendering framerate doesn't align perfectly with the fixed simulation rate.
 ///
-/// To use this, the component `C` must implement `Component<Mutability=Mutable> + Clone + Ease`.
+/// To use this, the component `C` must implement `Component<Mutability=Mutable> + Clone` and have an
+/// interpolation function registered in the `InterpolationRegistry`.
 /// You also need to add the `FrameInterpolate<C>` component to entities
 /// for which you want to enable this visual interpolation.
-///
-/// # Example
-/// ```rust,ignore
-/// use lightyear_frame_interpolation::FrameInterpolationPlugin;
-/// use lightyear_protocols::prelude::client::Ease; // Assuming Ease is defined here
-///
-/// #[derive(Component, Clone)]
-/// struct MyComponent(f32);
-///
-/// // Implement Ease for MyComponent
-/// impl Ease for MyComponent {
-///    fn ease(start: Self, end: Self, t: f32) -> Self {
-///        MyComponent(start.0 + (end.0 - start.0) * t)
-///    }
-/// }
-///
-/// fn main() {
-///     let mut app = App::new();
-///     app.add_plugins(DefaultPlugins);
-///     // Add the plugin for MyComponent
-///     app.add_plugins(FrameInterpolationPlugin::<MyComponent>::default());
-///     // ... other setup ...
-///     app.run();
-/// }
-/// ```
 pub struct FrameInterpolationPlugin<C> {
     _marker: core::marker::PhantomData<C>,
 }

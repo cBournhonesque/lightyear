@@ -274,7 +274,8 @@ impl PreSpawnedPlugin {
 ///
 /// Prespawned entities must be spawned in the `FixedMain` schedule.
 ///
-/// ```rust,ignore
+/// ```rust
+/// # use lightyear_prediction::prelude::*;
 /// // Default hashing implementation: (tick + components)
 /// PreSpawned::default();
 ///
@@ -283,9 +284,9 @@ impl PreSpawnedPlugin {
 /// PreSpawned::default_with_salt(client_id);
 ///
 /// // User-provided custom hash
-/// let custom_hash: u64 = compute_hash();
-/// PreSpawned::new(hash);
-/// ``````
+/// let custom_hash: u64 = 1;
+/// PreSpawned::new(1);
+/// ```
 #[reflect(Component)]
 pub struct PreSpawned {
     // TODO: be able to specify for which receiver this pre-spawned entity is?

@@ -17,9 +17,10 @@
 //! # use bevy_app::App;
 //! # use bevy_ecs::entity::{MapEntities, EntityMapper};
 //! # use serde::{Serialize, Deserialize};
+//! # use bevy_reflect::Reflect;
 //! use lightyear_inputs_native::prelude::*;
 //!
-//! #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+//! #[derive(Serialize, Deserialize, Clone, PartialEq, Reflect, Debug)]
 //! pub enum MyInput {
 //!     Move { x: f32, y: f32 },
 //!     Jump,

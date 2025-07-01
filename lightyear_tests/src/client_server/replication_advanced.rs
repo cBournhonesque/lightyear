@@ -6,6 +6,7 @@ use lightyear_replication::message::UpdatesChannel;
 use lightyear_replication::prelude::{Replicate, ReplicationGroupId, ReplicationSender};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::Transport;
+use tracing::info;
 
 /// Test that ReplicationMode::SinceLastAck is respected
 /// - we keep sending replication packets until we receive an Ack
@@ -24,9 +25,9 @@ fn test_since_last_ack() {
     stepper.advance_time(tick_duration);
 
     // send once to the server
-    stepper.client_app().update();
+    stepper.frame_step(1);
 
-    // check that we sent an EntityActions message
+    // check that we sent an EntityActions message. (the ack tick gets updated immediately because we know the message will get acked)
     let actions_sent = stepper
         .client(0)
         .get::<ReplicationSender>()
@@ -38,13 +39,25 @@ fn test_since_last_ack() {
         .0;
     assert_eq!(actions_sent, 1);
 
+    stepper
+        .client_app()
+        .world_mut()
+        .get_mut::<CompA>(client_entity)
+        .unwrap()
+        .0 = 2.0;
+
+    // first update: we send an update to the server
+    info!("first update");
+    stepper.client_app().update();
     stepper.advance_time(tick_duration);
 
     // check that we send again to the server since we haven't received an ack
+    info!("second update");
     stepper.client_app().update();
 
     // check that we re-sent an update since we didn't receive any ack.
-    // (this time it's sent as an update, since the replication system already sent an EntityActions message)
+    // (this time it's sent as an update, since the replication system already sent an EntityActions message.
+    //  we only want to send an Insert when the component is first added)
     assert_eq!(
         stepper
             .client(0)
@@ -96,5 +109,4 @@ fn test_since_last_ack() {
         .get(&group_id)
         .unwrap();
     assert_ne!(group_channel.ack_bevy_tick, None);
-    //
 }

@@ -29,11 +29,19 @@ pub type Priority = f32;
 
 /// A component that allows an entity to send messages of type `M` over the network.
 ///
-/// You can send a message by simplify buffering the messages into the `MessageSender<M>` component.
-/// ```rust,ignore
-/// let mut message_sender = commands.spawn(MessageSender::<M>::default());
-/// let message = M::default();
-/// message_sender.send::<Channel>(message);
+/// You can send a message by simply buffering the messages into the `MessageSender<M>` component using the `send` or `send_with_priority` methods.
+///
+/// ```rust
+/// # use bevy_ecs::prelude::*;
+/// # use lightyear_messages::prelude::*;
+///
+/// struct M;
+///
+/// struct Channel;
+///
+/// # let mut world = World::new();
+/// let mut message_sender = MessageSender::<M>::default();
+/// message_sender.send::<Channel>(M);
 /// ```
 #[derive(Component, Reflect)]
 #[component(on_add = MessageSender::<M>::on_add_hook)]

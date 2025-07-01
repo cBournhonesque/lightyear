@@ -23,17 +23,6 @@ use tracing::trace;
 /// This component maintains the local estimate of what time it is on a remote peer
 /// based on received network packets and measured latency. It's primarily used to
 /// synchronize game state between peers in a networked environment.
-///
-/// # Examples
-///
-/// ```ignore
-/// # use lightyear_sync::timeline::remote::RemoteTimeline;
-/// # use lightyear_core::time::TickInstant;
-/// # use std::time::Duration;
-/// #
-/// // Create a new remote estimate with a 16ms tick duration and 0.1 smoothing factor
-/// let remote_estimate = RemoteTimeline::new(Duration::from_millis(16), 0.1);
-/// ```
 #[derive(Debug, Reflect)]
 pub struct RemoteEstimate {
     /// Returns true if we have received a packet from the remote peer this frame

@@ -113,10 +113,13 @@ The `Server` entity works a bit differently. It starts a server that listens for
 component.
 You can add a trigger to listen to this event and add the extra components to customize the behaviour of this connection.
 
-```rust,ignore
+```rust
+# use bevy_ecs::prelude::*;
+# use lightyear::prelude::*;
+# use core::time::Duration;
 fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.target()).insert((
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        ReplicationSender::new(Duration::from_millis(100), SendUpdatesMode::SinceLastAck, false),
         Name::from("Client"),
     ));
 }
@@ -145,7 +148,7 @@ The [`Disconnected`](prelude::Disconnected), [`Connecting`](prelude::Connecting)
 On the server, [`Start`](prelude::server::Start) and [`Stop`](prelude::server::Stop) components are used to control the server's listening state.
 The [`Stopped`](prelude::server::Stopped), [`Starting`](prelude::server::Starting), [`Started`](prelude::server::Started) components represent the current state of the connection.
 
-While a client is disconnected, you can update its configuration (`ReplicationSender`, `MessageManager`, etc.), it will be applied on the next connection attemp.
+While a client is disconnected, you can update its configuration (`ReplicationSender`, `MessageManager`, etc.), it will be applied on the next connection attempt.
 
 
 ### Sending messages
@@ -153,17 +156,17 @@ While a client is disconnected, you can update its configuration (`ReplicationSe
 The [`MessageSender`](prelude::MessageSender) component is used to send messages that you have defined in your protocol.
 
 ```rust
-use bevy::prelude::*;
+# use bevy_ecs::prelude::*;
 use lightyear::prelude::*;
 use lightyear::prelude::server::*;
+use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize)]
 struct MyMessage;
 
-#[derive(Channel)]
 struct MyChannel;
 
-fn send_message(mut sender: Query<&mut MesssageSender<MyMessage>>) {
+fn send_message(mut sender: Single<&mut MessageSender<MyMessage>>) {
     let _ = sender.send::<MyChannel>(MyMessage);
 }
 ```
@@ -173,20 +176,17 @@ fn send_message(mut sender: Query<&mut MesssageSender<MyMessage>>) {
 The [`MessageReceiver`](prelude::MessageReceiver) component is used to receive messages that you have defined in your protocol.
 
 ```rust
-use bevy::prelude::*;
-use lightyear::prelude::*;
-use lightyear::prelude::server::*;
+# use bevy_ecs::prelude::*;
+# use lightyear::prelude::*;
+# use serde::{Serialize, Deserialize};
 
 # #[derive(Serialize, Deserialize)]
 # struct MyMessage;
 
-fn send_message(mut receivers: Query<&mut MesssageReceiver<MyMessage>>) {
+fn send_message(mut receivers: Query<&mut MessageReceiver<MyMessage>>) {
     for mut receiver in receivers.iter_mut() {
-        let _ = receiver.receiver().for_each(|message| {
-        });
+        let _ = receiver.receive().for_each(|message| {});
     }
-
-    let _ = sender.send::<MyChannel>(MyMessage);
 }
 ```
 
@@ -200,15 +200,14 @@ You can remove the [`Replicating`](prelude::Replicating) component to pause the 
 
 ### Reacting to replication events
 
-
 On the receiver side, entities that are replicated from a remote peer will have the [`Replicated`](prelude::Replicated) marker component.
 
-Lightyear also inserts the [`Replicated`] marker component on every entity that was spawned via replication,
-so you can achieve the same result with:
+You can use to react to components being inserted via replication.
 ```rust
-use bevy::prelude::*;
-use lightyear::prelude::*;
-use lightyear::prelude::client::*;
+# use bevy_ecs::prelude::*;
+# use lightyear::prelude::*;
+# use lightyear::prelude::client::*;
+# use serde::{Serialize, Deserialize};
 
 # #[derive(Component, Serialize, Deserialize)]
 # struct MyComponent;
