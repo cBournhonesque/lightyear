@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_transport"
-version = "0.21.0-rc.1"
+version = "0.21.0-rc.2"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -49,9 +49,6 @@ nonzero_ext.workspace = true
 ringbuffer.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-
-[dev-dependencies]
-lightyear_transport = { workspace = true, features = ["test_utils"] }
 
 [lints]
 workspace = true

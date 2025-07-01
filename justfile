@@ -424,4 +424,9 @@ lightyear_webtransport:
     cargo clippy -p lightyear_webtransport --tests --no-default-features --features="self-signed" -- -D warnings --no-deps
     cargo clippy -p lightyear_webtransport --tests --no-default-features --features="dangerous-configuration" -- -D warnings --no-deps
     cargo clippy -p lightyear_webtransport --tests --all-features -- -D warnings --no-deps
-    
+
+release_dryrun:
+    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-preview
+
+release:
+    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-preview --execute

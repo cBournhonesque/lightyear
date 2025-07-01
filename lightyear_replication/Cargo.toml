@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_replication"
-version = "0.21.0-rc.1"
+version = "0.21.0-rc.2"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -49,7 +49,6 @@ bevy_time = { workspace = true, features = ["bevy_reflect"] }
 bevy_transform = { workspace = true, features = ["libm"] }
 
 [dev-dependencies]
-lightyear_replication = { workspace = true, features = ["std"] }
 test-log.workspace = true
 
 [lints]
