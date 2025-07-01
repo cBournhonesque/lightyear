@@ -52,6 +52,12 @@ impl PriorityConfig {
     }
 }
 
+/// Responsible for restricting the bandwidth used by messages sent over the network.
+///
+/// The messages will be filtered by priority until we reach the bandwidth quota.
+///
+/// Messages that were not sent will have increased priority, which means that they have a higher chance of
+/// being sent in the future.
 #[derive(Debug)]
 pub struct PriorityManager {
     pub(crate) config: PriorityConfig,

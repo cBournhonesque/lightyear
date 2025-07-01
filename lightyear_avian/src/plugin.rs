@@ -95,9 +95,10 @@ impl Plugin for LightyearAvianPlugin {
         );
 
         // Sync Position/Rotation to Transform even for non RigidBody entities
+        // Disable the transform to position sync because we are doing it manually with our custom position_to_transform systems
         app.insert_resource(SyncConfig {
             transform_to_position: false,
-            position_to_transform: true,
+            position_to_transform: false,
             ..default()
         });
         app.add_systems(

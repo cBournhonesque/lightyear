@@ -39,6 +39,12 @@ pub struct RemoteTrigger<M: Message> {
     pub from: PeerId,
 }
 
+/// A component that receives messages of type `M` from the network.
+///
+/// The components received from the network will be buffered in the `recv` field.
+/// You can call the `receive` method to drain the messages from the buffer and process them.
+///
+/// The messages will be cleared every frame in the `Last` schedule.
 #[derive(Component)]
 #[require(MessageManager)]
 #[component(on_add = MessageReceiver::<M>::on_add_hook)]

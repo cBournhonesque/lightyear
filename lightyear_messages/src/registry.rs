@@ -32,7 +32,7 @@ pub enum MessageError {
     #[error("missing serialization functions for message")]
     MissingSerializationFns,
     #[error(transparent)]
-    Serialization(#[from] lightyear_serde::SerializationError),
+    Serialization(#[from] SerializationError),
     #[error(transparent)]
     Packet(#[from] lightyear_transport::packet::error::PacketError),
     #[error("the component id {0:?} is missing from the entity")]
@@ -100,36 +100,41 @@ pub(crate) struct SendTriggerMetadata {
 /// ### Adding Messages
 ///
 /// You register messages by calling the [`add_message`](AppMessageExt::add_message) method directly on the App.
-/// You can provide a [`NetworkDirection`] to specify if the message should be sent from the client to the server, from the server to the client, or both.
 ///
-/// ```rust,ignore
-/// use bevy::prelude::*;
-/// use serde::{Deserialize, Serialize};
-/// use lightyear::prelude::*;
+/// You can provide a [`NetworkDirection`] to specify if the message should be sent from the client to the server, from the server to the client, or both.
+/// Messages can be sent and receives if your Link entity contains the [`MessageSender<M>`] and [`MessageReceiver<M>`] components. Adding a [`NetworkDirection`] simply registers the sender/receiver components as a required components, but you can also just add and remove them manually.
+///
+///
+/// ```rust
+/// # use bevy_app::App;
+/// # use serde::{Deserialize, Serialize};
+/// # use lightyear_messages::prelude::*;
+/// # use lightyear_connection::prelude::NetworkDirection;
 ///
 /// #[derive(Serialize, Deserialize)]
 /// struct MyMessage;
 ///
 /// fn add_messages(app: &mut App) {
-///   app.register_message::<MyMessage>(ChannelDirection::Bidirectional);
+///   app.add_message::<MyMessage>()
+///     .add_direction(NetworkDirection::ServerToClient);
 /// }
 /// ```
 ///
 /// ### Customizing Message behaviour
 ///
 /// There are some cases where you might want to define additional behaviour for a message.
-/// For example, if the message contains [`Entities`](Entity), you need to specify how those en
+/// For example, if the message contains Entities, you need to specify how those en
 /// entities will be mapped from the remote world to the local world.
 ///
 /// Provided that your type implements [`MapEntities`], you can extend the protocol to support this behaviour, by
 /// calling the [`add_map_entities`](MessageRegistration::add_map_entities) method.
 ///
-/// ```rust,ignore
-/// use bevy::ecs::entity::{EntityMapper, MapEntities};
-/// use bevy::prelude::*;
-/// use serde::{Deserialize, Serialize};
-/// use lightyear::prelude::*;
-/// # use lightyear_transport::channel::builder::ChannelDirection;
+/// ```rust
+/// # use bevy_app::App;
+/// # use serde::{Deserialize, Serialize};
+/// # use lightyear_messages::prelude::*;
+/// # use lightyear_connection::prelude::NetworkDirection;
+/// # use bevy_ecs::entity::{EntityMapper, Entity, MapEntities};
 ///
 /// #[derive(Serialize, Deserialize, Clone)]
 /// struct MyMessage(Entity);
@@ -141,7 +146,7 @@ pub(crate) struct SendTriggerMetadata {
 /// }
 ///
 /// fn add_messages(app: &mut App) {
-///   app.register_message::<MyMessage>(ChannelDirection::Bidirectional)
+///   app.add_message::<MyMessage>()
 ///       .add_map_entities();
 /// }
 /// ```

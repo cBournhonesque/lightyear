@@ -40,9 +40,9 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// ### Adding Components
 ///
 /// You register components by calling the [`register_component`](AppComponentExt::register_component) method directly on the App.
-/// You can provide a `NetworkDirection` to specify if the component should be sent from the client to the server, from the server to the client, or both.
 ///
-/// A component needs to implement the `Serialize`, `Deserialize` and `PartialEq` traits.
+/// By default, a component needs to implement `Serialize` and `Deserialize`, but you can also provide your own
+/// serialization functions by using the [`register_component_custom_serde`](AppComponentExt::register_component_custom_serde) method.
 ///
 /// ```rust
 /// # use bevy_app::App;
@@ -63,15 +63,15 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// There are some cases where you might want to define additional behaviour for a component.
 ///
 /// #### Entity Mapping
-/// If the component contains [`Entities`](bevy::prelude::Entity), you need to specify how those entities
+/// If the component contains any [`Entity`](bevy_ecs::prelude::Entity), you need to specify how those entities
 /// will be mapped from the remote world to the local world.
 ///
 /// Provided that your type implements [`MapEntities`], you can extend the protocol to support this behaviour, by
 /// calling the [`add_map_entities`](ComponentRegistration::add_map_entities) method.
 ///
 /// #### Prediction
-/// When client-prediction is enabled, we create two distinct entities on the client when the server replicates an entity: a Confirmed entity and a Predicted entity.
-/// The Confirmed entity will just get updated when the client receives the server updates, while the Predicted entity will be updated by the client's prediction system.
+/// When client-prediction is enabled, we create two distinct entities on the client when the server replicates an entity: a [`Confirmed`](crate::prelude::Confirmed) entity and a [`Predicted`](lightyear_core::prelude::Predicted) entity.
+/// The `Confirmed` entity will just get updated when the client receives the server updates, while the `Predicted` entity will be updated by the client's prediction system.
 ///
 /// Components are not synced from the Confirmed entity to the Predicted entity by default, you have to enable this behaviour.
 /// You can do this by calling the `add_prediction` method.
@@ -84,11 +84,11 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// However, rollbacks that do an instant update can be visually jarring, so we provide the option to smooth the rollback process over a few frames.
 /// You can do this by calling the `add_correction_fn` method.
 ///
-/// If your component implements the [`Ease`](bevy::prelude::Ease) trait, you can use the `add_linear_correction_fn` method,
+/// If your component implements the `Ease` trait, you can use the `add_linear_correction_fn` method,
 /// which provides linear interpolation.
 ///
 /// #### Interpolation
-/// Similarly to client-prediction, we create two distinct entities on the client when the server replicates an entity: a Confirmed entity and an Interpolated entity.
+/// Similarly to client-prediction, we create two distinct entities on the client when the server replicates an entity: a [`Confirmed`](crate::prelude::Confirmed) entity and an [`Interpolated`](lightyear_core::prelude::Interpolated) entity.
 /// The Confirmed entity will just get updated when the client receives the server updates, while the Interpolated entity will be updated by the client's interpolation system,
 /// which will interpolate between two Confirmed states.
 ///
@@ -97,7 +97,7 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// You will have to provide a `InterpolationMode` that defines the behaviour of the interpolation system.
 ///
 /// You will also need to provide an interpolation function that will be used to interpolate between two states.
-/// If your component implements the [`Ease`](bevy::prelude::Ease) trait, you can use the `add_linear_interpolation_fn` method,
+/// If your component implements the `Ease` trait, you can use the `add_linear_interpolation_fn` method,
 /// which means that we will interpolate using linear interpolation.
 ///
 /// You can also use your own interpolation function by using the `add_interpolation_fn` method.

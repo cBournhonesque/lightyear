@@ -589,7 +589,9 @@ pub enum ReplicationMode {
 #[component(on_replace = Replicate::on_replace)]
 #[reflect(Component)]
 pub struct Replicate {
+    /// Defines which [`ReplicationSenders`](ReplicationSender) this entity will be replicated to
     mode: ReplicationMode,
+    /// The list of [`ReplicationSender`] entities that this entity is being replicated on
     #[reflect(ignore)]
     pub senders: EntityIndexSet,
     // do we have authority over this entity?

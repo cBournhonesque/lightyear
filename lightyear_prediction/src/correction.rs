@@ -104,12 +104,15 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
 }
 
 /// The flow is:
-/// [PreUpdate] C = OriginalC, receive NewC, check_rollback, prepare_rollback: add Correction, set C = NewC, rollback, set C = CorrectedC
-/// [PreUpdate] C = CorrectedC
-/// [PreUpdate] C = CorrectedC
-/// [FixedUpdate] Correction, C = CorrectInterpolatedC
+/// [`PreUpdate`] C = OriginalC, receive NewC, check_rollback, prepare_rollback: add Correction, set C = NewC, rollback, set C = CorrectedC
+/// [`PreUpdate`] C = CorrectedC
+/// [`PreUpdate`] C = CorrectedC
+/// [`FixedUpdate`] Correction, C = CorrectInterpolatedC
 /// i.e. if PreUpdate runs a few times in a row without any FixedUpdate step, the component stays in the CorrectedC state.
 /// Instead, right after the rollback, we need to reset the component to the original state
+///
+/// [`PreUpdate`]: bevy_app::prelude::PreUpdate
+/// [`FixedUpdate`]: bevy_app::prelude::FixedUpdate
 pub(crate) fn set_original_prediction_post_rollback<C: SyncComponent>(
     mut query: Query<(Entity, &mut C, &mut Correction<C>), Added<Correction<C>>>,
 ) {

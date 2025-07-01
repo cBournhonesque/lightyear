@@ -11,5 +11,8 @@ pub mod registry;
 #[cfg(feature = "trace")]
 pub mod stats;
 
+/// A Channel is used to specify some properties of how the bytes are sent over the network.
+///
+/// The properties can be specified using the [`ChannelSettings`](crate::prelude::ChannelSettings).
 pub trait Channel: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> Channel for T {}

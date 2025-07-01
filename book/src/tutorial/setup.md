@@ -4,7 +4,7 @@
 The main crate `lightyear` provides an easy way of importing all the other crates and settings up the necessary plugins.
 In particular it provides 2 plugin groups that set up the various systems needed for multiplayer app: `ClientPlugins` and `ServerPlugins`.
 
-There are many different sub-plugins but the most important things that `lightyear` handles for you are:
+There are many different sub-plugins that handle most of the complexities of networking, such as:
 - the sending and receiving of messages
 - automatic replication of the World from the server to the client
 - syncing the timelines of the client and the server
@@ -25,15 +25,19 @@ The `simple_box` example has the following structure:
 - `client.rs`: this is where we define client-specific logic (input-handling, client-prediction, etc.)
 - `server.rs`: this is where we define server-specific logic (spawning players for newly-connected clients, etc.)
 
+## Adding the lightyear plugins
+
+You will need to add the `ClientPlugins` and `ServerPlugins` to your app, depending on whether you are building a client or a server.
+
 
 ## Defining a protocol
 
-First, you will need to define a [protocol](../concepts/replication/protocol.md) for your game.
+Then, you will need to define a [protocol](../concepts/replication/protocol.md) for your game. The protocol must be added AFTER the `ClientPlugins` or `ServerPlugins` are added to the app.
+
 (see [here](https://github.com/cBournhonesque/lightyear/blob/main/examples/simple_box/src/protocol.rs) in the example)
 This is where you define the "contract" of what is going to be sent across the network between your client and server.
 
 A protocol is composed of
-
 - [Input](../concepts/advanced_replication/inputs.md): Defines the client's input type, i.e. the different actions that
   a user can perform (e.g. move, jump, shoot, etc.).
 - [Message](../concepts/bevy_integration/events.md): Defines the message protocol, i.e. the messages that can be
@@ -73,18 +77,11 @@ pub struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin{
     fn build(&self, app: &mut App) {
-        app.register_component::<PlayerId>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerId>();
 
-        app.register_component::<PlayerPosition>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+        app.register_component::<PlayerPosition>();
 
-        app.register_component::<PlayerColor>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerColor>();
     }
 }
 ```
@@ -96,19 +93,15 @@ network. When registering a message, you can specify the direction in which the 
 
 Let's define our message protocol:
 
-```rust,noplayground
+```rust
 /// We don't really use messages in the example, but here is how you would define them.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
 
 impl Plugin for ProtocolPlugin{
   fn build(&self, app: &mut App) {
-    // Register messages
     app.add_message::<Message1>()
       .add_direction(NetworkDirection::ServerToClient);
-      
-    // Register components
-    ...
   }
 }
 ```
@@ -131,27 +124,25 @@ pub struct Direction {
     pub(crate) right: bool,
 }
 
-/// The `InputProtocol` needs to be an enum of the various inputs that the client can send to the server.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Reflect, Eq, Clone)]
 pub enum Inputs {
     Direction(Direction),
     Delete,
     Spawn,
 }
 
+// All inputs need to implement the `MapEntities` trait
+impl MapEntities for Inputs {
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
+}
+
 impl Plugin for ProtocolPlugin{
   fn build(&self, app: &mut App) {
-    // Register inputs
     app.add_plugins(InputPlugin::<Inputs>::default());
-    // Register messages
-    ...
-    // Register components
-    ...
   }
 }
 ```
 
-Inputs have to implement the `UserAction` trait, which means that they must be `Reflect + Send + Sync + 'static` and can be serialized.
 
 ### Channels
 
@@ -163,23 +154,19 @@ A `Channel` defines some properties of how messages will be sent over the networ
 
 - reliability: can the messages be lost or do we re-send them until we receive an ACK?
 - ordering: do we guarantee that the messages are received in the same order that they were sent?
-- priority: do we want to increase the priority of some messages in case the network is congested?
+- priority: which messages to send in priority if we have reached the max bandwidth of the network?
 
-```rust,noplayground
+```rust
 pub struct Channel1;
 
 pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        // channels
         app.add_channel::<Channel1>(ChannelSettings {
           mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
           ..default()
         });
-        
-        // register messages, inputs, components
-        ...
     }
 }
 ```
@@ -194,4 +181,4 @@ We now have a complete `Protocol` that defines:
 - the data that can be sent between the client and server (inputs, messages, components)
 - how the data will be sent (channels)
 
-We can now start building our client and server Plugins.
+We can now start building our client and server.

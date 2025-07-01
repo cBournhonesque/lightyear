@@ -42,7 +42,7 @@ pub mod prelude {
     pub use crate::conditioner::LinkConditionerConfig;
     pub use crate::server::{LinkOf, Server};
     pub use crate::{
-        Link, LinkSet, LinkStart, LinkStats, Linked, Linking, RecvLinkConditioner, Unlinked,
+        Link, LinkSet, LinkStart, LinkStats, Linked, Linking, RecvLinkConditioner, Unlink, Unlinked,
     };
 
     pub mod server {

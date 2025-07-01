@@ -1,9 +1,41 @@
-//! # Lightyear Inputs Leafwing
+//! Module to handle inputs that are defined using the `leafwing_input_manager` crate
 //!
-//! This crate provides an integration between `lightyear` and `leafwing-input-manager`.
+//! ### Adding leafwing inputs
 //!
-//! It allows you to use `leafwing-input-manager`'s `ActionState` as the input type for `lightyear`.
-//! The inputs are sent from the client to the server and are predicted on the client.
+//! You first need to create Inputs that are defined using the [`leafwing_input_manager`](https://github.com/Leafwing-Studios/leafwing-input-manager) crate.
+//! (see the documentation of the crate for more information)
+//! In particular your inputs should implement the [`Actionlike`](leafwing_input_manager::Actionlike) trait.
+//!
+//! ```rust
+//! # use bevy_app::App;
+//! # use bevy_reflect::Reflect;
+//! # use serde::{Deserialize, Serialize};
+//! use leafwing_input_manager::Actionlike;
+//! use lightyear_inputs_leafwing::prelude::InputPlugin;
+//!
+//! #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
+//! pub enum PlayerActions {
+//!     Up,
+//!     Down,
+//!     Left,
+//!     Right,
+//! }
+//!
+//! let mut app = App::new();
+//! app.add_plugins(InputPlugin::<PlayerActions>::default());
+//! ```
+//!
+//! ### Usage
+//!
+//! The networking of inputs is completely handled for you. You just need to add the `InputPlugin` to your app.
+//! Make sure that all your systems that depend on user inputs are added to the [`FixedUpdate`] [`Schedule`].
+//!
+//! Currently, global inputs (that are stored in a [`Resource`] instead of being attached to a specific [`Entity`] are not supported)
+//!
+//! [`FixedUpdate`]: bevy_app::prelude::FixedUpdate
+//! [`Resource`]: bevy_ecs::prelude::Resource
+//! [`Entity`]: bevy_ecs::prelude::Entity
+//! [`Schedule`]: bevy_ecs::prelude::Schedule
 #![no_std]
 
 extern crate alloc;

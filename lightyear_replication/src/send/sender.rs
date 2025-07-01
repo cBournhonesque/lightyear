@@ -551,7 +551,7 @@ impl ReplicationSender {
         });
     }
 
-    /// Prepare the [`ActionsMessage`] messages to send.
+    /// Prepare the [`ActionsMessage`](crate::message::ActionsMessage) messages to send.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn send_actions_messages(
         &mut self,
@@ -639,7 +639,7 @@ impl ReplicationSender {
         })
     }
 
-    /// Buffer the [`UpdatesMessage`] to send in the [`Transport`]
+    /// Buffer the [`UpdatesMessage`](crate::message::UpdatesMessage) to send in the [`Transport`]
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn send_updates_messages(
         &mut self,
@@ -707,7 +707,7 @@ impl ReplicationSender {
     }
 }
 
-/// When a [`UpdatesMessage`] message gets buffered (and we have access to its [`MessageId`]),
+/// When a [`UpdatesMessage`](crate::prelude::UpdatesMessage) message gets buffered (and we have access to its [`MessageId`]),
 /// we keep track of some information related to this message.
 /// It is useful when we get notified that the message was acked or lost.
 #[derive(Debug, PartialEq)]

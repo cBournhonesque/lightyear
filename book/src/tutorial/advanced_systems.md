@@ -18,8 +18,25 @@ The solution is to run the same simulation systems on the client as on the serve
 This is "client-prediction": we move the client-controlled entity immediately according to our user inputs, and then we correct the position
 when we receive the actual state of the entity from the server. (if there is a mismatch)
 
-In lightyear, this is enabled by setting a `prediction_target` on the `Replicate` component, which lets you specify
-which clients will predict the entity.
+To do this in lightyear, you will need to change a few things.
+In your protocol, you need to specify that the component should be synced from the `Replicated` entity to the `Predicted` entity.
+```rust,ignore
+app.register_component::<PlayerPosition>()
+    .add_prediction(PredictionMode::Full);
+```
+
+Then, when replicating the entity, you can also specify which clients should predict the entity by adding a `PredictionTarget` component.
+Usually, the client that 'controls' the entity will be predicting it.
+```rust,ignore
+let entity = commands
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+        ))
+        .id();
+```
+(another way to spawn a predicted entity is to add the `ShouldBePredicted` component to a `Replicated` entity on the client)
+
 
 If prediction is enabled for an entity, the client will spawn a local copy of the entity along with a marker component called `Predicted`.
 The entity that is directly replicated from the server will have a marker component called `Confirmed` (because it is only updated when we receive a new server update packet).
@@ -34,73 +51,44 @@ and re-run all the ticks that happened since the last server update was received
 since the last server update.
 
 As the `Confirmed` and `Predicted` entities are 2 separate entities, you will need to specify how the components that are received on the `Confirmed` entity (replicated from the server) are copied to the `Predicted` entity.
-To do this, you will need to specify a [ComponentSyncMode](https://docs.rs/lightyear/latest/lightyear/client/components/enum.ComponentSyncMode.html) for each component in the `ComponentProtocol` enum.
+To do this, you will need to specify a [PredictionMode](https://docs.rs/lightyear/latest/lightyear_prediction/prelude/enum.PredictionMode.html) for each component in the `ComponentProtocol` enum.
 There are 3 different modes:
 - Full: we apply client-side prediction with rollback
 - Simple: the server-updates are copied from Confirmed to Predicted whenever we have an update
 - Once: the components are copied only once from the Confirmed entity to the Predicted entity
   
-You will need to modify your `ComponentProtocol` to specify the prediction behaviour for each component;
-if you don't specify one, the component won't be copied from the `Confirmed` to the `Predicted` entity.
+
+Then, on the client, you need to make sure that you also run the same simulation logic as the server, for the `Predicted` entities. This is very important!
+The client must be 'predicting' what the entity will do even though it doesn't have perfect information because it doesn't know the inputs of other players.
+Most of the time the prediction will be correct, and we successfully erased the lag between the user input and the entity movement.
+Sometimes the prediction will be wrong, in which case lightyear will trigger a rollback and re-run the simulation since the tick that was wrong.
 
 
-On the server, we will update our entity-spawning system to add client-prediction:
-```rust,noplayground
-/// Create a player entity whenever a client connects
-pub(crate) fn handle_connections(
-    /// Here we listen for the `ConnectEvent` event
-    mut connections: EventReader<ConnectEvent>,
-    mut global: ResMut<Global>,
-    mut commands: Commands,
-) {
-    for connection in connections.read() {
-        /// on the server, the `context()` method returns the `ClientId` of the client that connected
-        let client_id = *connection.context();
-        
-        /// We add the `Replicate` component to start replicating the entity to clients
-        /// By default, the entity will be replicated to all clients
-        let replicate = Replicate {
-          prediction_target: NetworkTarget::Single(client_id),
-          ..default()
-        };
-        let entity = commands.spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate));
-        
-        // Add a mapping from client id to entity id
-        global.client_id_to_entity_id.insert(client_id, entity.id());
-    }
-```
-
-The only change is the line `prediction_target: NetworkTarget::Single(client_id)`; we are specifying which clients should be predicting this entity.
-Those clients will spawn a copy of the entity with the `Predicted` component added.
-
-
-Then, on the client, you need to make sure that you also run the same simulation logic as the server, for the `Predicted` entities.
 We will add a new system on the client that also applies the user inputs. 
 It is very similar to the server system, we also listen for the `InputEvent` event. It also needs to run in the `FixedUpdate` schedule to work correctly.
 
 On the client:
 ```rust,noplayground
 fn player_movement(
-    /// Note: we only apply inputs to the `Predicted` entity
-    mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
-    mut input_reader: EventReader<InputEvent<Inputs>>,
+    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
 ) {
-    for input in input_reader.read() {
-        if let Some(input) = input.input() {
-            for position in position_query.iter_mut() {
-                shared_movement_behaviour(position, input);
-            }
+    for (position, input) in position_query.iter_mut() {
+        if let Some(input) = &input.value {
+            shared::shared_movement_behaviour(position, input);
         }
     }
 }
 app.add_systems(FixedUpdate, movement);
 ```
 
+Now you can see why it's a good idea to use shared logic between the client and server for the movement system: by using a shared function, we can ensure
+that the client and server will run the same logic for the player movement, which is crucial for client-side prediction to work correctly.
+
 Now you can try running the server and client again; you should see 2 cubes for the client; the `Predicted` cube should 
 move immediately when you send an input on the client. The `Confirmed` cube only moves when we receive a packet from the server.
 
 
-## Entity interpolation
+## Snapshot interpolation
 
 Client-side prediction works well for entities that the player predicts, but what about entities that are not controlled by the player?
 There are two solutions to make updates smooth for those entities:
@@ -109,38 +97,44 @@ There are two solutions to make updates smooth for those entities:
 
 The second approach is called 'interpolation', and is the one we will use in this tutorial. You can read this Valve [article](https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking#Entity_interpolation) that explains it pretty well.
 
-You will need to modify your `ComponentProtocol` to specify the interpolation behaviour for each component;
-if you don't specify one, the component won't be copied from the `Confirmed` to the `Interpolated` entity.
-You will also need to provide an interpolation function; or you can use the default linear interpolation.
+To do this, there are again two places to update:
 
-On the server, we will update our entity-spawning system to add entity-interpolation:
-```rust,noplayground
-/// Create a player entity whenever a client connects
-pub(crate) fn handle_connections(
-    /// Here we listen for the `ConnectEvent` event
-    mut connections: EventReader<ConnectEvent>,
-    mut global: ResMut<Global>,
-    mut commands: Commands,
-) {
-    for connection in connections.read() {
-        /// on the server, the `context()` method returns the `ClientId` of the client that connected
-        let client_id = *connection.context();
-        
-        /// We add the `Replicate` component to start replicating the entity to clients
-        /// By default, the entity will be replicated to all clients
-        let replicate = Replicate {
-          prediction_target: NetworkTarget::Single(client_id),
-          interpolation_target: NetworkTarget::AllExceptSingle(client_id),
-          ..default()
-        };
-        let entity = commands.spawn((PlayerBundle::new(client_id, Vec2::ZERO), replicate));
-        
-        // Add a mapping from client id to entity id
-        global.client_id_to_entity_id.insert(client_id, entity.id());
+In your protocol, you need to specify that the component should be synced from the `Replicated` entity to the `Interpolated` entity.
+You will also need to provide an interpolation function which specifies how to interpolate between two states:
+```rust,ignore
+pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
+```
+If your type implements the `Ease` trait from bevy, you can also call `add_linear_interpolation_fn`. This is what we will do here.
+
+```rust,ignore
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
+pub struct PlayerPosition(pub Vec2);
+
+impl Ease for PlayerPosition {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| {
+            PlayerPosition(Vec2::lerp(start.0, end.0, t))
+        })
     }
+}
+
+app.register_component::<PlayerPosition>()
+    .add_interpolation(InterpolationMode::Full)
+    .add_linear_interpolation_fn();
 ```
 
-This time we interpolate for entities that are not controlled by the player, so we use `NetworkTarget::AllExceptSingle(id)`.
+Then, when replicating the entity, you can also specify which clients should predict the entity by adding a `InterpolationTarget` component.
+Usually, the clients that don't control an entity will be interpolating it.
+```rust,ignore
+let entity = commands
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+        ))
+        .id();
+```
+
+
 
 If interpolation is enabled for an entity, the client will spawn a local copy of the entity along with a marker component called `Interpolated`.
 The entity that is directly replicated from the server will have a marker component called `Confirmed` (because it is only updated when we receive a new server update packet).
@@ -148,7 +142,7 @@ The entity that is directly replicated from the server will have a marker compon
 The `Interpolated` entity lives on a different timeline than the `Confirmed` entity: it lives a few ticks in the past.
 We want it to live slightly in the past so that we always have at least 2 confirmed states to interpolate between.
 
-And that's it! The `ComponentSyncMode::Full` mode is required on a component to run interpolation.
+And that's it! The `InterpolationMode::Full` mode is required on a component to run interpolation.
 
 Now if you run a server and two clients, each player should see the other's player slightly in the past, but with movements that are interpolated smoothly between server updates.
 

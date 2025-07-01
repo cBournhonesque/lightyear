@@ -43,40 +43,6 @@
   * Provide a private key - a `u8` array of length 32. If you don't have one, you can generate one with `netcode::generate_key()`.
   * Optionally provide a [`ServerConfig`] - a struct that allows you to customize the server's behavior.
 
-*/
-#![cfg_attr(
-    feature = "server",
-    doc = r##"
-
-```rust,ignore
-# use std::{thread, time::{Instant, Duration}, net::SocketAddr};
-# use lightyear_link::Link;
-# use lightyear_netcode::{generate_key, NetcodeServer};
-
-// Create an io
-let mut link = Link::new(SocketAddr::from(([127, 0, 0, 1], 12345)));
-
-// Create a server
-let protocol_id = 0x11223344;
-let private_key = generate_key(); // you can also provide your own key
-let mut server = NetcodeServer::new(protocol_id, private_key).unwrap();
-
-// Run the server at 60Hz
-let start = Instant::now();
-let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
-loop {
-    let elapsed = start.elapsed().as_secs_f64();
-    server.update(elapsed, &mut link);
-    while let Some((packet, from)) = server.recv() {
-       // ...
-    }
-    # break;
-    thread::sleep(tick_rate);
-}
-```
-"##
-)]
-/*!
  ## Client
 
 The netcode client connects to the server and communicates using the same protocol.
@@ -86,49 +52,8 @@ send updates to the server, and maintain a stable connection.
 
 To create a client:
  * Provide a **connect token** - a `u8` array of length 2048 serialized from a [`ConnectToken`].
- * Optionally provide a [`ClientConfig`](crate::client::ClientConfig) - a struct that allows you to customize the client's behavior.
-
+ * Optionally provide a [`ClientConfig`](client::ClientConfig) - a struct that allows you to customize the client's behavior.
 */
-#![cfg_attr(
-    feature = "client",
-    doc = r##"
-```rust,ignore
-use std::{thread, time::{Instant, Duration}, net::SocketAddr};
-use lightyear_link::Link;
-use lightyear_netcode::{generate_key, ConnectToken, NetcodeClient};
-
-// Create an io
-let mut link = Link::default();
-
-// Generate a connection token for the client
-let protocol_id = 0x11223344;
-let private_key = generate_key(); // you can also provide your own key
-let client_id = 123u64; // globally unique identifier for an authenticated client
-let server_address = "127.0.0.1:12345"; // the server's public address (can also be multiple addresses)
-let connect_token = ConnectToken::build("127.0.0.1:12345", protocol_id, client_id, private_key)
-    .generate()
-    .unwrap();
-
-// Start the client
-let token_bytes = connect_token.try_into_bytes().unwrap();
-let mut client = NetcodeClient::new(&token_bytes).unwrap();
-client.connect();
-
-// Run the client at 60Hz
-let start = Instant::now();
-let tick_rate = Duration::from_secs_f64(1.0 / 60.0);
-loop {
-    let elapsed = start.elapsed().as_secs_f64();
-    client.try_update(elapsed, &mut link).ok();
-    if let Some(packet) = client.recv() {
-        // ...
-    }
-    # break;
-    thread::sleep(tick_rate);
-}
-```
-"##
-)]
 #![no_std]
 
 extern crate alloc;
