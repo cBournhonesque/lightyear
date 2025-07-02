@@ -92,23 +92,27 @@ fn main() {
         app.add_plugins(server::ExampleServerPlugin {
             is_dedicated_server,
         });
-        if matches!(cli.mode, Some(Mode::Server)) {
-            let server = app
-                .world_mut()
-                .spawn(ExampleServer {
-                    conditioner: None,
-                    transport: ServerTransports::WebTransport {
-                        local_port: SERVER_PORT,
-                        certificate: WebTransportCertificateSettings::FromFile {
-                            cert: "../../certificates/cert.pem".to_string(),
-                            key: "../../certificates/key.pem".to_string(),
-                        },
+        let port = match cli.mode {
+            Some(Mode::Server) => SERVER_PORT,
+            // in client mode, we still start a server in case the server becomes a host-server
+            Some(Mode::Client { .. }) => HOST_SERVER_PORT,
+            _ => panic!("Only server or client mode is supported in this example"),
+        };
+        let server = app
+            .world_mut()
+            .spawn(ExampleServer {
+                conditioner: None,
+                transport: ServerTransports::WebTransport {
+                    local_port: port,
+                    certificate: WebTransportCertificateSettings::FromFile {
+                        cert: "../../certificates/cert.pem".to_string(),
+                        key: "../../certificates/key.pem".to_string(),
                     },
-                    shared: SHARED_SETTINGS,
-                })
-                .id();
-            app.world_mut().trigger_targets(Start, server);
-        }
+                },
+                shared: SHARED_SETTINGS,
+            })
+            .id();
+        app.world_mut().trigger_targets(Start, server);
     }
 
     #[cfg(feature = "gui")]

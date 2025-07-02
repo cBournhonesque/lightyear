@@ -21,6 +21,7 @@ use lightyear_connection::ConnectionSet;
 use lightyear_connection::client::{
     Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected,
 };
+use lightyear_connection::host::HostClient;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::{Link, LinkSet, Linked};
 use lightyear_transport::plugin::TransportSet;
@@ -108,7 +109,9 @@ impl NetcodeClient {
 impl NetcodeClientPlugin {
     /// Takes packets from the Link, process them through netcode
     /// and buffer them back into the link to be sent by the IO
-    fn send(mut query: Query<(&mut Link, &mut NetcodeClient), With<Linked>>) {
+    fn send(
+        mut query: Query<(&mut Link, &mut NetcodeClient), (With<Linked>, Without<HostClient>)>,
+    ) {
         query.par_iter_mut().for_each(|(mut link, mut client)| {
             // send user packets
             for _ in 0..link.send.len() {
@@ -143,7 +146,7 @@ impl NetcodeClientPlugin {
                 Has<Connecting>,
                 Has<Disconnected>,
             ),
-            With<Linked>,
+            (With<Linked>, Without<HostClient>),
         >,
         parallel_commands: ParallelCommands,
     ) {

@@ -29,14 +29,6 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(handle_new_client);
         app.add_systems(FixedUpdate, game::movement);
         app.add_observer(game::handle_disconnections);
-        // app.add_systems(
-        //     Update,
-        //     (
-        //         // in HostServer mode, we will spawn a player when a client connects
-        //         game::handle_connections
-        //     )
-        //         .run_if(is_host_server),
-        // );
 
         if self.is_dedicated_server {
             // start the dedicated server immediately (but not host servers)
@@ -50,6 +42,9 @@ impl Plugin for ExampleServerPlugin {
                     lobby::handle_start_game,
                 ),
             );
+        } else {
+            // the host-server should be able to handle connections from other clients
+            app.add_observer(game::handle_connections);
         }
     }
 }
@@ -109,13 +104,14 @@ fn spawn_player_entity(
 
 mod game {
     use super::*;
+    use lightyear::connection::host::HostClient;
     use lightyear::input::native::prelude::ActionState;
 
     /// When a player connects, create a new player entity.
     /// This is only for the HostServer mode (for the dedicated server mode, the clients are already connected to the server
     /// to join the lobby list)
     pub(crate) fn handle_connections(
-        trigger: Trigger<OnAdd, Connected>,
+        trigger: Trigger<OnAdd, (Connected, HostClient)>,
         query: Query<&RemoteId, With<ClientOf>>,
         mut commands: Commands,
     ) {
@@ -145,7 +141,9 @@ mod game {
     /// Read client inputs and move players
     pub(crate) fn movement(
         server_started: Single<(), (With<Server>, With<Started>)>,
-        mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>,
+        // add a Without<Client> so that we don't run the movement system twice in host-client mode
+        // for the controlled entity
+        mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), Without<Predicted>>,
     ) {
         for (position, inputs) in position_query.iter_mut() {
             if let Some(inputs) = &inputs.value {
