@@ -193,6 +193,7 @@ mod lobby {
     use lightyear::connection::server::Start;
     use lightyear::netcode::client_plugin::NetcodeConfig;
     use lightyear::netcode::NetcodeClient;
+    use lightyear::prelude::PeerId::Netcode;
     use lightyear_examples_common::shared::SHARED_SETTINGS;
     use tracing::{error, info};
 
@@ -407,7 +408,9 @@ mod lobby {
         local_client: Single<(Entity, &mut MessageReceiver<StartGame>, &LocalId)>,
         lobby_table: Res<LobbyTable>,
         mut next_app_state: ResMut<NextState<AppState>>,
+        server: Single<Entity, With<Server>>,
     ) -> Result {
+        let server = server.into_inner();
         let (local_client, mut receiver, local_id) = local_client.into_inner();
         for message in receiver.receive() {
             info!("Received start_game message! {message:?}");
@@ -418,14 +421,33 @@ mod lobby {
             if let Some(host) = host {
                 if host == local_id.0 {
                     info!("We are the host of the game!");
-                    // TODO: setup host server mode
-                    // // set the client connection to be local
-                    // config.net = NetConfig::Local { id: host.to_bits() };
-                    commands.trigger(Start);
+                    // First clone the previous link
+                    commands.trigger_targets(
+                        Unlink {
+                            reason: "Client becoming Host".to_string(),
+                        },
+                        local_client,
+                    );
+
+                    // Remove any previous networking components
+                    commands.entity(local_client).remove::<NetcodeClient>();
+
+                    // Any entity that is both a Client and a LinkOf will be a host-client.
+                    // The corresponding server will be a HostServer.
+                    commands.entity(local_client).insert(LinkOf { server });
+                    info!("Connecting as a Host Client");
                 } else {
                     info!(
                         "The game is hosted by another client ({host:?}). Connecting to the host..."
                     );
+                    // First unlink from the dedicated server
+                    commands.trigger_targets(
+                        Unlink {
+                            reason: "Connecting to host-client".to_string(),
+                        },
+                        local_client,
+                    );
+
                     let host_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), HOST_SERVER_PORT);
                     let auth = Authentication::Manual {
                         server_addr: host_addr,
@@ -439,11 +461,13 @@ mod lobby {
                         token_expire_secs: -1,
                         ..default()
                     };
-                    let netcode_client = commands
-                        .entity(local_client)
-                        .insert(NetcodeClient::new(auth, netcode_config)?);
+                    let netcode_client = commands.entity(local_client).insert((
+                        NetcodeClient::new(auth, netcode_config)?,
+                        PeerAddr(host_addr),
+                    ));
                 }
-                commands.trigger(Connect);
+                // Trigger a `Connection` to update the connection settings.
+                commands.trigger_targets(Connect, local_client);
             }
         }
         Ok(())
