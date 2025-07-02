@@ -8,7 +8,6 @@
 use bevy::ecs::entity::MapEntities;
 use bevy::math::Curve;
 use bevy::prelude::*;
-use bevy::prelude::{App, Plugin};
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 

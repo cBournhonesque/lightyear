@@ -1,0 +1,48 @@
+[package]
+name = "lightyear_avian2d"
+version = "0.21.0-rc.2"
+authors.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+description = "Helper library to use Lightyear with Avian2d"
+readme = "../README.md"
+repository = "https://github.com/cBournhonesque/lightyear"
+keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
+categories = ["game-development", "network-programming"]
+license.workspace = true
+exclude = ["/tests"]
+publish = true
+
+[lib]
+name = "lightyear_avian2d"
+path = "../lightyear_avian/src/lib.rs"
+required-features = ["2d"]
+bench = false
+
+[features]
+default = ["std", "2d"]
+2d = [
+    "avian2d/2d",
+    "avian2d/parry-f32",
+]
+std = ["lightyear_prediction/std"]
+lag_compensation = []
+
+[dependencies]
+lightyear_core.workspace = true
+lightyear_link.workspace = true
+lightyear_prediction.workspace = true
+lightyear_interpolation.workspace = true
+lightyear_frame_interpolation.workspace = true
+lightyear_replication.workspace = true
+
+avian2d.workspace = true
+
+tracing.workspace = true
+
+# bevy
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_math.workspace = true
+bevy_transform = { workspace = true, features = ["bevy-support", "libm"] }
+bevy_utils.workspace = true

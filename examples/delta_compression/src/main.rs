@@ -13,6 +13,7 @@
 #![allow(dead_code)]
 use bevy::prelude::*;
 use core::time::Duration;
+use lightyear::prelude::{DeltaManager, Server};
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use protocol::ProtocolPlugin;
@@ -47,11 +48,13 @@ fn main() {
         #[cfg(feature = "server")]
         Some(Mode::Server) => {
             app.add_plugins(ExampleServerPlugin);
+            add_delta_manager(&mut app);
         }
         #[cfg(all(feature = "client", feature = "server"))]
         Some(Mode::HostClient { client_id }) => {
             app.add_plugins(ExampleClientPlugin);
             app.add_plugins(ExampleServerPlugin);
+            add_delta_manager(&mut app);
         }
         _ => {}
     }
@@ -60,4 +63,19 @@ fn main() {
 
     // run the app
     app.run();
+}
+
+/// To enable delta compression, we need to add the DeltaManager component on the server.
+#[cfg(feature = "server")]
+fn add_delta_manager(app: &mut App) {
+    let server = app
+        .world_mut()
+        .query_filtered::<Entity, With<Server>>()
+        .single(app.world_mut())
+        .unwrap();
+
+    // set some input-delay since we are predicting all entities
+    app.world_mut()
+        .entity_mut(server)
+        .insert(DeltaManager::default());
 }

@@ -2,16 +2,16 @@
 
 The client and server will both be bevy Entities to which you can add components to customize their networking behaviour.
 Here are some of the common components:
-- [`Link`] represents an IO link between a local peer and a remote peer that can be used to send and receive raw bytes
-- [`Transport`] adds the capability of setting up various Channels that each provide different reliability/ordering guarantees for a group of bytes
-- [`MessageManager`], [`MessageSender<M>`], [`MessageReceiver<M>`] are used to send and receive messages over the network.
+- [`Link`](https://docs.rs/lightyear/latest/lightyear/link/struct.Link.html) represents an IO link between a local peer and a remote peer that can be used to send and receive raw bytes
+- [`Transport`](https://docs.rs/lightyear/latest/lightyear/prelude/struct.Transport.html) adds the capability of setting up various Channels that each provide different reliability/ordering guarantees for a group of bytes
+- [`MessageManager`](https://docs.rs/lightyear/latest/lightyear/prelude/struct.MessageManager.html), [`MessageSender<M>`](https://docs.rs/lightyear/latest/lightyear/prelude/struct.MessageSender.html), [`MessageReceiver<M>`](https://docs.rs/lightyear/latest/lightyear/prelude/struct.MessageReceiver.html) are used to send and receive messages over the network.
   A message is any rust type that can be serialized/deserialize into raw bytes.
-- [`ReplicationManager`] and [`ReplicationSender`] can be added to the entity to enable replicating entities and components over the network.
+- [`ReplicationManager`](https://docs.rs/lightyear/latest/lightyear/prelude/struct.ReplicationManager.html) and [`ReplicationSender`](https://docs.rs/lightyear/latest/lightyear/prelude/struct.ReplicationSender.html) can be added to the entity to enable replicating entities and components over the network.
 
 ## Link
 
-The [`Link`] component is the primary component that represents a connection between two peers. Every network connection is represented by a link. On the server side, you have a [`Server`] 
-component which spawns a new entity with a [`Link`] component every time a new client connects to it. The [`LinkOf`] relationship component is added on these entities to help you identify the 
+The [`Link`] component is the primary component that represents a connection between two peers. Every network connection is represented by a link. On the server side, you have a [`Server`](https://docs.rs/lightyear/latest/lightyear/link/prelude/struct.Server.html) 
+component which spawns a new entity with a [`Link`] component every time a new client connects to it. The [`LinkOf`](https://docs.rs/lightyear/latest/lightyear/link/prelude/struct.LinkOf.html) relationship component is added on these entities to help you identify the 
 [`Server`] that they are connected to.
 
 The link is agnostic to the actual io layer, you will have to pair it with an actual io component (`UdpIo`, `WebTransportIo`, etc.) to start sending and receiving bytes.

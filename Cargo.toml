@@ -3,6 +3,8 @@ resolver = "3"
 members = [
   "lightyear",
   "lightyear_aeronet",
+  "lightyear_avian2d",
+  "lightyear_avian3d",
   "lightyear_core",
   "lightyear_crossbeam",
   "lightyear_frame_interpolation",
@@ -25,7 +27,6 @@ members = [
   "lightyear_tests",
   "lightyear_udp",
   "lightyear_utils",
-  "lightyear_avian",
   "lightyear_webtransport",
   # internal
   "benches/*",
@@ -66,6 +67,8 @@ debug = false
 [workspace.dependencies]
 lightyear_aeronet = { path = "./lightyear_aeronet", version = " 0.21.0-rc.2", default-features = false }
 lightyear_avian = { path = "./lightyear_avian", version = " 0.21.0-rc.2", default-features = false }
+lightyear_avian2d = { path = "./lightyear_avian2d", version = " 0.21.0-rc.2", default-features = false }
+lightyear_avian3d = { path = "./lightyear_avian3d", version = " 0.21.0-rc.2", default-features = false }
 lightyear_macros = { path = "./lightyear_macros", version = " 0.21.0-rc.2", default-features = false }
 lightyear_netcode = { path = "./lightyear_netcode", version = " 0.21.0-rc.2", default-features = false }
 lightyear_connection = { path = "./lightyear_connection", version = " 0.21.0-rc.2", default-features = false }
@@ -233,7 +236,6 @@ egui_extras = "0.31"
 [workspace.lints.rust]
 dead_code = "allow"
 unused_variables = "allow"
-# enable on nightly
 # mismatched_lifetime_syntaxes = "allow"
 
 [workspace.lints.clippy]

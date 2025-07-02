@@ -10,7 +10,7 @@ use leafwing_input_manager::prelude::*;
 use lightyear::interpolation::plugin::InterpolationDelay;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear_avian::prelude::{
+use lightyear_avian2d::prelude::{
     LagCompensationHistory, LagCompensationPlugin, LagCompensationSet, LagCompensationSpatialQuery,
 };
 use lightyear_examples_common::shared::SEND_INTERVAL;

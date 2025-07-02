@@ -25,7 +25,8 @@ default = [
 std = [
   # needed for bevy_transform parallel
   "lightyear_aeronet?/std",
-  "lightyear_avian?/std",
+  "lightyear_avian2d?/std",
+  "lightyear_avian3d?/std",
   "lightyear_frame_interpolation?/std",
   "lightyear_inputs?/std",
   "lightyear_inputs_bei?/std",
@@ -126,11 +127,10 @@ input_bei = ["dep:lightyear_inputs", "dep:lightyear_inputs_bei"]
 ##
 ## NOTE: because lightyear doesn't enable any features of avian by default, your crate must
 ##       enable essential features (like f32 or f64).
-avian = ["dep:lightyear_avian"]
 ## Use avian2d
-avian2d = ["lightyear_avian/2d", "avian"]
+avian2d = ["dep:lightyear_avian2d"]
 ## Use avian3d
-avian3d = ["lightyear_avian/3d", "avian"]
+avian3d = ["dep:lightyear_avian3d"]
 
 # IO LAYERS
 ## Enables UDP as an IO layer
@@ -148,7 +148,8 @@ steam = ["dep:steamworks", "dep:lightyear_steam", "std"]
 [dependencies]
 # local crates
 lightyear_aeronet = { workspace = true, optional = true }
-lightyear_avian = { workspace = true, optional = true }
+lightyear_avian2d = { workspace = true, optional = true, features = ["2d"] }
+lightyear_avian3d = { workspace = true, optional = true, features = ["3d"] }
 lightyear_connection.workspace = true
 lightyear_core.workspace = true
 lightyear_frame_interpolation = { workspace = true, optional = true }
@@ -194,3 +195,6 @@ steamworks = { workspace = true, optional = true }
 console_error_panic_hook.workspace = true
 bevy_web_keepalive.workspace = true
 wasm-bindgen = { workspace = true, optional = true }
+
+[package.metadata.docs.rs]
+all-features = true

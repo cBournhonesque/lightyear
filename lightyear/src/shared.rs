@@ -55,8 +55,10 @@ impl Plugin for SharedPlugins {
             lightyear_interpolation::plugin::InterpolationConfig::default(),
         ));
 
-        #[cfg(feature = "avian")]
-        app.add_plugins(lightyear_avian::prelude::LightyearAvianPlugin);
+        #[cfg(feature = "avian2d")]
+        app.add_plugins(lightyear_avian2d::prelude::LightyearAvianPlugin);
+        #[cfg(feature = "avian3d")]
+        app.add_plugins(lightyear_avian3d::prelude::LightyearAvianPlugin);
     }
 
     fn is_unique(&self) -> bool {

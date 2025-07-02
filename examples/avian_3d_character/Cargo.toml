@@ -48,8 +48,6 @@ avian3d = { workspace = true, features = [
   "parallel",
   "serialize",
 ] }
-tracing.workspace = true
-tracing-subscriber.workspace = true
 serde.workspace = true
 bevy.workspace = true
 

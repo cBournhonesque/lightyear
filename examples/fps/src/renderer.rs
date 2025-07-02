@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use lightyear::interpolation::Interpolated;
 use lightyear::prediction::prespawn::PreSpawned;
 use lightyear::prelude::{Predicted, Replicate, Replicated};
-use lightyear_avian::prelude::AabbEnvelopeHolder;
+use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]

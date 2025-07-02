@@ -78,7 +78,7 @@ interpolation to interpolate the rendering between the FixedMain states.
 - [`lightyear_inputs_bei`]: provides support to network [bevy_enhanced_input](https://github.com/projectharmonia/bevy_enhanced_input) inputs
 
 **Extra**
-- [`lightyear_avian`]: provides a plugin to help handle networking Avian components. This sets the correct system ordering, etc.
+- [`lightyear_avian2d`]/[`lightyear_avian3d`]: provides a plugin to help handle networking Avian components. This sets the correct system ordering, etc.
 
 
 ### Implement the Protocol

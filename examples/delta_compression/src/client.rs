@@ -5,30 +5,27 @@
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //! predicted entity and the server entity)
 
-use bevy::prelude::*;
-
-use lightyear::client::input::InputSystemSet;
-use lightyear::input::native::prelude::{ActionState, InputMarker};
-use lightyear::inputs::native::{ActionState, InputMarker};
-pub use lightyear::prelude::client::*;
-use lightyear::prelude::*;
-
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared;
+use bevy::prelude::*;
+use lightyear::prelude::client::input::*;
+use lightyear::prelude::input::native::*;
+use lightyear::prelude::*;
 
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // Inputs have to be buffered in the FixedPreUpdate schedule
         app.add_systems(
             FixedPreUpdate,
-            // Use new InputSystemSet path
-            buffer_input.in_set(input::InputSystemSet::BufferInputs),
+            // Inputs have to be buffered in the WriteClientInputs set
+            buffer_input.in_set(InputSet::WriteClientInputs),
         );
         app.add_systems(FixedUpdate, player_movement);
-        app.add_systems(Update, (handle_predicted_spawn, handle_interpolated_spawn));
+
+        app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_interpolated_spawn);
     }
 }
 
@@ -62,6 +59,8 @@ pub(crate) fn buffer_input(
         if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
             direction.right = true;
         }
+        // we always set the value. Setting it to None means that the input was missing, it's not the same
+        // as saying that the input was 'no keys pressed'
         action_state.value = Some(Inputs::Direction(direction));
     });
 }
@@ -69,41 +68,18 @@ pub(crate) fn buffer_input(
 /// The client input only gets applied to predicted entities that we own
 /// This works because we only predict the user's controlled entity.
 /// If we were predicting more entities, we would have to only apply movement to the player owned one.
-fn player_movement(mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>) {
+fn player_movement(
+    // timeline: Single<&LocalTimeline>,
+    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
+) {
+    // let tick = timeline.tick();
     for (position, input) in position_query.iter_mut() {
-        // Use the pressed() method to check if an input is active
-        if input.pressed(&Inputs::Direction(Direction {
-            // Check for any direction input
-            up: true,
-            down: false,
-            left: false,
-            right: false,
-        })) || input.pressed(&Inputs::Direction(Direction {
-            up: false,
-            down: true,
-            left: false,
-            right: false,
-        })) || input.pressed(&Inputs::Direction(Direction {
-            up: false,
-            down: false,
-            left: true,
-            right: false,
-        })) || input.pressed(&Inputs::Direction(Direction {
-            up: false,
-            down: false,
-            left: false,
-            right: true,
-        })) {
-            // Retrieve the actual input value if needed for the behavior function
-            // Assuming shared_movement_behaviour needs the specific direction
-            if let Some(inputs) = input.current_value() {
-                // Use current_value() to get the Option<Inputs>
-                shared::shared_movement_behaviour(position, inputs);
-            }
+        if let Some(input) = &input.value {
+            // trace!(?tick, ?position, ?input, "client");
+            // NOTE: be careful to directly pass Mut<PlayerPosition>
+            // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+            shared::shared_movement_behaviour(position, input);
         }
-        // if let Some(inputs) = &input.value { // Old check using private field
-        //     shared::shared_movement_behaviour(position, inputs);
-        // }
     }
 }
 
@@ -111,19 +87,21 @@ fn player_movement(mut position_query: Query<(&mut PlayerPosition, &ActionState<
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(
-    mut predicted: Query<(Entity, &mut PlayerColor), Added<Predicted>>,
+    trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
+    mut predicted: Query<&mut PlayerColor, With<Predicted>>,
     mut commands: Commands,
 ) {
-    for (entity, mut color) in predicted.iter_mut() {
+    let entity = trigger.target();
+    if let Ok(mut color) = predicted.get_mut(entity) {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
+        warn!("Add InputMarker to entity: {:?}", entity);
         commands
             .entity(entity)
-            // Use new InputManager path
-            .insert(InputManager::<Inputs>::default());
+            .insert(InputMarker::<Inputs>::default());
     }
 }
 
@@ -131,9 +109,10 @@ pub(crate) fn handle_predicted_spawn(
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_interpolated_spawn(
-    mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
+    trigger: Trigger<OnAdd, PlayerColor>,
+    mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
 ) {
-    for mut color in interpolated.iter_mut() {
+    if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
         let hsva = Hsva {
             saturation: 0.1,
             ..Hsva::from(color.0)
