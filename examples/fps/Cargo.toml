@@ -46,7 +46,7 @@ lightyear = { workspace = true, features = [
 ] }
 lightyear_examples_common.workspace = true
 lightyear_frame_interpolation.workspace = true
-lightyear_avian = { workspace = true, features = ["2d", "lag_compensation"] }
+lightyear_avian2d = { workspace = true, features = ["2d", "lag_compensation"] }
 
 leafwing-input-manager.workspace = true
 serde.workspace = true

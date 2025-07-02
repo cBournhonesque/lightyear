@@ -48,9 +48,7 @@ avian2d = { workspace = true, features = [
 ] }
 
 serde.workspace = true
-tracing.workspace = true
 bevy.workspace = true
-bevy_metrics_dashboard.workspace = true
 
 [lints]
 workspace = true

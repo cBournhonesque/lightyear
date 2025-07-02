@@ -30,8 +30,6 @@ netcode = [
 ]
 udp = [
   "lightyear_examples_common/udp",
-  # udp requires std
-  "lightyear/std",
   "lightyear/udp",
 ]
 
@@ -40,11 +38,17 @@ lightyear = { "workspace" = true, features = [
   "interpolation",
   "prediction",
   "replication",
+  "input_native",
 ] }
 lightyear_examples_common.workspace = true
 serde.workspace = true
 tracing.workspace = true
 bevy.workspace = true
+
+[package.metadata.bevy_cli.web]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+default-features = false
+features = ["client", "netcode"]
 
 
 [lints]

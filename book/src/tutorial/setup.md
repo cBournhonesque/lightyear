@@ -2,7 +2,7 @@
 
 `lightyear` is split up into multiple crates that each provide a facet of networking.
 The main crate `lightyear` provides an easy way of importing all the other crates and settings up the necessary plugins.
-In particular it provides 2 plugin groups that set up the various systems needed for multiplayer app: `ClientPlugins` and `ServerPlugins`.
+In particular it provides 2 plugin groups that set up the various systems needed for multiplayer app: `ClientPlugins`(https://docs.rs/lightyear/latest/lightyear/prelude/client/struct.ClientPlugins.html) and `ServerPlugins`(https://docs.rs/lightyear/latest/lightyear/prelude/client/struct.ServerPlugins.html).
 
 There are many different sub-plugins that handle most of the complexities of networking, such as:
 - the sending and receiving of messages
@@ -15,7 +15,7 @@ There are many different sub-plugins that handle most of the complexities of net
 
 In the most basic setup, you will run 2 separate apps: one for the client and one for the server.
 
-The `simple_box` example has the following structure:
+The `simple_box`(https://github.com/cBournhonesque/lightyear/tree/main/examples/simple_box) example has the following structure:
 
 - `main.rs`: this is where we create the client or server app depending on the passed CLI mode.
 - `protocol.rs`: here we define a shared protocol, which is basically the list of messages, components and inputs that
@@ -50,7 +50,7 @@ A `Message` is any struct that is `Serialize + Deserialize + Clone`.
 
 ### Components
 
-The `ComponentRegistry` is needed for automatic World replication: automatically replicating entities and components
+The `ComponentRegistry`(https://docs.rs/lightyear/latest/lightyear/prelude/client/struct.ComponentRegistry.html) is needed for automatic World replication: automatically replicating entities and components
 from the server's `World` to the client's `World`.
 Only the components that are defined in the `ComponentRegistry` will be replicated.
 
@@ -88,7 +88,7 @@ impl Plugin for ProtocolPlugin{
 
 ### Message
 
-Similarly, the `MessageProtocol` is an enum containing the list of possible `Messages` that can be sent over the
+Similarly, the `MessageRegistry`(https://docs.rs/lightyear/latest/lightyear/prelude/client/struct.MessageRegistry.html) must contain the list of possible `Messages` that can be sent over the
 network. When registering a message, you can specify the direction in which the message should be sent.
 
 Let's define our message protocol:

@@ -3,7 +3,7 @@
 //! This crate provides integration between Lightyear and the Avian physics engine.
 //!
 //! It currently includes utilities for lag compensation.
-
+#![allow(unexpected_cfgs)]
 #![no_std]
 
 #[cfg(feature = "std")]

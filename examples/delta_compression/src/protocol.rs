@@ -4,19 +4,11 @@
 //! You can use the `#[protocol]` attribute to specify additional behaviour:
 //! - how entities contained in the message should be mapped from the remote world to the local world
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
-use core::ops::{Add, Mul};
-
 use bevy::ecs::entity::MapEntities;
-use bevy::prelude::{
-    default, Bundle, Color, Component, Deref, DerefMut, Entity, EntityMapper, Transform, Vec2,
-};
-use bevy::prelude::{App, Plugin};
-// Use preludes
+use bevy::prelude::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear::shared::replication::delta::Diffable;
-// Keep Diffable
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace};
 
@@ -25,26 +17,19 @@ use tracing::{info, trace};
 pub(crate) struct PlayerBundle {
     id: PlayerId,
     position: PlayerPosition,
-    // Removed delta field, delta compression is configured in the protocol
-    // delta: DeltaCompression,
     color: PlayerColor,
 }
 
 impl PlayerBundle {
-    // Updated to use PeerId
     pub(crate) fn new(id: PeerId, position: Vec2) -> Self {
         // Generate pseudo random color from client id.
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        id.hash(&mut hasher);
-        let h = hasher.finish() % 360;
-        // let h = (((id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0; // Old way
+        let h = (((id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
         let l = 0.5;
-        let color = Color::hsl(h as f32, s, l); // Use h as f32
+        let color = Color::hsl(h, s, l);
         Self {
-            id: PlayerId(id), // Store PeerId
+            id: PlayerId(id),
             position: PlayerPosition(position),
-            // delta: DeltaCompression::default().add::<PlayerPosition>(), // Removed
             color: PlayerColor(color),
         }
     }
@@ -53,15 +38,23 @@ impl PlayerBundle {
 // Components
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct PlayerId(PeerId); // Use PeerId
+pub struct PlayerId(PeerId);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
 pub struct PlayerPosition(pub Vec2);
 
+impl Ease for PlayerPosition {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| {
+            PlayerPosition(Vec2::lerp(start.0, end.0, t))
+        })
+    }
+}
+
 const MAX_POSITION_DELTA: f32 = 200.0;
 
 // Since between two ticks the position doesn't change much, we could encode
-// the diff using a discrete set of values
+// the diff using a discrete set of values to reduce the bandwidth
 impl Diffable for PlayerPosition {
     type Delta = (i8, i8);
 
@@ -98,42 +91,12 @@ impl Diffable for PlayerPosition {
     }
 }
 
-impl Add for PlayerPosition {
-    type Output = PlayerPosition;
-    #[inline]
-    fn add(self, rhs: PlayerPosition) -> PlayerPosition {
-        PlayerPosition(self.0.add(rhs.0))
-    }
-}
-
-impl Mul<f32> for &PlayerPosition {
-    type Output = PlayerPosition;
-
-    fn mul(self, rhs: f32) -> Self::Output {
-        PlayerPosition(self.0 * rhs)
-    }
-}
-
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct PlayerColor(pub(crate) Color);
 
-// Example of a component that contains an entity.
-// This component, when replicated, needs to have the inner entity mapped from the Server world
-// to the client World.
-// You will need to derive the `MapEntities` trait for the component, and register
-// app.add_map_entities<PlayerParent>() in your protocol
-#[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
-pub struct PlayerParent(Entity);
-
-impl MapEntities for PlayerParent {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        self.0 = entity_mapper.get_mapped(self.0);
-    }
-}
-
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Reflect)]
 pub struct Direction {
     pub(crate) up: bool,
     pub(crate) down: bool,
@@ -147,7 +110,7 @@ impl Direction {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub enum Inputs {
     Direction(Direction),
 }
@@ -163,8 +126,8 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // inputs
-        // Use new input plugin path
-        app.add_plugins(input::InputPlugin::<Inputs>::default());
+        app.register_type::<Inputs>();
+        app.add_plugins(lightyear::prelude::input::native::InputPlugin::<Inputs>::default());
         // components
         // Use PredictionMode and InterpolationMode
         app.register_component::<PlayerId>()
@@ -173,7 +136,7 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<PlayerPosition>()
             // NOTE: remember to add delta compression in the protocol!
-            .add_delta_compression() // Keep delta compression
+            .add_delta_compression()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();

@@ -30,21 +30,9 @@ netcode = [
 ]
 udp = [
   "lightyear_examples_common/udp",
-  # udp requires std
-  "lightyear/std",
   "lightyear/udp",
 ]
-#default = ["client", "server", "gui", "lightyear_examples_common/default"]
-#websocket = ["lightyear_examples_common/websocket"]
-#client = ["lightyear_examples_common/client", "gui"]
-#server = ["lightyear_examples_common/server"]
-#gui = ["lightyear_examples_common/gui"]
-#tls = ["dep:bevygap_client_plugin"]
-#steam = ["lightyear_examples_common/steam"]
-#metrics = ["lightyear/metrics", "dep:metrics-exporter-prometheus"]
-#bevygap_client = ["lightyear_examples_common/bevygap_client", "client"]
-#bevygap_server = ["lightyear_examples_common/bevygap_server", "server"]
-#visualizer = ["lightyear_examples_common/visualizer", "gui"]
+
 
 [dependencies]
 lightyear = { "workspace" = true, features = [

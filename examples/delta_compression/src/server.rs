@@ -12,6 +12,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use lightyear::connection::client_of::ClientOf;
+use lightyear::input::native::prelude::ActionState;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
 use std::sync::Arc;
@@ -21,125 +22,71 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ClientEntityMap>();
-        // Removed start_server system
-        // app.add_systems(Startup, start_server);
-        // the physics/FixedUpdates systems that consume inputs should be run in this set.
         app.add_systems(FixedUpdate, movement);
-        // Use observers for connections/disconnections
+        app.add_observer(handle_new_client);
         app.add_observer(handle_connected);
-        app.add_observer(handle_disconnected);
-        // app.add_systems(Update, (send_message, handle_connections)); // Removed old handler
     }
 }
 
-/// A simple resource map that tell me  the corresponding server entity of that client
-/// Important for O(n) acess
-#[derive(Resource, Default)]
-pub struct ClientEntityMap(HashMap<PeerId, Entity>); // Use PeerId
+/// When a new client tries to connect to a server, an entity is created for it with the `LinkOf` component.
+/// This entity represents the link between the server and that client.
+///
+/// You can add additional components to update the link. In this case we will add a `ReplicationSender` that
+/// will enable us to replicate local entities to that client.
+pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+    commands.entity(trigger.target()).insert((
+        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        Name::from("Client"),
+    ));
+}
 
-// Removed start_server system
-// fn start_server(mut commands: Commands) {
-//     commands.start_server();
-// }
-
-/// Spawn player entity when a client connects
+/// If the new client connnects to the server, we want to spawn a new player entity for it.
+///
+/// We have to react specifically on `Connected` because there is no guarantee that the connection request we
+/// received was valid. The server could reject the connection attempt for many reasons (server is full, packet is invalid,
+/// DDoS attempt, etc.). We want to start the replication only when the client is confirmed as connected.
 pub(crate) fn handle_connected(
-    trigger: Trigger<OnAdd, Connected>, // Trigger on connection
-    mut entity_map: ResMut<ClientEntityMap>,
-    mut commands: Commands,
+    trigger: Trigger<OnAdd, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
+    mut commands: Commands,
 ) {
     let Ok(client_id) = query.get(trigger.target()) else {
         return;
     };
     let client_id = client_id.0;
-
-    // Standard prediction: predict owner, interpolate others
-    let prediction_target = PredictionTarget::to_clients(NetworkTarget::Single(client_id));
-    let interpolation_target =
-        InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id));
-
-    let replicate = Replicate::to_clients(NetworkTarget::All); // Replicate to all
-
-    let entity_commands = commands.spawn((
-        PlayerBundle::new(client_id, Vec2::ZERO),
-        replicate,
-        prediction_target,
-        interpolation_target,
-        // Add ReplicationSender to send updates back to clients
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
-    ));
-    let entity = entity_commands.id();
-    entity_map.0.insert(client_id, entity);
-
-    info!("Create entity {:?} for client {:?}", entity, client_id);
+    let entity = commands
+        .spawn((
+            PlayerBundle::new(client_id, Vec2::ZERO),
+            // we replicate the Player entity to all clients that are connected to this server
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+            InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+            ControlledBy {
+                owner: trigger.target(),
+                lifetime: Default::default(),
+            },
+        ))
+        .id();
+    info!(
+        "Create player entity {:?} for client {:?}",
+        entity, client_id
+    );
 }
 
-/// Handle client disconnections: we want to despawn every entity that was controlled by that client.
-///
-/// Lightyear creates one entity per client, which contains metadata associated with that client.
-/// You can find that entity by calling `ConnectionManager::client_entity(client_id)`.
-///
-/// That client entity contains the `ControlledEntities` component, which is a set of entities that are controlled by that client.
-///
-/// By default, lightyear automatically despawns all the `ControlledEntities` when the client disconnects;
-/// but in this example we will also do it manually to showcase how it can be done.
-// Changed to observer, uses ClientEntityMap
-pub(crate) fn handle_disconnected(
-    trigger: Trigger<OnRemove, Connected>, // Trigger on disconnection
-    mut entity_map: ResMut<ClientEntityMap>,
-    mut commands: Commands,
-    query: Query<&Connected>, // Query Connected component
+/// Read client inputs and move players in server therefore giving a basis for other clients
+fn movement(
+    timeline: Single<&LocalTimeline, With<Server>>,
+    mut position_query: Query<
+        (&mut PlayerPosition, &ActionState<Inputs>),
+        // if we run in host-server mode, we don't want to apply this system to the local client's entities
+        // because they are already moved by the client plugin
+        (Without<Confirmed>, Without<Predicted>),
+    >,
 ) {
-    let client_entity = trigger.target();
-    // The Connected component might be gone already, but we can get the PeerId from the trigger's entity meta if needed,
-    // or assume the ClientEntityMap still holds the mapping.
-    // For simplicity, let's try finding the PeerId via the map.
-
-    // Find which PeerId disconnected by searching the map (less efficient)
-    let disconnected_peer_id = entity_map
-        .0
-        .iter()
-        .find(|(_, &entity)| entity == client_entity)
-        .map(|(peer_id, _)| *peer_id);
-
-    if let Some(client_id) = disconnected_peer_id {
-        debug!("Client {:?} disconnected", client_id);
-        // Remove the client from the map and despawn their player entity
-        if let Some(player_entity) = entity_map.0.remove(&client_id) {
-            if let Some(entity_commands) = commands.get_entity(player_entity) {
-                info!(
-                    "Despawning player entity {:?} for client {:?}",
-                    player_entity, client_id
-                );
-                entity_commands.despawn();
-            }
-        }
-    } else {
-        error!(
-            "Could not find disconnected client in ClientEntityMap for entity {:?}",
-            client_entity
-        );
-    }
-
-    // Old logic using ControlledEntities:
-    // for disconnection in disconnections.read() {
-    //     debug!("Client {:?} disconnected", disconnection.client_id);
-    //     if let Ok(client_entity) = manager.client_entity(disconnection.client_id) {
-    //         if let Ok(controlled_entities) = client_query.get(client_entity) {
-    //             for entity in controlled_entities.entities() {
-    //                 commands.entity(entity).despawn();
-    //             }
-    //         }
-    //     }
-    // }
-}
-
-fn movement(mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>) {
+    let tick = timeline.tick();
     for (position, inputs) in position_query.iter_mut() {
-        // Use current_value() for server::ActionState
-        if let Some(inputs) = inputs.current_value() {
+        if let Some(inputs) = &inputs.value {
+            trace!(?tick, ?position, ?inputs, "server");
             shared::shared_movement_behaviour(position, inputs);
         }
     }
