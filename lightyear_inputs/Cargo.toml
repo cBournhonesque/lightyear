@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_inputs"
-version = "0.21.0-rc.2"
+version = "0.21.0-rc.3"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
