@@ -150,7 +150,7 @@ pub struct PeerMetadata {
 pub struct ConnectionPlugin;
 
 impl ConnectionPlugin {
-    /// When the client request to connect, we also try to establis the link
+    /// When the client request to connect, we also try to establish the link
     fn connect(trigger: Trigger<Connect>, mut commands: Commands) {
         trace!("Triggering LinkStart because Connect was triggered");
         commands.trigger_targets(LinkStart, trigger.target());
@@ -163,7 +163,10 @@ impl ConnectionPlugin {
         mut commands: Commands,
     ) {
         if let Ok(unlinked) = query.get(trigger.target()) {
-            trace!("Adding Disconnected because the link got Unlinked");
+            trace!(
+                "Adding Disconnected because the link got Unlinked (reason: {:?})",
+                unlinked.reason
+            );
             commands.entity(trigger.target()).insert(Disconnected {
                 reason: Some(format!("Link failed: {:?}", unlinked.reason)),
             });

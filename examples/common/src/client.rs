@@ -30,9 +30,7 @@ pub enum ClientTransports {
     #[cfg(feature = "websocket")]
     WebSocket,
     #[cfg(feature = "steam")]
-    Steam {
-        app_id: u32,
-    },
+    Steam,
 }
 
 /// Event that examples can trigger to spawn a client.
@@ -69,7 +67,7 @@ impl ExampleClient {
                 Name::from("Client"),
             ));
 
-            if cfg!(feature = "netcode") {
+            if cfg!(feature = "netcode") && !cfg!(feature = "steam") {
                 // use dummy zeroed key explicitly here.
                 let auth = Authentication::Manual {
                     server_addr: settings.server_addr,
@@ -95,7 +93,7 @@ impl ExampleClient {
                     let certificate_digest = {
                         #[cfg(target_family = "wasm")]
                         {
-                            include_str!("../../certificates/digest.txt").to_string()
+                            include_str!("../../../certificates/digest.txt").to_string()
                         }
                         #[cfg(not(target_family = "wasm"))]
                         {
@@ -104,7 +102,13 @@ impl ExampleClient {
                     };
                     entity_mut.insert(WebTransportClientIo { certificate_digest });
                 }
-                _ => {}
+                #[cfg(feature = "steam")]
+                ClientTransports::Steam => {
+                    entity_mut.insert(SteamClientIo {
+                        target: ConnectTarget::Addr(settings.server_addr),
+                        config: Default::default(),
+                    });
+                }
             };
             Ok(())
         });
