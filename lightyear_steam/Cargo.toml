@@ -17,6 +17,7 @@ client = [
     "lightyear_aeronet",
     "lightyear_core",
     "lightyear_link",
+    "lightyear_connection/client"
 ]
 server = [
     "aeronet_io",
@@ -24,31 +25,27 @@ server = [
     "lightyear_aeronet",
     "lightyear_core",
     "lightyear_link",
+    "lightyear_connection/server",
     "tracing",
 ]
 
 [dependencies]
-# local crates
 lightyear_aeronet = { workspace = true, optional = true }
 lightyear_core = { workspace = true, optional = true }
 lightyear_link = { workspace = true, optional = true }
+lightyear_connection = { workspace = true, optional = true }
 
 # bevy
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 
 # aeronet
-aeronet_steam = { workspace = true, optional = true }
+aeronet_steam = { workspace = true }
 aeronet_io = { workspace = true, optional = true }
 
-# no_std
-no_std_io2 = { workspace = true, optional = true }
-
 # utils
-bytes = { workspace = true, optional = true }
 thiserror.workspace = true
 tracing = { workspace = true, optional = true }
-chacha20poly1305 = { workspace = true, optional = true }
 
 [lints]
 workspace = true

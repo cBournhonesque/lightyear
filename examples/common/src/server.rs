@@ -78,10 +78,7 @@ pub enum ServerTransports {
     },
     #[cfg(feature = "steam")]
     Steam {
-        app_id: u32,
-        server_ip: Ipv4Addr,
-        game_port: u16,
-        query_port: u16,
+        local_port: u16,
     },
 }
 
@@ -103,7 +100,7 @@ impl ExampleServer {
             let settings = entity_mut.take::<ExampleServer>().unwrap();
             entity_mut.insert((Name::from("Server"),));
 
-            if cfg!(feature = "netcode") {
+            if cfg!(feature = "netcode") && !cfg!(feature = "steam") {
                 // Use private key from environment variable, if set. Otherwise from settings file.
                 let private_key = if let Some(key) = parse_private_key_from_env() {
                     info!("Using private key from LIGHTYEAR_PRIVATE_KEY env var");
@@ -136,7 +133,18 @@ impl ExampleServer {
                         },
                     ));
                 }
-                _ => {}
+                #[cfg(feature = "steam")]
+                ServerTransports::Steam { local_port } => {
+                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
+                    entity_mut.insert(SteamServerIo {
+                        target: ListenTarget::Addr(server_addr),
+                        config: SessionConfig::default(),
+                    });
+                    let (client, single_client) = steamworks::Client::init_app(480).unwrap();
+                    client.networking_utils().init_relay_network_access();
+                    world.insert_resource(SteamworksClient(client));
+                    world.insert_non_send_resource(single_client);
+                }
             };
             Ok(())
         });

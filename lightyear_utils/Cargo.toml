@@ -17,6 +17,7 @@ lightyear_serde.workspace = true
 # utils
 hashbrown.workspace = true
 paste.workspace = true
+seahash.workspace = true
 
 # bevy
 bevy_ecs.workspace = true

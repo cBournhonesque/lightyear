@@ -25,14 +25,20 @@ pub enum SteamError {}
 
 pub mod prelude {
     pub use crate::SteamError;
+    pub use aeronet_steam::SessionConfig;
+    pub use aeronet_steam::SteamworksClient;
+    pub use aeronet_steam::steamworks;
+    pub use aeronet_steam::steamworks::SteamId;
 
     #[cfg(feature = "client")]
     pub mod client {
-        pub use crate::client::SteamClientIo;
+        pub use crate::client::{SteamClientIo, SteamClientPlugin};
+        pub use aeronet_steam::client::ConnectTarget;
     }
 
     #[cfg(all(feature = "server", not(target_family = "wasm")))]
     pub mod server {
-        pub use crate::server::SteamServerIo;
+        pub use crate::server::{SteamServerIo, SteamServerPlugin};
+        pub use aeronet_steam::server::ListenTarget;
     }
 }

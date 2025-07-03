@@ -26,10 +26,12 @@ use bevy_reflect::Reflect;
 use lightyear_link::{Link, LinkPlugin, LinkSet, Linked, Linking, Unlink, Unlinked};
 use tracing::trace;
 
+/// The lightyear Link entity
 #[derive(Component, Reflect)]
 #[relationship_target(relationship = AeronetLinkOf, linked_spawn)]
 pub struct AeronetLink(#[relationship] Entity);
 
+/// The Aeronet Session entity
 #[derive(Component, Reflect)]
 #[relationship(relationship_target = AeronetLink)]
 pub struct AeronetLinkOf(pub Entity);
@@ -37,6 +39,7 @@ pub struct AeronetLinkOf(pub Entity);
 pub struct AeronetPlugin;
 
 impl AeronetPlugin {
+    /// If LocalAddr is added on the AeronetLink entity, it will be copied to the AeronetLinkOf entity.
     fn on_local_addr_added(
         trigger: Trigger<OnAdd, (LocalAddr, AeronetLinkOf)>,
         query: Query<(&AeronetLinkOf, &LocalAddr)>,
@@ -44,11 +47,17 @@ impl AeronetPlugin {
     ) {
         if let Ok((aeronet_link, local_addr)) = query.get(trigger.target()) {
             if let Ok(mut c) = commands.get_entity(aeronet_link.0) {
+                trace!(
+                    "LocalAddr added on AeronetLink {:?}. Adding on Link entity {:?}",
+                    trigger.target(),
+                    aeronet_link.0
+                );
                 c.insert(LocalAddr(local_addr.0));
             }
         }
     }
 
+    /// If PeerAddr is added on the AeronetLink entity, it will be copied to the AeronetLinkOf entity.
     fn on_peer_addr_added(
         trigger: Trigger<OnAdd, (PeerAddr, AeronetLinkOf)>,
         query: Query<(&AeronetLinkOf, &PeerAddr)>,
@@ -56,6 +65,11 @@ impl AeronetPlugin {
     ) {
         if let Ok((aeronet_link, peer_addr)) = query.get(trigger.target()) {
             if let Ok(mut c) = commands.get_entity(aeronet_link.0) {
+                trace!(
+                    "PeerAddr added on AeronetLink {:?}. Adding on Link entity {:?}",
+                    trigger.target(),
+                    aeronet_link.0
+                );
                 c.insert(PeerAddr(peer_addr.0));
             }
         }
@@ -63,11 +77,16 @@ impl AeronetPlugin {
 
     fn on_connecting(
         trigger: Trigger<OnAdd, (SessionEndpoint, AeronetLinkOf)>,
-        query: Query<&AeronetLinkOf>,
+        query: Query<&AeronetLinkOf, With<SessionEndpoint>>,
         mut commands: Commands,
     ) {
         if let Ok(aeronet_link) = query.get(trigger.target()) {
             if let Ok(mut c) = commands.get_entity(aeronet_link.0) {
+                trace!(
+                    "SessionEndpoint added on AeronetLink {:?}. Adding Linking on Link entity {:?}",
+                    trigger.target(),
+                    aeronet_link.0
+                );
                 c.insert(Linking);
             }
         }
@@ -75,11 +94,16 @@ impl AeronetPlugin {
 
     fn on_connected(
         trigger: Trigger<OnAdd, (Session, AeronetLinkOf)>,
-        query: Query<&AeronetLinkOf>,
+        query: Query<&AeronetLinkOf, With<Session>>,
         mut commands: Commands,
     ) {
         if let Ok(aeronet_link) = query.get(trigger.target()) {
             if let Ok(mut c) = commands.get_entity(aeronet_link.0) {
+                trace!(
+                    "Session added on AeronetLink {:?}. Adding Linked on Link entity {:?}",
+                    trigger.target(),
+                    aeronet_link.0
+                );
                 c.insert(Linked);
             }
         }
@@ -103,7 +127,13 @@ impl AeronetPlugin {
                         format!("Disconnected due to error: {err:?}")
                     }
                 };
-                c.insert(Unlinked { reason });
+                trace!(
+                    "Disconnected (reason: {reason:?}) triggered added on AeronetLink {:?}. Adding Unlinked on Link entity {:?}",
+                    trigger.target(),
+                    aeronet_io.0
+                );
+                // we try insert, because the LinkOf entity might have been despawned already
+                c.try_insert(Unlinked { reason });
             }
         }
     }
@@ -118,6 +148,11 @@ impl AeronetPlugin {
             // get the aeronet session entity
             if let Ok(is_server) = aeronet_query.get(aeronet_link.0) {
                 let reason = core::mem::take(&mut trigger.reason);
+                trace!(
+                    "Unlink triggered on Link entity {:?} (reason: {reason:?}). Closing/Disconnecting AeronetLink entity {:?}",
+                    trigger.target(),
+                    aeronet_link.0
+                );
                 if is_server {
                     commands.entity(aeronet_link.0).trigger(Close::new(reason));
                 } else {
@@ -136,7 +171,7 @@ impl AeronetPlugin {
         session_query.iter_mut().for_each(|(mut session, parent)| {
             if let Ok(mut link) = link_query.get_mut(parent.get()) {
                 session.recv.drain(..).for_each(|recv| {
-                    trace!("Received packet");
+                    // trace!("Received packet");
                     link.recv.push(recv.payload, recv.recv_at);
                 });
             }
@@ -150,7 +185,7 @@ impl AeronetPlugin {
         session_query.iter_mut().for_each(|(mut session, parent)| {
             if let Ok(mut link) = link_query.get_mut(parent.get()) {
                 link.send.drain().for_each(|payload| {
-                    trace!("Send packet");
+                    // trace!("Send packet");
                     session.send.push(payload);
                 });
             }
