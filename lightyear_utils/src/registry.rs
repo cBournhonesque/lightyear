@@ -1,8 +1,7 @@
 use crate::collections::HashMap;
-use bevy_platform::hash::{DefaultHasher, FixedHasher};
 use core::any::TypeId;
 use core::fmt::Formatter;
-use core::hash::{BuildHasher, Hash, Hasher};
+use core::hash::{Hash, Hasher};
 
 /// ID used to serialize IDs over the network efficiently
 pub(crate) type NetId = u16;
@@ -56,7 +55,7 @@ impl<K: TypeKind> TypeMapper<K> {
 
 #[derive(Clone)]
 pub struct RegistryHasher {
-    hasher: DefaultHasher,
+    hasher: seahash::SeaHasher,
     hash: Option<RegistryHash>,
 }
 
@@ -71,7 +70,7 @@ impl core::fmt::Debug for RegistryHasher {
 impl Default for RegistryHasher {
     fn default() -> Self {
         Self {
-            hasher: FixedHasher.build_hasher(),
+            hasher: seahash::SeaHasher::new(),
             hash: None,
         }
     }

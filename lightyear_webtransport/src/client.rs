@@ -76,6 +76,7 @@ impl WebTransportClientPlugin {
     #[cfg(target_family = "wasm")]
     fn client_config(cert_hash: String) -> Result<ClientConfig> {
         use aeronet_webtransport::xwt_web::{CertificateHash, HashAlgorithm};
+        use tracing::info;
 
         info!("Connecting to server with certificate hash: {cert_hash}");
         let server_certificate_hashes = if cert_hash.is_empty() {

@@ -17,7 +17,7 @@ Similarly to Bevy, lightyear is composed of several sub crates that each provide
 A wrapper crate `lightyear` is provided for convenience, which contain two main PluginGroups: [`ClientPlugins`](client::ClientPlugins) and [`ServerPlugins`](server::ServerPlugins) that you can add
 to your app.
 
-```rust
+```rust,ignore
 use bevy_app::App;
 use core::time::Duration;
 use lightyear::prelude::*;
@@ -324,6 +324,9 @@ pub mod prelude {
     #[cfg(feature = "webtransport")]
     pub use lightyear_webtransport::prelude::*;
 
+    #[cfg(feature = "steam")]
+    pub use lightyear_steam::prelude::*;
+
     #[cfg(feature = "netcode")]
     pub use lightyear_netcode::prelude::*;
 
@@ -364,6 +367,8 @@ pub mod prelude {
 
         #[cfg(feature = "netcode")]
         pub use lightyear_netcode::prelude::client::*;
+        #[cfg(feature = "steam")]
+        pub use lightyear_steam::prelude::client::*;
         #[cfg(feature = "webtransport")]
         pub use lightyear_webtransport::prelude::client::*;
 
@@ -384,6 +389,8 @@ pub mod prelude {
 
         #[cfg(feature = "netcode")]
         pub use lightyear_netcode::prelude::server::*;
+        #[cfg(feature = "steam")]
+        pub use lightyear_steam::prelude::server::*;
         #[cfg(feature = "webtransport")]
         pub use lightyear_webtransport::prelude::server::*;
 

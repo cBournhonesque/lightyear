@@ -21,8 +21,6 @@ use bevy_ecs::{
 };
 use bevy_ptr::Ptr;
 use bytes::Bytes;
-#[cfg(feature = "trace")]
-use tracing::{Level, instrument};
 use tracing::{error, trace, trace_span};
 
 use crate::components::ComponentReplicationOverrides;

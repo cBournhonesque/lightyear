@@ -10,6 +10,7 @@ use crate::AeronetLinkOf;
 use aeronet_io::server::{Closed, Server, ServerEndpoint};
 use lightyear_link::server::ServerLinkPlugin;
 use lightyear_link::{Linked, Linking, Unlinked};
+use tracing::trace;
 
 pub struct ServerAeronetPlugin;
 
@@ -21,6 +22,10 @@ impl ServerAeronetPlugin {
     ) {
         if let Ok(child_of) = query.get(trigger.target()) {
             if let Ok(mut c) = commands.get_entity(child_of.0) {
+                trace!(
+                    "AeronetServer opening for {:?}. Adding Linking on Server",
+                    child_of.0
+                );
                 c.insert(Linking);
             }
         }
@@ -33,6 +38,10 @@ impl ServerAeronetPlugin {
     ) {
         if let Ok(child_of) = query.get(trigger.target()) {
             if let Ok(mut c) = commands.get_entity(child_of.0) {
+                trace!(
+                    "AeronetServer opened for {:?}. Adding Linked on Server",
+                    child_of.0
+                );
                 c.insert(Linked);
             }
         }
@@ -41,6 +50,10 @@ impl ServerAeronetPlugin {
     fn on_closed(trigger: Trigger<Closed>, query: Query<&AeronetLinkOf>, mut commands: Commands) {
         if let Ok(child_of) = query.get(trigger.target()) {
             if let Ok(mut c) = commands.get_entity(child_of.0) {
+                trace!(
+                    "AeronetServer closed for {:?}. Adding unlinked on Server",
+                    child_of.0
+                );
                 let reason = match &*trigger {
                     Closed::ByUser(reason) => {
                         format!("Closed by user: {reason}")

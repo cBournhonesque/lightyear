@@ -24,6 +24,7 @@ use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
 #[cfg(any(feature = "client", feature = "server"))]
 use tracing::debug;
+#[allow(unused_imports)]
 use tracing::{error, trace};
 
 /// Replication group shared by all predicted entities

@@ -18,6 +18,7 @@ use clap::{Parser, Subcommand};
 use crate::client::{ClientTransports, ExampleClient, connect};
 #[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
+#[cfg(feature = "server")]
 use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
 #[cfg(all(feature = "gui", feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
@@ -49,11 +50,30 @@ impl Cli {
         }
     }
 
+    /// The steam resources need to be inserted before the lightyear plugins
+    #[cfg(feature = "steam")]
+    fn add_steam(app: &mut App) {
+        let (steam, steam_single) = lightyear::prelude::steamworks::Client::init_app(480)
+            .expect("failed to initialize steam");
+        steam.networking_utils().init_relay_network_access();
+
+        app.insert_resource(lightyear::prelude::SteamworksClient(steam))
+            .insert_non_send_resource(steam_single)
+            .add_systems(
+                PreUpdate,
+                |steam: NonSend<lightyear::prelude::steamworks::SingleClient>| {
+                    steam.run_callbacks();
+                },
+            );
+    }
+
     pub fn build_app(&self, tick_duration: Duration, add_inspector: bool) -> App {
         match self.mode {
             #[cfg(feature = "client")]
             Some(Mode::Client { client_id }) => {
                 let mut app = new_gui_app(add_inspector);
+                #[cfg(feature = "steam")]
+                Self::add_steam(&mut app);
                 app.add_plugins((
                     lightyear::prelude::client::ClientPlugins { tick_duration },
                     ExampleClientRendererPlugin::new(format!("Client {client_id:?}")),
@@ -69,6 +89,8 @@ impl Cli {
                         let mut app = new_headless_app();
                     }
                 }
+                #[cfg(feature = "steam")]
+                Self::add_steam(&mut app);
                 app.add_plugins((
                     lightyear::prelude::server::ServerPlugins { tick_duration },
                     ExampleServerRendererPlugin::new("Server".to_string()),
@@ -78,6 +100,8 @@ impl Cli {
             #[cfg(all(feature = "client", feature = "server"))]
             Some(Mode::HostClient { client_id }) => {
                 let mut app = new_gui_app(add_inspector);
+                #[cfg(feature = "steam")]
+                Self::add_steam(&mut app);
                 app.add_plugins((
                     lightyear::prelude::client::ClientPlugins { tick_duration },
                     lightyear::prelude::server::ServerPlugins { tick_duration },
@@ -110,6 +134,8 @@ impl Cli {
                         )),
                         // transport: ClientTransports::Udp,
                         transport: ClientTransports::WebTransport,
+                        // #[cfg(feature = "steam")]
+                        // transport: ClientTransports::Steam,
                         shared: SHARED_SETTINGS,
                     })
                     .id();
@@ -131,6 +157,10 @@ impl Cli {
                                 key: "../../certificates/key.pem".to_string(),
                             },
                         },
+                        // #[cfg(feature = "steam")]
+                        // transport: ServerTransports::Steam {
+                        //     local_port: SERVER_PORT,
+                        // },
                         shared: SHARED_SETTINGS,
                     })
                     .id();
