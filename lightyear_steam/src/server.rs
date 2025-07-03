@@ -1,4 +1,5 @@
 use aeronet_io::Session;
+use aeronet_io::server::Close;
 use aeronet_steam::SessionConfig;
 use aeronet_steam::server::{
     ListenTarget, SessionRequest, SessionResponse, SteamNetServer, SteamNetServerClient,
@@ -6,8 +7,10 @@ use aeronet_steam::server::{
 #[allow(unused_imports)]
 use aeronet_steam::steamworks::{ClientManager, ServerManager};
 use alloc::format;
+use alloc::string::ToString;
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::With;
+use bevy_ecs::relationship::RelationshipTarget;
 use bevy_ecs::{
     error::Result,
     prelude::{
@@ -19,7 +22,7 @@ use lightyear_aeronet::server::ServerAeronetPlugin;
 use lightyear_aeronet::{AeronetLink, AeronetLinkOf, AeronetPlugin};
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_connection::client_of::ClientOf;
-use lightyear_connection::server::{Start, Started};
+use lightyear_connection::server::{Start, Started, Stop};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::prelude::LinkOf;
 use lightyear_link::server::Server;
@@ -46,8 +49,7 @@ impl Plugin for SteamServerPlugin {
         app.add_observer(Self::on_session_request);
         app.add_observer(Self::on_connection);
         app.add_observer(Self::on_disconnected);
-
-        // TODO: handle Stop trigger
+        app.add_observer(Self::stop);
     }
 }
 
@@ -163,6 +165,25 @@ impl SteamServerPlugin {
                     })
                     .try_despawn();
             }
+        }
+    }
+
+    // TODO: how do we make sure that the host-client is not despawned?
+    /// Steam is both a Link and a Connection, so on an Stop we also trigger Close.
+    /// This will despawn the underlying steam entity.
+    fn stop(
+        trigger: Trigger<Stop>,
+        query: Query<&AeronetLink, With<SteamServerIo>>,
+        mut commands: Commands,
+    ) {
+        if let Ok(aeronet_link) = query.get(trigger.target()) {
+            trace!("SteamServer Stop triggered, closing.");
+            commands.trigger_targets(
+                Close {
+                    reason: "User requested".to_string(),
+                },
+                *aeronet_link.collection(),
+            );
         }
     }
 }

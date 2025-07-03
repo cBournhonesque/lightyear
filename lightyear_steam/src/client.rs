@@ -14,9 +14,10 @@ use bevy_ecs::{
     prelude::{Commands, Component, Entity, EntityCommand, Name, Query, Trigger, Without, World},
 };
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
-use lightyear_connection::client::Connected;
+use lightyear_connection::client::{Connected, Disconnect};
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
-use lightyear_link::{Link, LinkStart, Linked, Linking};
+use lightyear_link::{Link, LinkStart, Linked, Linking, Unlink};
+use std::prelude::rust_2015::ToString;
 use tracing::trace;
 
 pub struct SteamClientPlugin;
@@ -29,8 +30,7 @@ impl Plugin for SteamClientPlugin {
         app.add_plugins(SteamNetClientPlugin::<ClientManager>::default());
         app.add_observer(Self::link);
         app.add_observer(Self::on_linked);
-
-        // TODO: handle Disconnect trigger
+        app.add_observer(Self::disconnect);
     }
 }
 
@@ -104,6 +104,22 @@ impl SteamClientPlugin {
     ) {
         if query.get(trigger.target()).is_ok() {
             commands.entity(trigger.target()).insert(Connected);
+        }
+    }
+
+    /// Steam is both a Link and a Connection, so we trigger Unlink when Disconnect is triggered
+    fn disconnect(
+        trigger: Trigger<Disconnect>,
+        query: Query<(), With<SteamClientIo>>,
+        mut commands: Commands,
+    ) {
+        if query.get(trigger.target()).is_ok() {
+            commands.trigger_targets(
+                Unlink {
+                    reason: "User requested disconnect".to_string(),
+                },
+                trigger.target(),
+            );
         }
     }
 }
