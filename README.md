@@ -28,40 +28,13 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
 - [lightyear-template](https://github.com/Piefayth/lightyear-template/tree/main): opiniated template for a bevy + lightyear starter project
 
 ### Games
+
 - [Lumina](https://github.com/nixon-voxell/lumina)
 - [cycles.io](https://github.com/cBournhonesque/jam5) for bevy jam 5: https://cbournhonesque.itch.io/cyclesio
 
+
 ## Features
 
-### Ergonomic
-
-*Lightyear* provides a simple API for sending and receiving messages, and for replicating entities and components:
-
-- the user needs to define a shared protocol that defines all the `Messages`, `Components`, `Inputs` that can be sent over
-  the network; as well as the `Channels` to be used:
-```rust,ignore
-// messages
-app.add_message::<Message1>();
-
-// inputs
-app.add_plugins(InputPlugin::<Inputs>::default());
-
-// components
-app.register_component::<PlayerId>()
-    .add_prediction(PredictionMode::Once)
-    .add_interpolation(InterpolationMode::Once);
-    
-// channels
-app.add_channel::<Channel1>(ChannelSettings {
-    mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-    ..default()
-});
-```
-- to enable replication, the user just needs to add a `Replicate` component to entities that need to be replicated.
-- all network-related behaviour is defined via bevy components: `MessageReceiver<Message1>`, `ReplicationSender`, etc.
-
-
-### Batteries-included
 
 - Transport-agnostic: *Lightyear* is compatible with a number of IO backends, including:
     - UDP sockets
@@ -82,6 +55,7 @@ app.add_channel::<Channel1>(ChannelSettings {
     - With the `leafwing` feature, there is a special integration with
       the [`leafwing-input-manager`](https://github.com/Leafwing-Studios/leafwing-input-manager) crate, where
       your `leafwing` inputs are networked for you!
+    - Also supports the [`bevy-enhanced-input`](https://github.com/projectharmonia/bevy_enhanced_input) crate!
 - World Replication
     - Entities that have the `Replicate` bundle will be automatically replicated to clients.
 - Advanced replication
@@ -104,20 +78,20 @@ app.add_channel::<Channel1>(ChannelSettings {
 - Configurable
     - *Lightyear* is highly configurable: you can configure the size of the input buffer, the amount of
       interpolation-delay, the packet send rate, etc.
-      All the configurations are accessible through the `ClientConfig` and `ServerConfig` structs.
 - Observability
     - *Lightyear* uses the `tracing` and `metrics` libraries to emit spans and logs around most events (
-      sending/receiving messages, etc.). The metrics can be exported to Prometheus for analysis.
+      sending/receiving messages, etc.).
 - Examples
     - *Lightyear* has plenty of examples demonstrating all these features, as well as the integration with other bevy
       crates such as `avian`
+
 
 
 ## Supported bevy version
 
 | Lightyear | Bevy |
 |-----------|------|
-| 0.20      | 0.16 |
+| 0.20-0.21 | 0.16 |
 | 0.18-0.19 | 0.15 |
 | 0.16-0.17 | 0.14 |
 | 0.10-0.15 | 0.13 |
