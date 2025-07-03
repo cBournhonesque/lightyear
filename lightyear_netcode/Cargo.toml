@@ -67,3 +67,6 @@ lightyear_serde = { workspace = true, features = ["std"] }
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

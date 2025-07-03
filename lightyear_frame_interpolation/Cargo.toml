@@ -32,3 +32,6 @@ bevy_transform = { workspace = true, features = ["bevy-support"] }
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
