@@ -20,7 +20,6 @@ lightyear = { workspace = true, features = [
   "netcode",
   "replication",
   "udp",
-  "std", # Required for udp
 ] }
 bevy = { workspace = true, features = [
   "bevy_render",
@@ -29,6 +28,11 @@ bevy = { workspace = true, features = [
   "bevy_window",
 ] }
 serde.workspace = true
+
+[package.metadata.bevy_cli.web]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+default-features = false
+features = ["client", "netcode"]
 
 [lints]
 workspace = true

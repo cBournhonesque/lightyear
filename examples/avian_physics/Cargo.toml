@@ -50,5 +50,10 @@ avian2d = { workspace = true, features = [
 serde.workspace = true
 bevy.workspace = true
 
+[package.metadata.bevy_cli.web]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+default-features = false
+features = ["client", "netcode"]
+
 [lints]
 workspace = true

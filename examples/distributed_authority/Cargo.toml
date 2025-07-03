@@ -15,14 +15,12 @@ publish = false
 default = ["client", "gui", "server", "netcode", "udp"]
 client = [
   "gui",
-  "lightyear/client",
   "lightyear_examples_common/client"
 ]
 gui = [
   "lightyear_examples_common/gui"
 ]
 server = [
-  "lightyear/server",
   "lightyear_examples_common/server"
 ]
 netcode = [
@@ -30,7 +28,6 @@ netcode = [
 ]
 udp = [
   "lightyear_examples_common/udp",
-  "lightyear/udp",
 ]
 
 [[bin]]
@@ -49,6 +46,11 @@ lightyear_examples_common.workspace = true
 serde.workspace = true
 tracing.workspace = true
 bevy.workspace = true
+
+[package.metadata.bevy_cli.web]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+default-features = false
+features = ["client", "netcode"]
 
 [lints]
 workspace = true

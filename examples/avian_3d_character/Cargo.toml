@@ -54,6 +54,11 @@ bevy.workspace = true
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook.workspace = true
 
+[package.metadata.bevy_cli.web]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+default-features = false
+features = ["client", "netcode"]
+
 [lints]
 workspace = true
 
