@@ -10,12 +10,10 @@ repository = "https://github.com/cBournhonesque/lightyear"
 keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
 categories = ["game-development", "network-programming"]
 license.workspace = true
-exclude = ["/tests"]
 publish = true
 
 [lib]
 name = "lightyear_avian2d"
-path = "../lightyear_avian/src/lib.rs"
 required-features = ["2d"]
 bench = false
 
