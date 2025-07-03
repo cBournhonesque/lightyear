@@ -895,7 +895,7 @@ impl GroupChannel {
         if is_history {
             return;
         }
-        debug!(
+        trace!(
             ?remote_tick,
             ?message,
             "Received replication updates from remote: {:?}",

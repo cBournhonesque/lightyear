@@ -153,7 +153,7 @@ impl PreSpawnedPlugin {
                 }
                 debug!(
                     ?server_hash,
-                    "Received a PreSpawned entity from the server with a hash that does not match any client entity"
+                    "Received a PreSpawned entity {confirmed_entity:?} from the server with a hash that does not match any client entity"
                 );
                 // remove the PreSpawned so that the entity can be normal-predicted
                 commands.entity(confirmed_entity).remove::<PreSpawned>();
@@ -163,8 +163,7 @@ impl PreSpawnedPlugin {
             // if there are multiple entities, we will use the first one
             let client_entity = client_entity_list.pop().unwrap();
             debug!(
-                "found a client pre-spawned entity {client_entity:?} corresponding to server pre-spawned entity {confirmed_entity:?}! Spawning/finding a Predicted entity for it {}",
-                server_hash
+                "found a client pre-spawned entity {client_entity:?} corresponding to server pre-spawned entity {confirmed_entity:?} for hash {server_hash:?}!",
             );
 
             // we found the corresponding client entity!
