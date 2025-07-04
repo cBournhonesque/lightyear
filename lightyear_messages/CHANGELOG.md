@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## v0.21.0 (2025-07-03)
 
+### Chore
+
+ - <csr-id-7fe5e08d715fa55ad003270be95139b003aca396/> release 0.21.0
+
 ### Bug Fixes
 
  - <csr-id-97d5b9baf349aa8c0245d20432ff333c42b2c04d/> issues with prespawn match
@@ -15,8 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 2 commits contributed to the release.
- - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 3 commits contributed to the release.
+ - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1064](https://github.com/cBournhonesque/lightyear/issues/1064)
 
 ### Commit Details
@@ -28,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1064](https://github.com/cBournhonesque/lightyear/issues/1064)**
     - Issues with prespawn match ([`97d5b9b`](https://github.com/cBournhonesque/lightyear/commit/97d5b9baf349aa8c0245d20432ff333c42b2c04d))
  * **Uncategorized**
+    - Release 0.21.0 ([`7fe5e08`](https://github.com/cBournhonesque/lightyear/commit/7fe5e08d715fa55ad003270be95139b003aca396))
     - Adjusting changelogs prior to release of lightyear_serde v0.21.0, lightyear_utils v0.21.0, lightyear_core v0.21.0, lightyear_link v0.21.0, lightyear_aeronet v0.21.0, lightyear_connection v0.21.0, lightyear_macros v0.21.0, lightyear_transport v0.21.0, lightyear_messages v0.21.0, lightyear_replication v0.21.0, lightyear_sync v0.21.0, lightyear_interpolation v0.21.0, lightyear_prediction v0.21.0, lightyear_frame_interpolation v0.21.0, lightyear_avian2d v0.21.0, lightyear_avian3d v0.21.0, lightyear_crossbeam v0.21.0, lightyear_inputs v0.21.0, lightyear_inputs_bei v0.21.0, lightyear_inputs_leafwing v0.21.0, lightyear_inputs_native v0.21.0, lightyear_netcode v0.21.0, lightyear_steam v0.21.0, lightyear_webtransport v0.21.0, lightyear_udp v0.21.0, lightyear v0.21.0 ([`6ed9ae9`](https://github.com/cBournhonesque/lightyear/commit/6ed9ae95f9a75a9803c75c56c4e81f40f72fc3c8))
 </details>
 
