@@ -259,7 +259,6 @@ pub mod frame_interpolation {
     pub use lightyear_frame_interpolation::*;
 }
 
-
 #[cfg(feature = "netcode")]
 pub mod netcode {
     pub use lightyear_netcode::*;

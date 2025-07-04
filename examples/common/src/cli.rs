@@ -132,8 +132,8 @@ impl Cli {
                         conditioner: Some(RecvLinkConditioner::new(
                             LinkConditionerConfig::average_condition(),
                         )),
-                        transport: ClientTransports::Udp,
-                        // transport: ClientTransports::WebTransport,
+                        // transport: ClientTransports::Udp,
+                        transport: ClientTransports::WebTransport,
                         // #[cfg(feature = "steam")]
                         // transport: ClientTransports::Steam,
                         shared: SHARED_SETTINGS,
@@ -147,16 +147,16 @@ impl Cli {
                     .world_mut()
                     .spawn(ExampleServer {
                         conditioner: None,
-                        transport: ServerTransports::Udp {
-                            local_port: SERVER_PORT,
-                        },
-                        // transport: ServerTransports::WebTransport {
+                        // transport: ServerTransports::Udp {
                         //     local_port: SERVER_PORT,
-                        //     certificate: WebTransportCertificateSettings::FromFile {
-                        //         cert: "../../certificates/cert.pem".to_string(),
-                        //         key: "../../certificates/key.pem".to_string(),
-                        //     },
                         // },
+                        transport: ServerTransports::WebTransport {
+                            local_port: SERVER_PORT,
+                            certificate: WebTransportCertificateSettings::FromFile {
+                                cert: "../../certificates/cert.pem".to_string(),
+                                key: "../../certificates/key.pem".to_string(),
+                            },
+                        },
                         // #[cfg(feature = "steam")]
                         // transport: ServerTransports::Steam {
                         //     local_port: SERVER_PORT,

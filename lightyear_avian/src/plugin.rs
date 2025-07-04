@@ -13,16 +13,15 @@ use bevy_app::{
     App, FixedPostUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoop, RunFixedMainLoopSystem,
 };
 use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_transform::{components::Transform, TransformSystem};
+use bevy_transform::{TransformSystem, components::Transform};
 use bevy_utils::default;
 
 use crate::sync;
 use lightyear_frame_interpolation::FrameInterpolationSet;
-use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_interpolation::InterpolationMode;
+use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::plugin::PredictionSet;
 use lightyear_replication::prelude::{ReplicationSet, TransformLinearInterpolation};
-
 
 /// Indicate which components you are replicating over the network
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -32,11 +31,11 @@ pub enum AvianReplicationMode {
     /// In this mode, we only replicate position/rotation and sync them to the Transform component.
     /// The Transform component is used for frame-interpolation.
     #[default]
-    ReplicatePosition,
+    Position,
     /// Replicate the Transform component, but internally store the Position in the prediction history
-    ReplicateTransformRollbackPosition,
+    TransformButRollbackPosition,
     /// Replicate the Transform component, and internally store the Transform in the prediction history.
-    ReplicateTransform,
+    Transform,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -65,7 +64,7 @@ impl Plugin for LightyearAvianPlugin {
         );
 
         match self.replication_mode {
-            AvianReplicationMode::ReplicatePosition => {
+            AvianReplicationMode::Position => {
                 app.configure_sets(
                     FixedPostUpdate,
                     (
@@ -113,7 +112,7 @@ impl Plugin for LightyearAvianPlugin {
                     );
                 }
             }
-            AvianReplicationMode::ReplicateTransformRollbackPosition => {
+            AvianReplicationMode::TransformButRollbackPosition => {
                 unimplemented!();
                 // The main issue with this mode is that the Transform component gets replicated, but avian internally works on Position and Rotation components. So we need
                 // to ensure that in PreUpdate, after receiving the Transform component, we sync it to Position and Rotation.
@@ -154,7 +153,7 @@ impl Plugin for LightyearAvianPlugin {
 
                 // TODO: handle syncs
             }
-            AvianReplicationMode::ReplicateTransform => {
+            AvianReplicationMode::Transform => {
                 // TODO: the rollback check is done with Transform (so no need to sync Transform to Position in PreUpdate)
                 //  however we still need a Transform->Position sync before running the StepSimulation!
                 //  (and a Position->Transform sync in FixedPostUpdate::PhysicsSet::Sync)

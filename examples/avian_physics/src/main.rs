@@ -8,7 +8,8 @@ use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::prelude::Client;
+use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
@@ -75,10 +76,10 @@ fn add_input_delay(app: &mut App) {
         .single(app.world_mut())
         .unwrap();
 
-    // // set some input-delay since we are predicting all entities
-    // app.world_mut()
-    //     .entity_mut(client)
-    //     .insert(InputTimeline(Timeline::from(
-    //         Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
-    //     )));
+    // set some input-delay since we are predicting all entities
+    app.world_mut()
+        .entity_mut(client)
+        .insert(InputTimeline(Timeline::from(
+            Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
+        )));
 }
