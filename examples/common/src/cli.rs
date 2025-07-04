@@ -9,17 +9,17 @@ use core::time::Duration;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 
-use bevy::DefaultPlugins;
 use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::state::app::StatesPlugin;
+use bevy::DefaultPlugins;
 use clap::{Parser, Subcommand};
 
 #[cfg(feature = "client")]
-use crate::client::{ClientTransports, ExampleClient, connect};
+use crate::client::{connect, ClientTransports, ExampleClient};
 #[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
 #[cfg(feature = "server")]
-use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
+use crate::server::{start, ExampleServer, ServerTransports, WebTransportCertificateSettings};
 #[cfg(all(feature = "gui", feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
 use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};

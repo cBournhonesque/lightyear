@@ -8,8 +8,8 @@ use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::prelude::client::{Input, InputDelayConfig};
-use lightyear::prelude::{Client, InputTimeline, Timeline};
+use lightyear::prelude::client::*;
+use lightyear::prelude::*;
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 

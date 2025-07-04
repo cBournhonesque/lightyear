@@ -194,6 +194,7 @@ impl WallBundle {
                 collider: Collider::segment(start, end),
                 collider_density: ColliderDensity(1.0),
                 rigid_body: RigidBody::Static,
+                restitution: Restitution::new(0.0),
             },
             wall: Wall { start, end },
             name: Name::from("Wall"),

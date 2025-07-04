@@ -86,6 +86,10 @@ prediction = [
   "lightyear_replication/prediction",
   "dep:lightyear_frame_interpolation",
 ]
+## Enables re-exports of lightyear_frame_interpolation
+frame_interpolation = [
+  "dep:lightyear_frame_interpolation",
+]
 ## Enables interpolation handling, to smooth entity updates received from the remote peer
 interpolation = [
   "dep:lightyear_interpolation",
