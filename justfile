@@ -424,8 +424,15 @@ lightyear_webtransport:
     cargo clippy -p lightyear_webtransport --tests --no-default-features --features="dangerous-configuration" -- -D warnings --no-deps
     cargo clippy -p lightyear_webtransport --tests --all-features -- -D warnings --no-deps
 
+
+release_dryrun_no_changelog:
+    cargo smart-release lightyear --allow-dirty -v -u --no-changelog --no-tag --no-push --dry-run-cargo-publish
+
 release_dryrun:
-    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-preview
+    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-tag --no-push --dry-run-cargo-publish
+
+release_no_changelog:
+    cargo smart-release lightyear --allow-dirty -v -u --no-changelog --no-tag --no-push --execute
 
 release:
-    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-preview --execute
+    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-tag --no-push --execute
