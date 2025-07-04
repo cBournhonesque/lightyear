@@ -26,6 +26,4 @@ pub mod prelude {
     pub use crate::channel::registry::AppChannelExt;
     pub use crate::channel::registry::ChannelRegistry;
     pub use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
-
-    pub use lightyear_macros::Channel;
 }

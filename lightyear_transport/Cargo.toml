@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_transport"
-version = "0.21.0-rc.3"
+version = "0.21.0"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -22,7 +22,6 @@ test_utils = []
 # local crates
 lightyear_core.workspace = true
 lightyear_link.workspace = true
-lightyear_macros.workspace = true
 lightyear_serde.workspace = true
 lightyear_utils.workspace = true
 lightyear_connection.workspace = true

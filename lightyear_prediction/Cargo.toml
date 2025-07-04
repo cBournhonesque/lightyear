@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_prediction"
-version = "0.21.0-rc.3"
+version = "0.21.0"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
