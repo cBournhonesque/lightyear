@@ -38,7 +38,6 @@ lightyear = { workspace = true, features = [
     "prediction",
     "replication",
 ] }
-lightyear_macros.workspace = true
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_transport = { workspace = true, features = ["client", "server", "test_utils"] }

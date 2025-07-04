@@ -59,7 +59,6 @@ test:
     cargo test -p lightyear_inputs_native --all-features
     cargo test -p lightyear_interpolation --all-features
     cargo test -p lightyear_link --all-features
-    cargo test -p lightyear_macros --all-features
     cargo test -p lightyear_messages --all-features
     cargo test -p lightyear_netcode --all-features
     cargo test -p lightyear_prediction --all-features

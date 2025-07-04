@@ -16,7 +16,6 @@ members = [
   "lightyear_link",
   "lightyear_transport",
   "lightyear_connection",
-  "lightyear_macros",
   "lightyear_messages",
   "lightyear_netcode",
   "lightyear_prediction",
@@ -68,7 +67,6 @@ debug = false
 lightyear_aeronet = { path = "./lightyear_aeronet", version = " 0.21.0", default-features = false }
 lightyear_avian2d = { path = "./lightyear_avian2d", version = " 0.21.0", default-features = false }
 lightyear_avian3d = { path = "./lightyear_avian3d", version = " 0.21.0", default-features = false }
-lightyear_macros = { path = "./lightyear_macros", version = " 0.21.0", default-features = false }
 lightyear_netcode = { path = "./lightyear_netcode", version = " 0.21.0", default-features = false }
 lightyear_connection = { path = "./lightyear_connection", version = " 0.21.0", default-features = false }
 lightyear_core = { path = "./lightyear_core", version = " 0.21.0", default-features = false }
