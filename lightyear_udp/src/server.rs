@@ -19,7 +19,7 @@ use tracing::{error, info};
 
 use crate::UdpError;
 use aeronet_io::connection::{LocalAddr, PeerAddr};
-use bevy_platform::collections::{HashMap, hash_map::Entry};
+use bevy_platform::collections::{hash_map::Entry, HashMap};
 use bytes::{BufMut, BytesMut};
 use core::net::SocketAddr;
 use lightyear_core::time::Instant;
@@ -121,6 +121,7 @@ impl ServerUdpPlugin {
         server_query
             .par_iter_mut()
             .for_each(|(server_entity, mut server_udp_io)| {
+                info!("run receive");
                 // SAFETY: we know that each ServerUdpIo will target different Link entities, so there won't be any aliasing
                 let mut link_query = unsafe { link_query.reborrow_unsafe() };
 

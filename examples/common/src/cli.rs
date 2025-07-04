@@ -9,17 +9,17 @@ use core::time::Duration;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 
-use bevy::DefaultPlugins;
 use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::state::app::StatesPlugin;
+use bevy::DefaultPlugins;
 use clap::{Parser, Subcommand};
 
 #[cfg(feature = "client")]
-use crate::client::{ClientTransports, ExampleClient, connect};
+use crate::client::{connect, ClientTransports, ExampleClient};
 #[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
 #[cfg(feature = "server")]
-use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
+use crate::server::{start, ExampleServer, ServerTransports, WebTransportCertificateSettings};
 #[cfg(all(feature = "gui", feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
 use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
@@ -132,8 +132,8 @@ impl Cli {
                         conditioner: Some(RecvLinkConditioner::new(
                             LinkConditionerConfig::average_condition(),
                         )),
-                        // transport: ClientTransports::Udp,
-                        transport: ClientTransports::WebTransport,
+                        transport: ClientTransports::Udp,
+                        // transport: ClientTransports::WebTransport,
                         // #[cfg(feature = "steam")]
                         // transport: ClientTransports::Steam,
                         shared: SHARED_SETTINGS,
@@ -147,16 +147,16 @@ impl Cli {
                     .world_mut()
                     .spawn(ExampleServer {
                         conditioner: None,
-                        // transport: ServerTransports::Udp {
-                        //     local_port: SERVER_PORT,
-                        // },
-                        transport: ServerTransports::WebTransport {
+                        transport: ServerTransports::Udp {
                             local_port: SERVER_PORT,
-                            certificate: WebTransportCertificateSettings::FromFile {
-                                cert: "../../certificates/cert.pem".to_string(),
-                                key: "../../certificates/key.pem".to_string(),
-                            },
                         },
+                        // transport: ServerTransports::WebTransport {
+                        //     local_port: SERVER_PORT,
+                        //     certificate: WebTransportCertificateSettings::FromFile {
+                        //         cert: "../../certificates/cert.pem".to_string(),
+                        //         key: "../../certificates/key.pem".to_string(),
+                        //     },
+                        // },
                         // #[cfg(feature = "steam")]
                         // transport: ServerTransports::Steam {
                         //     local_port: SERVER_PORT,

@@ -15,6 +15,7 @@ pub(crate) struct PhysicsBundle {
     pub(crate) collider: Collider,
     pub(crate) collider_density: ColliderDensity,
     pub(crate) rigid_body: RigidBody,
+    pub(crate) restitution: Restitution,
 }
 
 impl PhysicsBundle {
@@ -23,6 +24,7 @@ impl PhysicsBundle {
             collider: Collider::circle(BALL_SIZE),
             collider_density: ColliderDensity(0.05),
             rigid_body: RigidBody::Dynamic,
+            restitution: Restitution::new(0.5),
         }
     }
 
@@ -31,6 +33,7 @@ impl PhysicsBundle {
             collider: Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
             collider_density: ColliderDensity(0.2),
             rigid_body: RigidBody::Dynamic,
+            restitution: Restitution::new(0.3),
         }
     }
 }

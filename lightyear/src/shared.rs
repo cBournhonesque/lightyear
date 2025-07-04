@@ -56,9 +56,9 @@ impl Plugin for SharedPlugins {
         ));
 
         #[cfg(feature = "avian2d")]
-        app.add_plugins(lightyear_avian2d::prelude::LightyearAvianPlugin);
+        app.add_plugins(lightyear_avian2d::prelude::LightyearAvianPlugin::default());
         #[cfg(feature = "avian3d")]
-        app.add_plugins(lightyear_avian3d::prelude::LightyearAvianPlugin);
+        app.add_plugins(lightyear_avian3d::prelude::LightyearAvianPlugin::default());
     }
 
     fn is_unique(&self) -> bool {
