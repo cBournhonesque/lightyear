@@ -37,7 +37,7 @@ const LOCALHOST: SocketAddr = SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LO
 /// This acts as a transport layer, allowing messages to be sent and received
 /// via in-memory channels, simulating a network link. It holds the sender
 /// and receiver ends of the channels.
-#[derive(Component)]
+#[derive(Component, Clone)]
 #[require(Link::new(None))]
 #[require(LocalAddr(LOCALHOST))]
 #[require(PeerAddr(LOCALHOST))]
