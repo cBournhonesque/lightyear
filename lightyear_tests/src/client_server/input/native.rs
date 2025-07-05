@@ -1,13 +1,16 @@
 use crate::protocol::NativeInput as MyInput;
 use crate::stepper::{ClientServerStepper, TICK_DURATION};
-use bevy::prelude::default;
+use bevy::prelude::*;
 use lightyear::input::native::prelude::InputMarker;
 use lightyear::input::prelude::InputBuffer;
+use lightyear::prelude::NetworkTimeline;
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::network_target::NetworkTarget;
+use lightyear_core::prelude::{LocalTimeline, Rollback};
 use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
+use lightyear_prediction::prelude::PredictionManager;
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
 use lightyear_sync::prelude::InputTimeline;
@@ -244,6 +247,8 @@ fn test_remote_client_confirmed_input() {
 
 /// Test remote client inputs: we should be using the last known input value of the remote client, for better prediction accuracy!
 ///
+/// Also checks that during rollbacks we fetch the correct input value even for remote inputs.
+///
 /// For example if we receive inputs from client 1 with 5 tick delay, then when we are tick 35 we receive
 /// the input for tick 30. In that case we should either:
 /// - launch a rollback check immediately for tick 30
@@ -327,7 +332,7 @@ fn test_input_broadcasting_prediction() {
     );
 
     // TEST SCENARIO:
-    // 1. Client 0 starts sending input value 10 continuously
+    // Client 0 sends value 10
     stepper.client_apps[0]
         .world_mut()
         .get_mut::<ActionState<MyInput>>(client0_predicted)
@@ -335,10 +340,19 @@ fn test_input_broadcasting_prediction() {
         .value = Some(MyInput(10));
     stepper.frame_step(1);
     let client1_tick = stepper.client_tick(1);
-    // step 2 more frames because the input is delayed. And because we need client0 -> server -> client1
+
+    // switch to a different input value so distinction is clear
+    stepper.client_apps[0]
+        .world_mut()
+        .get_mut::<ActionState<MyInput>>(client0_predicted)
+        .unwrap()
+        .value = Some(MyInput(5));
+
+    // Step 2 more frames because the input is delayed. And because we need client0 -> server -> client1
+    // the client 1 should just have received the Input(10)
     stepper.frame_step_server_first(2);
 
-    // make sure that the client 1 receives them, with the delay
+    // make sure that the client 1 receives them
     let buffer = stepper.client_apps[1]
         .world()
         .get::<InputBuffer<ActionState<MyInput>>>(client1_predicted)
@@ -351,6 +365,52 @@ fn test_input_broadcasting_prediction() {
         .get::<ActionState<MyInput>>(client1_predicted)
         .expect("action state should exist");
     assert_eq!(action_state.value, Some(MyInput(10)));
+
+    stepper.frame_step_server_first(2);
+    // check that the next input has been received
+    let action_state = stepper.client_apps[1]
+        .world()
+        .get::<ActionState<MyInput>>(client1_predicted)
+        .expect("action state should exist");
+    assert_eq!(action_state.value, Some(MyInput(5)));
+
+    // check that during rollbacks, we fetch the input value from the input buffer even for remote inputs
+    let check_input =
+        move |c: Single<&LocalTimeline, With<Rollback>>,
+              q: Single<&ActionState<MyInput>, Without<InputMarker<MyInput>>>| {
+            info!(
+                "Checking input value {:?} during rollback. Tick: {:?}",
+                q.value,
+                c.tick()
+            );
+            if c.tick() == client1_tick {
+                info!("checking");
+                assert_eq!(
+                    q.value,
+                    Some(MyInput(10)),
+                    "During rollback, we should fetch the ActionState from the buffer",
+                );
+            }
+        };
+
+    stepper.client_apps[1].add_systems(FixedUpdate, check_input);
+
+    // trigger rollback for client 1
+    let rollback_tick = client1_tick - 1;
+    stepper.client_mut(1).insert(Rollback);
+    stepper
+        .client_mut(1)
+        .get_mut::<PredictionManager>()
+        .unwrap()
+        .set_rollback_tick(rollback_tick);
+    stepper.client_apps[1]
+        .world_mut()
+        .query::<&mut Confirmed>()
+        .iter_mut(stepper.client_apps[1].world_mut())
+        .for_each(|mut confirmed| {
+            confirmed.tick = rollback_tick;
+        });
+    stepper.client_apps[1].update();
 }
 
 // /// Test a remote client's pre-predicted entity sending inputs to the server

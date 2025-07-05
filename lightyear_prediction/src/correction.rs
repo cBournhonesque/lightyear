@@ -78,6 +78,7 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
 
         // TODO: make the easing configurable
         let t = ease_out_quad(t);
+        // stop correction if we are at the end of the correction period
         if t == 1.0 {
             trace!(
                 ?t,
@@ -95,6 +96,15 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
                 component.clone(),
                 t,
             );
+            // stop correction if the visual value is very close to the corrected value
+            if !prediction_registry.should_rollback(&visual, &component) {
+                trace!(
+                    ?t,
+                    "Corrected value is very close to visual value. Removing Correction for: {:?}",
+                    kind
+                );
+                commands.entity(entity).remove::<Correction<C>>();
+            }
             // store the current visual value
             correction.current_visual = Some(visual.clone());
             // set the component value to the visual value
@@ -119,7 +129,10 @@ pub(crate) fn set_original_prediction_post_rollback<C: SyncComponent>(
     for (entity, mut component, mut correction) in query.iter_mut() {
         // correction has not started (even if a correction happens while a previous correction was going on, current_visual is None)
         if correction.current_visual.is_none() {
-            trace!(component = ?core::any::type_name::<C>(), "Set component to original non-corrected prediction");
+            trace!(
+                kind = ?core::any::type_name::<C>(),
+                new_value = ?correction.original_prediction,
+                "Set component to original non-corrected prediction");
             // TODO: this is very inefficient.
             //  1. we only do the clone() once but if there's multiple frames before a FixedUpdate, we clone multiple times (mitigated by Added filter)
             //        although Added probably  doesn't work if we have nested Corrections..

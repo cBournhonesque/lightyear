@@ -186,7 +186,7 @@ impl<C: Component> Default for FrameInterpolate<C> {
 // TODO: explore how we could allow this for non-marker components, user would need to specify the interpolation function?
 //  (to avoid orphan rule)
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
-pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone>(
+pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + Debug>(
     // TODO: handle multiple timelines
 
     // TODO: maybe get rid of this and only handle types that are Ease? the issue is that Transform
@@ -224,6 +224,15 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone>(
         //     EaseFunction::Linear,
         // );
         // let interpolated = curve.sample_unchecked(overstep.value());
+        trace!(
+            ?kind,
+            ?tick,
+            ?previous_value,
+            ?current_value,
+            ?overstep,
+            ?interpolated,
+            "Visual interpolation applied"
+        );
         if !interpolate_status.trigger_change_detection {
             *component.bypass_change_detection() = interpolated;
         } else {
