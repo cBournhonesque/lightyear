@@ -85,6 +85,7 @@ prediction = [
   "lightyear_core/prediction",
   "lightyear_replication/prediction",
   "dep:lightyear_frame_interpolation",
+  "lightyear_inputs?/prediction",
 ]
 ## Enables re-exports of lightyear_frame_interpolation
 frame_interpolation = [

@@ -7,10 +7,12 @@
 //! - History buffers for state management (`history_buffer`).
 //! - Core plugin structures (`plugin`).
 
-#![no_std]
+#![cfg_attr(not(feature = "test_utils"), no_std)]
 
 extern crate alloc;
 extern crate core;
+#[cfg(test)]
+extern crate std;
 
 /// Defines the `Tick` type and related systems for managing discrete time steps.
 pub mod tick;

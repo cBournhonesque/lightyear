@@ -43,11 +43,11 @@
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
 //!   will read the inputs using the [`InputBuffer`] component.
 
-use crate::InputChannel;
-use crate::config::InputConfig;
+use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
+use crate::InputChannel;
 #[cfg(feature = "metrics")]
 use alloc::format;
 use alloc::{vec, vec::Vec};
@@ -64,26 +64,22 @@ use bevy_ecs::{
     system::{Commands, Query, Res, ResMut, Single, StaticSystemParam},
 };
 use lightyear_connection::host::HostClient;
-#[cfg(feature = "interpolation")]
-use lightyear_core::prelude::Tick;
-use lightyear_core::prelude::{NetworkTimeline, Rollback};
+use lightyear_core::prelude::*;
 use lightyear_core::tick::TickDuration;
 #[cfg(feature = "interpolation")]
 use lightyear_core::time::TickDelta;
-use lightyear_core::timeline::LocalTimeline;
-use lightyear_core::timeline::SyncEvent;
-#[cfg(feature = "interpolation")]
-use lightyear_interpolation::plugin::InterpolationDelay;
-#[cfg(feature = "interpolation")]
-use lightyear_interpolation::prelude::InterpolationTimeline;
-use lightyear_messages::MessageManager;
+
+use lightyear_connection::client::Client;
+use lightyear_interpolation::prelude::*;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
-use lightyear_prediction::Predicted;
+use lightyear_messages::MessageManager;
+#[cfg(feature = "prediction")]
+use lightyear_prediction::prelude::*;
 use lightyear_replication::components::{Confirmed, PrePredicted};
 use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
+use lightyear_sync::prelude::InputTimeline;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::ChannelRegistry;
 use tracing::{debug, error, trace};
@@ -141,6 +137,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         if !app.is_plugin_added::<InputPlugin<S>>() {
             app.add_plugins(InputPlugin::<S>::default());
         }
+        app.init_resource::<SharedInputConfig>();
         app.insert_resource(self.config);
         app.init_resource::<MessageBuffer<S>>();
         // SETS
@@ -183,11 +180,25 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         );
 
         // SYSTEMS
+        #[cfg(feature = "prediction")]
         if self.config.rebroadcast_inputs {
             app.add_systems(
                 RunFixedMainLoop,
-                receive_remote_player_input_messages::<S>.in_set(InputSet::ReceiveInputMessages),
+                receive_remote_player_input_messages::<S>
+                    .in_set(InputSet::ReceiveInputMessages)
+                    // we check the rollback from inputs before checking the rollback from state
+                    .before(PredictionSet::CheckRollback),
             );
+            let already_added = app
+                .world()
+                .resource::<SharedInputConfig>()
+                .reset_last_confirmed_system_added;
+            if !already_added {
+                app.add_systems(PostUpdate, reset_last_confirmed_input.after(SyncSet::Sync));
+                app.world_mut()
+                    .resource_mut::<SharedInputConfig>()
+                    .reset_last_confirmed_system_added = true;
+            }
         }
         app.add_systems(
             FixedPreUpdate,
@@ -521,6 +532,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     // NOTE: keep the older input values in the InputBuffer! because they might be needed when we rollback for client prediction
 }
 
+#[cfg(feature = "prediction")]
 /// Read the InputMessages of other clients from the server to update their InputBuffer and ActionState.
 /// This is useful if we want to do client-prediction for remote players.
 ///
@@ -532,22 +544,25 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     mut commands: Commands,
     link: Single<
         (
+            Entity,
             &MessageManager,
             &mut MessageReceiver<InputMessage<S>>,
+            &PredictionManager,
             &LocalTimeline,
         ),
-        With<IsSynced<InputTimeline>>,
+        // the host-client won't receive input messages from the Server
+        (With<IsSynced<InputTimeline>>, Without<HostClient>),
     >,
     // TODO: currently we do not handle entities that are controlled by multiple clients
     confirmed_query: Query<&Confirmed, Without<S::Marker>>,
     mut predicted_query: Query<
         (Option<&mut InputBuffer<S::Snapshot>>, Option<&mut S::State>),
-        // the host-client won't receive input messages from the Server
-        (With<Predicted>, Without<S::Marker>, Without<HostClient>),
+        (With<Predicted>, Without<S::Marker>),
     >,
 ) {
-    let (manager, mut receiver, timeline) = link.into_inner();
+    let (link_entity, manager, mut receiver, prediction_manager, timeline) = link.into_inner();
     let tick = timeline.tick();
+    let has_messages = receiver.has_messages();
     receiver.receive().for_each(|message| {
         trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", core::any::type_name::<S::Action>());
         for target_data in message.inputs {
@@ -573,48 +588,32 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 if let Ok(confirmed) = confirmed_query.get(entity) {
                     if let Some(predicted) = confirmed.predicted {
                         if let Ok((input_buffer, action_state)) = predicted_query.get_mut(predicted) {
-                            trace!(confirmed= ?entity, ?predicted, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
+                            trace!(confirmed=?entity, ?predicted, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
                             if let Some(mut input_buffer) = input_buffer {
                                 target_data.states.update_buffer(&mut input_buffer, message.end_tick);
-                                // IMPORTANT: immediately update the ActionState from the last snapshot of the buffer
-                                //  this means that even if the input received was from the past, we will immediately start using it
-                                //  (i.e. predicting that the remote player kept playing the same action)
-                                if let Some(snapshot) = input_buffer.get_last() {
-                                    S::from_snapshot(
-                                        &mut action_state.expect("there should always be an ActionState if the InputBuffer is present"),
-                                        snapshot,
-                                        &context,
-                                    );
-                                };
-                                #[cfg(feature = "metrics")]
-                                {
-                                    let margin = input_buffer.end_tick().unwrap() - tick;
-                                    metrics::gauge!(format!(
-                                                    "inputs::{}::remote_player::{}::buffer_margin",
-                                                    core::any::type_name::<S::Action>(),
-                                                    entity
-                                                ))
-                                        .set(margin as f64);
-                                    metrics::gauge!(format!(
-                                                    "inputs::{}::remote_player::{}::buffer_size",
-                                                    core::any::type_name::<S::Action>(),
-                                                    entity
-                                                ))
-                                        .set(input_buffer.len() as f64);
-                                }
+                                update_buffer_from_remote_player_message::<S>(
+                                    &mut input_buffer,
+                                    &mut action_state.expect("there should always be an ActionState if the InputBuffer is present"),
+                                    &context,
+                                    tick,
+                                    message.end_tick,
+                                    entity,
+                                    prediction_manager,
+                                );
                             } else {
                                 // add the ActionState or InputBuffer if they are missing
                                 let mut input_buffer = InputBuffer::<S::Snapshot>::default();
                                 target_data.states.update_buffer(&mut input_buffer, message.end_tick);
-                                // IMPORTANT: immediately update the ActionState from the last snapshot of the buffer
                                 let mut action_state = S::State::default();
-                                if let Some(snapshot) = input_buffer.get_last() {
-                                    S::from_snapshot(
-                                        &mut action_state,
-                                        snapshot,
-                                        &context,
-                                    );
-                                };
+                                update_buffer_from_remote_player_message::<S>(
+                                    &mut input_buffer,
+                                    &mut action_state,
+                                    &context,
+                                    tick,
+                                    message.end_tick,
+                                    entity,
+                                    prediction_manager,
+                                );
                                 // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
                                 commands.entity(predicted).insert((
                                     input_buffer,
@@ -631,6 +630,95 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             }
         }
     });
+
+    if let RollbackMode::Always = prediction_manager.rollback_policy.input
+        && has_messages
+    {
+        prediction_manager
+            .last_confirmed_input
+            .received_any_messages
+            .store(true, bevy_platform::sync::atomic::Ordering::Relaxed);
+        // find the earliest last_confirmed_tick for each client
+        // (we replaced LastConfirmedInput with a high tick to avoid any tick-wrapping issues)
+        predicted_query.iter().for_each(|(buffer, _)| {
+            // if we received any messages, we update the LastConfirmedInput
+            // (this is used to determine the last confirmed tick for each client)
+            if let Some(input_buffer) = buffer
+                && let Some(end_tick) = input_buffer.end_tick()
+            {
+                prediction_manager
+                    .last_confirmed_input
+                    .tick
+                    .set_if_lower(end_tick);
+            }
+        });
+    }
+}
+
+#[cfg(feature = "prediction")]
+/// Reset the LastConfirmedInput tick to a high value, so that we can later compute the earliest 'last_confirmed_tick'
+/// by just taking the minimum without worrying about tick wrapping.
+fn reset_last_confirmed_input(client: Single<(&LocalTimeline, &PredictionManager), With<Client>>) {
+    let (timeline, prediction_manager) = client.into_inner();
+    let tick = timeline.tick();
+    prediction_manager.last_confirmed_input.tick.0.store(
+        tick.0 + 1000,
+        bevy_platform::sync::atomic::Ordering::Relaxed,
+    );
+    prediction_manager
+        .last_confirmed_input
+        .received_any_messages
+        .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(feature = "prediction")]
+fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
+    input_buffer: &mut InputBuffer<S::Snapshot>,
+    action_state: &mut S::State,
+    context: &StaticSystemParam<S::Context>,
+    tick: Tick,
+    end_tick: Tick,
+    entity: Entity,
+    prediction_manager: &PredictionManager,
+) {
+    if let Some(snapshot) = input_buffer.get_last() {
+        // IMPORTANT: immediately update the ActionState from the last snapshot of the buffer
+        //  this means that even if the input received was from the past, we will immediately start using it
+        //  (i.e. predicting that the remote player kept playing the same action)
+        S::from_snapshot(action_state, snapshot, context);
+        if let RollbackMode::Check = prediction_manager.rollback_policy.input {
+            // TODO: only trigger rollback if there is an actual mismatch? i.e. we are predicting that
+            //  the client kept pressing the last known action, and we need to check if something changed
+            //  in the ticks previous_last_known_action to end_tick
+            //
+            // note that we could have different rollback ticks for different clients. We will just rollback to the earliest tick
+            // among all.
+            if prediction_manager.set_input_rollback_tick(end_tick) {
+                debug!(rollback_tick = ?end_tick, "Triggering rollback from remote client input");
+            }
+        }
+        #[cfg(feature = "metrics")]
+        {
+            metrics::counter!(format!(
+                "inputs::{}::remote_player::receive",
+                core::any::type_name::<S::Action>(),
+            ))
+            .increment(1);
+            let margin = input_buffer.end_tick().unwrap() - tick;
+            metrics::gauge!(format!(
+                "inputs::{}::remote_player::{}::buffer_margin",
+                core::any::type_name::<S::Action>(),
+                entity
+            ))
+            .set(margin as f64);
+            metrics::gauge!(format!(
+                "inputs::{}::remote_player::{}::buffer_size",
+                core::any::type_name::<S::Action>(),
+                entity
+            ))
+            .set(input_buffer.len() as f64);
+        }
+    };
 }
 
 /// Drain the messages from the buffer and send them to the server

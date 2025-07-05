@@ -32,7 +32,9 @@ mod timeline;
 /// Commonly used items for client-side interpolation.
 pub mod prelude {
     pub use crate::manager::InterpolationManager;
-    pub use crate::plugin::InterpolationSet;
+    pub use crate::plugin::{
+        InterpolationConfig, InterpolationDelay, InterpolationPlugin, InterpolationSet,
+    };
     pub use crate::registry::{InterpolationRegistrationExt, InterpolationRegistry};
     pub use crate::timeline::InterpolationTimeline;
     pub use crate::{Interpolated, InterpolationMode};

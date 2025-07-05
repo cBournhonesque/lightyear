@@ -1,7 +1,7 @@
 //! Managed the history buffer, which is a buffer of the past predicted component states,
 //! so that whenever we receive an update from the server we can compare the predicted entity's history with the server update.
 use crate::correction::Correction;
-use crate::manager::{PredictionManager, PredictionResource};
+use crate::manager::{PredictionManager, PredictionResource, PredictionSyncBuffer};
 use crate::plugin::{PredictionFilter, PredictionSet};
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
@@ -164,10 +164,9 @@ fn apply_predicted_sync(world: &mut World) {
             let buffer = &mut unsafe {
                 unsafe_world
                     .world_mut()
-                    .get_mut::<PredictionManager>(link_entity)
+                    .get_mut::<PredictionSyncBuffer>(link_entity)
             }
-            .unwrap()
-            .buffer;
+            .unwrap();
             trace!(
                 "Sync from confirmed {:?} to predicted {:?}",
                 event.confirmed, event.predicted

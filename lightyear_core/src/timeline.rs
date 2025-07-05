@@ -209,3 +209,13 @@ impl<T> Copy for SyncEvent<T> {}
 /// This is in `lightyear_core` to avoid circular dependencies. Many other plugins behave differently during rollback
 #[derive(Component)]
 pub struct Rollback;
+//
+// {
+//     /// The rollback is initiated because we have received new Confirmed state from the server
+//     /// that doesn't match our prediction history.
+//     FromState,
+//     /// The rollback is initiated because we have received new Inputs for remote clients
+//     ///
+//     /// We should still check if there are state mismatches
+//     FromInputs,
+// }

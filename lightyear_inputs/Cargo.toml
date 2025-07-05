@@ -16,7 +16,6 @@ client = [
   "lightyear_messages/client",
   "lightyear_sync/client",
   "lightyear_replication/client",
-  "lightyear_prediction",
   "lightyear_transport/client",
 ]
 server = [
@@ -27,6 +26,7 @@ server = [
   "lightyear_transport/server",
 ]
 metrics = ["dep:metrics", "std"]
+prediction = ["dep:lightyear_prediction"]
 interpolation = ["dep:lightyear_interpolation"]
 
 
@@ -53,6 +53,7 @@ serde.workspace = true
 # bevy
 bevy_app.workspace = true
 bevy_ecs.workspace = true
+bevy_platform.workspace = true
 bevy_reflect.workspace = true
 
 [lints]
