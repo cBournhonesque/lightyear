@@ -280,7 +280,7 @@ fn test_two_consecutive_frame_updates() {
     let frame_duration = Duration::from_millis(10);
     // very long tick duration to guarantee that we have 2 consecutive frames without a tick
     // choose a value where Syncing stops at the end of tick
-    let tick_duration = Duration::from_millis(21);
+    let tick_duration = Duration::from_millis(23);
     let (mut stepper, confirmed, predicted, _, _) = setup(tick_duration, frame_duration);
 
     // we insert the component at a different frame to not trigger an early rollback
@@ -295,8 +295,11 @@ fn test_two_consecutive_frame_updates() {
     // trigger a rollback (the predicted value doesn't exist in the prediction history)
     let original_tick = stepper.client_tick(0);
     let rollback_tick = original_tick - 5;
+    info!(?original_tick, ?rollback_tick, "trigger rollback");
     trigger_rollback_check(&mut stepper, rollback_tick);
     stepper.frame_step(1);
+    assert_eq!(stepper.client_tick(0), original_tick);
+    info!("end rollback and advanced by 1 frame. Normally no FixedUpdate has run");
     // check that a correction Component is added, however no Correction is applied yet because FixedUpdate didn't run
     assert_eq!(
         stepper

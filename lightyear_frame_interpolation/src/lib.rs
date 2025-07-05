@@ -58,6 +58,7 @@ use bevy_ecs::{
     world::Ref,
 };
 use bevy_transform::TransformSystem;
+use core::fmt::Debug;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::correction::Correction;
@@ -105,7 +106,7 @@ impl<C> Default for FrameInterpolationPlugin<C> {
     }
 }
 
-impl<C: Component<Mutability = Mutable> + Clone> Plugin for FrameInterpolationPlugin<C> {
+impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpolationPlugin<C> {
     fn build(&self, app: &mut App) {
         // SETS
         app.configure_sets(
@@ -233,7 +234,9 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone>(
 
 /// Update the previous and current tick values.
 /// Runs in FixedUpdate after FixedUpdate::Main (where the component values are updated)
-pub(crate) fn update_visual_interpolation_status<C: Component<Mutability = Mutable> + Clone>(
+pub(crate) fn update_visual_interpolation_status<
+    C: Component<Mutability = Mutable> + Clone + Debug,
+>(
     mut query: Query<(Ref<C>, &mut FrameInterpolate<C>)>,
 ) {
     for (component, mut interpolate_status) in query.iter_mut() {
@@ -246,20 +249,30 @@ pub(crate) fn update_visual_interpolation_status<C: Component<Mutability = Mutab
             );
             continue;
         }
-        trace!("updating interpolate status current_value");
         interpolate_status.current_value = Some(component.clone());
+        trace!(
+            ?interpolate_status,
+            "updating interpolate status current_value"
+        );
     }
 }
 
 /// Restore the component value to the non-interpolated value
-pub(crate) fn restore_from_visual_interpolation<C: Component<Mutability = Mutable> + Clone>(
+pub(crate) fn restore_from_visual_interpolation<
+    C: Component<Mutability = Mutable> + Clone + Debug,
+>(
     // if correction is enabled, we will restore the value from the Correction component
     mut query: Query<(&mut C, &mut FrameInterpolate<C>), Without<Correction<C>>>,
 ) {
     let kind = core::any::type_name::<C>();
     for (mut component, interpolate_status) in query.iter_mut() {
         if let Some(current_value) = &interpolate_status.current_value {
-            trace!(?kind, "Restoring visual interpolation");
+            trace!(
+                ?kind,
+                ?component,
+                ?current_value,
+                "Restoring visual interpolation"
+            );
             *component.bypass_change_detection() = current_value.clone();
         }
     }

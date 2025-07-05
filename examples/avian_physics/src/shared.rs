@@ -2,8 +2,10 @@ use crate::protocol::*;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use core::hash::{Hash, Hasher};
+use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
+use lightyear::input::client::InputSet;
 use lightyear::input::input_buffer::InputBuffer;
 use lightyear::prediction::correction::Correction;
 use lightyear::prelude::*;
@@ -28,6 +30,12 @@ impl Plugin for SharedPlugin {
                 .disable::<SyncPlugin>(),
         )
         .insert_resource(Gravity(Vec2::ZERO));
+
+        app.add_systems(
+            FixedPreUpdate,
+            fixed_pre_log.after(InputSet::BufferClientInputs),
+        );
+        // app.add_systems(FixedPostUpdate, fixed_pre_physics.before(PhysicsSet::StepSimulation));
 
         app.add_systems(FixedLast, fixed_last_log);
         // app.add_systems(Last, last_log);
@@ -99,12 +107,66 @@ fn debug() {
     trace!("Fixed Start");
 }
 
+pub(crate) fn fixed_pre_log(
+    timeline: Single<(&LocalTimeline, Has<Rollback>), With<Client>>,
+    remote_client_inputs: Query<
+        (
+            Entity,
+            &ActionState<PlayerActions>,
+            &InputBuffer<ActionState<PlayerActions>>,
+        ),
+        (Without<InputMap<PlayerActions>>, With<Predicted>),
+    >,
+) {
+    let (timeline, rollback) = timeline.into_inner();
+    let tick = timeline.tick();
+    for (entity, action_state, buffer) in remote_client_inputs.iter() {
+        let pressed = action_state.get_pressed();
+        info!(
+            ?rollback,
+            ?tick,
+            ?entity,
+            ?pressed,
+            %buffer,
+            "Remote client input before FixedUpdate");
+    }
+}
+
+pub(crate) fn fixed_pre_physics(
+    timeline: Single<(&LocalTimeline, Has<Rollback>), With<Client>>,
+    remote_client_inputs: Query<
+        (
+            Entity,
+            &Position,
+            &LinearVelocity,
+            &ActionState<PlayerActions>,
+        ),
+        With<Predicted>,
+    >,
+) {
+    let (timeline, rollback) = timeline.into_inner();
+    let tick = timeline.tick();
+    for (entity, position, velocity, action_state) in remote_client_inputs.iter() {
+        let pressed = action_state.get_pressed();
+        info!(
+            ?rollback,
+            ?tick,
+            ?entity,
+            ?position,
+            ?velocity,
+            ?pressed,
+            "Client in FixedPostUpdate right before physics"
+        );
+    }
+}
+
 pub(crate) fn fixed_last_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
     players: Query<
         (
             Entity,
             &Position,
+            &LinearVelocity,
             Option<&Correction<Position>>,
             Option<&ActionState<PlayerActions>>,
             Option<&InputBuffer<ActionState<PlayerActions>>>,
@@ -116,7 +178,7 @@ pub(crate) fn fixed_last_log(
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
 
-    for (entity, position, correction, action_state, input_buffer) in players.iter() {
+    for (entity, position, velocity, correction, action_state, input_buffer) in players.iter() {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         info!(
@@ -124,6 +186,7 @@ pub(crate) fn fixed_last_log(
             ?tick,
             ?entity,
             ?position,
+            ?velocity,
             ?correction,
             ?pressed,
             ?last_buffer_tick,

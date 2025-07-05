@@ -1,3 +1,13 @@
+# Why do my predictions don't work at all
+
+- when i receive an update from the server for the predicted entity, i should also have received that inputs for that entity since we send
+  the inputs more frequently. But it seems like it's not the case?
+- Maybe we should rollback immediately when I notice that the inputs are not correct on the predicted entity?
+  No need to wait to wait for an actual replication update! i.e. we should predict the ActionState! We just don't revert to the Confirmed tick, instead we revert to the history we had for that tick.
+
+- BIG BUG: after Correction, it looks like we are not setting the inputs correctly! We look at the current input instead of looking at the current input w.r.t to the buffer!
+
+
 # CHANGES FOR REPLICATION
 
 - SinceLastAck:

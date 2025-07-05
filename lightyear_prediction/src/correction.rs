@@ -141,6 +141,8 @@ pub(crate) fn restore_corrected_state<C: SyncComponent>(
     for (mut component, mut correction) in query.iter_mut() {
         if let Some(correction) = core::mem::take(&mut correction.current_correction) {
             trace!(
+                ?component,
+                ?correction,
                 "Restoring corrected component before FixedUpdate: {:?}",
                 kind
             );

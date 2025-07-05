@@ -204,12 +204,6 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             app.add_observer(add_prediction_history::<C>);
             app.add_systems(
                 PreUpdate,
-                // restore to the corrected state (as the visual state might be interpolating
-                // between the predicted and corrected state)
-                restore_corrected_state::<C>.in_set(PredictionSet::RestoreVisualCorrection),
-            );
-            app.add_systems(
-                PreUpdate,
                 (
                     // for SyncMode::Full, we need to check if we need to rollback.
                     // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
@@ -221,6 +215,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             // we want this to run every frame.
             // If we have a Correction and we have 2 consecutive frames without FixedUpdate running
             // the component would be set to the corrected state, instead of the original prediction!
+            // but we want those frames to keep displaying the original predicted value
             app.add_systems(
                 RunFixedMainLoop,
                 set_original_prediction_post_rollback::<C>
@@ -231,8 +226,6 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             // [PreUpdate] RestoreCorrectValue
             // [FixedUpdate] Step -> Correction = UpdateCorrectValue, InterpolateVisualValue, SetC=Visual, Sync, UpdateVisualInterpolation
             // [FixedUpdate] Step (from C=Visual!!)
-            // We still need the RestoreVisualCorrection in PreUpdate because we need the correct state when checking for rollbacks
-            // Maybe the rollback systems should be in FixedUpdate?
             app.add_systems(
                 FixedPreUpdate,
                 // restore to the corrected state (as the visual state might be interpolating
@@ -299,7 +292,6 @@ impl Plugin for PredictionPlugin {
                 (
                     PredictionSet::SpawnPrediction,
                     PredictionSet::Sync,
-                    PredictionSet::RestoreVisualCorrection,
                     PredictionSet::CheckRollback,
                     PredictionSet::RemoveDisable.run_if(is_in_rollback),
                     PredictionSet::PrepareRollback.run_if(is_in_rollback),

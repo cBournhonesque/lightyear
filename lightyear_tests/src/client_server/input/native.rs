@@ -1,9 +1,12 @@
 use crate::protocol::NativeInput as MyInput;
-use crate::stepper::ClientServerStepper;
+use crate::stepper::{ClientServerStepper, TICK_DURATION};
+use bevy::prelude::default;
 use lightyear::input::native::prelude::InputMarker;
 use lightyear::input::prelude::InputBuffer;
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::network_target::NetworkTarget;
+use lightyear_link::Link;
+use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
@@ -237,6 +240,117 @@ fn test_remote_client_confirmed_input() {
             value: Some(MyInput(3))
         }
     );
+}
+
+/// Test remote client inputs: we should be using the last known input value of the remote client, for better prediction accuracy!
+///
+/// For example if we receive inputs from client 1 with 5 tick delay, then when we are tick 35 we receive
+/// the input for tick 30. In that case we should either:
+/// - launch a rollback check immediately for tick 30
+/// - or at least at tick 35 use the newly received input value for prediction!
+#[test]
+fn test_input_broadcasting_prediction() {
+    let mut stepper = ClientServerStepper::with_clients(2);
+    let server_recv_delay: i16 = 2;
+
+    // client 0 has some latency to send inputs to the server
+    stepper
+        .client_of_mut(0)
+        .get_mut::<Link>()
+        .unwrap()
+        .recv
+        .conditioner = Some(lightyear_link::LinkConditioner::new(
+        LinkConditionerConfig {
+            incoming_latency: TICK_DURATION * (server_recv_delay as u32),
+            ..default()
+        },
+    ));
+
+    // SETUP - Create an entity controlled by client 0, predicted by all clients
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+            ActionState::<MyInput>::default(),
+        ))
+        .id();
+    stepper.frame_step_server_first(1);
+
+    // Get the predicted entities on both clients
+    let client0_confirmed = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity not replicated to client 0");
+
+    let client0_predicted = stepper.client_apps[0]
+        .world()
+        .get::<Confirmed>(client0_confirmed)
+        .unwrap()
+        .predicted
+        .unwrap();
+
+    let client1_confirmed = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity not replicated to client 1");
+
+    let client1_predicted = stepper.client_apps[1]
+        .world()
+        .get::<Confirmed>(client1_confirmed)
+        .unwrap()
+        .predicted
+        .unwrap();
+
+    // Add input markers to client 0, and make sure that it's replicated to client 1
+    let client0_tick = stepper.client_tick(0);
+    let client1_tick = stepper.client_tick(1);
+    info!(?client0_tick, ?client1_tick, "Add input marker on client 0");
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(client0_predicted)
+        .insert(InputMarker::<MyInput>::default());
+    stepper.frame_step(5);
+
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .get::<InputBuffer<ActionState<MyInput>>>(client1_predicted)
+            .is_some()
+    );
+
+    // TEST SCENARIO:
+    // 1. Client 0 starts sending input value 10 continuously
+    stepper.client_apps[0]
+        .world_mut()
+        .get_mut::<ActionState<MyInput>>(client0_predicted)
+        .unwrap()
+        .value = Some(MyInput(10));
+    stepper.frame_step(1);
+    let client1_tick = stepper.client_tick(1);
+    // step 2 more frames because the input is delayed. And because we need client0 -> server -> client1
+    stepper.frame_step_server_first(2);
+
+    // make sure that the client 1 receives them, with the delay
+    let buffer = stepper.client_apps[1]
+        .world()
+        .get::<InputBuffer<ActionState<MyInput>>>(client1_predicted)
+        .expect("input buffer should exist");
+    info!(?buffer, "client 1 tick: {:?}", client1_tick);
+    assert_eq!(buffer.end_tick().unwrap(), client1_tick);
+    // make sure that the ActionState on client 1's predicted entity has been updated
+    let action_state = stepper.client_apps[1]
+        .world()
+        .get::<ActionState<MyInput>>(client1_predicted)
+        .expect("action state should exist");
+    assert_eq!(action_state.value, Some(MyInput(10)));
 }
 
 // /// Test a remote client's pre-predicted entity sending inputs to the server
