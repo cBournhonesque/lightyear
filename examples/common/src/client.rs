@@ -3,23 +3,16 @@
 #![allow(unused_variables)]
 use core::net::{Ipv4Addr, SocketAddr};
 
-use bevy::asset::ron;
 use bevy::prelude::*;
-use core::time::Duration;
 
 use crate::shared::SharedSettings;
-#[cfg(not(target_family = "wasm"))]
-use async_compat::Compat;
 use bevy::ecs::component::HookContext;
 use bevy::ecs::world::DeferredWorld;
-#[cfg(not(target_family = "wasm"))]
-use bevy::tasks::IoTaskPool;
 use lightyear::netcode::client_plugin::NetcodeConfig;
-use lightyear::netcode::{NetcodeClient, PRIVATE_KEY_BYTES};
+use lightyear::netcode::NetcodeClient;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
-use tracing::warn;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -67,7 +60,7 @@ impl ExampleClient {
                 Name::from("Client"),
             ));
 
-            if cfg!(feature = "netcode") && !cfg!(feature = "steam") {
+            let add_netcode = |entity_mut: &mut EntityWorldMut| -> Result {
                 // use dummy zeroed key explicitly here.
                 let auth = Authentication::Manual {
                     server_addr: settings.server_addr,
@@ -82,14 +75,17 @@ impl ExampleClient {
                     ..default()
                 };
                 entity_mut.insert(NetcodeClient::new(auth, netcode_config)?);
-            }
+                Ok(())
+            };
 
             match settings.transport {
                 #[cfg(not(target_family = "wasm"))]
                 ClientTransports::Udp => {
+                    add_netcode(&mut entity_mut)?;
                     entity_mut.insert(UdpIo::default());
                 }
                 ClientTransports::WebTransport => {
+                    add_netcode(&mut entity_mut)?;
                     let certificate_digest = {
                         #[cfg(target_family = "wasm")]
                         {
