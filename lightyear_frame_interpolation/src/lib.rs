@@ -57,6 +57,7 @@ use bevy_ecs::{
     system::{Query, Res, Single},
     world::Ref,
 };
+use bevy_time::{Fixed, Time};
 use bevy_transform::TransformSystem;
 use core::fmt::Debug;
 use lightyear_core::prelude::LocalTimeline;
@@ -187,17 +188,16 @@ impl<C: Component> Default for FrameInterpolate<C> {
 //  (to avoid orphan rule)
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
 pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + Debug>(
-    // TODO: handle multiple timelines
-
-    // TODO: maybe get rid of this and only handle types that are Ease? the issue is that Transform
-    //  doesn't implement Ease. It's not great that we require InterpolationRegistry
+    time: Res<Time<Fixed>>,
     registry: Res<InterpolationRegistry>,
     timeline: Single<&LocalTimeline, With<PredictionManager>>,
     mut query: Query<(&mut C, &FrameInterpolate<C>)>,
 ) {
     let kind = core::any::type_name::<C>();
     let tick = timeline.now.tick;
-    let overstep = timeline.now.overstep;
+    // TODO: how should we get the overstep? the LocalTimeline is only incremented during FixedUpdate so has an overstep of 0.0
+    //  the InputTimeline seems to have an overstep, but it doesn't match the Time<Fixed> overstep
+    let overstep = time.overstep_fraction();
     for (mut component, interpolate_status) in query.iter_mut() {
         let Some(previous_value) = &interpolate_status.previous_value else {
             trace!(?kind, "No previous value, skipping visual interpolation");
@@ -207,23 +207,8 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
             trace!(?kind, "No current value, skipping visual interpolation");
             continue;
         };
-        trace!(
-            ?kind,
-            ?tick,
-            ?overstep,
-            "Frame interpolation of fixed-update component!"
-        );
-        let interpolated = registry.interpolate(
-            previous_value.clone(),
-            current_value.clone(),
-            overstep.value(),
-        );
-        // let curve = EasingCurve::new(
-        //     previous_value.clone(),
-        //     current_value.clone(),
-        //     EaseFunction::Linear,
-        // );
-        // let interpolated = curve.sample_unchecked(overstep.value());
+        let interpolated =
+            registry.interpolate(previous_value.clone(), current_value.clone(), overstep);
         trace!(
             ?kind,
             ?tick,

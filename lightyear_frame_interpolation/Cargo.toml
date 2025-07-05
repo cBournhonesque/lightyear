@@ -28,6 +28,7 @@ bytes = { workspace = true, optional = true }
 # bevy
 bevy_app.workspace = true
 bevy_ecs.workspace = true
+bevy_time.workspace = true
 bevy_transform = { workspace = true, features = ["bevy-support"] }
 
 [lints]

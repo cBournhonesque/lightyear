@@ -19,6 +19,9 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(add_ball_physics);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(handle_predicted_spawn);
+
+        // DEBUG
+        app.add_systems(PostUpdate, print_overstep);
     }
 }
 
@@ -111,4 +114,12 @@ pub(crate) fn handle_interpolated_spawn(
         };
         color.0 = Color::from(hsva);
     }
+}
+
+// Debug system to check on the oversteps
+fn print_overstep(time: Res<Time<Fixed>>, timeline: Single<&InputTimeline, With<Client>>) {
+    let input_overstep = timeline.overstep();
+    let input_overstep_ms = input_overstep.value() * (time.timestep().as_millis() as f32);
+    let time_overstep = time.overstep();
+    trace!(?input_overstep_ms, ?time_overstep, "overstep");
 }
