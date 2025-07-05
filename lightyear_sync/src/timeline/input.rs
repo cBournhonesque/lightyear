@@ -75,6 +75,8 @@ impl Input {
         }
     }
 
+    // TODO: we want to limit this when only the config updates, not the timeline itself!
+    //  disabling this for now
     /// Update the input delay based on the current RTT and tick duration
     /// when the InputDelayConfig is updated
     pub(crate) fn recompute_input_delay_on_config_update(
@@ -82,7 +84,6 @@ impl Input {
         mut query: Query<(&Link, &mut InputTimeline), Changed<InputTimeline>>,
     ) {
         query.iter_mut().for_each(|(link, mut timeline)| {
-            // TODO: we want to limit this when only the config updates, not the timeline itself!
             let rtt = link.stats.rtt;
             timeline.input_delay_ticks = timeline
                 .input_delay_config

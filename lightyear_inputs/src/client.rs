@@ -224,7 +224,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
 /// If we have input-delay, we will store the current ActionState in the buffer at the delayed-tick,
 /// and we will pull ActionStates from the buffer instead of just using the ActionState component directly.
 ///
-/// We do not need to buffer inputs during rollback, as they have already been buffered
+/// We do not need to buffer inputs during rollback, as they have already been buffered!
 fn buffer_action_state<S: ActionStateSequence>(
     context: StaticSystemParam<S::Context>,
     // we buffer inputs even for the Host-Server so that
@@ -271,11 +271,15 @@ fn get_action_state<S: ActionStateSequence>(
     // NOTE: we skip this for host-client because a similar system does the same thing
     //  in the server, and also clears the buffers
     sender: Single<(&LocalTimeline, &InputTimeline, Has<Rollback>), Without<HostClient>>,
-    // NOTE: we want to apply the Inputs for BOTH the local player and the remote player.
+
+    // NOTE: we want to apply the Inputs for ONLY the local player
     // - local player: we need to get the input from the InputBuffer because of input delay
-    // - remote player: we want to reduce the amount of rollbacks by updating the ActionState
-    //   as fast as possible (the inputs are broadcasted with no delay)
-    mut action_state_query: Query<(Entity, &mut S::State, &InputBuffer<S::Snapshot>)>,
+    // (for the remote players, we update the ActionState as soon as we receive the RemoteMessage.)
+    //  TODO: We could maybe have some decay logic where the input decays to the middle)
+    mut action_state_query: Query<
+        (Entity, &mut S::State, &InputBuffer<S::Snapshot>),
+        With<S::Marker>,
+    >,
 ) {
     let (local_timeline, input_timeline, is_rollback) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
@@ -285,9 +289,11 @@ fn get_action_state<S: ActionStateSequence>(
     }
     let tick = local_timeline.tick();
     for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
-        // We only apply the ActionState from the buffer if we have one.
-        // If we don't (which could happen for remote inputs), we won't do anything.
-        // This is equivalent to considering that the remote player will keep playing the last action they played.
+        // NOTE: before, we were simply not doing anything if we don't have an input for this tick.
+        //  I thought this would be equivalent to predicting that the remote player will keep playing the last action they played.
+        //  But actually it is NOT, because when an old input arrives we don't update the current ActionState to reflect that!
+        // (we were only updating the input buffer, and then doing input_buffer.get(tick), which returned None)
+
         if let Some(snapshot) = input_buffer.get(tick) {
             S::from_snapshot(action_state.as_mut(), snapshot, &context);
             trace!(
@@ -297,6 +303,14 @@ fn get_action_state<S: ActionStateSequence>(
                 "fetched action state from input buffer: {:?}",
                 // action_state.get_pressed(),
                 input_buffer
+            );
+        } else {
+            error!(
+                ?tick,
+                ?entity,
+                "Missing input from local client for action: {:?}. Input buffer: {}",
+                core::any::type_name::<S::Action>(),
+                input_buffer,
             );
         }
     }
@@ -494,6 +508,7 @@ fn prepare_input_message<S: ActionStateSequence>(
         }
     }
 
+    // TODO: revisit this; maybe we should not send an empty message?
     // we send a message even when there are 0 inputs because that itself is information
     trace!(
         ?tick,
@@ -514,6 +529,7 @@ fn prepare_input_message<S: ActionStateSequence>(
 ///
 /// We will apply the diffs on the Predicted entity.
 fn receive_remote_player_input_messages<S: ActionStateSequence>(
+    context: StaticSystemParam<S::Context>,
     mut commands: Commands,
     link: Single<
         (
@@ -526,7 +542,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     // TODO: currently we do not handle entities that are controlled by multiple clients
     confirmed_query: Query<&Confirmed, Without<S::Marker>>,
     mut predicted_query: Query<
-        Option<&mut InputBuffer<S::Snapshot>>,
+        (Option<&mut InputBuffer<S::Snapshot>>, Option<&mut S::State>),
         // the host-client won't receive input messages from the Server
         (With<Predicted>, Without<S::Marker>, Without<HostClient>),
     >,
@@ -551,15 +567,26 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             };
             if let Some(entity) = entity {
                 debug!(
-                    "received input message for entity: {:?}. Applying to diff buffer.",
+                    ?message.end_tick,
+                    "received remote client input message for entity: {:?}. Applying to diff buffer.",
                     entity
                 );
                 if let Ok(confirmed) = confirmed_query.get(entity) {
                     if let Some(predicted) = confirmed.predicted {
-                        if let Ok(input_buffer) = predicted_query.get_mut(predicted) {
+                        if let Ok((input_buffer, action_state)) = predicted_query.get_mut(predicted) {
                             trace!(confirmed= ?entity, ?predicted, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
                             if let Some(mut input_buffer) = input_buffer {
                                 target_data.states.update_buffer(&mut input_buffer, message.end_tick);
+                                // IMPORTANT: immediately update the ActionState from the last snapshot of the buffer
+                                //  this means that even if the input received was from the past, we will immediately start using it
+                                //  (i.e. predicting that the remote player kept playing the same action)
+                                if let Some(snapshot) = input_buffer.get_last() {
+                                    S::from_snapshot(
+                                        &mut action_state.expect("there should always be an ActionState if the InputBuffer is present"),
+                                        snapshot,
+                                        &context,
+                                    );
+                                };
                                 #[cfg(feature = "metrics")]
                                 {
                                     let margin = input_buffer.end_tick().unwrap() - tick;
@@ -580,10 +607,19 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                                 // add the ActionState or InputBuffer if they are missing
                                 let mut input_buffer = InputBuffer::<S::Snapshot>::default();
                                 target_data.states.update_buffer(&mut input_buffer, message.end_tick);
+                                // IMPORTANT: immediately update the ActionState from the last snapshot of the buffer
+                                let mut action_state = S::State::default();
+                                if let Some(snapshot) = input_buffer.get_last() {
+                                    S::from_snapshot(
+                                        &mut action_state,
+                                        snapshot,
+                                        &context,
+                                    );
+                                };
                                 // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
                                 commands.entity(predicted).insert((
                                     input_buffer,
-                                    S::State::default()
+                                    action_state,
                                 ));
                             };
                         }
