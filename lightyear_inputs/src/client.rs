@@ -272,14 +272,17 @@ fn get_action_state<S: ActionStateSequence>(
     //  in the server, and also clears the buffers
     sender: Single<(&LocalTimeline, &InputTimeline, Has<Rollback>), Without<HostClient>>,
 
-    // NOTE: we want to apply the Inputs for ONLY the local player
+    // NOTE: we want to apply the Inputs for BOTH the local player and remote player
     // - local player: we need to get the input from the InputBuffer because of input delay
+    // - remote player: during rollbacks, we need to fetch the ActionState from the InputBuffer
     // (for the remote players, we update the ActionState as soon as we receive the RemoteMessage.)
     //  TODO: We could maybe have some decay logic where the input decays to the middle)
-    mut action_state_query: Query<
-        (Entity, &mut S::State, &InputBuffer<S::Snapshot>),
-        With<S::Marker>,
-    >,
+    mut action_state_query: Query<(
+        Entity,
+        &mut S::State,
+        &InputBuffer<S::Snapshot>,
+        Has<S::Marker>,
+    )>,
 ) {
     let (local_timeline, input_timeline, is_rollback) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
@@ -288,11 +291,15 @@ fn get_action_state<S: ActionStateSequence>(
         return;
     }
     let tick = local_timeline.tick();
-    for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
+    for (entity, mut action_state, input_buffer, is_local) in action_state_query.iter_mut() {
+        // for remote players, this is only relevant in rollbacks
+        if !is_local && !is_rollback {
+            continue;
+        }
         // NOTE: before, we were simply not doing anything if we don't have an input for this tick.
         //  I thought this would be equivalent to predicting that the remote player will keep playing the last action they played.
         //  But actually it is NOT, because when an old input arrives we don't update the current ActionState to reflect that!
-        // (we were only updating the input buffer, and then doing input_buffer.get(tick), which returned None)
+        //  (we were only updating the input buffer, and then doing input_buffer.get(tick), which returned None)
 
         if let Some(snapshot) = input_buffer.get(tick) {
             S::from_snapshot(action_state.as_mut(), snapshot, &context);
@@ -303,14 +310,6 @@ fn get_action_state<S: ActionStateSequence>(
                 "fetched action state from input buffer: {:?}",
                 // action_state.get_pressed(),
                 input_buffer
-            );
-        } else {
-            error!(
-                ?tick,
-                ?entity,
-                "Missing input from local client for action: {:?}. Input buffer: {}",
-                core::any::type_name::<S::Action>(),
-                input_buffer,
             );
         }
     }
