@@ -43,11 +43,11 @@
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
 //!   will read the inputs using the [`InputBuffer`] component.
 
-use crate::InputChannel;
 use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
+use crate::InputChannel;
 #[cfg(feature = "metrics")]
 use alloc::format;
 use alloc::{vec, vec::Vec};
@@ -76,14 +76,14 @@ use lightyear_core::timeline::SyncEvent;
 use lightyear_interpolation::plugin::InterpolationDelay;
 #[cfg(feature = "interpolation")]
 use lightyear_interpolation::prelude::InterpolationTimeline;
-use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
+use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;
 use lightyear_replication::components::{Confirmed, PrePredicted};
 use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
+use lightyear_sync::prelude::InputTimeline;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::ChannelRegistry;
 use tracing::{debug, error, trace};
@@ -627,7 +627,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     error!(?entity, ?target_data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                 }
             } else {
-                error!("received remote player input message for unrecognized entity");
+                error!("received remote player input message for non existent entity");
             }
         }
     });

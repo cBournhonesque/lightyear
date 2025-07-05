@@ -1,9 +1,9 @@
 //! Handle input messages received from the clients
 
-use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
+use crate::InputChannel;
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
@@ -109,6 +109,9 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
         // }
     }
 }
+
+// TODO: why do we need the Server? we could just run this on any receiver.
+//  (apart from rebroadcast inputs)
 
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<S: ActionStateSequence>(

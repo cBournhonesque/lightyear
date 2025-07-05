@@ -147,7 +147,8 @@ crossbeam = ["dep:lightyear_crossbeam"]
 
 # CONNECTION LAYERS
 ## Enables Steam as a connection layer
-steam = ["dep:steamworks", "dep:lightyear_steam", "std"]
+steam = ["dep:lightyear_steam", "std"]
+
 
 [dependencies]
 # local crates
@@ -193,12 +194,10 @@ document-features.workspace = true
 
 [target."cfg(not(target_family = \"wasm\"))".dependencies]
 lightyear_udp = { workspace = true, optional = true }
-steamworks = { workspace = true, optional = true }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook.workspace = true
 bevy_web_keepalive.workspace = true
-wasm-bindgen = { workspace = true, optional = true }
 
 [package.metadata.docs.rs]
 all-features = true

@@ -201,7 +201,7 @@ pub(crate) fn add_prediction_history<C: Component>(
     query: Query<
         (),
         (
-            Without<PredictionHistory<C>>,
+            (Without<PredictionHistory<C>>, With<C>),
             Or<(With<Predicted>, With<PrePredicted>, With<PreSpawned>)>,
         ),
     >,

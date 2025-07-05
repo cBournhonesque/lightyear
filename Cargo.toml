@@ -7,6 +7,7 @@ members = [
   "lightyear_avian3d",
   "lightyear_core",
   "lightyear_crossbeam",
+  "lightyear_deterministic_replication",
   "lightyear_frame_interpolation",
   "lightyear_inputs",
   "lightyear_inputs_bei",
@@ -162,17 +163,12 @@ tokio = { version = "1.45", features = [
 ], default-features = false }
 async-compat = "0.2.3"
 
-# Non-WASM things
-steamworks = "0.12"
-
 # WASM things
 console_error_panic_hook = "0.1.7"
-web-time = "1.1.0"
 bevy_web_keepalive = "0.3.5"
 getrandom = { version = "0.3", features = [
   "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
 ] }
-wasm-bindgen = "0.2.90"
 
 # dev deps
 mock_instant = "0.6"

@@ -27,15 +27,16 @@ pub mod spawn;
 #[cfg(feature = "server")]
 pub mod server;
 mod shared;
+mod deterministic;
 
 pub mod prelude {
-    pub use crate::Predicted;
-    pub use crate::PredictionMode;
     pub use crate::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
     pub use crate::manager::PredictionManager;
     pub use crate::plugin::PredictionPlugin;
     pub use crate::prespawn::PreSpawned;
     pub use crate::registry::{PredictionAppRegistrationExt, PredictionRegistrationExt};
+    pub use crate::Predicted;
+    pub use crate::PredictionMode;
 
     #[cfg(feature = "server")]
     pub mod server {
