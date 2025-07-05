@@ -153,7 +153,7 @@ metrics = "0.24"
 
 # transport
 aeronet_webtransport = "0.14.0"
-aeronet_steam = "0.14.0"
+aeronet_steam = "=0.14.0"
 aeronet_io = "0.14.0"
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.45", features = [
@@ -161,9 +161,6 @@ tokio = { version = "1.45", features = [
   "macros",
 ], default-features = false }
 async-compat = "0.2.3"
-
-# Non-WASM things
-steamworks = "0.12"
 
 # WASM things
 console_error_panic_hook = "0.1.7"
