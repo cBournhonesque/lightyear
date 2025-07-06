@@ -9,17 +9,17 @@ use core::time::Duration;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 
-use bevy::DefaultPlugins;
 use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::state::app::StatesPlugin;
+use bevy::DefaultPlugins;
 use clap::{Parser, Subcommand};
 
 #[cfg(feature = "client")]
-use crate::client::{ClientTransports, ExampleClient, connect};
+use crate::client::{connect, ClientTransports, ExampleClient};
 #[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
 #[cfg(feature = "server")]
-use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
+use crate::server::{start, ExampleServer, ServerTransports, WebTransportCertificateSettings};
 #[cfg(all(feature = "gui", feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
 use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
@@ -76,6 +76,7 @@ impl Cli {
                 Self::add_steam(&mut app);
                 app.add_plugins((
                     lightyear::prelude::client::ClientPlugins { tick_duration },
+                    #[cfg(feature = "gui")]
                     ExampleClientRendererPlugin::new(format!("Client {client_id:?}")),
                 ));
                 app
@@ -93,6 +94,7 @@ impl Cli {
                 Self::add_steam(&mut app);
                 app.add_plugins((
                     lightyear::prelude::server::ServerPlugins { tick_duration },
+                    #[cfg(feature = "gui")]
                     ExampleServerRendererPlugin::new("Server".to_string()),
                 ));
                 app
@@ -105,7 +107,9 @@ impl Cli {
                 app.add_plugins((
                     lightyear::prelude::client::ClientPlugins { tick_duration },
                     lightyear::prelude::server::ServerPlugins { tick_duration },
+                    #[cfg(feature = "gui")]
                     ExampleClientRendererPlugin::new(format!("Host-Client {client_id:?}")),
+                    #[cfg(feature = "gui")]
                     ExampleServerRendererPlugin::new("Host-Server".to_string()),
                 ));
                 app
@@ -120,6 +124,8 @@ impl Cli {
     }
 
     pub fn spawn_connections(&self, app: &mut App) {
+        // we halve the conditioner values to apply on both the client and server
+        let conditioner = LinkConditionerConfig::average_condition().half();
         match self.mode {
             #[cfg(feature = "client")]
             Some(Mode::Client { client_id }) => {
@@ -129,9 +135,7 @@ impl Cli {
                         client_id: client_id.expect("You need to specify a client_id via `-c ID`"),
                         client_port: CLIENT_PORT,
                         server_addr: SERVER_ADDR,
-                        conditioner: Some(RecvLinkConditioner::new(
-                            LinkConditionerConfig::average_condition(),
-                        )),
+                        conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
                         // transport: ClientTransports::Udp,
                         transport: ClientTransports::WebTransport,
                         // #[cfg(feature = "steam")]
@@ -146,7 +150,7 @@ impl Cli {
                 let server = app
                     .world_mut()
                     .spawn(ExampleServer {
-                        conditioner: None,
+                        conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
                         // transport: ServerTransports::Udp {
                         //     local_port: SERVER_PORT,
                         // },
@@ -173,7 +177,7 @@ impl Cli {
                 let server = app
                     .world_mut()
                     .spawn(ExampleServer {
-                        conditioner: None,
+                        conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
                         // transport: ServerTransports::Udp {
                         //     local_port: SERVER_PORT,
                         // },
@@ -318,6 +322,16 @@ pub fn new_gui_app(add_inspector: bool) -> App {
             .set(log_plugin())
             .set(window_plugin()),
     );
+
+    #[cfg(feature = "visualizer")]
+    {
+        app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default());
+        app.add_plugins(bevy_metrics_dashboard::DashboardPlugin);
+        app.add_systems(Startup, |mut commands: Commands| {
+            commands.spawn(bevy_metrics_dashboard::DashboardWindow::new("Metrics"));
+        });
+    }
+
     if add_inspector {
         app.add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin {
             enable_multipass_for_primary_context: true,
@@ -326,6 +340,8 @@ pub fn new_gui_app(add_inspector: bool) -> App {
     }
     app
 }
+
+
 
 pub fn new_headless_app() -> App {
     let mut app = App::new();

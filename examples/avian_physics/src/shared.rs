@@ -5,7 +5,6 @@ use core::hash::{Hash, Hasher};
 use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
-use lightyear::input::client::InputSet;
 use lightyear::input::input_buffer::InputBuffer;
 use lightyear::prediction::correction::Correction;
 use lightyear::prelude::*;
@@ -33,7 +32,10 @@ impl Plugin for SharedPlugin {
 
         app.add_systems(
             FixedPreUpdate,
-            fixed_pre_log.after(InputSet::BufferClientInputs),
+            #[cfg(not(feature = "client"))]
+            fixed_pre_log,
+            #[cfg(feature = "client")]
+            fixed_pre_log.after(lightyear::input::client::InputSet::BufferClientInputs),
         );
         // app.add_systems(FixedPostUpdate, fixed_pre_physics.before(PhysicsSet::StepSimulation));
 

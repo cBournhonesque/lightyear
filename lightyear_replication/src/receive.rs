@@ -29,12 +29,12 @@ use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
-use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
+use lightyear_messages::MessageManager;
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "trace")]
-use tracing::{Level, instrument};
+use tracing::{instrument, Level};
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 
@@ -964,7 +964,7 @@ impl GroupChannel {
         group_id: ReplicationGroupId,
         remote_tick: Tick,
     ) {
-        trace!(
+        info!(
             ?remote_tick,
             "Updating confirmed tick for entities {:?} in group: {:?}",
             self.local_entities,

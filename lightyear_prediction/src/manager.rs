@@ -5,6 +5,7 @@ use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 
+use crate::correction::CorrectionPolicy;
 use bevy_ecs::component::HookContext;
 use bevy_ecs::entity::EntityHash;
 use bevy_ecs::observer::Trigger;
@@ -15,9 +16,9 @@ use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use lightyear_connection::client::Connected;
 use lightyear_core::prelude::{RollbackState, SyncEvent, Tick};
-use lightyear_replication::registry::ComponentError;
 use lightyear_replication::registry::buffered::BufferedChanges;
 use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::registry::ComponentError;
 use lightyear_serde::entity_map::EntityMap;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::timeline::input::Input;
@@ -86,7 +87,7 @@ pub enum RollbackMode {
     Disabled,
 }
 
-#[derive(Debug, Clone, Default, Copy, Reflect)]
+#[derive(Debug, Clone, Copy, Reflect)]
 /// The RollbackPolicy defines how we check and trigger rollbacks.
 ///
 /// If State and Input are both enabled, State takes precedence over Input.
@@ -94,6 +95,19 @@ pub enum RollbackMode {
 pub struct RollbackPolicy {
     pub state: RollbackMode,
     pub input: RollbackMode,
+    /// Maximum number of ticks we can rollback to. If we receive some packets that would make us rollback more than
+    /// this number of ticks, we just do nothing.
+    pub max_rollback_ticks: u16
+}
+
+impl Default for RollbackPolicy {
+    fn default() -> Self {
+        Self {
+            state: RollbackMode::Check,
+            input: RollbackMode::Check,
+            max_rollback_ticks: 100,
+        }
+    }
 }
 
 // TODO: there is ambiguity on how to handle AlwaysState and AlwaysInput.
@@ -124,11 +138,9 @@ pub struct PredictionManager {
     /// If true, we always rollback whenever we receive a server update, instead of checking
     /// ff the confirmed state matches the predicted state history
     pub rollback_policy: RollbackPolicy,
-    /// The number of correction ticks will be a multiplier of the number of ticks between
-    /// the client and the server correction
-    /// (i.e. if the client is 10 ticks head and correction_ticks is 1.0, then the correction will be done over 10 ticks)
-    // Number of ticks it will take to visually update the Predicted state to the new Corrected state
-    pub correction_ticks_factor: f32,
+    /// The configuration for how to handle Correction, which is basically lerping the previously predicted state
+    /// to the corrected state over a period of time after a rollback
+    pub correction_policy: CorrectionPolicy,
     /// Map between confirmed and predicted entities
     ///
     /// We wrap it into an UnsafeCell because the MapEntities trait requires a mutable reference to the EntityMap,
@@ -184,7 +196,7 @@ impl Default for PredictionManager {
     fn default() -> Self {
         Self {
             rollback_policy: RollbackPolicy::default(),
-            correction_ticks_factor: 1.0,
+            correction_policy: CorrectionPolicy::default(),
             predicted_entity_map: UnsafeCell::new(PredictedEntityMap::default()),
             prespawn_hash_to_entities: EntityHashMap::default(),
             prespawn_tick_to_hash: ReadyBuffer::default(),
@@ -244,7 +256,7 @@ impl PredictionManager {
 
     /// Get the current input_rollback tick
     pub(crate) fn get_input_rollback_start_tick(&self) -> Option<Tick> {
-        match *self.rollback.read().deref() {
+        match *self.input_rollback.read().deref() {
             RollbackState::RollbackStart(start_tick) => Some(start_tick),
             RollbackState::Default => None,
         }
@@ -253,6 +265,7 @@ impl PredictionManager {
     /// Set the rollback state back to non-rollback
     pub fn set_non_rollback(&self) {
         *self.rollback.write().deref_mut() = RollbackState::Default;
+        *self.input_rollback.write().deref_mut() = RollbackState::Default;
     }
 
     /// Set the rollback state to `ShouldRollback` with the given tick.

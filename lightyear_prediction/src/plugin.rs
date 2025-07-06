@@ -1,17 +1,17 @@
 use super::pre_prediction::PrePredictionPlugin;
 use super::predicted_history::apply_confirmed_update;
 use super::resource_history::{
-    ResourceHistory, handle_tick_event_resource_history, update_resource_history,
+    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
 };
 use super::rollback::{
-    RollbackPlugin, prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn,
-    prepare_rollback_resource, remove_prediction_disable, run_rollback,
+    prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn, prepare_rollback_resource,
+    remove_prediction_disable, run_rollback, RollbackPlugin,
 };
 use super::spawn::spawn_predicted_entity;
 use crate::correction::{
     get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback,
 };
-use crate::despawn::{PredictionDisable, despawn_confirmed};
+use crate::despawn::{despawn_confirmed, PredictionDisable};
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
@@ -22,7 +22,7 @@ use crate::predicted_history::{
 use crate::prespawn::{PreSpawned, PreSpawnedPlugin};
 use crate::registry::PredictionRegistry;
 use crate::{
-    Predicted, PredictionMode, SyncComponent, predicted_on_add_hook, predicted_on_remove_hook,
+    predicted_on_add_hook, predicted_on_remove_hook, Predicted, PredictionMode, SyncComponent,
 };
 #[cfg(feature = "metrics")]
 use alloc::format;
@@ -35,7 +35,7 @@ use bevy_ecs::{
     entity_disabling::DefaultQueryFilters,
     query::{With, Without},
     resource::Resource,
-    schedule::{IntoScheduleConfigs, SystemSet, common_conditions::not},
+    schedule::{common_conditions::not, IntoScheduleConfigs, SystemSet},
     system::Query,
 };
 use lightyear_connection::client::{Client, Connected};
@@ -202,6 +202,16 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             app.add_observer(apply_component_removal_predicted::<C>);
             app.add_observer(handle_tick_event_prediction_history::<C>);
             app.add_observer(add_prediction_history::<C>);
+            
+            // // restore the component to be the corrected state before the rollback check
+            // // (it's important because during `prepare_rollback` we set the `original_prediction` of the Correction,
+            // //  i.e. the starting point of the correction lerp, to be the current visual value of the component)
+            // app.add_systems(
+            //     PreUpdate,
+            //     // restore to the corrected state (as the visual state might be interpolating
+            //     // between the predicted and corrected state)
+            //     restore_corrected_state::<C>.in_set(PredictionSet::RestoreVisualCorrection),
+            // );
             app.add_systems(
                 PreUpdate,
                 (
@@ -292,6 +302,7 @@ impl Plugin for PredictionPlugin {
                 (
                     PredictionSet::SpawnPrediction,
                     PredictionSet::Sync,
+                    PredictionSet::RestoreVisualCorrection,
                     PredictionSet::CheckRollback,
                     PredictionSet::RemoveDisable.run_if(is_in_rollback),
                     PredictionSet::PrepareRollback.run_if(is_in_rollback),
@@ -326,7 +337,11 @@ impl Plugin for PredictionPlugin {
         // FixedPreUpdate
         app.configure_sets(
             FixedPreUpdate,
-            PredictionSet::RestoreVisualCorrection.in_set(PredictionSet::All),
+            PredictionSet::RestoreVisualCorrection
+                // during rollbacks, we restored the component value we want from the PredictedHistory or Confirmed state
+                // we want to run the rollback fixed-update frames using that component and not using correction
+                .run_if(not(is_in_rollback))
+                .in_set(PredictionSet::All),
         );
         app.configure_sets(FixedPreUpdate, PredictionSet::All.run_if(should_run));
 
@@ -344,7 +359,7 @@ impl Plugin for PredictionPlugin {
                 PredictionSet::Sync,
                 PredictionSet::UpdateHistory,
                 // no need to update the visual state during rollbacks
-                PredictionSet::VisualCorrection.run_if(not(is_in_rollback)),
+                PredictionSet::VisualCorrection,
             )
                 .in_set(PredictionSet::All)
                 .chain(),

@@ -21,9 +21,10 @@
 //!   - if there is a rollback, restart correction from the current corrected value
 //! - FixedUpdate: run the simulation to compute C(T+2).
 //! - FixedPostUpdate: set the component value to the interpolation between PT (predicted value at rollback start T) and C(T+2)
-use crate::SyncComponent;
 use crate::manager::PredictionManager;
 use crate::registry::PredictionRegistry;
+use crate::SyncComponent;
+use bevy_ecs::query::Without;
 use bevy_ecs::{
     change_detection::DetectChangesMut,
     component::Component,
@@ -31,10 +32,39 @@ use bevy_ecs::{
     query::{Added, With},
     system::{Commands, Query, Res, Single},
 };
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use bevy_reflect::Reflect;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Rollback};
 use lightyear_core::tick::Tick;
 use lightyear_utils::easings::ease_out_quad;
 use tracing::trace;
+
+
+#[derive(Component, Debug, Reflect)]
+pub enum CorrectionPolicy {
+    /// The duration of the correction will be a multiple of the number of rollback ticks, so
+    /// bigger rollbacks will take longer to correct. 1.0 means that the correction will take as many ticks
+    /// as the rollback size.
+    RollbackMultiple(f32),
+    /// The correction will take a fixed number of ticks, regardless of the rollback size.
+    FixedTicks(u16),
+}
+
+impl CorrectionPolicy {
+    pub(crate) fn num_correction_ticks(&self, rollback_ticks: u16) -> u16 {
+        match self {
+            CorrectionPolicy::RollbackMultiple(multiple) => {
+                (rollback_ticks as f32 * multiple).round() as u16
+            }
+            CorrectionPolicy::FixedTicks(ticks) => *ticks,
+        }
+    }
+}
+
+impl Default for CorrectionPolicy {
+    fn default() -> Self {
+        Self::RollbackMultiple(0.5)
+    }
+}
 
 #[derive(Component, Debug, PartialEq)]
 pub struct Correction<C: Component> {
@@ -67,7 +97,7 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
     prediction_registry: Res<PredictionRegistry>,
     mut commands: Commands,
     mut query: Query<(Entity, &mut C, &mut Correction<C>)>,
-    timeline: Single<&LocalTimeline, With<PredictionManager>>,
+    timeline: Single<&LocalTimeline, (With<PredictionManager>, Without<Rollback>)>,
 ) {
     let kind = core::any::type_name::<C>();
     let current_tick = timeline.tick();
@@ -87,8 +117,6 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
             commands.entity(entity).remove::<Correction<C>>();
         } else {
             trace!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", kind);
-            // store the current corrected value so that we can restore it at the start of the next frame
-            correction.current_correction = Some(component.clone());
             // TODO: avoid all these clones
             // visually update the component
             let visual = prediction_registry.correct(
@@ -104,11 +132,21 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
                     kind
                 );
                 commands.entity(entity).remove::<Correction<C>>();
+                continue;
             }
             // store the current visual value
             correction.current_visual = Some(visual.clone());
+            // store the current corrected value so that we can restore it at the start of the next frame
+            correction.current_correction = Some(component.clone());
             // set the component value to the visual value
             *component.bypass_change_detection() = visual;
+            trace!(
+                ?current_tick,
+                ?kind,
+                ?component,
+                ?correction,
+                "Applied correction!",
+            );
         }
     }
 }
@@ -124,7 +162,11 @@ pub(crate) fn get_corrected_state<C: SyncComponent>(
 /// [`PreUpdate`]: bevy_app::prelude::PreUpdate
 /// [`FixedUpdate`]: bevy_app::prelude::FixedUpdate
 pub(crate) fn set_original_prediction_post_rollback<C: SyncComponent>(
-    mut query: Query<(Entity, &mut C, &mut Correction<C>), Added<Correction<C>>>,
+    prediction_registry: Res<PredictionRegistry>,
+    mut query: Query<(Entity, &mut C, &mut Correction<C>)>,
+    // gc
+    // mut query: Query<(Entity, &mut C, &mut Correction<C>), Added<Correction<C>>>,
+    mut commands: Commands,
 ) {
     for (entity, mut component, mut correction) in query.iter_mut() {
         // correction has not started (even if a correction happens while a previous correction was going on, current_visual is None)
@@ -133,6 +175,18 @@ pub(crate) fn set_original_prediction_post_rollback<C: SyncComponent>(
                 kind = ?core::any::type_name::<C>(),
                 new_value = ?correction.original_prediction,
                 "Set component to original non-corrected prediction");
+            
+            // if the corrected value is very close to the original prediction, we can skip the correction right away
+            if !prediction_registry.should_rollback(&correction.original_prediction, &component) {
+                trace!(
+                    kind = ?core::any::type_name::<C>(),
+                    original_prediction = ?correction.original_prediction,
+                    corrected_value = ?component,
+                    "Removing correction immediately after rollback since values are close!");
+                commands.entity(entity).remove::<Correction<C>>();
+                continue;
+            }
+            
             // TODO: this is very inefficient.
             //  1. we only do the clone() once but if there's multiple frames before a FixedUpdate, we clone multiple times (mitigated by Added filter)
             //        although Added probably  doesn't work if we have nested Corrections..

@@ -544,7 +544,6 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     mut commands: Commands,
     link: Single<
         (
-            Entity,
             &MessageManager,
             &mut MessageReceiver<InputMessage<S>>,
             &PredictionManager,
@@ -560,7 +559,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         (With<Predicted>, Without<S::Marker>),
     >,
 ) {
-    let (link_entity, manager, mut receiver, prediction_manager, timeline) = link.into_inner();
+    let (manager, mut receiver, prediction_manager, timeline) = link.into_inner();
     let tick = timeline.tick();
     let has_messages = receiver.has_messages();
     receiver.receive().for_each(|message| {
@@ -581,7 +580,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             };
             if let Some(entity) = entity {
                 debug!(
-                    ?message.end_tick,
+                    ?tick, ?message.end_tick,
                     "received remote client input message for entity: {:?}. Applying to diff buffer.",
                     entity
                 );
@@ -744,7 +743,7 @@ fn send_input_messages<S: ActionStateSequence>(
         message_buffer.0.clear();
         return;
     }
-    trace!(
+    debug!(
         "Number of input messages to send: {:?}",
         message_buffer.0.len()
     );

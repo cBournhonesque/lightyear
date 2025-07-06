@@ -1,4 +1,4 @@
-use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig};
+use crate::{ClientId, Key, ServerConfig, PRIVATE_KEY_BYTES};
 use alloc::{sync::Arc, vec::Vec};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::{
@@ -348,7 +348,7 @@ impl Plugin for NetcodeServerPlugin {
         app.configure_sets(
             PreUpdate,
             (
-                LinkSet::ApplyConditioner,
+                LinkSet::Receive,
                 ConnectionSet::Receive,
                 TransportSet::Receive,
             )

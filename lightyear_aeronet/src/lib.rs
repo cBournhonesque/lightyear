@@ -23,7 +23,7 @@ use bevy_ecs::{
     world::OnAdd,
 };
 use bevy_reflect::Reflect;
-use lightyear_link::{Link, LinkPlugin, LinkSet, Linked, Linking, Unlink, Unlinked};
+use lightyear_link::{Link, LinkPlugin, LinkReceiveSet, LinkSet, Linked, Linking, Unlink, Unlinked};
 use tracing::trace;
 
 /// The lightyear Link entity
@@ -170,8 +170,8 @@ impl AeronetPlugin {
     ) {
         session_query.iter_mut().for_each(|(mut session, parent)| {
             if let Ok(mut link) = link_query.get_mut(parent.get()) {
+                trace!("Received {:?} packets", session.recv.len());
                 session.recv.drain(..).for_each(|recv| {
-                    // trace!("Received packet");
                     link.recv.push(recv.payload, recv.recv_at);
                 });
             }
@@ -184,8 +184,8 @@ impl AeronetPlugin {
     ) {
         session_query.iter_mut().for_each(|(mut session, parent)| {
             if let Ok(mut link) = link_query.get_mut(parent.get()) {
+                trace!("Sending {:?} packet", link.send.len());
                 link.send.drain().for_each(|payload| {
-                    // trace!("Send packet");
                     session.send.push(payload);
                 });
             }
@@ -211,7 +211,7 @@ impl Plugin for AeronetPlugin {
 
         app.configure_sets(PreUpdate, LinkSet::Receive.after(IoSet::Poll));
         app.configure_sets(PostUpdate, LinkSet::Send.before(IoSet::Flush));
-        app.add_systems(PreUpdate, Self::receive.in_set(LinkSet::Receive));
+        app.add_systems(PreUpdate, Self::receive.in_set(LinkReceiveSet::BufferToLink));
         app.add_systems(PostUpdate, Self::send.in_set(LinkSet::Send));
     }
 }

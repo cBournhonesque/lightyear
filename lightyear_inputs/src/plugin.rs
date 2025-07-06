@@ -1,12 +1,12 @@
 //! Plugin to register and handle user inputs.
 
-use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage};
+use crate::InputChannel;
 use bevy_app::{App, Plugin};
 use bevy_ecs::entity::MapEntities;
-use core::time::Duration;
 use lightyear_connection::direction::NetworkDirection;
+use lightyear_core::tick::TickDuration;
 use lightyear_messages::prelude::AppMessageExt;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 
@@ -25,10 +25,11 @@ impl<S> Default for InputPlugin<S> {
 
 impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
     fn build(&self, app: &mut App) {
+        let tick_duration = app.world().resource::<TickDuration>();
         app.add_channel::<InputChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
-            // we send inputs every frame
-            send_frequency: Duration::default(),
+            // we send inputs roughly every tick
+            send_frequency: tick_duration.0,
             // we always want to include the inputs in the packet
             priority: f32::INFINITY,
         })

@@ -68,6 +68,15 @@ impl LinkConditionerConfig {
             incoming_loss,
         }
     }
+    
+    /// Split the LinkConditionerConfig in half, returning two identical halves
+    pub fn half(self) -> Self {
+        LinkConditionerConfig {
+            incoming_latency: self.incoming_latency / 2,
+            incoming_jitter: self.incoming_jitter / 2,
+            incoming_loss: self.incoming_loss / 2.0,
+        }
+    }
 
     /// Creates a new LinkConditioner that simulates a connection which is in a
     /// good condition
@@ -95,7 +104,7 @@ impl LinkConditionerConfig {
         LinkConditionerConfig {
             incoming_latency: Duration::from_millis(200),
             incoming_jitter: Duration::from_millis(30),
-            incoming_loss: 0.04,
+            incoming_loss: 0.10,
         }
     }
 }

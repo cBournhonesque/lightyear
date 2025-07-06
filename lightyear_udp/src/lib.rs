@@ -25,7 +25,7 @@ use bevy_ecs::{
 };
 use bytes::{BufMut, BytesMut};
 use lightyear_core::time::Instant;
-use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Linking, Unlink, Unlinked};
+use lightyear_link::{Link, LinkPlugin, LinkReceiveSet, LinkSet, LinkStart, Linked, Linking, Unlink, Unlinked};
 use tracing::{error, info, trace};
 
 /// Provides server-specific UDP IO functionalities.
@@ -186,7 +186,7 @@ impl Plugin for UdpPlugin {
         }
         app.add_observer(Self::link);
         app.add_observer(Self::unlink);
-        app.add_systems(PreUpdate, Self::receive.in_set(LinkSet::Receive));
+        app.add_systems(PreUpdate, Self::receive.in_set(LinkReceiveSet::BufferToLink));
         app.add_systems(PreUpdate, Self::send.in_set(LinkSet::Send));
     }
 }

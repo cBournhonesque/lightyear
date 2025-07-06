@@ -53,7 +53,7 @@ use bevy_ecs::{
     change_detection::{DetectChanges, DetectChangesMut},
     component::{Component, Mutable},
     query::{With, Without},
-    schedule::{IntoScheduleConfigs, SystemSet, common_conditions::not},
+    schedule::{common_conditions::not, IntoScheduleConfigs, SystemSet},
     system::{Query, Res, Single},
     world::Ref,
 };
@@ -63,7 +63,7 @@ use core::fmt::Debug;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::correction::Correction;
-use lightyear_prediction::plugin::{PredictionSet, is_in_rollback};
+use lightyear_prediction::plugin::{is_in_rollback, PredictionSet};
 use lightyear_prediction::prelude::PredictionManager;
 use lightyear_replication::prelude::ReplicationSet;
 use tracing::trace;
@@ -113,10 +113,15 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
         app.configure_sets(
             PreUpdate,
             // make sure that we restore the actual component value before we perform a rollback check
+            // because the 'original_prediction' value of the correction should be the visual value.
+            // (and we want the FixedUpdate visual value, not the lerped one!)
+            //
+            // This works even for correction, because the FrameInterpolate component has the last visual FixedUpdate value
             (
+                // if there is correction, the value res
                 FrameInterpolationSet::Restore,
                 // the correct value to avoid rollbacks is the corrected value
-                PredictionSet::RestoreVisualCorrection,
+                // PredictionSet::RestoreVisualCorrection,
                 PredictionSet::CheckRollback,
             )
                 .chain(),
@@ -255,8 +260,9 @@ pub(crate) fn update_visual_interpolation_status<
 pub(crate) fn restore_from_visual_interpolation<
     C: Component<Mutability = Mutable> + Clone + Debug,
 >(
+    mut query: Query<(&mut C, &mut FrameInterpolate<C>)>,
     // if correction is enabled, we will restore the value from the Correction component
-    mut query: Query<(&mut C, &mut FrameInterpolate<C>), Without<Correction<C>>>,
+    // mut query: Query<(&mut C, &mut FrameInterpolate<C>), Without<Correction<C>>>,
 ) {
     let kind = core::any::type_name::<C>();
     for (mut component, interpolate_status) in query.iter_mut() {
