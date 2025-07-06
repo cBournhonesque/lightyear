@@ -84,7 +84,7 @@ impl ServerUdpPlugin {
             let socket = std::net::UdpSocket::bind(local_addr)?;
             socket.set_nonblocking(true)?;
             udp_io.socket = Some(socket);
-            commands.entity(trigger.target()).insert((Linked, UdpLinkOfIO));
+            commands.entity(trigger.target()).insert(Linked);
         }
         Ok(())
     }
@@ -227,6 +227,7 @@ impl ServerUdpPlugin {
                                                 link,
                                                 Linked,
                                                 PeerAddr(address),
+                                                UdpLinkOfIO,
                                                 // TODO: should we add LocalAddr?
                                             ))
                                             .id();
