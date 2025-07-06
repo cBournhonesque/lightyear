@@ -84,7 +84,7 @@ impl ServerUdpPlugin {
             let socket = std::net::UdpSocket::bind(local_addr)?;
             socket.set_nonblocking(true)?;
             udp_io.socket = Some(socket);
-            commands.entity(trigger.target()).insert((Linked, UdpLinkOfIO));
+            commands.entity(trigger.target()).insert(Linked);
         }
         Ok(())
     }
@@ -98,7 +98,7 @@ impl ServerUdpPlugin {
 
     fn send(
         mut server_query: Query<(&mut ServerUdpIo, &Server), With<Linked>>,
-        mut link_query: Query<(&mut Link, &PeerAddr), With<UdpLinkOfIO>>,
+        mut link_query: Query<(&mut Link, &PeerAddr)>,
     ) {
         // TODO: parallelize
         server_query
