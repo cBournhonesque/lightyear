@@ -25,7 +25,6 @@ use core::net::SocketAddr;
 use lightyear_core::time::Instant;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Linking, Unlink, Unlinked};
-use lightyear_crossbeam::CrossbeamIo;
 
 /// Maximum transmission units; maximum size in bytes of a UDP packet
 /// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>
@@ -41,6 +40,9 @@ pub struct ServerUdpIo {
     buffer: BytesMut,
     connected_addresses: HashMap<SocketAddr, LinkOfStatus>,
 }
+
+#[derive(Component)]
+pub struct UdpLinkOfIO;
 
 #[derive(Debug)]
 enum LinkOfStatus {
@@ -82,7 +84,7 @@ impl ServerUdpPlugin {
             let socket = std::net::UdpSocket::bind(local_addr)?;
             socket.set_nonblocking(true)?;
             udp_io.socket = Some(socket);
-            commands.entity(trigger.target()).insert(Linked);
+            commands.entity(trigger.target()).insert((Linked, UdpLinkOfIO));
         }
         Ok(())
     }
@@ -96,23 +98,18 @@ impl ServerUdpPlugin {
 
     fn send(
         mut server_query: Query<(&mut ServerUdpIo, &Server), With<Linked>>,
-        mut link_query: Query<(&mut Link, &PeerAddr, Has<CrossbeamIo>)>,
+        mut link_query: Query<(&mut Link, &PeerAddr), With<UdpLinkOfIO>>,
     ) {
         // TODO: parallelize
         server_query
             .iter_mut()
             .for_each(|(mut server_udp_io, server)| {
                 server.collection().iter().for_each(|client_entity| {
-                    let Some((mut link, remote_addr, crossbeam_io)) = link_query.get_mut(*client_entity).ok()
+                    let Some((mut link, remote_addr)) = link_query.get_mut(*client_entity).ok()
                     else {
                         error!("Client entity {} not found in link query", client_entity);
                         return;
                     };
-
-                    if crossbeam_io {
-                        return;
-                    }
-                    
                     link.send.drain().for_each(|send_payload| {
                         server_udp_io
                             .socket
