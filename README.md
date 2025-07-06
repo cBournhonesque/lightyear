@@ -13,7 +13,7 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/7b57d48a-d8b0-4cdd-a1
 interpolated (slightly behind server) on the other client.
 The server only sends updates to clients 10 times per second but the clients still see smooth updates.*
 
-## Getting started
+## Getting started 
 
 You can first check out the [examples](https://github.com/cBournhonesque/lightyear/tree/main/examples).
 
