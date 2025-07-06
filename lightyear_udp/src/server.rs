@@ -111,6 +111,9 @@ impl ServerUdpPlugin {
                         debug!("Client entity {} not found in link query", client_entity);
                         return;
                     };
+
+                    
+
                     link.send.drain().for_each(|send_payload| {
                         server_udp_io
                             .socket

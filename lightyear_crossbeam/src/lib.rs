@@ -39,8 +39,8 @@ const LOCALHOST: SocketAddr = SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LO
 /// and receiver ends of the channels.
 #[derive(Component, Clone)]
 #[require(Link::new(None))]
-#[require(LocalAddr(LOCALHOST))]
-#[require(PeerAddr(LOCALHOST))]
+// #[require(LocalAddr(LOCALHOST))]
+// #[require(PeerAddr(LOCALHOST))]
 pub struct CrossbeamIo {
     sender: Sender<Bytes>,
     receiver: Receiver<Bytes>,
