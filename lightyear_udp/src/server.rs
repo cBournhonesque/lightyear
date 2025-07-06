@@ -11,7 +11,7 @@ use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::error::Result;
 use bevy_ecs::observer::Trigger;
-use bevy_ecs::query::{With, Without};
+use bevy_ecs::query::{Has, With, Without};
 use bevy_ecs::relationship::RelationshipTarget;
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::system::{Commands, ParallelCommands, Query};
@@ -25,6 +25,7 @@ use core::net::SocketAddr;
 use lightyear_core::time::Instant;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Linking, Unlink, Unlinked};
+use lightyear_crossbeam::CrossbeamIo;
 
 /// Maximum transmission units; maximum size in bytes of a UDP packet
 /// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>
@@ -95,18 +96,23 @@ impl ServerUdpPlugin {
 
     fn send(
         mut server_query: Query<(&mut ServerUdpIo, &Server), With<Linked>>,
-        mut link_query: Query<(&mut Link, &PeerAddr)>,
+        mut link_query: Query<(&mut Link, &PeerAddr, Has<CrossbeamIo>)>,
     ) {
         // TODO: parallelize
         server_query
             .iter_mut()
             .for_each(|(mut server_udp_io, server)| {
                 server.collection().iter().for_each(|client_entity| {
-                    let Some((mut link, remote_addr)) = link_query.get_mut(*client_entity).ok()
+                    let Some((mut link, remote_addr, crossbeam_io)) = link_query.get_mut(*client_entity).ok()
                     else {
                         error!("Client entity {} not found in link query", client_entity);
                         return;
                     };
+
+                    if crossbeam_io {
+                        return;
+                    }
+                    
                     link.send.drain().for_each(|send_payload| {
                         server_udp_io
                             .socket

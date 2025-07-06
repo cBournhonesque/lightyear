@@ -15,6 +15,7 @@ server = ["bevy_platform"]
 [dependencies]
 lightyear_core.workspace = true
 lightyear_link.workspace = true
+lightyear_crossbeam.workspace = true
 
 aeronet_io.workspace = true
 
