@@ -41,6 +41,7 @@ pub struct ServerUdpIo {
     connected_addresses: HashMap<SocketAddr, LinkOfStatus>,
 }
 
+/// Marker component to identify this LinkOf as being the server-side Link of a ServerUdpIO
 #[derive(Component)]
 pub struct UdpLinkOfIO;
 
