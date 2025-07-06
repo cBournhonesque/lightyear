@@ -107,7 +107,8 @@ impl ServerUdpPlugin {
                 server.collection().iter().for_each(|client_entity| {
                     let Some((mut link, remote_addr)) = link_query.get_mut(*client_entity).ok()
                     else {
-                        error!("Client entity {} not found in link query", client_entity);
+                        // Not all server links are Udp Links, so we might not want this to ever print
+                        debug!("Client entity {} not found in link query", client_entity);
                         return;
                     };
                     link.send.drain().for_each(|send_payload| {
