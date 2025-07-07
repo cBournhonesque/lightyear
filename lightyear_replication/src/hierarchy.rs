@@ -383,7 +383,7 @@ impl HierarchySendPlugin {
             for child in children_query.relationship_sources(parent) {
                 if let Ok(()) = child_filter.get(child) {
                     if let Ok(mut c) = commands.get_entity(child) {
-                        c.remove::<(ReplicateLike, ChildOfSync)>();
+                        c.try_remove::<(ReplicateLike, ChildOfSync)>();
                     }
                 }
             }
