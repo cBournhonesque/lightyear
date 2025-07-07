@@ -61,13 +61,27 @@ impl<R> HistoryBuffer<R> {
     }
 
     /// Oldest value in the buffer
-    pub fn front(&self) -> Option<&(Tick, HistoryState<R>)> {
+    pub fn oldest(&self) -> Option<&(Tick, HistoryState<R>)> {
         self.buffer.front()
     }
 
     /// Most recent value in the buffer
-    pub fn back(&self) -> Option<&(Tick, HistoryState<R>)> {
+    pub fn most_recent(&self) -> Option<&(Tick, HistoryState<R>)> {
         self.buffer.back()
+    }
+
+    /// Get the nth most recent value in the buffer. HistoryState::Removed will be converted to None
+    ///
+    /// n = 0 -> most recent value
+    pub fn nth_most_recent(&self, n: usize) -> Option<&R> {
+        let len = self.len();
+        if len <= n {
+            return None;
+        }
+        self.buffer.get(len - (n + 1)).and_then(|(_, x)| match x {
+            HistoryState::Updated(value) => Some(value),
+            HistoryState::Removed => None,
+        })
     }
 
     /// Reset the history for this resource

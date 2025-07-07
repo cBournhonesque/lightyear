@@ -964,7 +964,7 @@ impl GroupChannel {
         group_id: ReplicationGroupId,
         remote_tick: Tick,
     ) {
-        trace!(
+        info!(
             ?remote_tick,
             "Updating confirmed tick for entities {:?} in group: {:?}",
             self.local_entities,

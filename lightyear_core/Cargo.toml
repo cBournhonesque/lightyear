@@ -39,6 +39,7 @@ serde.workspace = true
 mock_instant = { workspace = true, optional = true }
 
 [dev-dependencies]
+test-log.workspace = true
 approx.workspace = true
 
 [lints]

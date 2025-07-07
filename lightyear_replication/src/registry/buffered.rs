@@ -4,7 +4,7 @@ use bevy_ecs::{
     world::EntityWorldMut,
 };
 use bevy_ptr::OwningPtr;
-use bevy_reflect::TypePath;
+use bevy_reflect::Reflect;
 use core::alloc::Layout;
 use core::ptr::NonNull;
 use tracing::trace;
@@ -26,7 +26,7 @@ impl<'w, 'b> BufferedEntity<'w, 'b> {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Reflect)]
 pub struct BufferedChanges {
     insertions: TempWriteBuffer,
     removals: Vec<ComponentId>,
@@ -66,7 +66,7 @@ impl BufferedChanges {
 
 /// Temporary buffer to store component data that we want to insert
 /// using `entity_world_mut.insert_by_ids`
-#[derive(Debug, Default, PartialEq, TypePath)]
+#[derive(Debug, Default, PartialEq, Reflect)]
 pub struct TempWriteBuffer {
     // temporary buffers to store the deserialized data to batch write
     // Raw storage where we can store the deserialized data bytes

@@ -14,7 +14,7 @@ pub(crate) mod archetypes;
 pub mod correction;
 pub mod despawn;
 pub mod diagnostics;
-pub(crate) mod manager;
+pub mod manager;
 pub mod plugin;
 pub mod pre_prediction;
 pub mod predicted_history;
@@ -30,13 +30,15 @@ mod shared;
 mod deterministic;
 
 pub mod prelude {
-    pub use crate::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
-    pub use crate::manager::PredictionManager;
-    pub use crate::plugin::PredictionPlugin;
-    pub use crate::prespawn::PreSpawned;
-    pub use crate::registry::{PredictionAppRegistrationExt, PredictionRegistrationExt};
     pub use crate::Predicted;
     pub use crate::PredictionMode;
+    pub use crate::correction::VisualCorrection;
+    pub use crate::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
+    pub use crate::manager::{PredictionManager, RollbackMode, RollbackPolicy};
+    pub use crate::plugin::{PredictionPlugin, PredictionSet};
+    pub use crate::prespawn::PreSpawned;
+    pub use crate::registry::{PredictionAppRegistrationExt, PredictionRegistrationExt};
+    pub use crate::rollback::RollbackSet;
 
     #[cfg(feature = "server")]
     pub mod server {

@@ -15,22 +15,6 @@ pub mod position {
         );
         res
     }
-
-    // impl Diffable for Position {
-    //     type Delta = Self;
-    //
-    //     fn base_value() -> Self {
-    //         Position::default()
-    //     }
-    //
-    //     fn diff(&self, new: &Self) -> Self::Delta {
-    //         Position(new.0 - self.0)
-    //     }
-    //
-    //     fn apply_diff(&mut self, delta: &Self::Delta) {
-    //         self.0 += delta.0;
-    //     }
-    // }
 }
 
 pub mod rotation {

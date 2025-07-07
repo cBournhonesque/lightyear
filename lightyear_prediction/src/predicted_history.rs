@@ -1,7 +1,6 @@
 //! Managed the history buffer, which is a buffer of the past predicted component states,
 //! so that whenever we receive an update from the server we can compare the predicted entity's history with the server update.
-use crate::correction::Correction;
-use crate::manager::{PredictionManager, PredictionResource};
+use crate::manager::{PredictionManager, PredictionResource, PredictionSyncBuffer};
 use crate::plugin::{PredictionFilter, PredictionSet};
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
@@ -58,13 +57,10 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
 /// (i.e. X ticks in the past compared to the current tick)
 pub(crate) fn handle_tick_event_prediction_history<C: Component>(
     trigger: Trigger<SyncEvent<InputTimeline>>,
-    mut query: Query<(&mut PredictionHistory<C>, Option<&mut Correction<C>>)>,
+    mut query: Query<&mut PredictionHistory<C>>,
 ) {
-    for (mut history, correction) in query.iter_mut() {
+    for mut history in query.iter_mut() {
         history.update_ticks(trigger.tick_delta);
-        if let Some(mut correction) = correction {
-            correction.update_ticks(trigger.tick_delta);
-        }
     }
 }
 
@@ -164,10 +160,9 @@ fn apply_predicted_sync(world: &mut World) {
             let buffer = &mut unsafe {
                 unsafe_world
                     .world_mut()
-                    .get_mut::<PredictionManager>(link_entity)
+                    .get_mut::<PredictionSyncBuffer>(link_entity)
             }
-            .unwrap()
-            .buffer;
+            .unwrap();
             trace!(
                 "Sync from confirmed {:?} to predicted {:?}",
                 event.confirmed, event.predicted

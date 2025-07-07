@@ -21,6 +21,7 @@ pub struct InputConfig<A> {
     /// How often do we send input messages to the server?
     /// Duration::default() means that we will send input messages every frame.
     pub send_interval: Duration,
+    #[cfg(feature = "prediction")]
     /// If True, the server will rebroadcast a client's inputs to all other clients.
     ///
     /// It could be useful for a client to have access to other client's inputs to be able
@@ -44,8 +45,16 @@ impl<A> Default for InputConfig<A> {
             lag_compensation: false,
             packet_redundancy: 10,
             send_interval: Duration::default(),
+            #[cfg(feature = "prediction")]
             rebroadcast_inputs: false,
             marker: PhantomData,
         }
     }
+}
+
+/// Input config shared across all Action types.
+/// Used to avoid creating some systems multiple times
+#[derive(Default, Resource)]
+pub(crate) struct SharedInputConfig {
+    pub(crate) reset_last_confirmed_system_added: bool,
 }

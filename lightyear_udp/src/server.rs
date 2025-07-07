@@ -41,6 +41,10 @@ pub struct ServerUdpIo {
     connected_addresses: HashMap<SocketAddr, LinkOfStatus>,
 }
 
+/// Marker component to identify this LinkOf as being the server-side Link of a ServerUdpIO
+#[derive(Component)]
+pub struct UdpLinkOfIO;
+
 #[derive(Debug)]
 enum LinkOfStatus {
     // we just received a packet from a new address and are in the process of spawning a new entity
@@ -95,7 +99,7 @@ impl ServerUdpPlugin {
 
     fn send(
         mut server_query: Query<(&mut ServerUdpIo, &Server), With<Linked>>,
-        mut link_query: Query<(&mut Link, &PeerAddr)>,
+        mut link_query: Query<(&mut Link, &PeerAddr), With<UdpLinkOfIO>>,
     ) {
         // TODO: parallelize
         server_query
@@ -104,9 +108,11 @@ impl ServerUdpPlugin {
                 server.collection().iter().for_each(|client_entity| {
                     let Some((mut link, remote_addr)) = link_query.get_mut(*client_entity).ok()
                     else {
-                        error!("Client entity {} not found in link query", client_entity);
+                        // Not all server links are Udp Links, so we might not want this to ever print
+                        debug!("Client entity {} not found in link query", client_entity);
                         return;
                     };
+
                     link.send.drain().for_each(|send_payload| {
                         server_udp_io
                             .socket
@@ -220,6 +226,7 @@ impl ServerUdpPlugin {
                                                 link,
                                                 Linked,
                                                 PeerAddr(address),
+                                                UdpLinkOfIO,
                                                 // TODO: should we add LocalAddr?
                                             ))
                                             .id();

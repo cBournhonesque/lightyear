@@ -64,6 +64,22 @@ impl Ease for CompCorr {
     }
 }
 
+impl Diffable for CompCorr {
+    type Delta = CompCorr;
+
+    fn base_value() -> Self {
+        Self(0.0)
+    }
+
+    fn diff(&self, other: &Self) -> Self::Delta {
+        Self(other.0 - self.0)
+    }
+
+    fn apply_diff(&mut self, delta: &Self::Delta) {
+        self.0 += delta.0;
+    }
+}
+
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompNotNetworked(pub f32);
 

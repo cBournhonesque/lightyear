@@ -73,6 +73,10 @@ impl<M: Message> Default for MessageReceiver<M> {
 // TODO: do we care about the channel that the message was sent from? user-specified message usually don't
 // TODO: we have access to the Tick, so we could decide at which timeline we want to receive the message!
 impl<M: Message> MessageReceiver<M> {
+    pub fn has_messages(&self) -> bool {
+        !self.recv.is_empty()
+    }
+
     /// Take all messages from the [`MessageReceiver<M>`], deserialize them, and return them
     pub fn receive(&mut self) -> impl Iterator<Item = M> {
         self.recv.drain(..).map(|m| m.data)

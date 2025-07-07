@@ -21,145 +21,178 @@
 //!   - if there is a rollback, restart correction from the current corrected value
 //! - FixedUpdate: run the simulation to compute C(T+2).
 //! - FixedPostUpdate: set the component value to the interpolation between PT (predicted value at rollback start T) and C(T+2)
+
 use crate::SyncComponent;
 use crate::manager::PredictionManager;
+use crate::predicted_history::PredictionHistory;
 use crate::registry::PredictionRegistry;
+use crate::rollback::RollbackSet;
+use bevy_app::{App, PostUpdate, PreUpdate};
+use bevy_ecs::prelude::IntoScheduleConfigs;
 use bevy_ecs::{
     change_detection::DetectChangesMut,
     component::Component,
     entity::Entity,
-    query::{Added, With},
+    query::With,
     system::{Commands, Query, Res, Single},
 };
+use bevy_reflect::Reflect;
+use bevy_time::{Fixed, Time, Virtual};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_core::tick::Tick;
-use lightyear_utils::easings::ease_out_quad;
-use tracing::trace;
+use lightyear_frame_interpolation::FrameInterpolate;
+use lightyear_interpolation::prelude::InterpolationRegistry;
+use lightyear_replication::delta::Diffable;
+use tracing::{error, trace};
 
-#[derive(Component, Debug, PartialEq)]
-pub struct Correction<C: Component> {
-    /// This is what the original predicted value was before any correction was applied
-    pub original_prediction: C,
-    /// This is the tick at which we started the correction (i.e. where we found that a rollback was necessary)
-    pub original_tick: Tick,
-    /// This is the tick at which we will have finished the correction
-    pub final_correction_tick: Tick,
-    /// This is the current visual value. We compute this so that if we rollback again in the middle of an
-    /// existing correction, we start again from the current visual value.
-    pub current_visual: Option<C>,
-    /// This is the current objective (corrected) value. We need this to swap between the visual correction
-    /// (interpolated between the original prediction and the final correction)
-    /// and the final correction value (the correct value that we are simulating)
-    pub current_correction: Option<C>,
+/// The visual value of the component before the rollback started
+#[derive(Component, Debug, Reflect)]
+pub(crate) struct PreviousVisual<C: Component>(pub(crate) C);
+
+// TODO: actually we just need the delta to be lerpable!
+#[derive(Component, Debug, Reflect)]
+pub struct VisualCorrection<C: Component + Diffable> {
+    /// The error between the original visual value and the new visual value.
+    /// Will decay over time.
+    error: C::Delta,
 }
 
-impl<C: Component> Correction<C> {
-    /// In case of a TickEvent where the client tick is changed, we need to update the ticks in the buffer
-    pub(crate) fn update_ticks(&mut self, delta: i16) {
-        self.original_tick = self.original_tick + delta;
-        self.final_correction_tick = self.final_correction_tick + delta;
-    }
+pub fn add_correction_systems<C: SyncComponent + Diffable<Delta = C>>(app: &mut App) {
+    // When rollback finishes, compute the new corrected visual value and compare it with the original visual value
+    // to set the visual correction error.
+    app.add_systems(
+        PreUpdate,
+        update_frame_interpolation_post_rollback::<C>.in_set(RollbackSet::EndRollback),
+    );
+    app.add_systems(
+        PostUpdate,
+        add_visual_correction::<C>.in_set(RollbackSet::VisualCorrection),
+    );
 }
 
-/// Perform the correction: we interpolate between the original (incorrect) prediction and the final confirmed value
-/// over a period of time. The intermediary state is called the Corrected state.
-pub(crate) fn get_corrected_state<C: SyncComponent>(
-    prediction_registry: Res<PredictionRegistry>,
-    mut commands: Commands,
-    mut query: Query<(Entity, &mut C, &mut Correction<C>)>,
-    timeline: Single<&LocalTimeline, With<PredictionManager>>,
-) {
-    let kind = core::any::type_name::<C>();
-    let current_tick = timeline.tick();
-    for (entity, mut component, mut correction) in query.iter_mut() {
-        let mut t = (current_tick - correction.original_tick) as f32
-            / (correction.final_correction_tick - correction.original_tick) as f32;
-        t = t.clamp(0.0, 1.0);
-
-        // TODO: make the easing configurable
-        let t = ease_out_quad(t);
-        // stop correction if we are at the end of the correction period
-        if t == 1.0 {
-            trace!(
-                ?t,
-                "Correction is over. Removing Correction for: {:?}", kind
-            );
-            commands.entity(entity).remove::<Correction<C>>();
-        } else {
-            trace!(?t, ?entity, start = ?correction.original_tick, end = ?correction.final_correction_tick, "Applying visual correction for {:?}", kind);
-            // store the current corrected value so that we can restore it at the start of the next frame
-            correction.current_correction = Some(component.clone());
-            // TODO: avoid all these clones
-            // visually update the component
-            let visual = prediction_registry.correct(
-                correction.original_prediction.clone(),
-                component.clone(),
-                t,
-            );
-            // stop correction if the visual value is very close to the corrected value
-            if !prediction_registry.should_rollback(&visual, &component) {
-                trace!(
-                    ?t,
-                    "Corrected value is very close to visual value. Removing Correction for: {:?}",
-                    kind
-                );
-                commands.entity(entity).remove::<Correction<C>>();
-            }
-            // store the current visual value
-            correction.current_visual = Some(visual.clone());
-            // set the component value to the visual value
-            *component.bypass_change_detection() = visual;
-        }
-    }
-}
-
-/// The flow is:
-/// [`PreUpdate`] C = OriginalC, receive NewC, check_rollback, prepare_rollback: add Correction, set C = NewC, rollback, set C = CorrectedC
-/// [`PreUpdate`] C = CorrectedC
-/// [`PreUpdate`] C = CorrectedC
-/// [`FixedUpdate`] Correction, C = CorrectInterpolatedC
-/// i.e. if PreUpdate runs a few times in a row without any FixedUpdate step, the component stays in the CorrectedC state.
-/// Instead, right after the rollback, we need to reset the component to the original state
+/// After the rollback is over, we need to update the values in the FrameInterpolate<C> component.
 ///
-/// [`PreUpdate`]: bevy_app::prelude::PreUpdate
-/// [`FixedUpdate`]: bevy_app::prelude::FixedUpdate
-pub(crate) fn set_original_prediction_post_rollback<C: SyncComponent>(
-    mut query: Query<(Entity, &mut C, &mut Correction<C>), Added<Correction<C>>>,
+/// If we have correction enabled, then we can compute the error between the previous visual value
+/// [`PreviousVisual<C>`] and the new visual value.
+pub(crate) fn update_frame_interpolation_post_rollback<C: SyncComponent + Diffable<Delta = C>>(
+    time: Res<Time<Fixed>>,
+    // only run if there is a VisualCorrection<C> to do.
+    timeline: Single<&LocalTimeline, With<PredictionManager>>,
+    registry: Res<InterpolationRegistry>,
+    mut query: Query<(
+        Entity,
+        &mut C,
+        &PreviousVisual<C>,
+        &PredictionHistory<C>,
+        Option<&mut FrameInterpolate<C>>,
+    )>,
+    mut commands: Commands,
 ) {
-    for (entity, mut component, mut correction) in query.iter_mut() {
-        // correction has not started (even if a correction happens while a previous correction was going on, current_visual is None)
-        if correction.current_visual.is_none() {
+    // NOTE: this is the overstep from the previous frame since we are running this before RunFixedMainLoop
+    let overstep = time.overstep_fraction();
+    let tick = timeline.tick();
+    for (entity, component, previous_visual, history, interpolate) in query.iter_mut() {
+        let Some(mut interpolate) = interpolate else {
+            error!(
+                ?entity,
+                "We have a VisualCorrection but not FrameInterpolate for {:?}",
+                core::any::type_name::<C>()
+            );
+            continue;
+        };
+        interpolate.current_value = Some(component.clone());
+        interpolate.previous_value = history.nth_most_recent(1).cloned();
+        let Some(previous) = &interpolate.previous_value else {
+            continue;
+        };
+        let current_visual = registry.interpolate(previous.clone(), component.clone(), overstep);
+        // error = previous_visual - current_visual
+        let error = current_visual.diff(&previous_visual.0);
+        trace!(
+            ?tick,
+            ?entity,
+            ?current_visual,
+            ?previous_visual,
+            ?error,
+            "Updating VisualCorrection post rollback for {:?}",
+            core::any::type_name::<C>()
+        );
+        commands
+            .entity(entity)
+            .insert(VisualCorrection::<C> { error })
+            .remove::<PreviousVisual<C>>();
+    }
+}
+
+/// Add the visual correction error to the visual component, and
+/// decay the visual correction error over time.
+///
+/// If it gets small enough, we remove the `VisualCorrection<C>` component.
+pub(crate) fn add_visual_correction<C: SyncComponent + Diffable<Delta = C>>(
+    time: Res<Time<Virtual>>,
+    interpolation: Res<InterpolationRegistry>,
+    prediction: Res<PredictionRegistry>,
+    manager: Single<&PredictionManager>,
+    mut query: Query<(Entity, &mut C, &mut VisualCorrection<C>)>,
+    mut commands: Commands,
+) {
+    let r = manager.correction_policy.lerp_ratio(time.delta());
+    query
+        .iter_mut()
+        .for_each(|(entity, mut component, mut visual_correction)| {
+            if !prediction.should_rollback(&C::base_value(), &visual_correction.error) {
+                trace!(
+                    ?visual_correction,
+                    "Removing visual correction error {:?} since it is already small enough",
+                    core::any::type_name::<C>()
+                );
+                commands.entity(entity).remove::<VisualCorrection<C>>();
+                return;
+            }
+            let error =
+                interpolation.interpolate(C::base_value(), visual_correction.error.clone(), r);
+            component.bypass_change_detection().apply_diff(&error);
             trace!(
-                kind = ?core::any::type_name::<C>(),
-                new_value = ?correction.original_prediction,
-                "Set component to original non-corrected prediction");
-            // TODO: this is very inefficient.
-            //  1. we only do the clone() once but if there's multiple frames before a FixedUpdate, we clone multiple times (mitigated by Added filter)
-            //        although Added probably  doesn't work if we have nested Corrections..
-            //  2. if there was a FixedUpdate right after the rollback, we wouldn't need to call this at all!
-            // If multiple Updates run in a row, we want to show the original_prediction value at the end of the frame,
-            // but we also need to keep track of the correct value! We will put it in `correction.current_correction`, since this is what
-            // is used to restore the correct value at the start of the next frame
-            correction.current_correction = Some(component.clone());
-            *component.bypass_change_detection() = correction.original_prediction.clone();
+                ?visual_correction,
+                ?error,
+                ?r,
+                "Applied visual correction and decaying error for {:?}",
+                core::any::type_name::<C>()
+            );
+            visual_correction.error = error;
+        });
+}
+
+#[derive(Component, Debug, Reflect)]
+pub struct CorrectionPolicy {
+    /// Period of time to decay the error by `decay_ratio`
+    decay_period: core::time::Duration,
+    /// Fraction of the error remaining after `decay_period` has passed.
+    ///
+    /// For example if `decay_period` is 1 second and `decay_ratio` is 0.3, then only 30% of the original error
+    /// remains after 1 second.
+    decay_ratio: f32,
+    /// We will stop applying correction after this amount of time has passed since the rollback started.
+    max_correction_period: core::time::Duration,
+}
+
+impl Default for CorrectionPolicy {
+    fn default() -> Self {
+        Self {
+            decay_period: core::time::Duration::from_millis(100),
+            decay_ratio: 0.5,
+            max_correction_period: core::time::Duration::from_secs(500),
         }
     }
 }
 
-/// Before we check for rollbacks and run FixedUpdate, restore the correct component value
-pub(crate) fn restore_corrected_state<C: SyncComponent>(
-    mut query: Query<(&mut C, &mut Correction<C>)>,
-) {
-    let kind = core::any::type_name::<C>();
-    for (mut component, mut correction) in query.iter_mut() {
-        if let Some(correction) = core::mem::take(&mut correction.current_correction) {
-            trace!(
-                ?component,
-                ?correction,
-                "Restoring corrected component before FixedUpdate: {:?}",
-                kind
-            );
-            *component.bypass_change_detection() = correction;
-        }
+impl CorrectionPolicy {
+    /// Returns the lerp constant to use for exponentially decaying the error in a framestep-insensitive way
+    ///
+    /// See: https://www.youtube.com/watch?v=LSNQuFEDOyQ
+    #[inline]
+    pub fn lerp_ratio(&self, delta: core::time::Duration) -> f32 {
+        let dt = delta.as_secs_f32();
+        let neg_decay_constant = self.decay_ratio.ln() / self.decay_period.as_secs_f32();
+        (neg_decay_constant * dt).exp()
     }
 }

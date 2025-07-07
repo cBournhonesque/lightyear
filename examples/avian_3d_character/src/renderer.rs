@@ -34,7 +34,7 @@ impl Plugin for ExampleRendererPlugin {
             PreUpdate,
             (add_projectile_cosmetics)
                 .after(PredictionSet::Sync)
-                .before(PredictionSet::CheckRollback),
+                .before(RollbackSet::Check),
         );
 
         app.add_systems(

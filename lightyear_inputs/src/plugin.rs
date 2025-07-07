@@ -27,7 +27,10 @@ impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
     fn build(&self, app: &mut App) {
         app.add_channel::<InputChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
-            // we send inputs every frame
+            // sending every frame is ok because:
+            // - we want the clients to send inputs as fast as possible
+            // - the server might have a very high frame rate but it's only
+            //   rebroadcast inputs when it receives them
             send_frequency: Duration::default(),
             // we always want to include the inputs in the packet
             priority: f32::INFINITY,

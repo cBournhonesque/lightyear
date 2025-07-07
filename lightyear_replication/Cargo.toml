@@ -18,6 +18,8 @@ interpolation = ["lightyear_core/interpolation"]
 trace = []
 metrics = ["dep:metrics", "std"]
 test_utils = []
+avian2d = ["dep:avian2d"]
+avian3d = ["dep:avian3d"]
 
 [dependencies]
 lightyear_link.workspace = true
@@ -47,6 +49,11 @@ bevy_ptr.workspace = true
 bevy_reflect.workspace = true
 bevy_time = { workspace = true, features = ["bevy_reflect"] }
 bevy_transform = { workspace = true, features = ["libm"] }
+
+# avian
+avian2d = { workspace = true, optional = true }
+avian3d = { workspace = true, optional = true }
+
 
 [dev-dependencies]
 test-log.workspace = true

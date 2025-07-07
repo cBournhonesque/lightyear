@@ -384,10 +384,20 @@ fn test_input_broadcasting_prediction() {
                 c.tick()
             );
             if c.tick() == client1_tick {
-                info!("checking");
+                info!("checking that we fetch old value from the buffer");
                 assert_eq!(
                     q.value,
                     Some(MyInput(10)),
+                    "During rollback, we should fetch the ActionState from the buffer",
+                );
+            }
+            if c.tick() == client1_tick + 3 {
+                info!(
+                    "checking that the action state stays correct for ticks for which we don't have an input in the buffer. (we predict that it stays the same)"
+                );
+                assert_eq!(
+                    q.value,
+                    Some(MyInput(5)),
                     "During rollback, we should fetch the ActionState from the buffer",
                 );
             }
@@ -397,19 +407,12 @@ fn test_input_broadcasting_prediction() {
 
     // trigger rollback for client 1
     let rollback_tick = client1_tick - 1;
-    stepper.client_mut(1).insert(Rollback);
+    stepper.client_mut(1).insert(Rollback::FromInputs);
     stepper
         .client_mut(1)
         .get_mut::<PredictionManager>()
         .unwrap()
         .set_rollback_tick(rollback_tick);
-    stepper.client_apps[1]
-        .world_mut()
-        .query::<&mut Confirmed>()
-        .iter_mut(stepper.client_apps[1].world_mut())
-        .for_each(|mut confirmed| {
-            confirmed.tick = rollback_tick;
-        });
     stepper.client_apps[1].update();
 }
 

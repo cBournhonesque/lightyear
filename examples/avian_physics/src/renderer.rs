@@ -4,9 +4,8 @@ use avian2d::position::{Position, Rotation};
 use avian2d::prelude::LinearVelocity;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
-use lightyear::prediction::plugin::PredictionSet;
 use lightyear::prediction::Predicted;
-use lightyear::prelude::{Confirmed, InterpolationSet};
+use lightyear::prelude::{Confirmed, InterpolationSet, RollbackSet};
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]
@@ -22,7 +21,7 @@ impl Plugin for ExampleRendererPlugin {
             PostUpdate,
             draw_elements
                 .after(InterpolationSet::Interpolate)
-                .after(PredictionSet::VisualCorrection),
+                .after(RollbackSet::VisualCorrection),
         );
 
         // add visual interpolation for Position and Rotation
@@ -37,7 +36,7 @@ impl Plugin for ExampleRendererPlugin {
                 PostUpdate,
                 draw_confirmed_shadows
                     .after(InterpolationSet::Interpolate)
-                    .after(PredictionSet::VisualCorrection),
+                    .after(RollbackSet::VisualCorrection),
             );
         }
     }

@@ -17,6 +17,7 @@ use bevy_math::{
 };
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::tick::Tick;
+use lightyear_replication::delta::Diffable;
 use lightyear_replication::prelude::ComponentRegistration;
 use lightyear_replication::registry::buffered::BufferedChanges;
 use lightyear_replication::registry::registry::{ComponentRegistry, LerpFn};
@@ -110,10 +111,6 @@ impl PredictionRegistry {
                     should_rollback,
                 )
             };
-    }
-
-    pub fn set_linear_correction<C: SyncComponent + Ease + PartialEq>(&mut self) {
-        self.set_correction(lerp::<C>);
     }
 
     pub fn set_correction<C: SyncComponent + PartialEq>(&mut self, correction_fn: LerpFn<C>) {
@@ -349,7 +346,7 @@ impl PredictionRegistry {
                         let should = self.should_rollback(&history_value, c);
                         if should {
                             debug!(
-                                "Should Rollback! Confirmed value is different from history value",
+                                "Should Rollback! Confirmed value {c:?} is different from history value {history_value:?}",
                             );
                             #[cfg(feature = "metrics")]
                             metrics::counter!(format!(
@@ -384,10 +381,10 @@ pub trait PredictionRegistrationExt<C> {
         C: SyncComponent;
     fn add_linear_correction_fn(self) -> Self
     where
-        C: SyncComponent + Ease;
+        C: SyncComponent + Ease + Diffable<Delta = C>;
     fn add_correction_fn(self, correction_fn: LerpFn<C>) -> Self
     where
-        C: SyncComponent;
+        C: SyncComponent + Diffable<Delta = C>;
     fn add_should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self
     where
         C: SyncComponent;
@@ -423,24 +420,17 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
 
     fn add_linear_correction_fn(self) -> Self
     where
-        C: SyncComponent + Ease,
+        C: SyncComponent + Ease + Diffable<Delta = C>,
     {
-        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
-        let Some(mut registry) = self
-            .app
-            .world_mut()
-            .get_resource_mut::<PredictionRegistry>()
-        else {
-            return self;
-        };
-        registry.set_linear_correction::<C>();
-        self
+        self.add_correction_fn(lerp::<C>)
     }
 
     fn add_correction_fn(self, correction_fn: LerpFn<C>) -> Self
     where
-        C: SyncComponent,
+        C: SyncComponent + Diffable<Delta = C>,
     {
+        crate::correction::add_correction_systems::<C>(self.app);
+
         // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
         let Some(mut registry) = self
             .app

@@ -25,7 +25,7 @@ use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use lightyear_core::time::Instant;
-use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked};
+use lightyear_link::{Link, LinkPlugin, LinkReceiveSet, LinkSet, LinkStart, Linked};
 use tracing::{error, trace};
 
 /// Maximum transmission units; maximum size in bytes of a packet
@@ -37,7 +37,7 @@ const LOCALHOST: SocketAddr = SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LO
 /// This acts as a transport layer, allowing messages to be sent and received
 /// via in-memory channels, simulating a network link. It holds the sender
 /// and receiver ends of the channels.
-#[derive(Component)]
+#[derive(Component, Clone)]
 #[require(Link::new(None))]
 #[require(LocalAddr(LOCALHOST))]
 #[require(PeerAddr(LOCALHOST))]
@@ -119,7 +119,10 @@ impl Plugin for CrossbeamPlugin {
             app.add_plugins(LinkPlugin);
         }
         app.add_observer(Self::link);
-        app.add_systems(PreUpdate, Self::receive.in_set(LinkSet::Receive));
+        app.add_systems(
+            PreUpdate,
+            Self::receive.in_set(LinkReceiveSet::BufferToLink),
+        );
         app.add_systems(PostUpdate, Self::send.in_set(LinkSet::Send));
     }
 }

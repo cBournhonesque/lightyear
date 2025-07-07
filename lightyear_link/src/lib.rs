@@ -200,12 +200,19 @@ pub enum LinkSet {
     // PRE UPDATE
     /// Receive bytes from the IO and buffer them into the Link
     Receive,
-    /// Apply Link Conditioner on the receive side
-    ApplyConditioner,
 
     // PostUpdate
     /// Flush the messages buffered in the Link to the io
     Send,
+}
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum LinkReceiveSet {
+    /// Receive bytes from the IO and buffer them into the Link.
+    /// (if LinkConditioner is present, the packets will be stored in the conditioner)
+    BufferToLink,
+    /// Take packets from the link conditioner and push them into the Link
+    ApplyConditioner,
 }
 
 /// Event triggered to initiate the process of establishing a `Link`.
@@ -312,11 +319,16 @@ impl Plugin for LinkPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             PreUpdate,
-            Self::apply_link_conditioner.in_set(LinkSet::ApplyConditioner),
+            Self::apply_link_conditioner.in_set(LinkReceiveSet::ApplyConditioner),
         );
         app.configure_sets(
             PreUpdate,
-            (LinkSet::Receive, LinkSet::ApplyConditioner).chain(),
+            (
+                LinkReceiveSet::BufferToLink,
+                LinkReceiveSet::ApplyConditioner,
+            )
+                .in_set(LinkSet::Receive)
+                .chain(),
         );
         app.configure_sets(PostUpdate, LinkSet::Send);
 
