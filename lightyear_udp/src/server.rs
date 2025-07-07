@@ -11,7 +11,7 @@ use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::error::Result;
 use bevy_ecs::observer::Trigger;
-use bevy_ecs::query::{Has, With, Without};
+use bevy_ecs::query::{With, Without};
 use bevy_ecs::relationship::RelationshipTarget;
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::system::{Commands, ParallelCommands, Query};
@@ -112,8 +112,6 @@ impl ServerUdpPlugin {
                         debug!("Client entity {} not found in link query", client_entity);
                         return;
                     };
-
-                    
 
                     link.send.drain().for_each(|send_payload| {
                         server_udp_io

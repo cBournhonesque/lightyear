@@ -24,8 +24,6 @@ pub struct Server {
     links: Vec<Entity>,
 }
 
-
-
 impl Server {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         let entity_ref = world.entity(context.entity);
@@ -68,7 +66,6 @@ pub struct LinkOf {
     pub server: Entity,
 }
 
-
 impl Relationship for LinkOf {
     type RelationshipTarget = Server;
     #[inline(always)]
@@ -77,7 +74,7 @@ impl Relationship for LinkOf {
     }
     #[inline]
     fn from(entity: Entity) -> Self {
-        Self { server: entity}
+        Self { server: entity }
     }
 }
 
