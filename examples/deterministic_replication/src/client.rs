@@ -20,7 +20,7 @@ impl Plugin for ExampleClientPlugin {
 }
 
 
-/// In deterministic replication, the client simulated all players.
+/// In deterministic replication, the client simulates all players.
 fn player_movement(
     timeline: Single<&LocalTimeline, With<Client>>,
     mut velocity_query: Query<

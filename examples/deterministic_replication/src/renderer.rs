@@ -2,9 +2,8 @@ use crate::protocol::*;
 use crate::shared::Wall;
 use avian2d::position::{Position, Rotation};
 use bevy::prelude::*;
-use lightyear::connection::server::Started;
-use lightyear::prediction::plugin::PredictionSet;
-use lightyear::prelude::{InterpolationSet, Server};
+use lightyear::prediction::Predicted;
+use lightyear::prelude::{Client, Connected, InterpolationSet, RollbackSet, TriggerSender};
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]
@@ -18,12 +17,12 @@ impl Plugin for ExampleRendererPlugin {
             PostUpdate,
             draw_elements
                 .after(InterpolationSet::Interpolate)
-                .after(PredictionSet::VisualCorrection),
+                .after(RollbackSet::VisualCorrection),
         );
 
-        #[cfg(feature = "server")]
+        #[cfg(feature = "client")]
         {
-            app.add_systems(Startup, game_start_button);
+            app.add_systems(Startup, ready_button);
         }
 
         // add visual interpolation for Position and Rotation
@@ -37,12 +36,15 @@ impl Plugin for ExampleRendererPlugin {
 
 fn add_visual_interpolation_components(
     trigger: Trigger<OnAdd, Position>,
+    predicted: Query<(), With<Predicted>>,
     mut commands: Commands,
 ) {
-    commands.entity(trigger.target()).insert((
-        FrameInterpolate::<Position>::default(),
-        FrameInterpolate::<Rotation>::default(),
-    ));
+    if let Ok(()) = predicted.get(trigger.target()) {
+        commands.entity(trigger.target()).insert((
+            FrameInterpolate::<Position>::default(),
+            FrameInterpolate::<Rotation>::default(),
+        ));
+    }
 }
 
 fn init(mut commands: Commands) {
@@ -78,13 +80,13 @@ pub(crate) fn draw_elements(
     }
 }
 
-#[cfg(feature = "server")]
-pub(crate) fn game_start_button(
+#[cfg(feature = "client")]
+pub(crate) fn ready_button(
     mut commands: Commands,
 ) {
     commands
         .spawn((
-            Text("Start Game".to_string()),
+            Text("Ready".to_string()),
             TextColor(Color::srgb(0.9, 0.9, 0.9)),
             TextFont::from_font_size(20.0),
             Button,
@@ -94,6 +96,8 @@ pub(crate) fn game_start_button(
                 height: Val::Px(65.0),
                 padding: UiRect::all(Val::Px(10.0)),
                 border: UiRect::all(Val::Px(5.0)),
+                position_type: PositionType::Absolute,
+                right: Val::Percent(0.10),
                 // horizontally center child text
                 justify_content: JustifyContent::Center,
                 // vertically center child text
@@ -103,9 +107,9 @@ pub(crate) fn game_start_button(
         ))
         .observe(
             |_: Trigger<Pointer<Click>>,
-             mut commands: Commands,
-             server: Single<Entity, (With<Server>, With<Started>)>| {
-                commands.trigger_targets(crate::server::GameStart, server.into_inner());
+             mut sender: Single<&mut TriggerSender<Ready>, (With<Client>, With<Connected>)>| {
+                info!("Client is ready!");
+                sender.trigger::<Channel1>(Ready);
             },
         );
 }

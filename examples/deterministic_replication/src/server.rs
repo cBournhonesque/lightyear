@@ -37,37 +37,36 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 }
 
 
-/// Currently we do not support clients joining mid-game for deterministic replication.
-/// So we'll have a trigger to start the game for all existing clients.
-#[derive(Event)]
-pub(crate) struct GameStart;
-
-
 // TODO: how can we achieve this without replication from the server?
 //  if there is no server, we could have all clients spawn the same world at the same time?
 
 /// When we decide to start the game, we will replicate player entities to all clients.
 pub(crate) fn start_game(
-    trigger: Trigger<GameStart>,
-    server: Query<&Server, With<Started>>,
+    trigger: Trigger<RemoteTrigger<Ready>>,
+    server: Single<&Server, With<Started>>,
     mut commands: Commands,
     query: Query<&RemoteId, (With<ClientOf>, With<Connected>)>,
+    mut ready_count: Local<usize>,
 ) {
-    if let Ok(server) = server.get(trigger.target()) {
-        server.collection().iter().for_each(|link| {
-            if let Ok(remote_id) = query.get(*link) {
-                info!("Spawning player for client {:?}", remote_id);
-                // we spawn an entity that will be replicated to all clients
-                commands.spawn((
-                   Replicate::to_clients(NetworkTarget::All),
-                   PlayerId(remote_id.0)
-                ));
-            } else {
-                warn!("Failed to get entity for server link {:?}", link);
-            }
-        });
+    *ready_count += 1;
+    if *ready_count == server.collection().len() {
+        info!("All clients are ready, starting game!");
+        *ready_count = 0;
     } else {
-        warn!("Cannot start game, no server found.");
+        info!("Received ready message from client: {:?}", trigger.from);
         return;
     }
+    
+    server.collection().iter().for_each(|link| {
+        if let Ok(remote_id) = query.get(*link) {
+            info!("Spawning player for client {:?}", remote_id);
+            // we spawn an entity that will be replicated to all clients
+            commands.spawn((
+               Replicate::to_clients(NetworkTarget::All),
+               PlayerId(remote_id.0)
+            ));
+        } else {
+            panic!("Failed to get entity for server link {:?}", link);
+        };
+    });
 }

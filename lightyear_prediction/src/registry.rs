@@ -6,14 +6,14 @@ use crate::{PredictionMode, SyncComponent};
 use alloc::format;
 use bevy_app::App;
 use bevy_ecs::{
-    component::{Component, ComponentId, Mutable},
+    component::{Component, ComponentId},
     entity::{ContainsEntity, Entity},
     resource::Resource,
     world::{FilteredEntityMut, FilteredEntityRef, World},
 };
 use bevy_math::{
-    Curve,
     curve::{Ease, EaseFunction, EasingCurve},
+    Curve,
 };
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::tick::Tick;
@@ -447,6 +447,9 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent,
     {
+        let history_id = self.app
+            .world_mut()
+            .register_component::<PredictionHistory<C>>();
         // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
         let Some(mut registry) = self
             .app
@@ -455,21 +458,30 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         else {
             return self;
         };
+        registry.set_prediction_mode::<C>(Some(history_id), PredictionMode::Full);
         registry.set_should_rollback::<C>(should_rollback);
         self
     }
 }
 
 pub trait PredictionAppRegistrationExt {
-    /// Enable rollbacks for a component even if the component is not networked
-    fn add_rollback<C: Component<Mutability = Mutable> + PartialEq + Clone>(&mut self);
+    /// Enable rollbacks for a component that is not networked.
+    fn add_rollback<C: SyncComponent>(&mut self) -> ComponentRegistration<C>;
 }
 
 impl PredictionAppRegistrationExt for App {
-    fn add_rollback<C: Component<Mutability = Mutable> + PartialEq + Clone>(&mut self) {
-        let is_client = self.world().get_resource::<PredictionRegistry>().is_some();
-        if is_client {
-            add_non_networked_rollback_systems::<C>(self);
-        }
+    fn add_rollback<C: SyncComponent>(&mut self) -> ComponentRegistration<C> {
+        let history_id = self.world_mut().register_component::<PredictionHistory<C>>();
+        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
+        let Some(mut registry) = self
+            .world_mut()
+            .get_resource_mut::<PredictionRegistry>()
+        else {
+            return ComponentRegistration::<C>::new(self);
+        };
+
+        registry.set_prediction_mode::<C>(Some(history_id), PredictionMode::Full);
+        add_non_networked_rollback_systems::<C>(self);
+        ComponentRegistration::<C>::new(self)
     }
 }

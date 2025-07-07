@@ -1,5 +1,5 @@
-use crate::channel::Channel;
 use crate::channel::registry::ChannelRegistration;
+use crate::channel::Channel;
 use crate::prelude::{ChannelRegistry, Transport};
 use bevy_ecs::{
     observer::Trigger,

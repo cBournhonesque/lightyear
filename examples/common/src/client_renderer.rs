@@ -60,7 +60,9 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
     app.world_mut()
         .spawn(Node {
             width: Val::Percent(30.0),
-            height: Val::Percent(100.0),
+            height: Val::Percent(30.0),
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(0.0),
             align_items: AlignItems::FlexEnd,
             justify_content: JustifyContent::FlexEnd,
             justify_self: JustifySelf::End,

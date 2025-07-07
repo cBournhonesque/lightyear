@@ -9,7 +9,6 @@ use crate::plugin::PredictionSet;
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
 use bevy_app::{App, FixedMain, Plugin, PostUpdate, PreUpdate};
-use bevy_ecs::component::Mutable;
 use bevy_ecs::entity::EntityHashSet;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::ScheduleLabel;
@@ -20,7 +19,7 @@ use bevy_time::{Fixed, Time};
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::{Rollback, is_in_rollback};
+use lightyear_core::timeline::{is_in_rollback, Rollback};
 use lightyear_frame_interpolation::FrameInterpolationSet;
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::registry::registry::ComponentRegistry;
@@ -117,14 +116,14 @@ impl Plugin for RollbackPlugin {
             QueryParamBuilder::new(|builder| {
                 builder.data::<&Confirmed>();
                 builder.optional(|b| {
-                    // include access to &C for all PredictionMode=Full components
+                    // include access to &C for all PredictionMode=Full components, if the components are replicated
                     prediction_registry
                         .prediction_map
                         .iter()
                         .filter(|(_, m)| m.sync_mode == PredictionMode::Full)
-                        .map(|(kind, _)| component_registry.kind_to_component_id[kind])
+                        .filter_map(|(kind, _)| component_registry.kind_to_component_id.get(kind))
                         .for_each(|id| {
-                            b.ref_id(id);
+                            b.ref_id(*id);
                         });
                 });
             }),
@@ -376,7 +375,6 @@ pub(crate) fn remove_prediction_disable(
 pub(crate) fn prepare_rollback<C: SyncComponent>(
     prediction_registry: Res<PredictionRegistry>,
     component_registry: Res<ComponentRegistry>,
-    // TODO: have a way to only get the updates of entities that are predicted?
     mut commands: Commands,
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
@@ -388,6 +386,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         ),
         (With<Predicted>, Without<Confirmed>, Without<PreSpawned>),
     >,
+    // TODO: have a way to only get the updates of entities that are predicted? i.e. add ConfirmedPredicted
     confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
     manager_query: Single<(&LocalTimeline, &PredictionManager, &Rollback)>,
 ) {
@@ -493,7 +492,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     }
 }
 
-// TODO: add correction!
 // TODO: handle disable rollback, by combining all prepare_rollback systems into one
 /// For prespawned predicted entities, we do not have a Confirmed component,
 /// we just rollback the entity to the previous state
@@ -501,7 +499,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
 /// - component that were inserted since rollback are removed
 /// - components that were removed since rollback are inserted
 /// - entities that were spawned since rollback are despawned
-/// - no need to do correction because we don't have a Confirmed state to correct towards
+/// - no need to do correction because we don't have a Confirmed state to correct towards, and because PreSpawned
+///   is for our local client so we have perfect information.
 /// - TODO: entities that were despawned since rollback are respawned (maybe just via using prediction_despawn()?)
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
@@ -604,8 +603,9 @@ pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_rollback_non_networked<
-    C: Component<Mutability = Mutable> + PartialEq + Clone,
+    C: SyncComponent,
 >(
+    prediction_registry: Res<PredictionRegistry>,
     // TODO: have a way to only get the updates of entities that are predicted?
     mut commands: Commands,
     // We also snap the value of the component to the server state if we are in rollback
@@ -629,6 +629,8 @@ pub(crate) fn prepare_rollback_non_networked<
     // 0. If the entity didn't exist at the rollback tick, despawn it
     // TODO? or is it handled for us?
     for (entity, component, mut history) in predicted_query.iter_mut() {
+        let mut entity_mut = commands.entity(entity);
+
         // 1. restore the component to the historical value
         match history.pop_until_tick(rollback_tick) {
             None | Some(HistoryState::Removed) => {
@@ -639,12 +641,22 @@ pub(crate) fn prepare_rollback_non_networked<
                         "Non-networked component for predicted entity didn't exist at time of rollback, removing it"
                     );
                     // the component didn't exist at the time, remove it!
-                    commands.entity(entity).try_remove::<C>();
+                    entity_mut.try_remove::<C>();
                 }
             }
             Some(HistoryState::Updated(c)) => {
                 // the component existed at the time, restore it!
                 if let Some(mut component) = component {
+                    // save the existing visual value
+                    if prediction_registry.has_correction::<C>() {
+                        entity_mut.insert(PreviousVisual(component.clone()));
+                        trace!(
+                            previous_visual = ?component,
+                            kind = ?core::any::type_name::<C>(),
+                            ?rollback_tick,
+                            "Storing PreviousVisual for correction"
+                        );
+                    }
                     // update the component to the corrected value
                     *component = c.clone();
                 } else {
@@ -653,7 +665,7 @@ pub(crate) fn prepare_rollback_non_networked<
                         ?kind,
                         "Non-networked component for predicted entity existed at time of rollback, inserting it"
                     );
-                    commands.entity(entity).insert(c);
+                    entity_mut.insert(c);
                 }
             }
         }

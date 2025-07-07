@@ -321,9 +321,9 @@ pub(crate) fn add_sync_systems(app: &mut App) {
     for component in prediction_registry
         .prediction_map
         .keys()
-        .map(|k| component_registry.kind_to_component_id[k])
+        .filter_map(|k| component_registry.kind_to_component_id.get(k))
     {
-        observer = observer.with_component(component);
+        observer = observer.with_component(*component);
     }
     app.world_mut().spawn(observer);
 

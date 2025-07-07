@@ -48,6 +48,16 @@ pub struct ColorComponent(pub(crate) Color);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
+// Messages
+
+#[derive(Event, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Ready;
+
+// Channel
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Channel1;
+
 // Inputs
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
 pub enum PlayerActions {
@@ -70,39 +80,36 @@ impl Plugin for ProtocolPlugin {
                 ..default()
             },
         });
+        
+        // channel
+        app.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        })
+            .add_direction(NetworkDirection::ClientToServer);
+        
+        // messages
+        app.add_trigger::<Ready>()
+            .add_direction(NetworkDirection::ClientToServer);
 
         // components
         app.register_component::<PlayerId>();
 
-        app.register_component::<ColorComponent>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
-
-        app.register_component::<BallMarker>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
-
-        app.register_component::<Position>()
-            .add_prediction(PredictionMode::Full)
+        // add prediction for non-networked components
+        app.add_rollback::<Position>()
             .add_should_rollback(position_should_rollback)
-            .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn()
             .add_linear_correction_fn();
 
-        app.register_component::<Rotation>()
-            .add_prediction(PredictionMode::Full)
+        app.add_rollback::<Rotation>()
             .add_should_rollback(rotation_should_rollback)
-            .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn()
             .add_linear_correction_fn();
 
         // NOTE: interpolation/correction is only needed for components that are visually displayed!
         // we still need prediction to be able to correctly predict the physics on the client
-        app.register_component::<LinearVelocity>()
-            .add_prediction(PredictionMode::Full);
-
-        app.register_component::<AngularVelocity>()
-            .add_prediction(PredictionMode::Full);
+        app.add_rollback::<LinearVelocity>();
+        app.add_rollback::<AngularVelocity>();
     }
 }
 
