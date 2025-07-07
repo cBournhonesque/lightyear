@@ -66,21 +66,15 @@ pub fn get_digest_on_wasm() -> Option<String> {
 #[non_exhaustive]
 pub enum ServerTransports {
     #[cfg(feature = "udp")]
-    Udp {
-        local_port: u16,
-    },
+    Udp { local_port: u16 },
     WebTransport {
         local_port: u16,
         certificate: WebTransportCertificateSettings,
     },
     #[cfg(feature = "websocket")]
-    WebSocket {
-        local_port: u16,
-    },
+    WebSocket { local_port: u16 },
     #[cfg(feature = "steam")]
-    Steam {
-        local_port: u16,
-    },
+    Steam { local_port: u16 },
 }
 
 #[derive(Component, Debug)]

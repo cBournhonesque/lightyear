@@ -68,7 +68,7 @@ impl LinkConditionerConfig {
             incoming_loss,
         }
     }
-    
+
     /// Split the LinkConditionerConfig in half, returning two identical halves
     pub fn half(self) -> Self {
         LinkConditionerConfig {

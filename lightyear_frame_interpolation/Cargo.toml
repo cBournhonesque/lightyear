@@ -14,16 +14,12 @@ std = ["lightyear_replication/std"]
 
 [dependencies]
 lightyear_core.workspace = true
+lightyear_connection.workspace = true
 lightyear_replication.workspace = true
-lightyear_prediction.workspace = true
 lightyear_interpolation.workspace = true
 
 # utils
 tracing.workspace = true
-
-# serde
-serde = { workspace = true, optional = true }
-bytes = { workspace = true, optional = true }
 
 # bevy
 bevy_app.workspace = true

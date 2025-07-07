@@ -43,17 +43,16 @@
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
 //!   will read the inputs using the [`InputBuffer`] component.
 
+use crate::InputChannel;
 use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
-use crate::InputChannel;
 #[cfg(feature = "metrics")]
 use alloc::format;
 use alloc::{vec, vec::Vec};
 use bevy_app::{
-    App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, RunFixedMainLoop,
-    RunFixedMainLoopSystem,
+    App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoopSystem,
 };
 use bevy_ecs::{
     entity::{Entity, MapEntities},
@@ -71,22 +70,22 @@ use lightyear_core::time::TickDelta;
 
 use lightyear_connection::client::Client;
 use lightyear_interpolation::prelude::*;
+use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
-use lightyear_messages::MessageManager;
 #[cfg(feature = "prediction")]
 use lightyear_prediction::prelude::*;
 use lightyear_replication::components::{Confirmed, PrePredicted};
 use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::client::IsSynced;
 use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::client::IsSynced;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::ChannelRegistry;
 use tracing::{debug, error, trace};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSet {
-    // PRE UPDATE
+    // RUN-FIXED-MAIN-LOOP UPDATE
     /// Receive the InputMessage from other clients
     ReceiveInputMessages,
 
@@ -106,6 +105,7 @@ pub enum InputSet {
     /// (we do this in the FixedUpdate schedule because if the simulation is slow (e.g. 10Hz)
     /// we don't want to send an InputMessage every frame)
     PrepareInputMessage,
+    // TODO: could this run in RunFixedMainLoop::AfterFixedMainLoop?
     /// Restore the ActionState for the correct tick (without InputDelay) from the buffer
     RestoreInputs,
 
@@ -140,13 +140,16 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         app.init_resource::<SharedInputConfig>();
         app.insert_resource(self.config);
         app.init_resource::<MessageBuffer<S>>();
+
         // SETS
+
         // NOTE: this is subtle! We receive remote players messages after
-        //  RunFixedMainLoopSystem::BeforeFixedMainLoop to ensure that leafwing `states` have
+        //  RunFixedMainLoopSystem::BeforeFixedMainLoop to ensure that the local leafwing `states` have
         //  been switched to the `fixed_update` state (see https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)
-        //  Conveniently, this also ensures that we run this after InternalMainSet::<ClientMarker>::ReceiveEvents
+        //  We can move this system back in PreUpdate if we drop leafwing support.
+        //  Conveniently, this also ensures that we run this after MessageSet::Receive.
         app.configure_sets(
-            RunFixedMainLoop,
+            PreUpdate,
             InputSet::ReceiveInputMessages
                 .before(RunFixedMainLoopSystem::FixedMainLoop)
                 .after(RunFixedMainLoopSystem::BeforeFixedMainLoop),
@@ -156,19 +159,11 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
             FixedPreUpdate,
             (InputSet::WriteClientInputs, InputSet::BufferClientInputs).chain(),
         );
-        app.configure_sets(
-            FixedPostUpdate,
-            (
-                // we write the InputMessage for the current tick, then restore
-                // the correct inputs if there is any input delay
-                InputSet::PrepareInputMessage,
-                InputSet::RestoreInputs,
-            )
-                .chain(),
-        );
+        app.configure_sets(FixedPostUpdate, InputSet::RestoreInputs);
         app.configure_sets(
             PostUpdate,
             ((
+                InputSet::PrepareInputMessage,
                 SyncSet::Sync,
                 // run after SyncSet to make sure that the TickEvents are handled
                 // and that the interpolation_delay injected in the message are correct
@@ -182,12 +177,28 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         // SYSTEMS
         #[cfg(feature = "prediction")]
         if self.config.rebroadcast_inputs {
+            // NOTE: we do NOT need to run this after RunFixedMainLoopSystem::BeforeFixedMainLoop to ensure that the
+            //  local leafwing `states` have been switched to the `fixed_update` state (see
+            //  https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)
+            //
+            //  because when applying the diffs we manually update the fixed_update_state .
+
+            //  because when we apply the diffs, we start by taking the initial `start_state` snapshot from the message.
+            //  That snapshot has both `state` = `fixed_update_state` since it was buffered by the client
+            //  during FixedUpdate.
+            //  Then, the diffs will update `state`, and that value will be stored in the buffer.
+            //
+            //  The ActionState will only be modified during FixedPreUpdate in `get_action_state`, so we will have
+            //  `state` = `fixed_update_state` in the ActionState component.
+            app.configure_sets(
+                PreUpdate,
+                InputSet::ReceiveInputMessages
+                    .after(MessageSet::Receive)
+                    .before(RollbackSet::Check),
+            );
             app.add_systems(
-                RunFixedMainLoop,
-                receive_remote_player_input_messages::<S>
-                    .in_set(InputSet::ReceiveInputMessages)
-                    // we check the rollback from inputs before checking the rollback from state
-                    .before(PredictionSet::CheckRollback),
+                PreUpdate,
+                receive_remote_player_input_messages::<S>.in_set(InputSet::ReceiveInputMessages),
             );
             let already_added = app
                 .world()
@@ -214,12 +225,13 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
                 //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
                 // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
                 get_delayed_action_state::<S>.in_set(InputSet::RestoreInputs),
-                prepare_input_message::<S>.in_set(InputSet::PrepareInputMessage),
             ),
         );
         app.add_systems(
             PostUpdate,
             (
+                // TODO: instead, store directly in MessageSender, SyncSet::Sync before MessageSet::Send and register an observer to update the ticks from MessageSender directly!
+                prepare_input_message::<S>.in_set(InputSet::PrepareInputMessage),
                 clean_buffers::<S>.in_set(InputSet::CleanUp),
                 send_input_messages::<S>.in_set(InputSet::SendInputMessage),
             ),
@@ -297,13 +309,16 @@ fn get_action_state<S: ActionStateSequence>(
 ) {
     let (local_timeline, input_timeline, is_rollback) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
-    // If there is no rollback and no input_delay, we just buffered the input so there is nothing to do.
+    // If there is no rollback and no input_delay:
+    // - local client: we just buffered the input so there is nothing to do.
+    // - remote clients: we just need to update the action_state during rollbacks
     if !is_rollback && input_delay == 0 {
         return;
     }
     let tick = local_timeline.tick();
     for (entity, mut action_state, input_buffer, is_local) in action_state_query.iter_mut() {
         // for remote players, this is only relevant in rollbacks
+        // for local players, we still want to fetch the ActionState from the input buffer because of input_delay/rollback
         if !is_local && !is_rollback {
             continue;
         }
@@ -314,9 +329,10 @@ fn get_action_state<S: ActionStateSequence>(
 
         if let Some(snapshot) = input_buffer.get(tick) {
             S::from_snapshot(action_state.as_mut(), snapshot, &context);
-            trace!(
+            debug!(
                 ?entity,
                 ?tick,
+                ?snapshot,
                 // ?action_state,
                 "fetched action state from input buffer: {:?}",
                 // action_state.get_pressed(),
@@ -402,7 +418,10 @@ impl<A> Default for MessageBuffer<A> {
     }
 }
 
-/// Take the input buffer, and prepare the input message to send to the server
+/// Take the input buffer, and prepare the input message to send to the server.
+///
+/// This runs once per frame in PostUpdate. It needs to run before SyncSet::Sync, because we buffer
+/// the input in a MessageBuffer, and if a SyncEvent triggers, we want to adjust the ticks from the InputMessages.
 fn prepare_input_message<S: ActionStateSequence>(
     mut message_buffer: ResMut<MessageBuffer<S>>,
     tick_duration: Res<TickDuration>,

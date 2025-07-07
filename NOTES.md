@@ -1,23 +1,31 @@
 # Current bugs:
 
-- Something causes a full redraw on rollbacks! What?
+- Something causes a full redraw of gizmos on rollbacks! What?
+
+- Maybe my problem is that I don't recompute the VisualInterpolation previous value
+  during rollbacks? So the current_value of VisualInterpolation is updated thanks to Correction, but the previous value
+  is wrong!
 
 - Our correction interpolates from the original value to the new value; maybe we should instead do the lerp smoothing,
   where we lerp our visual value a certain amount towards the correct value.
   We could do it all the time, in which case we don't need to do frame interpolation? Also we can do it at 
 
-- Inputs are wrong? C1 sent left but C2 has Up.
-IS THE RTT ESTIMATE TOO LOW? WHY DOES IT NOT WORK CONSISTENTLY WHEN WE HAVE A SPLIT LINK CONDITIONER?
-
 - We don't remove Correction like we should be doing if the states match..
   on the last tick of rollback, we should check if the final value we have computed is the same as the computed value.
-  If it is, remove Correction.
+  If it is, remove Correction. -> FIXED
 
 
-- My previous approach
-  - rollback to T1. Visual = P1 (previousl predicted)
-  - finish rollback at T2.
-  - new-rollback at 
+- Simpler Correction design: 
+  - if users add a component with correction on it (or maybe with PredictionMode::Full), we automatically insert Corrected<C> on the entity.
+    FrameInterpolation will not run on entities with Corrected<C>.
+    It will act the same as FrameInterpolation:
+    - automatically interpolates by taking the last 2 values of the PredictionHistory.
+    - TODO: handle if predictionhistory is not present
+
+- on rollback: 
+  - C is equal to the FrameInterpolation value (remove restore_visual_interp) = previous_visual
+  - we compute the 
+  
 
 
 

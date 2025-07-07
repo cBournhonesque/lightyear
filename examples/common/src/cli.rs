@@ -9,17 +9,17 @@ use core::time::Duration;
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
 
+use bevy::DefaultPlugins;
 use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::state::app::StatesPlugin;
-use bevy::DefaultPlugins;
 use clap::{Parser, Subcommand};
 
 #[cfg(feature = "client")]
-use crate::client::{connect, ClientTransports, ExampleClient};
+use crate::client::{ClientTransports, ExampleClient, connect};
 #[cfg(all(feature = "gui", feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
 #[cfg(feature = "server")]
-use crate::server::{start, ExampleServer, ServerTransports, WebTransportCertificateSettings};
+use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
 #[cfg(all(feature = "gui", feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
 use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
@@ -340,8 +340,6 @@ pub fn new_gui_app(add_inspector: bool) -> App {
     }
     app
 }
-
-
 
 pub fn new_headless_app() -> App {
     let mut app = App::new();

@@ -6,6 +6,7 @@ use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 
 use crate::correction::CorrectionPolicy;
+use crate::rollback::RollbackState;
 use bevy_ecs::component::HookContext;
 use bevy_ecs::entity::EntityHash;
 use bevy_ecs::observer::Trigger;
@@ -15,10 +16,10 @@ use bevy_ecs::world::DeferredWorld;
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use lightyear_connection::client::Connected;
-use lightyear_core::prelude::{RollbackState, SyncEvent, Tick};
+use lightyear_core::prelude::{SyncEvent, Tick};
+use lightyear_replication::registry::ComponentError;
 use lightyear_replication::registry::buffered::BufferedChanges;
 use lightyear_replication::registry::registry::ComponentRegistry;
-use lightyear_replication::registry::ComponentError;
 use lightyear_serde::entity_map::EntityMap;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::timeline::input::Input;
@@ -97,7 +98,7 @@ pub struct RollbackPolicy {
     pub input: RollbackMode,
     /// Maximum number of ticks we can rollback to. If we receive some packets that would make us rollback more than
     /// this number of ticks, we just do nothing.
-    pub max_rollback_ticks: u16
+    pub max_rollback_ticks: u16,
 }
 
 impl Default for RollbackPolicy {

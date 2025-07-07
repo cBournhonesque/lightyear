@@ -6,13 +6,13 @@ use bevy::utils::default;
 use lightyear::prelude::{Link, LinkConditionerConfig, RecvLinkConditioner};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::history_buffer::HistoryState;
+use lightyear_core::timeline::is_in_rollback;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;
 use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
 use lightyear_prediction::diagnostics::PredictionMetrics;
-use lightyear_prediction::plugin::{PredictionSet, is_in_rollback};
 use lightyear_prediction::predicted_history::PredictionHistory;
-use lightyear_prediction::prelude::{PreSpawned, PredictionManager};
+use lightyear_prediction::prelude::{PreSpawned, PredictionManager, RollbackSet};
 use lightyear_replication::prelude::{
     Confirmed, PredictionTarget, Replicate, Replicated, ReplicationGroup,
 };
@@ -425,7 +425,7 @@ fn test_prespawn_local_despawn_match() {
         PreUpdate,
         panic_on_rollback
             .run_if(is_in_rollback)
-            .in_set(PredictionSet::PrepareRollback),
+            .in_set(RollbackSet::Prepare),
     );
 
     let client_tick = stepper.client_tick(0).0 as usize;

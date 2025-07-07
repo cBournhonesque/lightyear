@@ -1,9 +1,9 @@
 //! Handle input messages received from the clients
 
+use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
-use crate::InputChannel;
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
@@ -129,7 +129,7 @@ fn receive_input_message<S: ActionStateSequence>(
                 error!("Received input message from HostClient for action {:?} even though rebroadcasting is disabled. Ignoring the message.", core::any::type_name::<S::Action>());
                 return Ok(())
             }
-            debug!(?client_id, action = ?core::any::type_name::<S::Action>(), ?message.end_tick, ?message.inputs, "received input message");
+            trace!(?client_id, action = ?core::any::type_name::<S::Action>(), ?message.end_tick, ?message.inputs, "received input message");
 
             // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
             //  that the message was intended for?

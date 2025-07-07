@@ -12,8 +12,7 @@ use lightyear::prediction::diagnostics::PredictionMetrics;
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_messages::MessageManager;
-use lightyear_prediction::plugin::PredictionSet;
-use lightyear_prediction::prelude::PredictionManager;
+use lightyear_prediction::prelude::{PredictionManager, RollbackSet};
 use lightyear_prediction::rollback::DisableRollback;
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::{PredictionTarget, Replicate, ReplicationSet};
@@ -26,7 +25,7 @@ fn setup() -> (ClientServerStepper, Entity, Entity) {
         PreUpdate,
         trigger_rollback_system
             .after(ReplicationSet::Receive)
-            .before(PredictionSet::CheckRollback),
+            .before(RollbackSet::Check),
     );
 
     // add predicted/confirmed entities
@@ -75,6 +74,10 @@ fn test_check_rollback() {
 
     // make sure we simulate that we received a server update
     let tick = stepper.client_tick(0);
+
+    // step once to avoid 0 tick rollback
+    stepper.frame_step(1);
+
     trigger_rollback_check(&mut stepper, tick);
     stepper.frame_step(1);
     // 0. Rollback when the Confirmed component is just added
@@ -98,6 +101,10 @@ fn test_check_rollback() {
         .insert(CompFull(2.0));
     // simulate that we received a server message for the confirmed entity on tick `tick`
     // where the PredictionHistory had the value of 1.0
+
+    // step once to avoid 0 tick rollback
+    stepper.frame_step(1);
+
     trigger_rollback_check(&mut stepper, tick);
     stepper.frame_step(1);
     assert_eq!(
@@ -496,6 +503,8 @@ fn test_disable_rollback() {
         .world_mut()
         .entity_mut(predicted_a)
         .insert(history);
+    // step once to avoid a 0-tick rollback
+    stepper.frame_step(1);
     // simulate that we received a server message for the confirmed entities on tick `tick`
     // (all predicted entities are in the same ReplicationGroup)
     trigger_rollback_check(&mut stepper, tick);

@@ -45,7 +45,7 @@ pub(crate) fn trigger_rollback_check(stepper: &mut ClientServerStepper, tick: Ti
 }
 
 pub(crate) fn trigger_rollback(stepper: &mut ClientServerStepper, tick: Tick) {
-    stepper.client_mut(0).insert(Rollback);
+    stepper.client_mut(0).insert(Rollback::FromState);
     stepper
         .client_mut(0)
         .get_mut::<PredictionManager>()

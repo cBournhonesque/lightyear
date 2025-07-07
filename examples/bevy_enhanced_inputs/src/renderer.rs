@@ -57,19 +57,16 @@ pub(crate) fn rollback_button(mut commands: Commands) {
         .observe(
             |_: Trigger<Pointer<Click>>,
              mut commands: Commands,
-             client: Single<(Entity, &LocalTimeline, &mut PredictionManager)>,
-             mut confirmed: Query<&mut Confirmed>| {
+             client: Single<(Entity, &LocalTimeline, &PredictionManager)>,
+             confirmed: Query<&mut Confirmed>| {
                 let (client, local_timeline, prediction_manager) = client.into_inner();
 
                 // rollback the client to 5 ticks before the current tick
                 let tick = local_timeline.tick();
                 let rollback_tick = tick - 5;
                 info!("Manual rollback to tick {rollback_tick:?}. Current tick: {tick:?}");
-                commands.entity(client).insert(Rollback);
+                commands.entity(client).insert(Rollback::FromInputs);
                 prediction_manager.set_rollback_tick(rollback_tick);
-                confirmed.iter_mut().for_each(|mut confirmed| {
-                    confirmed.tick = rollback_tick;
-                });
             },
         );
 }

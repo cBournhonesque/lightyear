@@ -31,11 +31,13 @@ mod shared;
 pub mod prelude {
     pub use crate::Predicted;
     pub use crate::PredictionMode;
+    pub use crate::correction::VisualCorrection;
     pub use crate::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
     pub use crate::manager::{PredictionManager, RollbackMode, RollbackPolicy};
     pub use crate::plugin::{PredictionPlugin, PredictionSet};
     pub use crate::prespawn::PreSpawned;
     pub use crate::registry::{PredictionAppRegistrationExt, PredictionRegistrationExt};
+    pub use crate::rollback::RollbackSet;
 
     #[cfg(feature = "server")]
     pub mod server {

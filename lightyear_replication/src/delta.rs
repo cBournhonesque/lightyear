@@ -50,10 +50,12 @@ pub trait Diffable: Clone {
     /// we can compute a delta compared to the `Base` default state
     fn base_value() -> Self;
 
-    /// Compute the diff from the old state (self) to the new state (new)
+    /// Compute the diff from the old state (self) to the new state (new).
+    /// i.e. new - self
     fn diff(&self, new: &Self) -> Self::Delta;
 
     /// Apply a delta to the current state to reach the new state
+    /// i.e. self + delta
     fn apply_diff(&mut self, delta: &Self::Delta);
 }
 

@@ -323,7 +323,10 @@ impl Plugin for LinkPlugin {
         );
         app.configure_sets(
             PreUpdate,
-            (LinkReceiveSet::BufferToLink, LinkReceiveSet::ApplyConditioner)
+            (
+                LinkReceiveSet::BufferToLink,
+                LinkReceiveSet::ApplyConditioner,
+            )
                 .in_set(LinkSet::Receive)
                 .chain(),
         );

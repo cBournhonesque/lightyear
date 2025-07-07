@@ -1,4 +1,4 @@
-use crate::{ClientId, Key, ServerConfig, PRIVATE_KEY_BYTES};
+use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig};
 use alloc::{sync::Arc, vec::Vec};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::{

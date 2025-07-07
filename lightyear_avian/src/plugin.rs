@@ -13,14 +13,15 @@ use bevy_app::{
     App, FixedPostUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoop, RunFixedMainLoopSystem,
 };
 use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_transform::{TransformSystem, components::Transform};
+use bevy_transform::{components::Transform, TransformSystem};
 use bevy_utils::default;
 
 use crate::sync;
 use lightyear_frame_interpolation::FrameInterpolationSet;
-use lightyear_interpolation::InterpolationMode;
 use lightyear_interpolation::prelude::InterpolationRegistry;
+use lightyear_interpolation::InterpolationMode;
 use lightyear_prediction::plugin::PredictionSet;
+use lightyear_prediction::prelude::RollbackSet;
 use lightyear_replication::prelude::{ReplicationSet, TransformLinearInterpolation};
 
 /// Indicate which components you are replicating over the network
@@ -72,10 +73,8 @@ impl Plugin for LightyearAvianPlugin {
                         PhysicsSet::StepSimulation,
                         // run physics before spawning we sync so that PreSpawned entities have accurate Position/Rotation values in their history
                         PredictionSet::Sync,
-                        // the visual correction are what we actually want to display, so they must happen before syncing from Position to Transform
-                        PredictionSet::VisualCorrection,
                         PhysicsSet::Sync,
-                        // the transform value has to be updated before we can store it for FrameInterpolation
+                        // the transform value has to be updated (from Position) before we can store it for FrameInterpolation
                         FrameInterpolationSet::Update,
                     )
                         .chain(),
@@ -84,8 +83,11 @@ impl Plugin for LightyearAvianPlugin {
                 app.configure_sets(
                     PostUpdate,
                     (
+                        // TODO: revisit this. The VisualCorrection is computed on the Position/Rotation, but the
+                        //  FrameInterpolation is applied to the Transform.
                         PhysicsSet::Sync,
                         FrameInterpolationSet::Interpolate,
+                        RollbackSet::VisualCorrection,
                         TransformSystem::TransformPropagate,
                     )
                         .chain(),
@@ -142,10 +144,8 @@ impl Plugin for LightyearAvianPlugin {
                         PhysicsSet::StepSimulation,
                         // run physics before spawning we sync so that PreSpawned entities have accurate Position/Rotation values in their history
                         PredictionSet::Sync,
-                        // the visual correction are what we actually want to display, so they must happen before syncing from Position to Transform
-                        PredictionSet::VisualCorrection,
                         PhysicsSet::Sync,
-                        // the transform value has to be updated before we can store it for FrameInterpolation
+                        // the transform value has to be updated (from Position) before we can store it for FrameInterpolation
                         FrameInterpolationSet::Update,
                     )
                         .chain(),
@@ -170,8 +170,6 @@ impl Plugin for LightyearAvianPlugin {
                         PhysicsSet::Sync,
                         // save the new Corrected Transform values in the history
                         PredictionSet::UpdateHistory,
-                        // update the Transform value with visual correction
-                        PredictionSet::VisualCorrection,
                         // save the values for visual interpolation
                         FrameInterpolationSet::Update,
                     )

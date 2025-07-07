@@ -23,7 +23,9 @@ use bevy_ecs::{
     world::OnAdd,
 };
 use bevy_reflect::Reflect;
-use lightyear_link::{Link, LinkPlugin, LinkReceiveSet, LinkSet, Linked, Linking, Unlink, Unlinked};
+use lightyear_link::{
+    Link, LinkPlugin, LinkReceiveSet, LinkSet, Linked, Linking, Unlink, Unlinked,
+};
 use tracing::trace;
 
 /// The lightyear Link entity
@@ -211,7 +213,10 @@ impl Plugin for AeronetPlugin {
 
         app.configure_sets(PreUpdate, LinkSet::Receive.after(IoSet::Poll));
         app.configure_sets(PostUpdate, LinkSet::Send.before(IoSet::Flush));
-        app.add_systems(PreUpdate, Self::receive.in_set(LinkReceiveSet::BufferToLink));
+        app.add_systems(
+            PreUpdate,
+            Self::receive.in_set(LinkReceiveSet::BufferToLink),
+        );
         app.add_systems(PostUpdate, Self::send.in_set(LinkSet::Send));
     }
 }

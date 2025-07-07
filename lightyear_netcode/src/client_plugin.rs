@@ -1,8 +1,8 @@
 use alloc::{format, string::ToString};
 
+use crate::Error;
 use crate::auth::Authentication;
 use crate::client::{ClientConfig, ClientState};
-use crate::Error;
 use aeronet_io::connection::PeerAddr;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::{
@@ -17,11 +17,11 @@ use bevy_ecs::{
 };
 use bevy_reflect::Reflect;
 use bevy_time::{Real, Time};
+use lightyear_connection::ConnectionSet;
 use lightyear_connection::client::{
     Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected,
 };
 use lightyear_connection::host::HostClient;
-use lightyear_connection::ConnectionSet;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::{Link, LinkSet, Linked};
 use lightyear_transport::plugin::TransportSet;
