@@ -60,6 +60,9 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
                 // TODO: also handle timings!
                 diff.apply(&mut value);
             }
+            // make sure that we update the fixed update state!
+            value.set_update_state_from_state();
+            value.set_fixed_update_state_from_state();
             input_buffer.set(tick, value.clone());
             trace!(
                 "updated from input-message tick: {:?}, value: {:?}",

@@ -48,11 +48,11 @@ pub mod prelude {
 // - we need to store the component values of the previous tick
 // - then in PostUpdate (visual interpolation) we interpolate between the previous tick and the current tick using the overstep
 // - in PreUpdate, we restore the component value to the previous tick values
-use bevy_app::{App, FixedLast, Plugin, PostUpdate, PreUpdate};
+use bevy_app::{App, FixedLast, Plugin, PostUpdate, RunFixedMainLoop, RunFixedMainLoopSystem};
 use bevy_ecs::{
     change_detection::{DetectChanges, DetectChangesMut},
     component::{Component, Mutable},
-    query::{With, Without},
+    query::With,
     schedule::{IntoScheduleConfigs, SystemSet, common_conditions::not},
     system::{Query, Res, Single},
     world::Ref,
@@ -60,11 +60,10 @@ use bevy_ecs::{
 use bevy_time::{Fixed, Time};
 use bevy_transform::TransformSystem;
 use core::fmt::Debug;
+use lightyear_connection::client::Client;
 use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::timeline::is_in_rollback;
 use lightyear_interpolation::prelude::InterpolationRegistry;
-use lightyear_prediction::correction::Correction;
-use lightyear_prediction::plugin::{PredictionSet, is_in_rollback};
-use lightyear_prediction::prelude::PredictionManager;
 use lightyear_replication::prelude::ReplicationSet;
 use tracing::trace;
 
@@ -76,7 +75,7 @@ use tracing::trace;
 /// - Performing the visual interpolation itself.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum FrameInterpolationSet {
-    /// Restore the correct component values
+    /// Restore the correct component values when we start the FixedMainLoop
     Restore,
     /// Update the previous/current component values used for visual interpolation
     Update,
@@ -111,20 +110,11 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
     fn build(&self, app: &mut App) {
         // SETS
         app.configure_sets(
-            PreUpdate,
-            // make sure that we restore the actual component value before we perform a rollback check
-            (
-                FrameInterpolationSet::Restore,
-                // the correct value to avoid rollbacks is the corrected value
-                PredictionSet::RestoreVisualCorrection,
-                PredictionSet::CheckRollback,
-            )
-                .chain(),
+            RunFixedMainLoop,
+            FrameInterpolationSet::Restore.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
         );
-        // We don't run UpdateVisualInterpolationState in rollback because:
-        // - in case of rollback, that would mean we repeatedly interpolate the component for no reason
-        // - in case of correction, we would be interpolating between CorrectedValue (last value during rollback) and CorrectInterpolatedValue (first value
-        //   after Correction)
+        // We don't run UpdateVisualInterpolationState in rollback because we that would be a waste.
+        // At the end of rollback, we have a system in lightyear_prediction that manually sets the FrameInterpolate component.
         app.configure_sets(
             FixedLast,
             FrameInterpolationSet::Update.run_if(not(is_in_rollback)),
@@ -139,7 +129,7 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
 
         // SYSTEMS
         app.add_systems(
-            PreUpdate,
+            RunFixedMainLoop,
             restore_from_visual_interpolation::<C>.in_set(FrameInterpolationSet::Restore),
         );
         app.add_systems(
@@ -184,13 +174,11 @@ impl<C: Component> Default for FrameInterpolate<C> {
     }
 }
 
-// TODO: explore how we could allow this for non-marker components, user would need to specify the interpolation function?
-//  (to avoid orphan rule)
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
 pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + Debug>(
     time: Res<Time<Fixed>>,
     registry: Res<InterpolationRegistry>,
-    timeline: Single<&LocalTimeline, With<PredictionManager>>,
+    timeline: Single<&LocalTimeline, With<Client>>,
     mut query: Query<(&mut C, &FrameInterpolate<C>)>,
 ) {
     let kind = core::any::type_name::<C>();
@@ -255,8 +243,7 @@ pub(crate) fn update_visual_interpolation_status<
 pub(crate) fn restore_from_visual_interpolation<
     C: Component<Mutability = Mutable> + Clone + Debug,
 >(
-    // if correction is enabled, we will restore the value from the Correction component
-    mut query: Query<(&mut C, &mut FrameInterpolate<C>), Without<Correction<C>>>,
+    mut query: Query<(&mut C, &mut FrameInterpolate<C>)>,
 ) {
     let kind = core::any::type_name::<C>();
     for (mut component, interpolate_status) in query.iter_mut() {

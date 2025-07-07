@@ -106,8 +106,8 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     .enumerate()
                     .find(|(_, (history_tick, _))| *history_tick == interpolation_tick)
                 else {
-                    let oldest_tick = history.front().map(|(tick, _)| *tick);
-                    let recent_tick = history.back().map(|(tick, _)| *tick);
+                    let oldest_tick = history.oldest().map(|(tick, _)| *tick);
+                    let recent_tick = history.most_recent().map(|(tick, _)| *tick);
                     error!(
                         ?oldest_tick,
                         ?recent_tick,

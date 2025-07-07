@@ -230,7 +230,7 @@ impl Plugin for NetcodeClientPlugin {
         app.configure_sets(
             PreUpdate,
             (
-                LinkSet::ApplyConditioner,
+                LinkSet::Receive,
                 ConnectionSet::Receive,
                 TransportSet::Receive,
             )

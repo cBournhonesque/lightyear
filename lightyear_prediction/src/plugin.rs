@@ -4,13 +4,10 @@ use super::resource_history::{
     ResourceHistory, handle_tick_event_resource_history, update_resource_history,
 };
 use super::rollback::{
-    RollbackPlugin, prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn,
-    prepare_rollback_resource, remove_prediction_disable, run_rollback,
+    RollbackPlugin, RollbackSet, prepare_rollback, prepare_rollback_non_networked,
+    prepare_rollback_prespawn, prepare_rollback_resource,
 };
 use super::spawn::spawn_predicted_entity;
-use crate::correction::{
-    get_corrected_state, restore_corrected_state, set_original_prediction_post_rollback,
-};
 use crate::despawn::{PredictionDisable, despawn_confirmed};
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
@@ -26,21 +23,17 @@ use crate::{
 };
 #[cfg(feature = "metrics")]
 use alloc::format;
-use bevy_app::{
-    App, FixedPostUpdate, FixedPreUpdate, Plugin, PreUpdate, RunFixedMainLoop,
-    RunFixedMainLoopSystem,
-};
+use bevy_app::{App, FixedPostUpdate, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::{
     component::{Component, Mutable},
     entity_disabling::DefaultQueryFilters,
     query::{With, Without},
     resource::Resource,
-    schedule::{IntoScheduleConfigs, SystemSet, common_conditions::not},
+    schedule::{IntoScheduleConfigs, SystemSet},
     system::Query,
 };
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
-use lightyear_core::timeline::Rollback;
 use lightyear_replication::prelude::ReplicationSet;
 
 /// Plugin that enables client-side prediction
@@ -56,29 +49,8 @@ pub enum PredictionSet {
     /// Sync components from the Confirmed entity to the Predicted entity, and potentially
     /// insert PredictedHistory components
     Sync,
-    /// Restore the Correct value instead of the VisualCorrected value
-    /// - we need this here because we want the correct value before the rollback check
-    /// - we are also careful to add this set to FixedPreUpdate as well, so that if FixedUpdate
-    ///   runs multiple times in a row, we still correctly reset the component to the Correct value
-    ///   before running a Simulation step. It's ok to have a duplicate system because we use core::mem::take
-    RestoreVisualCorrection,
-    /// Check if rollback is needed
-    CheckRollback,
-
-    // ROLLBACK
-    /// If any Predicted entity was marked as despawned, instead of despawning them we simply disabled the entity.
-    /// If we do a rollback we want to restore those entities.
-    RemoveDisable,
-    /// Prepare rollback by snapping the current state to the confirmed state and clearing histories
-    /// For pre-spawned entities, we just roll them back to their historical state.
-    /// If they didn't exist in the rollback tick, despawn them
-    PrepareRollback,
-    /// Perform rollback
+    /// System set encompassing the sets in [`RollbackSet`](crate::rollback::RollbackSet)
     Rollback,
-    // NOTE: no need to add RollbackFlush because running a schedule (which we do for rollback) will flush all commands at the end of each run
-
-    // FixedPreUpdate Sets
-    // RestoreVisualCorrection
 
     // FixedPostUpdate Sets
     /// Set to deal with predicted/confirmed entities getting despawned
@@ -86,16 +58,9 @@ pub enum PredictionSet {
     EntityDespawn,
     /// Update the client's predicted history; runs after each physics step in the FixedUpdate Schedule
     UpdateHistory,
-    /// Visually interpolate the predicted components to the corrected state
-    VisualCorrection,
 
     /// General set encompassing all other system sets
     All,
-}
-
-/// Returns true if we are in rollback
-pub fn is_in_rollback(query: Query<(), (With<PredictionManager>, With<Rollback>)>) -> bool {
-    query.single().is_ok()
 }
 
 pub(crate) type PredictionFilter = (
@@ -123,7 +88,7 @@ pub fn add_non_networked_rollback_systems<
     app.add_observer(add_prediction_history::<C>);
     app.add_systems(
         PreUpdate,
-        (prepare_rollback_non_networked::<C>.in_set(PredictionSet::PrepareRollback),),
+        prepare_rollback_non_networked::<C>.in_set(RollbackSet::Prepare),
     );
     app.add_systems(
         FixedPostUpdate,
@@ -149,7 +114,7 @@ pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
     app.add_observer(handle_tick_event_resource_history::<R>);
     app.add_systems(
         PreUpdate,
-        prepare_rollback_resource::<R>.in_set(PredictionSet::PrepareRollback),
+        prepare_rollback_resource::<R>.in_set(RollbackSet::Prepare),
     );
     app.add_systems(
         FixedPostUpdate,
@@ -202,6 +167,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
             app.add_observer(apply_component_removal_predicted::<C>);
             app.add_observer(handle_tick_event_prediction_history::<C>);
             app.add_observer(add_prediction_history::<C>);
+
             app.add_systems(
                 PreUpdate,
                 (
@@ -209,33 +175,12 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
                     // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
                     // check_rollback::<C>.in_set(PredictionSet::CheckRollback),
                     (prepare_rollback::<C>, prepare_rollback_prespawn::<C>)
-                        .in_set(PredictionSet::PrepareRollback),
+                        .in_set(RollbackSet::Prepare),
                 ),
-            );
-            // we want this to run every frame.
-            // If we have a Correction and we have 2 consecutive frames without FixedUpdate running
-            // the component would be set to the corrected state, instead of the original prediction!
-            // but we want those frames to keep displaying the original predicted value
-            app.add_systems(
-                RunFixedMainLoop,
-                set_original_prediction_post_rollback::<C>
-                    .in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
-            );
-            // we need this in case the FixedUpdate schedule runs multiple times in a row.
-            // Otherwise we would have
-            // [PreUpdate] RestoreCorrectValue
-            // [FixedUpdate] Step -> Correction = UpdateCorrectValue, InterpolateVisualValue, SetC=Visual, Sync, UpdateVisualInterpolation
-            // [FixedUpdate] Step (from C=Visual!!)
-            app.add_systems(
-                FixedPreUpdate,
-                // restore to the corrected state (as the visual state might be interpolating
-                // between the predicted and corrected state)
-                restore_corrected_state::<C>.in_set(PredictionSet::RestoreVisualCorrection),
             );
             app.add_systems(
                 FixedPostUpdate,
                 (
-                    get_corrected_state::<C>.in_set(PredictionSet::VisualCorrection),
                     // we need to run this during fixed update to know accurately the history for each tick
                     update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
                 ),
@@ -247,7 +192,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
                 PreUpdate,
                 (
                     // for SyncMode::Simple, just copy the confirmed components
-                    apply_confirmed_update::<C>.in_set(PredictionSet::CheckRollback),
+                    apply_confirmed_update::<C>.in_set(PredictionSet::Sync),
                 ),
             );
         }
@@ -292,10 +237,7 @@ impl Plugin for PredictionPlugin {
                 (
                     PredictionSet::SpawnPrediction,
                     PredictionSet::Sync,
-                    PredictionSet::CheckRollback,
-                    PredictionSet::RemoveDisable.run_if(is_in_rollback),
-                    PredictionSet::PrepareRollback.run_if(is_in_rollback),
-                    PredictionSet::Rollback.run_if(is_in_rollback),
+                    PredictionSet::Rollback,
                 )
                     .chain()
                     .in_set(PredictionSet::All),
@@ -312,23 +254,9 @@ impl Plugin for PredictionPlugin {
                 //   - the entity has a PrePredicted component. If it does, remove ShouldBePredicted to not trigger normal prediction-spawn system
                 // - then we check via a system if we should spawn a new predicted entity
                 spawn_predicted_entity.in_set(PredictionSet::SpawnPrediction),
-                remove_prediction_disable.in_set(PredictionSet::RemoveDisable),
-                run_rollback.in_set(PredictionSet::Rollback),
-                #[cfg(feature = "metrics")]
-                super::rollback::no_rollback
-                    .after(PredictionSet::CheckRollback)
-                    .in_set(PredictionSet::All)
-                    .run_if(not(is_in_rollback)),
             ),
         );
         app.add_observer(despawn_confirmed);
-
-        // FixedPreUpdate
-        app.configure_sets(
-            FixedPreUpdate,
-            PredictionSet::RestoreVisualCorrection.in_set(PredictionSet::All),
-        );
-        app.configure_sets(FixedPreUpdate, PredictionSet::All.run_if(should_run));
 
         // FixedUpdate systems
         // 1. Update client tick (don't run in rollback)
@@ -343,32 +271,14 @@ impl Plugin for PredictionPlugin {
                 // right away to avoid rollbacks
                 PredictionSet::Sync,
                 PredictionSet::UpdateHistory,
-                // no need to update the visual state during rollbacks
-                PredictionSet::VisualCorrection.run_if(not(is_in_rollback)),
             )
                 .in_set(PredictionSet::All)
                 .chain(),
         );
         app.configure_sets(FixedPostUpdate, PredictionSet::All.run_if(should_run));
 
-        // NOTE: this needs to run in FixedPostUpdate because the order we want is (if we replicate Position):
-        // - Physics update
-        // - UpdateHistory
-        // - Correction: update Position
-        // - Sync: update Transform
-        // - VisualInterpolation::UpdateVisualInterpolationState
-
-        // FixedPostUpdate systems
-        // 1. Interpolate between the confirmed state and the incorrect predicted state
-        // app.configure_sets(
-        //     FixedPostUpdate,
-        //     PredictionSet::VisualCorrection
-        //         // we want visual interpolation to use the corrected state
-        //         .before(InterpolationSet::UpdateVisualInterpolationState)
-        //         // no need to update the visual state during rollbacks
-        //         .run_if(not(is_in_rollback))
-        //         .in_set(PredictionSet::All),
-        // );
+        // PostUpdate
+        app.configure_sets(PostUpdate, PredictionSet::All.run_if(should_run));
 
         // PLUGINS
         if !app.is_plugin_added::<crate::shared::SharedPlugin>() {

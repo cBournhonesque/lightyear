@@ -348,7 +348,7 @@ impl Plugin for NetcodeServerPlugin {
         app.configure_sets(
             PreUpdate,
             (
-                LinkSet::ApplyConditioner,
+                LinkSet::Receive,
                 ConnectionSet::Receive,
                 TransportSet::Receive,
             )

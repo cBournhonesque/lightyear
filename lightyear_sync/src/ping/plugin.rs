@@ -93,7 +93,7 @@ impl PingPlugin {
             .par_iter_mut()
             .for_each(|(mut m, mut ping_sender, mut pong_sender)| {
                 // send the pings
-                if let Some(ping) = m.maybe_prepare_ping(Instant::now()) {
+                if let Some(ping) = m.maybe_prepare_ping(now) {
                     ping_sender.send::<PingChannel>(ping);
                 }
                 // prepare the pong messages with the correct send time

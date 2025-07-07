@@ -5,9 +5,8 @@ use core::hash::{Hash, Hasher};
 use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
-use lightyear::input::client::InputSet;
 use lightyear::input::input_buffer::InputBuffer;
-use lightyear::prediction::correction::Correction;
+use lightyear::prediction::correction::VisualCorrection;
 use lightyear::prelude::*;
 
 pub(crate) const MAX_VELOCITY: f32 = 200.0;
@@ -31,10 +30,13 @@ impl Plugin for SharedPlugin {
         )
         .insert_resource(Gravity(Vec2::ZERO));
 
-        app.add_systems(
-            FixedPreUpdate,
-            fixed_pre_log.after(InputSet::BufferClientInputs),
-        );
+        // app.add_systems(
+        //     FixedPreUpdate,
+        //     #[cfg(not(feature = "client"))]
+        //     fixed_pre_log,
+        //     #[cfg(feature = "client")]
+        //     fixed_pre_log.after(lightyear::input::client::InputSet::BufferClientInputs),
+        // );
         // app.add_systems(FixedPostUpdate, fixed_pre_physics.before(PhysicsSet::StepSimulation));
 
         app.add_systems(FixedLast, fixed_last_log);
@@ -167,13 +169,16 @@ pub(crate) fn fixed_last_log(
             Entity,
             &Position,
             &LinearVelocity,
-            Option<&Correction<Position>>,
+            Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
             Option<&InputBuffer<ActionState<PlayerActions>>>,
         ),
         (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
     >,
-    ball: Query<(&Position, Option<&Correction<Position>>), (With<BallMarker>, Without<Confirmed>)>,
+    ball: Query<
+        (&Position, Option<&VisualCorrection<Position>>),
+        (With<BallMarker>, Without<Confirmed>),
+    >,
 ) {
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
@@ -204,13 +209,16 @@ pub(crate) fn last_log(
         (
             Entity,
             &Position,
-            Option<&Correction<Position>>,
+            Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
             Option<&InputBuffer<ActionState<PlayerActions>>>,
         ),
         (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
     >,
-    ball: Query<(&Position, Option<&Correction<Position>>), (With<BallMarker>, Without<Confirmed>)>,
+    ball: Query<
+        (&Position, Option<&VisualCorrection<Position>>),
+        (With<BallMarker>, Without<Confirmed>),
+    >,
 ) {
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();

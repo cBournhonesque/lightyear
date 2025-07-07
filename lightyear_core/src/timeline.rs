@@ -6,6 +6,7 @@ use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::component::{Component, Mutable};
 use bevy_ecs::event::Event;
 use bevy_ecs::observer::Trigger;
+use bevy_ecs::query::With;
 use bevy_ecs::system::{Query, ResMut};
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
@@ -87,18 +88,6 @@ impl<T: TimelineContext> DerefMut for Timeline<T> {
     }
 }
 
-/// Track whether we are in rollback or not
-#[derive(Debug, Default, Reflect)]
-pub enum RollbackState {
-    /// We are not in a rollback state
-    #[default]
-    Default,
-    /// We should do a rollback starting from this tick
-    ///
-    /// i.e. the predicted component values will be reverted to this tick, and we will start running FixedUpdate from the next tick
-    RollbackStart(Tick),
-}
-
 /// The local timeline that matches [`Time<Virtual>`]
 /// - the Tick is incremented every FixedUpdate (including during rollback)
 /// - the overstep is set by the overstep of [`Time<Fixed>`]
@@ -156,9 +145,6 @@ impl TimelinePlugin {
 
 impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {
-        // TODO: this should be in InputPlugin
-        app.register_type::<RollbackState>();
-
         app.register_type::<LocalTimeline>();
 
         app.insert_resource(TickDuration(self.tick_duration));
@@ -208,4 +194,17 @@ impl<T> Copy for SyncEvent<T> {}
 ///
 /// This is in `lightyear_core` to avoid circular dependencies. Many other plugins behave differently during rollback
 #[derive(Component)]
-pub struct Rollback;
+pub enum Rollback {
+    /// The rollback is initiated because we have received new Confirmed state from the server
+    /// that doesn't match our prediction history.
+    FromState,
+    /// The rollback is initiated because we have received new Inputs for remote clients
+    ///
+    /// We should still check if there are state mismatches
+    FromInputs,
+}
+
+/// Run condition to check if we are in rollback
+pub fn is_in_rollback(client: Query<(), With<Rollback>>) -> bool {
+    client.single().is_ok()
+}

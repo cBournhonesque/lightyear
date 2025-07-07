@@ -18,6 +18,7 @@ server = ["lightyear/server"]
 netcode = ["lightyear/netcode"]
 udp = ["lightyear/udp"]
 steam = ["lightyear/steam"]
+visualizer = ["gui", "lightyear/metrics", "dep:bevy_metrics_dashboard"]
 
 # this serves as a bit of "workspace-hack" crate by enabling all bevy features needed by examples.
 # you can read about workspace-hack crates here: https://docs.rs/cargo-hakari/latest/cargo_hakari/about/index.html

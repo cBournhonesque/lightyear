@@ -1,3 +1,59 @@
+# Current bugs:
+
+- Something causes a full redraw of gizmos on rollbacks! What?
+
+- Maybe my problem is that I don't recompute the VisualInterpolation previous value
+  during rollbacks? So the current_value of VisualInterpolation is updated thanks to Correction, but the previous value
+  is wrong!
+
+- Our correction interpolates from the original value to the new value; maybe we should instead do the lerp smoothing,
+  where we lerp our visual value a certain amount towards the correct value.
+  We could do it all the time, in which case we don't need to do frame interpolation? Also we can do it at 
+
+- We don't remove Correction like we should be doing if the states match..
+  on the last tick of rollback, we should check if the final value we have computed is the same as the computed value.
+  If it is, remove Correction. -> FIXED
+
+
+- Simpler Correction design: 
+  - if users add a component with correction on it (or maybe with PredictionMode::Full), we automatically insert Corrected<C> on the entity.
+    FrameInterpolation will not run on entities with Corrected<C>.
+    It will act the same as FrameInterpolation:
+    - automatically interpolates by taking the last 2 values of the PredictionHistory.
+    - TODO: handle if predictionhistory is not present
+
+- on rollback: 
+  - C is equal to the FrameInterpolation value (remove restore_visual_interp) = previous_visual
+  - we compute the 
+  
+
+
+
+### DON'T ENABLE GUI ON SERVER - all these errors seem related
+- Is the sync system even working? C1 is 7 ticks behind the server and stays behind!
+ 
+- C2 can suddenly receive a TON of remote input messages in one tick. Maybe because we were out of sync? Right after that I notice there is a SyncEvent.
+  - and for an extended period of time, no remote inputs are sent.
+  - the server is on tick 800, and is broadcasting remote inputs for tick ~806, but suddently we are sending 60 messages in one frame for ticks 800-860,
+    which shouldn't be possible? And then for the next few ticks we are not sending any remote inputs. Then afterwards the clients are too ahead of the server,
+    they send inuts for tick +30 instead of +6.
+  - aeronet say we receive 56 packets!
+  - on the C1, it says we received 30 packets (via aeronet) at tick 249, but on the server logs I don't see that.
+  - it looks like it's because there's a 1 second period where the frame does not advance.
+  - Probably due to alt-tabbing on the server or something? Anyway it is fixed by doing a headless server. But this means that 
+
+- on C1, massive rollback from state, with 80 tick rollback! Instead of actually rolling back, we should just not accept it.
+  I.e. if the number of rollback ticks is too big, just ignore.
+  -> this was due to the above issue I think.
+ 
+- a lot of ticks can pass where we don't receive any input message -> also due to previous issue
+
+- the remote message's end_tick can be in the future compare to our own end_tick. That seems BAD.
+  - for some reason it seems like C2 could be too slow and never catch up to C1? 
+  - why are they so not time-synced?
+
+
+
 # Why do my predictions don't work at all
 
 - when i receive an update from the server for the predicted entity, i should also have received that inputs for that entity since we send

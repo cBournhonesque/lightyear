@@ -93,20 +93,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
             FixedPreUpdate,
             update_action_state::<S>.in_set(InputSet::UpdateActionState),
         );
-
-        // // TODO: maybe merge this with receive_input_message?
-        // // TODO: make this changeable dynamically by putting this in a resource?
-        // if self.rebroadcast_inputs {
-        //     app.add_systems(
-        //         PostUpdate,
-        //         (
-        //             // send_host_server_input_message::<A>.run_if(is_host_server),
-        //             rebroadcast_inputs::<S>,
-        //         )
-        //             .chain()
-        //             .in_set(InputSet::RebroadcastInputs),
-        //     );
-        // }
     }
 }
 
@@ -153,6 +139,7 @@ fn receive_input_message<S: ActionStateSequence>(
                 commands.entity(client_entity).insert(interpolation_delay);
             }
 
+            #[cfg(feature = "prediction")]
             if config.rebroadcast_inputs {
                 trace!("Rebroadcast input message {message:?} from client {client_id:?} to other clients");
                 if let Ok(server) = server.get(server_entity) {

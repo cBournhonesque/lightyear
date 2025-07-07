@@ -32,7 +32,7 @@ lightyear_link.workspace = true
 lightyear_prediction.workspace = true
 lightyear_interpolation.workspace = true
 lightyear_frame_interpolation.workspace = true
-lightyear_replication.workspace = true
+lightyear_replication = { workspace = true, features = ["avian3d"] }
 
 avian3d.workspace = true
 
