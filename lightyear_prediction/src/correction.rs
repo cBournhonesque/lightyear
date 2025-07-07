@@ -22,11 +22,11 @@
 //! - FixedUpdate: run the simulation to compute C(T+2).
 //! - FixedPostUpdate: set the component value to the interpolation between PT (predicted value at rollback start T) and C(T+2)
 
+use crate::SyncComponent;
 use crate::manager::PredictionManager;
 use crate::predicted_history::PredictionHistory;
 use crate::registry::PredictionRegistry;
 use crate::rollback::RollbackSet;
-use crate::SyncComponent;
 use bevy_app::{App, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::IntoScheduleConfigs;
 use bevy_ecs::{

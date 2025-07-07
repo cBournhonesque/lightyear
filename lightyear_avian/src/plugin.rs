@@ -13,13 +13,13 @@ use bevy_app::{
     App, FixedPostUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoop, RunFixedMainLoopSystem,
 };
 use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_transform::{components::Transform, TransformSystem};
+use bevy_transform::{TransformSystem, components::Transform};
 use bevy_utils::default;
 
 use crate::sync;
 use lightyear_frame_interpolation::FrameInterpolationSet;
-use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_interpolation::InterpolationMode;
+use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::plugin::PredictionSet;
 use lightyear_prediction::prelude::RollbackSet;
 use lightyear_replication::prelude::{ReplicationSet, TransformLinearInterpolation};

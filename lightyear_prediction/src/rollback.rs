@@ -20,7 +20,7 @@ use bevy_time::{Fixed, Time};
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::{is_in_rollback, Rollback};
+use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSet;
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::registry::registry::ComponentRegistry;

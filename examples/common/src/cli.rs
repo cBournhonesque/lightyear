@@ -124,8 +124,7 @@ impl Cli {
     }
 
     pub fn spawn_connections(&self, app: &mut App) {
-        // we halve the conditioner values to apply on both the client and server
-        let conditioner = LinkConditionerConfig::average_condition().half();
+        let conditioner = LinkConditionerConfig::average_condition();
         match self.mode {
             #[cfg(feature = "client")]
             Some(Mode::Client { client_id }) => {
@@ -150,7 +149,7 @@ impl Cli {
                 let server = app
                     .world_mut()
                     .spawn(ExampleServer {
-                        conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
+                        conditioner: None,
                         // transport: ServerTransports::Udp {
                         //     local_port: SERVER_PORT,
                         // },
@@ -177,7 +176,7 @@ impl Cli {
                 let server = app
                     .world_mut()
                     .spawn(ExampleServer {
-                        conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
+                        conditioner: None,
                         // transport: ServerTransports::Udp {
                         //     local_port: SERVER_PORT,
                         // },
