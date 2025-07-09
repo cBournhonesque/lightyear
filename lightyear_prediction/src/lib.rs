@@ -24,10 +24,10 @@ pub mod resource_history;
 pub mod rollback;
 pub mod spawn;
 
+mod deterministic;
 #[cfg(feature = "server")]
 pub mod server;
 mod shared;
-mod deterministic;
 
 pub mod prelude {
     pub use crate::Predicted;

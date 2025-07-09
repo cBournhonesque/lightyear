@@ -36,7 +36,6 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
         ));
 }
 
-
 // TODO: how can we achieve this without replication from the server?
 //  if there is no server, we could have all clients spawn the same world at the same time?
 
@@ -56,14 +55,14 @@ pub(crate) fn start_game(
         info!("Received ready message from client: {:?}", trigger.from);
         return;
     }
-    
+
     server.collection().iter().for_each(|link| {
         if let Ok(remote_id) = query.get(*link) {
             info!("Spawning player for client {:?}", remote_id);
             // we spawn an entity that will be replicated to all clients
             commands.spawn((
-               Replicate::to_clients(NetworkTarget::All),
-               PlayerId(remote_id.0)
+                Replicate::to_clients(NetworkTarget::All),
+                PlayerId(remote_id.0),
             ));
         } else {
             panic!("Failed to get entity for server link {:?}", link);

@@ -19,8 +19,9 @@ use bevy_time::{Fixed, Time};
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::{is_in_rollback, Rollback};
+use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSet;
+use lightyear_replication::components::PrePredicted;
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
@@ -130,7 +131,7 @@ impl Plugin for RollbackPlugin {
             QueryParamBuilder::new(|builder| {
                 builder.data::<&Predicted>();
                 builder.without::<Confirmed>();
-                builder.without::<DisableRollback>();
+                builder.without::<DisableStateRollback>();
                 builder.optional(|b| {
                     // include PredictionDisable entities (entities that are predicted and 'despawned'
                     // but we keep them around for rollback check)
@@ -164,11 +165,12 @@ impl Plugin for RollbackPlugin {
 }
 
 #[derive(Component)]
-/// Marker component used to indicate that an entity:
-/// - won't trigger rollbacks (it's ignored during rollback checks)
-/// - will never have mispredictions. During rollbacks we will revert the entity to the
-///   past value from the PredictionHistory instead of the confirmed value
-pub struct DisableRollback;
+/// Marker component used to indicate that an entity won't trigger rollback from state update.
+/// This can be used to mark predicted non-networked entities in deterministic replication, or to stop a
+/// state-replicated entity from being able to trigger rollbacks.
+///
+/// This entity will still get rolled back to its predicted history when a rollback happens.
+pub struct DisableStateRollback;
 
 /// Check if we need to do a rollback.
 /// We do this separately from `prepare_rollback` because even we stop the `check_rollback` function
@@ -183,7 +185,7 @@ fn check_rollback(
         (
             Entity,
             &ReplicationReceiver,
-            &PredictionManager,
+            &mut PredictionManager,
             &LocalTimeline,
         ),
         With<IsSynced<InputTimeline>>,
@@ -199,7 +201,7 @@ fn check_rollback(
     // TODO: maybe have a sparse-set component with ConfirmedUpdated to quickly query only through predicted entities
     //  that received a confirmed update? Would the iteration even be faster? since entities with or without sparse-set
     //  would still be in the same table
-    let (manager_entity, replication_receiver, prediction_manager, local_timeline) =
+    let (manager_entity, replication_receiver, mut prediction_manager, local_timeline) =
         receiver_query.into_inner();
     let tick = local_timeline.tick();
     trace!(?tick, "Check rollback");
@@ -235,7 +237,7 @@ fn check_rollback(
                 let confirmed_tick = confirmed_ref.get::<Confirmed>().unwrap().tick;
                 do_rollback(
                     confirmed_tick,
-                    prediction_manager,
+                    &prediction_manager,
                     &mut commands,
                     Rollback::FromState,
                 );
@@ -312,7 +314,7 @@ fn check_rollback(
                     // During `prepare_rollback` we will reset the component to their values on `confirmed_tick`.
                     // Then when we do Rollback in PreUpdate, we will start by incrementing the tick, which will be equal to `confirmed_tick + 1`
                     parallel_commands.command_scope(|mut c| {
-                        do_rollback(confirmed_tick, prediction_manager, &mut c, Rollback::FromState);
+                        do_rollback(confirmed_tick, &prediction_manager, &mut c, Rollback::FromState);
                     });
                     return;
                 }
@@ -336,7 +338,7 @@ fn check_rollback(
                 let rollback_tick = prediction_manager.last_confirmed_input.tick.get();
                 do_rollback(
                     rollback_tick,
-                    prediction_manager,
+                    &prediction_manager,
                     &mut commands,
                     Rollback::FromInputs,
                 );
@@ -348,13 +350,40 @@ fn check_rollback(
                 trace!("Rollback because we have received a new remote input. (mismatch check)");
                 do_rollback(
                     rollback_tick,
-                    prediction_manager,
+                    &prediction_manager,
                     &mut commands,
                     Rollback::FromInputs,
                 );
             }
         }
         _ => {}
+    }
+
+    // if we have a rollback, despawn any PreSpawned entities that were spawned since the rollback tick
+    // and were not matched with a remote entity
+    // (they will get respawned during the rollback)
+    if let Some(rollback_tick) = prediction_manager.get_rollback_start_tick() {
+        // 0. If the prespawned entity didn't exist at the rollback tick, despawn it
+        // NOTE: if rollback happened at rollback_tick, then we will start running systems starting from rollback_tick + 1.
+        //  so if the entity was spawned at tick >= rollback_tick + 1, we despawn it, and it can get respawned again
+        let mut entities_to_despawn = EntityHashSet::default();
+        for (_, hash) in prediction_manager
+            .prespawn_tick_to_hash
+            .drain_after(&(rollback_tick + 1))
+        {
+            if let Some(entities) = prediction_manager.prespawn_hash_to_entities.remove(&hash) {
+                entities_to_despawn.extend(entities);
+            }
+        }
+        entities_to_despawn.iter().for_each(|entity| {
+            debug!(
+                ?entity,
+                "deleting pre-spawned entity because it was created after the rollback tick"
+            );
+            if let Ok(mut entity_commands) = commands.get_entity(*entity) {
+                entity_commands.despawn();
+            }
+        });
     }
 }
 
@@ -369,6 +398,47 @@ pub(crate) fn remove_prediction_disable(
     });
 }
 
+// pub(crate) fn prepare_rollback_full(
+//     prediction_registry: Res<PredictionRegistry>,
+//     component_registry: Res<ComponentRegistry>,
+//     mut commands: Commands,
+//     // We also snap the value of the component to the server state if we are in rollback
+//     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
+//     mut predicted_query: Query<FilteredEntityMut>,
+//     confirmed_query: Query<FilteredEntityRef>,
+//     // mut predicted_query: Query<
+//     //     (
+//     //         Option<&mut C>,
+//     //         &mut PredictionHistory<C>,
+//     //         Has<DisableRollback>,
+//     //     ),
+//     //     (With<Predicted>, Without<Confirmed>, Without<PreSpawned>),
+//     // >,
+//     // TODO: have a way to only get the updates of entities that are predicted? i.e. add ConfirmedPredicted
+//     // confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
+//     manager_query: Single<(&LocalTimeline, &PredictionManager, &Rollback)>,
+// ) {
+//     let (timeline, manager, rollback) = manager_query.into_inner();
+//     let current_tick = timeline.tick();
+//     let _span = trace_span!("prepare_rollback", tick = ?current_tick);
+//     let rollback_tick = manager.get_rollback_start_tick().unwrap();
+//
+//     // TODO: cache the list of predicted full components on that entity.
+//     predicted_query.par_iter_mut().for_each(|mut predicted_mut| {
+//         let history_id: ComponentId;
+//         // let history_id = prediction_registry.prediction_map.get(predicted_mut.kind())
+//         let mut predicted_history = predicted_mut.get_mut_by_id(history_id).unwrap();
+//
+//         // 1. Get the history value and clear the history
+//         let original_predicted_value = predicted_history.pop_until_tick(rollback_tick);
+//         predicted_history.clear();
+//
+//
+//
+//     });
+//
+// }
+
 /// If there is a mismatch, prepare rollback for all components
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
@@ -380,47 +450,58 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
     mut predicted_query: Query<
         (
+            Entity,
             Option<&mut C>,
             &mut PredictionHistory<C>,
-            Has<DisableRollback>,
+            AnyOf<(
+                &Predicted,
+                &PreSpawned,
+                &DisableStateRollback,
+                &PrePredicted,
+            )>,
         ),
-        (With<Predicted>, Without<Confirmed>, Without<PreSpawned>),
+        Without<Confirmed>,
     >,
     // TODO: have a way to only get the updates of entities that are predicted? i.e. add ConfirmedPredicted
-    confirmed_query: Query<(Entity, Option<&C>, Ref<Confirmed>)>,
+    confirmed_query: Query<(Option<&C>, Ref<Confirmed>)>,
     manager_query: Single<(&LocalTimeline, &PredictionManager, &Rollback)>,
 ) {
     let kind = core::any::type_name::<C>();
     let (timeline, manager, rollback) = manager_query.into_inner();
     let current_tick = timeline.tick();
     let _span = trace_span!("prepare_rollback", tick = ?current_tick, kind = ?kind);
-    for (confirmed_entity, confirmed_component, confirmed) in confirmed_query.iter() {
-        let rollback_tick = manager.get_rollback_start_tick().unwrap();
-
-        // ignore the confirmed entities that only have interpolation
-        // TODO: separate ConfirmedPredicted and ConfirmedInterpolated!
-        let Some(predicted_entity) = confirmed.predicted else {
-            continue;
-        };
-        // 1. Get the predicted entity, and its history
-        let Ok((predicted_component, mut predicted_history, disable_rollback)) =
-            predicted_query.get_mut(predicted_entity)
-        else {
-            debug!(
-                "Predicted entity {:?} was not found when preparing rollback for {:?}",
-                confirmed.predicted,
-                core::any::type_name::<C>()
-            );
-            continue;
-        };
-
-        // 2. we need to clear the history so we can write a new one
+    let rollback_tick = manager.get_rollback_start_tick().unwrap();
+    for (
+        predicted_entity,
+        predicted_component,
+        mut predicted_history,
+        (predicted, prespawned, disable_state_rollback, pre_predicted),
+    ) in predicted_query.iter_mut()
+    {
+        // 1. we need to clear the history so we can write a new one
         let original_predicted_value = predicted_history.pop_until_tick(rollback_tick);
         predicted_history.clear();
 
-        let (correct_value, from_history) = match (rollback, disable_rollback) {
+        // 2. find the correct value to rollback to, and whether or not it's the Confirmed state or the PredictionHistory state
+        // If DisableStateRollback, PrePredicted, Prespawned -> we just rollback to the PredictionHistory state, not the Confirmed state.
+        let (correct_value, from_history) = match (
+            rollback,
+            disable_state_rollback.is_some() || pre_predicted.is_some() || prespawned.is_some(),
+        ) {
             // we will rollback to the confirmed state
             (Rollback::FromState, false) => {
+                let Some(predicted) = predicted else {
+                    error!("Entity needs a Predicted component to handle Rollback::FromState");
+                    continue;
+                };
+                let Some(confirmed_entity) = predicted.confirmed_entity else {
+                    error!("Predicted entity has no corresponding confirmed entity for rollback!");
+                    continue;
+                };
+                let Ok((confirmed_component, confirmed)) = confirmed_query.get(confirmed_entity)
+                else {
+                    continue;
+                };
                 trace!(?predicted_entity, "Rollback to the confirmed state");
                 // Confirm that we are in rollback, with the correct tick
                 debug_assert_eq!(
@@ -445,12 +526,9 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             }
         };
 
-        // SAFETY: we know the predicted entity exists
         let mut entity_mut = commands.entity(predicted_entity);
 
         // 3. we update the state to the Corrected state
-        // NOTE: visually, we will use the CorrectionFn to interpolate between the current Predicted state and the Corrected state
-        //  even though for other purposes (physics, etc.) we switch directly to the Corrected state
         match correct_value {
             // confirm does not exist, remove on predicted
             None => {
@@ -460,19 +538,19 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             // confirm exist, update or insert on predicted
             Some(correct) => {
                 let mut correct_value = correct.clone();
-                // when rollback is disabled, the correct value is taken from the prediction history
-                // so no need to map entities
+                // if the correct value is from the PredictionHistory, we already did entity mapping and it's
+                // already part of the history!
                 if !from_history {
                     let _ = manager.map_entities(&mut correct_value, component_registry.as_ref());
+                    predicted_history.add_update(rollback_tick, correct_value.clone());
                 }
-                // TODO: do i need to add this to the history?
-                predicted_history.add_update(rollback_tick, correct_value.clone());
                 match predicted_component {
                     None => {
                         debug!("Re-adding deleted Full component to predicted");
                         entity_mut.insert(correct_value);
                     }
                     Some(mut predicted_component) => {
+                        // keep track of the current visual value so we can smooth the correction
                         if prediction_registry.has_correction::<C>() {
                             entity_mut.insert(PreviousVisual(predicted_component.clone()));
                             trace!(
@@ -489,189 +567,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                 };
             }
         };
-    }
-}
-
-// TODO: handle disable rollback, by combining all prepare_rollback systems into one
-/// For prespawned predicted entities, we do not have a Confirmed component,
-/// we just rollback the entity to the previous state
-/// - entities that did not exist at the rollback tick are despawned (and should be respawned during rollback)
-/// - component that were inserted since rollback are removed
-/// - components that were removed since rollback are inserted
-/// - entities that were spawned since rollback are despawned
-/// - no need to do correction because we don't have a Confirmed state to correct towards, and because PreSpawned
-///   is for our local client so we have perfect information.
-/// - TODO: entities that were despawned since rollback are respawned (maybe just via using prediction_despawn()?)
-#[allow(clippy::type_complexity)]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn prepare_rollback_prespawn<C: SyncComponent>(
-    // TODO: have a way to only get the updates of entities that are predicted?
-    mut commands: Commands,
-    // We also snap the value of the component to the server state if we are in rollback
-    // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
-    mut predicted_query: Query<
-        (Entity, Option<&mut C>, &mut PredictionHistory<C>),
-        (With<PreSpawned>, Without<Confirmed>, Without<Predicted>),
-    >,
-    // TODO: have a way to make these systems run in parallel
-    //  - either by using RwLock in PredictionManager
-    //  - or by using a system that iterates through archetypes, a la replicon?
-    mut prediction_manager: Single<&mut PredictionManager, With<Rollback>>,
-) {
-    let kind = core::any::type_name::<C>();
-    let _span = trace_span!("client prepare rollback for pre-spawned entities");
-
-    let Some(rollback_tick) = prediction_manager.get_rollback_start_tick() else {
-        error!("prepare_rollback_prespawn should only be called when we are in rollback");
-        return;
-    };
-
-    // 0. If the prespawned entity didn't exist at the rollback tick, despawn it
-    // TODO: also handle deleting pre-predicted entities!
-    // NOTE: if rollback happened at current_tick - 1, then we will start running systems starting from current_tick.
-    //  so if the entity was spawned at tick >= current_tick, we despawn it, and it can get respawned again
-    let mut entities_to_despawn = EntityHashSet::default();
-    for (_, hash) in prediction_manager
-        .prespawn_tick_to_hash
-        .drain_after(&(rollback_tick + 1))
-    {
-        if let Some(entities) = prediction_manager.prespawn_hash_to_entities.remove(&hash) {
-            entities_to_despawn.extend(entities);
-        }
-    }
-    entities_to_despawn.iter().for_each(|entity| {
-        debug!(
-            ?entity,
-            "deleting pre-spawned entity because it was created after the rollback tick"
-        );
-        if let Ok(mut entity_commands) = commands.get_entity(*entity) {
-            entity_commands.despawn();
-        }
-    });
-
-    for (prespawned_entity, predicted_component, mut predicted_history) in
-        predicted_query.iter_mut()
-    {
-        if entities_to_despawn.contains(&prespawned_entity) {
-            continue;
-        }
-
-        // 1. restore the component to the historical value
-        match predicted_history.pop_until_tick(rollback_tick) {
-            None | Some(HistoryState::Removed) => {
-                if predicted_component.is_some() {
-                    debug!(
-                        ?prespawned_entity,
-                        ?kind,
-                        "Component for prespawned entity didn't exist at time of rollback, removing it"
-                    );
-                    // the component didn't exist at the time, remove it!
-                    commands.entity(prespawned_entity).try_remove::<C>();
-                }
-            }
-            Some(HistoryState::Updated(c)) => {
-                // the component existed at the time, restore it!
-                if let Some(mut predicted_component) = predicted_component {
-                    // update the component to the corrected value
-                    *predicted_component = c.clone();
-                } else {
-                    debug!(
-                        ?prespawned_entity,
-                        ?kind,
-                        "Component for prespawned entity existed at time of rollback, inserting it"
-                    );
-                    commands.entity(prespawned_entity).insert(c);
-                }
-            }
-        }
-
-        // 2. we need to clear the history so we can write a new one
-        predicted_history.clear();
-    }
-}
-
-// TODO: add correction!
-/// For non-networked components, it's exactly the same as for pre-spawned entities:
-/// we do not have a Confirmed component, so we don't revert back to the Confirmed value,
-/// we revert to the value read from the `PredictedHistory` instead
-/// - entities that did not exist at the rollback tick are despawned (and should be respawned during rollback)
-/// - component that were inserted since rollback are removed
-/// - components that were removed since rollback are inserted
-/// - entities that were spawned since rollback are despawned
-/// - no need to do correction because we don't have a Confirmed state to correct towards
-/// - TODO: entities that were despawned since rollback are respawned (maybe just via using prediction_despawn()?)
-#[allow(clippy::type_complexity)]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn prepare_rollback_non_networked<
-    C: SyncComponent,
->(
-    prediction_registry: Res<PredictionRegistry>,
-    // TODO: have a way to only get the updates of entities that are predicted?
-    mut commands: Commands,
-    // We also snap the value of the component to the server state if we are in rollback
-    // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
-    mut predicted_query: Query<
-        (Entity, Option<&mut C>, &mut PredictionHistory<C>),
-        With<Predicted>,
-    >,
-    prediction_manager: Single<&PredictionManager, With<Rollback>>,
-) {
-    let kind = core::any::type_name::<C>();
-    let _span = trace_span!("client prepare rollback for non networked component", ?kind);
-
-    let Some(rollback_tick) = prediction_manager.get_rollback_start_tick() else {
-        error!(
-            "prepare_rollback_non_networked_components should only be called when we are in rollback"
-        );
-        return;
-    };
-
-    // 0. If the entity didn't exist at the rollback tick, despawn it
-    // TODO? or is it handled for us?
-    for (entity, component, mut history) in predicted_query.iter_mut() {
-        let mut entity_mut = commands.entity(entity);
-
-        // 1. restore the component to the historical value
-        match history.pop_until_tick(rollback_tick) {
-            None | Some(HistoryState::Removed) => {
-                if component.is_some() {
-                    debug!(
-                        ?entity,
-                        ?kind,
-                        "Non-networked component for predicted entity didn't exist at time of rollback, removing it"
-                    );
-                    // the component didn't exist at the time, remove it!
-                    entity_mut.try_remove::<C>();
-                }
-            }
-            Some(HistoryState::Updated(c)) => {
-                // the component existed at the time, restore it!
-                if let Some(mut component) = component {
-                    // save the existing visual value
-                    if prediction_registry.has_correction::<C>() {
-                        entity_mut.insert(PreviousVisual(component.clone()));
-                        trace!(
-                            previous_visual = ?component,
-                            kind = ?core::any::type_name::<C>(),
-                            ?rollback_tick,
-                            "Storing PreviousVisual for correction"
-                        );
-                    }
-                    // update the component to the corrected value
-                    *component = c.clone();
-                } else {
-                    debug!(
-                        ?entity,
-                        ?kind,
-                        "Non-networked component for predicted entity existed at time of rollback, inserting it"
-                    );
-                    entity_mut.insert(c);
-                }
-            }
-        }
-
-        // 2. we need to clear the history so we can write a new one
-        history.clear();
     }
 }
 

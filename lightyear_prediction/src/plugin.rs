@@ -1,14 +1,11 @@
 use super::pre_prediction::PrePredictionPlugin;
 use super::predicted_history::apply_confirmed_update;
 use super::resource_history::{
-    handle_tick_event_resource_history, update_resource_history, ResourceHistory,
+    ResourceHistory, handle_tick_event_resource_history, update_resource_history,
 };
-use super::rollback::{
-    prepare_rollback, prepare_rollback_non_networked, prepare_rollback_prespawn, prepare_rollback_resource,
-    RollbackPlugin, RollbackSet,
-};
+use super::rollback::{RollbackPlugin, RollbackSet, prepare_rollback, prepare_rollback_resource};
 use super::spawn::spawn_predicted_entity;
-use crate::despawn::{despawn_confirmed, PredictionDisable};
+use crate::despawn::{PredictionDisable, despawn_confirmed};
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
@@ -19,7 +16,7 @@ use crate::predicted_history::{
 use crate::prespawn::{PreSpawned, PreSpawnedPlugin};
 use crate::registry::PredictionRegistry;
 use crate::{
-    predicted_on_add_hook, predicted_on_remove_hook, Predicted, PredictionMode, SyncComponent,
+    Predicted, PredictionMode, SyncComponent, predicted_on_add_hook, predicted_on_remove_hook,
 };
 #[cfg(feature = "metrics")]
 use alloc::format;
@@ -78,16 +75,12 @@ pub(crate) fn should_run(query: Query<(), PredictionFilter>) -> bool {
 }
 
 /// Enable rollbacking a component even if the component is not networked
-pub fn add_non_networked_rollback_systems<
-    C: SyncComponent,
->(
-    app: &mut App,
-) {
+pub fn add_non_networked_rollback_systems<C: SyncComponent>(app: &mut App) {
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(add_prediction_history::<C>);
     app.add_systems(
         PreUpdate,
-        prepare_rollback_non_networked::<C>.in_set(RollbackSet::Prepare),
+        prepare_rollback::<C>.in_set(RollbackSet::Prepare),
     );
     app.add_systems(
         FixedPostUpdate,
@@ -173,8 +166,7 @@ pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: 
                     // for SyncMode::Full, we need to check if we need to rollback.
                     // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
                     // check_rollback::<C>.in_set(PredictionSet::CheckRollback),
-                    (prepare_rollback::<C>, prepare_rollback_prespawn::<C>)
-                        .in_set(RollbackSet::Prepare),
+                    prepare_rollback::<C>.in_set(RollbackSet::Prepare),
                 ),
             );
             app.add_systems(

@@ -26,9 +26,9 @@ use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeMapper};
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
-use tracing::{debug, trace};
 #[cfg(feature = "trace")]
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
+use tracing::{debug, trace};
 
 /// Function used to interpolate from one component state (`start`) to another (`other`)
 /// t goes from 0.0 (`start`) to 1.0 (`other`)
@@ -416,9 +416,7 @@ pub struct ComponentRegistration<'a, C> {
     _phantom: core::marker::PhantomData<C>,
 }
 
-
 impl<C> ComponentRegistration<'_, C> {
-
     pub fn new(app: &mut App) -> ComponentRegistration<'_, C> {
         ComponentRegistration {
             app,

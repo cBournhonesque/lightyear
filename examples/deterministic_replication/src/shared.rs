@@ -13,7 +13,7 @@ pub(crate) const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
 
 /// SharedPlugin between the client and server.
-/// 
+///
 /// We can choose to make the server a pure relay server (with 0 simulation), or to make it simulate some elements.
 #[derive(Clone)]
 pub struct SharedPlugin;
@@ -32,7 +32,7 @@ impl Plugin for SharedPlugin {
                 .disable::<SyncPlugin>(),
         )
         .insert_resource(Gravity(Vec2::ZERO));
-        
+
         // registry types for reflection
         app.register_type::<PlayerId>();
 
@@ -181,7 +181,10 @@ pub(crate) fn fixed_last_log(
         ),
         (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
     >,
-    ball: Query<(&Position, Option<&VisualCorrection<Position>>), (With<BallMarker>, Without<Confirmed>)>,
+    ball: Query<
+        (&Position, Option<&VisualCorrection<Position>>),
+        (With<BallMarker>, Without<Confirmed>),
+    >,
 ) {
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
@@ -218,7 +221,10 @@ pub(crate) fn last_log(
         ),
         (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
     >,
-    ball: Query<(&Position, Option<&VisualCorrection<Position>>), (With<BallMarker>, Without<Confirmed>)>,
+    ball: Query<
+        (&Position, Option<&VisualCorrection<Position>>),
+        (With<BallMarker>, Without<Confirmed>),
+    >,
 ) {
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();

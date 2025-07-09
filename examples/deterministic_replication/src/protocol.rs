@@ -80,14 +80,14 @@ impl Plugin for ProtocolPlugin {
                 ..default()
             },
         });
-        
+
         // channel
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             ..default()
         })
-            .add_direction(NetworkDirection::ClientToServer);
-        
+        .add_direction(NetworkDirection::ClientToServer);
+
         // messages
         app.add_trigger::<Ready>()
             .add_direction(NetworkDirection::ClientToServer);

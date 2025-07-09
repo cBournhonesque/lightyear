@@ -12,6 +12,9 @@ use lightyear::prelude::*;
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
+/// how many ticks to delay the input by
+pub const INPUT_DELAY_TICKS: u16 = 0;
+
 #[cfg(feature = "client")]
 mod client;
 mod protocol;
@@ -65,6 +68,7 @@ fn main() {
 
 #[cfg(feature = "client")]
 fn add_input_delay(app: &mut App) {
+    use lightyear::prelude::client::{Input, InputDelayConfig};
     let client = app
         .world_mut()
         .query_filtered::<Entity, With<Client>>()
@@ -72,9 +76,21 @@ fn add_input_delay(app: &mut App) {
         .unwrap();
 
     // set some input-delay since we are predicting all entities
-    // app.world_mut()
-    //     .entity_mut(client)
-    //     .insert(InputTimeline(Timeline::from(
-    //         Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
-    //     )));
+    app.world_mut()
+        .entity_mut(client)
+        .insert(PredictionManager {
+            rollback_policy: RollbackPolicy {
+                // we only replicate inputs, so state-based rollback is disabled
+                state: RollbackMode::Disabled,
+                // we rollback only when remote inputs don't match what we were predicting
+                input: RollbackMode::Check,
+                // do not limit the max number of rollback ticks
+                max_rollback_ticks: 100,
+            },
+            ..default()
+        })
+        .insert(InputTimeline(Timeline::from(
+            Input::default()
+                .with_input_delay(InputDelayConfig::fixed_input_delay(INPUT_DELAY_TICKS)),
+        )));
 }

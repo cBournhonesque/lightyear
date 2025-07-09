@@ -51,7 +51,6 @@ fn init(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
-
 /// System that draws the player's boxes and cursors
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
@@ -81,9 +80,7 @@ pub(crate) fn draw_elements(
 }
 
 #[cfg(feature = "client")]
-pub(crate) fn ready_button(
-    mut commands: Commands,
-) {
+pub(crate) fn ready_button(mut commands: Commands) {
     commands
         .spawn((
             Text("Ready".to_string()),

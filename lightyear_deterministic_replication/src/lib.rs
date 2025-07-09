@@ -16,6 +16,4 @@ extern crate core;
 pub mod messages;
 
 /// Commonly used items from the `lightyear_core` crate.
-pub mod prelude {
-
-}
+pub mod prelude {}

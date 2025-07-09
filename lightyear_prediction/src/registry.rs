@@ -12,8 +12,8 @@ use bevy_ecs::{
     world::{FilteredEntityMut, FilteredEntityRef, World},
 };
 use bevy_math::{
-    curve::{Ease, EaseFunction, EasingCurve},
     Curve,
+    curve::{Ease, EaseFunction, EasingCurve},
 };
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::tick::Tick;
@@ -447,7 +447,8 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent,
     {
-        let history_id = self.app
+        let history_id = self
+            .app
             .world_mut()
             .register_component::<PredictionHistory<C>>();
         // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
@@ -471,12 +472,11 @@ pub trait PredictionAppRegistrationExt {
 
 impl PredictionAppRegistrationExt for App {
     fn add_rollback<C: SyncComponent>(&mut self) -> ComponentRegistration<C> {
-        let history_id = self.world_mut().register_component::<PredictionHistory<C>>();
-        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
-        let Some(mut registry) = self
+        let history_id = self
             .world_mut()
-            .get_resource_mut::<PredictionRegistry>()
-        else {
+            .register_component::<PredictionHistory<C>>();
+        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
+        let Some(mut registry) = self.world_mut().get_resource_mut::<PredictionRegistry>() else {
             return ComponentRegistration::<C>::new(self);
         };
 

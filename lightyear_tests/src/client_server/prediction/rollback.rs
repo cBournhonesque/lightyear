@@ -13,7 +13,7 @@ use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::prelude::{PredictionManager, RollbackSet};
-use lightyear_prediction::rollback::DisableRollback;
+use lightyear_prediction::rollback::DisableStateRollback;
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::{PredictionTarget, Replicate, ReplicationSet};
 use test_log::test;
@@ -433,7 +433,7 @@ fn test_disable_rollback() {
             Predicted {
                 confirmed_entity: None,
             },
-            DisableRollback,
+            DisableStateRollback,
         ))
         .id();
     let confirmed_a = stepper

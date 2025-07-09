@@ -3,6 +3,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
+use lightyear::prediction::rollback::DisableStateRollback;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -19,19 +20,16 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-
 /// In deterministic replication, the client simulates all players.
 fn player_movement(
     timeline: Single<&LocalTimeline, With<Client>>,
-    mut velocity_query: Query<
-        (
-            Entity,
-            &PlayerId,
-            &Position,
-            &mut LinearVelocity,
-            &ActionState<PlayerActions>,
-        ),
-    >,
+    mut velocity_query: Query<(
+        Entity,
+        &PlayerId,
+        &Position,
+        &mut LinearVelocity,
+        &ActionState<PlayerActions>,
+    )>,
 ) {
     let tick = timeline.tick();
     for (entity, player_id, position, velocity, action_state) in velocity_query.iter_mut() {
@@ -65,6 +63,10 @@ pub(crate) fn handle_player_spawn(
         ColorComponent(color),
         PhysicsBundle::player(),
         Name::from("Player"),
+        // this indicates that the entity will only do rollbacks from input updates, and not state updates
+        // It is currently REQUIRED to add this component to indicate which entities will be rollbacked
+        // in deterministic replication mode.
+        DisableStateRollback,
     ));
     if local_id == peer_id {
         entity_mut.insert(InputMap::new([
