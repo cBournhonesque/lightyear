@@ -43,11 +43,11 @@
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
 //!   will read the inputs using the [`InputBuffer`] component.
 
+use crate::InputChannel;
 use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
-use crate::InputChannel;
 #[cfg(feature = "metrics")]
 use alloc::format;
 use alloc::{vec, vec::Vec};
@@ -71,16 +71,16 @@ use lightyear_core::time::TickDelta;
 
 use lightyear_connection::client::Client;
 use lightyear_interpolation::prelude::*;
+use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
-use lightyear_messages::MessageManager;
 #[cfg(feature = "prediction")]
 use lightyear_prediction::prelude::*;
-use lightyear_prediction::rollback::DisableStateRollback;
+use lightyear_prediction::rollback::DeterministicPredicted;
 use lightyear_replication::components::{Confirmed, PrePredicted};
 use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::client::IsSynced;
 use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::client::IsSynced;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::ChannelRegistry;
 use tracing::{debug, error, trace};
@@ -577,7 +577,10 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     confirmed_query: Query<&Confirmed, Without<S::Marker>>,
     mut predicted_query: Query<
         (Option<&mut InputBuffer<S::Snapshot>>, Option<&mut S::State>),
-        (Or<(With<Predicted>, With<DisableStateRollback>)>, Without<S::Marker>),
+        (
+            Or<(With<Predicted>, With<DeterministicPredicted>)>,
+            Without<S::Marker>,
+        ),
     >,
 ) {
     let (manager, mut receiver, prediction_manager, timeline) = link.into_inner();

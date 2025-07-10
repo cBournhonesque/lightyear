@@ -2,7 +2,7 @@
 name = "deterministic_replication"
 version = "0.0.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
-edition = "2021"
+edition.workspace = true
 publish = false
 
 [features]
@@ -19,8 +19,9 @@ lightyear = { workspace = true, features = [
   "prediction",
   "replication",
   "leafwing",
-  "avian2d",
 ] }
+lightyear_avian2d.workspace = true
+#lightyear_avian2d = { workspace = true, features = ["2d"]}
 lightyear_examples_common.workspace = true
 lightyear_frame_interpolation.workspace = true
 leafwing-input-manager.workspace = true

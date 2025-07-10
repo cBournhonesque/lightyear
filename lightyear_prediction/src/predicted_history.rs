@@ -4,6 +4,7 @@ use crate::manager::{PredictionManager, PredictionResource, PredictionSyncBuffer
 use crate::plugin::{PredictionFilter, PredictionSet};
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
+use crate::rollback::DeterministicPredicted;
 use crate::{Predicted, PredictionMode, SyncComponent};
 use alloc::vec::Vec;
 use bevy_app::{App, PreUpdate};
@@ -190,14 +191,28 @@ fn apply_predicted_sync(world: &mut World) {
 // TODO: We could not run this for [`Predicted`] entities and instead have the confirmed->sync observers already
 //  add a PredictionHistory component if it's missing on the Predicted entity.
 pub(crate) fn add_prediction_history<C: Component>(
-    trigger: Trigger<OnAdd, (C, Predicted, PrePredicted, PreSpawned)>,
+    trigger: Trigger<
+        OnAdd,
+        (
+            C,
+            Predicted,
+            PrePredicted,
+            PreSpawned,
+            DeterministicPredicted,
+        ),
+    >,
     mut commands: Commands,
     // TODO: should we also have With<ShouldBePredicted>?
     query: Query<
         (),
         (
             (Without<PredictionHistory<C>>, With<C>),
-            Or<(With<Predicted>, With<PrePredicted>, With<PreSpawned>)>,
+            Or<(
+                With<Predicted>,
+                With<PrePredicted>,
+                With<PreSpawned>,
+                With<DeterministicPredicted>,
+            )>,
         ),
     >,
 ) {

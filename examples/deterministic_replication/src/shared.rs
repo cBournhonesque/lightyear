@@ -7,6 +7,7 @@ use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::input::input_buffer::InputBuffer;
+use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
 use lightyear::prelude::*;
 
 pub(crate) const MAX_VELOCITY: f32 = 200.0;
@@ -25,11 +26,19 @@ impl Plugin for SharedPlugin {
         app.add_systems(Startup, init);
 
         // physics
+        app.add_plugins(lightyear_avian2d::prelude::LightyearAvianPlugin {
+            rollback_resources: true,
+            ..default()
+        });
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
                 // disable Sync as it is handled by lightyear_avian
-                .disable::<SyncPlugin>(),
+                .disable::<SyncPlugin>()
+                // interpolation is handled by lightyear_frame_interpolation
+                .disable::<PhysicsInterpolationPlugin>()
+                // disable Sleeping plugin as it can mess up physics rollbacks
+                .disable::<SleepingPlugin>(),
         )
         .insert_resource(Gravity(Vec2::ZERO));
 
@@ -46,7 +55,7 @@ impl Plugin for SharedPlugin {
         //     fixed_pre_log.after(InputSet::BufferClientInputs),
         // );
         // app.add_systems(FixedPostUpdate, fixed_pre_physics.before(PhysicsSet::StepSimulation));
-        // app.add_systems(FixedLast, fixed_last_log);
+        app.add_systems(FixedLast, fixed_last_log);
         // app.add_systems(Last, last_log);
     }
 }
@@ -57,6 +66,8 @@ pub(crate) fn init(mut commands: Commands) {
         ColorComponent(css::AZURE.into()),
         PhysicsBundle::ball(),
         BallMarker,
+        DeterministicPredicted,
+        DisableRollback,
         Name::from("Ball"),
     ));
     commands.spawn(WallBundle::new(

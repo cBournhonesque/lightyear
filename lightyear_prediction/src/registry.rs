@@ -1,5 +1,7 @@
 use crate::manager::{PredictionManager, PredictionResource};
-use crate::plugin::{add_non_networked_rollback_systems, add_prediction_systems};
+use crate::plugin::{
+    add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
+};
 use crate::predicted_history::PredictionHistory;
 use crate::{PredictionMode, SyncComponent};
 #[cfg(feature = "metrics")]
@@ -468,6 +470,8 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
 pub trait PredictionAppRegistrationExt {
     /// Enable rollbacks for a component that is not networked.
     fn add_rollback<C: SyncComponent>(&mut self) -> ComponentRegistration<C>;
+
+    fn add_resource_rollback<R: Resource + Clone>(&mut self);
 }
 
 impl PredictionAppRegistrationExt for App {
@@ -483,5 +487,13 @@ impl PredictionAppRegistrationExt for App {
         registry.set_prediction_mode::<C>(Some(history_id), PredictionMode::Full);
         add_non_networked_rollback_systems::<C>(self);
         ComponentRegistration::<C>::new(self)
+    }
+
+    fn add_resource_rollback<R: Resource + Clone>(&mut self) {
+        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
+        if self.world().get_resource::<PredictionRegistry>().is_none() {
+            return;
+        }
+        add_resource_rollback_systems::<R>(self);
     }
 }

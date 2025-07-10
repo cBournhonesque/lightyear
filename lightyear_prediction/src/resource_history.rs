@@ -11,6 +11,7 @@ use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::timeline::SyncEvent;
 use lightyear_sync::prelude::InputTimeline;
+use tracing::info;
 
 pub(crate) type ResourceHistory<R> = HistoryBuffer<R>;
 
@@ -39,6 +40,7 @@ pub(crate) fn update_resource_history<R: Resource + Clone>(
 
     if let Some(resource) = resource {
         if resource.is_changed() {
+            info!(?tick, "Adding resource to history");
             history.add_update(tick, resource.clone());
         }
     // resource does not exist, it might have been just removed
@@ -46,7 +48,10 @@ pub(crate) fn update_resource_history<R: Resource + Clone>(
         match history.peek() {
             Some((_, HistoryState::Removed)) => (),
             // if there is no latest item or the latest item isn't a removal then the resource just got removed.
-            _ => history.add_remove(tick),
+            _ => {
+                info!(?tick, "Adding resource removal to history");
+                history.add_remove(tick)
+            }
         }
     }
 }

@@ -3,6 +3,7 @@ use crate::shared::Wall;
 use avian2d::position::{Position, Rotation};
 use bevy::prelude::*;
 use lightyear::prediction::Predicted;
+use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::{Client, Connected, InterpolationSet, RollbackSet, TriggerSender};
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -36,7 +37,7 @@ impl Plugin for ExampleRendererPlugin {
 
 fn add_visual_interpolation_components(
     trigger: Trigger<OnAdd, Position>,
-    predicted: Query<(), With<Predicted>>,
+    predicted: Query<(), With<DeterministicPredicted>>,
     mut commands: Commands,
 ) {
     if let Ok(()) = predicted.get(trigger.target()) {

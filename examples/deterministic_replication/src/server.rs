@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour, SharedPlugin, WallBundle};
+use crate::shared::{SharedPlugin, WallBundle, color_from_id, shared_movement_behaviour};
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::platform::collections::HashMap;

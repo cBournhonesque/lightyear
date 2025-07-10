@@ -8,7 +8,7 @@ use crate::{
 use avian3d::{math::AsF32, prelude::*};
 use bevy::{color::palettes::css::MAGENTA, prelude::*};
 use lightyear::prediction::plugin::PredictionSet;
-use lightyear::prediction::rollback::DisableStateRollback;
+use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -235,11 +235,11 @@ fn disable_projectile_rollback(
             With<ProjectileMarker>,
             // Or<(With<ProjectileMarker>, With<CharacterMarker>)>,
             // disabling character rollbacks while we debug projectiles with this janky setup
-            Without<DisableStateRollback>,
+            Without<DeterministicPredicted>,
         ),
     >,
 ) {
     for proj in &q_projectile {
-        commands.entity(proj).insert(DisableStateRollback);
+        commands.entity(proj).insert(DeterministicPredicted);
     }
 }

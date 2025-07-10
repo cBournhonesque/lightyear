@@ -131,7 +131,8 @@ impl Plugin for RollbackPlugin {
             QueryParamBuilder::new(|builder| {
                 builder.data::<&Predicted>();
                 builder.without::<Confirmed>();
-                builder.without::<DisableStateRollback>();
+                builder.without::<DeterministicPredicted>();
+                builder.without::<DisableRollback>();
                 builder.optional(|b| {
                     // include PredictionDisable entities (entities that are predicted and 'despawned'
                     // but we keep them around for rollback check)
@@ -165,12 +166,19 @@ impl Plugin for RollbackPlugin {
 }
 
 #[derive(Component)]
-/// Marker component used to indicate that an entity won't trigger rollback from state update.
+/// Marker component used to indicate this entity is predicted (It has a PredictionHistory),
+/// but it won't check for rollback from state updates.
+///
 /// This can be used to mark predicted non-networked entities in deterministic replication, or to stop a
-/// state-replicated entity from being able to trigger rollbacks.
+/// state-replicated entity from being able to trigger rollbacks from state mismatch.
 ///
 /// This entity will still get rolled back to its predicted history when a rollback happens.
-pub struct DisableStateRollback;
+pub struct DeterministicPredicted;
+
+/// Marker component to indicate that the entity will be completely excluded from rollbacks.
+/// It won't be part of rollback checks, and it won't be rolled back to a past state if a rollback happens.
+#[derive(Component)]
+pub struct DisableRollback;
 
 /// Check if we need to do a rollback.
 /// We do this separately from `prepare_rollback` because even we stop the `check_rollback` function
@@ -456,11 +464,11 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             AnyOf<(
                 &Predicted,
                 &PreSpawned,
-                &DisableStateRollback,
+                &DeterministicPredicted,
                 &PrePredicted,
             )>,
         ),
-        Without<Confirmed>,
+        (Without<Confirmed>, Without<DisableRollback>),
     >,
     // TODO: have a way to only get the updates of entities that are predicted? i.e. add ConfirmedPredicted
     confirmed_query: Query<(Option<&C>, Ref<Confirmed>)>,
@@ -534,6 +542,11 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             None => {
                 predicted_history.add_remove(rollback_tick);
                 entity_mut.try_remove::<C>();
+                trace!(
+                    ?kind,
+                    ?from_history,
+                    "Removing component from predicted entity for rollback"
+                );
             }
             // confirm exist, update or insert on predicted
             Some(correct) => {
@@ -585,8 +598,12 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
         return;
     };
 
+    let history_value = history.pop_until_tick(rollback_tick);
+    // we need to clear the history so we can write a new one
+    history.clear();
+
     // 1. restore the resource to the historical value
-    match history.pop_until_tick(rollback_tick) {
+    match history_value {
         None | Some(HistoryState::Removed) => {
             if resource.is_some() {
                 debug!(
@@ -595,6 +612,9 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
                 );
                 // the resource didn't exist at the time, remove it!
                 commands.remove_resource::<R>();
+
+                // TODO: THIS IS TEMPORARY! WE SHOULDN'T HAVE 2 ROLLBACKS FOR THE SAME ROLLBACK TICK!
+                history.add_remove(rollback_tick);
             }
         }
         Some(HistoryState::Updated(r)) => {
@@ -607,13 +627,14 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
                     ?kind,
                     "Resource for predicted entity existed at time of rollback, inserting it"
                 );
-                commands.insert_resource(r);
+                commands.insert_resource(r.clone());
             }
+            // TODO: THIS IS TEMPORARY! WE SHOULDN'T HAVE 2 ROLLBACKS FOR THE SAME ROLLBACK TICK!
+            //  THIS CAN HAPPEN ON ROLLBACK::CHECK SINCE WE ALWAYS ROLLBACK TO THE LATEST RECEIVED INPUT TICK
+            //  BUT WE SHOULD ONLY ROLLBACK TO THE NEW LATEST!
+            history.add_update(rollback_tick, r);
         }
     }
-
-    // 2. we need to clear the history so we can write a new one
-    history.clear();
 }
 
 /// Return a fixed time that represents rollbacking `current_fixed_time` by
