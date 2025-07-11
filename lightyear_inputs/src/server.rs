@@ -96,6 +96,9 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
     }
 }
 
+// TODO: why do we need the Server? we could just run this on any receiver.
+//  (apart from rebroadcast inputs)
+
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<S: ActionStateSequence>(
     config: Res<ServerInputConfig<S>>,

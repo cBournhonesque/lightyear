@@ -95,7 +95,7 @@ impl ExampleServer {
             let settings = entity_mut.take::<ExampleServer>().unwrap();
             entity_mut.insert((Name::from("Server"),));
 
-            if cfg!(feature = "netcode") && !cfg!(feature = "steam") {
+            let add_netcode = |entity_mut: &mut EntityWorldMut| {
                 // Use private key from environment variable, if set. Otherwise from settings file.
                 let private_key = if let Some(key) = parse_private_key_from_env() {
                     info!("Using private key from LIGHTYEAR_PRIVATE_KEY env var");
@@ -108,11 +108,12 @@ impl ExampleServer {
                     private_key,
                     ..Default::default()
                 }));
-            }
+            };
 
             match settings.transport {
                 #[cfg(feature = "udp")]
                 ServerTransports::Udp { local_port } => {
+                    add_netcode(&mut entity_mut);
                     let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
                     entity_mut.insert((LocalAddr(server_addr), ServerUdpIo::default()));
                 }
@@ -120,6 +121,7 @@ impl ExampleServer {
                     local_port,
                     certificate,
                 } => {
+                    add_netcode(&mut entity_mut);
                     let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
                     entity_mut.insert((
                         LocalAddr(server_addr),
