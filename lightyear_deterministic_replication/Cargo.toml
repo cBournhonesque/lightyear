@@ -1,0 +1,49 @@
+[package]
+name = "lightyear_deterministic_replication"
+version = "0.21.1"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Primitives for deterministic replication (as opposed to state replication) in the lightyear networking library"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = []
+prediction = []
+interpolation = []
+test_utils = ["dep:mock_instant"]
+# special feature to avoid using mock_instant when running cargo doc and cargo clippy
+not_mock = []
+
+[dependencies]
+lightyear_utils.workspace = true
+lightyear_serde.workspace = true
+lightyear_messages.workspace = true
+
+# utils
+chrono.workspace = true
+tracing.workspace = true
+
+# bevy
+bevy_app = { workspace = true, features = ["bevy_reflect"] }
+bevy_derive.workspace = true
+bevy_ecs.workspace = true
+bevy_platform.workspace = true
+bevy_reflect.workspace = true
+bevy_time.workspace = true
+
+# serde
+serde.workspace = true
+
+# test
+mock_instant = { workspace = true, optional = true }
+
+[dev-dependencies]
+approx.workspace = true
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

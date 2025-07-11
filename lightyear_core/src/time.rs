@@ -395,6 +395,9 @@ impl Add for TickDelta {
     type Output = TickDelta;
 
     fn add(self, rhs: Self) -> Self::Output {
+        if rhs.is_negative() {
+            return self - (-rhs);
+        }
         if self.is_negative() {
             return rhs - (-self);
         }
@@ -418,8 +421,11 @@ impl Sub for TickDelta {
     type Output = TickDelta;
 
     fn sub(self, rhs: Self) -> Self::Output {
+        if rhs.is_negative() {
+            return self + (-rhs);
+        }
         if self.is_negative() {
-            return rhs + (-self);
+            return -(rhs + (-self));
         }
 
         let total_ticks = self.tick_diff.wrapping_sub(rhs.tick_diff);
@@ -807,6 +813,16 @@ mod tests {
         assert_eq!(double_negated.tick_diff, 5);
         assert_relative_eq!(delta.overstep.value(), 0.3);
         assert!(!double_negated.neg);
+    }
+
+    #[test]
+    fn test_tickdelta_signed_addition() {
+        let delta = TickDelta::from_i16(10);
+
+        assert_eq!((delta + delta).to_i16(), 20);
+        assert_eq!((delta + (-delta)).to_i16(), 0);
+        assert_eq!(((-delta) + delta).to_i16(), 0);
+        assert_eq!(((-delta) + (-delta)).to_i16(), -20);
     }
 
     #[test]

@@ -7,6 +7,7 @@ members = [
   "lightyear_avian3d",
   "lightyear_core",
   "lightyear_crossbeam",
+  "lightyear_deterministic_replication",
   "lightyear_frame_interpolation",
   "lightyear_inputs",
   "lightyear_inputs_bei",
@@ -65,8 +66,8 @@ debug = false
 
 [workspace.dependencies]
 lightyear_aeronet = { path = "./lightyear_aeronet", version = " 0.21.1", default-features = false }
-lightyear_avian2d = { path = "./lightyear_avian2d", version = " 0.21.1", default-features = false }
-lightyear_avian3d = { path = "./lightyear_avian3d", version = " 0.21.1", default-features = false }
+lightyear_avian2d = { path = "./lightyear_avian2d", version = " 0.21.1", default-features = false, features = ["2d"] }
+lightyear_avian3d = { path = "./lightyear_avian3d", version = " 0.21.1", default-features = false, features = ["3d"] }
 lightyear_netcode = { path = "./lightyear_netcode", version = " 0.21.1", default-features = false }
 lightyear_connection = { path = "./lightyear_connection", version = " 0.21.1", default-features = false }
 lightyear_core = { path = "./lightyear_core", version = " 0.21.1", default-features = false }
@@ -153,7 +154,7 @@ metrics = "0.24"
 
 # transport
 aeronet_webtransport = "0.14.0"
-aeronet_steam = "0.14.0"
+aeronet_steam = "0.14.1"
 aeronet_io = "0.14.0"
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.45", features = [
@@ -169,7 +170,6 @@ bevy_web_keepalive = "0.3.5"
 getrandom = { version = "0.3", features = [
   "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
 ] }
-wasm-bindgen = "0.2.90"
 
 # dev deps
 mock_instant = "0.6"

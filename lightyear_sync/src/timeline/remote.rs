@@ -7,7 +7,7 @@ use bevy_ecs::query::{With, Without};
 use bevy_ecs::system::{Query, Res};
 use bevy_ecs::world::OnAdd;
 use bevy_reflect::Reflect;
-use bevy_time::Time;
+use bevy_time::{Time, Real};
 use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_core::prelude::Rollback;
@@ -207,10 +207,9 @@ pub(crate) fn update_remote_timeline(
     }
 }
 
-// TODO: should this be based on real time?
 /// Advance our estimate of the remote timeline based on the real time
 pub(crate) fn advance_remote_timeline(
-    fixed_time: Res<Time>,
+    fixed_time: Res<Time<Real>>,
     tick_duration: Res<TickDuration>,
     mut query: Query<&mut RemoteTimeline, (With<Linked>, Without<Rollback>)>,
 ) {

@@ -21,7 +21,7 @@ use lightyear_frame_interpolation::FrameInterpolationSet;
 use lightyear_interpolation::InterpolationMode;
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::plugin::PredictionSet;
-use lightyear_prediction::prelude::RollbackSet;
+use lightyear_prediction::prelude::{PredictionAppRegistrationExt, RollbackSet};
 use lightyear_replication::prelude::{ReplicationSet, TransformLinearInterpolation};
 
 /// Indicate which components you are replicating over the network
@@ -47,6 +47,9 @@ pub struct LightyearAvianPlugin {
     ///
     /// Disable if you are an advanced user and want to handle the syncs manually.
     pub update_syncs_manually: bool,
+    /// If True, the plugin will rollback resources that are not replicated, such as Collisions.
+    /// Enable this if you are using deterministic replication (i.e. are not replicating state)
+    pub rollback_resources: bool,
 }
 
 impl Plugin for LightyearAvianPlugin {
@@ -188,8 +191,11 @@ impl Plugin for LightyearAvianPlugin {
             .resource_mut::<InterpolationRegistry>()
             .set_interpolation_mode::<Transform>(InterpolationMode::None);
 
-        // Add rollback for some non-replicated resources
-        // app.add_resource_rollback::<Collisions>();
-        // app.add_rollback::<CollidingEntities>();
+        if self.rollback_resources {
+            app.init_resource::<ContactGraph>();
+            // Add rollback for some non-replicated resources
+            app.add_resource_rollback::<ContactGraph>();
+            app.add_rollback::<CollidingEntities>();
+        }
     }
 }

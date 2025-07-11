@@ -54,11 +54,13 @@ pub(crate) struct ServerButton;
 pub(crate) fn spawn_start_button(app: &mut App) {
     app.world_mut()
         .spawn(Node {
-            width: Val::Percent(30.0),
-            height: Val::Percent(100.0),
+            width: Val::Percent(15.0),
+            height: Val::Percent(10.0),
+            bottom: Val::Px(5.0),
+            position_type: PositionType::Absolute,
             align_items: AlignItems::FlexEnd,
             justify_content: JustifyContent::FlexEnd,
-            flex_direction: FlexDirection::RowReverse,
+            flex_direction: FlexDirection::ColumnReverse,
             ..default()
         })
         .with_children(|parent| {
@@ -81,10 +83,10 @@ pub(crate) fn spawn_start_button(app: &mut App) {
                     ServerButton,
                     BorderColor(Color::BLACK),
                     Node {
-                        width: Val::Px(150.0),
+                        width: Val::Px(100.0),
                         height: Val::Px(65.0),
                         border: UiRect::all(Val::Px(5.0)),
-                        left: Val::Px(20.0),
+                        // left: Val::Px(20.0),
                         // horizontally center child text
                         justify_content: JustifyContent::Center,
                         // vertically center child text

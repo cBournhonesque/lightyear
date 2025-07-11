@@ -417,6 +417,13 @@ pub struct ComponentRegistration<'a, C> {
 }
 
 impl<C> ComponentRegistration<'_, C> {
+    pub fn new(app: &mut App) -> ComponentRegistration<'_, C> {
+        ComponentRegistration {
+            app,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+
     /// Specify that the component contains entities which should be mapped from the remote world to the local world
     /// upon deserialization
     pub fn add_map_entities(self) -> Self
