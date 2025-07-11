@@ -65,7 +65,7 @@ pub(crate) fn start_game(
                 PlayerId(remote_id.0),
             ));
         } else {
-            panic!("Failed to get entity for server link {:?}", link);
+            panic!("Failed to get entity for server link {link:?}");
         };
     });
 }

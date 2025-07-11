@@ -333,6 +333,7 @@ fn test_removed_predicted_component_rollback() {
 
     // create a rollback situation
     let tick = stepper.client_tick(0);
+    info!("Trigger rollback back to {:?}", tick - 3);
     stepper
         .client_app()
         .world_mut()

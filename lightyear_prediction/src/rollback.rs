@@ -23,6 +23,7 @@ use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSet;
 use lightyear_replication::components::PrePredicted;
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
+use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
 use tracing::{debug, debug_span, error, trace, trace_span, warn};
@@ -314,8 +315,12 @@ fn check_rollback(
             //  that were removed from the entity, which would not appear in the archetype
             for (id, prediction_metadata) in prediction_registry.prediction_map
                 .iter()
-                .filter(|(_, m)| m.sync_mode == PredictionMode::Full)
-                .map(|(kind, m)| (component_registry.kind_to_component_id[kind], m))
+                .filter_map(|(kind, m)| {
+                    if m.sync_mode != PredictionMode::Full {
+                        return None
+                    }
+                    component_registry.kind_to_component_id.get(kind).map(|id| (kind, m))
+                })
                 .take_while(|_| !prediction_manager.is_rollback()) {
                 if (prediction_metadata.check_rollback)(&prediction_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
                     trace!("Rollback because we have received a new confirmed state. (mismatch check)");
@@ -332,6 +337,7 @@ fn check_rollback(
 
     // If we have found a state-based rollback, we are done.
     if prediction_manager.is_rollback() {
+        trace!("Rollback was triggered by state, skipping input rollback checks");
         return;
     }
 
@@ -479,6 +485,11 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     let current_tick = timeline.tick();
     let _span = trace_span!("prepare_rollback", tick = ?current_tick, kind = ?kind);
     let rollback_tick = manager.get_rollback_start_tick().unwrap();
+
+    let is_non_networked = component_registry
+        .kind_to_component_id
+        .get(&ComponentKind::of::<C>())
+        .is_none();
     for (
         predicted_entity,
         predicted_component,
@@ -494,7 +505,10 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         // If DisableStateRollback, PrePredicted, Prespawned -> we just rollback to the PredictionHistory state, not the Confirmed state.
         let (correct_value, from_history) = match (
             rollback,
-            disable_state_rollback.is_some() || pre_predicted.is_some() || prespawned.is_some(),
+            disable_state_rollback.is_some()
+                || pre_predicted.is_some()
+                || prespawned.is_some()
+                || is_non_networked,
         ) {
             // we will rollback to the confirmed state
             (Rollback::FromState, false) => {

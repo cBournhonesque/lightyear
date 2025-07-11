@@ -35,7 +35,6 @@ fn test_despawned_predicted_rollback() {
         .get_local(server_entity)
         .expect("entity is not present in entity map");
 
-    // check that prediction
     let confirmed = stepper
         .client_app()
         .world()

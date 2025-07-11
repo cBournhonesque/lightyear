@@ -138,6 +138,7 @@ fn test_buffer_inputs_with_delay() {
         &[LeafwingInput1::Jump]
     );
     // the fixed_update_state ActionState outside of FixedUpdate is the delayed one
+    // it is `released` and not `just_released` because it was pressed in the previous frame
     assert!(
         stepper
             .server_app
@@ -148,7 +149,7 @@ fn test_buffer_inputs_with_delay() {
             .button_data(&LeafwingInput1::Jump)
             .unwrap()
             .fixed_update_state
-            .just_released()
+            .released()
     );
 
     stepper.frame_step(1);
