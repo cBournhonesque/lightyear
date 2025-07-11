@@ -208,6 +208,7 @@ impl PacketHeaderManager {
         &mut self,
         packet_type: PacketType,
         real: Duration,
+        tick: Tick,
     ) -> PacketHeader {
         // if we didn't have a last packet id, start with the maximum value
         // (so that receiving 0 counts as an update)
@@ -220,8 +221,7 @@ impl PacketHeaderManager {
             packet_id: self.next_packet_id,
             last_ack_packet_id,
             ack_bitfield: self.recv_buffer.get_bitfield(),
-            // TODO: we send the tick, later. Seems a bit dangerous...
-            tick: Tick(0),
+            tick,
         };
         // we build the header only when we actually send the packet, so computing the stats here is valid
         self.stats_manager.sent_packet();

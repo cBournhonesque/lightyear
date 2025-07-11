@@ -2,7 +2,7 @@
 use crate::channel::registry::ChannelId;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{FragmentData, MessageAck, SingleData};
-use crate::packet::packet::{FRAGMENT_SIZE, Packet};
+use crate::packet::packet::{Packet, FRAGMENT_SIZE};
 use crate::packet::packet_type::PacketType;
 use alloc::collections::VecDeque;
 use alloc::{vec, vec::Vec};
@@ -10,10 +10,10 @@ use bytes::Bytes;
 use core::time::Duration;
 use lightyear_core::network::NetId;
 use lightyear_core::tick::Tick;
-use lightyear_serde::{SerializationError, ToBytes, varint::varint_len, writer::WriteInteger};
+use lightyear_serde::{varint::varint_len, writer::WriteInteger, SerializationError, ToBytes};
 use tracing::trace;
 #[cfg(feature = "trace")]
-use tracing::{Level, instrument};
+use tracing::{instrument, Level};
 
 pub const MAX_PACKET_SIZE: usize = 1200;
 
@@ -82,9 +82,7 @@ impl PacketBuilder {
         // write the header
         let mut header = self
             .header_manager
-            .prepare_send_packet_header(PacketType::Data, real);
-        // set the tick at which the packet will be sent
-        header.tick = current_tick;
+            .prepare_send_packet_header(PacketType::Data, real, current_tick);
         header.to_bytes(&mut cursor)?;
         self.current_packet = Some(Packet {
             payload: cursor,
@@ -106,9 +104,7 @@ impl PacketBuilder {
         // writer the header
         let mut header = self
             .header_manager
-            .prepare_send_packet_header(PacketType::DataFragment, real);
-        // set the tick at which the packet will be sent
-        header.tick = current_tick;
+            .prepare_send_packet_header(PacketType::DataFragment, real, current_tick);
         header.to_bytes(&mut cursor)?;
         channel_id.to_bytes(&mut cursor)?;
         fragment_data.to_bytes(&mut cursor)?;
