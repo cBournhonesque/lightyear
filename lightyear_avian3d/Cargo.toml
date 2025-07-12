@@ -14,6 +14,7 @@ publish = true
 
 [lib]
 name = "lightyear_avian3d"
+path = "../lightyear_avian"
 required-features = ["3d"]
 bench = false
 
