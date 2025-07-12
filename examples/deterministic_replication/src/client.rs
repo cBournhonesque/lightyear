@@ -102,12 +102,13 @@ fn handle_game_start(
     resource: Option<Res<GameStart>>,
 ) {
     if let Some(res) = resource
-        && timeline.tick() == res.0 + 20
+        && timeline.tick() >= res.0 + 20
     {
+        info!("Time to remove DisableRollback");
         query.iter().for_each(|e| {
             info!("Removed DisableRollback from entity: {:?}", e);
             commands.entity(e).remove::<DisableRollback>();
         });
+        commands.remove_resource::<GameStart>();
     }
-    commands.remove_resource::<GameStart>();
 }

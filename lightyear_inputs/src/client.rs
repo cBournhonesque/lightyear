@@ -202,16 +202,10 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
                 PreUpdate,
                 receive_remote_player_input_messages::<S>.in_set(InputSet::ReceiveInputMessages),
             );
-            let already_added = app
-                .world()
-                .resource::<SharedInputConfig>()
-                .reset_last_confirmed_system_added;
-            if !already_added {
-                app.add_systems(PostUpdate, reset_last_confirmed_input.after(SyncSet::Sync));
-                app.world_mut()
-                    .resource_mut::<SharedInputConfig>()
-                    .reset_last_confirmed_system_added = true;
-            }
+            app.add_systems(
+                PostUpdate,
+                update_last_confirmed_input::<S>.after(SyncSet::Sync),
+            );
         }
         app.add_systems(
             FixedPreUpdate,
@@ -331,7 +325,7 @@ fn get_action_state<S: ActionStateSequence>(
 
         if let Some(snapshot) = input_buffer.get(tick) {
             S::from_snapshot(action_state.as_mut(), snapshot, &context);
-            debug!(
+            trace!(
                 ?entity,
                 ?tick,
                 ?snapshot,
@@ -664,37 +658,55 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             .last_confirmed_input
             .received_any_messages
             .store(true, bevy_platform::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(feature = "prediction")]
+/// Update the LastConfirmedInput tick by looking at latest tick buffered in each InputBuffer.
+///
+/// This runs in PostUpdate, and not in PreUpdate, because we want the rollback to use the previous LastConfirmedInput tick.
+/// For example if the last confirmed input was at tick 10, and we received an InputMessage with end_tick 14, we want to rollback to tick 10
+/// (and not to tick 14) because we need to potentially re-apply inputs for ticks 11, 12, 13, 14.
+fn update_last_confirmed_input<S: ActionStateSequence>(
+    client: Single<(&LocalTimeline, &PredictionManager), With<Client>>,
+    predicted_query: Query<
+        &InputBuffer<S::Snapshot>,
+        (
+            Or<(With<Predicted>, With<DeterministicPredicted>)>,
+            Without<S::Marker>,
+        ),
+    >,
+) {
+    let (timeline, prediction_manager) = client.into_inner();
+    if prediction_manager.last_confirmed_input.received_input() {
+        let tick = timeline.tick();
+        // set a high value to the AtomicTick so we can then compute the minimum last_confirmed_tick among all clients
+        prediction_manager.last_confirmed_input.tick.0.store(
+            tick.0 + 1000,
+            bevy_platform::sync::atomic::Ordering::Relaxed,
+        );
+        // TODO: how to handle multiple actions S?
         // find the earliest last_confirmed_tick for each client
         // (we replaced LastConfirmedInput with a high tick to avoid any tick-wrapping issues)
-        predicted_query.iter().for_each(|(buffer, _)| {
+        predicted_query.iter().for_each(|buffer| {
             // if we received any messages, we update the LastConfirmedInput
             // (this is used to determine the last confirmed tick for each client)
-            if let Some(input_buffer) = buffer
-                && let Some(end_tick) = input_buffer.end_tick()
-            {
+            if let Some(end_tick) = buffer.end_tick() {
                 prediction_manager
                     .last_confirmed_input
                     .tick
                     .set_if_lower(end_tick);
             }
         });
+        debug!(
+            "Updated LastConfirmedTick to tick {:?}",
+            prediction_manager.last_confirmed_input.tick.get()
+        );
+        prediction_manager
+            .last_confirmed_input
+            .received_any_messages
+            .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
     }
-}
-
-#[cfg(feature = "prediction")]
-/// Reset the LastConfirmedInput tick to a high value, so that we can later compute the earliest 'last_confirmed_tick'
-/// by just taking the minimum without worrying about tick wrapping.
-fn reset_last_confirmed_input(client: Single<(&LocalTimeline, &PredictionManager), With<Client>>) {
-    let (timeline, prediction_manager) = client.into_inner();
-    let tick = timeline.tick();
-    prediction_manager.last_confirmed_input.tick.0.store(
-        tick.0 + 1000,
-        bevy_platform::sync::atomic::Ordering::Relaxed,
-    );
-    prediction_manager
-        .last_confirmed_input
-        .received_any_messages
-        .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
 }
 
 #[cfg(feature = "prediction")]
@@ -770,7 +782,7 @@ fn send_input_messages<S: ActionStateSequence>(
         message_buffer.0.clear();
         return;
     }
-    debug!(
+    trace!(
         "Number of input messages to send: {:?}",
         message_buffer.0.len()
     );
