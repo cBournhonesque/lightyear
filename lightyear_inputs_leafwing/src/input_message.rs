@@ -11,10 +11,9 @@ use leafwing_input_manager::Actionlike;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
 use lightyear_core::prelude::Tick;
-use lightyear_inputs::input_buffer::InputBuffer;
+use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::input_message::ActionStateSequence;
 use serde::{Deserialize, Serialize};
-use tracing::trace;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LeafwingSequence<A: Actionlike> {
@@ -40,35 +39,29 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     }
 
     fn len(&self) -> usize {
-        self.diffs.len()
+        self.diffs.len() + 1
     }
 
-    fn update_buffer<'w, 's>(self, input_buffer: &mut InputBuffer<Self::State>, end_tick: Tick) {
-        let start_tick = end_tick - self.len() as u16;
-        input_buffer.extend_to_range(start_tick, end_tick);
+    fn get_snapshots_from_message(self) -> impl Iterator<Item = InputData<Self::Snapshot>> {
+        let start_iter = core::iter::once(InputData::Input(self.start_state.clone()));
+        let diffs_iter = self.diffs.into_iter().scan(
+            self.start_state,
+            |state: &mut ActionState<A>, diffs_for_tick: Vec<ActionDiff<A>>| {
+                // TODO: there's an issue; we use the diffs to set future ticks after the start value, but those values
+                //  have not been ticked correctly! As a workaround, we tick them manually so that JustPressed becomes Pressed,
+                //  but it will NOT work for timing-related features
+                state.tick(Instant::now(), Instant::now());
+                for diff in diffs_for_tick {
+                    diff.apply(state);
+                }
+                state.set_update_state_from_state();
+                state.set_fixed_update_state_from_state();
 
-        input_buffer.set(start_tick, self.start_state.clone());
-
-        let mut value = self.start_state.clone();
-        for (delta, diffs_for_tick) in self.diffs.into_iter().enumerate() {
-            // TODO: there's an issue; we use the diffs to set future ticks after the start value, but those values
-            //  have not been ticked correctly! As a workaround, we tick them manually so that JustPressed becomes Pressed,
-            //  but it will NOT work for timing-related features
-            value.tick(Instant::now(), Instant::now());
-            let tick = start_tick + Tick(1 + delta as u16);
-            for diff in diffs_for_tick {
-                // TODO: also handle timings!
-                diff.apply(&mut value);
-            }
-            // make sure that we update the fixed update state!
-            value.set_update_state_from_state();
-            value.set_fixed_update_state_from_state();
-            input_buffer.set(tick, value.clone());
-            trace!(
-                "updated from input-message tick: {:?}, value: {:?}",
-                tick, value
-            );
-        }
+                // TODO: how can we check if the state is the same as before, to return InputData::SameAsPrecedent instead?
+                Some(InputData::Input(state.clone()))
+            },
+        );
+        start_iter.chain(diffs_iter)
     }
 
     /// Add the inputs for the `num_ticks` ticks starting from `self.end_tick - num_ticks + 1` up to `self.end_tick`
@@ -136,6 +129,7 @@ mod tests {
     use bevy_reflect::Reflect;
     use leafwing_input_manager::Actionlike;
     use serde::{Deserialize, Serialize};
+    use test_log::test;
 
     #[derive(
         Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash, Reflect, Actionlike,
@@ -223,29 +217,34 @@ mod tests {
             start_state: action_state.clone(),
             diffs: vec![
                 // Tick 6
+                vec![],
+                // Tick 7
                 vec![ActionDiff::Pressed {
                     action: Action::Run,
                 }],
-                vec![],
                 // Tick 8
                 vec![ActionDiff::Released {
                     action: Action::Jump,
                 }],
             ],
         };
-        // This should extend the buffer to fit ticks 5..=8
-        sequence.update_buffer(&mut input_buffer, Tick(8));
-        assert_eq!(input_buffer.get(Tick(5)).unwrap(), &action_state);
+        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(8));
+        assert_eq!(mismatch, Some(Tick(7)));
 
         // NOTE: The action_state from the sequence are ticked to avoid having JustPressed on each tick!
         let mut expected = action_state.clone();
+        assert_eq!(input_buffer.get(Tick(6)).unwrap(), &expected);
+
         expected.tick(Instant::now(), Instant::now());
         expected.press(&Action::Run);
-        assert_eq!(input_buffer.get(Tick(6)).unwrap(), &expected);
-        expected.tick(Instant::now(), Instant::now());
+        expected.set_update_state_from_state();
+        expected.set_fixed_update_state_from_state();
         assert_eq!(input_buffer.get(Tick(7)).unwrap(), &expected);
+
         expected.tick(Instant::now(), Instant::now());
         expected.release(&Action::Jump);
+        expected.set_update_state_from_state();
+        expected.set_fixed_update_state_from_state();
         assert_eq!(input_buffer.get(Tick(8)).unwrap(), &expected);
     }
 
@@ -264,8 +263,11 @@ mod tests {
         // Should overwrite tick 3
         sequence.update_buffer(&mut input_buffer, Tick(3));
         assert_eq!(input_buffer.get(Tick(2)).unwrap(), &action_state);
+
         let mut expected = action_state.clone();
         expected.release(&Action::Jump);
+        expected.set_update_state_from_state();
+        expected.set_fixed_update_state_from_state();
         assert_eq!(input_buffer.get(Tick(3)).unwrap(), &expected);
     }
 }

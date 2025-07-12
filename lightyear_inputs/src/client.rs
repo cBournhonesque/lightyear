@@ -202,10 +202,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
                 PreUpdate,
                 receive_remote_player_input_messages::<S>.in_set(InputSet::ReceiveInputMessages),
             );
-            app.add_systems(
-                PostUpdate,
-                update_last_confirmed_input::<S>.after(SyncSet::Sync),
-            );
+            app.add_systems(PostUpdate, update_remote_ticks::<S>.after(SyncSet::Sync));
         }
         app.add_systems(
             FixedPreUpdate,
@@ -579,7 +576,6 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 ) {
     let (manager, mut receiver, prediction_manager, timeline) = link.into_inner();
     let tick = timeline.tick();
-    let has_messages = receiver.has_messages();
     receiver.receive().for_each(|message| {
         trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", core::any::type_name::<S::Action>());
         for target_data in message.inputs {
@@ -618,8 +614,9 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             };
             trace!(confirmed=?entity, ?predicted, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
             if let Some(mut input_buffer) = input_buffer {
-                target_data.states.update_buffer(&mut input_buffer, message.end_tick);
+                // target_data.states.update_buffer(&mut input_buffer, message.end_tick);
                 update_buffer_from_remote_player_message::<S>(
+                    target_data.states,
                     &mut input_buffer,
                     &mut action_state.expect("there should always be an ActionState if the InputBuffer is present"),
                     &context,
@@ -631,9 +628,10 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             } else {
                 // add the ActionState or InputBuffer if they are missing
                 let mut input_buffer = InputBuffer::<S::Snapshot>::default();
-                target_data.states.update_buffer(&mut input_buffer, message.end_tick);
+                // target_data.states.update_buffer(&mut input_buffer, message.end_tick);
                 let mut action_state = S::State::default();
                 update_buffer_from_remote_player_message::<S>(
+                    target_data.states,
                     &mut input_buffer,
                     &mut action_state,
                     &context,
@@ -652,7 +650,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     });
 
     if let RollbackMode::Always = prediction_manager.rollback_policy.input
-        && has_messages
+        && receiver.has_messages()
     {
         prediction_manager
             .last_confirmed_input
@@ -662,12 +660,14 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 }
 
 #[cfg(feature = "prediction")]
-/// Update the LastConfirmedInput tick by looking at latest tick buffered in each InputBuffer.
+/// 1. Update the LastConfirmedInput tick by looking at latest tick buffered in each InputBuffer.
 ///
 /// This runs in PostUpdate, and not in PreUpdate, because we want the rollback to use the previous LastConfirmedInput tick.
 /// For example if the last confirmed input was at tick 10, and we received an InputMessage with end_tick 14, we want to rollback to tick 10
 /// (and not to tick 14) because we need to potentially re-apply inputs for ticks 11, 12, 13, 14.
-fn update_last_confirmed_input<S: ActionStateSequence>(
+///
+/// 2. Reset the EarliestMismatchInput
+fn update_remote_ticks<S: ActionStateSequence>(
     client: Single<(&LocalTimeline, &PredictionManager), With<Client>>,
     predicted_query: Query<
         &InputBuffer<S::Snapshot>,
@@ -678,8 +678,8 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
     >,
 ) {
     let (timeline, prediction_manager) = client.into_inner();
+    let tick = timeline.tick();
     if prediction_manager.last_confirmed_input.received_input() {
-        let tick = timeline.tick();
         // set a high value to the AtomicTick so we can then compute the minimum last_confirmed_tick among all clients
         prediction_manager.last_confirmed_input.tick.0.store(
             tick.0 + 1000,
@@ -707,10 +707,23 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
             .received_any_messages
             .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
     }
+    if prediction_manager.earliest_mismatch_input.has_mismatches() {
+        // set a high value to the AtomicTick so we can then compute
+        // the minimum earliest_mismatch_tick among all clients
+        prediction_manager.earliest_mismatch_input.tick.0.store(
+            tick.0 + 1000,
+            bevy_platform::sync::atomic::Ordering::Relaxed,
+        );
+        prediction_manager
+            .earliest_mismatch_input
+            .has_mismatches
+            .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 #[cfg(feature = "prediction")]
 fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
+    sequence: S,
     input_buffer: &mut InputBuffer<S::Snapshot>,
     action_state: &mut S::State,
     context: &StaticSystemParam<S::Context>,
@@ -719,20 +732,30 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
     entity: Entity,
     prediction_manager: &PredictionManager,
 ) {
+    let mismatch = sequence.update_buffer(input_buffer, end_tick);
     if let Some(snapshot) = input_buffer.get_last() {
         // IMPORTANT: immediately update the ActionState from the last snapshot of the buffer
         //  this means that even if the input received was from the past, we will immediately start using it
         //  (i.e. predicting that the remote player kept playing the same action)
         S::from_snapshot(action_state, snapshot, context);
         if let RollbackMode::Check = prediction_manager.rollback_policy.input {
-            // TODO: only trigger rollback if there is an actual mismatch? i.e. we are predicting that
-            //  the client kept pressing the last known action, and we need to check if something changed
-            //  in the ticks previous_last_known_action to end_tick
-            //
-            // note that we could have different rollback ticks for different clients. We will just rollback to the earliest tick
-            // among all.
-            if prediction_manager.set_input_rollback_tick(end_tick) {
-                debug!(rollback_tick = ?end_tick, "Triggering rollback from remote client input");
+            // find the earliest mismatch tick across all clients
+            if let Some(mismatch) = mismatch {
+                debug!(
+                    ?entity,
+                    ?tick,
+                    ?end_tick,
+                    ?mismatch,
+                    "Mismatch detected for remote player input message!",
+                );
+                prediction_manager
+                    .earliest_mismatch_input
+                    .has_mismatches
+                    .store(true, bevy_platform::sync::atomic::Ordering::Relaxed);
+                prediction_manager
+                    .earliest_mismatch_input
+                    .tick
+                    .set_if_lower(mismatch);
             }
         }
         #[cfg(feature = "metrics")]

@@ -215,7 +215,8 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
         }
     }
 
-    pub(crate) fn get_raw(&self, tick: Tick) -> &InputData<T> {
+    /// Get the raw `InputData` for the given tick, without resolving `SameAsPrecedent`
+    pub fn get_raw(&self, tick: Tick) -> &InputData<T> {
         let Some(start_tick) = self.start_tick else {
             return &InputData::Absent;
         };
