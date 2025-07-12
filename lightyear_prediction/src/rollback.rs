@@ -26,7 +26,7 @@ use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
-use tracing::{debug, debug_span, error, trace, trace_span, warn};
+use tracing::{debug, debug_span, error, info, trace, trace_span, warn};
 
 /// Responsible for re-running the FixedMain schedule a fixed number of times in order
 /// to rollback the simulation to a previous state.
@@ -231,6 +231,10 @@ fn check_rollback(
             );
             return;
         }
+        // if prediction_manager.last_rollback_tick.is_some_and(|t| t >= rollback_tick)  {
+        //     debug!(?rollback_tick, "Skipping rollback because we already did a roll back to a more recent tick");
+        //     return
+        // }
         prediction_manager.set_rollback_tick(rollback_tick);
         commands.entity(manager_entity).insert(rollback);
     };
@@ -483,7 +487,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     let kind = core::any::type_name::<C>();
     let (timeline, manager, rollback) = manager_query.into_inner();
     let current_tick = timeline.tick();
-    let _span = trace_span!("prepare_rollback", tick = ?current_tick, kind = ?kind);
+    let _span = trace_span!("prepare_rollback", tick = ?current_tick, kind = ?kind).entered();
     let rollback_tick = manager.get_rollback_start_tick().unwrap();
 
     let is_non_networked = component_registry
@@ -498,8 +502,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     ) in predicted_query.iter_mut()
     {
         // 1. we need to clear the history so we can write a new one
-        let original_predicted_value = predicted_history.pop_until_tick(rollback_tick);
-        predicted_history.clear();
+        let original_predicted_value = predicted_history.clear_except_tick(rollback_tick);
 
         // 2. find the correct value to rollback to, and whether or not it's the Confirmed state or the PredictionHistory state
         // If DisableStateRollback, PrePredicted, Prespawned -> we just rollback to the PredictionHistory state, not the Confirmed state.
@@ -524,6 +527,9 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                 else {
                     continue;
                 };
+                // For state-based rollback, we clear the history even for the rollback tick
+                // since it will be replaced with the state-replicated value
+                predicted_history.clear();
                 trace!(?predicted_entity, "Rollback to the confirmed state");
                 // Confirm that we are in rollback, with the correct tick
                 debug_assert_eq!(
@@ -557,7 +563,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                 predicted_history.add_remove(rollback_tick);
                 entity_mut.try_remove::<C>();
                 trace!(
-                    ?kind,
                     ?from_history,
                     "Removing component from predicted entity for rollback"
                 );
@@ -570,6 +575,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                 if !from_history {
                     let _ = manager.map_entities(&mut correct_value, component_registry.as_ref());
                     predicted_history.add_update(rollback_tick, correct_value.clone());
+                    info!("Add {rollback_tick:?} to history");
                 }
                 match predicted_component {
                     None => {
@@ -582,8 +588,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                             entity_mut.insert(PreviousVisual(predicted_component.clone()));
                             trace!(
                                 previous_visual = ?predicted_component,
-                                kind = ?core::any::type_name::<C>(),
-                                ?current_tick,
                                 "Storing PreviousVisual for correction"
                             );
                         }
@@ -612,9 +616,7 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
         return;
     };
 
-    let history_value = history.pop_until_tick(rollback_tick);
-    // we need to clear the history so we can write a new one
-    history.clear();
+    let history_value = history.clear_except_tick(rollback_tick);
 
     // 1. restore the resource to the historical value
     match history_value {
@@ -626,9 +628,6 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
                 );
                 // the resource didn't exist at the time, remove it!
                 commands.remove_resource::<R>();
-
-                // TODO: THIS IS TEMPORARY! WE SHOULDN'T HAVE 2 ROLLBACKS FOR THE SAME ROLLBACK TICK!
-                history.add_remove(rollback_tick);
             }
         }
         Some(HistoryState::Updated(r)) => {
@@ -643,10 +642,6 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
                 );
                 commands.insert_resource(r.clone());
             }
-            // TODO: THIS IS TEMPORARY! WE SHOULDN'T HAVE 2 ROLLBACKS FOR THE SAME ROLLBACK TICK!
-            //  THIS CAN HAPPEN ON ROLLBACK::CHECK SINCE WE ALWAYS ROLLBACK TO THE LATEST RECEIVED INPUT TICK
-            //  BUT WE SHOULD ONLY ROLLBACK TO THE NEW LATEST!
-            history.add_update(rollback_tick, r);
         }
     }
 }
@@ -701,6 +696,7 @@ pub(crate) fn run_rollback(world: &mut World) {
     let rollback_start_tick = prediction_manager
         .get_rollback_start_tick()
         .expect("we should be in rollback");
+    // prediction_manager.last_rollback_tick = Some(rollback_start_tick);
 
     // NOTE: we reverted all components to the end of `current_roll
     let num_rollback_ticks = current_tick - rollback_start_tick;

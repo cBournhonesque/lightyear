@@ -180,6 +180,7 @@ pub(crate) fn fixed_pre_physics(
 }
 
 pub(crate) fn fixed_last_log(
+    contact_graph: Res<ContactGraph>,
     timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
     players: Query<
         (
@@ -199,6 +200,7 @@ pub(crate) fn fixed_last_log(
 ) {
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
+    // info!(?tick, "contact graph: {:#?}", contact_graph);
 
     for (entity, position, velocity, correction, action_state, input_buffer) in players.iter() {
         let pressed = action_state.map(|a| a.get_pressed());

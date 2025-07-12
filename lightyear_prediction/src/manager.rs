@@ -161,8 +161,13 @@ pub struct PredictionManager {
     /// Store the spawn tick of the entity, as well as the corresponding hash
     pub prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
 
+    // TODO: does this mean that inputs must be all sent in one packet?
     /// Store the most recent confirmed input across all remote clients.
     pub last_confirmed_input: LastConfirmedInput,
+    // // TODO: this needs to be cleaned up at regular intervals!
+    // //  do a centralized TickCleanup system in lightyear_core
+    // /// The tick when we last did a rollback. This is used to prevent rolling back multiple times to the same tick.
+    // pub last_rollback_tick: Option<Tick>,
     /// We use a RwLock because we want to be able to update this value from multiple systems
     /// in parallel.
     #[reflect(ignore)]
@@ -186,7 +191,7 @@ pub struct LastConfirmedInput {
 
 impl LastConfirmedInput {
     /// Returns true if we have received any input messages from remote clients
-    pub(crate) fn received_input(&self) -> bool {
+    pub fn received_input(&self) -> bool {
         // If we received any messages, we can assume that we have a confirmed input
         self.received_any_messages
             .load(bevy_platform::sync::atomic::Ordering::Relaxed)
@@ -202,6 +207,7 @@ impl Default for PredictionManager {
             prespawn_hash_to_entities: EntityHashMap::default(),
             prespawn_tick_to_hash: ReadyBuffer::default(),
             last_confirmed_input: LastConfirmedInput::default(),
+            // last_rollback_tick: None,
             rollback: RwLock::new(RollbackState::Default),
             input_rollback: RwLock::new(RollbackState::Default),
         }

@@ -150,6 +150,11 @@ impl<R> HistoryBuffer<R> {
             *tick = *tick + delta;
         });
     }
+
+    #[cfg(feature = "test_utils")]
+    pub fn buffer(&self) -> &VecDeque<(Tick, HistoryState<R>)> {
+        &self.buffer
+    }
 }
 
 /// The iterator contains the elements that are actually present in the history
@@ -212,6 +217,46 @@ impl<R: Clone> HistoryBuffer<R> {
         // because that is the value at tick `tick`
         self.buffer.drain(0..(partition - 1));
         let res = self.buffer.pop_front().map(|(_, state)| state);
+
+        // if there is a value, re-add the value at tick `tick` to the buffer, to make sure that we have a value for ticks
+        // (tick + 1)..(self.buffer[partition].0)
+        match res.as_ref() {
+            None => {}
+            Some(HistoryState::Removed) => {
+                // TODO: is this necessary? we treat None and Removed the same way anyway
+                self.buffer.push_front((tick, HistoryState::Removed))
+            }
+            Some(r) => self.buffer.push_front((tick, r.clone())),
+        };
+        res
+    }
+
+    /// Clear the history of all values apart from the value at `tick`, and return that value.
+    ///
+    /// We keep that value in the history because we could have several consecutive rollbacks to the same tick.
+    ///
+    /// CAREFUL:
+    /// the history will only contain the ticks where the value got updated, and otherwise
+    /// contains gaps. Therefore, we need to always leave a value in the history buffer so that we can
+    /// get the values for the future ticks.
+    /// (i.e. if the buffer contains values at tick 4 and 8. If we pop_until_tick(6), we cannot delete the value for tick 4
+    /// because we still need in case we call pop_until_tick(7). What we'll do is remove the value for tick 4 and re-insert it
+    /// for tick 6)
+    pub fn clear_except_tick(&mut self, tick: Tick) -> Option<HistoryState<R>> {
+        // self.buffer[partition] is the first element where the buffer_tick > tick
+        let partition = self
+            .buffer
+            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
+        // all elements are strictly more recent than the tick
+        if partition == 0 {
+            self.clear();
+            return None;
+        }
+        // remove all elements strictly older than the tick. We need to keep the element at index `partition-1`
+        // because that is the value at tick `tick`
+        self.buffer.drain(0..(partition - 1));
+        let res = self.buffer.pop_front().map(|(_, state)| state);
+        self.clear();
 
         // if there is a value, re-add the value at tick `tick` to the buffer, to make sure that we have a value for ticks
         // (tick + 1)..(self.buffer[partition].0)

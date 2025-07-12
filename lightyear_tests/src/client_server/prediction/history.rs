@@ -1,9 +1,7 @@
 use super::*;
 use crate::protocol::{CompCorr, CompFull, CompMap, CompOnce, CompSimple};
-use bevy::app::FixedUpdate;
-use bevy::prelude::{Commands, OnAdd, Trigger};
+use bevy::prelude::{OnAdd, Trigger};
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_prediction::Predicted;
 use lightyear_prediction::predicted_history::PredictionHistory;
 use lightyear_prediction::prelude::PreSpawned;
@@ -335,6 +333,24 @@ fn test_predicted_sync_batch() {
 fn test_update_history() {
     let mut stepper = ClientServerStepper::single();
 
+    fn check_history_consecutive_ticks(stepper: &ClientServerStepper, entity: Entity) {
+        let history = stepper.client_apps[0]
+            .world()
+            .get::<PredictionHistory<CompFull>>(entity)
+            .expect("Expected prediction history to be added");
+        let mut last_tick: Option<Tick> = None;
+        for (tick, _) in history.buffer().iter() {
+            if let Some(last) = last_tick {
+                assert_eq!(
+                    tick.0,
+                    *last + 1,
+                    "History has duplicate or out-of-order ticks"
+                );
+            }
+            last_tick = Some(*tick);
+        }
+    }
+
     // add predicted, component
     let tick = stepper.client_tick(0);
     let confirmed = stepper
@@ -453,13 +469,6 @@ fn test_update_history() {
         "Expected component value to be removed from predicted entity"
     );
 
-    fn update_comp_full(mut full: Single<&mut CompFull, With<Predicted>>) {
-        full.0 += 1.0;
-    }
-    stepper
-        .client_app()
-        .add_systems(FixedUpdate, update_comp_full);
-
     // 5. Updating Comp::Full on predicted entity during rollback
     let rollback_tick = Tick(10);
     trigger_rollback(&mut stepper, rollback_tick);
@@ -476,26 +485,41 @@ fn test_update_history() {
             .entity_mut(predicted)
             .get_mut::<PredictionHistory<CompFull>>()
             .expect("Expected prediction history to be added")
-            // the rollback tick itself is not present in the history, so we check the following tick
-            .pop_until_tick(rollback_tick + 1),
-        Some(HistoryState::Updated(CompFull(4.0))),
+            .pop_until_tick(rollback_tick),
+        Some(HistoryState::Updated(CompFull(3.0))),
         "Expected component value to be updated in prediction history"
     );
+    check_history_consecutive_ticks(&stepper, predicted);
 
-    // 6. Removing Comp::Full on predicted entity during rollback
-    fn remove_comp_full(
-        mut commands: Commands,
-        full: Single<Entity, With<Predicted>>,
-        timeline: Single<&LocalTimeline>,
-    ) {
-        if timeline.tick() == Tick(11) {
-            commands.entity(full.into_inner()).remove::<CompFull>();
-        }
-    }
-
+    // 6. Updating Comp::Full on predicted entity for a tick that is in the middle of the history
+    // Previous test cases had the rollback tick be earlier than the entire history; we also need to test
+    // when the rollback tick is in the middle of the history
+    trigger_rollback(&mut stepper, rollback_tick + 3);
     stepper
         .client_app()
-        .add_systems(FixedUpdate, remove_comp_full);
+        .world_mut()
+        .entity_mut(confirmed)
+        .insert(CompFull(2.0));
+    stepper.frame_step(1);
+    assert_eq!(
+        stepper
+            .client_app()
+            .world_mut()
+            .entity_mut(predicted)
+            .get_mut::<PredictionHistory<CompFull>>()
+            .expect("Expected prediction history to be added")
+            .pop_until_tick(rollback_tick + 3),
+        Some(HistoryState::Updated(CompFull(2.0))),
+        "Expected component value to be updated in prediction history"
+    );
+    check_history_consecutive_ticks(&stepper, predicted);
+
+    // 7. Removing Comp::Full on predicted entity during rollback
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(confirmed)
+        .remove::<CompFull>();
     trigger_rollback(&mut stepper, rollback_tick);
     stepper.frame_step(1);
     assert_eq!(
@@ -505,8 +529,7 @@ fn test_update_history() {
             .entity_mut(predicted)
             .get_mut::<PredictionHistory<CompFull>>()
             .expect("Expected prediction history to be added")
-            // the rollback tick itself is not present in the history, so we check the following tick
-            .pop_until_tick(Tick(11)),
+            .pop_until_tick(rollback_tick),
         Some(HistoryState::Removed),
         "Expected component value to be removed from prediction history"
     );
