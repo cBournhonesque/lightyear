@@ -809,7 +809,7 @@ fn test_input_rollback_check_mode_earliest_mismatch() {
             let rollback_start = manager.get_rollback_start_tick();
             // there is a mismatch only for client 1, which is enough to trigger a rollback.
             // we trigger a rollback to the earliest mismatch, which is `input_tick`
-            assert_eq!(rollback_start.unwrap(), input_tick);
+            assert_eq!(rollback_start.unwrap(), input_tick - 1);
         }
     };
     stepper.client_apps[0].add_systems(

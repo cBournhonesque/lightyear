@@ -366,7 +366,8 @@ fn check_rollback(
         // Rollback from any mismatched input
         RollbackMode::Check => {
             if prediction_manager.earliest_mismatch_input.has_mismatches() {
-                let rollback_tick = prediction_manager.earliest_mismatch_input.tick.get();
+                // we rollback to the tick right before the mismatch
+                let rollback_tick = prediction_manager.earliest_mismatch_input.tick.get() - 1;
                 trace!(
                     ?rollback_tick,
                     "Rollback because we have received a remote input that doesn't match our input buffer history"

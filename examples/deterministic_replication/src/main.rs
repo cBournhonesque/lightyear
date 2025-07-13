@@ -83,7 +83,7 @@ fn add_input_delay(app: &mut App) {
                 // we only replicate inputs, so state-based rollback is disabled
                 state: RollbackMode::Disabled,
                 // we rollback only when remote inputs don't match what we were predicting
-                input: RollbackMode::Always,
+                input: RollbackMode::Check,
                 // do not limit the max number of rollback ticks
                 max_rollback_ticks: 100,
             },
