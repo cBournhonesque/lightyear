@@ -14,7 +14,7 @@ use lightyear_core::prelude::Tick;
 use lightyear_interpolation::plugin::InterpolationDelay;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tracing::trace;
+use tracing::debug;
 
 /// Enum indicating the target entity for the input.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
@@ -95,13 +95,15 @@ pub trait ActionStateSequence:
             } else {
                 // only try to detect mismatches after the previous_end_tick
                 if previous_end_tick.is_none_or(|t| tick > t) {
-                    if match (&previous_predicted_input, &input) {
-                        // it is not possible to get a mismatch from SameAsPrecedent without first getting a mismatch from Input or Absent
-                        (_, InputData::SameAsPrecedent) => true,
-                        (Some(prev), InputData::Input(latest)) => latest == prev,
-                        (None, InputData::Absent) => true,
-                        _ => false,
-                    } {
+                    if previous_end_tick.is_some()
+                        && match (&previous_predicted_input, &input) {
+                            // it is not possible to get a mismatch from SameAsPrecedent without first getting a mismatch from Input or Absent
+                            (_, InputData::SameAsPrecedent) => true,
+                            (Some(prev), InputData::Input(latest)) => latest == prev,
+                            (None, InputData::Absent) => true,
+                            _ => false,
+                        }
+                    {
                         continue;
                     }
                     // mismatch! fill the ticks between previous_end_tick and this tick
@@ -111,7 +113,7 @@ pub trait ActionStateSequence:
                         }
                     }
                     // set the new value for the mismatch tick
-                    trace!("Mismatch detected at tick {tick:?} for input {input:?}");
+                    debug!("Mismatch detected at tick {tick:?} for input {input:?}");
                     input_buffer.set_raw(tick, input);
                     earliest_mismatch = Some(tick);
                 }

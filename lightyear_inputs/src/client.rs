@@ -182,7 +182,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
             // NOTE: we do NOT need to run this after RunFixedMainLoopSystem::BeforeFixedMainLoop to ensure that the
             //  local leafwing `states` have been switched to the `fixed_update` state (see
             //  https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)
-            //
             //  because when applying the diffs we manually update the fixed_update_state .
 
             //  because when we apply the diffs, we start by taking the initial `start_state` snapshot from the message.
@@ -576,6 +575,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 ) {
     let (manager, mut receiver, prediction_manager, timeline) = link.into_inner();
     let tick = timeline.tick();
+    let has_messages = receiver.has_messages();
     receiver.receive().for_each(|message| {
         trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", core::any::type_name::<S::Action>());
         for target_data in message.inputs {
@@ -614,7 +614,6 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             };
             trace!(confirmed=?entity, ?predicted, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
             if let Some(mut input_buffer) = input_buffer {
-                // target_data.states.update_buffer(&mut input_buffer, message.end_tick);
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
                     &mut input_buffer,
@@ -628,7 +627,6 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             } else {
                 // add the ActionState or InputBuffer if they are missing
                 let mut input_buffer = InputBuffer::<S::Snapshot>::default();
-                // target_data.states.update_buffer(&mut input_buffer, message.end_tick);
                 let mut action_state = S::State::default();
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
@@ -650,7 +648,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     });
 
     if let RollbackMode::Always = prediction_manager.rollback_policy.input
-        && receiver.has_messages()
+        && has_messages
     {
         prediction_manager
             .last_confirmed_input
@@ -668,7 +666,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 ///
 /// 2. Reset the EarliestMismatchInput
 fn update_remote_ticks<S: ActionStateSequence>(
-    client: Single<(&LocalTimeline, &PredictionManager), With<Client>>,
+    client: Single<&PredictionManager, With<Client>>,
     predicted_query: Query<
         &InputBuffer<S::Snapshot>,
         (
@@ -677,14 +675,8 @@ fn update_remote_ticks<S: ActionStateSequence>(
         ),
     >,
 ) {
-    let (timeline, prediction_manager) = client.into_inner();
-    let tick = timeline.tick();
-    if prediction_manager.last_confirmed_input.received_input() {
-        // set a high value to the AtomicTick so we can then compute the minimum last_confirmed_tick among all clients
-        prediction_manager.last_confirmed_input.tick.0.store(
-            tick.0 + 1000,
-            bevy_platform::sync::atomic::Ordering::Relaxed,
-        );
+    let prediction_manager = client.into_inner();
+    if let RollbackMode::Always = prediction_manager.rollback_policy.input {
         // TODO: how to handle multiple actions S?
         // find the earliest last_confirmed_tick for each client
         // (we replaced LastConfirmedInput with a high tick to avoid any tick-wrapping issues)
@@ -699,25 +691,10 @@ fn update_remote_ticks<S: ActionStateSequence>(
             }
         });
         debug!(
+            kind = ?core::any::type_name::<S::Action>(),
             "Updated LastConfirmedTick to tick {:?}",
             prediction_manager.last_confirmed_input.tick.get()
         );
-        prediction_manager
-            .last_confirmed_input
-            .received_any_messages
-            .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
-    }
-    if prediction_manager.earliest_mismatch_input.has_mismatches() {
-        // set a high value to the AtomicTick so we can then compute
-        // the minimum earliest_mismatch_tick among all clients
-        prediction_manager.earliest_mismatch_input.tick.0.store(
-            tick.0 + 1000,
-            bevy_platform::sync::atomic::Ordering::Relaxed,
-        );
-        prediction_manager
-            .earliest_mismatch_input
-            .has_mismatches
-            .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -738,25 +715,25 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
         //  this means that even if the input received was from the past, we will immediately start using it
         //  (i.e. predicting that the remote player kept playing the same action)
         S::from_snapshot(action_state, snapshot, context);
-        if let RollbackMode::Check = prediction_manager.rollback_policy.input {
-            // find the earliest mismatch tick across all clients
-            if let Some(mismatch) = mismatch {
-                debug!(
-                    ?entity,
-                    ?tick,
-                    ?end_tick,
-                    ?mismatch,
-                    "Mismatch detected for remote player input message!",
-                );
-                prediction_manager
-                    .earliest_mismatch_input
-                    .has_mismatches
-                    .store(true, bevy_platform::sync::atomic::Ordering::Relaxed);
-                prediction_manager
-                    .earliest_mismatch_input
-                    .tick
-                    .set_if_lower(mismatch);
-            }
+        // find the earliest mismatch tick across all clients
+        if let RollbackMode::Check = prediction_manager.rollback_policy.input
+            && let Some(mismatch) = mismatch
+        {
+            debug!(
+                ?entity,
+                ?tick,
+                ?end_tick,
+                ?mismatch,
+                "Mismatch detected for remote player input message!",
+            );
+            prediction_manager
+                .earliest_mismatch_input
+                .has_mismatches
+                .store(true, bevy_platform::sync::atomic::Ordering::Relaxed);
+            prediction_manager
+                .earliest_mismatch_input
+                .tick
+                .set_if_lower(mismatch);
         }
         #[cfg(feature = "metrics")]
         {

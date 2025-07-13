@@ -1,4 +1,4 @@
-use crate::client_server::prediction::trigger_rollback;
+use crate::client_server::prediction::trigger_state_rollback;
 use crate::protocol::{BEIAction1, BEIContext};
 use crate::stepper::{ClientServerStepper, TICK_DURATION};
 use bevy::app::{App, FixedPostUpdate};
@@ -179,7 +179,7 @@ fn test_client_rollback() {
     // trigger a rollback
     // at client_tick, the elapsed_time should be 0.2.
     // We rollback to client_tick - 1, because the first FixedPreUpdate will bring us to `client_tick`
-    trigger_rollback(&mut stepper, client_tick - 1);
+    trigger_state_rollback(&mut stepper, client_tick - 1);
 
     let assert_action_duration =
         move |client: Single<&LocalTimeline, With<Client>>, query: Query<&Actions<BEIContext>>| {

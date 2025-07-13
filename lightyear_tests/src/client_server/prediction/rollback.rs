@@ -1,17 +1,22 @@
 use crate::client_server::prediction::{
-    RollbackInfo, trigger_rollback, trigger_rollback_check, trigger_rollback_system,
+    RollbackInfo, trigger_rollback_check, trigger_rollback_system, trigger_state_rollback,
 };
-use crate::protocol::{CompFull, CompMap, CompNotNetworked};
+use crate::protocol::{CompFull, CompMap, CompNotNetworked, NativeInput};
 use crate::stepper::ClientServerStepper;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::prelude::*;
 use core::time::Duration;
+use lightyear::input::native::prelude::InputMarker;
 use lightyear::prediction::Predicted;
 use lightyear::prediction::diagnostics::PredictionMetrics;
 use lightyear::prediction::predicted_history::PredictionHistory;
+use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::prelude::NetworkTarget;
+use lightyear_core::id::PeerId;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
+use lightyear_prediction::manager::RollbackMode;
 use lightyear_prediction::prelude::{PredictionManager, RollbackSet};
 use lightyear_prediction::rollback::DeterministicPredicted;
 use lightyear_replication::components::Confirmed;
@@ -235,7 +240,7 @@ fn test_rollback_entity_mapping() {
         .unwrap()
         .0 = Entity::PLACEHOLDER;
     let tick = stepper.client_tick(0);
-    trigger_rollback(&mut stepper, tick);
+    trigger_state_rollback(&mut stepper, tick);
     stepper.frame_step(1);
     assert_eq!(
         stepper
@@ -259,7 +264,7 @@ fn test_rollback_entity_mapping() {
         .entity_mut(predicted_entity)
         .remove::<CompMap>();
     let tick = stepper.client_tick(0);
-    trigger_rollback(&mut stepper, tick);
+    trigger_state_rollback(&mut stepper, tick);
     stepper.frame_step(1);
     assert_eq!(
         stepper
@@ -607,4 +612,246 @@ fn test_rollback_time_resource() {
             }
         ]
     );
+}
+
+fn setup_stepper_for_input_rollback(
+    mode: RollbackMode,
+) -> (ClientServerStepper, Entity, Entity, Entity, Entity) {
+    let mut stepper = ClientServerStepper::with_clients(3);
+    let server_entity_1 = stepper
+        .server_app
+        .world_mut()
+        .spawn(Replicate::to_clients(NetworkTarget::AllExceptSingle(
+            PeerId::Netcode(2),
+        )))
+        .id();
+    let server_entity_2 = stepper
+        .server_app
+        .world_mut()
+        .spawn(Replicate::to_clients(NetworkTarget::AllExceptSingle(
+            PeerId::Netcode(1),
+        )))
+        .id();
+    stepper.frame_step_server_first(1);
+
+    let mut client_mut = stepper.client_mut(0);
+    let mut prediction_manager = client_mut.get_mut::<PredictionManager>().unwrap();
+    prediction_manager.rollback_policy.input = mode;
+    prediction_manager.rollback_policy.state = RollbackMode::Disabled;
+
+    // Check that in PostUpdate, the LastConfirmedInput is reset if no input messages were received
+    assert!(!prediction_manager.last_confirmed_input.received_input());
+
+    // add input-markers on client 1/2 so that they can send remote input messages
+    let client_entity_1 = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity_1)
+        .expect("entity was not replicated to client");
+    stepper.client_apps[1]
+        .world_mut()
+        .entity_mut(client_entity_1)
+        .insert((InputMarker::<NativeInput>::default(),));
+
+    let client_entity_2 = stepper
+        .client(2)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity_2)
+        .expect("entity was not replicated to client");
+    stepper.client_apps[2]
+        .world_mut()
+        .entity_mut(client_entity_2)
+        .insert((InputMarker::<NativeInput>::default(),));
+
+    // on client 0, add DeterministicPredicted so that we can receive remote input messages
+    let client_entity_a = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity_1)
+        .expect("entity was not replicated to client");
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(client_entity_a)
+        .insert(DeterministicPredicted);
+    let client_entity_b = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity_2)
+        .expect("entity was not replicated to client");
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(client_entity_b)
+        .insert(DeterministicPredicted);
+
+    (
+        stepper,
+        client_entity_1,
+        client_entity_2,
+        client_entity_a,
+        client_entity_b,
+    )
+}
+
+/// Test that we rollback from the last confirmed input when RollbackMode::Always for inputs
+#[test]
+fn test_input_rollback_always_mode() {
+    let (mut stepper, _, _, _, _) = setup_stepper_for_input_rollback(RollbackMode::Always);
+
+    // build a steady state where have already received an input
+    stepper.frame_step(2);
+
+    // send input message to server
+    stepper.frame_step(1);
+    let input_tick = stepper.client_tick(1);
+
+    info!("Will check rollback at tick: {input_tick:?}");
+
+    let check_rollback_start = move |manager: Single<(&LocalTimeline, &PredictionManager)>| {
+        let (timeline, manager) = manager.into_inner();
+        let tick = timeline.tick();
+        if tick == input_tick {
+            assert!(manager.last_confirmed_input.received_input());
+            let rollback_start = manager.get_rollback_start_tick();
+            // We receive the input message for tick `input_tick`, but we rollback at the previous LastConfirmedInput tick,
+            // which is `input_tick - 1`
+            assert_eq!(rollback_start.unwrap(), input_tick - 1,);
+        }
+    };
+    stepper.client_apps[0].add_systems(
+        PreUpdate,
+        check_rollback_start
+            .after(RollbackSet::Check)
+            .before(RollbackSet::Prepare),
+    );
+
+    // server broadcast input message to clients
+    stepper.frame_step_server_first(1);
+
+    // after the rollback, the last_confirmed_input is reset
+    assert_eq!(
+        stepper
+            .client(0)
+            .get::<PredictionManager>()
+            .unwrap()
+            .last_confirmed_input
+            .tick
+            .get(),
+        input_tick
+    );
+}
+
+/// Test that LastConfirmedInput computes the earliest input across multiple clients
+#[test]
+fn test_last_confirmed_input_multiple_clients() {
+    let (mut stepper, client_entity_1, _, _, _) =
+        setup_stepper_for_input_rollback(RollbackMode::Always);
+
+    // build a steady state where we have already received an input
+    stepper.frame_step(2);
+
+    // only client 2 will send an input message to the server
+    stepper.client_apps[1]
+        .world_mut()
+        .entity_mut(client_entity_1)
+        .remove::<InputMarker<NativeInput>>();
+    stepper.frame_step(1);
+    let input_tick = stepper.client_tick(1);
+
+    // server broadcast input message to clients
+    stepper.frame_step_server_first(1);
+
+    // after the rollback, the last_confirmed_input is updated. It's updated to `input_tick - 1` and not `input_tick`
+    // because we didn't receive a new input message from client 1
+    assert_eq!(
+        stepper
+            .client(0)
+            .get::<PredictionManager>()
+            .unwrap()
+            .last_confirmed_input
+            .tick
+            .get(),
+        input_tick - 1
+    );
+}
+
+/// Test that rollback tick is set to the earliest mismatch when RollbackMode::Check for inputs
+#[test]
+fn test_input_rollback_check_mode_earliest_mismatch() {
+    let (mut stepper, client_entity_1, _, client_entity_a, _) =
+        setup_stepper_for_input_rollback(RollbackMode::Check);
+
+    // build a steady state where we have already received an input
+    stepper.frame_step(2);
+
+    // client 1 and client 2 send an input message to the server
+    // client 1's input will cause a mismatch
+    stepper.client_apps[1]
+        .world_mut()
+        .get_mut::<ActionState<NativeInput>>(client_entity_1)
+        .unwrap()
+        .value = Some(NativeInput(1));
+    stepper.frame_step(1);
+    let input_tick = stepper.client_tick(1);
+
+    let check_rollback_start = move |manager: Single<(&LocalTimeline, &PredictionManager)>| {
+        let (timeline, manager) = manager.into_inner();
+        let tick = timeline.tick();
+        if tick == input_tick {
+            assert!(manager.earliest_mismatch_input.has_mismatches());
+            let rollback_start = manager.get_rollback_start_tick();
+            // there is a mismatch only for client 1, which is enough to trigger a rollback.
+            // we trigger a rollback to the earliest mismatch, which is `input_tick`
+            assert_eq!(rollback_start.unwrap(), input_tick);
+        }
+    };
+    stepper.client_apps[0].add_systems(
+        PreUpdate,
+        check_rollback_start
+            .after(RollbackSet::Check)
+            .before(RollbackSet::Prepare),
+    );
+
+    // server broadcast input message to clients
+    stepper.frame_step_server_first(1);
+}
+
+/// Test that we don't rollback if there are no input mismatches in Check mode
+#[test]
+fn test_no_rollback_without_input_mismatches() {
+    let (mut stepper, _, _, _, _) = setup_stepper_for_input_rollback(RollbackMode::Check);
+
+    // build a steady state where we have already received an input
+    stepper.frame_step(2);
+
+    // client 1 and client 2 send an input message to the server
+    // there will be no mismatches
+    stepper.frame_step(1);
+    let input_tick = stepper.client_tick(1);
+
+    let check_rollback_start = move |manager: Single<(&LocalTimeline, &PredictionManager)>| {
+        let (timeline, manager) = manager.into_inner();
+        let tick = timeline.tick();
+        if tick == input_tick {
+            assert!(!manager.earliest_mismatch_input.has_mismatches());
+            let rollback_start = manager.get_rollback_start_tick();
+            assert!(rollback_start.is_none());
+        }
+    };
+    stepper.client_apps[0].add_systems(
+        PreUpdate,
+        check_rollback_start
+            .after(RollbackSet::Check)
+            .before(RollbackSet::Prepare),
+    );
+
+    // server broadcast input message to clients
+    stepper.frame_step_server_first(1);
 }
