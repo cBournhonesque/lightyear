@@ -1,6 +1,6 @@
 // lightyear_inputs/src/input_message.rs
 #![allow(clippy::module_inception)]
-use crate::input_buffer::InputBuffer;
+use crate::input_buffer::{InputBuffer, InputData};
 use alloc::{format, string::String, vec, vec::Vec};
 use bevy_ecs::{
     component::{Component, Mutable},
@@ -14,6 +14,7 @@ use lightyear_core::prelude::Tick;
 use lightyear_interpolation::plugin::InterpolationDelay;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 /// Enum indicating the target entity for the input.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
@@ -37,6 +38,9 @@ pub struct PerTargetData<S> {
     pub states: S,
 }
 
+/// An ActionStateSequence represents a sequence of states that can be serialized and sent over the network.
+///
+/// The sequence can be decoded back into a `Iterator<Item = InputData<Self::Snapshot>>`
 pub trait ActionStateSequence:
     Serialize + DeserializeOwned + Clone + Debug + Send + Sync + 'static
 {
@@ -60,8 +64,72 @@ pub trait ActionStateSequence:
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
 
-    /// Update the given input buffer with the data from this state sequence
-    fn update_buffer(self, input_buffer: &mut InputBuffer<Self::Snapshot>, end_tick: Tick);
+    /// Returns the sequence of snapshots from the ActionStateSequence.
+    ///
+    /// (we use this function instead of making ActionStateSequence implement `IntoIterator` because that would
+    /// leak private types that are used in the IntoIter type)
+    fn get_snapshots_from_message(self) -> impl Iterator<Item = InputData<Self::Snapshot>>;
+
+    /// Update the given input buffer with the data from this state sequence.
+    ///
+    /// Returns the earliest tick where there is a mismatch between the existing buffer and the new data,
+    /// or None if there was no mismatch
+    fn update_buffer(
+        self,
+        input_buffer: &mut InputBuffer<Self::Snapshot>,
+        end_tick: Tick,
+    ) -> Option<Tick> {
+        let previous_end_tick = input_buffer.end_tick();
+
+        let previous_predicted_input = input_buffer.get_last().cloned();
+        let mut earliest_mismatch: Option<Tick> = None;
+        let start_tick = end_tick + 1 - self.len() as u16;
+
+        // the first value is guaranteed to not be SameAsPrecedent
+        for (delta, input) in self.get_snapshots_from_message().enumerate() {
+            let tick = start_tick + Tick(delta as u16);
+
+            // after the mismatch, we just fill with the data from the message
+            if earliest_mismatch.is_some() {
+                input_buffer.set_raw(tick, input);
+            } else {
+                // only try to detect mismatches after the previous_end_tick
+                if previous_end_tick.is_none_or(|t| tick > t) {
+                    if previous_end_tick.is_some()
+                        && match (&previous_predicted_input, &input) {
+                            // it is not possible to get a mismatch from SameAsPrecedent without first getting a mismatch from Input or Absent
+                            (_, InputData::SameAsPrecedent) => true,
+                            (Some(prev), InputData::Input(latest)) => latest == prev,
+                            (None, InputData::Absent) => true,
+                            _ => false,
+                        }
+                    {
+                        continue;
+                    }
+                    // mismatch! fill the ticks between previous_end_tick and this tick
+                    if let Some(prev_end) = previous_end_tick {
+                        for delta in 1..(tick - prev_end) {
+                            input_buffer.set_raw(prev_end + delta, InputData::SameAsPrecedent);
+                        }
+                    }
+                    // set the new value for the mismatch tick
+                    debug!("Mismatch detected at tick {tick:?} for input {input:?}");
+                    input_buffer.set_raw(tick, input);
+                    earliest_mismatch = Some(tick);
+                }
+            }
+        }
+
+        // if there was 0 mismatch, fill the gap between previous_end_tick and end_tick
+        if earliest_mismatch.is_none()
+            && let Some(prev_end) = previous_end_tick
+        {
+            for delta in 1..(end_tick - prev_end + 1) {
+                input_buffer.set_raw(prev_end + delta, InputData::SameAsPrecedent);
+            }
+        }
+        earliest_mismatch
+    }
 
     /// Build the state sequence (which will be sent over the network) from the input buffer
     fn build_from_input_buffer(

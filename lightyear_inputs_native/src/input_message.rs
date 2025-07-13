@@ -18,6 +18,20 @@ pub struct NativeStateSequence<A> {
     states: Vec<InputData<A>>,
 }
 
+impl<A> IntoIterator for NativeStateSequence<A> {
+    type Item = InputData<ActionState<A>>;
+    type IntoIter =
+        core::iter::Map<vec::IntoIter<InputData<A>>, fn(InputData<A>) -> InputData<ActionState<A>>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.states.into_iter().map(|input| match input {
+            InputData::Absent => InputData::Absent,
+            InputData::SameAsPrecedent => InputData::SameAsPrecedent,
+            InputData::Input(i) => InputData::Input(ActionState { value: Some(i) }),
+        })
+    }
+}
+
 impl<
     A: Serialize
         + DeserializeOwned
@@ -50,40 +64,12 @@ impl<
         self.states.len()
     }
 
-    fn update_buffer<'w, 's>(self, input_buffer: &mut InputBuffer<Self::State>, end_tick: Tick) {
-        let start_tick = end_tick + 1 - self.len() as u16;
-        // extend the input buffer to the required size
-        input_buffer.extend_to_range(start_tick, end_tick);
-
-        // TODO: this creates bugs, because while this is True, the input buffer might start
-        //  with a lower tick than the sequence's start tick.
-        //  So if input_message: tick 10=1, tick11=SameAsPrecedent, tick12=SameAsPrecedent,
-        //  and input buffer starts at tick 11, then the first tick that is looked at will actually be
-        //  SameAsPrecedent, which is NOT what we want!
-        //  For the 1st tick, we want to set the buffer to SameAsPrecedent ONLY if it's not the first tick
-        //  of the buffer
-
-        // the first value of the input message is guaranteed to not be SameAsPrecedent
-        for (delta, input) in self.states.into_iter().enumerate() {
-            let tick = start_tick + Tick(delta as u16);
-            match input {
-                InputData::Absent => {
-                    input_buffer.set_raw(tick, InputData::Absent);
-                }
-                InputData::SameAsPrecedent => {
-                    input_buffer.set_raw(tick, InputData::SameAsPrecedent);
-                }
-                InputData::Input(input) => {
-                    // do not set the value if it's equal to what's already in the buffer
-                    if input_buffer.get(tick).is_some_and(|existing_value| {
-                        existing_value.value.as_ref().is_some_and(|v| v == &input)
-                    }) {
-                        continue;
-                    }
-                    input_buffer.set(tick, ActionState::<A> { value: Some(input) });
-                }
-            }
-        }
+    fn get_snapshots_from_message(self) -> impl Iterator<Item = InputData<Self::Snapshot>> {
+        self.states.into_iter().map(|input| match input {
+            InputData::Absent => InputData::Absent,
+            InputData::SameAsPrecedent => InputData::SameAsPrecedent,
+            InputData::Input(i) => InputData::Input(ActionState { value: Some(i) }),
+        })
     }
 
     fn build_from_input_buffer<'w, 's>(
@@ -251,7 +237,8 @@ mod tests {
                 InputData::Input(1),
             ],
         };
-        sequence.update_buffer(&mut input_buffer, Tick(14));
+        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(14));
+        assert_eq!(mismatch, Some(Tick(14)));
         assert_eq!(
             input_buffer.get(Tick(14)),
             Some(&ActionState { value: Some(1) })
@@ -272,12 +259,9 @@ mod tests {
             input_buffer.get(Tick(10)),
             Some(&ActionState { value: Some(0) })
         );
-        assert_eq!(
-            input_buffer.get(Tick(9)),
-            Some(&ActionState { value: Some(0) })
-        );
-        assert_eq!(input_buffer.get(Tick(8)), None,);
-        assert_eq!(input_buffer.get(Tick(7)), None,);
+        assert_eq!(input_buffer.get(Tick(9)), None);
+        assert_eq!(input_buffer.get(Tick(8)), None);
+        assert_eq!(input_buffer.get(Tick(7)), None);
     }
 
     #[test]
@@ -323,12 +307,10 @@ mod tests {
                 InputData::SameAsPrecedent,
             ],
         };
-        sequence.update_buffer(&mut input_buffer, Tick(11));
+        let mistmatch = sequence.update_buffer(&mut input_buffer, Tick(11));
+        assert_eq!(mistmatch, None);
         assert_eq!(input_buffer.get(Tick(11)), None);
         assert_eq!(input_buffer.get(Tick(10)), None);
-        assert_eq!(
-            input_buffer.get(Tick(9)),
-            Some(&ActionState { value: Some(0) })
-        );
+        assert_eq!(input_buffer.get(Tick(9)), None);
     }
 }

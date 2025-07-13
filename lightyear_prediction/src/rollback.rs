@@ -90,6 +90,7 @@ impl Plugin for RollbackPlugin {
         app.add_systems(
             PreUpdate,
             (
+                reset_input_rollback_tracker.after(RollbackSet::Check),
                 remove_prediction_disable.in_set(RollbackSet::RemoveDisable),
                 run_rollback.in_set(RollbackSet::Rollback),
                 end_rollback.in_set(RollbackSet::EndRollback),
@@ -364,8 +365,12 @@ fn check_rollback(
         }
         // Rollback from any mismatched input
         RollbackMode::Check => {
-            if let Some(rollback_tick) = prediction_manager.get_input_rollback_start_tick() {
-                trace!("Rollback because we have received a new remote input. (mismatch check)");
+            if prediction_manager.earliest_mismatch_input.has_mismatches() {
+                let rollback_tick = prediction_manager.earliest_mismatch_input.tick.get();
+                trace!(
+                    ?rollback_tick,
+                    "Rollback because we have received a remote input that doesn't match our input buffer history"
+                );
                 do_rollback(
                     rollback_tick,
                     &prediction_manager,
@@ -403,6 +408,38 @@ fn check_rollback(
             }
         });
     }
+}
+
+/// Reset the trackers associated with RollbackMode::Input checks.
+///
+/// We do this here and not in `lightyear_input` because if we have multiple input types, the ticks
+/// could be overwritten by each other.
+///
+/// This must run after the rollback check.
+fn reset_input_rollback_tracker(
+    client: Single<(&LocalTimeline, &PredictionManager), With<IsSynced<InputTimeline>>>,
+) {
+    let (local_timeline, prediction_manager) = client.into_inner();
+    let tick = local_timeline.tick();
+
+    // set a high value to the AtomicTick so we can then compute the minimum last_confirmed_tick among all clients
+    prediction_manager.last_confirmed_input.tick.0.store(
+        tick.0 + 1000,
+        bevy_platform::sync::atomic::Ordering::Relaxed,
+    );
+    prediction_manager
+        .last_confirmed_input
+        .received_any_messages
+        .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
+    // set a high value to the AtomicTick so we can then compute the minimum earliest_mismatch_tick among all clients
+    prediction_manager.earliest_mismatch_input.tick.0.store(
+        tick.0 + 1000,
+        bevy_platform::sync::atomic::Ordering::Relaxed,
+    );
+    prediction_manager
+        .earliest_mismatch_input
+        .has_mismatches
+        .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
 }
 
 // TODO: maybe restore only the ones for which the Confirmed entity is not disabled?
@@ -696,7 +733,6 @@ pub(crate) fn run_rollback(world: &mut World) {
     let rollback_start_tick = prediction_manager
         .get_rollback_start_tick()
         .expect("we should be in rollback");
-    // prediction_manager.last_rollback_tick = Some(rollback_start_tick);
 
     // NOTE: we reverted all components to the end of `current_roll
     let num_rollback_ticks = current_tick - rollback_start_tick;

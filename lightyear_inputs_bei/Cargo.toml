@@ -38,6 +38,7 @@ bevy_reflect.workspace = true
 
 [dev-dependencies]
 bevy.workspace = true
+test-log.workspace = true
 
 [lints]
 workspace = true

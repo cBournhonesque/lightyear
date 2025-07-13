@@ -81,13 +81,6 @@ pub struct InputActionMessage {
     pub events: ActionEvents,
     pub elapsed_secs: f32,
     pub fired_secs: f32,
-    // // Timing information. We include it in the snapshot in case of client rollbacks:
-    // // If a client rollbacks to a previous tick, they also need to rollback the timing information in order
-    // // to accurately replay the actions
-    // //
-    // // We don't need it in the message, but we include it because it lets us re-use the mesg to allocate a new data structure (new vecs) for the snapshot.
-    // pub elapsed_secs: Option<f32>,
-    // pub fired_secs: Option<f32>,
 }
 
 /// Instead of replicating the BEI Actions, we will replicate a serializable subset that can be used to
@@ -96,20 +89,6 @@ pub struct InputActionMessage {
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 struct ActionsMessage {
     input_actions: Vec<InputActionMessage>,
-}
-
-impl ActionsMessage {
-    // check if the message equals the snapshot while ignoring timing information
-    fn equals_snapshot<C>(&self, snapshot: &ActionsSnapshot<C>) -> bool {
-        self.input_actions
-            .iter()
-            .zip(snapshot.state.input_actions.iter())
-            .all(|(action, snapshot)| {
-                action.net_id == snapshot.net_id
-                    && action.state == snapshot.state
-                    && action.value == snapshot.value
-            })
-    }
 }
 
 /// Struct that stores a subset of [`Actions<C>`](Actions) that is needed to
@@ -201,31 +180,12 @@ impl<C: InputContext> ActionStateSequence for BEIStateSequence<C> {
         self.states.len()
     }
 
-    fn update_buffer<'w, 's>(self, input_buffer: &mut InputBuffer<Self::Snapshot>, end_tick: Tick) {
-        let start_tick = end_tick + 1 - self.len() as u16;
-        // input_buffer.extend_to_range(start_tick, end_tick);
-        // the first value is guaranteed to not be SameAsPrecedent
-        for (delta, input) in self.states.into_iter().enumerate() {
-            let tick = start_tick + Tick(delta as u16);
-            match input {
-                InputData::Absent => {
-                    input_buffer.set_raw(tick, InputData::Absent);
-                }
-                InputData::SameAsPrecedent => {
-                    input_buffer.set_raw(tick, InputData::SameAsPrecedent);
-                }
-                InputData::Input(input) => {
-                    // do not set the value if it's equal to what's already in the buffer
-                    if input_buffer.get(tick).is_some_and(|existing_value| {
-                        // NOTE: we compare input to the snapshot so that we don't look at timing information!
-                        input.equals_snapshot::<C>(existing_value)
-                    }) {
-                        continue;
-                    }
-                    input_buffer.set(tick, input.to_snapshot());
-                }
-            }
-        }
+    fn get_snapshots_from_message(self) -> impl Iterator<Item = InputData<Self::Snapshot>> {
+        self.states.into_iter().map(|input| match input {
+            InputData::Absent => InputData::Absent,
+            InputData::SameAsPrecedent => InputData::SameAsPrecedent,
+            InputData::Input(i) => InputData::Input(i.to_snapshot()),
+        })
     }
 
     fn build_from_input_buffer<'w, 's>(
@@ -315,6 +275,8 @@ mod tests {
     use bevy_enhanced_input::prelude::{InputAction, InputContext};
     use bevy_reflect::Reflect;
     use core::any::TypeId;
+    use test_log::test;
+    use tracing::info;
 
     #[derive(InputContext)]
     struct Context1;
@@ -480,5 +442,262 @@ mod tests {
         assert!(input_buffer.get(Tick(5)).is_some());
         assert!(input_buffer.get(Tick(6)).is_some());
         assert!(input_buffer.get(Tick(7)).is_none());
+    }
+
+    #[test]
+    fn test_update_buffer_empty_buffer() {
+        let mut registry = InputRegistry::default();
+        registry.add::<Action1>();
+        let type_id = TypeId::of::<Action1>();
+        let net_id = *registry
+            .kind_map
+            .net_id(&InputActionKind::from(type_id))
+            .unwrap();
+        let mut input_buffer = InputBuffer::default();
+        let mut action_state = Actions::<Context1>::default();
+        action_state.bind::<Action1>();
+        let state = action_state.get_mut_by_id(type_id).unwrap();
+        state.state = ActionState::Fired;
+        state.value = ActionValue::Bool(true);
+        let actions_msg = ActionsMessage::from_actions(&action_state, &registry);
+
+        let sequence = BEIStateSequence::<Context1> {
+            states: vec![
+                InputData::Input(actions_msg.clone()),
+                InputData::SameAsPrecedent,
+                InputData::Absent,
+            ],
+            marker: Default::default(),
+        };
+
+        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(7));
+
+        info!("Input buffer after update: {:?}", input_buffer);
+
+        // With empty buffer, the first tick received is a mismatch
+        assert_eq!(earliest_mismatch, Some(Tick(5)));
+        assert_eq!(input_buffer.start_tick, Some(Tick(5)));
+        assert_eq!(
+            input_buffer.get(Tick(5)),
+            Some(&actions_msg.clone().to_snapshot())
+        );
+        assert_eq!(
+            input_buffer.get(Tick(6)),
+            Some(&actions_msg.clone().to_snapshot())
+        );
+        assert_eq!(input_buffer.get(Tick(7)), None);
+    }
+
+    #[test]
+    fn test_update_buffer_last_action_absent_new_action_present() {
+        let mut registry = InputRegistry::default();
+        registry.add::<Action1>();
+        let type_id = TypeId::of::<Action1>();
+        let net_id = *registry
+            .kind_map
+            .net_id(&InputActionKind::from(type_id))
+            .unwrap();
+        let mut input_buffer = InputBuffer::default();
+        let mut action_state = Actions::<Context1>::default();
+        action_state.bind::<Action1>();
+
+        // Set up buffer with an absent action at tick 5
+        input_buffer.set_empty(Tick(5));
+
+        // Create a new action for the message
+        let state = action_state.get_mut_by_id(type_id).unwrap();
+        state.state = ActionState::Fired;
+        state.value = ActionValue::Bool(true);
+        let actions_msg = ActionsMessage::from_actions(&action_state, &registry);
+
+        let sequence = BEIStateSequence::<Context1> {
+            states: vec![
+                InputData::Input(actions_msg.clone()),
+                InputData::SameAsPrecedent,
+            ],
+            marker: Default::default(),
+        };
+
+        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(8));
+
+        // Should detect mismatch at tick 7 (first tick after previous_end_tick=5)
+        // We predicted continuation of Absent, but got an Input
+        assert_eq!(earliest_mismatch, Some(Tick(7)));
+        // Filled the gap with SameAsPrecedent at tick 6, then set the new action at tick 7 and 8
+        assert_eq!(input_buffer.get_raw(Tick(6)), &InputData::SameAsPrecedent);
+        assert_eq!(
+            input_buffer.get(Tick(7)),
+            Some(&actions_msg.clone().to_snapshot())
+        );
+        assert_eq!(
+            input_buffer.get(Tick(8)),
+            Some(&actions_msg.clone().to_snapshot())
+        );
+    }
+
+    #[test]
+    fn test_update_buffer_last_action_present_new_action_absent() {
+        let mut registry = InputRegistry::default();
+        registry.add::<Action1>();
+        let type_id = TypeId::of::<Action1>();
+        let mut input_buffer = InputBuffer::default();
+        let mut action_state = Actions::<Context1>::default();
+        action_state.bind::<Action1>();
+
+        // Set up buffer with a present action at tick 5
+        let state = action_state.get_mut_by_id(type_id).unwrap();
+        state.state = ActionState::Fired;
+        state.value = ActionValue::Bool(true);
+        let actions_msg = ActionsMessage::from_actions(&action_state, &registry);
+        input_buffer.set(Tick(5), actions_msg.to_snapshot());
+
+        let sequence = BEIStateSequence::<Context1> {
+            states: vec![InputData::Absent, InputData::SameAsPrecedent],
+            marker: Default::default(),
+        };
+
+        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(7));
+
+        // Should detect mismatch at tick 6 (first tick after previous_end_tick=5)
+        // We predicted continuation of the action, but got Absent
+        assert_eq!(earliest_mismatch, Some(Tick(6)));
+        assert_eq!(input_buffer.get(Tick(6)), None);
+        assert_eq!(input_buffer.get(Tick(7)), None);
+    }
+
+    #[test]
+    fn test_update_buffer_action_mismatch() {
+        let mut registry = InputRegistry::default();
+        registry.add::<Action1>();
+        let type_id = TypeId::of::<Action1>();
+        let mut input_buffer = InputBuffer::default();
+        let mut action_state = Actions::<Context1>::default();
+        action_state.bind::<Action1>();
+
+        // Set up buffer with one action at tick 5
+        let state = action_state.get_mut_by_id(type_id).unwrap();
+        state.state = ActionState::Fired;
+        state.value = ActionValue::Bool(true);
+        let first_action = ActionsMessage::from_actions(&action_state, &registry);
+        input_buffer.set(Tick(5), first_action.to_snapshot());
+
+        // Create a different action for the message
+        let state = action_state.get_mut_by_id(type_id).unwrap();
+        state.state = ActionState::Ongoing;
+        state.value = ActionValue::Bool(false);
+        let second_action = ActionsMessage::from_actions(&action_state, &registry);
+
+        let sequence = BEIStateSequence::<Context1> {
+            states: vec![
+                InputData::Input(second_action.clone()),
+                InputData::SameAsPrecedent,
+            ],
+            marker: Default::default(),
+        };
+
+        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(7));
+
+        // Should detect mismatch at tick 6 (first tick after previous_end_tick=5)
+        // We predicted continuation of first_action, but got second_action
+        assert_eq!(earliest_mismatch, Some(Tick(6)));
+        assert_eq!(
+            input_buffer.get(Tick(6)),
+            Some(&second_action.clone().to_snapshot())
+        );
+        assert_eq!(
+            input_buffer.get(Tick(7)),
+            Some(&second_action.clone().to_snapshot())
+        );
+    }
+
+    #[test]
+    fn test_update_buffer_no_mismatch_same_action() {
+        let mut registry = InputRegistry::default();
+        registry.add::<Action1>();
+        let type_id = TypeId::of::<Action1>();
+        let mut input_buffer = InputBuffer::default();
+        let mut action_state = Actions::<Context1>::default();
+        action_state.bind::<Action1>();
+
+        // Set up buffer with an action at tick 5
+        let state = action_state.get_mut_by_id(type_id).unwrap();
+        state.state = ActionState::Fired;
+        state.value = ActionValue::Bool(true);
+        let actions_msg = ActionsMessage::from_actions(&action_state, &registry);
+        input_buffer.set(Tick(5), actions_msg.clone().to_snapshot());
+
+        let sequence = BEIStateSequence::<Context1> {
+            states: vec![
+                InputData::Input(actions_msg.clone()),
+                InputData::SameAsPrecedent,
+            ],
+            marker: Default::default(),
+        };
+
+        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(7));
+
+        // Should be no mismatch since the action matches our prediction
+        assert_eq!(earliest_mismatch, None);
+        assert_eq!(input_buffer.get_raw(Tick(6)), &InputData::SameAsPrecedent);
+        assert_eq!(input_buffer.get_raw(Tick(7)), &InputData::SameAsPrecedent);
+        assert_eq!(input_buffer.get_raw(Tick(8)), &InputData::Absent);
+    }
+
+    #[test]
+    fn test_update_buffer_skip_ticks_before_previous_end() {
+        let mut registry = InputRegistry::default();
+        registry.add::<Action1>();
+        let type_id = TypeId::of::<Action1>();
+        let mut input_buffer = InputBuffer::default();
+        let mut action_state = Actions::<Context1>::default();
+        action_state.bind::<Action1>();
+
+        // Set up buffer with actions at ticks 5 and 6
+        let state = action_state.get_mut_by_id(type_id).unwrap();
+        state.state = ActionState::Fired;
+        state.value = ActionValue::Bool(true);
+        let first_action = ActionsMessage::from_actions(&action_state, &registry);
+        input_buffer.set(Tick(5), first_action.clone().to_snapshot());
+        input_buffer.set(Tick(6), first_action.clone().to_snapshot());
+
+        // Create a different action
+        let state = action_state.get_mut_by_id(type_id).unwrap();
+        state.state = ActionState::Ongoing;
+        state.value = ActionValue::Bool(false);
+        let second_action = ActionsMessage::from_actions(&action_state, &registry);
+
+        // Message covers ticks 5-8, but we should only process ticks 7-8
+        let sequence = BEIStateSequence::<Context1> {
+            states: vec![
+                InputData::Input(first_action.clone()), // tick 5 - should be skipped
+                InputData::SameAsPrecedent,             // tick 6 - should be skipped
+                InputData::Input(second_action.clone()), // tick 7 - should detect mismatch
+                InputData::SameAsPrecedent,             // tick 8 - should be processed
+            ],
+            marker: Default::default(),
+        };
+
+        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(8));
+
+        // Should detect mismatch at tick 7 (first tick after previous_end_tick=6)
+        assert_eq!(earliest_mismatch, Some(Tick(7)));
+        // Ticks 5 and 6 should remain unchanged
+        assert_eq!(
+            input_buffer.get(Tick(5)),
+            Some(&first_action.clone().to_snapshot())
+        );
+        assert_eq!(
+            input_buffer.get(Tick(6)),
+            Some(&first_action.clone().to_snapshot())
+        );
+        // Ticks 7 and 8 should be updated
+        assert_eq!(
+            input_buffer.get(Tick(7)),
+            Some(&second_action.clone().to_snapshot())
+        );
+        assert_eq!(
+            input_buffer.get(Tick(8)),
+            Some(&second_action.clone().to_snapshot())
+        );
     }
 }

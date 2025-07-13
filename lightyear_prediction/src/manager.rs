@@ -25,7 +25,6 @@ use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::timeline::input::Input;
 use lightyear_utils::ready_buffer::ReadyBuffer;
 use parking_lot::RwLock;
-use tracing::debug;
 
 #[derive(Resource)]
 pub struct PredictionResource {
@@ -163,7 +162,10 @@ pub struct PredictionManager {
 
     // TODO: does this mean that inputs must be all sent in one packet?
     /// Store the most recent confirmed input across all remote clients.
+    ///
+    /// If RollbackMode::Always for inputs, we will rollback to the last confirmed input.
     pub last_confirmed_input: LastConfirmedInput,
+    pub earliest_mismatch_input: EarliestMismatchedInput,
     // // TODO: this needs to be cleaned up at regular intervals!
     // //  do a centralized TickCleanup system in lightyear_core
     // /// The tick when we last did a rollback. This is used to prevent rolling back multiple times to the same tick.
@@ -172,10 +174,6 @@ pub struct PredictionManager {
     /// in parallel.
     #[reflect(ignore)]
     pub rollback: RwLock<RollbackState>,
-    /// Rollback state from input-checks. It is computed independently of the rollback state from state-checks.
-    /// Then both get merged together into `rollback`
-    #[reflect(ignore)]
-    pub input_rollback: RwLock<RollbackState>,
 }
 
 /// Store the most recent confirmed input across all remote clients.
@@ -198,6 +196,25 @@ impl LastConfirmedInput {
     }
 }
 
+/// Store the earliest mismatched input across all remote clients.
+///
+/// This is if we are using [`RollbackMode::Check`](RollbackMode), in which case we
+/// we will start the rollback from the earliest mismatched input tick across the
+/// inputs from all remote clients.
+#[derive(Debug, Default, Reflect)]
+pub struct EarliestMismatchedInput {
+    pub tick: lightyear_core::tick::AtomicTick,
+    pub has_mismatches: bevy_platform::sync::atomic::AtomicBool,
+}
+
+impl EarliestMismatchedInput {
+    /// Returns true if we have any input mismatch
+    pub fn has_mismatches(&self) -> bool {
+        self.has_mismatches
+            .load(bevy_platform::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 impl Default for PredictionManager {
     fn default() -> Self {
         Self {
@@ -207,9 +224,9 @@ impl Default for PredictionManager {
             prespawn_hash_to_entities: EntityHashMap::default(),
             prespawn_tick_to_hash: ReadyBuffer::default(),
             last_confirmed_input: LastConfirmedInput::default(),
+            earliest_mismatch_input: EarliestMismatchedInput::default(),
             // last_rollback_tick: None,
             rollback: RwLock::new(RollbackState::Default),
-            input_rollback: RwLock::new(RollbackState::Default),
         }
     }
 }
@@ -261,43 +278,14 @@ impl PredictionManager {
         }
     }
 
-    /// Get the current input_rollback tick
-    pub(crate) fn get_input_rollback_start_tick(&self) -> Option<Tick> {
-        match *self.input_rollback.read().deref() {
-            RollbackState::RollbackStart(start_tick) => Some(start_tick),
-            RollbackState::Default => None,
-        }
-    }
-
     /// Set the rollback state back to non-rollback
     pub fn set_non_rollback(&self) {
         *self.rollback.write().deref_mut() = RollbackState::Default;
-        *self.input_rollback.write().deref_mut() = RollbackState::Default;
     }
 
     /// Set the rollback state to `ShouldRollback` with the given tick.
     pub fn set_rollback_tick(&self, tick: Tick) {
         *self.rollback.write().deref_mut() = RollbackState::RollbackStart(tick)
-    }
-
-    /// Set the rollback state to `ShouldRollback` with the given tick.
-    ///
-    /// If a rollback tick was already set, overwrite only if the new rollback tick is earlier
-    /// than the existing one.
-    /// Returns true if a rollback tick was set, false otherwise.
-    pub fn set_input_rollback_tick(&self, tick: Tick) -> bool {
-        let start_tick = match *self.input_rollback.read().deref() {
-            RollbackState::RollbackStart(start_tick) => Some(start_tick),
-            RollbackState::Default => None,
-        };
-        // don't overwrite if we had an earlier rollback tick
-        if start_tick.is_none_or(|start_tick| tick > start_tick) {
-            debug!(rollback_tick = ?tick, "Setting rollback start");
-            *self.input_rollback.write().deref_mut() = RollbackState::RollbackStart(tick);
-            true
-        } else {
-            false
-        }
     }
 
     pub(crate) fn handle_tick_sync(

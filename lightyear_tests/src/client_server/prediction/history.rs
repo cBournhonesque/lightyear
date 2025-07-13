@@ -471,7 +471,7 @@ fn test_update_history() {
 
     // 5. Updating Comp::Full on predicted entity during rollback
     let rollback_tick = Tick(10);
-    trigger_rollback(&mut stepper, rollback_tick);
+    trigger_state_rollback(&mut stepper, rollback_tick);
     stepper
         .client_app()
         .world_mut()
@@ -494,7 +494,7 @@ fn test_update_history() {
     // 6. Updating Comp::Full on predicted entity for a tick that is in the middle of the history
     // Previous test cases had the rollback tick be earlier than the entire history; we also need to test
     // when the rollback tick is in the middle of the history
-    trigger_rollback(&mut stepper, rollback_tick + 3);
+    trigger_state_rollback(&mut stepper, rollback_tick + 3);
     stepper
         .client_app()
         .world_mut()
@@ -520,7 +520,7 @@ fn test_update_history() {
         .world_mut()
         .entity_mut(confirmed)
         .remove::<CompFull>();
-    trigger_rollback(&mut stepper, rollback_tick);
+    trigger_state_rollback(&mut stepper, rollback_tick);
     stepper.frame_step(1);
     assert_eq!(
         stepper
