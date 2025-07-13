@@ -14,7 +14,7 @@ publish = true
 
 [lib]
 name = "lightyear_avian2d"
-path = "../lightyear_avian"
+path = "../lightyear_avian/src/lib.rs"
 required-features = ["2d"]
 bench = false
 
