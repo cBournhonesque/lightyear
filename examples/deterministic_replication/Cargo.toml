@@ -19,9 +19,9 @@ lightyear = { workspace = true, features = [
   "prediction",
   "replication",
   "leafwing",
+  "deterministic",
+  "avian2d",
 ] }
-lightyear_avian2d.workspace = true
-#lightyear_avian2d = { workspace = true, features = ["2d"]}
 lightyear_examples_common.workspace = true
 lightyear_frame_interpolation.workspace = true
 leafwing-input-manager.workspace = true

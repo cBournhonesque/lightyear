@@ -284,6 +284,16 @@ pub mod webtransport {
     pub use lightyear_webtransport::*;
 }
 
+#[cfg(feature = "avian2d")]
+pub mod avian2d {
+    pub use lightyear_avian2d::*;
+}
+
+#[cfg(feature = "avian3d")]
+pub mod avian3d {
+    pub use lightyear_avian3d::*;
+}
+
 #[cfg(any(feature = "input_native", feature = "leafwing", feature = "input_bei"))]
 pub mod input {
     pub use lightyear_inputs::*;

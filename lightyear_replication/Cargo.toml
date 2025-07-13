@@ -15,6 +15,7 @@ client = []
 server = ["lightyear_connection/server"]
 prediction = ["lightyear_core/prediction"]
 interpolation = ["lightyear_core/interpolation"]
+deterministic = ["dep:seahash"]
 trace = []
 metrics = ["dep:metrics", "std"]
 test_utils = []
@@ -36,6 +37,7 @@ metrics = { workspace = true, optional = true }
 smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+seahash = {workspace = true, optional = true}
 
 # serde
 serde.workspace = true

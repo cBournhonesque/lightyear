@@ -4,7 +4,7 @@ use super::{Predicted, PredictionMode, SyncComponent};
 use crate::correction::PreviousVisual;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
-use crate::manager::{PredictionManager, RollbackMode};
+use crate::manager::{LastConfirmedInput, PredictionManager, RollbackMode};
 use crate::plugin::PredictionSet;
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
@@ -124,9 +124,9 @@ impl Plugin for RollbackPlugin {
                         .prediction_map
                         .iter()
                         .filter(|(_, m)| m.sync_mode == PredictionMode::Full)
-                        .filter_map(|(kind, _)| component_registry.kind_to_component_id.get(kind))
-                        .for_each(|id| {
-                            b.ref_id(*id);
+                        .filter_map(|(kind, _)| component_registry.component_metadata_map.get(kind))
+                        .for_each(|m| {
+                            b.ref_id(m.component_id);
                         });
                 });
             }),
@@ -195,6 +195,7 @@ fn check_rollback(
         (
             Entity,
             &ReplicationReceiver,
+            Option<&LastConfirmedInput>,
             &mut PredictionManager,
             &LocalTimeline,
         ),
@@ -211,8 +212,13 @@ fn check_rollback(
     // TODO: maybe have a sparse-set component with ConfirmedUpdated to quickly query only through predicted entities
     //  that received a confirmed update? Would the iteration even be faster? since entities with or without sparse-set
     //  would still be in the same table
-    let (manager_entity, replication_receiver, mut prediction_manager, local_timeline) =
-        receiver_query.into_inner();
+    let (
+        manager_entity,
+        replication_receiver,
+        last_confirmed_input,
+        mut prediction_manager,
+        local_timeline,
+    ) = receiver_query.into_inner();
     let tick = local_timeline.tick();
     trace!(?tick, "Check rollback");
     let received_state = replication_receiver.has_received_this_frame();
@@ -318,14 +324,9 @@ fn check_rollback(
             // TODO: maybe pre-cache the components of the archetypes that we want to iterate over?
             //  it's not straightforward because we also want to handle rollbacks for components
             //  that were removed from the entity, which would not appear in the archetype
-            for (id, prediction_metadata) in prediction_registry.prediction_map
-                .iter()
-                .filter_map(|(kind, m)| {
-                    if m.sync_mode != PredictionMode::Full {
-                        return None
-                    }
-                    component_registry.kind_to_component_id.get(kind).map(|id| (kind, m))
-                })
+            for prediction_metadata in prediction_registry.prediction_map
+                .values()
+                .filter(|m| m.sync_mode == PredictionMode::Full)
                 .take_while(|_| !prediction_manager.is_rollback()) {
                 if (prediction_metadata.check_rollback)(&prediction_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
                     trace!("Rollback because we have received a new confirmed state. (mismatch check)");
@@ -350,11 +351,13 @@ fn check_rollback(
     match prediction_manager.rollback_policy.input {
         // If we have received any input message, rollback from the last confirmed input
         RollbackMode::Always => {
-            if prediction_manager.last_confirmed_input.received_input() {
+            if let Some(last_confirmed_input) = last_confirmed_input
+                && last_confirmed_input.received_input()
+            {
                 trace!("Rollback because we have received a new remote input. (no mismatch check)");
                 // TODO: instead of rolling back to the last confirmed input, we could also just rollback
                 //  to the previous confirmed state (the inputs are just 'extra')
-                let rollback_tick = prediction_manager.last_confirmed_input.tick.get();
+                let rollback_tick = last_confirmed_input.tick.get();
                 do_rollback(
                     rollback_tick,
                     &prediction_manager,
@@ -411,6 +414,7 @@ fn check_rollback(
     }
 }
 
+// TODO: move this away from lightyear_prediction since LastConfirmedInput could be used without any prediction (lockstep)
 /// Reset the trackers associated with RollbackMode::Input checks.
 ///
 /// We do this here and not in `lightyear_input` because if we have multiple input types, the ticks
@@ -418,29 +422,38 @@ fn check_rollback(
 ///
 /// This must run after the rollback check.
 fn reset_input_rollback_tracker(
-    client: Single<(&LocalTimeline, &PredictionManager), With<IsSynced<InputTimeline>>>,
+    client: Single<
+        (
+            &LocalTimeline,
+            AnyOf<(&LastConfirmedInput, &PredictionManager)>,
+        ),
+        With<IsSynced<InputTimeline>>,
+    >,
 ) {
-    let (local_timeline, prediction_manager) = client.into_inner();
+    let (local_timeline, (last_confirmed_input, prediction_manager)) = client.into_inner();
     let tick = local_timeline.tick();
 
     // set a high value to the AtomicTick so we can then compute the minimum last_confirmed_tick among all clients
-    prediction_manager.last_confirmed_input.tick.0.store(
-        tick.0 + 1000,
-        bevy_platform::sync::atomic::Ordering::Relaxed,
-    );
-    prediction_manager
-        .last_confirmed_input
-        .received_any_messages
-        .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
-    // set a high value to the AtomicTick so we can then compute the minimum earliest_mismatch_tick among all clients
-    prediction_manager.earliest_mismatch_input.tick.0.store(
-        tick.0 + 1000,
-        bevy_platform::sync::atomic::Ordering::Relaxed,
-    );
-    prediction_manager
-        .earliest_mismatch_input
-        .has_mismatches
-        .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
+    if let Some(last_confirmed_input) = last_confirmed_input {
+        last_confirmed_input.tick.0.store(
+            tick.0 + 1000,
+            bevy_platform::sync::atomic::Ordering::Relaxed,
+        );
+        last_confirmed_input
+            .received_any_messages
+            .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
+    }
+    if let Some(prediction_manager) = prediction_manager {
+        // set a high value to the AtomicTick so we can then compute the minimum earliest_mismatch_tick among all clients
+        prediction_manager.earliest_mismatch_input.tick.0.store(
+            tick.0 + 1000,
+            bevy_platform::sync::atomic::Ordering::Relaxed,
+        );
+        prediction_manager
+            .earliest_mismatch_input
+            .has_mismatches
+            .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 // TODO: maybe restore only the ones for which the Confirmed entity is not disabled?
@@ -529,9 +542,9 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     let rollback_tick = manager.get_rollback_start_tick().unwrap();
 
     let is_non_networked = component_registry
-        .kind_to_component_id
+        .component_metadata_map
         .get(&ComponentKind::of::<C>())
-        .is_none();
+        .is_none_or(|m| m.serialization.is_none());
     for (
         predicted_entity,
         predicted_component,

@@ -10,6 +10,9 @@ mod delta;
 pub mod registry;
 pub(crate) mod replication;
 
+#[cfg(feature = "deterministic")]
+pub mod deterministic;
+
 pub type ComponentNetId = NetId;
 
 #[derive(thiserror::Error, Debug)]

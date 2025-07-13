@@ -45,7 +45,7 @@ pub enum PredictionSet {
     /// Sync components from the Confirmed entity to the Predicted entity, and potentially
     /// insert PredictedHistory components
     Sync,
-    /// System set encompassing the sets in [`RollbackSet`](crate::rollback::RollbackSet)
+    /// System set encompassing the sets in [`RollbackSet`]
     Rollback,
 
     // FixedPostUpdate Sets

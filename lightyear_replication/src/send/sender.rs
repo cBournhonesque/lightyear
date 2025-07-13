@@ -485,7 +485,6 @@ impl ReplicationSender {
                     .inspect_err(|e| {
                         error!(
                             ?entity,
-                            name = ?registry.name(kind),
                             "Could not find old component value from tick {:?} to compute delta: {e:?}",
                             ack_tick,
                         );
@@ -884,7 +883,7 @@ mod tests {
         let component_registry = ComponentRegistry::default();
         sender.handle_acks(
             &component_registry,
-            &mut delta_manager,
+            Some(&mut delta_manager),
             &mut vec![message_2],
         );
         let group = sender.group_channels.get(&group_1).unwrap();

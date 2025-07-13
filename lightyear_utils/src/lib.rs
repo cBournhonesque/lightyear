@@ -15,5 +15,6 @@ pub mod captures;
 pub mod collections;
 
 pub mod easings;
+pub mod ecs;
 pub mod registry;
 pub mod wrapping_id;

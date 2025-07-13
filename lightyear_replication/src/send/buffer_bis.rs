@@ -299,12 +299,19 @@ pub fn replicate_entity_bis(
     } in replicated_components
     {
         let is_map_entities = component_registry
-            .serialize_fns_map
+            .component_metadata_map
             .get(kind)
             .unwrap()
-            .map_entities
-            .is_some();
-        let replication_metadata = component_registry.replication_map.get(kind).unwrap();
+            .serialization
+            .as_ref()
+            .is_some_and(|s| s.map_entities.is_some());
+        let replication_metadata = component_registry
+            .component_metadata_map
+            .get(kind)
+            .unwrap()
+            .replication
+            .as_ref()
+            .unwrap();
         let disable = replication_metadata.config.disable;
         let replicate_once = replication_metadata.config.replicate_once;
         let delta_compression = replication_metadata.config.delta_compression;

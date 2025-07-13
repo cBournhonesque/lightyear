@@ -7,6 +7,7 @@ use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::input::input_buffer::InputBuffer;
+use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
 use lightyear::prelude::*;
 
@@ -26,7 +27,7 @@ impl Plugin for SharedPlugin {
         app.add_systems(Startup, init);
 
         // physics
-        app.add_plugins(lightyear_avian2d::prelude::LightyearAvianPlugin {
+        app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
             rollback_resources: true,
             ..default()
         });
@@ -44,6 +45,9 @@ impl Plugin for SharedPlugin {
 
         // registry types for reflection
         app.register_type::<PlayerId>();
+
+        // Game logic
+        app.add_systems(FixedUpdate, player_movement);
 
         // DEBUG
         // app.add_systems(
@@ -92,6 +96,28 @@ pub(crate) fn init(mut commands: Commands) {
     ));
 }
 
+pub(crate) fn player_bundle(peer_id: PeerId) -> impl Bundle {
+    let y = (peer_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
+    let color = color_from_id(peer_id);
+    (
+        Position::from(Vec2::new(-50.0, y)),
+        ColorComponent(color),
+        PhysicsBundle::player(),
+        Name::from("Player"),
+        // this indicates that the entity will only do rollbacks from input updates, and not state updates!
+        // It is currently REQUIRED to add this component to indicate which entities will be rollbacked
+        // in deterministic replication mode.
+        DeterministicPredicted,
+        // this is a bit subtle:
+        // when we add DeterministicPredicted to the entity, we enable it for rollbacks. Since we have RollbackMode::Always,
+        // we will try to rollback on every input received. We will therefore rollback to before the entity was spawned,
+        // which will immediately despawn the entity!
+        // This is because we are not creating the entity in a deterministic way. (if we did, we would be re-creating the
+        // entity during the rollbacks). As a workaround, we disable rollbacks for this entity for a few ticks.
+        DisableRollback,
+    )
+}
+
 // Generate pseudo-random color from id
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
@@ -120,6 +146,29 @@ pub(crate) fn shared_movement_behaviour(
         velocity.x += MOVE_SPEED;
     }
     *velocity = LinearVelocity(velocity.clamp_length_max(MAX_VELOCITY));
+}
+
+/// In deterministic replication, the client and server simulates all players.
+fn player_movement(
+    timeline: Single<&LocalTimeline, Or<(With<Server>, With<Client>)>>,
+    mut velocity_query: Query<(
+        Entity,
+        &PlayerId,
+        &Position,
+        &mut LinearVelocity,
+        &ActionState<PlayerActions>,
+    )>,
+) {
+    let tick = timeline.tick();
+    for (entity, player_id, position, velocity, action_state) in velocity_query.iter_mut() {
+        if !action_state.get_pressed().is_empty() {
+            trace!(?entity, ?tick, ?position, actions = ?action_state.get_pressed(), "applying movement to predicted player");
+            // note that we also apply the input to the other predicted clients! even though
+            //  their inputs are only replicated with a delay!
+            // TODO: add input decay?
+            shared_movement_behaviour(velocity, action_state);
+        }
+    }
 }
 
 fn debug() {
@@ -190,6 +239,7 @@ pub(crate) fn fixed_last_log(
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
             Option<&InputBuffer<ActionState<PlayerActions>>>,
+            Option<&PredictionHistory<Position>>,
         ),
         (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
     >,
@@ -202,7 +252,9 @@ pub(crate) fn fixed_last_log(
     let tick = timeline.tick();
     // info!(?tick, "contact graph: {:#?}", contact_graph);
 
-    for (entity, position, velocity, correction, action_state, input_buffer) in players.iter() {
+    for (entity, position, velocity, correction, action_state, input_buffer, history) in
+        players.iter()
+    {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         info!(
@@ -214,6 +266,7 @@ pub(crate) fn fixed_last_log(
             ?correction,
             ?pressed,
             ?last_buffer_tick,
+            ?history,
             "Player after physics update"
         );
     }

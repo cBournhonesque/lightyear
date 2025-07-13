@@ -39,6 +39,9 @@ pub enum AvianReplicationMode {
     Transform,
 }
 
+/// Plugin that integrates Avian with Lightyear for networked physics replication.
+///
+/// NOTE: this plugin is NOT added automatically by ClientPlugins/ServerPlugins, you have to add it manually!
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct LightyearAvianPlugin {
     /// The replication mode to use for the Avian plugin.

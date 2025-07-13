@@ -96,13 +96,18 @@ impl ComponentRegistry {
             entity_mut.entity.id(),
             net_id
         );
-        let replication_metadata = self
-            .replication_map
+        let component_metadata = self
+            .component_metadata_map
             .get(kind)
+            .ok_or(ComponentError::MissingSerializationFns)?;
+
+        let replication_metadata = component_metadata
+            .replication
+            .as_ref()
             .ok_or(ComponentError::MissingReplicationFns)?;
-        let erased_serialize_fns = self
-            .serialize_fns_map
-            .get(kind)
+        let erased_serialize_fns = component_metadata
+            .serialization
+            .as_ref()
             .ok_or(ComponentError::MissingSerializationFns)?;
         (replication_metadata.buffer)(
             replication_metadata,
@@ -123,9 +128,12 @@ impl ComponentRegistry {
     ) {
         let kind = self.kind_map.kind(net_id).expect("unknown component kind");
         let replication_metadata = self
-            .replication_map
+            .component_metadata_map
             .get(kind)
-            .expect("the component is not part of the protocol");
+            .expect("the component is not part of the protocol")
+            .replication
+            .as_ref()
+            .expect("the component does not have replication metadata");
         let remove_fn = replication_metadata
             .remove
             .expect("the component does not have a remove function");
@@ -137,8 +145,8 @@ impl ComponentRegistry {
     /// so that they can all be removed at the same time
     pub(crate) fn buffer_remove<C: Component>(&self, entity_mut: &mut BufferedEntity) {
         let kind = ComponentKind::of::<C>();
-        let component_id = self.kind_to_component_id.get(&kind).unwrap();
-        entity_mut.buffered.remove(*component_id);
+        let component_id = self.component_metadata_map.get(&kind).unwrap().component_id;
+        entity_mut.buffered.remove(component_id);
         #[cfg(feature = "metrics")]
         {
             metrics::counter!("replication::receive::component::remove").increment(1);

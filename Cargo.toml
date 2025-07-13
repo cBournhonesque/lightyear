@@ -72,6 +72,7 @@ lightyear_netcode = { path = "./lightyear_netcode", version = " 0.21.1", default
 lightyear_connection = { path = "./lightyear_connection", version = " 0.21.1", default-features = false }
 lightyear_core = { path = "./lightyear_core", version = " 0.21.1", default-features = false }
 lightyear_crossbeam = { path = "./lightyear_crossbeam", version = " 0.21.1", default-features = false }
+lightyear_deterministic_replication = { path = "./lightyear_deterministic_replication", version = " 0.21.1", default-features = false }
 lightyear_frame_interpolation = { path = "./lightyear_frame_interpolation", version = " 0.21.1", default-features = false }
 lightyear_inputs = { path = "./lightyear_inputs", version = " 0.21.1", default-features = false }
 lightyear_inputs_bei = { path = "./lightyear_inputs_bei", version = " 0.21.1", default-features = false }

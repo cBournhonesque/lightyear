@@ -125,12 +125,19 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 #[derive(Debug, Default, Clone, Resource, TypePath)]
 pub struct ComponentRegistry {
     pub component_id_to_kind: HashMap<ComponentId, ComponentKind>,
-    pub kind_to_component_id: HashMap<ComponentKind, ComponentId>,
-    pub replication_map: HashMap<ComponentKind, ReplicationMetadata>,
-    pub serialize_fns_map: HashMap<ComponentKind, ErasedSerializeFns>,
-    pub(crate) delta_fns_map: HashMap<ComponentKind, ErasedDeltaFns>,
+    pub component_metadata_map: HashMap<ComponentKind, ComponentMetadata>,
     pub kind_map: TypeMapper<ComponentKind>,
     hasher: RegistryHasher,
+}
+
+#[derive(Debug, Clone)]
+pub struct ComponentMetadata {
+    pub component_id: ComponentId,
+    pub(crate) replication: Option<ReplicationMetadata>,
+    pub serialization: Option<ErasedSerializeFns>,
+    pub(crate) delta: Option<ErasedDeltaFns>,
+    #[cfg(feature = "deterministic")]
+    pub deterministic: Option<super::deterministic::DeterministicFns>,
 }
 
 impl ComponentRegistry {
@@ -149,38 +156,8 @@ impl ComponentRegistry {
         self.kind_map.net_id(&ComponentKind::of::<C>()).copied()
     }
 
-    /// Return the name of the component from the [`ComponentKind`]
-    pub fn name(&self, kind: ComponentKind) -> &'static str {
-        self.serialize_fns_map.get(&kind).unwrap().type_name
-    }
-
     pub fn is_registered<C: 'static>(&self) -> bool {
         self.kind_map.net_id(&ComponentKind::of::<C>()).is_some()
-    }
-
-    /// Check that the protocol is correct:
-    /// - emits warnings for every component that has prediction/interpolation metadata but wasn't registered
-    pub fn check(&self) {
-        // for component_kind in self.prediction_map.keys() {
-        //     if !self.serialize_fns_map.contains_key(component_kind) {
-        //         panic!(
-        //             "A component has prediction metadata but wasn't registered for serialization"
-        //         );
-        //     }
-        // }
-        // for (component_kind, interpolation_data) in &self.interpolation_map {
-        //     if interpolation_data.interpolation_mode == ComponentSyncMode::Full
-        //         && interpolation_data.interpolation.is_none()
-        //         && !interpolation_data.custom_interpolation
-        //     {
-        //         let name = self
-        //             .serialize_fns_map
-        //             .get(component_kind)
-        //             .unwrap()
-        //             .type_name;
-        //         panic!("The Component {name:?} was registered for interpolation with ComponentSyncMode::FULL but no interpolation function was provided!");
-        //     }
-        // }
     }
 
     pub fn register_component<C: Component + Serialize + DeserializeOwned>(
@@ -199,15 +176,25 @@ impl ComponentRegistry {
         let component_id = world.register_component::<C>();
         self.component_id_to_kind
             .insert(component_id, component_kind);
-        self.kind_to_component_id
-            .insert(component_kind, component_id);
-        self.serialize_fns_map.insert(
-            component_kind,
-            ErasedSerializeFns::new::<SendEntityMap, ReceiveEntityMap, C, C>(
-                ContextSerializeFns::new(serialize_fns.serialize),
-                ContextDeserializeFns::new(serialize_fns.deserialize),
-            ),
-        );
+        self.component_metadata_map
+            .entry(component_kind)
+            .or_insert(ComponentMetadata {
+                component_id,
+                replication: None,
+                serialization: None,
+                delta: None,
+                #[cfg(feature = "deterministic")]
+                deterministic: None,
+            })
+            .serialization = Some(ErasedSerializeFns::new::<
+            SendEntityMap,
+            ReceiveEntityMap,
+            C,
+            C,
+        >(
+            ContextSerializeFns::new(serialize_fns.serialize),
+            ContextDeserializeFns::new(serialize_fns.deserialize),
+        ));
     }
 
     pub fn finish(&mut self) -> RegistryHash {
@@ -241,19 +228,25 @@ fn mapped_context_deserialize<M: MapEntities>(
 impl ComponentRegistry {
     pub(crate) fn try_add_map_entities<C: Clone + MapEntities + 'static>(&mut self) {
         let kind = ComponentKind::of::<C>();
-        if let Some(erased_fns) = self.serialize_fns_map.get_mut(&kind) {
-            erased_fns.add_map_entities::<C>();
+        if let Some(metadata) = self.component_metadata_map.get_mut(&kind) {
+            if let Some(serialization) = metadata.serialization.as_mut() {
+                serialization.add_map_entities::<C>();
+            }
         }
     }
 
     pub(crate) fn add_map_entities<C: Clone + MapEntities + 'static>(&mut self) {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self.serialize_fns_map.get_mut(&kind).unwrap_or_else(|| {
-            panic!(
-                "Component {} is not part of the protocol",
-                core::any::type_name::<C>()
-            )
-        });
+        let metadata = self
+            .component_metadata_map
+            .get_mut(&kind)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Component {} is not part of the protocol",
+                    core::any::type_name::<C>()
+                )
+            });
+        let erased_fns = metadata.serialization.as_mut().unwrap();
         erased_fns.add_map_entities::<C>();
         let context_serialize: ContextSerializeFn<SendEntityMap, C, C> =
             mapped_context_serialize::<C>;
@@ -286,9 +279,13 @@ impl ComponentRegistry {
         kind: ComponentKind,
         entity_map: &mut SendEntityMap,
     ) -> Result<(), ComponentError> {
-        let erased_fns = self
-            .serialize_fns_map
+        let metadata = self
+            .component_metadata_map
             .get(&kind)
+            .ok_or(ComponentError::MissingSerializationFns)?;
+        let erased_fns = metadata
+            .serialization
+            .as_ref()
             .ok_or(ComponentError::MissingSerializationFns)?;
         let net_id = self.kind_map.net_id(&kind).unwrap();
         net_id.to_bytes(writer)?;
@@ -306,9 +303,13 @@ impl ComponentRegistry {
         entity_map: &mut ReceiveEntityMap,
     ) -> Result<C, ComponentError> {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .serialize_fns_map
+        let metadata = self
+            .component_metadata_map
             .get(&kind)
+            .ok_or(ComponentError::MissingSerializationFns)?;
+        let erased_fns = metadata
+            .serialization
+            .as_ref()
             .ok_or(ComponentError::MissingSerializationFns)?;
         // SAFETY: the ErasedFns corresponds to type C
         unsafe { erased_fns.deserialize::<_, C, C>(reader, entity_map) }.map_err(Into::into)
@@ -329,9 +330,13 @@ impl ComponentRegistry {
         entity_map: &mut EntityMap,
     ) -> Result<(), ComponentError> {
         let kind = ComponentKind::of::<C>();
-        let erased_fns = self
-            .serialize_fns_map
+        let metadata = self
+            .component_metadata_map
             .get(&kind)
+            .ok_or(ComponentError::MissingSerializationFns)?;
+        let erased_fns = metadata
+            .serialization
+            .as_ref()
             .ok_or(ComponentError::MissingSerializationFns)?;
         erased_fns.map_entities(component, entity_map);
         Ok(())
@@ -444,10 +449,17 @@ impl<C> ComponentRegistration<'_, C> {
             .world_mut()
             .register_component::<ComponentReplicationOverrides<C>>();
         let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
-        registry.replication_map.insert(
-            ComponentKind::of::<C>(),
-            ReplicationMetadata::default_fns::<C>(config, overrides_component_id),
-        );
+        let kind = ComponentKind::of::<C>();
+        let metadata = registry.component_metadata_map.get_mut(&kind).unwrap_or_else(|| {
+            panic!(
+                "Component {} is not part of the protocol, did you forget to call register_component?",
+                core::any::type_name::<C>()
+            );
+        });
+        metadata.replication = Some(ReplicationMetadata::default_fns::<C>(
+            config,
+            overrides_component_id,
+        ));
         self
     }
 

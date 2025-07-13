@@ -314,17 +314,14 @@ impl Plugin for ReplicationSendPlugin {
                     b.data::<&InterpolationTarget>();
                     // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
                     component_registry
-                        .replication_map
+                        .component_metadata_map
                         .iter()
-                        .for_each(|(kind, _)| {
-                            let id = component_registry.kind_to_component_id.get(kind).unwrap();
-                            b.ref_id(*id);
-                            let override_id = component_registry
-                                .replication_map
-                                .get(kind)
-                                .unwrap()
-                                .overrides_component_id;
-                            b.ref_id(override_id);
+                        .for_each(|(kind, m)| {
+                            let id = m.component_id;
+                            b.ref_id(id);
+                            if let Some(r) = &m.replication {
+                                b.ref_id(r.overrides_component_id);
+                            }
                         });
                 });
             }),
@@ -406,17 +403,13 @@ impl Plugin for ReplicationSendPlugin {
                     b.data::<(&ReplicateLike, &Replicate, &ReplicationGroup)>();
                     // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
                     component_registry
-                        .replication_map
+                        .component_metadata_map
                         .iter()
-                        .for_each(|(kind, _)| {
-                            let id = component_registry.kind_to_component_id.get(kind).unwrap();
-                            b.ref_id(*id);
-                            let override_id = component_registry
-                                .replication_map
-                                .get(kind)
-                                .unwrap()
-                                .overrides_component_id;
-                            b.ref_id(override_id);
+                        .for_each(|(kind, m)| {
+                            b.ref_id(m.component_id);
+                            if let Some(r) = &m.replication {
+                                b.ref_id(r.overrides_component_id);
+                            }
                         });
                 });
             }),

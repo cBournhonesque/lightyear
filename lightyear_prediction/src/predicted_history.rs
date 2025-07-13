@@ -333,12 +333,13 @@ pub(crate) fn add_sync_systems(app: &mut App) {
 
     // Sync components that are added on the Confirmed entity
     let mut observer = Observer::new(added_on_confirmed_sync);
-    for component in prediction_registry
-        .prediction_map
-        .keys()
-        .filter_map(|k| component_registry.kind_to_component_id.get(k))
-    {
-        observer = observer.with_component(*component);
+    for component_id in prediction_registry.prediction_map.keys().filter_map(|k| {
+        component_registry
+            .component_metadata_map
+            .get(k)
+            .map(|m| m.component_id)
+    }) {
+        observer = observer.with_component(component_id);
     }
     app.world_mut().spawn(observer);
 

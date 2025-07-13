@@ -11,6 +11,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 [features]
 default = ["std"]
 std = ["lightyear_replication/std"]
+deterministic = []
 server = ["dep:lightyear_messages"]
 metrics = ["dep:metrics", "std"]
 

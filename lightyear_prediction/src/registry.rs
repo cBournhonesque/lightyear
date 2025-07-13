@@ -7,6 +7,7 @@ use crate::{PredictionMode, SyncComponent};
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::App;
+use bevy_ecs::ptr::PtrMut;
 use bevy_ecs::{
     component::{Component, ComponentId},
     entity::{ContainsEntity, Entity},
@@ -17,6 +18,7 @@ use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
 };
+use core::fmt::Debug;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::tick::Tick;
 use lightyear_replication::delta::Diffable;
@@ -44,6 +46,9 @@ pub struct PredictionMetadata {
     pub should_rollback: unsafe fn(),
     pub buffer_sync: SyncFn,
     pub check_rollback: CheckRollbackFn,
+    #[cfg(feature = "deterministic")]
+    /// Function to call `pop_until_tick` on the [`PredictionHistory<C>`] component.
+    pub pop_until_tick_and_hash: Option<PopUntilTickAndHashFn>,
 }
 
 type SyncFn = fn(
@@ -62,6 +67,10 @@ type CheckRollbackFn = fn(
     predicted_mut: &mut FilteredEntityMut,
 ) -> bool;
 
+/// Type-erased function for calling `pop_until_tick` and then `hash` on a [`PredictionHistory<C>`] component.
+/// The function fn should be of type fn(&C, &mut seahash::SeaHasher) and will be called with the value popped from the history.
+pub type PopUntilTickAndHashFn = fn(PtrMut, Tick, &mut seahash::SeaHasher, fn());
+
 impl PredictionMetadata {
     fn default_from<C: SyncComponent>(
         history_id: Option<ComponentId>,
@@ -79,6 +88,8 @@ impl PredictionMetadata {
             },
             buffer_sync: PredictionRegistry::buffer_sync::<C>,
             check_rollback: PredictionRegistry::check_rollback::<C>,
+            #[cfg(feature = "deterministic")]
+            pop_until_tick_and_hash: Some(PredictionRegistry::pop_until_tick_and_hash::<C>),
         }
     }
 }
@@ -373,6 +384,33 @@ impl PredictionRegistry {
                     }
                 },
             ),
+        }
+    }
+
+    /// Type-erased function for calling `pop_until_tick` on a [`PredictionHistory<C>`] component.
+    ///
+    /// Safety
+    ///
+    /// - The PtrMut must point to a valid [`PredictionHistory<C>`] component.
+    /// - The function `f` must be a valid function of type `fn(&C, &mut seahash::SeaHasher)`.
+    fn pop_until_tick_and_hash<C: Debug + Clone + 'static>(
+        ptr: PtrMut,
+        tick: Tick,
+        hasher: &mut seahash::SeaHasher,
+        f: fn(),
+    ) {
+        // SAFETY: the caller must ensure that the function has the correct type
+        let f = unsafe { core::mem::transmute::<fn(), fn(&C, &mut seahash::SeaHasher)>(f) };
+        // SAFETY: the caller must ensure that the pointer is valid and points to a PredictionHistory<C>
+        let history = unsafe { ptr.deref_mut::<PredictionHistory<C>>() };
+        if let Some(HistoryState::Updated(v)) = history.pop_until_tick(tick) {
+            trace!(
+                "Popped value from PredictionHistory<{:?}? at tick {:?}: {:?} for hashing",
+                core::any::type_name::<C>(),
+                tick,
+                v
+            );
+            f(&v, hasher);
         }
     }
 }

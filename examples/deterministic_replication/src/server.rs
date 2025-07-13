@@ -1,6 +1,8 @@
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{SharedPlugin, WallBundle, color_from_id, shared_movement_behaviour};
+use crate::shared::{
+    SharedPlugin, WallBundle, color_from_id, player_bundle, shared_movement_behaviour,
+};
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::platform::collections::HashMap;
@@ -63,6 +65,7 @@ pub(crate) fn start_game(
             commands.spawn((
                 Replicate::to_clients(NetworkTarget::All),
                 PlayerId(remote_id.0),
+                player_bundle(remote_id.0),
             ));
         } else {
             panic!("Failed to get entity for server link {link:?}");

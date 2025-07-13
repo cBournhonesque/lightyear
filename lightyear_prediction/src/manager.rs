@@ -131,9 +131,12 @@ impl RollbackPolicy {
 pub(crate) struct PredictionSyncBuffer(BufferedChanges);
 
 #[derive(Component, Debug, Reflect)]
-#[component(on_add = PredictionManager::on_add)]
+#[component(on_insert = PredictionManager::on_insert)]
 #[require(InputTimeline)]
 #[require(PredictionSyncBuffer)]
+// TODO: ideally we would only insert LastConfirmedInput if the PredictionManager is updated to use RollbackMode::AlwaysInput
+//  because that's where we need it. In practice we don't have an OnChange observer so we cannot do this easily
+#[require(LastConfirmedInput)]
 pub struct PredictionManager {
     /// If true, we always rollback whenever we receive a server update, instead of checking
     /// ff the confirmed state matches the predicted state history
@@ -159,12 +162,6 @@ pub struct PredictionManager {
     #[doc(hidden)]
     /// Store the spawn tick of the entity, as well as the corresponding hash
     pub prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
-
-    // TODO: does this mean that inputs must be all sent in one packet?
-    /// Store the most recent confirmed input across all remote clients.
-    ///
-    /// If RollbackMode::Always for inputs, we will rollback to the last confirmed input.
-    pub last_confirmed_input: LastConfirmedInput,
     pub earliest_mismatch_input: EarliestMismatchedInput,
     // // TODO: this needs to be cleaned up at regular intervals!
     // //  do a centralized TickCleanup system in lightyear_core
@@ -181,7 +178,7 @@ pub struct PredictionManager {
 /// This can be useful if we are using [`RollbackMode::Always`](RollbackMode), in which case we won't check
 /// for state or input mismatches but simply rollback to the last tick where we had a confirmed input
 /// from each remote client.
-#[derive(Debug, Default, Reflect)]
+#[derive(Component, Debug, Default, Reflect)]
 pub struct LastConfirmedInput {
     pub tick: lightyear_core::tick::AtomicTick,
     pub received_any_messages: bevy_platform::sync::atomic::AtomicBool,
@@ -223,7 +220,6 @@ impl Default for PredictionManager {
             predicted_entity_map: UnsafeCell::new(PredictedEntityMap::default()),
             prespawn_hash_to_entities: EntityHashMap::default(),
             prespawn_tick_to_hash: ReadyBuffer::default(),
-            last_confirmed_input: LastConfirmedInput::default(),
             earliest_mismatch_input: EarliestMismatchedInput::default(),
             // last_rollback_tick: None,
             rollback: RwLock::new(RollbackState::Default),
@@ -232,7 +228,7 @@ impl Default for PredictionManager {
 }
 
 impl PredictionManager {
-    fn on_add(mut deferred: DeferredWorld, context: HookContext) {
+    fn on_insert(mut deferred: DeferredWorld, context: HookContext) {
         let entity = context.entity;
         deferred.commands().queue(move |world: &mut World| {
             world.insert_resource(PredictionResource {
