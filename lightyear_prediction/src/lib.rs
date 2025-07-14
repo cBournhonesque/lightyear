@@ -19,7 +19,7 @@ pub mod plugin;
 pub mod pre_prediction;
 pub mod predicted_history;
 pub mod prespawn;
-mod registry;
+pub mod registry;
 pub mod resource_history;
 pub mod rollback;
 pub mod spawn;
@@ -36,8 +36,11 @@ pub mod prelude {
     pub use crate::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
     pub use crate::manager::{PredictionManager, RollbackMode, RollbackPolicy};
     pub use crate::plugin::{PredictionPlugin, PredictionSet};
+    pub use crate::predicted_history::PredictionHistory;
     pub use crate::prespawn::PreSpawned;
-    pub use crate::registry::{PredictionAppRegistrationExt, PredictionRegistrationExt};
+    pub use crate::registry::{
+        PredictionAppRegistrationExt, PredictionRegistrationExt, PredictionRegistry,
+    };
     pub use crate::rollback::RollbackSet;
 
     #[cfg(feature = "server")]

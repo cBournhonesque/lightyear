@@ -32,24 +32,34 @@ impl ComponentRegistry {
     {
         let kind = ComponentKind::of::<C>();
         let delta_kind = ComponentKind::of::<DeltaMessage<C::Delta>>();
-        // add the delta as a message
+
+        // add delta-related type-erased functions for C
+        let metadata = self
+            .component_metadata_map
+            .get_mut(&kind)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Can only add delta-compression on a registered component (kind = {:?}).",
+                    core::any::type_name::<C>()
+                );
+            });
+        metadata.delta = Some(ErasedDeltaFns::new::<C>());
+        // update the write function to use the delta compression logic
+        if let Some(replication) = metadata.replication.as_mut() {
+            replication.config.delta_compression = true;
+        }
+
+        // add serialization/replication for C::Delta
         self.register_component::<DeltaMessage<C::Delta>>(world);
-        // add delta-related type-erased functions
-        self.delta_fns_map.insert(kind, ErasedDeltaFns::new::<C>());
+
         // add write/remove functions associated with the delta component's net_id
         // (since the serialized message will contain the delta component's net_id)
-        // update the write function to use the delta compression logic
-        self.replication_map.insert(
-            delta_kind,
-            ReplicationMetadata::new(
-                ComponentReplicationConfig::default(),
-                ComponentId::new(0),
-                buffer_insert_delta::<C>,
-            ),
-        );
-        if let Some(metadata) = self.replication_map.get_mut(&kind) {
-            metadata.config.delta_compression = true;
-        }
+        let delta_metadata = self.component_metadata_map.get_mut(&delta_kind).unwrap();
+        delta_metadata.replication = Some(ReplicationMetadata::new(
+            ComponentReplicationConfig::default(),
+            ComponentId::new(0),
+            buffer_insert_delta::<C>,
+        ));
     }
 
     /// # Safety
@@ -60,8 +70,9 @@ impl ComponentRegistry {
         kind: ComponentKind,
     ) -> Result<NonNull<u8>, ComponentError> {
         let delta_fns = self
-            .delta_fns_map
+            .component_metadata_map
             .get(&kind)
+            .and_then(|m| m.delta.as_ref())
             .ok_or(ComponentError::MissingDeltaFns)?;
         Ok(unsafe { (delta_fns.clone)(data) })
     }
@@ -74,8 +85,9 @@ impl ComponentRegistry {
         kind: ComponentKind,
     ) -> Result<(), ComponentError> {
         let delta_fns = self
-            .delta_fns_map
+            .component_metadata_map
             .get(&kind)
+            .and_then(|m| m.delta.as_ref())
             .ok_or(ComponentError::MissingDeltaFns)?;
         unsafe { (delta_fns.drop)(data) };
         Ok(())
@@ -98,8 +110,9 @@ impl ComponentRegistry {
             "Serializing diff from previous value for delta component",
         );
         let delta_fns = self
-            .delta_fns_map
+            .component_metadata_map
             .get(&kind)
+            .and_then(|m| m.delta.as_ref())
             .ok_or(ComponentError::MissingDeltaFns)?;
 
         let delta = unsafe { (delta_fns.diff)(start_tick, start, new) };
@@ -129,8 +142,9 @@ impl ComponentRegistry {
             "Serializing diff from base value for delta component",
         );
         let delta_fns = self
-            .delta_fns_map
+            .component_metadata_map
             .get(&kind)
+            .and_then(|m| m.delta.as_ref())
             .ok_or(ComponentError::MissingDeltaFns)?;
         let delta = unsafe { (delta_fns.diff_from_base)(component_data) };
         // SAFETY: the delta is a valid pointer to a DeltaMessage<C::Delta>
@@ -265,9 +279,9 @@ unsafe fn erased_diff<C: Diffable>(
         delta_type: DeltaType::Normal { previous_tick },
         delta,
     };
-    // TODO: Box::leak seems incorrect here; use Box::into_raw()
-    let leaked_data = Box::leak(Box::new(delta_message));
-    NonNull::from(leaked_data).cast()
+    let leaked_data = Box::into_raw(Box::new(delta_message));
+    // SAFETY: we know from above that leaked_data is not null
+    unsafe { NonNull::new_unchecked(leaked_data).cast() }
 }
 
 unsafe fn erased_base_diff<C: Diffable>(other: Ptr) -> NonNull<u8> {

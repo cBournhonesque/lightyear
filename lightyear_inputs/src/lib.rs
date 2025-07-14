@@ -29,6 +29,7 @@ pub mod server;
 pub struct InputChannel;
 
 pub mod prelude {
+    pub use crate::InputChannel;
     pub use crate::config::InputConfig;
     pub use crate::input_buffer::InputBuffer;
 

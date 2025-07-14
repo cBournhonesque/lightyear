@@ -316,7 +316,13 @@ pub(crate) fn replicate_entity(
         has_overrides,
     } in replicated_components
     {
-        let replication_metadata = component_registry.replication_map.get(kind).unwrap();
+        let replication_metadata = component_registry
+            .component_metadata_map
+            .get(kind)
+            .unwrap()
+            .replication
+            .as_ref()
+            .unwrap();
         let mut disable = replication_metadata.config.disable;
         let mut replicate_once = replication_metadata.config.replicate_once;
         let delta_compression = replication_metadata.config.delta_compression;
@@ -756,7 +762,13 @@ pub(crate) fn buffer_component_removed(
                 let Some(kind) = registry.component_id_to_kind.get(component_id) else {
                     continue;
                 };
-                let metadata = registry.replication_map.get(kind).unwrap();
+                let metadata = registry
+                    .component_metadata_map
+                    .get(kind)
+                    .unwrap()
+                    .replication
+                    .as_ref()
+                    .unwrap();
                 let mut disable = metadata.config.disable;
                 if let Some(overrides) = entity_ref
                     .get_by_id(metadata.overrides_component_id)

@@ -25,6 +25,7 @@ default = ["std", "3d"]
     "avian3d/parry-f32",
 ]
 std = ["lightyear_prediction/std"]
+deterministic = ["dep:seahash"]
 lag_compensation = []
 
 [dependencies]
@@ -37,7 +38,6 @@ lightyear_replication = { workspace = true, features = ["avian3d"] }
 
 avian3d.workspace = true
 
-tracing.workspace = true
 
 # bevy
 bevy_app.workspace = true
@@ -45,6 +45,10 @@ bevy_ecs.workspace = true
 bevy_math.workspace = true
 bevy_transform = { workspace = true, features = ["bevy-support", "libm"] }
 bevy_utils.workspace = true
+
+# utils
+tracing.workspace = true
+seahash = { workspace = true, optional = true }
 
 [package.metadata.docs.rs]
 all-features = true

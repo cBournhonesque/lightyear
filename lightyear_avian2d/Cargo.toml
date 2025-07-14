@@ -25,6 +25,7 @@ default = ["std", "2d"]
     "avian2d/parry-f32",
 ]
 std = ["lightyear_prediction/std"]
+deterministic = ["dep:seahash"]
 lag_compensation = []
 
 [dependencies]
@@ -45,6 +46,9 @@ bevy_ecs.workspace = true
 bevy_math.workspace = true
 bevy_transform = { workspace = true, features = ["bevy-support", "libm"] }
 bevy_utils.workspace = true
+
+# utils
+seahash = { workspace = true, optional = true }
 
 [package.metadata.docs.rs]
 all-features = true

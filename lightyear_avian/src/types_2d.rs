@@ -3,6 +3,9 @@ use avian2d::math::Scalar;
 use avian2d::prelude::*;
 use tracing::trace;
 
+#[cfg(feature = "deterministic")]
+use core::hash::Hasher;
+
 pub mod position {
     use super::*;
 
@@ -14,6 +17,12 @@ pub mod position {
             start, other, t, res
         );
         res
+    }
+
+    #[cfg(feature = "deterministic")]
+    pub fn hash(pos: &Position, hasher: &mut seahash::SeaHasher) {
+        hasher.write_u32(pos.x.to_bits());
+        hasher.write_u32(pos.y.to_bits());
     }
 }
 
@@ -39,6 +48,12 @@ pub mod rotation {
             res.as_degrees()
         );
         res
+    }
+
+    #[cfg(feature = "deterministic")]
+    pub fn hash(rot: &Rotation, hasher: &mut seahash::SeaHasher) {
+        hasher.write_u32(rot.cos.to_bits());
+        hasher.write_u32(rot.sin.to_bits());
     }
 }
 

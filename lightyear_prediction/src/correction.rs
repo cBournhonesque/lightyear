@@ -69,7 +69,7 @@ pub fn add_correction_systems<C: SyncComponent + Diffable<Delta = C>>(app: &mut 
     );
 }
 
-/// After the rollback is over, we need to update the values in the FrameInterpolate<C> component.
+/// After the rollback is over, we need to update the values in the [`FrameInterpolate<C>`] component.
 ///
 /// If we have correction enabled, then we can compute the error between the previous visual value
 /// [`PreviousVisual<C>`] and the new visual value.
@@ -188,7 +188,7 @@ impl Default for CorrectionPolicy {
 impl CorrectionPolicy {
     /// Returns the lerp constant to use for exponentially decaying the error in a framestep-insensitive way
     ///
-    /// See: https://www.youtube.com/watch?v=LSNQuFEDOyQ
+    /// See: <https://www.youtube.com/watch?v=LSNQuFEDOyQ>
     #[inline]
     pub fn lerp_ratio(&self, delta: core::time::Duration) -> f32 {
         let dt = delta.as_secs_f32();

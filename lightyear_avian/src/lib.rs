@@ -23,11 +23,11 @@ mod sync;
 #[cfg(feature = "3d")]
 pub mod types_3d;
 
-#[cfg(any(feature = "2d", feature = "3d"))]
-mod plugin;
-
 #[cfg(feature = "3d")]
 pub use types_3d as types;
+
+#[cfg(any(feature = "2d", feature = "3d"))]
+pub mod plugin;
 
 /// Commonly used items for Lightyear Avian integration.
 pub mod prelude {

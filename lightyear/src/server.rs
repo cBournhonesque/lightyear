@@ -48,6 +48,10 @@ impl PluginGroup for ServerPlugins {
             tick_duration: self.tick_duration,
         });
 
+        #[cfg(feature = "deterministic")]
+        let builder =
+            builder.add(lightyear_deterministic_replication::prelude::ChecksumReceivePlugin);
+
         let builder = builder.add(lightyear_connection::host::HostPlugin);
 
         #[cfg(feature = "replication")]

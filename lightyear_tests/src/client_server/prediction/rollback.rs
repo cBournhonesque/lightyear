@@ -16,7 +16,7 @@ use lightyear_connection::prelude::NetworkTarget;
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
-use lightyear_prediction::manager::RollbackMode;
+use lightyear_prediction::manager::{LastConfirmedInput, RollbackMode};
 use lightyear_prediction::prelude::{PredictionManager, RollbackSet};
 use lightyear_prediction::rollback::DeterministicPredicted;
 use lightyear_replication::components::Confirmed;
@@ -618,6 +618,12 @@ fn setup_stepper_for_input_rollback(
     mode: RollbackMode,
 ) -> (ClientServerStepper, Entity, Entity, Entity, Entity) {
     let mut stepper = ClientServerStepper::with_clients(3);
+
+    let mut client_mut = stepper.client_mut(0);
+    let mut prediction_manager = client_mut.get_mut::<PredictionManager>().unwrap();
+    prediction_manager.rollback_policy.input = mode;
+    prediction_manager.rollback_policy.state = RollbackMode::Disabled;
+
     let server_entity_1 = stepper
         .server_app
         .world_mut()
@@ -634,13 +640,9 @@ fn setup_stepper_for_input_rollback(
         .id();
     stepper.frame_step_server_first(1);
 
-    let mut client_mut = stepper.client_mut(0);
-    let mut prediction_manager = client_mut.get_mut::<PredictionManager>().unwrap();
-    prediction_manager.rollback_policy.input = mode;
-    prediction_manager.rollback_policy.state = RollbackMode::Disabled;
-
     // Check that in PostUpdate, the LastConfirmedInput is reset if no input messages were received
-    assert!(!prediction_manager.last_confirmed_input.received_input());
+    let client = stepper.client(0);
+    assert!(!client.get::<LastConfirmedInput>().unwrap().received_input());
 
     // add input-markers on client 1/2 so that they can send remote input messages
     let client_entity_1 = stepper
@@ -691,6 +693,9 @@ fn setup_stepper_for_input_rollback(
         .entity_mut(client_entity_b)
         .insert(DeterministicPredicted);
 
+    // build a steady state where we have already received an input
+    stepper.frame_step(2);
+
     (
         stepper,
         client_entity_1,
@@ -714,17 +719,18 @@ fn test_input_rollback_always_mode() {
 
     info!("Will check rollback at tick: {input_tick:?}");
 
-    let check_rollback_start = move |manager: Single<(&LocalTimeline, &PredictionManager)>| {
-        let (timeline, manager) = manager.into_inner();
-        let tick = timeline.tick();
-        if tick == input_tick {
-            assert!(manager.last_confirmed_input.received_input());
-            let rollback_start = manager.get_rollback_start_tick();
-            // We receive the input message for tick `input_tick`, but we rollback at the previous LastConfirmedInput tick,
-            // which is `input_tick - 1`
-            assert_eq!(rollback_start.unwrap(), input_tick - 1,);
-        }
-    };
+    let check_rollback_start =
+        move |manager: Single<(&LocalTimeline, &LastConfirmedInput, &PredictionManager)>| {
+            let (timeline, last_confirmed_input, manager) = manager.into_inner();
+            let tick = timeline.tick();
+            if tick == input_tick {
+                assert!(last_confirmed_input.received_input());
+                let rollback_start = manager.get_rollback_start_tick();
+                // We receive the input message for tick `input_tick`, but we rollback at the previous LastConfirmedInput tick,
+                // which is `input_tick - 1`
+                assert_eq!(rollback_start.unwrap(), input_tick - 1,);
+            }
+        };
     stepper.client_apps[0].add_systems(
         PreUpdate,
         check_rollback_start
@@ -739,9 +745,8 @@ fn test_input_rollback_always_mode() {
     assert_eq!(
         stepper
             .client(0)
-            .get::<PredictionManager>()
+            .get::<LastConfirmedInput>()
             .unwrap()
-            .last_confirmed_input
             .tick
             .get(),
         input_tick
@@ -753,9 +758,6 @@ fn test_input_rollback_always_mode() {
 fn test_last_confirmed_input_multiple_clients() {
     let (mut stepper, client_entity_1, _, _, _) =
         setup_stepper_for_input_rollback(RollbackMode::Always);
-
-    // build a steady state where we have already received an input
-    stepper.frame_step(2);
 
     // only client 2 will send an input message to the server
     stepper.client_apps[1]
@@ -773,9 +775,8 @@ fn test_last_confirmed_input_multiple_clients() {
     assert_eq!(
         stepper
             .client(0)
-            .get::<PredictionManager>()
+            .get::<LastConfirmedInput>()
             .unwrap()
-            .last_confirmed_input
             .tick
             .get(),
         input_tick - 1

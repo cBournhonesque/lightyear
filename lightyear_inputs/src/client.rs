@@ -74,6 +74,7 @@ use lightyear_interpolation::prelude::*;
 use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
+use lightyear_prediction::manager::LastConfirmedInput;
 #[cfg(feature = "prediction")]
 use lightyear_prediction::prelude::*;
 use lightyear_prediction::rollback::DeterministicPredicted;
@@ -112,6 +113,9 @@ pub enum InputSet {
     RestoreInputs,
 
     // POST UPDATE
+    /// Update the metadata where we store information about remote inputs that we received, for instance
+    /// the [`LastConfirmedInput`] across all remote clients
+    UpdateRemoteInputTicks,
     /// System Set to prepare the input message
     SendInputMessage,
     /// Clean up old values to prevent the buffers from growing indefinitely
@@ -201,7 +205,14 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
                 PreUpdate,
                 receive_remote_player_input_messages::<S>.in_set(InputSet::ReceiveInputMessages),
             );
-            app.add_systems(PostUpdate, update_remote_ticks::<S>.after(SyncSet::Sync));
+            app.configure_sets(
+                PostUpdate,
+                InputSet::UpdateRemoteInputTicks.after(SyncSet::Sync),
+            );
+            app.add_systems(
+                PostUpdate,
+                update_last_confirmed_input::<S>.in_set(InputSet::UpdateRemoteInputTicks),
+            );
         }
         app.add_systems(
             FixedPreUpdate,
@@ -557,6 +568,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         (
             &MessageManager,
             &mut MessageReceiver<InputMessage<S>>,
+            Option<&LastConfirmedInput>,
             &PredictionManager,
             &LocalTimeline,
         ),
@@ -573,7 +585,8 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         ),
     >,
 ) {
-    let (manager, mut receiver, prediction_manager, timeline) = link.into_inner();
+    let (manager, mut receiver, last_confirmed_input, prediction_manager, timeline) =
+        link.into_inner();
     let tick = timeline.tick();
     let has_messages = receiver.has_messages();
     receiver.receive().for_each(|message| {
@@ -647,26 +660,23 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         }
     });
 
-    if let RollbackMode::Always = prediction_manager.rollback_policy.input
+    if let Some(last_confirmed_input) = last_confirmed_input
         && has_messages
     {
-        prediction_manager
-            .last_confirmed_input
+        last_confirmed_input
             .received_any_messages
             .store(true, bevy_platform::sync::atomic::Ordering::Relaxed);
     }
 }
 
 #[cfg(feature = "prediction")]
-/// 1. Update the LastConfirmedInput tick by looking at latest tick buffered in each InputBuffer.
+/// Update the LastConfirmedInput tick by looking at latest tick buffered in each InputBuffer.
 ///
 /// This runs in PostUpdate, and not in PreUpdate, because we want the rollback to use the previous LastConfirmedInput tick.
 /// For example if the last confirmed input was at tick 10, and we received an InputMessage with end_tick 14, we want to rollback to tick 10
 /// (and not to tick 14) because we need to potentially re-apply inputs for ticks 11, 12, 13, 14.
-///
-/// 2. Reset the EarliestMismatchInput
-fn update_remote_ticks<S: ActionStateSequence>(
-    client: Single<&PredictionManager, With<Client>>,
+fn update_last_confirmed_input<S: ActionStateSequence>(
+    last_confirmed_input: Single<&LastConfirmedInput, With<Client>>,
     predicted_query: Query<
         &InputBuffer<S::Snapshot>,
         (
@@ -675,27 +685,21 @@ fn update_remote_ticks<S: ActionStateSequence>(
         ),
     >,
 ) {
-    let prediction_manager = client.into_inner();
-    if let RollbackMode::Always = prediction_manager.rollback_policy.input {
-        // TODO: how to handle multiple actions S?
-        // find the earliest last_confirmed_tick for each client
-        // (we replaced LastConfirmedInput with a high tick to avoid any tick-wrapping issues)
-        predicted_query.iter().for_each(|buffer| {
-            // if we received any messages, we update the LastConfirmedInput
-            // (this is used to determine the last confirmed tick for each client)
-            if let Some(end_tick) = buffer.end_tick() {
-                prediction_manager
-                    .last_confirmed_input
-                    .tick
-                    .set_if_lower(end_tick);
-            }
-        });
-        debug!(
-            kind = ?core::any::type_name::<S::Action>(),
-            "Updated LastConfirmedTick to tick {:?}",
-            prediction_manager.last_confirmed_input.tick.get()
-        );
-    }
+    // TODO: how to handle multiple actions S?
+    // find the earliest last_confirmed_tick for each client
+    // (we replaced LastConfirmedInput in  with a high tick to avoid any tick-wrapping issues)
+    predicted_query.iter().for_each(|buffer| {
+        // if we received any messages, we update the LastConfirmedInput
+        // (this is used to determine the last confirmed tick for each client)
+        if let Some(end_tick) = buffer.end_tick() {
+            last_confirmed_input.tick.set_if_lower(end_tick);
+        }
+    });
+    debug!(
+        kind = ?core::any::type_name::<S::Action>(),
+        "Updated LastConfirmedTick to tick {:?}",
+        last_confirmed_input.tick.get()
+    );
 }
 
 #[cfg(feature = "prediction")]

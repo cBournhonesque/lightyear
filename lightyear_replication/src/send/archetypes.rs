@@ -79,7 +79,11 @@ impl ReplicatedArchetypes {
                 // if the component has a type_id (i.e. is a rust type)
                 if let Some(kind) = info.type_id().map(ComponentKind) {
                     // the component is not registered for replication in the ComponentProtocol
-                    let Some(replication_metadata) = registry.replication_map.get(&kind) else {
+                    let Some(replication_metadata) = registry
+                        .component_metadata_map
+                        .get(&kind)
+                        .and_then(|m| m.replication.as_ref())
+                    else {
                         trace!(
                             "not including {:?} because it is not registered for replication",
                             info.name()

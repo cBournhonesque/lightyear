@@ -12,8 +12,6 @@ repository = "https://github.com/cBournhonesque/lightyear"
 default = []
 
 [dependencies]
-lightyear_serde.workspace = true
-
 # utils
 hashbrown.workspace = true
 paste.workspace = true

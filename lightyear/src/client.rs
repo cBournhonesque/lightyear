@@ -27,6 +27,9 @@ impl PluginGroup for ClientPlugins {
             tick_duration: self.tick_duration,
         });
 
+        #[cfg(feature = "deterministic")]
+        let builder = builder.add(lightyear_deterministic_replication::prelude::ChecksumSendPlugin);
+
         #[cfg(feature = "prediction")]
         let builder = builder.add(lightyear_prediction::plugin::PredictionPlugin);
 

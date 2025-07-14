@@ -3,6 +3,9 @@ use avian3d::math::Scalar;
 use avian3d::prelude::*;
 use tracing::trace;
 
+#[cfg(feature = "deterministic")]
+use core::hash::Hasher;
+
 pub mod position {
     use super::*;
 
@@ -15,14 +18,31 @@ pub mod position {
         );
         res
     }
+
+    #[cfg(feature = "deterministic")]
+    pub fn hash(pos: &Position, hasher: &mut seahash::SeaHasher) {
+        hasher.write_u32(pos.x.to_bits());
+        hasher.write_u32(pos.y.to_bits());
+        hasher.write_u32(pos.z.to_bits());
+    }
 }
 
 pub mod rotation {
     use super::*;
+
     /// We want to smoothly interpolate between the two quaternions by default,
     /// rather than using a quicker but less correct linear interpolation.
     pub fn lerp(start: &Rotation, other: &Rotation, t: f32) -> Rotation {
         start.slerp(*other, Scalar::from(t))
+    }
+
+    #[cfg(feature = "deterministic")]
+    pub fn hash(rot: &Rotation, hasher: &mut seahash::SeaHasher) {
+        let [x, y, z, w] = rot.to_array();
+        hasher.write_u32(x.to_bits());
+        hasher.write_u32(y.to_bits());
+        hasher.write_u32(z.to_bits());
+        hasher.write_u32(w.to_bits());
     }
 }
 

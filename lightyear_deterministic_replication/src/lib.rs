@@ -12,8 +12,22 @@
 extern crate alloc;
 extern crate core;
 
+use bevy_ecs::component::Component;
+
+mod archetypes;
+mod checksum;
 /// Messages exchanged betwen client and server
 pub mod messages;
+mod plugin;
 
 /// Commonly used items from the `lightyear_core` crate.
-pub mod prelude {}
+pub mod prelude {
+    pub use crate::checksum::{
+        ChecksumHistory, ChecksumMessage, ChecksumReceivePlugin, ChecksumSendPlugin,
+    };
+    pub use crate::plugin::DeterministicReplicationPlugin;
+}
+
+/// Marker component that indicates that this entity is deterministic. It is not updated via state, but only via inputs.
+#[derive(Component, Default)]
+pub struct Deterministic;
