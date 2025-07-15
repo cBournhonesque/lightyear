@@ -69,6 +69,8 @@ impl ChecksumSendPlugin {
                 //     trace!("Adding entity {:?} (mapped to remote entity {:?}) to checksum for tick {:?}", entity.id(), mapped_entity, tick);
                 //     // hasher.write_u64(mapped_entity.to_bits());
                 // }
+                // TODO: in deterministic lockstep mode, we need to fetch directly from the component! There is no
+                //  prediction-history and the LastConfirmedTick is always the current tick.
                 checksum_archetype.components.iter().for_each(|(component_id, storage_type)| {
                     trace!("Adding component {:?} from entity {:?} to checksum for tick {:?}",
                         component_id, entity.id(), tick);

@@ -115,6 +115,12 @@ pub struct SyncConfig {
     pub speedup_factor: f32,
 }
 
+impl SyncConfig {
+    pub(crate) fn jitter_margin(&self, jitter: Duration) -> Duration {
+        jitter * self.jitter_multiple as u32 + self.jitter_margin
+    }
+}
+
 impl Default for SyncConfig {
     fn default() -> Self {
         SyncConfig {

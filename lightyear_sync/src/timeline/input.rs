@@ -14,7 +14,7 @@ use lightyear_core::prelude::Rollback;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineContext};
-use lightyear_link::{Link, Linked};
+use lightyear_link::{Link, LinkStats, Linked};
 use tracing::trace;
 
 /// Timeline that is used to make sure that Inputs from this peer will arrive on time
@@ -56,6 +56,13 @@ impl Input {
         self.input_delay_ticks
     }
 
+    /// Returns the true if the timeline is configured for deterministic lockstep mode,
+    /// where all the latency is covered by input delay, and no prediction is done.
+    #[inline]
+    pub fn is_lockstep(&self) -> bool {
+        self.input_delay_config.is_lockstep()
+    }
+
     /// Update the input delay based on the current RTT and tick duration
     /// when there is a SyncEvent
     pub(crate) fn recompute_input_delay(
@@ -64,10 +71,11 @@ impl Input {
         mut query: Query<(&Link, &mut InputTimeline)>,
     ) {
         if let Ok((link, mut timeline)) = query.get_mut(trigger.target()) {
-            let rtt = link.stats.rtt;
-            timeline.input_delay_ticks = timeline
-                .input_delay_config
-                .input_delay_ticks(rtt, tick_duration.0);
+            timeline.input_delay_ticks = timeline.input_delay_config.input_delay_ticks(
+                link.stats,
+                &timeline.config,
+                tick_duration.0,
+            );
             trace!(
                 "Recomputing input delay on sync event! Input delay ticks: {}",
                 timeline.input_delay_ticks
@@ -84,10 +92,11 @@ impl Input {
         mut query: Query<(&Link, &mut InputTimeline), Changed<InputTimeline>>,
     ) {
         query.iter_mut().for_each(|(link, mut timeline)| {
-            let rtt = link.stats.rtt;
-            timeline.input_delay_ticks = timeline
-                .input_delay_config
-                .input_delay_ticks(rtt, tick_duration.0);
+            timeline.input_delay_ticks = timeline.input_delay_config.input_delay_ticks(
+                link.stats,
+                &timeline.config,
+                tick_duration.0,
+            );
             trace!(
                 "Recomputing input delay on config update! Input delay ticks: {}. Config: {:?}",
                 timeline.input_delay_ticks, timeline.input_delay_config
@@ -164,6 +173,13 @@ impl InputDelayConfig {
         }
     }
 
+    /// Returns true if we are running in deterministic lockstep mode,
+    /// meaning that all the latency is covered by input delay, and no prediction is done
+    #[inline]
+    pub fn is_lockstep(&self) -> bool {
+        self.maximum_predicted_ticks == 0
+    }
+
     /// All the latency will be covered by adding input-delay
     pub fn no_prediction() -> Self {
         Self {
@@ -182,12 +198,26 @@ impl InputDelayConfig {
     }
 
     /// Compute the amount of input delay that should be applied, considering the current RTT
-    fn input_delay_ticks(&self, rtt: Duration, tick_interval: Duration) -> u16 {
+    fn input_delay_ticks(
+        &self,
+        link_stats: LinkStats,
+        sync_config: &SyncConfig,
+        tick_interval: Duration,
+    ) -> u16 {
+        let jitter_margin = sync_config.jitter_margin(link_stats.jitter);
+        let effective_rtt = link_stats.rtt + jitter_margin;
         assert!(
             self.minimum_input_delay_ticks <= self.maximum_input_delay_before_prediction,
             "The minimum amount of input_delay should be lower than the maximum_input_delay_before_prediction"
         );
-        let rtt_ticks = (rtt.as_nanos() as f32 / tick_interval.as_nanos() as f32).ceil() as u16;
+        let mut rtt_ticks =
+            (effective_rtt.as_nanos() as f32 / tick_interval.as_nanos() as f32).ceil() as u16;
+
+        // if we're in lockstep mode, we will take extra margin
+        if self.is_lockstep() {
+            // TODO: make this configurable!
+            rtt_ticks += 2;
+        }
         // if the rtt is lower than the minimum input delay, we will apply the minimum input delay
         if rtt_ticks <= self.minimum_input_delay_ticks {
             return self.minimum_input_delay_ticks;
@@ -245,8 +275,7 @@ impl SyncedTimeline for InputTimeline {
         let remote = remote.current_estimate();
         let network_delay = TickDelta::from_duration(ping_manager.rtt() / 2, tick_duration);
         let jitter_margin = TickDelta::from_duration(
-            ping_manager.jitter() * self.context.config.jitter_multiple as u32
-                + self.context.config.jitter_margin,
+            self.context.config.jitter_margin(ping_manager.jitter()),
             tick_duration,
         );
         let input_delay: TickDelta = Tick(self.context.input_delay_ticks).into();
@@ -352,6 +381,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_input_delay_config() {
+        let sync_config = SyncConfig::default();
         let config_1 = InputDelayConfig {
             minimum_input_delay_ticks: 2,
             maximum_input_delay_before_prediction: 3,
@@ -359,23 +389,51 @@ mod tests {
         };
         // 1. Test the minimum input delay
         assert_eq!(
-            config_1.input_delay_ticks(Duration::from_millis(10), Duration::from_millis(16)),
+            config_1.input_delay_ticks(
+                LinkStats {
+                    rtt: Duration::from_millis(10),
+                    ..default()
+                },
+                &sync_config,
+                Duration::from_millis(16)
+            ),
             2
         );
 
         // 2. Test the maximum input delay before prediction
         assert_eq!(
-            config_1.input_delay_ticks(Duration::from_millis(60), Duration::from_millis(16)),
+            config_1.input_delay_ticks(
+                LinkStats {
+                    rtt: Duration::from_millis(60),
+                    ..default()
+                },
+                &sync_config,
+                Duration::from_millis(16)
+            ),
             3
         );
 
         // 3. Test the maximum predicted delay
         assert_eq!(
-            config_1.input_delay_ticks(Duration::from_millis(200), Duration::from_millis(16)),
+            config_1.input_delay_ticks(
+                LinkStats {
+                    rtt: Duration::from_millis(200),
+                    ..default()
+                },
+                &sync_config,
+                Duration::from_millis(16)
+            ),
             6
         );
         assert_eq!(
-            config_1.input_delay_ticks(Duration::from_millis(300), Duration::from_millis(16)),
+            config_1.input_delay_ticks(
+                LinkStats {
+                    rtt: Duration::from_millis(300),
+                    ..default()
+                },
+                &sync_config,
+                Duration::from_millis(16)
+            ),
             12
         );
     }

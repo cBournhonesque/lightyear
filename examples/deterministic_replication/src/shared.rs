@@ -239,7 +239,6 @@ pub(crate) fn fixed_last_log(
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
             Option<&InputBuffer<ActionState<PlayerActions>>>,
-            Option<&PredictionHistory<Position>>,
         ),
         (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
     >,
@@ -252,9 +251,7 @@ pub(crate) fn fixed_last_log(
     let tick = timeline.tick();
     // info!(?tick, "contact graph: {:#?}", contact_graph);
 
-    for (entity, position, velocity, correction, action_state, input_buffer, history) in
-        players.iter()
-    {
+    for (entity, position, velocity, correction, action_state, input_buffer) in players.iter() {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         info!(
@@ -266,7 +263,6 @@ pub(crate) fn fixed_last_log(
             ?correction,
             ?pressed,
             ?last_buffer_tick,
-            ?history,
             "Player after physics update"
         );
     }

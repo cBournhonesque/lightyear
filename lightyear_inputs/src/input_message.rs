@@ -113,7 +113,9 @@ pub trait ActionStateSequence:
                         }
                     }
                     // set the new value for the mismatch tick
-                    debug!("Mismatch detected at tick {tick:?} for input {input:?}");
+                    debug!(
+                        "Mismatch detected at tick {tick:?} for new_input {input:?}. Previous predicted input: {previous_predicted_input:?}"
+                    );
                     input_buffer.set_raw(tick, input);
                     earliest_mismatch = Some(tick);
                 }

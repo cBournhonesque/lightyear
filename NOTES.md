@@ -1,5 +1,7 @@
 # Current bugs:
 
+- with input-delay, we receive remote inputs at a different tick than when the client sent them!
+
 - Something causes a full redraw of gizmos on rollbacks! What?
 
 - Maybe my problem is that I don't recompute the VisualInterpolation previous value

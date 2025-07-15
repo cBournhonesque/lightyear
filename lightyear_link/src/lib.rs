@@ -179,7 +179,7 @@ impl Link {
 }
 
 /// Stores statistics about a `Link`, such as bytes/packets sent and received, RTT, and jitter.
-#[derive(Default)]
+#[derive(Default, Debug, Clone, Copy)]
 pub struct LinkStats {
     pub rtt: Duration,
     pub jitter: Duration,
