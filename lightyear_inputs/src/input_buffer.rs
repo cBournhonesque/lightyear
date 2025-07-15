@@ -229,7 +229,8 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
         self.buffer.get((tick - start_tick) as usize).unwrap()
     }
 
-    /// Get the `ActionState` for the given tick
+    /// Get the `ActionState` for the given tick. This does not apply prediction:
+    /// - if the tick is outside the range of the buffer, it returns None
     pub fn get(&self, tick: Tick) -> Option<&T> {
         let start_tick = self.start_tick?;
         if self.buffer.is_empty() {
@@ -237,6 +238,31 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
         }
         if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
             return None;
+        }
+        let data = self.buffer.get((tick - start_tick) as usize).unwrap();
+        match data {
+            InputData::Absent => None,
+            InputData::SameAsPrecedent => {
+                // get the data from the preceding tick
+                self.get(tick - 1)
+            }
+            InputData::Input(data) => Some(data),
+        }
+    }
+
+    /// Get the `ActionState` for the given tick.
+    /// This applies prediction:
+    /// - if the tick is outside the range of the buffer, we return the last known ActionState (if any)
+    pub fn get_predict(&self, tick: Tick) -> Option<&T> {
+        let start_tick = self.start_tick?;
+        if self.buffer.is_empty() {
+            return None;
+        }
+        if tick < start_tick {
+            return None;
+        }
+        if tick > start_tick + (self.buffer.len() as i16 - 1) {
+            return self.get_last();
         }
         let data = self.buffer.get((tick - start_tick) as usize).unwrap();
         match data {
