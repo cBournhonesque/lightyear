@@ -11,6 +11,7 @@ use alloc::format;
 use chacha20poly1305::{AeadCore, XChaCha20Poly1305, XNonce, aead::OsRng};
 use core::mem::size_of;
 use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use lightyear_connection::client::Connected;
 use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_utils::free_list::{FreeList, FreeListIter};
@@ -317,6 +318,13 @@ pub struct ConnectToken {
     pub(crate) server_to_client_key: Key,
 }
 
+impl ConnectToken {
+    /// The timestamp when the token expires, in seconds since the unix epoch.
+    pub fn expire_timestamp(&self) -> u64 {
+        self.expire_timestamp
+    }
+}
+
 /// A builder that can be used to generate a connect token.
 pub struct ConnectTokenBuilder<A: utils::ToSocketAddrs> {
     protocol_id: u64,
@@ -342,6 +350,7 @@ impl<A: utils::ToSocketAddrs> ConnectTokenBuilder<A> {
             user_data: [0; USER_DATA_BYTES],
         }
     }
+
     /// Sets the time in seconds that the token will be valid for.
     ///
     /// Negative values will disable expiry.
