@@ -97,31 +97,4 @@ impl Plugin for SharedPlugin {
         app.add_trigger_to_bytes::<SenderMetadata>()
             .add_direction(NetworkDirection::Bidirectional);
     }
-
-    fn finish(&self, app: &mut App) {
-        // PROTOCOL
-        // we register components here because
-        // - we need to run this in `finish` so that all plugins have been built (so ClientPlugin and ServerPlugin
-        // both exists)
-        // - the replication::SharedPlugin should only be added once, even when running in host-server mode
-        // app.register_component::<PreSpawned>(ChannelDirection::Bidirectional);
-        // app.register_component::<PrePredicted>(ChannelDirection::Bidirectional);
-
-        // TODO: add direction?
-
-        // app.register_component::<RelationshipSync<ChildOf>>(ChannelDirection::Bidirectional)
-        //     // to replicate ReplicationSync on the predicted/interpolated entities so that they spawn their own hierarchies
-        //     .add_prediction(ComponentSyncMode::Simple)
-        //     .add_interpolation(ComponentSyncMode::Simple)
-        //     .add_map_entities();
-        // app.register_component::<Controlled>(ChannelDirection::ServerToClient)
-        //     .add_prediction(ComponentSyncMode::Once)
-        //     .add_interpolation(ComponentSyncMode::Once);
-        //
-        // app.register_message::<AuthorityChange>(ChannelDirection::ServerToClient)
-        //     .add_map_entities();
-        //
-        // // check that the protocol was built correctly
-        // app.world().resource::<ComponentRegistry>().check();
-    }
 }

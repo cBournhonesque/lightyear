@@ -11,7 +11,7 @@ use bevy_ecs::{
     world::{Mut, World},
 };
 use bevy_platform::collections::HashMap;
-use bevy_ptr::Ptr;
+use bevy_ptr::{Ptr, PtrMut};
 use bevy_reflect::TypePath;
 use bevy_transform::components::Transform;
 use lightyear_core::network::NetId;
@@ -207,9 +207,7 @@ fn mapped_context_serialize<M: MapEntities + Clone>(
     message: &M,
     writer: &mut Writer,
     serialize_fn: SerializeFn<M>,
-) -> core::result::Result<(), SerializationError> {
-    // TODO: this is actually UB, we can never have 2 aliasing &mut
-    // SAFETY: we know that the entity mapper is not actually being mutated
+) -> Result<(), SerializationError> {
     let mut message = message.clone();
     message.map_entities(mapper);
     serialize_fn(&message, writer)
@@ -219,9 +217,37 @@ fn mapped_context_deserialize<M: MapEntities>(
     mapper: &mut ReceiveEntityMap,
     reader: &mut Reader,
     deserialize_fn: DeserializeFn<M>,
-) -> core::result::Result<M, SerializationError> {
+) -> Result<M, SerializationError> {
     let mut message = deserialize_fn(reader)?;
     message.map_entities(mapper);
+    Ok(message)
+}
+
+fn component_map_entities<'a, M: Component>(component: PtrMut<'a>, mapper: &mut EntityMap) {
+    // SAFETY: the caller must ensure that the PtrMut corresponds to type M
+    let component = unsafe { component.deref_mut::<M>() };
+    Component::map_entities(component, mapper);
+}
+
+/// Serialize using the Component's `MapEntities` implementation to map entities before serializing
+fn component_mapped_context_serialize<M: Component + Clone>(
+    mapper: &mut SendEntityMap,
+    message: &M,
+    writer: &mut Writer,
+    serialize_fn: SerializeFn<M>,
+) -> Result<(), SerializationError> {
+    let mut message = message.clone();
+    Component::map_entities(&mut message, mapper);
+    serialize_fn(&message, writer)
+}
+
+fn component_mapped_context_deserialize<M: Component>(
+    mapper: &mut ReceiveEntityMap,
+    reader: &mut Reader,
+    deserialize_fn: DeserializeFn<M>,
+) -> Result<M, SerializationError> {
+    let mut message = deserialize_fn(reader)?;
+    Component::map_entities(&mut message, mapper);
     Ok(message)
 }
 
@@ -252,6 +278,28 @@ impl ComponentRegistry {
             mapped_context_serialize::<C>;
         let context_deserialize: ContextDeserializeFn<ReceiveEntityMap, C, C> =
             mapped_context_deserialize::<C>;
+        erased_fns.context_serialize = unsafe { core::mem::transmute(context_serialize) };
+        erased_fns.context_deserialize = unsafe { core::mem::transmute(context_deserialize) };
+    }
+
+    // Function for advanced users that is equivalent to `add_map_entities` but uses the Component::map_entities function
+    pub(crate) fn add_component_map_entities<C: Clone + Component + 'static>(&mut self) {
+        let kind = ComponentKind::of::<C>();
+        let metadata = self
+            .component_metadata_map
+            .get_mut(&kind)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Component {} is not part of the protocol",
+                    core::any::type_name::<C>()
+                )
+            });
+        let erased_fns = metadata.serialization.as_mut().unwrap();
+        erased_fns.add_map_entities_with::<C>(component_map_entities::<C>);
+        let context_serialize: ContextSerializeFn<SendEntityMap, C, C> =
+            component_mapped_context_serialize::<C>;
+        let context_deserialize: ContextDeserializeFn<ReceiveEntityMap, C, C> =
+            component_mapped_context_deserialize::<C>;
         erased_fns.context_serialize = unsafe { core::mem::transmute(context_serialize) };
         erased_fns.context_deserialize = unsafe { core::mem::transmute(context_deserialize) };
     }
@@ -430,13 +478,23 @@ impl<C> ComponentRegistration<'_, C> {
     }
 
     /// Specify that the component contains entities which should be mapped from the remote world to the local world
-    /// upon deserialization
+    /// upon deserialization using the component's [`MapEntities`] implementation.
     pub fn add_map_entities(self) -> Self
     where
         C: Clone + MapEntities + 'static,
     {
         let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
         registry.add_map_entities::<C>();
+        self
+    }
+
+    /// Similar to `add_map_entities`, but uses the `Component::map_entities` function instead of `MapEntities::map_entities`
+    pub fn add_component_map_entities(self) -> Self
+    where
+        C: Clone + Component + 'static,
+    {
+        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
+        registry.add_component_map_entities::<C>();
         self
     }
 

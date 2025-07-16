@@ -20,11 +20,12 @@
 //! # use bevy_reflect::Reflect;
 //! use lightyear_inputs_native::prelude::*;
 //!
-//! #[derive(Serialize, Deserialize, Clone, PartialEq, Reflect, Debug)]
+//! #[derive(Serialize, Deserialize, Clone, PartialEq, Reflect, Debug, Default)]
 //! pub enum MyInput {
 //!     Move { x: f32, y: f32 },
 //!     Jump,
 //!     // we need a variant for "no input", to differentiate between "no input" and "missing input packet"
+//!     #[default]
 //!     None,
 //! }
 //!

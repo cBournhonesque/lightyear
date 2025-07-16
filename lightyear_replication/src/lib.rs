@@ -54,8 +54,7 @@ pub mod prelude {
     pub use crate::control::{Controlled, ControlledBy, ControlledByRemote, Lifetime};
     pub use crate::delta::{DeltaManager, Diffable};
     pub use crate::hierarchy::{
-        ChildOfSync, DisableReplicateHierarchy, HierarchySendPlugin, RelationshipReceivePlugin,
-        RelationshipSendPlugin, RelationshipSync, ReplicateLike, ReplicateLikeChildren,
+        DisableReplicateHierarchy, HierarchySendPlugin, ReplicateLike, ReplicateLikeChildren,
     };
     pub use crate::message::*;
     pub use crate::plugin::ReplicationSet;

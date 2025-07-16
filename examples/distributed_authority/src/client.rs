@@ -77,15 +77,13 @@ pub(crate) fn buffer_input(
         if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
             direction.right = true;
         }
-        action_state.value = Some(Inputs::Direction(direction));
+        action_state.0 = Inputs::Direction(direction);
     });
 }
 
 fn player_movement(mut position_query: Query<(&mut Position, &ActionState<Inputs>)>) {
     for (position, input) in position_query.iter_mut() {
-        if let Some(inputs) = &input.value {
-            shared::shared_movement_behaviour(position, inputs);
-        }
+        shared::shared_movement_behaviour(position, input);
     }
 }
 

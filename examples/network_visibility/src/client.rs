@@ -45,7 +45,7 @@ pub(crate) fn buffer_input(
         if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
             direction.right = true;
         }
-        action_state.value = Some(direction);
+        action_state.0 = direction;
     }
 }
 
@@ -54,9 +54,7 @@ pub(crate) fn movement(
     mut position_query: Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>,
 ) {
     for (position, input) in position_query.iter_mut() {
-        if let Some(input) = &input.value {
-            shared_movement_behaviour(position, input);
-        }
+        shared_movement_behaviour(position, input);
     }
 }
 

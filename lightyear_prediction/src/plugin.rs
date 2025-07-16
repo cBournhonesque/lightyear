@@ -1,5 +1,5 @@
 use super::pre_prediction::PrePredictionPlugin;
-use super::predicted_history::apply_confirmed_update;
+use super::predicted_history::{apply_confirmed_update, apply_immutable_confirmed_update};
 use super::resource_history::{
     ResourceHistory, handle_tick_event_resource_history, update_resource_history,
 };
@@ -21,6 +21,7 @@ use crate::{
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::{App, FixedPostUpdate, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::component::Component;
 use bevy_ecs::{
     entity_disabling::DefaultQueryFilters,
     query::{With, Without},
@@ -114,7 +115,27 @@ pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
     );
 }
 
-pub fn add_prediction_systems<C: SyncComponent>(app: &mut App, prediction_mode: PredictionMode) {
+/// Add prediction systems for modes Once and Simple, which does not require Mutability
+pub(crate) fn add_immutable_prediction_systems<C: Component + Clone>(
+    app: &mut App,
+    prediction_mode: PredictionMode,
+) {
+    if prediction_mode == PredictionMode::Simple {
+        app.add_observer(apply_component_removal_confirmed::<C>);
+        app.add_systems(
+            PreUpdate,
+            (
+                // for SyncMode::Simple, just copy the confirmed components
+                apply_immutable_confirmed_update::<C>.in_set(PredictionSet::Sync),
+            ),
+        );
+    }
+}
+
+pub(crate) fn add_prediction_systems<C: SyncComponent>(
+    app: &mut App,
+    prediction_mode: PredictionMode,
+) {
     match prediction_mode {
         PredictionMode::Full => {
             #[cfg(feature = "metrics")]

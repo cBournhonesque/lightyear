@@ -1,5 +1,6 @@
 use super::interpolation_history::{
-    add_component_history, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,
+    add_component_history, apply_confirmed_update_immutable_mode_simple,
+    apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,
 };
 use crate::despawn::{despawn_interpolated, removed_components};
 use crate::interpolate::{insert_interpolated_component, interpolate, update_interpolate_status};
@@ -12,6 +13,7 @@ use crate::{
     interpolated_on_remove_hook,
 };
 use bevy_app::{App, Plugin, Update};
+use bevy_ecs::hierarchy::ChildOf;
 use bevy_ecs::{
     component::Component,
     schedule::{IntoScheduleConfigs, SystemSet},
@@ -22,7 +24,7 @@ use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::Tick;
 use lightyear_core::time::PositiveTickDelta;
 use lightyear_replication::control::Controlled;
-use lightyear_replication::prelude::{AppComponentExt, ChildOfSync};
+use lightyear_replication::prelude::AppComponentExt;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -145,8 +147,34 @@ pub enum InterpolationSet {
     All,
 }
 
+/// Add per-component systems related to interpolation for immutable components
+pub(crate) fn add_immutable_prepare_interpolation_systems<C: Component + Clone>(
+    app: &mut App,
+    interpolation_mode: InterpolationMode,
+) {
+    // TODO: maybe run this in PostUpdate?
+    // TODO: maybe create an overarching prediction set that contains all others?
+    app.add_systems(
+        Update,
+        add_component_history::<C>.in_set(InterpolationSet::SpawnHistory),
+    );
+    app.add_observer(removed_components::<C>);
+    match interpolation_mode {
+        InterpolationMode::Full => {
+            panic!("Full interpolation mode is not supported for immutable components");
+        }
+        InterpolationMode::Simple => {
+            app.add_systems(
+                Update,
+                apply_confirmed_update_immutable_mode_simple::<C>.in_set(InterpolationSet::Prepare),
+            );
+        }
+        _ => {}
+    }
+}
+
 /// Add per-component systems related to interpolation
-pub fn add_prepare_interpolation_systems<C: SyncComponent>(
+pub(crate) fn add_prepare_interpolation_systems<C: SyncComponent>(
     app: &mut App,
     interpolation_mode: InterpolationMode,
 ) {
@@ -201,8 +229,8 @@ impl Plugin for InterpolationPlugin {
         // PROTOCOL
         app.register_component::<Controlled>()
             .add_interpolation(InterpolationMode::Once);
-        app.register_component::<ChildOfSync>()
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<ChildOf>()
+            .add_immutable_interpolation(InterpolationMode::Once);
 
         // HOOKS
         // TODO: add tests for these!

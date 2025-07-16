@@ -9,10 +9,7 @@ use bevy_ecs::{
     component::{Component, HookContext, Mutable},
     world::DeferredWorld,
 };
-pub use interpolate::InterpolateStatus;
-pub use interpolation_history::ConfirmedHistory;
 use lightyear_replication::prelude::Replicated;
-pub use plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 use tracing::error;
 
 use crate::manager::InterpolationManager;
@@ -25,12 +22,14 @@ pub mod interpolation_history;
 mod manager;
 /// Provides the `InterpolationPlugin` and related systems for Bevy integration.
 pub mod plugin;
-mod registry;
+pub mod registry;
 mod spawn;
-mod timeline;
+pub mod timeline;
 
 /// Commonly used items for client-side interpolation.
 pub mod prelude {
+    pub use crate::interpolate::InterpolateStatus;
+    pub use crate::interpolation_history::ConfirmedHistory;
     pub use crate::manager::InterpolationManager;
     pub use crate::plugin::{
         InterpolationConfig, InterpolationDelay, InterpolationPlugin, InterpolationSet,

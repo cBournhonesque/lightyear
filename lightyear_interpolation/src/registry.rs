@@ -1,6 +1,8 @@
-use crate::{
-    InterpolationMode, SyncComponent, add_interpolation_systems, add_prepare_interpolation_systems,
+use crate::plugin::{
+    add_immutable_prepare_interpolation_systems, add_interpolation_systems,
+    add_prepare_interpolation_systems,
 };
+use crate::{InterpolationMode, SyncComponent};
 use bevy_ecs::{component::Component, resource::Resource};
 use bevy_math::{
     Curve,
@@ -83,6 +85,15 @@ pub trait InterpolationRegistrationExt<C> {
     fn add_interpolation(self, interpolation_mode: InterpolationMode) -> Self
     where
         C: SyncComponent;
+
+    /// Enable interpolation systems for this immutable component.
+    /// You can specify the interpolation [`InterpolationMode`]
+    ///
+    /// Note that [`InterpolationMode::Full`] is not supported for immutable components.
+    fn add_immutable_interpolation(self, interpolation_mode: InterpolationMode) -> Self
+    where
+        C: Component + Clone;
+
     /// Register helper systems to perform interpolation for the component; but the user has to define the interpolation logic
     /// themselves (the interpolation_fn will not be used)
     fn add_custom_interpolation(self, interpolation_mode: InterpolationMode) -> Self
@@ -100,6 +111,35 @@ pub trait InterpolationRegistrationExt<C> {
 }
 
 impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
+    /// Enable interpolation systems for this component.
+    /// You can specify the interpolation [`InterpolationMode`]
+    ///
+    /// Note that [`InterpolationMode::Full`] is not supported for immutable components.
+    fn add_immutable_interpolation(self, interpolation_mode: InterpolationMode) -> Self
+    where
+        C: Component + Clone,
+    {
+        assert_ne!(
+            interpolation_mode,
+            InterpolationMode::Full,
+            "Full interpolation mode is not supported for immutable components"
+        );
+        if !self
+            .app
+            .world()
+            .contains_resource::<InterpolationRegistry>()
+        {
+            self.app
+                .world_mut()
+                .insert_resource(InterpolationRegistry::default());
+        }
+        let mut registry = self.app.world_mut().resource_mut::<InterpolationRegistry>();
+
+        registry.set_interpolation_mode::<C>(interpolation_mode);
+        add_immutable_prepare_interpolation_systems::<C>(self.app, interpolation_mode);
+        self
+    }
+
     /// Enable interpolation systems for this component.
     /// You can specify the interpolation [`InterpolationMode`]
     fn add_interpolation(self, interpolation_mode: InterpolationMode) -> Self

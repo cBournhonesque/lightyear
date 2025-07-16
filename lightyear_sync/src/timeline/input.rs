@@ -164,7 +164,7 @@ impl InputDelayConfig {
         }
     }
 
-    /// No input-delay, all the latency will be covered by prediction
+    /// No input-delay, all the latency will be covered by prediction. We have unlimited prediction
     pub fn no_input_delay() -> Self {
         Self {
             minimum_input_delay_ticks: 0,

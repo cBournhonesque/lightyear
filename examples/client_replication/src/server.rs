@@ -42,11 +42,9 @@ pub(crate) fn movement(
     >,
 ) {
     for (position, inputs) in position_query.iter_mut() {
-        if let Some(input) = &inputs.value {
-            // NOTE: be careful to directly pass Mut<PlayerPosition>
-            // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
-            shared_movement_behaviour(position, input);
-        }
+        // NOTE: be careful to directly pass Mut<PlayerPosition>
+        // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+        shared_movement_behaviour(position, inputs);
     }
 }
 
@@ -55,7 +53,7 @@ fn delete_player(
     query: Query<(Entity, &ActionState<Inputs>), With<PlayerPosition>>,
 ) {
     for (entity, inputs) in query.iter() {
-        if inputs.value.as_ref().is_some_and(|v| v == &Inputs::Delete) {
+        if inputs.0 == Inputs::Delete {
             // You can try 2 things here:
             // - either you consider that the client's action is correct, and you despawn the entity. This should get replicated
             //   to other clients.

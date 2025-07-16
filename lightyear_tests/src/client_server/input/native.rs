@@ -59,7 +59,7 @@ fn test_remote_client_replicated_input() {
         .world_mut()
         .get_mut::<ActionState<MyInput>>(client_entity)
         .unwrap()
-        .value = Some(MyInput(1));
+        .0 = MyInput(1);
 
     stepper.frame_step(1);
     let server_tick = stepper.server_tick();
@@ -74,9 +74,7 @@ fn test_remote_client_replicated_input() {
             .unwrap()
             .get(client_tick)
             .unwrap(),
-        &ActionState {
-            value: Some(MyInput(1))
-        }
+        &ActionState(MyInput(1))
     );
 
     // Advance to client tick to verify server applies the input
@@ -88,9 +86,7 @@ fn test_remote_client_replicated_input() {
             .world()
             .get::<ActionState<MyInput>>(server_entity)
             .unwrap(),
-        &ActionState {
-            value: Some(MyInput(1))
-        }
+        &ActionState(MyInput(1))
     );
 }
 
@@ -139,7 +135,7 @@ fn test_remote_client_predicted_input() {
         .world_mut()
         .get_mut::<ActionState<MyInput>>(client_predicted)
         .unwrap()
-        .value = Some(MyInput(2));
+        .0 = MyInput(2);
 
     stepper.frame_step(1);
     let server_tick = stepper.server_tick();
@@ -154,9 +150,7 @@ fn test_remote_client_predicted_input() {
             .unwrap()
             .get(client_tick)
             .unwrap(),
-        &ActionState {
-            value: Some(MyInput(2))
-        }
+        &ActionState(MyInput(2))
     );
 
     // Advance to client tick to verify server applies the input
@@ -168,9 +162,7 @@ fn test_remote_client_predicted_input() {
             .world()
             .get::<ActionState<MyInput>>(server_entity)
             .unwrap(),
-        &ActionState {
-            value: Some(MyInput(2))
-        }
+        &ActionState(MyInput(2))
     );
 }
 
@@ -210,7 +202,7 @@ fn test_remote_client_confirmed_input() {
         .world_mut()
         .get_mut::<ActionState<MyInput>>(client_confirmed)
         .unwrap()
-        .value = Some(MyInput(3));
+        .0 = MyInput(3);
 
     stepper.frame_step(1);
     let server_tick = stepper.server_tick();
@@ -225,9 +217,7 @@ fn test_remote_client_confirmed_input() {
             .unwrap()
             .get(client_tick)
             .unwrap(),
-        &ActionState {
-            value: Some(MyInput(3))
-        }
+        &ActionState(MyInput(3))
     );
 
     // Advance to client tick to verify server applies the input
@@ -239,9 +229,7 @@ fn test_remote_client_confirmed_input() {
             .world()
             .get::<ActionState<MyInput>>(server_entity)
             .unwrap(),
-        &ActionState {
-            value: Some(MyInput(3))
-        }
+        &ActionState(MyInput(3))
     );
 }
 
@@ -337,7 +325,7 @@ fn test_input_broadcasting_prediction() {
         .world_mut()
         .get_mut::<ActionState<MyInput>>(client0_predicted)
         .unwrap()
-        .value = Some(MyInput(10));
+        .0 = MyInput(10);
     stepper.frame_step(1);
     let client1_tick = stepper.client_tick(1);
 
@@ -346,7 +334,7 @@ fn test_input_broadcasting_prediction() {
         .world_mut()
         .get_mut::<ActionState<MyInput>>(client0_predicted)
         .unwrap()
-        .value = Some(MyInput(5));
+        .0 = MyInput(5);
 
     // Step 2 more frames because the input is delayed. And because we need client0 -> server -> client1
     // the client 1 should just have received the Input(10)
@@ -364,7 +352,7 @@ fn test_input_broadcasting_prediction() {
         .world()
         .get::<ActionState<MyInput>>(client1_predicted)
         .expect("action state should exist");
-    assert_eq!(action_state.value, Some(MyInput(10)));
+    assert_eq!(action_state.0, MyInput(10));
 
     stepper.frame_step_server_first(2);
     // check that the next input has been received
@@ -372,7 +360,7 @@ fn test_input_broadcasting_prediction() {
         .world()
         .get::<ActionState<MyInput>>(client1_predicted)
         .expect("action state should exist");
-    assert_eq!(action_state.value, Some(MyInput(5)));
+    assert_eq!(action_state.0, MyInput(5));
 
     // check that during rollbacks, we fetch the input value from the input buffer even for remote inputs
     let check_input =
@@ -380,14 +368,14 @@ fn test_input_broadcasting_prediction() {
               q: Single<&ActionState<MyInput>, Without<InputMarker<MyInput>>>| {
             info!(
                 "Checking input value {:?} during rollback. Tick: {:?}",
-                q.value,
+                q.0,
                 c.tick()
             );
             if c.tick() == client1_tick {
                 info!("checking that we fetch old value from the buffer");
                 assert_eq!(
-                    q.value,
-                    Some(MyInput(10)),
+                    q.0,
+                    MyInput(10),
                     "During rollback, we should fetch the ActionState from the buffer",
                 );
             }
@@ -396,8 +384,8 @@ fn test_input_broadcasting_prediction() {
                     "checking that the action state stays correct for ticks for which we don't have an input in the buffer. (we predict that it stays the same)"
                 );
                 assert_eq!(
-                    q.value,
-                    Some(MyInput(5)),
+                    q.0,
+                    MyInput(5),
                     "During rollback, we should fetch the ActionState from the buffer",
                 );
             }

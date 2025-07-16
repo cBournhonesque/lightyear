@@ -5,8 +5,7 @@
 use crate::protocol::*;
 use bevy::prelude::*;
 use lightyear::connection::client_of::ClientOf;
-use lightyear::interpolation::{ConfirmedHistory, InterpolateStatus, Interpolated};
-use lightyear::prelude::{Client, Confirmed, LocalTimeline, NetworkTimeline, Rollback};
+use lightyear::prelude::*;
 use lightyear_examples_common::shared::SharedSettings;
 
 pub struct SharedPlugin;

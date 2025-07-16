@@ -27,7 +27,7 @@ impl<A> IntoIterator for NativeStateSequence<A> {
         self.states.into_iter().map(|input| match input {
             InputData::Absent => InputData::Absent,
             InputData::SameAsPrecedent => InputData::SameAsPrecedent,
-            InputData::Input(i) => InputData::Input(ActionState { value: Some(i) }),
+            InputData::Input(i) => InputData::Input(ActionState(i)),
         })
     }
 }
@@ -40,6 +40,7 @@ impl<
         + Send
         + Sync
         + Debug
+        + Default
         + Reflectable
         + FromReflect
         + 'static,
@@ -68,7 +69,7 @@ impl<
         self.states.into_iter().map(|input| match input {
             InputData::Absent => InputData::Absent,
             InputData::SameAsPrecedent => InputData::SameAsPrecedent,
-            InputData::Input(i) => InputData::Input(ActionState { value: Some(i) }),
+            InputData::Input(i) => InputData::Input(ActionState(i)),
         })
     }
 
@@ -139,9 +140,9 @@ mod tests {
     #[test]
     fn test_build_sequence_from_buffer() {
         let mut input_buffer = InputBuffer::default();
-        input_buffer.set(Tick(2), ActionState { value: None });
-        input_buffer.set(Tick(3), ActionState { value: Some(1) });
-        input_buffer.set(Tick(7), ActionState { value: Some(2) });
+        input_buffer.set_empty(Tick(2));
+        input_buffer.set(Tick(3), ActionState(1));
+        input_buffer.set(Tick(7), ActionState(2));
 
         let sequence =
             NativeStateSequence::<usize>::build_from_input_buffer(&input_buffer, 9, Tick(10))
@@ -192,22 +193,10 @@ mod tests {
         assert_eq!(input_buffer.get(Tick(20)), None,);
         assert_eq!(input_buffer.get(Tick(19)), None,);
         assert_eq!(input_buffer.get(Tick(18)), None,);
-        assert_eq!(
-            input_buffer.get(Tick(17)),
-            Some(&ActionState::<i32> { value: Some(1) })
-        );
-        assert_eq!(
-            input_buffer.get(Tick(16)),
-            Some(&ActionState::<i32> { value: Some(1) })
-        );
-        assert_eq!(
-            input_buffer.get(Tick(15)),
-            Some(&ActionState::<i32> { value: Some(0) })
-        );
-        assert_eq!(
-            input_buffer.get(Tick(14)),
-            Some(&ActionState::<i32> { value: Some(0) })
-        );
+        assert_eq!(input_buffer.get(Tick(17)), Some(&ActionState::<i32>(1)));
+        assert_eq!(input_buffer.get(Tick(16)), Some(&ActionState::<i32>(1)));
+        assert_eq!(input_buffer.get(Tick(15)), Some(&ActionState::<i32>(0)));
+        assert_eq!(input_buffer.get(Tick(14)), Some(&ActionState::<i32>(0)));
         assert_eq!(input_buffer.get(Tick(13)), None,);
     }
 
@@ -218,7 +207,7 @@ mod tests {
         let mut input_buffer = InputBuffer {
             start_tick: Some(Tick(10)),
             buffer: VecDeque::from([
-                InputData::Input(ActionState { value: Some(0) }),
+                InputData::Input(ActionState(0)),
                 InputData::SameAsPrecedent,
                 InputData::SameAsPrecedent,
             ]),
@@ -239,26 +228,11 @@ mod tests {
         };
         let mismatch = sequence.update_buffer(&mut input_buffer, Tick(14));
         assert_eq!(mismatch, Some(Tick(14)));
-        assert_eq!(
-            input_buffer.get(Tick(14)),
-            Some(&ActionState { value: Some(1) })
-        );
-        assert_eq!(
-            input_buffer.get(Tick(13)),
-            Some(&ActionState { value: Some(0) })
-        );
-        assert_eq!(
-            input_buffer.get(Tick(12)),
-            Some(&ActionState { value: Some(0) })
-        );
-        assert_eq!(
-            input_buffer.get(Tick(11)),
-            Some(&ActionState { value: Some(0) })
-        );
-        assert_eq!(
-            input_buffer.get(Tick(10)),
-            Some(&ActionState { value: Some(0) })
-        );
+        assert_eq!(input_buffer.get(Tick(14)), Some(&ActionState(1)));
+        assert_eq!(input_buffer.get(Tick(13)), Some(&ActionState(0)));
+        assert_eq!(input_buffer.get(Tick(12)), Some(&ActionState(0)));
+        assert_eq!(input_buffer.get(Tick(11)), Some(&ActionState(0)));
+        assert_eq!(input_buffer.get(Tick(10)), Some(&ActionState(0)));
         assert_eq!(input_buffer.get(Tick(9)), None);
         assert_eq!(input_buffer.get(Tick(8)), None);
         assert_eq!(input_buffer.get(Tick(7)), None);
@@ -269,7 +243,7 @@ mod tests {
         let mut input_buffer = InputBuffer {
             start_tick: Some(Tick(10)),
             buffer: VecDeque::from([
-                InputData::Input(ActionState { value: Some(0) }),
+                InputData::Input(ActionState(0)),
                 InputData::Absent,
                 InputData::SameAsPrecedent,
             ]),
@@ -285,10 +259,7 @@ mod tests {
         sequence.update_buffer(&mut input_buffer, Tick(12));
         assert_eq!(input_buffer.get(Tick(12)), None);
         assert_eq!(input_buffer.get(Tick(11)), None);
-        assert_eq!(
-            input_buffer.get(Tick(10)),
-            Some(&ActionState { value: Some(0) })
-        );
+        assert_eq!(input_buffer.get(Tick(10)), Some(&ActionState(0)));
     }
 
     #[test]

@@ -102,7 +102,7 @@ impl Diffable for CompDelta {
 }
 
 // Native Inputs
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Reflect)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone, Copy, Reflect)]
 pub struct NativeInput(pub i16);
 
 impl MapEntities for NativeInput {

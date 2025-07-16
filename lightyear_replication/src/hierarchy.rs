@@ -1,26 +1,14 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
 
-use crate::plugin::ReplicationSet;
 use crate::prelude::{PrePredicted, Replicate, ReplicationBufferSet};
 use crate::registry::registry::AppComponentExt;
 use alloc::vec::Vec;
-use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
-use bevy_ecs::{
-    change_detection::DetectChangesMut,
-    component::Component,
-    entity::{Entity, EntityMapper, MapEntities},
-    hierarchy::{ChildOf, Children},
-    observer::Trigger,
-    query::{Added, Changed, Has, Or, With, Without},
-    reflect::{ReflectComponent, ReflectMapEntities},
-    relationship::Relationship,
-    schedule::{IntoScheduleConfigs, SystemSet},
-    system::{Commands, Query},
-    world::{OnAdd, OnRemove},
-};
-use bevy_reflect::{GetTypeRegistration, Reflect, TypePath};
-use core::fmt::{Debug, Formatter};
-use serde::{Deserialize, Serialize};
+use bevy_app::prelude::*;
+use bevy_ecs::entity::MapEntities;
+use bevy_ecs::prelude::*;
+use bevy_ecs::reflect::ReflectMapEntities;
+use bevy_reflect::Reflect;
+use core::fmt::Debug;
 use smallvec::SmallVec;
 use tracing::trace;
 
@@ -32,9 +20,7 @@ pub enum RelationshipSet {
     Send,
 }
 
-/// Marker component that defines how the hierarchy of an entity (parent/children) should be replicated.
-///
-/// When `DisableReplicateHierarchy` is added to an entity, we will stop replicating their children.
+/// When the `DisableReplicateHierarchy` marker component is added to an entity, we will stop replicating their children.
 ///
 /// If the component is added on an entity with `Replicate`, it's children will be replicated using
 /// the same replication settings as the Parent.
@@ -45,214 +31,15 @@ pub enum RelationshipSet {
 #[reflect(Component)]
 pub struct DisableReplicateHierarchy;
 
-pub type ChildOfSync = RelationshipSync<ChildOf>;
-
-// TODO: ideally this would not be needed, but Relationship are Immutable component
-//  so we would have to update our whole replication/prediction/interpolation code to work on Immutable components
-//  if we can do that, let's just replicate the Relationship component directly!
-
-/// This component can be added to an entity to replicate the entity's hierarchy to the remote world.
-/// The `ParentSync` component will be updated automatically when the `R` component changes,
-/// and the entity's hierarchy will automatically be updated when the `RelationshipSync` component changes.
-///
-/// Updates entity's `R` component on change.
-/// Removes the parent if `None`.
-#[derive(Component, Reflect, Serialize, Deserialize)]
-#[reflect(Component, MapEntities)]
-pub struct RelationshipSync<R: Relationship> {
-    pub entity: Option<Entity>,
-    #[reflect(ignore)]
-    marker: core::marker::PhantomData<R>,
-}
-
-// We implement these traits manually because R might not have them
-impl<R: Relationship> Default for RelationshipSync<R> {
-    fn default() -> Self {
-        Self {
-            entity: None,
-            marker: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<R: Relationship> Clone for RelationshipSync<R> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<R: Relationship> Copy for RelationshipSync<R> {}
-
-impl<R: Relationship> PartialEq for RelationshipSync<R> {
-    fn eq(&self, other: &Self) -> bool {
-        self.entity == other.entity
-    }
-}
-
-impl<R: Relationship> Debug for RelationshipSync<R> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(f, "RelationshipSync {{ entity: {:?} }}", self.entity)
-    }
-}
-
-impl<R: Relationship> From<Option<Entity>> for RelationshipSync<R> {
-    fn from(value: Option<Entity>) -> Self {
-        Self {
-            entity: value,
-            marker: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<R: Relationship> MapEntities for RelationshipSync<R> {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
-        if let Some(entity) = &mut self.entity {
-            *entity = entity_mapper.get_mapped(*entity);
-        }
-    }
-}
-
-// TODO: have a single plugin but let users say 'is_relationship' in registration?
-/// Plugin that lets you send replication updates for a given [`Relationship`] `R`
-pub struct RelationshipSendPlugin<R> {
-    _marker: core::marker::PhantomData<R>,
-}
-
-impl<R: Relationship> Default for RelationshipSendPlugin<R> {
-    fn default() -> Self {
-        Self {
-            _marker: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<R: Relationship> RelationshipSendPlugin<R> {
-    /// If the relationship changes (a new Relationship component was inserted)
-    /// or if RelationshipSync is inserted,
-    /// update the RelationshipSync to match the parent value
-    fn handle_parent_insert(
-        trigger: Trigger<OnAdd, (R, RelationshipSync<R>)>,
-        // include filter to make sure that this is running on the send side
-        mut query: Query<
-            (&R, &mut RelationshipSync<R>),
-            Or<(With<Replicate>, With<ReplicateLike>)>,
-        >,
-    ) {
-        if let Ok((parent, mut parent_sync)) = query.get_mut(trigger.target()) {
-            parent_sync.set_if_neq(Some(parent.get()).into());
-            trace!(
-                "Update RelationshipSync<{:?}>: entity: {:?}, parent_sync: {:?}",
-                core::any::type_name::<R>(),
-                trigger.target(),
-                parent_sync,
-            );
-        }
-    }
-
-    /// Update RelationshipSync if the Relationship has been removed
-    fn handle_parent_remove(
-        trigger: Trigger<OnRemove, R>,
-        // include filter to make sure that this is running on the send side
-        mut hierarchy: Query<&mut RelationshipSync<R>, Or<(With<Replicate>, With<ReplicateLike>)>>,
-    ) {
-        if let Ok(mut parent_sync) = hierarchy.get_mut(trigger.target()) {
-            parent_sync.entity = None;
-        }
-    }
-}
-
-impl<R: Relationship> Plugin for RelationshipSendPlugin<R> {
-    fn build(&self, app: &mut App) {
-        app.register_component::<RelationshipSync<R>>()
-            .add_map_entities();
-        app.add_observer(Self::handle_parent_insert);
-        app.add_observer(Self::handle_parent_remove);
-    }
-}
-
-/// Plugin that lets you apply replication updates for a given [`Relationship`] `R`
-pub struct RelationshipReceivePlugin<R> {
-    _marker: core::marker::PhantomData<R>,
-}
-
-impl<R> Default for RelationshipReceivePlugin<R> {
-    fn default() -> Self {
-        Self {
-            _marker: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<R: Relationship + Debug> RelationshipReceivePlugin<R> {
-    /// Update hierarchy on the receive side if RelationshipSync changed
-    fn update_parent(
-        mut commands: Commands,
-        hierarchy: Query<
-            (Entity, &RelationshipSync<R>, Option<&R>),
-            // We add `Without<Replicate>` to guarantee that this is running for replicated entities.
-            // With<Replicated> doesn't work because PrePredicted entities on the server side removes `Replicated`
-            // via an observer. Maybe `With<InitialReplicated>` would work.
-            (
-                Changed<RelationshipSync<R>>,
-                Without<Replicate>,
-                Without<ReplicateLike>,
-            ),
-        >,
-    ) {
-        for (entity, parent_sync, parent) in hierarchy.iter() {
-            trace!(
-                "update_parent: entity: {:?}, parent_sync: {:?}, parent: {:?}",
-                entity, parent_sync, parent
-            );
-            if let Some(new_parent) = parent_sync.entity {
-                if parent.is_none_or(|p| p.get() != new_parent) {
-                    trace!(
-                        "Inserting {:?}({new_parent:?}) on child {entity:?}",
-                        core::any::type_name::<R>()
-                    );
-                    commands.entity(entity).insert(R::from(new_parent));
-                }
-            } else if parent.is_some() {
-                trace!("Removing {:?}", core::any::type_name::<R>());
-                commands.entity(entity).remove::<R>();
-            }
-        }
-    }
-}
-
-impl<R: Relationship + Debug + GetTypeRegistration + TypePath> Plugin
-    for RelationshipReceivePlugin<R>
-{
-    fn build(&self, app: &mut App) {
-        // TODO: how to make sure we only register this once?
-        app.register_component::<RelationshipSync<R>>()
-            .add_map_entities();
-
-        // REFLECTION
-        app.register_type::<RelationshipSync<R>>();
-
-        // TODO: does this work for client replication? (client replicating to other clients via the server?)
-        // when we receive a RelationshipSync update from the remote, update the hierarchy
-        app.configure_sets(
-            PreUpdate,
-            ReplicationSet::ReceiveRelationships.after(ReplicationSet::Receive),
-        );
-        app.add_systems(
-            PreUpdate,
-            Self::update_parent.in_set(ReplicationSet::ReceiveRelationships),
-        );
-    }
-}
-
 /// Marker component that indicates that this entity should be replicated similarly to the entity
 /// contained in the component.
 ///
-/// This will be inserted automatically
-// TODO: should we make this immutable?
-#[derive(Component, Clone, Copy, MapEntities, Reflect, PartialEq, Debug)]
+/// This will be inserted automatically on all children of an entity that has `Replicate`
+#[derive(Component, Clone, MapEntities, Copy, Reflect, PartialEq, Debug)]
 #[relationship(relationship_target=ReplicateLikeChildren)]
 #[reflect(Component, MapEntities, PartialEq, Debug)]
 pub struct ReplicateLike {
+    #[entities]
     pub root: Entity,
 }
 
@@ -285,9 +72,9 @@ pub struct HierarchySendPlugin;
 
 impl Plugin for HierarchySendPlugin {
     fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<RelationshipSendPlugin<ChildOf>>() {
-            app.add_plugins(RelationshipSendPlugin::<ChildOf>::default());
-        }
+        app.register_component::<ChildOf>()
+            .add_component_map_entities();
+
         // propagate ReplicateLike
         app.add_observer(Self::propagate_replicate_like_replication_marker_removed);
         app.add_systems(
@@ -335,7 +122,7 @@ impl HierarchySendPlugin {
                         trace!("Adding ReplicateLike to child {child:?} with root {root:?}. PrePredicted: {pre_predicted:?}");
                         commands
                             .entity(child)
-                            .insert((ReplicateLike { root }, ChildOfSync::from(Some(parent))));
+                            .insert(ReplicateLike { root });
                         if pre_predicted {
                             trace!("Adding PrePredicted to child {child:?} with root {root:?}");
                             commands.entity(child).insert(PrePredicted::default());
@@ -368,7 +155,7 @@ impl HierarchySendPlugin {
         children_query: Query<&Children>,
         // exclude those that have `Replicate` (as we don't want to remove the `ReplicateLike` component
         // for their descendants)
-        child_filter: Query<(), Without<Replicate>>,
+        child_filter: Query<(), (Without<Replicate>, With<ReplicateLike>)>,
         mut commands: Commands,
     ) {
         let root = trigger.target();
@@ -382,9 +169,8 @@ impl HierarchySendPlugin {
         while let Some(parent) = stack.pop() {
             for child in children_query.relationship_sources(parent) {
                 if let Ok(()) = child_filter.get(child) {
-                    commands
-                        .entity(child)
-                        .try_remove::<(ReplicateLike, ChildOfSync)>();
+                    stack.push(child);
+                    commands.entity(child).try_remove::<ReplicateLike>();
                 }
             }
         }
