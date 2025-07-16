@@ -11,7 +11,6 @@ use alloc::format;
 use chacha20poly1305::{AeadCore, XChaCha20Poly1305, XNonce, aead::OsRng};
 use core::mem::size_of;
 use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
-use lightyear_connection::client::Connected;
 use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_utils::free_list::{FreeList, FreeListIter};
