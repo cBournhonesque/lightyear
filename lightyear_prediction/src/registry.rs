@@ -94,9 +94,12 @@ impl PredictionMetadata {
     }
 }
 
-/// Function that returns true if a rollback is needed, by comparing the server's value with the client's predicted value.
-/// Defaults to PartialEq::ne
-pub type ShouldRollbackFn<C> = fn(this: &C, that: &C) -> bool;
+/// Function called when comparing the confirmed component value (received from the remote) with the
+/// predicted component value (from the local [`PredictionHistory`]).
+///
+/// In general we use [`PartialEq::ne`] by default, but you can provide your own function with [`ComponentRegistration::add_should_rollback`] to customize
+/// the rollback behavior. (for example, you might want to ignore small floating point differences)
+pub type ShouldRollbackFn<C> = fn(confirmed: &C, predicted: &C) -> bool;
 
 #[derive(Resource, Default, Debug)]
 pub struct PredictionRegistry {
@@ -356,7 +359,7 @@ impl PredictionRegistry {
                 },
                 |history_value| match history_value {
                     HistoryState::Updated(history_value) => {
-                        let should = self.should_rollback(&history_value, c);
+                        let should = self.should_rollback(c, &history_value);
                         if should {
                             debug!(
                                 "Should Rollback! Confirmed value {c:?} is different from history value {history_value:?}",
