@@ -288,10 +288,10 @@ impl ReceiveBuffer {
             if diff < -(bitfield_size + 1) {
                 self.buffer.fill(false);
             } else {
-                self.buffer.push(true);
+                self.buffer.enqueue(true);
                 // add False for all the packets in between the old and new last_recv_packet_id
                 for _ in 0..(diff.abs() - 1) {
-                    self.buffer.push(false);
+                    self.buffer.enqueue(false);
                 }
             }
 
