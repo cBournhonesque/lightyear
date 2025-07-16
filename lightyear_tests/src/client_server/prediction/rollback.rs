@@ -798,7 +798,7 @@ fn test_input_rollback_check_mode_earliest_mismatch() {
         .world_mut()
         .get_mut::<ActionState<NativeInput>>(client_entity_1)
         .unwrap()
-        .value = Some(NativeInput(1));
+        .0 = NativeInput(1);
     stepper.frame_step(1);
     let input_tick = stepper.client_tick(1);
 

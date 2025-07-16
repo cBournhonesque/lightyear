@@ -146,9 +146,7 @@ mod game {
         mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), Without<Predicted>>,
     ) {
         for (position, inputs) in position_query.iter_mut() {
-            if let Some(inputs) = &inputs.value {
-                shared_movement_behaviour(position, inputs);
-            }
+            shared_movement_behaviour(position, inputs);
         }
     }
 }

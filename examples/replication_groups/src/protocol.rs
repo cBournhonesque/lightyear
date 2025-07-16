@@ -148,7 +148,7 @@ impl TailPoints {
 // This can be done by calling `app.add_component_map_entities::<PlayerParent>()` in your protocol,
 // and deriving the `MapEntities` trait for the component.
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq, Reflect)]
-pub struct PlayerParent(pub(crate) Entity);
+pub struct PlayerParent(#[entities] pub(crate) Entity);
 
 impl MapEntities for PlayerParent {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
@@ -204,11 +204,13 @@ impl Direction {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Clone, Reflect)]
 pub enum Inputs {
     Direction(Direction),
     Delete,
     Spawn,
+    #[default]
+    Empty,
 }
 
 impl MapEntities for Inputs {

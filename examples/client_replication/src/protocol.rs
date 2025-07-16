@@ -54,6 +54,17 @@ pub enum Inputs {
     Delete,
 }
 
+impl Default for Inputs {
+    fn default() -> Self {
+        Inputs::Direction(Direction {
+            up: false,
+            down: false,
+            left: false,
+            right: false,
+        })
+    }
+}
+
 // Inputs must all implement MapEntities
 impl MapEntities for Inputs {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}

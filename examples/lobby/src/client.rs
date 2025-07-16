@@ -125,7 +125,7 @@ mod game {
             if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
                 direction.right = true;
             }
-            action_state.value = Some(Inputs::Direction(direction));
+            action_state.0 = Inputs::Direction(direction);
         }
     }
 
@@ -136,11 +136,9 @@ mod game {
         mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
     ) {
         for (position, input) in position_query.iter_mut() {
-            if let Some(input) = &input.value {
-                // NOTE: be careful to directly pass Mut<PlayerPosition>
-                // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
-                shared_movement_behaviour(position, input);
-            }
+            // NOTE: be careful to directly pass Mut<PlayerPosition>
+            // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+            shared_movement_behaviour(position, input);
         }
     }
 

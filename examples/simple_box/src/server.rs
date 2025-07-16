@@ -84,10 +84,8 @@ fn movement(
 ) {
     let tick = timeline.tick();
     for (position, inputs) in position_query.iter_mut() {
-        if let Some(inputs) = &inputs.value {
-            trace!(?tick, ?position, ?inputs, "server");
-            shared::shared_movement_behaviour(position, inputs);
-        }
+        trace!(?tick, ?position, ?inputs, "server");
+        shared::shared_movement_behaviour(position, inputs);
     }
 }
 

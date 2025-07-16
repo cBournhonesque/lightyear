@@ -130,6 +130,7 @@ pub trait ActionStateSequence:
                 input_buffer.set_raw(prev_end + delta, InputData::SameAsPrecedent);
             }
         }
+        debug!("input buffer after update: {input_buffer:?}");
         earliest_mismatch
     }
 

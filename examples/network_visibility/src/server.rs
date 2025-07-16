@@ -143,8 +143,6 @@ pub(crate) fn movement(
     mut position_query: Query<(&mut Position, &ActionState<Inputs>), Without<InputMarker<Inputs>>>,
 ) {
     for (position, input) in position_query.iter_mut() {
-        if let Some(input) = &input.value {
-            shared_movement_behaviour(position, input);
-        }
+        shared_movement_behaviour(position, input);
     }
 }

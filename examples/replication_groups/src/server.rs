@@ -91,10 +91,8 @@ pub(crate) fn movement(
     >,
 ) {
     for (position, inputs) in position_query.iter_mut() {
-        if let Some(input) = &inputs.value {
-            // NOTE: be careful to directly pass Mut<PlayerPosition>
-            // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
-            shared_movement_behaviour(position, input);
-        }
+        // NOTE: be careful to directly pass Mut<PlayerPosition>
+        // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+        shared_movement_behaviour(position, inputs);
     }
 }

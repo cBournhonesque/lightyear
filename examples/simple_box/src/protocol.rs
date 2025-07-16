@@ -77,7 +77,7 @@ pub struct Message1(pub usize);
 
 // Inputs
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Reflect)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone, Reflect)]
 pub struct Direction {
     pub(crate) up: bool,
     pub(crate) down: bool,
@@ -94,6 +94,12 @@ impl Direction {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub enum Inputs {
     Direction(Direction),
+}
+
+impl Default for Inputs {
+    fn default() -> Self {
+        Self::Direction(Direction::default())
+    }
 }
 
 impl MapEntities for Inputs {

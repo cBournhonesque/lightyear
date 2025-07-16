@@ -45,17 +45,17 @@ pub(crate) fn buffer_input(
 ) {
     if let Ok(mut action_state) = query.single_mut() {
         if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
-            action_state.value = Some(Inputs::Direction(Direction::Up));
+            action_state.0 = Inputs::Direction(Direction::Up);
         } else if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
-            action_state.value = Some(Inputs::Direction(Direction::Down));
+            action_state.0 = Inputs::Direction(Direction::Down);
         } else if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
-            action_state.value = Some(Inputs::Direction(Direction::Left));
+            action_state.0 = Inputs::Direction(Direction::Left);
         } else if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
-            action_state.value = Some(Inputs::Direction(Direction::Right));
+            action_state.0 = Inputs::Direction(Direction::Right);
         } else {
-            // make sure to set the ActionState to None if no keys are pressed
-            // otherwise the previous tick's ActionState will be used!
-            action_state.value = None;
+            // we always set the value, so that the server can distinguish between no inputs received
+            // and no keys pressed
+            action_state.0 = Inputs::Empty
         }
     }
 }
@@ -67,9 +67,7 @@ fn movement(
     mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
 ) {
     for (position, input) in position_query.iter_mut() {
-        if let Some(inputs) = &input.value {
-            shared_movement_behaviour(position, inputs);
-        }
+        shared_movement_behaviour(position, input);
     }
 }
 
