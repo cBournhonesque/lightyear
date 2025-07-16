@@ -1,6 +1,6 @@
-use crate::SyncComponent;
 use crate::interpolate::InterpolateStatus;
 use crate::interpolation_history::ConfirmedHistory;
+use bevy_ecs::component::Component;
 use bevy_ecs::{
     error::Result,
     observer::Trigger,
@@ -10,7 +10,7 @@ use bevy_ecs::{
 use lightyear_replication::prelude::Confirmed;
 
 /// Remove the component from interpolated entities when it gets removed from confirmed
-pub(crate) fn removed_components<C: SyncComponent>(
+pub(crate) fn removed_components<C: Component>(
     trigger: Trigger<OnRemove, C>,
     mut commands: Commands,
     query: Query<&Confirmed>,

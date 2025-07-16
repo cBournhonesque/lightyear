@@ -328,7 +328,8 @@ fn check_rollback(
                 .values()
                 .filter(|m| m.sync_mode == PredictionMode::Full)
                 .take_while(|_| !prediction_manager.is_rollback()) {
-                if (prediction_metadata.check_rollback)(&prediction_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
+                let check_rollback = prediction_metadata.full.as_ref().unwrap().check_rollback;
+                if check_rollback(&prediction_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
                     trace!("Rollback because we have received a new confirmed state. (mismatch check)");
                     // During `prepare_rollback` we will reset the component to their values on `confirmed_tick`.
                     // Then when we do Rollback in PreUpdate, we will start by incrementing the tick, which will be equal to `confirmed_tick + 1`
@@ -421,7 +422,7 @@ fn check_rollback(
 /// could be overwritten by each other.
 ///
 /// This must run after the rollback check.
-fn reset_input_rollback_tracker(
+pub fn reset_input_rollback_tracker(
     client: Single<
         (
             &LocalTimeline,

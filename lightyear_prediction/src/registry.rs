@@ -1,6 +1,7 @@
 use crate::manager::{PredictionManager, PredictionResource};
 use crate::plugin::{
-    add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
+    add_immutable_prediction_systems, add_non_networked_rollback_systems, add_prediction_systems,
+    add_resource_rollback_systems,
 };
 use crate::predicted_history::PredictionHistory;
 use crate::{PredictionMode, SyncComponent};
@@ -39,18 +40,32 @@ pub struct PredictionMetadata {
     /// Id of the [`PredictionHistory<C>`] component
     pub history_id: Option<ComponentId>,
     pub sync_mode: PredictionMode,
-    pub correction: Option<unsafe fn()>,
+    buffer_sync: SyncFn,
+    pub(crate) full: Option<PredictionFullMetadata>,
+}
+
+impl PredictionMetadata {
+    #[cfg(feature = "deterministic")]
+    pub fn pop_until_tick_and_hash(&self) -> Option<PopUntilTickAndHashFn> {
+        self.full.as_ref()?.pop_until_tick_and_hash
+    }
+}
+
+#[derive(Debug, Clone)]
+/// Metadata specific to PredictionMode::Full components
+pub(crate) struct PredictionFullMetadata {
+    pub(crate) correction: Option<unsafe fn()>,
     /// Function used to compare the confirmed component with the predicted component's history
     /// to determine if a rollback is needed. Returns true if we should do a rollback.
     /// Will default to a PartialEq::ne implementation, but can be overridden.
-    pub should_rollback: unsafe fn(),
-    pub buffer_sync: SyncFn,
-    pub check_rollback: CheckRollbackFn,
+    pub(crate) should_rollback: unsafe fn(),
+    pub(crate) check_rollback: CheckRollbackFn,
     #[cfg(feature = "deterministic")]
     /// Function to call `pop_until_tick` on the [`PredictionHistory<C>`] component.
     pub pop_until_tick_and_hash: Option<PopUntilTickAndHashFn>,
 }
 
+/// Function that will sync a component value from the confirmed entity to the predicted entity
 type SyncFn = fn(
     &PredictionRegistry,
     &ComponentRegistry,
@@ -60,6 +75,8 @@ type SyncFn = fn(
     &mut BufferedChanges,
 );
 
+/// Function that will check if we should do a rollback by comparing the confirmed component value
+/// with the predicted component's history.
 type CheckRollbackFn = fn(
     &PredictionRegistry,
     confirmed_tick: Tick,
@@ -72,24 +89,32 @@ type CheckRollbackFn = fn(
 pub type PopUntilTickAndHashFn = fn(PtrMut, Tick, &mut seahash::SeaHasher, fn());
 
 impl PredictionMetadata {
-    fn default_from<C: SyncComponent>(
-        history_id: Option<ComponentId>,
-        mode: PredictionMode,
-    ) -> Self {
+    fn new_full<C: SyncComponent>(history_id: ComponentId) -> Self {
         let should_rollback: ShouldRollbackFn<C> = <C as PartialEq>::ne;
         Self {
-            history_id,
-            sync_mode: mode,
-            correction: None,
-            should_rollback: unsafe {
-                core::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
-                    should_rollback,
-                )
-            },
+            history_id: Some(history_id),
+            sync_mode: PredictionMode::Full,
             buffer_sync: PredictionRegistry::buffer_sync::<C>,
-            check_rollback: PredictionRegistry::check_rollback::<C>,
-            #[cfg(feature = "deterministic")]
-            pop_until_tick_and_hash: Some(PredictionRegistry::pop_until_tick_and_hash::<C>),
+            full: Some(PredictionFullMetadata {
+                correction: None,
+                should_rollback: unsafe {
+                    core::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
+                        should_rollback,
+                    )
+                },
+                check_rollback: PredictionRegistry::check_rollback::<C>,
+                #[cfg(feature = "deterministic")]
+                pop_until_tick_and_hash: Some(PredictionRegistry::pop_until_tick_and_hash::<C>),
+            }),
+        }
+    }
+
+    fn new_non_full<C: Component + Clone>(mode: PredictionMode) -> Self {
+        Self {
+            history_id: None,
+            sync_mode: mode,
+            buffer_sync: PredictionRegistry::buffer_sync::<C>,
+            full: None,
         }
     }
 }
@@ -107,21 +132,35 @@ pub struct PredictionRegistry {
 }
 
 impl PredictionRegistry {
-    pub fn set_prediction_mode<C: SyncComponent>(
+    fn set_immutable_prediction_mode<C: Component + Clone>(&mut self, mode: PredictionMode) {
+        let kind = ComponentKind::of::<C>();
+        self.prediction_map
+            .entry(kind)
+            .or_insert_with(|| PredictionMetadata::new_non_full::<C>(mode));
+    }
+
+    fn set_prediction_mode<C: SyncComponent>(
         &mut self,
         history_id: Option<ComponentId>,
         mode: PredictionMode,
     ) {
         let kind = ComponentKind::of::<C>();
-        self.prediction_map
-            .entry(kind)
-            .or_insert_with(|| PredictionMetadata::default_from::<C>(history_id, mode));
+        self.prediction_map.entry(kind).or_insert_with(|| {
+            if mode == PredictionMode::Full {
+                PredictionMetadata::new_full::<C>(history_id.unwrap())
+            } else {
+                PredictionMetadata::new_non_full::<C>(mode)
+            }
+        });
     }
 
-    pub fn set_should_rollback<C: SyncComponent>(&mut self, should_rollback: ShouldRollbackFn<C>) {
+    fn set_should_rollback<C: SyncComponent>(&mut self, should_rollback: ShouldRollbackFn<C>) {
         self.prediction_map
                 .get_mut(&ComponentKind::of::<C>())
                 .expect("The component has not been registered for prediction. Did you call `.add_prediction(PredictionMode::Full)`")
+                .full
+                .as_mut()
+                .unwrap()
                 .should_rollback = unsafe {
                 core::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
                     should_rollback,
@@ -129,10 +168,13 @@ impl PredictionRegistry {
             };
     }
 
-    pub fn set_correction<C: SyncComponent + PartialEq>(&mut self, correction_fn: LerpFn<C>) {
+    fn set_correction<C: SyncComponent + PartialEq>(&mut self, correction_fn: LerpFn<C>) {
         self.prediction_map
                 .get_mut(&ComponentKind::of::<C>())
                 .expect("The component has not been registered for prediction. Did you call `.add_prediction(PredictionMode::Full)`")
+                            .full
+                .as_mut()
+                .unwrap()
                 .correction = Some(unsafe {
                 core::mem::transmute(
                     correction_fn,
@@ -140,7 +182,7 @@ impl PredictionRegistry {
             });
     }
 
-    pub fn get_prediction_mode(
+    pub(crate) fn get_prediction_mode(
         &self,
         id: ComponentId,
         component_registry: &ComponentRegistry,
@@ -155,47 +197,40 @@ impl PredictionRegistry {
             .map_or(PredictionMode::None, |metadata| metadata.sync_mode))
     }
 
-    pub fn prediction_mode<C: Component>(&self) -> PredictionMode {
+    pub(crate) fn prediction_mode<C: Component>(&self) -> PredictionMode {
         let kind = ComponentKind::of::<C>();
         self.prediction_map
             .get(&kind)
             .map_or(PredictionMode::None, |metadata| metadata.sync_mode)
     }
 
-    pub fn has_correction<C: Component>(&self) -> bool {
+    pub(crate) fn has_correction<C: Component>(&self) -> bool {
         let kind = ComponentKind::of::<C>();
-        self.prediction_map
-            .get(&kind)
-            .is_some_and(|metadata| metadata.correction.is_some())
+        self.prediction_map.get(&kind).is_some_and(|metadata| {
+            metadata
+                .full
+                .as_ref()
+                .is_some_and(|m| m.correction.is_some())
+        })
     }
 
     /// Returns true if we should do a rollback
-    pub fn should_rollback<C: Component>(&self, this: &C, that: &C) -> bool {
+    pub(crate) fn should_rollback<C: Component>(&self, this: &C, that: &C) -> bool {
         let kind = ComponentKind::of::<C>();
         let prediction_metadata = self
             .prediction_map
             .get(&kind)
             .expect("the component is not part of the protocol");
-        let should_rollback_fn: ShouldRollbackFn<C> =
-            unsafe { core::mem::transmute(prediction_metadata.should_rollback) };
+        let should_rollback_fn: ShouldRollbackFn<C> = unsafe {
+            core::mem::transmute(prediction_metadata.full.as_ref().unwrap().should_rollback)
+        };
         should_rollback_fn(this, that)
-    }
-
-    pub fn correct<C: Component>(&self, predicted: C, corrected: C, t: f32) -> C {
-        let kind = ComponentKind::of::<C>();
-        let prediction_metadata = self
-            .prediction_map
-            .get(&kind)
-            .expect("the component is not part of the protocol");
-        let correction_fn: LerpFn<C> =
-            unsafe { core::mem::transmute(prediction_metadata.correction.unwrap()) };
-        correction_fn(predicted, corrected, t)
     }
 
     // TODO: also sync removals!
     /// Clone the components from the confirmed entity to the predicted entity
     /// All the cloned components are inserted at once.
-    pub fn batch_sync(
+    pub(crate) fn batch_sync(
         &self,
         component_registry: &ComponentRegistry,
         component_ids: &[ComponentId],
@@ -230,7 +265,7 @@ impl PredictionRegistry {
     }
 
     /// Sync a component value from the confirmed entity to the predicted entity
-    pub fn buffer_sync<C: SyncComponent>(
+    fn buffer_sync<C: Component + Clone>(
         &self,
         component_registry: &ComponentRegistry,
         confirmed: Entity,
@@ -289,7 +324,7 @@ impl PredictionRegistry {
     }
 
     /// Returns true if we should rollback
-    pub fn check_rollback<C: SyncComponent>(
+    fn check_rollback<C: SyncComponent>(
         &self,
         confirmed_tick: Tick,
         confirmed_ref: &FilteredEntityRef,
@@ -419,21 +454,67 @@ impl PredictionRegistry {
 }
 
 pub trait PredictionRegistrationExt<C> {
+    /// Enable prediction for this immutable component.
+    ///
+    /// This is not compatible with the [`PredictionMode::Full`] mode.
+    fn add_immutable_prediction(self, prediction_mode: PredictionMode) -> Self
+    where
+        C: Component + Clone;
+
+    /// Enable prediction for this component.
+    ///
+    /// See [`PredictionMode`] for details on the different modes of predicting a component.
     fn add_prediction(self, prediction_mode: PredictionMode) -> Self
     where
         C: SyncComponent;
+
+    /// Add correction for this component where the interpolation will done using the lerp function
+    /// provided by the [`Ease`] trait.
     fn add_linear_correction_fn(self) -> Self
     where
         C: SyncComponent + Ease + Diffable<Delta = C>;
+
+    /// Add correction for this component where the interpolation will done using the lerp function
+    /// provided by the [`Ease`] trait.
     fn add_correction_fn(self, correction_fn: LerpFn<C>) -> Self
     where
         C: SyncComponent + Diffable<Delta = C>;
+
+    /// Add a custom comparison function to determine if we should rollback by comparing the
+    /// confirmed component with the predicted component's history.
     fn add_should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self
     where
         C: SyncComponent;
 }
 
 impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
+    fn add_immutable_prediction(self, prediction_mode: PredictionMode) -> Self
+    where
+        C: Component + Clone,
+    {
+        assert_ne!(
+            prediction_mode,
+            PredictionMode::Full,
+            "PredictionMode::Full is not compatible with Immutable components"
+        );
+        if !self.app.world().contains_resource::<PredictionRegistry>() {
+            self.app
+                .world_mut()
+                .insert_resource(PredictionRegistry::default());
+        }
+        let mut registry = self.app.world_mut().resource_mut::<PredictionRegistry>();
+        trace!(
+            "Adding prediction for component {:?} with mode {:?}",
+            core::any::type_name::<C>(),
+            prediction_mode
+        );
+        registry.set_immutable_prediction_mode::<C>(prediction_mode);
+        // TODO: how do we avoid the server adding the prediction systems?
+        //   do we need to make sure that the Protocol runs after the client/server plugins are added?
+        add_immutable_prediction_systems::<C>(self.app, prediction_mode);
+        self
+    }
+
     fn add_prediction(self, prediction_mode: PredictionMode) -> Self
     where
         C: SyncComponent,

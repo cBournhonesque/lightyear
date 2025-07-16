@@ -22,7 +22,7 @@ use tracing::trace;
 
 /// To know if we need to do rollback, we need to compare the interpolated entity's history with the server's state updates
 #[derive(Component, Debug)]
-pub struct ConfirmedHistory<C: SyncComponent> {
+pub struct ConfirmedHistory<C: Component> {
     // TODO: here we can use a sequence buffer. We won't store more than a couple
 
     // TODO: add a max size for the buffer
@@ -47,7 +47,7 @@ impl<C: SyncComponent> PartialEq for ConfirmedHistory<C> {
     }
 }
 
-impl<C: SyncComponent> ConfirmedHistory<C> {
+impl<C: Component> ConfirmedHistory<C> {
     pub fn new() -> Self {
         Self {
             buffer: ReadyBuffer::new(),
@@ -82,7 +82,7 @@ impl<C: SyncComponent> ConfirmedHistory<C> {
 // TODO: maybe add the component history on the Confirmed entity instead of Interpolated? would make more sense maybe
 /// Add a component history for all Interpolated entities, that will store the history of the Confirmed component
 /// that we want to interpolate between entities that have the `Confirmed` component
-pub(crate) fn add_component_history<C: SyncComponent>(
+pub(crate) fn add_component_history<C: Component + Clone>(
     interpolation_registry: Res<InterpolationRegistry>,
     component_registry: Res<ComponentRegistry>,
     // TODO: handle multiple receivers
@@ -205,9 +205,9 @@ pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent>(
     // TODO: handle multiple interpolation receivers
     manager: Single<&InterpolationManager>,
     mut interpolated_entities: Query<&mut C, (With<Interpolated>, Without<Confirmed>)>,
-    confirmed_entities: Query<(Entity, &Confirmed, Ref<C>)>,
+    confirmed_entities: Query<(&Confirmed, Ref<C>)>,
 ) {
-    for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
+    for (confirmed, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed.interpolated {
             if confirmed_component.is_changed() && !confirmed_component.is_added() {
                 if let Ok(mut interpolated_component) = interpolated_entities.get_mut(p) {
@@ -216,6 +216,30 @@ pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent>(
                     let mut component = confirmed_component.deref().clone();
                     let _ = manager.map_entities(&mut component, component_registry.as_ref());
                     *interpolated_component = component;
+                }
+            }
+        }
+    }
+}
+
+/// When we receive a server update for a simple component, we just update the entity directly
+pub(crate) fn apply_confirmed_update_immutable_mode_simple<C: Component + Clone>(
+    component_registry: Res<ComponentRegistry>,
+    // TODO: handle multiple interpolation receivers
+    manager: Single<&InterpolationManager>,
+    mut interpolated_entities: Query<(), (With<Interpolated>, Without<Confirmed>)>,
+    confirmed_entities: Query<(&Confirmed, Ref<C>)>,
+    mut commands: Commands,
+) {
+    for (confirmed, confirmed_component) in confirmed_entities.iter() {
+        if let Some(p) = confirmed.interpolated {
+            if confirmed_component.is_changed() && !confirmed_component.is_added() {
+                if let Ok(()) = interpolated_entities.get_mut(p) {
+                    // for sync-components, we just match the confirmed component
+                    // map any entities from confirmed to interpolated first
+                    let mut component = confirmed_component.deref().clone();
+                    let _ = manager.map_entities(&mut component, component_registry.as_ref());
+                    commands.entity(p).try_insert(component);
                 }
             }
         }

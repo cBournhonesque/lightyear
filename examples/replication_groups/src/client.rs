@@ -2,7 +2,6 @@ use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
 use bevy::prelude::*;
-use lightyear::interpolation::{ConfirmedHistory, InterpolateStatus};
 use lightyear::prelude::input::client::*;
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::*;

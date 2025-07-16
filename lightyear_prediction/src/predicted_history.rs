@@ -101,6 +101,41 @@ pub(crate) fn apply_component_removal_confirmed<C: Component>(
 
 /// If PredictionMode == Simple, when we receive a server update we want to apply it to the predicted entity
 #[allow(clippy::type_complexity)]
+pub(crate) fn apply_immutable_confirmed_update<C: Component + Clone>(
+    prediction_registry: Res<PredictionRegistry>,
+    component_registry: Res<ComponentRegistry>,
+    manager: Single<&PredictionManager>,
+    mut predicted_entities: Query<
+        (),
+        (
+            Without<PredictionHistory<C>>,
+            Without<Confirmed>,
+            With<Predicted>,
+        ),
+    >,
+    confirmed_entities: Query<(&Confirmed, Ref<C>)>,
+    mut commands: Commands,
+) {
+    for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
+        if let Some(p) = confirmed_entity.predicted {
+            if confirmed_component.is_changed() && !confirmed_component.is_added() {
+                if let Ok(()) = predicted_entities.get_mut(p) {
+                    assert_eq!(
+                        prediction_registry.prediction_mode::<C>(),
+                        PredictionMode::Simple
+                    );
+                    // map any entities from confirmed to predicted
+                    let mut component = confirmed_component.deref().clone();
+                    let _ = manager.map_entities(&mut component, component_registry.as_ref());
+                    commands.entity(p).try_insert(component);
+                }
+            }
+        }
+    }
+}
+
+/// If PredictionMode == Simple, when we receive a server update we want to apply it to the predicted entity
+#[allow(clippy::type_complexity)]
 pub(crate) fn apply_confirmed_update<C: SyncComponent>(
     prediction_registry: Res<PredictionRegistry>,
     component_registry: Res<ComponentRegistry>,

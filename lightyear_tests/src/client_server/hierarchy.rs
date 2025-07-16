@@ -3,9 +3,7 @@
 use crate::stepper::ClientServerStepper;
 use bevy::prelude::*;
 use lightyear_messages::MessageManager;
-use lightyear_replication::prelude::{
-    ChildOfSync, DisableReplicateHierarchy, Replicate, ReplicateLike,
-};
+use lightyear_replication::prelude::{DisableReplicateHierarchy, Replicate, ReplicateLike};
 use test_log::test;
 
 // TODO:
@@ -106,26 +104,18 @@ fn test_hierarchy_replication() {
         .get_local(parent)
         .expect("entity is not present in entity map");
 
-    let (client_parent, client_parent_sync, client_parent_component) = stepper
+    let (client_parent, client_parent_component) = stepper
         .client_app()
         .world_mut()
-        .query::<(Entity, &ChildOfSync, &ChildOf)>()
+        .query::<(Entity, &ChildOf)>()
         .single(stepper.client_app().world())
         .unwrap();
 
-    assert_eq!(client_parent_sync.entity, Some(client_grandparent));
     assert_eq!(client_parent_component.parent(), client_grandparent);
 
     // TODO: check that the parent/grandparent have the same ReplicationGroupId
 
     // check that the child did not get replicated
-    assert!(
-        stepper
-            .server_app
-            .world()
-            .get::<ChildOfSync>(child)
-            .is_none()
-    );
     assert!(
         stepper
             .server_app
@@ -143,25 +133,7 @@ fn test_hierarchy_replication() {
     let replicate_like = stepper.server_app.world_mut().get::<ReplicateLike>(parent);
     stepper.frame_step(2);
 
-    // 1. make sure that parent sync has been updated on the sender side
-    assert_eq!(
-        stepper
-            .server_app
-            .world_mut()
-            .entity_mut(parent)
-            .get::<ChildOfSync>(),
-        Some(&ChildOfSync::from(None))
-    );
-
-    // 2. make sure that the parent has been removed on the receiver side, and that ParentSync has been updated
-    assert_eq!(
-        stepper
-            .client_app()
-            .world_mut()
-            .entity_mut(client_parent)
-            .get::<ChildOfSync>(),
-        Some(&ChildOfSync::from(None))
-    );
+    // 1. make sure that the parent has been removed on the receiver side
     assert_eq!(
         stepper
             .client_app()

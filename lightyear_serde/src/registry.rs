@@ -146,8 +146,7 @@ pub type ContextDeserializeFn<C, M, I> =
 type CloneFn<M> = fn(&M) -> M;
 
 /// Type of the entity mapping function
-pub(crate) type ErasedMapEntitiesFn =
-    for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut EntityMap);
+pub type ErasedMapEntitiesFn = for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut EntityMap);
 
 fn default_context_serialize<C, M>(
     _: &mut C,
@@ -274,6 +273,19 @@ impl ErasedSerializeFns {
     // However, components that contain other entities should be small in general.
     pub fn add_map_entities<M: Clone + MapEntities + 'static>(&mut self) {
         self.map_entities = Some(erased_map_entities::<M>);
+        let clone_fn: fn(&M) -> M = erased_clone::<M>;
+        self.erased_clone = Some(unsafe { core::mem::transmute(clone_fn) });
+    }
+
+    // We need to be able to clone the data, because when serialize we:
+    // - clone the data
+    // - map the entities
+    // - serialize the cloned data
+    // Note that this is fairly inefficient because in most cases (when there is no authority transfer)
+    // there is no entity mapping done on the serialization side, just on the deserialization side.
+    // However, components that contain other entities should be small in general.
+    pub fn add_map_entities_with<M: Clone + 'static>(&mut self, map_entities: ErasedMapEntitiesFn) {
+        self.map_entities = Some(map_entities);
         let clone_fn: fn(&M) -> M = erased_clone::<M>;
         self.erased_clone = Some(unsafe { core::mem::transmute(clone_fn) });
     }
