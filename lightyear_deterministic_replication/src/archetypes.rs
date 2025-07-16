@@ -83,6 +83,7 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
                 .prediction_map
                 .iter()
                 .filter_map(|(kind, pred)| {
+                    // TODO: for non-full components, just fetch the component value directly
                     let history_id = pred.history_id?;
                     // We need write access because we will call `pop_until_tick` on the history component
                     filtered_access.add_component_write(history_id);
@@ -94,7 +95,7 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
                     );
                     registry.component_metadata_map
                         .get(kind)
-                        .and_then(|m| m.deterministic.as_ref().map(|d| (history_id, (*d, pred.pop_until_tick_and_hash))))
+                        .and_then(|m| m.deterministic.as_ref().map(|d| (history_id, (*d, pred.pop_until_tick_and_hash()))))
                 })
                 .collect()
         };

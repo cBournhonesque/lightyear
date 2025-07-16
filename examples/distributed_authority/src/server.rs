@@ -88,9 +88,7 @@ fn movement(
     >,
 ) {
     for (position, inputs) in position_query.iter_mut() {
-        if let Some(inputs) = &inputs.value {
-            shared::shared_movement_behaviour(position, inputs);
-        }
+        shared::shared_movement_behaviour(position, inputs);
     }
 }
 

@@ -1,7 +1,5 @@
 //! Bevy [`Plugin`] used by both the server and the client
 use bevy_app::{App, Plugin};
-#[cfg(feature = "replication")]
-use bevy_ecs::hierarchy::ChildOf;
 use core::time::Duration;
 use lightyear_core::plugin::CorePlugins;
 
@@ -29,15 +27,6 @@ impl Plugin for SharedPlugins {
         #[cfg(feature = "replication")]
         app.add_plugins(lightyear_replication::prelude::ReplicationSendPlugin)
             .add_plugins(lightyear_replication::prelude::NetworkVisibilityPlugin)
-            // TODO: this is dangerous because every registered message/component/etc.
-            //  needs to be registered at the same time on client/server to guarantee that
-            //  they shared the same network_id!
-            .add_plugins(lightyear_replication::prelude::RelationshipSendPlugin::<
-                ChildOf,
-            >::default())
-            .add_plugins(lightyear_replication::prelude::RelationshipReceivePlugin::<
-                ChildOf,
-            >::default())
             .add_plugins(lightyear_replication::prelude::HierarchySendPlugin)
             .add_plugins(lightyear_replication::prelude::AuthorityPlugin)
             .add_plugins(lightyear_replication::prelude::ReplicationReceivePlugin);

@@ -55,7 +55,7 @@ fn test_remote_client_replicated_input() {
         .world_mut()
         .get_mut::<ActionState<MyInput>>(client_entity)
         .unwrap()
-        .value = Some(MyInput(1));
+        .0 = MyInput(1);
 
     stepper.frame_step(1);
     let server_tick = stepper.server_tick();
@@ -70,9 +70,7 @@ fn test_remote_client_replicated_input() {
             .unwrap()
             .get(client_tick)
             .unwrap(),
-        &ActionState {
-            value: Some(MyInput(1))
-        }
+        &ActionState(MyInput(1))
     );
 
     // Advance to client tick to verify server applies the input
@@ -84,9 +82,7 @@ fn test_remote_client_replicated_input() {
             .world()
             .get::<ActionState<MyInput>>(server_entity)
             .unwrap(),
-        &ActionState {
-            value: Some(MyInput(1))
-        }
+        &ActionState(MyInput(1))
     );
 }
 
@@ -137,7 +133,7 @@ fn test_remote_client_predicted_input() {
         .world_mut()
         .get_mut::<ActionState<MyInput>>(client_predicted)
         .unwrap()
-        .value = Some(MyInput(2));
+        .0 = MyInput(2);
 
     stepper.frame_step(1);
     let server_tick = stepper.server_tick();
@@ -152,9 +148,7 @@ fn test_remote_client_predicted_input() {
             .unwrap()
             .get(client_tick)
             .unwrap(),
-        &ActionState {
-            value: Some(MyInput(2))
-        }
+        &ActionState(MyInput(2))
     );
 
     // Advance to client tick to verify server applies the input
@@ -166,9 +160,7 @@ fn test_remote_client_predicted_input() {
             .world()
             .get::<ActionState<MyInput>>(server_entity)
             .unwrap(),
-        &ActionState {
-            value: Some(MyInput(2))
-        }
+        &ActionState(MyInput(2))
     );
 }
 
@@ -220,7 +212,7 @@ fn test_host_client_inputers_replicated_to_remote_client() {
         .world_mut()
         .get_mut::<ActionState<MyInput>>(server_entity)
         .unwrap()
-        .value = Some(MyInput(1));
+        .0 = MyInput(1);
 
     stepper.frame_step(1);
     let server_tick = stepper.server_tick();
@@ -241,8 +233,6 @@ fn test_host_client_inputers_replicated_to_remote_client() {
             .unwrap()
             .get(server_tick)
             .unwrap(),
-        &ActionState {
-            value: Some(MyInput(1))
-        }
+        &ActionState(MyInput(1))
     );
 }

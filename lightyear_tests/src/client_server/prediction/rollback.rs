@@ -18,7 +18,7 @@ use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
 use lightyear_prediction::manager::{LastConfirmedInput, RollbackMode};
 use lightyear_prediction::prelude::{PredictionManager, RollbackSet};
-use lightyear_prediction::rollback::DeterministicPredicted;
+use lightyear_prediction::rollback::{DeterministicPredicted, reset_input_rollback_tracker};
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::{PredictionTarget, Replicate, ReplicationSet};
 use test_log::test;
@@ -735,7 +735,7 @@ fn test_input_rollback_always_mode() {
         PreUpdate,
         check_rollback_start
             .after(RollbackSet::Check)
-            .before(RollbackSet::Prepare),
+            .before(reset_input_rollback_tracker),
     );
 
     // server broadcast input message to clients
@@ -798,7 +798,7 @@ fn test_input_rollback_check_mode_earliest_mismatch() {
         .world_mut()
         .get_mut::<ActionState<NativeInput>>(client_entity_1)
         .unwrap()
-        .value = Some(NativeInput(1));
+        .0 = NativeInput(1);
     stepper.frame_step(1);
     let input_tick = stepper.client_tick(1);
 
@@ -817,7 +817,7 @@ fn test_input_rollback_check_mode_earliest_mismatch() {
         PreUpdate,
         check_rollback_start
             .after(RollbackSet::Check)
-            .before(RollbackSet::Prepare),
+            .before(reset_input_rollback_tracker),
     );
 
     // server broadcast input message to clients

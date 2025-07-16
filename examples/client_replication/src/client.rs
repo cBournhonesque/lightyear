@@ -55,7 +55,6 @@ pub(crate) fn write_inputs(
     keypress: Res<ButtonInput<KeyCode>>,
 ) {
     if let Ok(mut action_state) = query.single_mut() {
-        let mut input;
         let mut direction = Direction {
             up: false,
             down: false,
@@ -74,11 +73,11 @@ pub(crate) fn write_inputs(
         if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
             direction.right = true;
         }
-        input = Some(Inputs::Direction(direction));
+        let mut input = Inputs::Direction(direction);
         if keypress.pressed(KeyCode::KeyK) {
-            input = Some(Inputs::Delete);
+            input = Inputs::Delete;
         }
-        action_state.value = input;
+        action_state.0 = input;
     }
 }
 
@@ -89,11 +88,9 @@ fn player_movement(
     mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
 ) {
     for (position, input) in position_query.iter_mut() {
-        if let Some(input) = &input.value {
-            // NOTE: be careful to directly pass Mut<PlayerPosition>
-            // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
-            shared_movement_behaviour(position, input);
-        }
+        // NOTE: be careful to directly pass Mut<PlayerPosition>
+        // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+        shared_movement_behaviour(position, input);
     }
 }
 
@@ -147,7 +144,7 @@ fn delete_player(
     >,
 ) {
     for (entity, inputs) in players.iter() {
-        if inputs.value.as_ref().is_some_and(|v| v == &Inputs::Delete) {
+        if inputs.0 == Inputs::Delete {
             if let Ok(mut entity_mut) = commands.get_entity(entity) {
                 // we need to use this special function to despawn prediction entity
                 // the reason is that we actually keep the entity around for a while,

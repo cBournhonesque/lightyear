@@ -561,7 +561,7 @@ fn prepare_input_message<S: ActionStateSequence>(
 
     // TODO: revisit this; maybe we should not send an empty message?
     // we send a message even when there are 0 inputs because that itself is information
-    trace!(
+    debug!(
         ?tick,
         ?num_tick,
         "sending input message for {:?}: {:?}",

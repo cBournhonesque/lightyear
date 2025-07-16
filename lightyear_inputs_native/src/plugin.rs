@@ -11,16 +11,9 @@ use lightyear_inputs::input_buffer::InputBuffer;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+#[derive(Default)]
 pub struct InputPlugin<A> {
     pub config: InputConfig<A>,
-}
-
-impl<A> Default for InputPlugin<A> {
-    fn default() -> Self {
-        Self {
-            config: Default::default(),
-        }
-    }
 }
 
 impl<
@@ -31,6 +24,7 @@ impl<
         + Send
         + Sync
         + Debug
+        + Default
         + 'static
         + MapEntities
         + Reflectable

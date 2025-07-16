@@ -45,7 +45,6 @@ lightyear = { "workspace" = true, features = [
 lightyear_examples_common.workspace = true
 
 serde.workspace = true
-tracing.workspace = true
 bevy.workspace = true
 
 [lints]
