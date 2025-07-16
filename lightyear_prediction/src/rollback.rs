@@ -436,7 +436,7 @@ fn reset_input_rollback_tracker(
     // set a high value to the AtomicTick so we can then compute the minimum last_confirmed_tick among all clients
     if let Some(last_confirmed_input) = last_confirmed_input {
         last_confirmed_input.tick.0.store(
-            tick.0 + 1000,
+            (tick + 1000).0,
             bevy_platform::sync::atomic::Ordering::Relaxed,
         );
         last_confirmed_input
@@ -446,7 +446,7 @@ fn reset_input_rollback_tracker(
     if let Some(prediction_manager) = prediction_manager {
         // set a high value to the AtomicTick so we can then compute the minimum earliest_mismatch_tick among all clients
         prediction_manager.earliest_mismatch_input.tick.0.store(
-            tick.0 + 1000,
+            (tick + 1000).0,
             bevy_platform::sync::atomic::Ordering::Relaxed,
         );
         prediction_manager
