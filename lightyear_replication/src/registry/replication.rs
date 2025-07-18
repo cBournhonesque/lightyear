@@ -50,7 +50,7 @@ impl ReplicationMetadata {
         }
     }
 
-    pub(crate) fn default_fns<C: Component<Mutability: GetWriteFns<C>> + PartialEq>(
+    pub(crate) fn default_fns<C: Component<Mutability: GetWriteFns<C>>>(
         config: ComponentReplicationConfig,
         overrides_component_id: ComponentId,
     ) -> Self {

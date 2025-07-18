@@ -396,7 +396,7 @@ pub trait AppComponentExt {
     /// Registers the component in the Registry
     /// This component can now be sent over the network.
     fn register_component<
-        C: Component<Mutability: GetWriteFns<C>> + Serialize + DeserializeOwned + PartialEq,
+        C: Component<Mutability: GetWriteFns<C>> + Serialize + DeserializeOwned,
     >(
         &mut self,
     ) -> ComponentRegistration<'_, C>;
@@ -404,7 +404,7 @@ pub trait AppComponentExt {
     /// Registers the component in the Registry: this component can now be sent over the network.
     ///
     /// You need to provide your own [`SerializeFns`]
-    fn register_component_custom_serde<C: Component<Mutability: GetWriteFns<C>> + PartialEq>(
+    fn register_component_custom_serde<C: Component<Mutability: GetWriteFns<C>>>(
         &mut self,
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C>;
@@ -421,14 +421,14 @@ pub trait AppComponentExt {
 
 impl AppComponentExt for App {
     fn register_component<
-        C: Component<Mutability: GetWriteFns<C>> + PartialEq + Serialize + DeserializeOwned,
+        C: Component<Mutability: GetWriteFns<C>> + Serialize + DeserializeOwned,
     >(
         &mut self,
     ) -> ComponentRegistration<'_, C> {
         self.register_component_custom_serde(SerializeFns::<C>::default())
     }
 
-    fn register_component_custom_serde<C: Component<Mutability: GetWriteFns<C>> + PartialEq>(
+    fn register_component_custom_serde<C: Component<Mutability: GetWriteFns<C>>>(
         &mut self,
         serialize_fns: SerializeFns<C>,
     ) -> ComponentRegistration<'_, C> {
@@ -500,7 +500,7 @@ impl<C> ComponentRegistration<'_, C> {
 
     pub fn with_replication_config(self, config: ComponentReplicationConfig) -> Self
     where
-        C: Component<Mutability: GetWriteFns<C>> + PartialEq,
+        C: Component<Mutability: GetWriteFns<C>>
     {
         let overrides_component_id = self
             .app
