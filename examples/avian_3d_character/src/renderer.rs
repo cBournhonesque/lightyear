@@ -42,9 +42,10 @@ impl Plugin for ExampleRendererPlugin {
             position_to_transform_for_interpolated.before(TransformSystem::TransformPropagate),
         );
 
-        // Set up visual interp plugins for Transform. Transform is updated in FixedUpdate
+        // Set up visual interp plugins for Position/Rotation. Position/Rotation is updated in FixedUpdate
         // by the physics plugin so we make sure that in PostUpdate we interpolate it
-        app.add_plugins(FrameInterpolationPlugin::<Transform>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Position>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
 
         // Observers that add VisualInterpolationStatus components to entities
         // which receive a Position and are predicted
@@ -134,13 +135,22 @@ fn add_visual_interpolation_components(
     }
     commands
         .entity(trigger.target())
-        .insert(FrameInterpolate::<Transform> {
-            // We must trigger change detection on visual interpolation
-            // to make sure that child entities (sprites, meshes, text)
-            // are also interpolated
-            trigger_change_detection: true,
-            ..default()
-        });
+        .insert((
+            FrameInterpolate::<Position> {
+                // We must trigger change detection on visual interpolation
+                // to make sure that child entities (sprites, meshes, text)
+                // are also interpolated
+                trigger_change_detection: true,
+                ..default()
+            },
+            FrameInterpolate::<Rotation> {
+                // We must trigger change detection on visual interpolation
+                // to make sure that child entities (sprites, meshes, text)
+                // are also interpolated
+                trigger_change_detection: true,
+                ..default()
+            }
+        ));
 }
 
 /// Add components to characters that impact how they are rendered. We only
@@ -226,6 +236,8 @@ fn add_block_cosmetics(
     }
 }
 
+
+
 fn disable_projectile_rollback(
     mut commands: Commands,
     q_projectile: Query<
@@ -235,6 +247,8 @@ fn disable_projectile_rollback(
             With<ProjectileMarker>,
             // Or<(With<ProjectileMarker>, With<CharacterMarker>)>,
             // disabling character rollbacks while we debug projectiles with this janky setup
+            
+            // We stop checking for state rollbacks after the first frame where the projectile is predicted
             Without<DeterministicPredicted>,
         ),
     >,

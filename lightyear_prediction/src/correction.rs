@@ -42,7 +42,7 @@ use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_frame_interpolation::FrameInterpolate;
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_replication::delta::Diffable;
-use tracing::{error, trace};
+use tracing::{trace};
 
 /// The visual value of the component before the rollback started
 #[derive(Component, Debug, Reflect)]
@@ -83,22 +83,14 @@ pub(crate) fn update_frame_interpolation_post_rollback<C: SyncComponent + Diffab
         &mut C,
         &PreviousVisual<C>,
         &PredictionHistory<C>,
-        Option<&mut FrameInterpolate<C>>,
+        &mut FrameInterpolate<C>,
     )>,
     mut commands: Commands,
 ) {
     // NOTE: this is the overstep from the previous frame since we are running this before RunFixedMainLoop
     let overstep = time.overstep_fraction();
     let tick = timeline.tick();
-    for (entity, component, previous_visual, history, interpolate) in query.iter_mut() {
-        let Some(mut interpolate) = interpolate else {
-            error!(
-                ?entity,
-                "We have a VisualCorrection but not FrameInterpolate for {:?}",
-                core::any::type_name::<C>()
-            );
-            continue;
-        };
+    for (entity, component, previous_visual, history, mut interpolate) in query.iter_mut() {
         interpolate.current_value = Some(component.clone());
         interpolate.previous_value = history.nth_most_recent(1).cloned();
         let Some(previous) = &interpolate.previous_value else {

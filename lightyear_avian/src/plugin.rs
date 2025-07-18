@@ -85,15 +85,13 @@ impl Plugin for LightyearAvianPlugin {
                     )
                         .chain(),
                 );
-                // In case the user is running physics in PostUpdate: Sync Pos/Rotation to Transform before applying frame interpolation to Transform
                 app.configure_sets(
                     PostUpdate,
                     (
-                        // TODO: revisit this. The VisualCorrection is computed on the Position/Rotation, but the
-                        //  FrameInterpolation is applied to the Transform.
-                        PhysicsSet::Sync,
                         FrameInterpolationSet::Interpolate,
                         RollbackSet::VisualCorrection,
+                        // In case the user is running FrameInterpolation for Position/Rotation, we run FrameInterpolation and Correction before syncing to Transform
+                        PhysicsSet::Sync,
                         TransformSystem::TransformPropagate,
                     )
                         .chain(),
