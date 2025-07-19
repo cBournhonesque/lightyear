@@ -37,14 +37,10 @@ impl Plugin for ExampleRendererPlugin {
                 .before(RollbackSet::Check),
         );
 
-        app.add_systems(
-            PostUpdate,
-            position_to_transform_for_interpolated.before(TransformSystem::TransformPropagate),
-        );
-
-        // Set up visual interp plugins for Transform. Transform is updated in FixedUpdate
+        // Set up visual interp plugins for Position/Rotation. Position/Rotation is updated in FixedUpdate
         // by the physics plugin so we make sure that in PostUpdate we interpolate it
-        app.add_plugins(FrameInterpolationPlugin::<Transform>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Position>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
 
         // Observers that add VisualInterpolationStatus components to entities
         // which receive a Position and are predicted
@@ -70,50 +66,6 @@ fn init(mut commands: Commands) {
     ));
 }
 
-type ParentComponents = (
-    &'static GlobalTransform,
-    Option<&'static Position>,
-    Option<&'static Rotation>,
-);
-
-type PosToTransformComponents = (
-    &'static mut Transform,
-    &'static Position,
-    &'static Rotation,
-    Option<&'static ChildOf>,
-);
-
-// Avian's sync plugin only runs for entities with RigidBody, but we want to also apply it for interpolated entities
-pub fn position_to_transform_for_interpolated(
-    mut query: Query<PosToTransformComponents, With<Interpolated>>,
-    parents: Query<ParentComponents, With<Children>>,
-) {
-    for (mut transform, pos, rot, parent) in &mut query {
-        if let Some(child_of) = parent {
-            if let Ok((parent_transform, parent_pos, parent_rot)) = parents.get(child_of.parent()) {
-                let parent_transform = parent_transform.compute_transform();
-                let parent_pos = parent_pos.map_or(parent_transform.translation, |pos| pos.f32());
-                let parent_rot = parent_rot.map_or(parent_transform.rotation, |rot| rot.f32());
-                let parent_scale = parent_transform.scale;
-                let parent_transform = Transform::from_translation(parent_pos)
-                    .with_rotation(parent_rot)
-                    .with_scale(parent_scale);
-
-                let new_transform = GlobalTransform::from(
-                    Transform::from_translation(pos.f32()).with_rotation(rot.f32()),
-                )
-                .reparented_to(&GlobalTransform::from(parent_transform));
-
-                transform.translation = new_transform.translation;
-                transform.rotation = new_transform.rotation;
-            }
-        } else {
-            transform.translation = pos.f32();
-            transform.rotation = rot.f32();
-        }
-    }
-}
-
 /// Add the VisualInterpolateStatus::<Transform> component to non-floor entities with
 /// component `Position`. Floors don't need to be visually interpolated because we
 /// don't expect them to move.
@@ -132,15 +84,22 @@ fn add_visual_interpolation_components(
     if !query.contains(trigger.target()) {
         return;
     }
-    commands
-        .entity(trigger.target())
-        .insert(FrameInterpolate::<Transform> {
+    commands.entity(trigger.target()).insert((
+        FrameInterpolate::<Position> {
             // We must trigger change detection on visual interpolation
             // to make sure that child entities (sprites, meshes, text)
             // are also interpolated
             trigger_change_detection: true,
             ..default()
-        });
+        },
+        FrameInterpolate::<Rotation> {
+            // We must trigger change detection on visual interpolation
+            // to make sure that child entities (sprites, meshes, text)
+            // are also interpolated
+            trigger_change_detection: true,
+            ..default()
+        },
+    ));
 }
 
 /// Add components to characters that impact how they are rendered. We only
@@ -235,6 +194,8 @@ fn disable_projectile_rollback(
             With<ProjectileMarker>,
             // Or<(With<ProjectileMarker>, With<CharacterMarker>)>,
             // disabling character rollbacks while we debug projectiles with this janky setup
+
+            // We stop checking for state rollbacks after the first frame where the projectile is predicted
             Without<DeterministicPredicted>,
         ),
     >,

@@ -81,6 +81,7 @@ impl Plugin for RollbackPlugin {
         app.configure_sets(
             PostUpdate,
             // we add the correction error AFTER the interpolation was done
+            // (which means it's also after we buffer the component for replication)
             RollbackSet::VisualCorrection
                 .after(FrameInterpolationSet::Interpolate)
                 .in_set(PredictionSet::All),
@@ -154,7 +155,6 @@ impl Plugin for RollbackPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
-            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(check_rollback)
@@ -202,7 +202,6 @@ fn check_rollback(
         With<IsSynced<InputTimeline>>,
     >,
     prediction_registry: Res<PredictionRegistry>,
-    component_registry: Res<ComponentRegistry>,
     system_ticks: SystemChangeTick,
     parallel_commands: ParallelCommands,
     mut commands: Commands,

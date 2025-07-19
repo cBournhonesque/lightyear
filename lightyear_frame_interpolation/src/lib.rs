@@ -64,7 +64,7 @@ use lightyear_connection::client::Client;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_interpolation::prelude::InterpolationRegistry;
-use lightyear_replication::prelude::ReplicationSet;
+use lightyear_replication::prelude::ReplicationBufferSet;
 use tracing::trace;
 
 /// System sets used by the `FrameInterpolationPlugin`.
@@ -124,7 +124,7 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
             FrameInterpolationSet::Interpolate
                 .before(TransformSystem::TransformPropagate)
                 // we don't want the visual interpolation value to be the one replicated!
-                .after(ReplicationSet::Send),
+                .after(ReplicationBufferSet::Buffer),
         );
 
         // SYSTEMS
@@ -250,8 +250,8 @@ pub(crate) fn restore_from_visual_interpolation<
         if let Some(current_value) = &interpolate_status.current_value {
             trace!(
                 ?kind,
-                ?component,
-                ?current_value,
+                visual = ?component,
+                correct = ?current_value,
                 "Restoring visual interpolation"
             );
             *component.bypass_change_detection() = current_value.clone();

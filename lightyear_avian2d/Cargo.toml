@@ -44,6 +44,7 @@ tracing.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_math.workspace = true
+bevy_time.workspace = true
 bevy_transform = { workspace = true, features = ["bevy-support", "libm"] }
 bevy_utils.workspace = true
 

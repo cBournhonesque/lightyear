@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::prelude::client::{Input, InputDelayConfig};
+
 use lightyear::prelude::{Client, InputTimeline, Timeline};
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
@@ -59,16 +59,18 @@ fn main() {
 
 #[cfg(feature = "client")]
 fn add_input_delay(app: &mut App) {
+    use lightyear::prelude::client::{Input, InputDelayConfig};
+
     let client = app
         .world_mut()
         .query_filtered::<Entity, With<Client>>()
         .single(app.world_mut())
         .unwrap();
 
-    // set some input-delay since we are predicting all entities
-    app.world_mut()
-        .entity_mut(client)
-        .insert(InputTimeline(Timeline::from(
-            Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
-        )));
+    // // set some input-delay since we are predicting all entities
+    // app.world_mut()
+    //     .entity_mut(client)
+    //     .insert(InputTimeline(Timeline::from(
+    //         Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
+    //     )));
 }

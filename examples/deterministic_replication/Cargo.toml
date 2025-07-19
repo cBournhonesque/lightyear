@@ -20,11 +20,12 @@ lightyear = { workspace = true, features = [
   "replication",
   "leafwing",
   "deterministic",
-  "avian2d",
 ] }
 lightyear_examples_common.workspace = true
 lightyear_frame_interpolation.workspace = true
 leafwing-input-manager.workspace = true
+# add avian2d directly to customize the plugin 
+lightyear_avian2d = { workspace = true, features = ["deterministic", "2d"]}
 avian2d = { workspace = true, features = [
   "2d",
   "f32",
