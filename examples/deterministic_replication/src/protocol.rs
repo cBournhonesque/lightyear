@@ -99,13 +99,13 @@ impl Plugin for ProtocolPlugin {
         app.add_rollback::<Position>()
             .add_should_rollback(position_should_rollback)
             // add a hash function to perform a checksum in order to catch desyncs
-            .add_custom_hash(lightyear::avian2d::types::position::hash)
+            .add_custom_hash(lightyear_avian2d::types::position::hash)
             .add_linear_interpolation_fn()
             .add_linear_correction_fn();
 
         app.add_rollback::<Rotation>()
             .add_should_rollback(rotation_should_rollback)
-            .add_custom_hash(lightyear::avian2d::types::rotation::hash)
+            .add_custom_hash(lightyear_avian2d::types::rotation::hash)
             .add_linear_interpolation_fn()
             .add_linear_correction_fn();
 

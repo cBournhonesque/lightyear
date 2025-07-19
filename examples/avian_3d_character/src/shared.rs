@@ -91,11 +91,6 @@ impl Plugin for SharedPlugin {
             angular: -0.01,
         });
 
-        // app.add_systems(
-        //     FixedPostUpdate,
-        //     after_physics_log.after(PhysicsSet::StepSimulation),
-        // );
-
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
@@ -103,18 +98,6 @@ impl Plugin for SharedPlugin {
                 .disable::<PhysicsInterpolationPlugin>()
                 // disable Sleeping plugin as it can mess up physics rollbacks
                 .disable::<SleepingPlugin>(),
-        );
-
-        // add an extra sync for cases where:
-        // - we receive a Position, do a rollback and set C=Correct, apply sync
-        // - in RunFixedMainLoop, we set C=Original
-        // - FixedUpdate doesn't run because frame rate is too high!
-        // - then the Transform that we show is C=Correct instead of C=Original!
-        app.add_systems(
-            PostUpdate,
-            position_to_transform
-                .in_set(PhysicsSet::Sync)
-                .run_if(|config: Res<avian3d::sync::SyncConfig>| config.position_to_transform),
         );
     }
 }

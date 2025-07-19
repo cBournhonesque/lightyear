@@ -98,6 +98,7 @@ pub(crate) fn draw_elements(
     walls: Query<(&Wall, &ColorComponent), (Without<BallMarker>, Without<PlayerId>)>,
 ) {
     for (position, rotation, color) in &players {
+        info!("Draw player at position {position:?}");
         gizmos.rect_2d(
             Isometry2d {
                 rotation: Rot2 {

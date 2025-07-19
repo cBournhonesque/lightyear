@@ -27,7 +27,7 @@ impl Plugin for SharedPlugin {
         app.add_systems(Startup, init);
 
         // physics
-        app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
+        app.add_plugins(lightyear_avian2d::plugin::LightyearAvianPlugin {
             rollback_resources: true,
             ..default()
         });

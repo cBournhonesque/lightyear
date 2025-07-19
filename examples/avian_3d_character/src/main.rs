@@ -60,7 +60,7 @@ fn main() {
 #[cfg(feature = "client")]
 fn add_input_delay(app: &mut App) {
     use lightyear::prelude::client::{Input, InputDelayConfig};
-    
+
     let client = app
         .world_mut()
         .query_filtered::<Entity, With<Client>>()

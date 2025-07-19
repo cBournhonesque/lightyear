@@ -77,8 +77,11 @@ impl Plugin for LightyearAvianPlugin {
                     (
                         // update physics
                         PhysicsSet::StepSimulation,
-                        // run physics before spawning we sync so that PreSpawned entities have accurate Position/Rotation values in their history
-                        PredictionSet::Sync,
+                        // TODO: run physics before we sync so that PreSpawned entities have accurate Position/Rotation values in their history -> Do we have PredictionSet::Sync systems in
+                        // FixedPostUpdate?
+
+                        // update the history only after the physics have been updated
+                        PredictionSet::UpdateHistory,
                         PhysicsSet::Sync,
                         // the transform value has to be updated (from Position) before we can store it for FrameInterpolation
                         FrameInterpolationSet::Update,
@@ -147,7 +150,7 @@ impl Plugin for LightyearAvianPlugin {
                         // update physics
                         PhysicsSet::StepSimulation,
                         // run physics before spawning we sync so that PreSpawned entities have accurate Position/Rotation values in their history
-                        PredictionSet::Sync,
+                        PredictionSet::UpdateHistory,
                         PhysicsSet::Sync,
                         // the transform value has to be updated (from Position) before we can store it for FrameInterpolation
                         FrameInterpolationSet::Update,

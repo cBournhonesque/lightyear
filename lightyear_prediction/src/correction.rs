@@ -42,7 +42,7 @@ use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_frame_interpolation::FrameInterpolate;
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_replication::delta::Diffable;
-use tracing::{trace};
+use tracing::trace;
 
 /// The visual value of the component before the rollback started
 #[derive(Component, Debug, Reflect)]

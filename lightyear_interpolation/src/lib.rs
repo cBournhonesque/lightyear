@@ -10,7 +10,7 @@ use bevy_ecs::{
     world::DeferredWorld,
 };
 use lightyear_replication::prelude::Replicated;
-use tracing::error;
+use tracing::{error};
 
 use crate::manager::InterpolationManager;
 

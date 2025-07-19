@@ -589,7 +589,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             &mut MessageReceiver<InputMessage<S>>,
             Option<&LastConfirmedInput>,
             &PredictionManager,
-            &InputTimeline,
+            &LocalTimeline,
         ),
         // the host-client won't receive input messages from the Server
         (With<IsSynced<InputTimeline>>, Without<HostClient>),
@@ -695,7 +695,10 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 /// For example if the last confirmed input was at tick 10, and we received an InputMessage with end_tick 14, we want to rollback to tick 10
 /// (and not to tick 14) because we need to potentially re-apply inputs for ticks 11, 12, 13, 14.
 fn update_last_confirmed_input<S: ActionStateSequence>(
-    last_confirmed_input: Single<(&LastConfirmedInput, &InputTimeline), With<Client>>,
+    last_confirmed_input: Single<
+        (&LastConfirmedInput, &InputTimeline, &LocalTimeline),
+        With<Client>,
+    >,
     predicted_query: Query<
         &InputBuffer<S::Snapshot>,
         (
@@ -704,13 +707,12 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
         ),
     >,
 ) {
-    let (last_confirmed_input, input_timeline) = last_confirmed_input.into_inner();
+    let (last_confirmed_input, input_timeline, local_timeline) = last_confirmed_input.into_inner();
+    let tick = local_timeline.tick();
     // in lockstep mode, we don't need last confirmed input because we always have all inputs for a given tick.
     // we will just use the current tick as the last confirmed input tick
     if input_timeline.is_lockstep() {
-        last_confirmed_input
-            .tick
-            .set_if_lower(input_timeline.tick());
+        last_confirmed_input.tick.set_if_lower(tick);
         return;
     }
     // TODO: how to handle multiple actions S?
