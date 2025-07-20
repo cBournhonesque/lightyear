@@ -56,6 +56,9 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
       the [`leafwing-input-manager`](https://github.com/Leafwing-Studios/leafwing-input-manager) crate, where
       your `leafwing` inputs are networked for you!
     - Also supports the [`bevy-enhanced-input`](https://github.com/projectharmonia/bevy_enhanced_input) crate!
+- Deterministic replication
+    - *Lightyear* supports deterministic replication when only inputs are replicated. The simulation needs to be deterministic.
+      The deterministic replication is compatible with both lockstep and prediction/rollback.
 - World Replication
     - Entities that have the `Replicate` bundle will be automatically replicated to clients.
 - Advanced replication
@@ -91,7 +94,7 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
 
 | Lightyear | Bevy |
 |-----------|------|
-| 0.20-0.21 | 0.16 |
+| 0.20-0.22 | 0.16 |
 | 0.18-0.19 | 0.15 |
 | 0.16-0.17 | 0.14 |
 | 0.10-0.15 | 0.13 |
