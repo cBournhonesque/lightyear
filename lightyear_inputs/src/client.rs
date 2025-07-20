@@ -70,14 +70,13 @@ use lightyear_core::tick::TickDuration;
 use lightyear_core::time::TickDelta;
 
 use lightyear_connection::client::Client;
+#[cfg(feature = "interpolation")]
 use lightyear_interpolation::prelude::*;
 use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
-use lightyear_prediction::manager::LastConfirmedInput;
 #[cfg(feature = "prediction")]
 use lightyear_prediction::prelude::*;
-use lightyear_prediction::rollback::DeterministicPredicted;
 use lightyear_replication::components::{Confirmed, PrePredicted};
 use lightyear_sync::plugin::SyncSet;
 use lightyear_sync::prelude::InputTimeline;
@@ -472,6 +471,12 @@ fn prepare_input_message<S: ActionStateSequence>(
     >,
 ) {
     let (local_timeline, input_timeline, message_manager, is_host_client) = sender.into_inner();
+    #[cfg(not(feature = "prediction"))]
+    if is_host_client {
+        return;
+    }
+
+    #[cfg(feature = "prediction")]
     if is_host_client && !input_config.rebroadcast_inputs {
         // the host-client doesn't need to send input messages since the ActionState is already on the entity
         // unless we want to rebroadcast the HostClient inputs to other clients
@@ -823,6 +828,13 @@ fn send_input_messages<S: ActionStateSequence>(
     >,
 ) {
     let (mut sender, is_host_client) = sender.into_inner();
+
+    #[cfg(not(feature = "prediction"))]
+    if is_host_client {
+        message_buffer.0.clear();
+        return;
+    }
+    #[cfg(feature = "prediction")]
     if is_host_client && !input_config.rebroadcast_inputs {
         // the host-client doesn't need to send input messages since the ActionState is already on the entity
         // unless we want to rebroadcast the HostClient inputs to other clients

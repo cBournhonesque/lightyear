@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_webtransport"
-version = "0.22.3"
+version = "0.22.4"
 authors = ["aecsocket <aecsocket@tutanota.com>"]
 edition.workspace = true
 rust-version.workspace = true

@@ -34,14 +34,14 @@ pub mod prelude {
     pub use crate::PredictionMode;
     pub use crate::correction::VisualCorrection;
     pub use crate::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
-    pub use crate::manager::{PredictionManager, RollbackMode, RollbackPolicy};
+    pub use crate::manager::{LastConfirmedInput, PredictionManager, RollbackMode, RollbackPolicy};
     pub use crate::plugin::{PredictionPlugin, PredictionSet};
     pub use crate::predicted_history::PredictionHistory;
     pub use crate::prespawn::PreSpawned;
     pub use crate::registry::{
         PredictionAppRegistrationExt, PredictionRegistrationExt, PredictionRegistry,
     };
-    pub use crate::rollback::RollbackSet;
+    pub use crate::rollback::{DeterministicPredicted, RollbackSet};
 
     #[cfg(feature = "server")]
     pub mod server {
