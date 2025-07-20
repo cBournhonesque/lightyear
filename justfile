@@ -429,10 +429,10 @@ release_dryrun_no_changelog:
     cargo smart-release lightyear --allow-dirty -v -u --no-changelog --no-tag --no-push --dry-run-cargo-publish
 
 release_dryrun:
-    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-tag --no-push --dry-run-cargo-publish
+    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-push --dry-run-cargo-publish
 
 release_no_changelog:
     cargo smart-release lightyear --allow-dirty -v -u --no-changelog --no-tag --no-push --execute
 
 release:
-    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-tag --no-push --execute
+    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-push --execute
