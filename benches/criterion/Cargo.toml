@@ -6,7 +6,6 @@ authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description = "Benchmark tests for lightyear"
-readme = "../README.md"
 repository = "https://github.com/cBournhonesque/lightyear"
 keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
 categories = ["game-development", "network-programming"]
@@ -24,7 +23,6 @@ tracy-client = { version = "=0.18.0" }
 # crates specific to benchmarks, so not in top-level Cargo workspace
 pprof = { version = "0.15.0", features = ["flamegraph", "frame-pointer"] }
 criterion = { version = "0.6", features = ["html_reports"] }
-divan = "0.1.14"
 
 [lib]
 bench = false

@@ -426,13 +426,13 @@ lightyear_webtransport:
 
 
 release_dryrun_no_changelog:
-    cargo smart-release lightyear --allow-dirty -v -u --no-changelog --no-tag --no-push --dry-run-cargo-publish
+    cargo smart-release lightyear --allow-dirty -v -u --no-changelog --no-tag --no-push --dry-run-cargo-publish -b keep -d keep
 
 release_dryrun:
-    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-push --dry-run-cargo-publish
+    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-push --dry-run-cargo-publish -b keep -d keep
 
 release_no_changelog:
-    cargo smart-release lightyear --allow-dirty -v -u --no-changelog --no-tag --no-push --execute
+    cargo smart-release lightyear --allow-dirty -v -u --no-changelog --no-tag --no-push --execute -b keep -d keep
 
 release:
-    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-push --execute
+    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-push --execute -b keep -d keep

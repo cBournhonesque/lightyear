@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_inputs_leafwing"
-version = "0.22.0"
+version = "0.22.3"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
