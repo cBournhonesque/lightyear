@@ -3,13 +3,14 @@ use bevy::math::VectorSpace;
 use bevy::prelude::*;
 use core::hash::Hash;
 
+use crate::protocol::*;
 use avian3d::prelude::*;
 use avian3d::sync::position_to_transform;
 use leafwing_input_manager::prelude::ActionState;
-
+use lightyear::connection::client_of::ClientOf;
+use lightyear::input::input_buffer::InputBuffer;
 use lightyear::prelude::*;
-
-use crate::protocol::*;
+use lightyear_frame_interpolation::FrameInterpolate;
 
 pub const FLOOR_WIDTH: f32 = 100.0;
 pub const FLOOR_HEIGHT: f32 = 1.0;
@@ -85,20 +86,17 @@ impl Plugin for SharedPlugin {
 
         // Physics
 
-        // disable sleeping
-        app.insert_resource(SleepingThreshold {
-            linear: -0.01,
-            angular: -0.01,
-        });
-
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
-                .disable::<SyncPlugin>()
                 .disable::<PhysicsInterpolationPlugin>()
                 // disable Sleeping plugin as it can mess up physics rollbacks
                 .disable::<SleepingPlugin>(),
         );
+
+        // Debug
+        app.add_systems(FixedLast, fixed_last_log);
+        app.add_systems(Last, last_log);
     }
 }
 
@@ -199,4 +197,66 @@ pub fn apply_character_action(
     character
         .external_force
         .apply_force(required_acceleration * character.mass.value());
+}
+
+pub(crate) fn fixed_last_log(
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
+    players: Query<
+        (
+            Entity,
+            &Position,
+            Option<&VisualCorrection<Position>>,
+            Option<&ActionState<CharacterAction>>,
+            Option<&InputBuffer<ActionState<CharacterAction>>>,
+        ),
+        (With<CharacterMarker>, Without<Confirmed>),
+    >,
+) {
+    let (timeline, rollback) = timeline.into_inner();
+    let tick = timeline.tick();
+
+    for (entity, position, correction, action_state, input_buffer) in players.iter() {
+        let pressed = action_state.map(|a| a.axis_pair(&CharacterAction::Move));
+        let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
+        info!(
+            ?rollback,
+            ?tick,
+            ?entity,
+            ?position,
+            ?correction,
+            ?pressed,
+            ?last_buffer_tick,
+            "Player - FixedLast"
+        );
+    }
+}
+
+pub(crate) fn last_log(
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
+    players: Query<
+        (
+            Entity,
+            &Position,
+            &Transform,
+            Option<&FrameInterpolate<Position>>,
+            Option<&VisualCorrection<Position>>,
+        ),
+        (With<CharacterMarker>, Without<Confirmed>),
+    >,
+) {
+    let (timeline, rollback) = timeline.into_inner();
+    let tick = timeline.tick();
+
+    for (entity, position, transform, interpolate, correction) in players.iter() {
+        info!(
+            ?rollback,
+            ?tick,
+            ?entity,
+            ?position,
+            ?transform,
+            ?interpolate,
+            ?correction,
+            "Player - Last"
+        );
+    }
 }
