@@ -144,8 +144,8 @@ pub(crate) fn add_visual_correction<C: SyncComponent + Diffable<Delta = C>>(
                 interpolation.interpolate(C::base_value(), visual_correction.error.clone(), r);
             component.bypass_change_detection().apply_diff(&error);
             trace!(
-                ?visual_correction,
-                ?error,
+                previous = ?visual_correction,
+                new = ?error,
                 ?r,
                 "Applied visual correction and decaying error for {:?}",
                 core::any::type_name::<C>()
@@ -186,5 +186,13 @@ impl CorrectionPolicy {
         let dt = delta.as_secs_f32();
         let neg_decay_constant = self.decay_ratio.ln() / self.decay_period.as_secs_f32();
         (neg_decay_constant * dt).exp()
+    }
+
+    pub fn instant_correction() -> Self {
+        Self {
+            decay_period: core::time::Duration::from_millis(1),
+            decay_ratio: 0.0000001,
+            max_correction_period: core::time::Duration::from_millis(10),
+        }
     }
 }

@@ -395,9 +395,7 @@ impl ComponentRegistry {
 pub trait AppComponentExt {
     /// Registers the component in the Registry
     /// This component can now be sent over the network.
-    fn register_component<
-        C: Component<Mutability: GetWriteFns<C>> + Serialize + DeserializeOwned,
-    >(
+    fn register_component<C: Component<Mutability: GetWriteFns<C>> + Serialize + DeserializeOwned>(
         &mut self,
     ) -> ComponentRegistration<'_, C>;
 
@@ -500,7 +498,7 @@ impl<C> ComponentRegistration<'_, C> {
 
     pub fn with_replication_config(self, config: ComponentReplicationConfig) -> Self
     where
-        C: Component<Mutability: GetWriteFns<C>>
+        C: Component<Mutability: GetWriteFns<C>>,
     {
         let overrides_component_id = self
             .app

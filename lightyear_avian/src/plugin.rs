@@ -109,6 +109,14 @@ impl Plugin for LightyearAvianPlugin {
                         position_to_transform: false,
                         ..default()
                     });
+                    app.configure_sets(
+                        FixedPostUpdate,
+                        SyncSet::PositionToTransform.in_set(PhysicsSet::Sync),
+                    );
+                    app.configure_sets(
+                        PostUpdate,
+                        SyncSet::PositionToTransform.in_set(PhysicsSet::Sync),
+                    );
                     // We manually sync Position/Rotation to Transform. We do it even
                     // for entities that are not RigidBodies (for example Interpolated entities)
                     app.add_systems(
