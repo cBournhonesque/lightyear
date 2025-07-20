@@ -3,7 +3,7 @@ use core::net::{Ipv4Addr, SocketAddr};
 use crate::protocol::*;
 use crate::HOST_SERVER_PORT;
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use lightyear::input::client::InputSet;
 use lightyear::netcode::client_plugin::NetcodeConfig;
 use lightyear::netcode::NetcodeClient;
@@ -49,7 +49,7 @@ impl Plugin for ExampleClientPlugin {
                 .run_if(in_state(AppState::Game)),
         );
         app.add_systems(
-            PostUpdate,
+            EguiPrimaryContextPass,
             (lobby::lobby_ui, lobby::receive_start_game_message),
         );
         app.add_observer(on_disconnect);
@@ -227,7 +227,7 @@ mod lobby {
         )>,
         app_state: Res<State<AppState>>,
         mut next_app_state: ResMut<NextState<AppState>>,
-    ) {
+    ) -> Result {
         let (client_entity, client, mut send_start_game, mut send_join_lobby, mut exit_lobby) =
             message_sender.into_inner();
         let window_name = match app_state.get() {
@@ -238,7 +238,7 @@ mod lobby {
         };
         egui::Window::new(window_name)
             .anchor(egui::Align2::LEFT_TOP, [30.0, 30.0])
-            .show(contexts.ctx_mut().unwrap(), |ui| {
+            .show(contexts.ctx_mut()?, |ui| {
                 match app_state.get() {
                     AppState::Lobby { joined_lobby } => {
                         if joined_lobby.is_none() {
@@ -397,6 +397,7 @@ mod lobby {
                     }
                 }
             });
+        Ok(())
     }
 
     /// Listen for the StartGame message, and start the game if it was (which means that a client clicked on the 'start game' button)
