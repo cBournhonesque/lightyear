@@ -9,7 +9,6 @@ use crate::plugin::PredictionSet;
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
 use bevy_app::{App, FixedMain, Plugin, PostUpdate, PreUpdate};
-use bevy_ecs::entity::EntityHashSet;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::ScheduleLabel;
 use bevy_ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
@@ -219,7 +218,7 @@ fn check_rollback(
         local_timeline,
     ) = receiver_query.into_inner();
     let tick = local_timeline.tick();
-    trace!(?tick, "Check rollback");
+    debug!(?tick, "Check rollback");
     let received_state = replication_receiver.has_received_this_frame();
     let mut skip_state_check = false;
 
@@ -250,7 +249,7 @@ fn check_rollback(
         // if we received a state update, we don't check for mismatched and just set the rollback tick
         RollbackMode::Always => {
             if received_state && let Some(confirmed_ref) = confirmed_entities.iter().next() {
-                trace!(
+                debug!(
                     "Rollback because we have received a new confirmed state. (no mismatch check)"
                 );
                 let confirmed_tick = confirmed_ref.get::<Confirmed>().unwrap().tick;
@@ -329,7 +328,7 @@ fn check_rollback(
                 .take_while(|_| !prediction_manager.is_rollback()) {
                 let check_rollback = prediction_metadata.full.as_ref().unwrap().check_rollback;
                 if check_rollback(&prediction_registry, confirmed_tick, &confirmed_ref, &mut predicted_mut) {
-                    trace!("Rollback because we have received a new confirmed state. (mismatch check)");
+                    debug!("Rollback because we have received a new confirmed state. (mismatch check)");
                     // During `prepare_rollback` we will reset the component to their values on `confirmed_tick`.
                     // Then when we do Rollback in PreUpdate, we will start by incrementing the tick, which will be equal to `confirmed_tick + 1`
                     parallel_commands.command_scope(|mut c| {
@@ -343,74 +342,77 @@ fn check_rollback(
 
     // If we have found a state-based rollback, we are done.
     if prediction_manager.is_rollback() {
-        trace!("Rollback was triggered by state, skipping input rollback checks");
-        return;
-    }
-
-    // if we don't have state-based rollbacks, check for input-rollbacks
-    match prediction_manager.rollback_policy.input {
-        // If we have received any input message, rollback from the last confirmed input
-        RollbackMode::Always => {
-            if let Some(last_confirmed_input) = last_confirmed_input
-                && last_confirmed_input.received_input()
-            {
-                trace!("Rollback because we have received a new remote input. (no mismatch check)");
-                // TODO: instead of rolling back to the last confirmed input, we could also just rollback
-                //  to the previous confirmed state (the inputs are just 'extra')
-                let rollback_tick = last_confirmed_input.tick.get();
-                do_rollback(
-                    rollback_tick,
-                    &prediction_manager,
-                    &mut commands,
-                    Rollback::FromInputs,
-                );
+        debug!("Rollback was triggered by state, skipping input rollback checks");
+    } else {
+        // if we don't have state-based rollbacks, check for input-rollbacks
+        match prediction_manager.rollback_policy.input {
+            // If we have received any input message, rollback from the last confirmed input
+            RollbackMode::Always => {
+                if let Some(last_confirmed_input) = last_confirmed_input
+                    && last_confirmed_input.received_input()
+                {
+                    debug!(
+                        "Rollback because we have received a new remote input. (no mismatch check)"
+                    );
+                    // TODO: instead of rolling back to the last confirmed input, we could also just rollback
+                    //  to the previous confirmed state (the inputs are just 'extra')
+                    let rollback_tick = last_confirmed_input.tick.get();
+                    do_rollback(
+                        rollback_tick,
+                        &prediction_manager,
+                        &mut commands,
+                        Rollback::FromInputs,
+                    );
+                }
             }
-        }
-        // Rollback from any mismatched input
-        RollbackMode::Check => {
-            if prediction_manager.earliest_mismatch_input.has_mismatches() {
-                // we rollback to the tick right before the mismatch
-                let rollback_tick = prediction_manager.earliest_mismatch_input.tick.get() - 1;
-                trace!(
-                    ?rollback_tick,
-                    "Rollback because we have received a remote input that doesn't match our input buffer history"
-                );
-                do_rollback(
-                    rollback_tick,
-                    &prediction_manager,
-                    &mut commands,
-                    Rollback::FromInputs,
-                );
+            // Rollback from any mismatched input
+            RollbackMode::Check => {
+                if prediction_manager.earliest_mismatch_input.has_mismatches() {
+                    // we rollback to the tick right before the mismatch
+                    let rollback_tick = prediction_manager.earliest_mismatch_input.tick.get() - 1;
+                    debug!(
+                        ?rollback_tick,
+                        "Rollback because we have received a remote input that doesn't match our input buffer history"
+                    );
+                    do_rollback(
+                        rollback_tick,
+                        &prediction_manager,
+                        &mut commands,
+                        Rollback::FromInputs,
+                    );
+                }
             }
+            _ => {}
         }
-        _ => {}
     }
 
     // if we have a rollback, despawn any PreSpawned entities that were spawned since the rollback tick
     // and were not matched with a remote entity
     // (they will get respawned during the rollback)
     if let Some(rollback_tick) = prediction_manager.get_rollback_start_tick() {
+        info!(
+            ?rollback_tick,
+            "Rollback! Despawning all PreSpawned entities spawned after that"
+        );
         // 0. If the prespawned entity didn't exist at the rollback tick, despawn it
         // NOTE: if rollback happened at rollback_tick, then we will start running systems starting from rollback_tick + 1.
         //  so if the entity was spawned at tick >= rollback_tick + 1, we despawn it, and it can get respawned again
-        let mut entities_to_despawn = EntityHashSet::default();
         for (_, hash) in prediction_manager
             .prespawn_tick_to_hash
             .drain_after(&(rollback_tick + 1))
         {
             if let Some(entities) = prediction_manager.prespawn_hash_to_entities.remove(&hash) {
-                entities_to_despawn.extend(entities);
+                entities.into_iter().for_each(|entity| {
+                    debug!(
+                        ?entity,
+                        "deleting pre-spawned entity because it was created after the rollback tick"
+                    );
+                    if let Ok(mut entity_commands) = commands.get_entity(entity) {
+                        entity_commands.despawn();
+                    }
+                });
             }
         }
-        entities_to_despawn.iter().for_each(|entity| {
-            debug!(
-                ?entity,
-                "deleting pre-spawned entity because it was created after the rollback tick"
-            );
-            if let Ok(mut entity_commands) = commands.get_entity(*entity) {
-                entity_commands.despawn();
-            }
-        });
     }
 }
 

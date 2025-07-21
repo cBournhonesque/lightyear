@@ -4,16 +4,16 @@ use bevy::prelude::*;
 use core::hash::{Hash, Hasher};
 use core::time::Duration;
 
-use avian2d::prelude::*;
-use leafwing_input_manager::prelude::ActionState;
-use lightyear::connection::client_of::ClientOf;
-use lightyear::prelude::*;
-use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
-use tracing::Level;
-
 use crate::protocol::*;
 #[cfg(feature = "gui")]
 use crate::renderer::ExampleRendererPlugin;
+use avian2d::prelude::*;
+use leafwing_input_manager::prelude::ActionState;
+use lightyear::connection::client_of::ClientOf;
+use lightyear::input::input_buffer::InputBuffer;
+use lightyear::prelude::*;
+use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
+use tracing::Level;
 
 pub(crate) const MAX_VELOCITY: f32 = 200.0;
 pub(crate) const WALL_SIZE: f32 = 350.0;
@@ -98,20 +98,9 @@ pub struct ApplyInputsQuery {
 /// applies forces based on action state inputs
 pub fn apply_action_state_to_player_movement(
     action: &ActionState<PlayerActions>,
-    staleness: u16,
     aiq: &mut ApplyInputsQueryItem,
     tick: Tick,
 ) {
-    // #[cfg(target_family = "wasm")]
-    // if !action.get_pressed().is_empty() {
-    //     info!(
-    //         "{} {:?} {tick:?} = {:?} staleness = {staleness}",
-    //         if staleness > 0 { "🎹😐" } else { "🎹" },
-    //         aiq.player.client_id,
-    //         action.get_pressed(),
-    //     );
-    // }
-
     let ex_force = &mut aiq.ex_force;
     let rot = &aiq.rot;
     let ang_vel = &mut aiq.ang_vel;
@@ -154,6 +143,7 @@ pub fn shared_player_firing(
             &LinearVelocity,
             &ColorComponent,
             &ActionState<PlayerActions>,
+            &InputBuffer<ActionState<PlayerActions>>,
             &mut Weapon,
             Has<Controlled>,
             &Player,
@@ -175,6 +165,7 @@ pub fn shared_player_firing(
         player_velocity,
         color,
         action,
+        buffer,
         mut weapon,
         is_local,
         player,
@@ -183,6 +174,9 @@ pub fn shared_player_firing(
         if !action.pressed(&PlayerActions::Fire) {
             continue;
         }
+
+        // info!(?current_tick, player = ?player.client_id, "Buffer: {buffer}");
+
         let wrapped_diff = weapon.last_fire_tick - current_tick;
         if wrapped_diff.abs() <= weapon.cooldown as i16 {
             // cooldown period - can't fire.
@@ -224,6 +218,7 @@ pub fn shared_player_firing(
             ))
             .id();
         debug!(
+            pressed=?action.get_pressed(),
             "spawned bullet for ActionState, bullet={bullet_entity:?} ({}, {}). prev last_fire tick: {prev_last_fire_tick:?}",
             weapon.last_fire_tick.0, player.client_id
         );

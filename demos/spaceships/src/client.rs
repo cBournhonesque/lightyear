@@ -17,17 +17,7 @@ pub struct ExampleClientPlugin;
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
-        app.add_systems(
-            FixedUpdate,
-            (
-                player_movement,
-                // we don't spawn bullets during rollback.
-                // if we have the inputs early (so not in rb) then we spawn,
-                // otherwise we rely on normal server replication to spawn them
-                shared_player_firing.run_if(not(is_in_rollback)),
-            )
-                .chain(),
-        );
+        app.add_systems(FixedUpdate, (player_movement, shared_player_firing).chain());
         app.add_observer(add_ball_physics);
         app.add_observer(add_bullet_physics);
         app.add_observer(handle_new_player);
@@ -122,22 +112,13 @@ fn handle_hit_event(
 
 // only apply movements to predicted entities
 fn player_movement(
-    mut q: Query<
-        (
-            &ActionState<PlayerActions>,
-            &InputBuffer<ActionState<PlayerActions>>,
-            ApplyInputsQuery,
-        ),
-        (With<Player>, With<Predicted>),
-    >,
+    mut q: Query<(&ActionState<PlayerActions>, ApplyInputsQuery), (With<Player>, With<Predicted>)>,
     timeline: Single<&LocalTimeline, With<PredictionManager>>,
 ) {
-    // max number of stale inputs to predict before default inputs used
-    const MAX_STALE_TICKS: u16 = 6;
     // get the tick, even if during rollback
     let tick = timeline.tick();
 
-    for (action_state, input_buffer, mut aiq) in q.iter_mut() {
+    for (action_state, mut aiq) in q.iter_mut() {
         if !action_state.get_pressed().is_empty() {
             trace!(
                 "🎹 {:?} {tick:?} = {:?}",
@@ -145,33 +126,6 @@ fn player_movement(
                 action_state.get_pressed(),
             );
         }
-        // is the current ActionState for real?
-        if input_buffer.get(tick).is_some() {
-            // Got an exact input for this tick, staleness = 0, the happy path.
-            apply_action_state_to_player_movement(action_state, 0, &mut aiq, tick);
-            continue;
-        }
-
-        // if the true input is missing, this will be leftover from a previous tick, or the default().
-        if let Some((prev_tick, prev_input)) = input_buffer.get_last_with_tick() {
-            let staleness = (tick - prev_tick).max(0) as u16;
-            if staleness > MAX_STALE_TICKS {
-                // input too stale, apply default input (ie, nothing pressed)
-                apply_action_state_to_player_movement(
-                    &ActionState::default(),
-                    staleness,
-                    &mut aiq,
-                    tick,
-                );
-            } else {
-                // apply a stale input within our acceptable threshold.
-                // we could use the staleness to decay movement forces as desired.
-                apply_action_state_to_player_movement(prev_input, staleness, &mut aiq, tick);
-            }
-        } else {
-            // no inputs in the buffer yet, can happen during initial connection.
-            // apply the default input (ie, nothing pressed)
-            apply_action_state_to_player_movement(action_state, 0, &mut aiq, tick);
-        }
+        apply_action_state_to_player_movement(action_state, &mut aiq, tick);
     }
 }
