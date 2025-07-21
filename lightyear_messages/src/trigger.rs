@@ -185,7 +185,7 @@ fn trigger_serialize_mapped<M: Event + MapEntities + Clone>(
     let mut trigger = message.trigger.clone();
     trigger.map_entities(mapper);
     // Serialize the trigger message
-    serialize(&message.trigger, writer)?;
+    serialize(&trigger, writer)?;
     // Serialize the target entities
     writer.write_varint(message.target_entities.len() as u64)?;
     for entity in &message.target_entities {
