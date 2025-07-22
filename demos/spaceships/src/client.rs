@@ -126,6 +126,8 @@ fn player_movement(
                 action_state.get_pressed(),
             );
         }
+        // if we haven't received any input for some tick, lightyear will predict that the player is still pressing the same keys.
+        // (it does that by not modifying the ActionState, so it will still have the last pressed keys)
         apply_action_state_to_player_movement(action_state, &mut aiq, tick);
     }
 }

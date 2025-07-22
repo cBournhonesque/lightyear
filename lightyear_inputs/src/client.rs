@@ -348,6 +348,8 @@ fn get_action_state<S: ActionStateSequence>(
         //   in the past. We already updated the ActionState in `receive_input_message` for that past tick, which means we are
         //   predicting that the action hasn't changed since
         if let Some(snapshot) = input_buffer.get(tick) {
+            // TODO: should we decay_tick the snapshot?
+
             debug!(?is_local, "Updating action_state for tick {tick:?}");
             S::from_snapshot(action_state.as_mut(), snapshot, &context);
             trace!(

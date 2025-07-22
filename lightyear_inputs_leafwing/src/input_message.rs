@@ -3,6 +3,7 @@ use bevy_platform::time::Instant;
 use crate::action_diff::ActionDiff;
 use crate::action_state::LeafwingUserAction;
 use alloc::vec::Vec;
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
     entity::{EntityMapper, MapEntities},
     system::SystemParam,
@@ -12,8 +13,32 @@ use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
-use lightyear_inputs::input_message::ActionStateSequence;
+use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
 use serde::{Deserialize, Serialize};
+
+pub type SnapshotBuffer<A> = InputBuffer<LeafwingSnapshot<A>>;
+impl<A: LeafwingUserAction> InputSnapshot for LeafwingSnapshot<A> {
+    type Action = A;
+
+    fn decay_tick(&mut self) {
+        self.tick(Instant::now(), Instant::now());
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deref, DerefMut)]
+pub struct LeafwingSnapshot<A: LeafwingUserAction>(pub ActionState<A>);
+
+impl<A: LeafwingUserAction> From<ActionState<A>> for LeafwingSnapshot<A> {
+    fn from(state: ActionState<A>) -> Self {
+        Self(state)
+    }
+}
+
+impl<A: LeafwingUserAction> Default for LeafwingSnapshot<A> {
+    fn default() -> Self {
+        Self(ActionState::default())
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LeafwingSequence<A: Actionlike> {
@@ -27,7 +52,7 @@ impl<A: LeafwingUserAction> MapEntities for LeafwingSequence<A> {
 
 impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     type Action = A;
-    type Snapshot = ActionState<A>;
+    type Snapshot = LeafwingSnapshot<A>;
     type State = ActionState<A>;
     type Marker = InputMap<A>;
     type Context = ();
@@ -43,7 +68,8 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     }
 
     fn get_snapshots_from_message(self) -> impl Iterator<Item = InputData<Self::Snapshot>> {
-        let start_iter = core::iter::once(InputData::Input(self.start_state.clone()));
+        let start_iter =
+            core::iter::once(InputData::Input(LeafwingSnapshot(self.start_state.clone())));
         let diffs_iter = self.diffs.into_iter().scan(
             self.start_state,
             |state: &mut ActionState<A>, diffs_for_tick: Vec<ActionDiff<A>>| {
@@ -58,7 +84,7 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
                 state.set_fixed_update_state_from_state();
 
                 // TODO: how can we check if the state is the same as before, to return InputData::SameAsPrecedent instead?
-                Some(InputData::Input(state.clone()))
+                Some(InputData::Input(LeafwingSnapshot(state.clone())))
             },
         );
         start_iter.chain(diffs_iter)
@@ -69,7 +95,7 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     /// If we don't have a starting `ActionState` from the `input_buffer`, we start from the first tick for which
     /// we have an `ActionState`.
     fn build_from_input_buffer<'w, 's>(
-        input_buffer: &InputBuffer<Self::State>,
+        input_buffer: &InputBuffer<Self::Snapshot>,
         num_ticks: u16,
         end_tick: Tick,
     ) -> Option<Self> {
@@ -94,22 +120,25 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
                 // TODO: if the input_delay changes, this could leave gaps in the InputBuffer, which we will fill with Default
                 input_buffer
                     .get(tick - 1)
-                    .unwrap_or(&ActionState::<A>::default()),
+                    .unwrap_or(&LeafwingSnapshot::<A>::default()),
                 input_buffer
                     .get(tick)
-                    .unwrap_or(&ActionState::<A>::default()),
+                    .unwrap_or(&LeafwingSnapshot::<A>::default()),
             );
             diffs.push(diffs_for_tick);
             tick += 1;
         }
-        Some(Self { start_state, diffs })
+        Some(Self {
+            start_state: start_state.0,
+            diffs,
+        })
     }
 
     fn to_snapshot<'w, 's>(
         state: &Self::State,
         _: &<Self::Context as SystemParam>::Item<'w, 's>,
     ) -> Self::Snapshot {
-        state.clone()
+        LeafwingSnapshot(state.clone())
     }
 
     fn from_snapshot<'w, 's>(
@@ -117,7 +146,7 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
         snapshot: &Self::Snapshot,
         _: &<Self::Context as SystemParam>::Item<'w, 's>,
     ) {
-        *state = snapshot.clone();
+        *state = snapshot.0.clone();
     }
 }
 
@@ -143,11 +172,11 @@ mod tests {
     fn test_create_message() {
         let mut input_buffer = InputBuffer::default();
         let mut action_state = ActionState::<Action>::default();
-        input_buffer.set(Tick(2), ActionState::default());
+        input_buffer.set(Tick(2), ActionState::default().into());
         action_state.press(&Action::Jump);
-        input_buffer.set(Tick(3), action_state.clone());
+        input_buffer.set(Tick(3), action_state.clone().into());
         action_state.release(&Action::Jump);
-        input_buffer.set(Tick(7), action_state.clone());
+        input_buffer.set(Tick(7), action_state.clone().into());
 
         let sequence =
             LeafwingSequence::<Action>::build_from_input_buffer(&input_buffer, 9, Tick(10))
@@ -179,7 +208,7 @@ mod tests {
 
     #[test]
     fn test_build_from_input_buffer_empty() {
-        let input_buffer: InputBuffer<ActionState<Action>> = InputBuffer::default();
+        let input_buffer: InputBuffer<_> = InputBuffer::default();
         let sequence =
             LeafwingSequence::<Action>::build_from_input_buffer(&input_buffer, 5, Tick(10));
         assert!(sequence.is_none());
@@ -190,10 +219,10 @@ mod tests {
         let mut input_buffer = InputBuffer::default();
         let mut action_state = ActionState::<Action>::default();
         action_state.press(&Action::Jump);
-        input_buffer.set(Tick(8), action_state.clone());
+        input_buffer.set(Tick(8), action_state.clone().into());
         action_state.release(&Action::Jump);
         action_state.press(&Action::Run);
-        input_buffer.set(Tick(10), action_state.clone());
+        input_buffer.set(Tick(10), action_state.clone().into());
 
         // Only ticks 8 and 10 are set, so sequence should start at 8
         let sequence =
@@ -201,7 +230,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             sequence.start_state,
-            input_buffer.get(Tick(8)).unwrap().clone()
+            input_buffer.get(Tick(8)).unwrap().clone().0
         );
         assert_eq!(sequence.diffs.len(), 4);
     }
@@ -211,7 +240,7 @@ mod tests {
         let mut input_buffer = InputBuffer::default();
         let mut action_state = ActionState::<Action>::default();
         action_state.press(&Action::Jump);
-        input_buffer.set(Tick(6), action_state.clone());
+        input_buffer.set(Tick(6), action_state.clone().into());
         let sequence = LeafwingSequence::<Action> {
             // Tick 5
             start_state: action_state.clone(),
@@ -233,19 +262,19 @@ mod tests {
 
         // NOTE: The action_state from the sequence are ticked to avoid having JustPressed on each tick!
         let mut expected = action_state.clone();
-        assert_eq!(input_buffer.get(Tick(6)).unwrap(), &expected);
+        assert_eq!(input_buffer.get(Tick(6)).unwrap().0, expected);
 
         expected.tick(Instant::now(), Instant::now());
         expected.press(&Action::Run);
         expected.set_update_state_from_state();
         expected.set_fixed_update_state_from_state();
-        assert_eq!(input_buffer.get(Tick(7)).unwrap(), &expected);
+        assert_eq!(input_buffer.get(Tick(7)).unwrap().0, expected);
 
         expected.tick(Instant::now(), Instant::now());
         expected.release(&Action::Jump);
         expected.set_update_state_from_state();
         expected.set_fixed_update_state_from_state();
-        assert_eq!(input_buffer.get(Tick(8)).unwrap(), &expected);
+        assert_eq!(input_buffer.get(Tick(8)).unwrap().0, expected);
     }
 
     #[test]
@@ -253,7 +282,7 @@ mod tests {
         let mut input_buffer = InputBuffer::default();
         let mut action_state = ActionState::<Action>::default();
         action_state.press(&Action::Jump);
-        input_buffer.set(Tick(2), action_state.clone());
+        input_buffer.set(Tick(2), action_state.clone().into());
         let sequence = LeafwingSequence::<Action> {
             start_state: action_state.clone(),
             diffs: vec![vec![ActionDiff::Released {
@@ -262,12 +291,12 @@ mod tests {
         };
         // Should overwrite tick 3
         sequence.update_buffer(&mut input_buffer, Tick(3));
-        assert_eq!(input_buffer.get(Tick(2)).unwrap(), &action_state);
+        assert_eq!(input_buffer.get(Tick(2)).unwrap().0, action_state);
 
         let mut expected = action_state.clone();
         expected.release(&Action::Jump);
         expected.set_update_state_from_state();
         expected.set_fixed_update_state_from_state();
-        assert_eq!(input_buffer.get(Tick(3)).unwrap(), &expected);
+        assert_eq!(input_buffer.get(Tick(3)).unwrap().0, expected);
     }
 }

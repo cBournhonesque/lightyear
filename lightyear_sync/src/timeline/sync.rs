@@ -199,6 +199,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
         if let Ok((mut timeline, local_timeline)) = query.get_mut(trigger.target()) {
             timeline.reset();
             if DRIVING {
+                trace!("Set Driving timeline tick to LocalTimeline");
                 let delta = local_timeline.tick() - timeline.tick();
                 timeline.apply_delta(delta.into());
             }

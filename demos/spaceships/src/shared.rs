@@ -31,19 +31,8 @@ impl Plugin for SharedPlugin {
         app.add_systems(Startup, init);
 
         // Physics
-        //
-        // we use Position and Rotation as primary source of truth, so no need to sync changes
-        // from Transform->Pos, just Pos->Transform.
-        app.insert_resource(avian2d::sync::SyncConfig {
-            transform_to_position: false,
-            position_to_transform: true,
-            ..default()
-        });
-        // We change SyncPlugin to PostUpdate, because we want the visually interpreted values
-        // synced to transform every time, not just when Fixed schedule runs.
-        app.add_plugins(PhysicsPlugins::default().build());
-
         app.insert_resource(Gravity(Vec2::ZERO));
+
         // our systems run in FixedUpdate, avian's systems run in FixedPostUpdate.
         app.add_systems(
             FixedUpdate,
@@ -171,6 +160,13 @@ pub fn shared_player_firing(
         player,
     ) in q.iter_mut()
     {
+        if !is_server && !is_local {
+            // we only want to spawn bullets on the server, or for our own player
+            // We could also pre-spawn bullets for remote players, but the problem is that if we incorrectly
+            // pre-spawn a bullet (because we receive the 'Release' button too late) it would be very
+            // visually distracting to temporarily see a fake bullet that then disappears.
+            continue;
+        }
         if !action.pressed(&PlayerActions::Fire) {
             continue;
         }

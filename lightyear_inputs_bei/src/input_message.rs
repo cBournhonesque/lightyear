@@ -13,9 +13,11 @@ use core::fmt::{Debug, Formatter};
 use lightyear_core::network::NetId;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
-use lightyear_inputs::input_message::ActionStateSequence;
+use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
 use serde::{Deserialize, Serialize};
 use tracing::{error, trace};
+
+pub type SnapshotBuffer<A> = InputBuffer<ActionsSnapshot<A>>;
 
 pub struct BEIStateSequence<C> {
     // TODO: use InputData for each action separately to optimize the diffs
@@ -122,6 +124,13 @@ impl<C> Debug for ActionsSnapshot<C> {
         f.debug_struct("ActionsSnapshot")
             .field("state", &self.state)
             .finish()
+    }
+}
+
+impl<C: Send + Sync + 'static> InputSnapshot for ActionsSnapshot<C> {
+    type Action = C;
+    fn decay_tick(&mut self) {
+        // TODO: maybe advance the elapsed_secs and fired_secs?
     }
 }
 
