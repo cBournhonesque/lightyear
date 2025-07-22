@@ -424,15 +424,34 @@ lightyear_webtransport:
     cargo clippy -p lightyear_webtransport --tests --no-default-features --features="dangerous-configuration" -- -D warnings --no-deps
     cargo clippy -p lightyear_webtransport --tests --all-features -- -D warnings --no-deps
 
+add_avian_symlinks:
+    sed -i '' 's/path = "../lightyear_avian\/src\/lib\.rs"/#path = "../lightyear_avian\/src\/lib\.rs"/g' lightyear_avian2d/Cargo.toml
+    sed -i '' 's/path = "../lightyear_avian\/src\/lib\.rs"/#path = "../lightyear_avian\/src\/lib\.rs"/g' lightyear_avian3d/Cargo.toml
+    ln -s lightyear_avian/src lightyear_avian2d/src
+    ln -s lightyear_avian/src lightyear_avian3d/src
+
+remove_avian_symlinks:
+    sed -i '' 's/#path = "../lightyear_avian\/src\/lib\.rs"/path = "../lightyear_avian\/src\/lib\.rs"/g' lightyear_avian2d/Cargo.toml
+    sed -i '' 's/#path = "../lightyear_avian\/src\/lib\.rs"/path = "../lightyear_avian\/src\/lib\.rs"/g' lightyear_avian3d/Cargo.toml
+    rm lightyear_avian2d/src
+    rm lightyear_avian3d/src
 
 release_dryrun_no_changelog:
+    @just add_avian_symlinks
     cargo smart-release lightyear --allow-dirty -v -u --no-changelog --no-tag --no-push --dry-run-cargo-publish -b keep -d keep
+    @just remove_avian_symlinks
 
 release_dryrun:
+    @just add_avian_symlinks
     cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-push --dry-run-cargo-publish -b keep -d keep
+    @just remove_avian_symlinks
 
 release_no_changelog:
+    @just add_avian_symlinks
     cargo smart-release lightyear --allow-dirty -v -u --no-changelog --no-tag --no-push --execute -b keep -d keep
+    @just remove_avian_symlinks
 
 release:
+    @just add_avian_symlinks
     cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-push --execute -b keep -d keep
+    @just remove_avian_symlinks
