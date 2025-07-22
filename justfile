@@ -425,14 +425,14 @@ lightyear_webtransport:
     cargo clippy -p lightyear_webtransport --tests --all-features -- -D warnings --no-deps
 
 add_avian_symlinks:
-    sed -i '' 's/path = "../lightyear_avian\/src\/lib\.rs"/#path = "../lightyear_avian\/src\/lib\.rs"/g' lightyear_avian2d/Cargo.toml
-    sed -i '' 's/path = "../lightyear_avian\/src\/lib\.rs"/#path = "../lightyear_avian\/src\/lib\.rs"/g' lightyear_avian3d/Cargo.toml
-    ln -s lightyear_avian/src lightyear_avian2d/src
-    ln -s lightyear_avian/src lightyear_avian3d/src
+    sed -i '' 's@path = "../lightyear_avian/src/lib.rs"@#path = "../lightyear_avian/src/lib.rs"@g' lightyear_avian2d/Cargo.toml
+    sed -i '' 's@path = "../lightyear_avian/src/lib.rs"@#path = "../lightyear_avian/src/lib.rs"@g' lightyear_avian3d/Cargo.toml
+    ln -s ../lightyear_avian/src lightyear_avian2d/src
+    ln -s ../lightyear_avian/src lightyear_avian3d/src
 
 remove_avian_symlinks:
-    sed -i '' 's/#path = "../lightyear_avian\/src\/lib\.rs"/path = "../lightyear_avian\/src\/lib\.rs"/g' lightyear_avian2d/Cargo.toml
-    sed -i '' 's/#path = "../lightyear_avian\/src\/lib\.rs"/path = "../lightyear_avian\/src\/lib\.rs"/g' lightyear_avian3d/Cargo.toml
+    sed -i '' 's@#path = "../lightyear_avian/src/lib.rs"@path = "../lightyear_avian/src/lib.rs"@g' lightyear_avian2d/Cargo.toml
+    sed -i '' 's@#path = "../lightyear_avian/src/lib.rs"@path = "../lightyear_avian/src/lib.rs"@g' lightyear_avian3d/Cargo.toml
     rm lightyear_avian2d/src
     rm lightyear_avian3d/src
 
