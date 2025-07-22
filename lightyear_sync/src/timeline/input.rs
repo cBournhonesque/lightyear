@@ -377,6 +377,7 @@ impl SyncedTimeline for InputTimeline {
     }
 
     fn reset(&mut self) {
+        trace!("Resetting InputTimeline");
         self.is_synced = false;
         self.relative_speed = 1.0;
         self.now = Default::default();

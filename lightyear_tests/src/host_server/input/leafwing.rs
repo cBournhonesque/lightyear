@@ -4,7 +4,7 @@ use bevy::input::ButtonInput;
 use bevy::prelude::KeyCode;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::prelude::InputMap;
-use lightyear::input::input_buffer::InputBuffer;
+use lightyear::input::leafwing::prelude::SnapshotBuffer;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::Replicate;
@@ -69,7 +69,7 @@ fn test_buffer_inputs_with_delay() {
         .server_app
         .world()
         .entity(server_entity)
-        .get::<InputBuffer<ActionState<LeafwingInput1>>>();
+        .get::<SnapshotBuffer<LeafwingInput1>>();
     info!("InputBuffer: {buffer:?}");
 
     assert!(
@@ -77,7 +77,7 @@ fn test_buffer_inputs_with_delay() {
             .server_app
             .world()
             .entity(server_entity)
-            .get::<InputBuffer<ActionState<LeafwingInput1>>>()
+            .get::<SnapshotBuffer<LeafwingInput1>>()
             .unwrap()
             .get(server_tick)
             .unwrap()
@@ -90,7 +90,7 @@ fn test_buffer_inputs_with_delay() {
             .server_app
             .world()
             .entity(server_entity)
-            .get::<InputBuffer<ActionState<LeafwingInput1>>>()
+            .get::<SnapshotBuffer<LeafwingInput1>>()
             .unwrap()
             .get(server_tick + 1)
             .unwrap()
@@ -128,7 +128,7 @@ fn test_buffer_inputs_with_delay() {
         .server_app
         .world()
         .entity(server_entity)
-        .get::<InputBuffer<ActionState<LeafwingInput1>>>()
+        .get::<SnapshotBuffer<LeafwingInput1>>()
         .unwrap();
     assert_eq!(
         input_buffer
@@ -159,7 +159,7 @@ fn test_buffer_inputs_with_delay() {
             .server_app
             .world()
             .entity(server_entity)
-            .get::<InputBuffer<ActionState<LeafwingInput1>>>()
+            .get::<SnapshotBuffer<LeafwingInput1>>()
             .unwrap()
             .get(server_tick + 2)
             .unwrap()

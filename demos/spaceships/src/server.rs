@@ -244,7 +244,6 @@ pub(crate) fn player_movement(
                 action_state.get_pressed(),
             );
         }
-        // check for missing inputs, and set them to default? or sustain for 1 tick?
-        apply_action_state_to_player_movement(action_state, 0, &mut aiq, tick);
+        apply_action_state_to_player_movement(action_state, &mut aiq, tick);
     }
 }

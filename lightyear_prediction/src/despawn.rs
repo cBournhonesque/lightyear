@@ -1,6 +1,7 @@
 use crate::Predicted;
 use crate::manager::PredictionResource;
 use crate::prespawn::PreSpawned;
+use bevy_ecs::error::ignore;
 use bevy_ecs::{
     component::Component,
     entity::Entity,
@@ -44,7 +45,9 @@ impl Command for PredictionDespawnCommand {
             .get_resource::<PredictionResource>()
             .is_none_or(|r| world.entity(r.link_entity).contains::<HostClient>())
         {
-            world.entity_mut(self.entity).despawn();
+            if let Ok(e) = world.get_entity_mut(self.entity) {
+                e.despawn();
+            }
         };
 
         if let Ok(mut entity) = world.get_entity_mut(self.entity) {
@@ -58,7 +61,7 @@ impl Command for PredictionDespawnCommand {
                 // entity catches up to it
                 info!("inserting prediction disable marker");
                 entity.insert(PredictionDisable);
-            } else if let Some(confirmed) = entity.get::<Confirmed>() {
+            } else if entity.get::<Confirmed>().is_some() {
                 // TODO: actually we should never despawn directly on the client a Confirmed entity
                 //  it should only get despawned when replicating!
                 entity.despawn();
@@ -76,18 +79,21 @@ pub trait PredictionDespawnCommandsExt {
 impl PredictionDespawnCommandsExt for EntityCommands<'_> {
     fn prediction_despawn(&mut self) {
         let entity = self.id();
-        self.queue(move |entity_mut: EntityWorldMut| {
-            let world = entity_mut.world();
-            if world
-                .get_resource::<PredictionResource>()
-                .is_some_and(|r| !world.entity(r.link_entity).contains::<HostClient>())
-            {
-                PredictionDespawnCommand { entity }.apply(entity_mut.into_world_mut());
-            } else {
-                // if we are the server (or host server), just despawn the entity
-                entity_mut.despawn();
-            }
-        });
+        self.queue_handled(
+            move |entity_mut: EntityWorldMut| {
+                let world = entity_mut.world();
+                if world
+                    .get_resource::<PredictionResource>()
+                    .is_some_and(|r| !world.entity(r.link_entity).contains::<HostClient>())
+                {
+                    PredictionDespawnCommand { entity }.apply(entity_mut.into_world_mut());
+                } else {
+                    // if we are the server (or host server), just despawn the entity
+                    entity_mut.despawn();
+                }
+            },
+            ignore,
+        );
     }
 }
 

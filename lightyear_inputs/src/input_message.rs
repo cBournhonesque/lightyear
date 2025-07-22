@@ -38,6 +38,17 @@ pub struct PerTargetData<S> {
     pub states: S,
 }
 
+pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + 'static {
+    /// The type of the Action that this snapshot represents.
+    type Action: Send + Sync + 'static;
+
+    /// Predict the next snapshot after 1 tick.
+    ///
+    /// By default Snapshots do not decay, i.e. we predict that they stay the same and the user
+    /// keeps pressing the same button.
+    fn decay_tick(&mut self);
+}
+
 /// An ActionStateSequence represents a sequence of states that can be serialized and sent over the network.
 ///
 /// The sequence can be decoded back into a `Iterator<Item = InputData<Self::Snapshot>>`
@@ -49,7 +60,7 @@ pub trait ActionStateSequence:
 
     /// Snapshot of the State that will be stored in the InputBuffer.
     /// This should be enough to be able to reconstruct the State at a given tick.
-    type Snapshot: Send + Sync + Debug + PartialEq + Clone + 'static;
+    type Snapshot: InputSnapshot<Action = Self::Action>;
 
     /// The component that is used by the user to get the list of active actions.
     type State: Component<Mutability = Mutable> + Default;
@@ -81,13 +92,22 @@ pub trait ActionStateSequence:
     ) -> Option<Tick> {
         let previous_end_tick = input_buffer.end_tick();
 
-        let previous_predicted_input = input_buffer.get_last().cloned();
+        let mut previous_predicted_input = input_buffer.get_last().cloned();
         let mut earliest_mismatch: Option<Tick> = None;
         let start_tick = end_tick + 1 - self.len() as u16;
 
         // the first value is guaranteed to not be SameAsPrecedent
         for (delta, input) in self.get_snapshots_from_message().enumerate() {
             let tick = start_tick + Tick(delta as u16);
+
+            // for ticks after the last tick in the buffer, we start decaying our previous_predicted_input
+            if previous_end_tick.is_some_and(|t| tick > t) {
+                previous_predicted_input = previous_predicted_input.map(|prev| {
+                    let mut prev = prev;
+                    prev.decay_tick();
+                    prev
+                });
+            }
 
             // after the mismatch, we just fill with the data from the message
             if earliest_mismatch.is_some() {

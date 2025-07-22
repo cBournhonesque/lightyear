@@ -4,22 +4,23 @@ use bevy::input::ButtonInput;
 use bevy::prelude::KeyCode;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::prelude::InputMap;
-use lightyear::input::input_buffer::InputBuffer;
+use lightyear::input::leafwing::prelude::SnapshotBuffer;
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_core::prelude::Timeline;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::Replicate;
 use lightyear_sync::prelude::InputTimeline;
-use lightyear_sync::prelude::client::{Input, InputDelayConfig};
+use lightyear_sync::prelude::client::InputDelayConfig;
 use test_log::test;
 
 /// Check that ActionStates are stored correctly in the InputBuffer
 #[test]
 fn test_buffer_inputs_with_delay() {
     let mut stepper = ClientServerStepper::single();
-    stepper.client_mut(0).insert(InputTimeline(Timeline::from(
-        Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
-    )));
+    stepper
+        .client_mut(0)
+        .get_mut::<InputTimeline>()
+        .unwrap()
+        .input_delay_config = InputDelayConfig::fixed_input_delay(1);
     let server_entity = stepper
         .server_app
         .world_mut()
@@ -63,7 +64,7 @@ fn test_buffer_inputs_with_delay() {
             .client_app()
             .world()
             .entity(client_entity)
-            .get::<InputBuffer<ActionState<LeafwingInput1>>>()
+            .get::<SnapshotBuffer<LeafwingInput1>>()
             .unwrap()
             .get(client_tick)
             .unwrap()
@@ -76,7 +77,7 @@ fn test_buffer_inputs_with_delay() {
             .client_app()
             .world()
             .entity(client_entity)
-            .get::<InputBuffer<ActionState<LeafwingInput1>>>()
+            .get::<SnapshotBuffer<LeafwingInput1>>()
             .unwrap()
             .get(client_tick + 1)
             .unwrap()
@@ -114,7 +115,7 @@ fn test_buffer_inputs_with_delay() {
         .client_app()
         .world()
         .entity(client_entity)
-        .get::<InputBuffer<ActionState<LeafwingInput1>>>()
+        .get::<SnapshotBuffer<LeafwingInput1>>()
         .unwrap();
     assert_eq!(
         input_buffer
@@ -144,7 +145,7 @@ fn test_buffer_inputs_with_delay() {
             .client_app()
             .world()
             .entity(client_entity)
-            .get::<InputBuffer<ActionState<LeafwingInput1>>>()
+            .get::<SnapshotBuffer<LeafwingInput1>>()
             .unwrap()
             .get(client_tick + 2)
             .unwrap()

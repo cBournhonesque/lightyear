@@ -9,13 +9,21 @@ use core::cmp::max;
 use core::fmt::Debug;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
-use lightyear_inputs::input_message::ActionStateSequence;
+use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+
+pub type SnapshotBuffer<A> = InputBuffer<ActionState<A>>;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub struct NativeStateSequence<A> {
     states: Vec<InputData<A>>,
+}
+
+impl<A: Debug + PartialEq + Clone + Send + Sync + 'static> InputSnapshot for ActionState<A> {
+    type Action = A;
+
+    fn decay_tick(&mut self) {}
 }
 
 impl<A> IntoIterator for NativeStateSequence<A> {

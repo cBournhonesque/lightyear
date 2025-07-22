@@ -15,6 +15,7 @@ mod plugin;
 pub mod registry;
 
 pub mod prelude {
+    pub use crate::input_message::SnapshotBuffer;
     pub use crate::marker::InputMarker;
     pub use crate::plugin::InputPlugin;
     pub use crate::registry::{InputRegistry, InputRegistryExt};
