@@ -27,7 +27,7 @@ impl<C> Default for InputPlugin<C> {
     }
 }
 
-impl<C: InputContext> Plugin for InputPlugin<C> {
+impl<C: InputContext<Schedule = FixedPreUpdate>> Plugin for InputPlugin<C> {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<bevy_enhanced_input::EnhancedInputPlugin>() {
             app.add_plugins(bevy_enhanced_input::EnhancedInputPlugin);
