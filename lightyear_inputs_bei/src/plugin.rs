@@ -15,11 +15,11 @@ use bevy_enhanced_input::EnhancedInputSet;
 use bevy_enhanced_input::input_context::{InputContext, InputContextAppExt};
 use lightyear_inputs::config::InputConfig;
 
-pub struct InputPlugin<C> {
+pub struct InputPlugin<C: InputContext<Schedule = FixedPreUpdate>> {
     pub config: InputConfig<C>,
 }
 
-impl<C> Default for InputPlugin<C> {
+impl<C: InputContext<Schedule = FixedPreUpdate>> Default for InputPlugin<C> {
     fn default() -> Self {
         Self {
             config: Default::default(),
