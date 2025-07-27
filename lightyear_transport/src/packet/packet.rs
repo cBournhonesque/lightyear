@@ -1,6 +1,6 @@
 /// Defines the [`Packet`] struct
 use crate::channel::registry::ChannelId;
-use crate::packet::message::MessageAck;
+use crate::packet::message::{FragmentIndex, MessageId};
 use crate::packet::packet_builder::Payload;
 use alloc::vec::Vec;
 use lightyear_serde::ToBytes;
@@ -19,12 +19,23 @@ const HEADER_BYTES: usize = 11;
 //  varints so it could be more or less!
 pub(crate) const FRAGMENT_SIZE: usize = MAX_PACKET_SIZE - HEADER_BYTES - 9;
 
+/// Metadata about the message included in the packet.
+/// Useful to maintain mappings from channel to message_ids, and packet to message_ids.
+#[derive(Debug, PartialEq)]
+pub(crate) struct MessageMetadata {
+    pub(crate) channel: ChannelId,
+    pub(crate) message: MessageId,
+    // if the message is fragmented, we store the total number of fragments
+    pub(crate) fragment_index: Option<FragmentIndex>,
+    pub(crate) num_fragments: Option<u64>,
+}
+
 /// Data structure that will help us write the packet
 #[derive(Debug)]
 pub(crate) struct Packet {
     pub(crate) payload: Payload,
-    /// Content of the packet so we can map from channel id to message ids
-    pub(crate) message_acks: Vec<(ChannelId, MessageAck)>,
+    /// MessageIds contained in the packet so we can map from channel id to message ids
+    pub(crate) messages: Vec<MessageMetadata>,
     pub(crate) packet_id: PacketId,
     // How many bytes we know we are going to have to write in the packet, but haven't written yet
     pub(crate) prewritten_size: usize,
@@ -50,12 +61,12 @@ impl Packet {
     }
 
     pub(crate) fn num_messages(&self) -> usize {
-        self.message_acks.len()
+        self.messages.len()
     }
 
     #[allow(unused)]
     pub(crate) fn is_empty(&self) -> bool {
-        self.message_acks.is_empty()
+        self.messages.is_empty()
     }
 }
 

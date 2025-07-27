@@ -1,7 +1,8 @@
 //! More advanced replication tests
 
-use crate::protocol::CompA;
+use crate::protocol::{CompA, CompS};
 use crate::stepper::ClientServerStepper;
+use lightyear_messages::MessageManager;
 use lightyear_replication::message::UpdatesChannel;
 use lightyear_replication::prelude::{Replicate, ReplicationGroupId, ReplicationSender};
 use lightyear_transport::channel::ChannelKind;
@@ -109,4 +110,38 @@ fn test_since_last_ack() {
         .get(&group_id)
         .unwrap();
     assert_ne!(group_channel.ack_bevy_tick, None);
+}
+
+/// Test that acks work correctly for updates split across multiple packets
+///
+/// Check that we don't get the log: "Received an update message-id ack but we don't know the corresponding group id"
+#[test]
+fn test_acks_multi_packet() {
+    let mut stepper = ClientServerStepper::single();
+
+    let str = "a".to_string();
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(), CompS(str)))
+        .id();
+    stepper.frame_step(3);
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
+        .unwrap();
+
+    let str = "X".repeat(2000);
+    stepper
+        .client_app()
+        .world_mut()
+        .get_mut::<CompS>(client_entity)
+        .unwrap()
+        .0 = str.clone();
+    stepper.frame_step(3);
+
+    // TODO: add a real assert here instead of just checking for the log
 }
