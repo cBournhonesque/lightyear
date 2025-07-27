@@ -5,15 +5,20 @@ use bevy_ecs::{
     entity::{EntityMapper, MapEntities},
     system::{Res, SystemParam},
 };
-use bevy_enhanced_input::action_value::ActionValue;
-use bevy_enhanced_input::input_context::InputContext;
-use bevy_enhanced_input::prelude::{ActionEvents, ActionState, Actions};
+use bevy_enhanced_input::prelude::{ActionEvents, ActionOf, ActionState, ActionValue, Actions};
 use core::cmp::max;
 use core::fmt::{Debug, Formatter};
+use std::ops::Deref;
+use bevy_ecs::component::Component;
+use bevy_ecs::entity::UniqueEntitySlice;
+use bevy_ecs::prelude::{Mut, With};
+use bevy_ecs::query::{QueryData, ReadOnlyQueryData};
+use bevy_ecs::system::Query;
+use bevy_enhanced_input::action::ActionTime;
 use lightyear_core::network::NetId;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
-use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
+use lightyear_inputs::input_message::{ActionStateQueryData, ActionStateSequence, InputSnapshot};
 use serde::{Deserialize, Serialize};
 use tracing::{error, trace};
 
@@ -74,15 +79,13 @@ impl<C> MapEntities for BEIStateSequence<C> {
     fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {}
 }
 
+/// Metadata about a single Action at a given tick
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct InputActionMessage {
-    /// Unique network identifier for the InputAction
-    pub net_id: NetId,
     pub state: ActionState,
     pub value: ActionValue,
+    pub time: ActionTime,
     pub events: ActionEvents,
-    pub elapsed_secs: f32,
-    pub fired_secs: f32,
 }
 
 /// Instead of replicating the BEI Actions, we will replicate a serializable subset that can be used to
@@ -90,7 +93,7 @@ pub struct InputActionMessage {
 /// to update the BEI `Actions` component
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 struct ActionsMessage {
-    input_actions: Vec<InputActionMessage>,
+    input_actions: InputActionMessage,
 }
 
 /// Struct that stores a subset of [`Actions<C>`](Actions) that is needed to
@@ -134,27 +137,11 @@ impl<C: Send + Sync + 'static> InputSnapshot for ActionsSnapshot<C> {
     }
 }
 
+// - make the ActionState a QueryData (so that it can be a tuple of components potentially)
+// - the Action entities are replicated, and the ActionOf component
+// - when we receive an ActionSnapshot, we update the ActionState
+
 impl ActionsMessage {
-    fn from_actions<C: InputContext>(actions: &Actions<C>, registry: &InputRegistry) -> Self {
-        let input_actions = actions
-            .iter()
-            .map(|(type_id, action)| {
-                let net_id = registry
-                    .kind_map
-                    .net_id(&InputActionKind::from(type_id))
-                    .expect("Action must be registered in InputRegistry");
-                InputActionMessage {
-                    net_id: *net_id,
-                    state: action.state,
-                    value: action.value,
-                    events: action.events,
-                    elapsed_secs: action.elapsed_secs,
-                    fired_secs: action.fired_secs,
-                }
-            })
-            .collect();
-        Self { input_actions }
-    }
 
     fn from_snapshot<C>(snapshot: &ActionsSnapshot<C>) -> Self {
         snapshot.state.clone()
@@ -169,10 +156,54 @@ impl ActionsMessage {
     }
 }
 
-impl<C: InputContext> ActionStateSequence for BEIStateSequence<C> {
+/// Context needed to work with the BEI state sequence.
+struct BEIContext<C> {
+    registry: Res<'static, InputRegistry>,
+    actions: Query<'static, 'static, (&'static ActionState, &'static ActionValue, &'static ActionEvents, &'static ActionTime), With<ActionOf<C>>>,
+}
+
+
+#[derive(QueryData, Component)]
+#[query_data(mutable)]
+struct ActionData {
+    state: &'static ActionState,
+    value: &'static ActionValue,
+    events: &'static ActionEvents,
+    time: &'static ActionTime,
+}
+
+impl Deref<Target=ActionDataReadOnlyItem> for ActionDataItem  {
+    type Target = ();
+
+    fn deref(&self) -> &Self::Target {
+        &ActionDataItem {
+            state: &self.state,
+            value: &self.value,
+            events: &self.events,
+            time: &self.time,
+        }
+    }
+}
+
+
+
+impl ActionStateQueryData for ActionData {
+
+    type Ref = ActionDataReadOnlyItem<'static>;
+    type Bundle = (ActionState, ActionValue, ActionEvents, ActionTime);
+    type Mut = ActionDataItem<'static>;
+
+    fn base_value() -> Self::Bundle {
+        (ActionState::default(), ActionValue::Bool(false), ActionEvents::empty(), ActionTime::default())
+    }
+
+}
+
+
+impl<C: Component> ActionStateSequence for BEIStateSequence<C> {
     type Action = C;
     type Snapshot = ActionsSnapshot<C>;
-    type State = Actions<C>;
+    type State = ActionData;
     type Marker = InputMarker<C>;
     type Context = Res<'static, InputRegistry>;
 
@@ -237,10 +268,20 @@ impl<C: InputContext> ActionStateSequence for BEIStateSequence<C> {
 
     fn to_snapshot<'w, 's>(
         state: &Self::State,
-        registry: &<Self::Context as SystemParam>::Item<'w, 's>,
+        context: &<Self::Context as SystemParam>::Item<'w, 's>,
     ) -> Self::Snapshot {
-        let actions_message = ActionsMessage::from_actions(state, registry);
-        actions_message.to_snapshot()
+        let (state, value, events, time) = state;
+        ActionsSnapshot {
+            state: ActionsMessage {
+                input_actions: InputActionMessage {
+                    state: *state,
+                    value: value.clone(),
+                    events: *events,
+                    time: *time,
+                }
+            },
+            _marker: core::marker::PhantomData,
+        }
     }
 
     fn from_snapshot<'w, 's>(
@@ -248,32 +289,12 @@ impl<C: InputContext> ActionStateSequence for BEIStateSequence<C> {
         snapshot: &Self::Snapshot,
         registry: &<Self::Context as SystemParam>::Item<'w, 's>,
     ) {
-        snapshot.state.input_actions.iter().for_each(|action| {
-            let Some(kind) = registry.kind_map.kind(action.net_id) else {
-                error!(
-                    "Action with net ID {:?} not found in InputRegistry",
-                    action.net_id
-                );
-                return;
-            };
-
-            if state.get_mut_by_id(kind.0).is_none() {
-                // action_state is not bound, bind it
-                registry.bind(*kind, state).unwrap();
-            }
-            // SAFETY: if the action is missing, we just bound it above
-            let action_state = state.get_mut_by_id(kind.0).unwrap();
-
-            trace!(
-                "Setting action {:?} to state {:?} with value {:?}",
-                kind, action.state, action.value
-            );
-            action_state.state = action.state;
-            action_state.value = action.value;
-            action_state.events = action.events;
-            action_state.fired_secs = action.fired_secs;
-            action_state.elapsed_secs = action.elapsed_secs;
-        });
+        let (state, value, events, time) = state;
+        let snapshot = &snapshot.state.input_actions;
+        *state = snapshot.state;
+        *value = snapshot.value.clone();
+        *events = snapshot.events;
+        *time = snapshot.time;
     }
 }
 

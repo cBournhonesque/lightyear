@@ -54,6 +54,8 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     type Action = A;
     type Snapshot = LeafwingSnapshot<A>;
     type State = ActionState<A>;
+    type StateRef = &'static ActionState<A>;
+    type StateMut = &'static mut ActionState<A>;
     type Marker = InputMap<A>;
     type Context = ();
 

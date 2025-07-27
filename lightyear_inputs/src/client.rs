@@ -46,7 +46,7 @@
 use crate::InputChannel;
 use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
-use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
+use crate::input_message::{ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
 #[cfg(feature = "metrics")]
 use alloc::format;
@@ -54,7 +54,7 @@ use alloc::{vec, vec::Vec};
 use bevy_app::{
     App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoopSystem,
 };
-use bevy_ecs::query::Or;
+use bevy_ecs::query::{Or, QueryData};
 use bevy_ecs::{
     entity::{Entity, MapEntities},
     observer::Trigger,
@@ -257,7 +257,7 @@ fn buffer_action_state<S: ActionStateSequence>(
     // 2. the HostServer client can have input delay
     sender: Single<(&InputTimeline, &LocalTimeline), Without<Rollback>>,
     mut action_state_query: Query<
-        (Entity, &S::State, &mut InputBuffer<S::Snapshot>),
+        (Entity, S::State, &mut InputBuffer<S::Snapshot>),
         With<S::Marker>,
     >,
 ) {
@@ -304,7 +304,7 @@ fn get_action_state<S: ActionStateSequence>(
     //  TODO: We could maybe have some decay logic where the input decays to the middle)
     mut action_state_query: Query<(
         Entity,
-        &mut S::State,
+        S::State,
         &InputBuffer<S::Snapshot>,
         Has<S::Marker>,
     )>,
@@ -312,7 +312,7 @@ fn get_action_state<S: ActionStateSequence>(
     let (local_timeline, input_timeline, is_rollback) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
     let tick = local_timeline.tick();
-    for (entity, mut action_state, input_buffer, is_local) in action_state_query.iter_mut() {
+    for (entity, action_state, input_buffer, is_local) in action_state_query.iter_mut() {
         if !is_rollback {
             // for local clients, if there is no rollback and no input_delay:
             // we just buffered the input for the current tick so the action state is already up to date
@@ -351,7 +351,7 @@ fn get_action_state<S: ActionStateSequence>(
             // TODO: should we decay_tick the snapshot?
 
             debug!(?is_local, "Updating action_state for tick {tick:?}");
-            S::from_snapshot(action_state.as_mut(), snapshot, &context);
+            S::from_snapshot(action_state, snapshot, &context);
             trace!(
                 ?entity,
                 ?tick,
@@ -371,7 +371,7 @@ fn get_delayed_action_state<S: ActionStateSequence>(
     context: StaticSystemParam<S::Context>,
     sender: Query<(&InputTimeline, &LocalTimeline, Has<Rollback>), With<IsSynced<InputTimeline>>>,
     mut action_state_query: Query<
-        (Entity, &mut S::State, &InputBuffer<S::Snapshot>),
+        (Entity, S::State, &InputBuffer<S::Snapshot>),
         // Filter so that this is only for directly controlled players, not remote players
         With<S::Marker>,
     >,
@@ -384,11 +384,11 @@ fn get_delayed_action_state<S: ActionStateSequence>(
         return;
     }
     let delayed_tick = local_timeline.tick() + input_delay_ticks;
-    for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
+    for (entity, action_state, input_buffer) in action_state_query.iter_mut() {
         // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
         //  the problem is that the Leafwing Plugin works on ActionState directly...
         if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
-            S::from_snapshot(action_state.as_mut(), delayed_action_state, &context);
+            S::from_snapshot(action_state, delayed_action_state, &context);
             trace!(
                 ?entity,
                 ?delayed_tick,
@@ -604,7 +604,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     // TODO: for deterministic replication, the
     confirmed_query: Query<&Confirmed, Without<S::Marker>>,
     mut predicted_query: Query<
-        (Option<&mut InputBuffer<S::Snapshot>>, Option<&mut S::State>),
+        (Option<&mut InputBuffer<S::Snapshot>>, Option<S::State>),
         (
             Or<(With<Predicted>, With<DeterministicPredicted>)>,
             Without<S::Marker>,
@@ -666,7 +666,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             } else {
                 // add the ActionState or InputBuffer if they are missing
                 let mut input_buffer = InputBuffer::<S::Snapshot>::default();
-                let mut action_state = S::State::default();
+                let mut action_state = S::State::base_value();
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
                     &mut input_buffer,
@@ -743,7 +743,7 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
 fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
     sequence: S,
     input_buffer: &mut InputBuffer<S::Snapshot>,
-    action_state: &mut S::State,
+    action_state: <S::State as QueryData>::Item<'static>,
     context: &StaticSystemParam<S::Context>,
     tick: Tick,
     end_tick: Tick,

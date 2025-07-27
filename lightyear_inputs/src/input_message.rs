@@ -9,6 +9,9 @@ use bevy_ecs::{
 };
 use bevy_reflect::Reflect;
 use core::fmt::{Debug, Formatter, Write};
+use std::ops::Deref;
+use bevy_ecs::bundle::Bundle;
+use bevy_ecs::query::{QueryData, ReadOnlyQueryData};
 use lightyear_core::prelude::Tick;
 #[cfg(feature = "interpolation")]
 use lightyear_interpolation::plugin::InterpolationDelay;
@@ -49,6 +52,23 @@ pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + 'static {
     fn decay_tick(&mut self);
 }
 
+
+/// A QueryData that contains the queryable state that contains the current state of the Action at the given tick
+/// 
+/// This is usually a single component (ActionState) or multiple components in the case of BEI (ActionState, ActionValue, etc.)
+pub trait ActionStateQueryData: QueryData
+where
+    for<'a> <Self as QueryData>::Item<'a>: Deref<Target=<Self::ReadOnly as QueryData>::Item<'a>>,
+{
+    type Bundle: Bundle + Send + Sync + Default + 'static;
+    fn base_value() -> Self::Bundle;
+}
+
+// pub trait ActionStateQueryDataMut {
+//     type Mut;
+//     fn as_mut(&mut self) -> &mut Self::Mut;
+// }
+
 /// An ActionStateSequence represents a sequence of states that can be serialized and sent over the network.
 ///
 /// The sequence can be decoded back into a `Iterator<Item = InputData<Self::Snapshot>>`
@@ -63,7 +83,8 @@ pub trait ActionStateSequence:
     type Snapshot: InputSnapshot<Action = Self::Action>;
 
     /// The component that is used by the user to get the list of active actions.
-    type State: Component<Mutability = Mutable> + Default;
+    type State: ActionStateQueryData;
+
 
     /// Marker component to identify the ActionState that the player is actively updating
     /// (as opposed to the ActionState of other players, for instance)
@@ -165,13 +186,14 @@ pub trait ActionStateSequence:
 
     /// Create a snapshot from the given state.
     fn to_snapshot<'w, 's>(
-        state: &Self::State,
+        // state: AsRef<Self::State::ReadOnly::Item<'w>>,
+        state: <Self::State as QueryData>::Item<'w>,
         context: &<Self::Context as SystemParam>::Item<'w, 's>,
     ) -> Self::Snapshot;
 
     /// Modify the given state to reflect the given snapshot.
     fn from_snapshot<'w, 's>(
-        state: &mut Self::State,
+        state: <Self::State as QueryData>::Item<'w>,
         snapshot: &Self::Snapshot,
         context: &<Self::Context as SystemParam>::Item<'w, 's>,
     );
