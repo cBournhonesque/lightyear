@@ -22,7 +22,7 @@ tracy-client = { version = "=0.18.0" }
 
 # crates specific to benchmarks, so not in top-level Cargo workspace
 pprof = { version = "0.15.0", features = ["flamegraph", "frame-pointer"] }
-criterion = { version = "0.6", features = ["html_reports"] }
+criterion = { version = "0.7", features = ["html_reports"] }
 
 [lib]
 bench = false
