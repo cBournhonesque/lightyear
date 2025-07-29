@@ -12,11 +12,13 @@ impl<M: Message> MessageRegistration<'_, M> {
         match direction {
             NetworkDirection::ClientToServer => {
                 self.app
-                    .register_required_components::<Client, MessageSender<M>>();
+                    .try_register_required_components::<Client, MessageSender<M>>()
+                    .ok();
             }
             NetworkDirection::ServerToClient => {
                 self.app
-                    .register_required_components::<Client, MessageReceiver<M>>();
+                    .try_register_required_components::<Client, MessageReceiver<M>>()
+                    .ok();
             }
             NetworkDirection::Bidirectional => {
                 self.add_client_direction(NetworkDirection::ClientToServer);
