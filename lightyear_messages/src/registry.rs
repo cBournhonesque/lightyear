@@ -193,15 +193,16 @@ impl MessageRegistry {
         serialize: ContextSerializeFns<SendEntityMap, M, I>,
         deserialize: ContextDeserializeFns<ReceiveEntityMap, M, I>,
     ) {
-        self.hasher.hash::<M>();
         let message_kind = self.kind_map.add::<I>();
-        self.serialize_fns_map.insert(
+        if let Ok(..) = self.serialize_fns_map.try_insert(
             message_kind,
             ErasedSerializeFns::new::<SendEntityMap, ReceiveEntityMap, M, I>(
                 serialize,
                 deserialize,
             ),
-        );
+        ) {
+            self.hasher.hash::<M>();
+        };
     }
 
     pub(crate) fn register_sender<M: Message>(&mut self, component_id: ComponentId) {
