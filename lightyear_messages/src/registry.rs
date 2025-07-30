@@ -194,13 +194,17 @@ impl MessageRegistry {
         deserialize: ContextDeserializeFns<ReceiveEntityMap, M, I>,
     ) {
         let message_kind = self.kind_map.add::<I>();
-        if let Ok(..) = self.serialize_fns_map.try_insert(
-            message_kind,
-            ErasedSerializeFns::new::<SendEntityMap, ReceiveEntityMap, M, I>(
-                serialize,
-                deserialize,
-            ),
-        ) {
+        if self
+            .serialize_fns_map
+            .try_insert(
+                message_kind,
+                ErasedSerializeFns::new::<SendEntityMap, ReceiveEntityMap, M, I>(
+                    serialize,
+                    deserialize,
+                ),
+            )
+            .is_ok()
+        {
             self.hasher.hash::<M>();
         };
     }
