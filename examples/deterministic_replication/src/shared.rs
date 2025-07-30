@@ -150,7 +150,7 @@ pub(crate) fn shared_movement_behaviour(
 
 /// In deterministic replication, the client and server simulates all players.
 fn player_movement(
-    timeline: Single<&LocalTimeline, Or<(With<Server>, With<Client>)>>,
+    timeline: Single<&LocalTimeline, Without<ClientOf>>,
     mut velocity_query: Query<(
         Entity,
         &PlayerId,
