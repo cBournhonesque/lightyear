@@ -26,7 +26,6 @@ server = [
     "lightyear_core",
     "lightyear_link",
     "lightyear_connection/server",
-    "tracing",
 ]
 
 [dependencies]
@@ -45,7 +44,7 @@ aeronet_io = { workspace = true, optional = true }
 
 # utils
 thiserror.workspace = true
-tracing = { workspace = true, optional = true }
+tracing.workspace = true
 
 [lints]
 workspace = true
