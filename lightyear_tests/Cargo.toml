@@ -10,8 +10,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 publish = false
 
 [features]
-default = ["std", "lightyear/interpolation"]
-leafwing = ["lightyear/leafwing"]
+default = ["std", "test_utils"]
 std = [
     "bevy/std",
     "bytes/std",
@@ -22,6 +21,12 @@ std = [
     "lightyear_serde/std",
     "lightyear_sync/std",
     "lightyear_transport/std",
+]
+test_utils = [
+    "lightyear_core/test_utils",
+    "lightyear_replication/test_utils",
+    "lightyear_crossbeam/test_utils",
+    "lightyear_aeronet/test_utils",
 ]
 
 
@@ -37,23 +42,24 @@ lightyear = { workspace = true, features = [
     "interpolation",
     "prediction",
     "replication",
+    "steam",
 ] }
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
-lightyear_transport = { workspace = true, features = ["client", "server", "test_utils"] }
-lightyear_core = { workspace = true, features = ["test_utils"] }
+lightyear_transport = { workspace = true, features = ["client", "server"] }
+lightyear_core.workspace = true
 lightyear_netcode = { workspace = true, features = ["client", "server"] }
 lightyear_messages = { workspace = true, features = ["client", "server"] }
 lightyear_replication = { workspace = true, features = [
     "client",
     "server",
-    "test_utils",
 ] }
-lightyear_crossbeam = { workspace = true, features = ["test_utils"] }
+lightyear_crossbeam.workspace = true
 lightyear_connection = { workspace = true, features = ["client", "server"] }
 lightyear_sync = { workspace = true, features = ["client", "server"] }
 lightyear_prediction = { workspace = true }
-lightyear_link = { workspace = true, features = ["test_utils"] }
+lightyear_link.workspace = true
+lightyear_aeronet.workspace = true
 
 # inputs
 leafwing-input-manager.workspace = true

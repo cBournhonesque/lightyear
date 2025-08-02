@@ -10,9 +10,13 @@ extern crate alloc;
 extern crate core;
 
 #[cfg(test)]
+#[cfg(feature = "test_utils")]
 mod client_server;
 pub mod protocol;
 pub mod stepper;
 
 #[cfg(test)]
 mod host_server;
+
+#[cfg(test)]
+mod multi_server;

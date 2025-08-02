@@ -137,10 +137,6 @@ impl ExampleServer {
                         target: ListenTarget::Addr(server_addr),
                         config: SessionConfig::default(),
                     });
-                    let (client, single_client) = steamworks::Client::init_app(480).unwrap();
-                    client.networking_utils().init_relay_network_access();
-                    world.insert_resource(SteamworksClient(client));
-                    world.insert_non_send_resource(single_client);
                 }
             };
             Ok(())
