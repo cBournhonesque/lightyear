@@ -1,4 +1,4 @@
-use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig};
+use crate::{ClientId, Key, ServerConfig, PRIVATE_KEY_BYTES};
 use alloc::{sync::Arc, vec::Vec};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::{
@@ -17,7 +17,10 @@ use lightyear_connection::host::HostClient;
 use lightyear_connection::prelude::{server::*, *};
 use lightyear_connection::server::Stopping;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
-use lightyear_link::prelude::{LinkOf, Server};
+use lightyear_link::{
+    prelude::{LinkOf, Server},
+    server::SteamLinkOf,
+};
 use lightyear_link::{Link, LinkSet};
 use lightyear_transport::plugin::TransportSet;
 use tracing::{error, info, trace};
@@ -110,7 +113,7 @@ impl NetcodeServerPlugin {
                 Option<&Connected>,
                 Option<&Disconnecting>,
             ),
-            (With<LinkOf>, Without<HostClient>),
+            (With<LinkOf>, Without<HostClient>, Without<SteamLinkOf>),
         >,
     ) {
         // TODO: we should be able to do ParIterMut if we can make the code understand
@@ -198,7 +201,10 @@ impl NetcodeServerPlugin {
             (Entity, &mut NetcodeServer, &mut Server, Has<Stopping>),
             Without<Stopped>,
         >,
-        link_query: Query<(Entity, &mut Link), (With<LinkOf>, Without<HostClient>)>,
+        link_query: Query<
+            (Entity, &mut Link),
+            (With<LinkOf>, Without<HostClient>, Without<SteamLinkOf>),
+        >,
     ) {
         let delta = real_time.delta();
 
@@ -304,7 +310,12 @@ impl NetcodeServerPlugin {
         mut query: Query<(Entity, &mut NetcodeServer, &Server), Without<Stopped>>,
         mut link_query: Query<
             (Entity, &mut Link, &RemoteId),
-            (With<ClientOf>, With<Connected>, Without<HostClient>),
+            (
+                With<ClientOf>,
+                With<Connected>,
+                Without<HostClient>,
+                Without<SteamLinkOf>,
+            ),
         >,
     ) -> Result {
         if let Ok((server_entity, mut netcode_server, server)) = query.get_mut(trigger.target()) {

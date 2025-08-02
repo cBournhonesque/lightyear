@@ -41,6 +41,7 @@ lightyear_link.workspace = true
 lightyear_transport = { workspace = true, optional = true }
 lightyear_serde.workspace = true
 lightyear_utils.workspace = true
+lightyear_steam.workspace = true
 
 # bevy
 bevy_app.workspace = true

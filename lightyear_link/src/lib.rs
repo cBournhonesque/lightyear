@@ -40,13 +40,13 @@ use lightyear_core::time::Instant;
 /// Commonly used items from the `lightyear_link` crate.
 pub mod prelude {
     pub use crate::conditioner::LinkConditionerConfig;
-    pub use crate::server::{LinkOf, Server};
+    pub use crate::server::{LinkOf, Server, SteamLinkOf};
     pub use crate::{
         Link, LinkSet, LinkStart, LinkStats, Linked, Linking, RecvLinkConditioner, Unlink, Unlinked,
     };
 
     pub mod server {
-        pub use crate::server::{LinkOf, Server};
+        pub use crate::server::{LinkOf, Server, SteamLinkOf};
     }
 }
 
