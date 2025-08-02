@@ -25,7 +25,7 @@ use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
-use tracing::{debug, debug_span, error, info, trace, trace_span, warn};
+use tracing::{debug, debug_span, error, trace, trace_span, warn};
 
 /// Responsible for re-running the FixedMain schedule a fixed number of times in order
 /// to rollback the simulation to a previous state.
@@ -390,7 +390,7 @@ fn check_rollback(
     // and were not matched with a remote entity
     // (they will get respawned during the rollback)
     if let Some(rollback_tick) = prediction_manager.get_rollback_start_tick() {
-        info!(
+        debug!(
             ?rollback_tick,
             "Rollback! Despawning all PreSpawned entities spawned after that"
         );
@@ -628,7 +628,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                 if !from_history {
                     let _ = manager.map_entities(&mut correct_value, component_registry.as_ref());
                     predicted_history.add_update(rollback_tick, correct_value.clone());
-                    info!("Add {rollback_tick:?} to history");
+                    trace!("Add {rollback_tick:?} to history");
                 }
                 match predicted_component {
                     None => {
