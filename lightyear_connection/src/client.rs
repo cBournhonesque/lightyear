@@ -67,7 +67,12 @@ impl Connected {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         let peer_id = world
             .get::<RemoteId>(context.entity)
-            .expect("A Connected entity must always have a RemoteId component")
+            .unwrap_or_else(|| {
+                panic!(
+                    "A Connected entity ({:?}) must always have a RemoteId component",
+                    context.entity
+                )
+            })
             .0;
         if let Some(mut client) = world.get_mut::<Client>(context.entity) {
             client.state = ClientState::Connected;

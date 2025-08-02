@@ -22,11 +22,11 @@ use crate::client_renderer::ExampleClientRendererPlugin;
 use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
 #[cfg(all(feature = "gui", feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
-use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
+use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS, STEAM_APP_ID};
 #[cfg(feature = "gui")]
 use bevy::window::PresentMode;
 use lightyear::link::RecvLinkConditioner;
-use lightyear::prelude::{Client, LinkConditionerConfig, LinkOf};
+use lightyear::prelude::{Client, LinkConditionerConfig, LinkOf, SteamAppExt};
 
 /// CLI options to create an [`App`]
 #[derive(Parser, Debug)]
@@ -50,30 +50,13 @@ impl Cli {
         }
     }
 
-    /// The steam resources need to be inserted before the lightyear plugins
-    #[cfg(feature = "steam")]
-    fn add_steam(app: &mut App) {
-        let (steam, steam_single) = lightyear::prelude::steamworks::Client::init_app(480)
-            .expect("failed to initialize steam");
-        steam.networking_utils().init_relay_network_access();
-
-        app.insert_resource(lightyear::prelude::SteamworksClient(steam))
-            .insert_non_send_resource(steam_single)
-            .add_systems(
-                PreUpdate,
-                |steam: NonSend<lightyear::prelude::steamworks::SingleClient>| {
-                    steam.run_callbacks();
-                },
-            );
-    }
-
     pub fn build_app(&self, tick_duration: Duration, add_inspector: bool) -> App {
         match self.mode {
             #[cfg(feature = "client")]
             Some(Mode::Client { client_id }) => {
                 let mut app = new_gui_app(add_inspector);
                 #[cfg(feature = "steam")]
-                Self::add_steam(&mut app);
+                app.add_steam_resources(STEAM_APP_ID);
                 app.add_plugins((
                     lightyear::prelude::client::ClientPlugins { tick_duration },
                     #[cfg(feature = "gui")]
@@ -91,7 +74,7 @@ impl Cli {
                     }
                 }
                 #[cfg(feature = "steam")]
-                Self::add_steam(&mut app);
+                app.add_steam_resources(STEAM_APP_ID);
                 app.add_plugins((
                     lightyear::prelude::server::ServerPlugins { tick_duration },
                     #[cfg(feature = "gui")]
@@ -103,7 +86,7 @@ impl Cli {
             Some(Mode::HostClient { client_id }) => {
                 let mut app = new_gui_app(add_inspector);
                 #[cfg(feature = "steam")]
-                Self::add_steam(&mut app);
+                app.add_steam_resources(STEAM_APP_ID);
                 app.add_plugins((
                     lightyear::prelude::client::ClientPlugins { tick_duration },
                     lightyear::prelude::server::ServerPlugins { tick_duration },

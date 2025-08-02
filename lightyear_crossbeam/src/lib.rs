@@ -76,8 +76,18 @@ struct IOQuery {
 }
 
 impl CrossbeamPlugin {
-    fn link(trigger: Trigger<LinkStart>, mut commands: Commands) {
-        commands.entity(trigger.target()).insert(Linked);
+    fn link(
+        trigger: Trigger<LinkStart>,
+        query: Query<(), With<CrossbeamIo>>,
+        mut commands: Commands,
+    ) {
+        if query.get(trigger.target()).is_ok() {
+            trace!(
+                "Immediately add Linked for CrossbeamIO entity: {:?}",
+                trigger.target()
+            );
+            commands.entity(trigger.target()).insert(Linked);
+        }
     }
 
     fn send(mut query: Query<IOQuery, With<Linked>>) -> Result {
