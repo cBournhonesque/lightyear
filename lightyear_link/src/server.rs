@@ -66,6 +66,10 @@ pub struct LinkOf {
     pub server: Entity,
 }
 
+// Added here so netcode is not dependent on steam
+#[derive(Component)]
+pub struct SteamLinkOf;
+
 impl Relationship for LinkOf {
     type RelationshipTarget = Server;
     #[inline(always)]

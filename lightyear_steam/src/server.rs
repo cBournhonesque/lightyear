@@ -1,11 +1,11 @@
-use aeronet_io::Session;
 use aeronet_io::server::Close;
-use aeronet_steam::SessionConfig;
+use aeronet_io::Session;
 use aeronet_steam::server::{
     ListenTarget, SessionRequest, SessionResponse, SteamNetServer, SteamNetServerClient,
 };
 #[allow(unused_imports)]
 use aeronet_steam::steamworks::{ClientManager, ServerManager};
+use aeronet_steam::SessionConfig;
 use alloc::format;
 use alloc::string::ToString;
 use bevy_app::{App, Plugin};
@@ -25,7 +25,7 @@ use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::server::{Start, Started, Stop};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::prelude::LinkOf;
-use lightyear_link::server::Server;
+use lightyear_link::server::{Server, SteamLinkOf};
 use lightyear_link::{Link, LinkStart, Linked, Linking};
 use tracing::{info, trace};
 
@@ -132,6 +132,7 @@ impl SteamServerPlugin {
                         Link::new(None),
                         ClientOf,
                         Connected,
+                        SteamLinkOf,
                         RemoteId(PeerId::Steam(steam_conn.steam_id().raw())),
                     ))
                     .id();
