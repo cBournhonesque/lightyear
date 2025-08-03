@@ -26,7 +26,9 @@ use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS, STEA
 #[cfg(feature = "gui")]
 use bevy::window::PresentMode;
 use lightyear::link::RecvLinkConditioner;
-use lightyear::prelude::{Client, LinkConditionerConfig, LinkOf, SteamAppExt};
+#[cfg(feature = "steam")]
+use lightyear::prelude::SteamAppExt;
+use lightyear::prelude::{Client, LinkConditionerConfig, LinkOf};
 
 /// CLI options to create an [`App`]
 #[derive(Parser, Debug)]
