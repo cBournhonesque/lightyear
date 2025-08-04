@@ -193,6 +193,7 @@ impl SteamServerPlugin {
                         ClientOf,
                         Connected,
                         RemoteId(PeerId::Steam(steam_conn.steam_id().raw())),
+                        SteamClientOf,
                     ))
                     .id();
                 commands
