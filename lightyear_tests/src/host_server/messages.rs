@@ -18,7 +18,7 @@ impl<M> Default for Buffer<M> {
     }
 }
 
-/// System to check that we received the message on the server
+/// System to check that we received the message
 fn count_messages_observer<M: Message + Debug>(
     mut receiver: Query<(Entity, &mut MessageReceiver<M>)>,
     mut buffer: ResMut<Buffer<M>>,
@@ -78,21 +78,71 @@ fn test_send_messages() {
     stepper.server_app.world_mut().run_system(system_id);
     stepper.frame_step(2);
 
-    let received_messages = stepper.client_apps[0]
-        .world()
-        .resource::<Buffer<StringMessage>>();
+    let mut received_messages = stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<Buffer<StringMessage>>();
     assert_eq!(
         &received_messages.0,
-        &vec![(stepper.client_entities[0], send_message.clone())]
+        &vec![(client_of_0, send_message.clone())]
     );
-    let received_messages = stepper
+    received_messages.0.clear();
+    let mut received_messages = stepper
         .server_app
-        .world()
-        .resource::<Buffer<StringMessage>>();
+        .world_mut()
+        .resource_mut::<Buffer<StringMessage>>();
     assert_eq!(
         &received_messages.0,
-        &vec![(stepper.host_client_entity.unwrap(), send_message)]
+        &vec![(host_client, send_message)]
     );
+    received_messages.0.clear();
+
+
+}
+
+/// Use ServerMultiMessageSender to send a message from the server to clients, including host-client
+#[test]
+fn test_send_message_server_to_host_client() {
+    let mut stepper = ClientServerStepper::host_server();
+    let host_client = stepper.host_client_entity.unwrap();
+    let client_of_0 = stepper.client_of_entities[0];
+    stepper.server_app.init_resource::<Buffer<StringMessage>>();
+    stepper
+        .server_app
+        .add_systems(Update, count_messages_observer::<StringMessage>);
+    stepper
+        .client_app()
+        .init_resource::<Buffer<StringMessage>>();
+    stepper
+        .client_app()
+        .add_systems(Update, count_messages_observer::<StringMessage>);
+    info!("Sending message from server to clients (including host-client {host_client}) via NetworkTarget");
+    let send_message = StringMessage("World".to_string());
+    let send_message_clone = send_message.clone();
+    let system_id = stepper
+        .server_app
+        .register_system(move |mut sender: ServerMultiMessageSender, server: Single<&Server>| {
+            sender.send::<_, Channel1>(&send_message_clone, server.into_inner(), &NetworkTarget::All)
+                .ok();
+        });
+    stepper.server_app.world_mut().run_system(system_id);
+    stepper.frame_step(2);
+        let mut received_messages = stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<Buffer<StringMessage>>();
+    assert_eq!(
+        &received_messages.0,
+        &vec![(client_of_0, send_message.clone())]
+    );
+    received_messages.0.clear();
+    let mut received_messages = stepper
+        .server_app
+        .world_mut()
+        .resource_mut::<Buffer<StringMessage>>();
+    assert_eq!(
+        &received_messages.0,
+        &vec![(host_client, send_message)]
+    );
+    received_messages.0.clear();
 }
 
 #[derive(Resource)]
