@@ -277,6 +277,7 @@ impl MessagePlugin {
                         .try_for_each(|(channel_kind, sender_metadata)| {
                             host_client.buffer.drain(..).try_for_each(
                                 |(bytes, channel_type_id)| {
+                                    trace!("Received local message bytes from server on host-client {entity:?} on channel {channel_kind:?}");
                                     // we fake the tick and message_id for host-client messages
                                     Self::receive_message_bytes(
                                         bytes,

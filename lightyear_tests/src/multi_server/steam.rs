@@ -1,4 +1,5 @@
 //! Tests using the Steam networking layer with Lightyear.
+#![allow(unused_imports)]
 
 use crate::stepper::{ClientServerStepper, SERVER_PORT, STEAM_APP_ID};
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
