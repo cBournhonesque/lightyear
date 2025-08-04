@@ -1,6 +1,4 @@
-use aeronet_io::Session;
 use aeronet_io::server::Close;
-use aeronet_steam::SessionConfig;
 use aeronet_steam::server::{
     ListenTarget, SessionRequest, SessionResponse, SteamNetServer, SteamNetServerClient,
 };
@@ -129,7 +127,6 @@ impl SteamServerPlugin {
     // ) {
     //     if let Ok((child_of, steam_conn)) = child_query.get(trigger.target()) {
     //         if let Ok(server_link) = query.get(child_of.parent()) {
-    //
     //             let link_entity = commands
     //                 .spawn((
     //                     LinkOf {
@@ -192,6 +189,7 @@ impl SteamServerPlugin {
                         Link::new(None),
                         ClientOf,
                         Connected,
+                        SteamClientOf,
                         RemoteId(PeerId::Steam(steam_conn.steam_id().raw())),
                     ))
                     .id();
