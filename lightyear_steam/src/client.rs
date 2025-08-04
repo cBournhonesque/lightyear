@@ -5,6 +5,7 @@ use aeronet_steam::{
     SessionConfig, SteamworksClient,
     client::{ConnectTarget, SteamNetClientPlugin},
 };
+use alloc::string::ToString;
 use bevy_app::{App, Plugin};
 use bevy_ecs::component::HookContext;
 use bevy_ecs::prelude::{OnAdd, With};
@@ -17,7 +18,6 @@ use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
 use lightyear_connection::client::{Connected, Disconnect};
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::{Link, LinkStart, Linked, Linking, Unlink};
-use std::prelude::rust_2015::ToString;
 use tracing::trace;
 
 pub struct SteamClientPlugin;
@@ -67,6 +67,9 @@ impl SteamClientPlugin {
         if let Ok((entity, client)) = query.get(trigger.target()) {
             let config = client.config.clone();
             let target = client.target;
+            trace!(
+                "LinkStart triggered for SteamClientIo on entity {entity:?} with target {target:?}"
+            );
             commands.queue(move |world: &mut World| -> Result {
                 let mut link_entity_mut = world.entity_mut(entity);
                 match target {
@@ -103,6 +106,10 @@ impl SteamClientPlugin {
         mut commands: Commands,
     ) {
         if query.get(trigger.target()).is_ok() {
+            trace!(
+                "Steam client entity {:?} is now Linked, inserting Connected component",
+                trigger.target()
+            );
             commands.entity(trigger.target()).insert(Connected);
         }
     }

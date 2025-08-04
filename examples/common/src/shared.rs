@@ -16,6 +16,8 @@ pub const SHARED_SETTINGS: SharedSettings = SharedSettings {
 
 pub const SEND_INTERVAL: Duration = Duration::from_millis(100);
 
+pub const STEAM_APP_ID: u32 = 480; // Steamworks App ID for Spacewar, used for testing
+
 #[derive(Copy, Clone, Debug)]
 pub struct SharedSettings {
     /// An id to identify the protocol version

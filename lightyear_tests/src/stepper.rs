@@ -11,13 +11,16 @@ use bevy::time::TimeUpdateStrategy;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
 use lightyear::prelude::{client::*, server::*, *};
+#[cfg(feature = "test_utils")]
 use lightyear_core::test::TestHelper;
 use lightyear_netcode::client_plugin::NetcodeConfig;
 use lightyear_replication::delta::DeltaManager;
 
-const PROTOCOL_ID: u64 = 0;
-const KEY: [u8; 32] = [0; 32];
-const SERVER_ADDR: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0));
+pub(crate) const SERVER_PORT: u16 = 56789;
+pub(crate) const SERVER_ADDR: SocketAddr =
+    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, SERVER_PORT));
+
+pub(crate) const STEAM_APP_ID: u32 = 480; // Steamworks App ID for Spacewar, used for testing
 
 pub(crate) const TICK_DURATION: Duration = Duration::from_millis(10);
 
@@ -78,11 +81,7 @@ impl ClientServerStepper {
         let server_entity = server_app
             .world_mut()
             .spawn((
-                NetcodeServer::new(lightyear_netcode::server_plugin::NetcodeConfig {
-                    protocol_id: PROTOCOL_ID,
-                    private_key: KEY,
-                    ..Default::default()
-                }),
+                NetcodeServer::new(lightyear_netcode::server_plugin::NetcodeConfig::default()),
                 DeltaManager::default(),
             ))
             .id();
@@ -139,8 +138,8 @@ impl ClientServerStepper {
 
         let auth = Authentication::Manual {
             server_addr: SERVER_ADDR,
-            protocol_id: PROTOCOL_ID,
-            private_key: KEY,
+            protocol_id: Default::default(),
+            private_key: Default::default(),
             client_id: client_id as u64,
         };
         self.client_entities.push(
@@ -156,6 +155,7 @@ impl ClientServerStepper {
                     ReplicationReceiver::default(),
                     NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
                     crossbeam_client,
+                    #[cfg(feature = "test_utils")]
                     TestHelper::default(),
                     PredictionManager::default(),
                 ))
@@ -184,7 +184,48 @@ impl ClientServerStepper {
                     // For Crossbeam we need to mark the IO as Linked, as there is no ServerLink to do that for us
                     Linked,
                     crossbeam_server,
+                    #[cfg(feature = "test_utils")]
                     TestHelper::default(),
+                ))
+                .id(),
+        );
+        self.client_apps.push(client_app);
+        client_id
+    }
+
+    pub(crate) fn new_steam_client(&mut self) -> usize {
+        let mut client_app = App::new();
+        client_app.add_plugins((MinimalPlugins, StatesPlugin, InputPlugin));
+
+        // the steam resources need to be added before the ClientPlugins
+        client_app.add_steam_resources(STEAM_APP_ID);
+
+        client_app.add_plugins(client::ClientPlugins {
+            tick_duration: self.tick_duration,
+        });
+        // ProtocolPlugin needs to be added AFTER ClientPlugins, InputPlugin, because we need the PredictionRegistry to exist
+        client_app.add_plugins(ProtocolPlugin);
+        client_app.finish();
+        client_app.cleanup();
+        let client_id = self.client_entities.len();
+        self.client_entities.push(
+            client_app
+                .world_mut()
+                .spawn((
+                    Client::default(),
+                    // Send pings every frame, so that the Acks are sent every frame
+                    PingManager::new(PingConfig {
+                        ping_interval: Duration::default(),
+                    }),
+                    ReplicationSender::default(),
+                    ReplicationReceiver::default(),
+                    SteamClientIo {
+                        target: ConnectTarget::Addr(SERVER_ADDR),
+                        config: Default::default(),
+                    },
+                    #[cfg(feature = "test_utils")]
+                    TestHelper::default(),
+                    PredictionManager::default(),
                 ))
                 .id(),
         );
@@ -361,7 +402,10 @@ impl ClientServerStepper {
         });
         self.server_app
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
+        #[cfg(feature = "test_utils")]
         mock_instant::global::MockClock::advance(duration);
+        #[cfg(not(feature = "test_utils"))]
+        std::thread::sleep(duration);
     }
 
     pub(crate) fn flush(&mut self) {
