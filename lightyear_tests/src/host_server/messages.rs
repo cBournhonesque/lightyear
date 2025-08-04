@@ -83,20 +83,15 @@ fn test_send_messages() {
         .resource_mut::<Buffer<StringMessage>>();
     assert_eq!(
         &received_messages.0,
-        &vec![(client_of_0, send_message.clone())]
+        &vec![(stepper.client_entities[0], send_message.clone())]
     );
     received_messages.0.clear();
     let mut received_messages = stepper
         .server_app
         .world_mut()
         .resource_mut::<Buffer<StringMessage>>();
-    assert_eq!(
-        &received_messages.0,
-        &vec![(host_client, send_message)]
-    );
+    assert_eq!(&received_messages.0, &vec![(host_client, send_message)]);
     received_messages.0.clear();
-
-
 }
 
 /// Use ServerMultiMessageSender to send a message from the server to clients, including host-client
@@ -115,33 +110,41 @@ fn test_send_message_server_to_host_client() {
     stepper
         .client_app()
         .add_systems(Update, count_messages_observer::<StringMessage>);
-    info!("Sending message from server to clients (including host-client {host_client}) via NetworkTarget");
+    info!(
+        "Sending message from server to clients (including host-client {host_client}) via NetworkTarget"
+    );
     let send_message = StringMessage("World".to_string());
     let send_message_clone = send_message.clone();
-    let system_id = stepper
-        .server_app
-        .register_system(move |mut sender: ServerMultiMessageSender, server: Single<&Server>| {
-            sender.send::<_, Channel1>(&send_message_clone, server.into_inner(), &NetworkTarget::All)
+    stepper.server_app.add_systems(
+        Update,
+        move |mut sender: ServerMultiMessageSender, server: Single<&Server>| {
+            sender
+                .send::<_, Channel1>(
+                    &send_message_clone,
+                    server.into_inner(),
+                    &NetworkTarget::All,
+                )
                 .ok();
-        });
-    stepper.server_app.world_mut().run_system(system_id);
-    stepper.frame_step(2);
-        let mut received_messages = stepper.client_apps[0]
+        },
+    );
+    stepper.frame_step_server_first(1);
+    let mut received_messages = stepper.client_apps[0]
         .world_mut()
         .resource_mut::<Buffer<StringMessage>>();
     assert_eq!(
         &received_messages.0,
-        &vec![(client_of_0, send_message.clone())]
+        &vec![(stepper.client_entities[0], send_message.clone())]
     );
     received_messages.0.clear();
+
+    // the message is sent by the Server in Update; and the host-client receives it in PreUpdate, so we need
+    // to run one more frame
+    stepper.frame_step(1);
     let mut received_messages = stepper
         .server_app
         .world_mut()
         .resource_mut::<Buffer<StringMessage>>();
-    assert_eq!(
-        &received_messages.0,
-        &vec![(host_client, send_message)]
-    );
+    assert_eq!(&received_messages.0, &vec![(host_client, send_message)]);
     received_messages.0.clear();
 }
 
