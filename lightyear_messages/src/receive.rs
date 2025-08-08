@@ -222,7 +222,7 @@ impl MessagePlugin {
                 )
             }
         } else {
-            return Err(MessageError::UnrecognizedMessageId(message_net_id));
+            Err(MessageError::UnrecognizedMessageId(message_net_id))
         }
     }
 

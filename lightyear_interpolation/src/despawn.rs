@@ -15,12 +15,11 @@ pub(crate) fn removed_components<C: Component>(
     mut commands: Commands,
     query: Query<&Confirmed>,
 ) {
-    if let Ok(confirmed) = query.get(trigger.target()) {
-        if let Some(interpolated) = confirmed.interpolated {
-            if let Ok(mut entity) = commands.get_entity(interpolated) {
-                entity.try_remove::<(C, ConfirmedHistory<C>, InterpolateStatus<C>)>();
-            }
-        }
+    if let Ok(confirmed) = query.get(trigger.target())
+        && let Some(interpolated) = confirmed.interpolated
+        && let Ok(mut entity) = commands.get_entity(interpolated)
+    {
+        entity.try_remove::<(C, ConfirmedHistory<C>, InterpolateStatus<C>)>();
     }
 }
 
@@ -33,12 +32,11 @@ pub(crate) fn despawn_interpolated(
     query: Query<&Confirmed>,
     mut commands: Commands,
 ) -> Result {
-    if let Ok(confirmed) = query.get(trigger.target()) {
-        if let Some(interpolated) = confirmed.interpolated {
-            if let Ok(mut entity_mut) = commands.get_entity(interpolated) {
-                entity_mut.try_despawn();
-            }
-        }
+    if let Ok(confirmed) = query.get(trigger.target())
+        && let Some(interpolated) = confirmed.interpolated
+        && let Ok(mut entity_mut) = commands.get_entity(interpolated)
+    {
+        entity_mut.try_despawn();
     }
     Ok(())
 }

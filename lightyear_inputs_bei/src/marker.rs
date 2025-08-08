@@ -41,12 +41,12 @@ pub(crate) fn add_input_markers_system<C: InputContext>(
     query: Query<&Actions<C>, Without<InputMarker<C>>>,
 ) {
     for event in events.read() {
-        if let Ok(actions) = query.get(event.entity) {
-            if !actions.bindings().is_empty() {
-                commands.entity(event.entity).insert(InputMarker::<C> {
-                    marker: core::marker::PhantomData,
-                });
-            }
+        if let Ok(actions) = query.get(event.entity)
+            && !actions.bindings().is_empty()
+        {
+            commands.entity(event.entity).insert(InputMarker::<C> {
+                marker: core::marker::PhantomData,
+            });
         }
     }
 }

@@ -178,28 +178,28 @@ impl SteamServerPlugin {
         child_query: Query<(&ChildOf, &SteamNetServerClient<ClientManager>)>,
         mut commands: Commands,
     ) {
-        if let Ok((child_of, steam_conn)) = child_query.get(trigger.target()) {
-            if let Ok(server_link) = query.get(child_of.parent()) {
-                trace!(
-                    "New Steam connection established with client that has SteamId: {:?}",
-                    steam_conn.steam_id()
-                );
-                let link_entity = commands
-                    .spawn((
-                        LinkOf {
-                            server: server_link.0,
-                        },
-                        Link::new(None),
-                        ClientOf,
-                        Connected,
-                        RemoteId(PeerId::Steam(steam_conn.steam_id().raw())),
-                        SteamClientOf,
-                    ))
-                    .id();
-                commands
-                    .entity(trigger.target())
-                    .insert((AeronetLinkOf(link_entity), Name::from("SteamClientOf")));
-            }
+        if let Ok((child_of, steam_conn)) = child_query.get(trigger.target())
+            && let Ok(server_link) = query.get(child_of.parent())
+        {
+            trace!(
+                "New Steam connection established with client that has SteamId: {:?}",
+                steam_conn.steam_id()
+            );
+            let link_entity = commands
+                .spawn((
+                    LinkOf {
+                        server: server_link.0,
+                    },
+                    Link::new(None),
+                    ClientOf,
+                    Connected,
+                    RemoteId(PeerId::Steam(steam_conn.steam_id().raw())),
+                    SteamClientOf,
+                ))
+                .id();
+            commands
+                .entity(trigger.target())
+                .insert((AeronetLinkOf(link_entity), Name::from("SteamClientOf")));
         }
     }
 
@@ -209,23 +209,23 @@ impl SteamServerPlugin {
         query: Query<&AeronetLinkOf, With<SteamNetServerClient<ClientManager>>>,
         mut commands: Commands,
     ) {
-        if let Ok(aeronet_link_of) = query.get(trigger.target()) {
-            if let Ok(mut link_of_entity) = commands.get_entity(aeronet_link_of.0) {
-                trace!(
-                    "Aeronet SteamClientOf entity {:?} disconnected: {:?}. Disconnecting and despawning LinkOf entity {:?}.",
-                    trigger.target(),
-                    trigger,
-                    link_of_entity.id()
-                );
-                link_of_entity
-                    // to avoid warnings if we delete the Aeronet entity before the deletion trigger can run by aeronet
-                    // Can remove if https://github.com/aecsocket/aeronet/pull/49 is merged
-                    .remove::<AeronetLink>()
-                    .insert(Disconnected {
-                        reason: Some(format!("Aeronet link disconnected: {trigger:?}")),
-                    })
-                    .try_despawn();
-            }
+        if let Ok(aeronet_link_of) = query.get(trigger.target())
+            && let Ok(mut link_of_entity) = commands.get_entity(aeronet_link_of.0)
+        {
+            trace!(
+                "Aeronet SteamClientOf entity {:?} disconnected: {:?}. Disconnecting and despawning LinkOf entity {:?}.",
+                trigger.target(),
+                trigger,
+                link_of_entity.id()
+            );
+            link_of_entity
+                // to avoid warnings if we delete the Aeronet entity before the deletion trigger can run by aeronet
+                // Can remove if https://github.com/aecsocket/aeronet/pull/49 is merged
+                .remove::<AeronetLink>()
+                .insert(Disconnected {
+                    reason: Some(format!("Aeronet link disconnected: {trigger:?}")),
+                })
+                .try_despawn();
         }
     }
 

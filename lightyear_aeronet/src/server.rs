@@ -20,14 +20,14 @@ impl ServerAeronetPlugin {
         query: Query<&AeronetLinkOf>,
         mut commands: Commands,
     ) {
-        if let Ok(child_of) = query.get(trigger.target()) {
-            if let Ok(mut c) = commands.get_entity(child_of.0) {
-                trace!(
-                    "AeronetServer opening for {:?}. Adding Linking on Server",
-                    child_of.0
-                );
-                c.insert(Linking);
-            }
+        if let Ok(child_of) = query.get(trigger.target())
+            && let Ok(mut c) = commands.get_entity(child_of.0)
+        {
+            trace!(
+                "AeronetServer opening for {:?}. Adding Linking on Server",
+                child_of.0
+            );
+            c.insert(Linking);
         }
     }
 
@@ -36,34 +36,34 @@ impl ServerAeronetPlugin {
         query: Query<&AeronetLinkOf>,
         mut commands: Commands,
     ) {
-        if let Ok(child_of) = query.get(trigger.target()) {
-            if let Ok(mut c) = commands.get_entity(child_of.0) {
-                trace!(
-                    "AeronetServer opened for {:?}. Adding Linked on Server",
-                    child_of.0
-                );
-                c.insert(Linked);
-            }
+        if let Ok(child_of) = query.get(trigger.target())
+            && let Ok(mut c) = commands.get_entity(child_of.0)
+        {
+            trace!(
+                "AeronetServer opened for {:?}. Adding Linked on Server",
+                child_of.0
+            );
+            c.insert(Linked);
         }
     }
 
     fn on_closed(trigger: Trigger<Closed>, query: Query<&AeronetLinkOf>, mut commands: Commands) {
-        if let Ok(child_of) = query.get(trigger.target()) {
-            if let Ok(mut c) = commands.get_entity(child_of.0) {
-                trace!(
-                    "AeronetServer closed for {:?}. Adding unlinked on Server",
-                    child_of.0
-                );
-                let reason = match &*trigger {
-                    Closed::ByUser(reason) => {
-                        format!("Closed by user: {reason}")
-                    }
-                    Closed::ByError(err) => {
-                        format!("Closed due to error: {err:?}")
-                    }
-                };
-                c.insert(Unlinked { reason });
-            }
+        if let Ok(child_of) = query.get(trigger.target())
+            && let Ok(mut c) = commands.get_entity(child_of.0)
+        {
+            trace!(
+                "AeronetServer closed for {:?}. Adding unlinked on Server",
+                child_of.0
+            );
+            let reason = match &*trigger {
+                Closed::ByUser(reason) => {
+                    format!("Closed by user: {reason}")
+                }
+                Closed::ByError(err) => {
+                    format!("Closed due to error: {err:?}")
+                }
+            };
+            c.insert(Unlinked { reason });
         }
     }
 }

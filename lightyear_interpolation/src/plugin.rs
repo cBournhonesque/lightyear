@@ -19,7 +19,6 @@ use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
 };
 use bevy_reflect::Reflect;
-use core::time::Duration;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::Tick;
 use lightyear_core::time::PositiveTickDelta;
@@ -61,14 +60,11 @@ impl ToBytes for InterpolationDelay {
         self.delay.bytes_len()
     }
 
-    fn to_bytes(
-        &self,
-        buffer: &mut impl WriteInteger,
-    ) -> core::result::Result<(), SerializationError> {
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         self.delay.to_bytes(buffer)
     }
 
-    fn from_bytes(buffer: &mut Reader) -> core::result::Result<Self, SerializationError>
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
     where
         Self: Sized,
     {
@@ -77,58 +73,8 @@ impl ToBytes for InterpolationDelay {
     }
 }
 
-/// Config to specify how the snapshot interpolation should behave
-#[derive(Clone, Copy, Reflect)]
-pub struct InterpolationConfig {
-    /// The minimum delay that we will apply for interpolation
-    /// This should be big enough so that the interpolated entity always has a server snapshot
-    /// to interpolate towards.
-    /// Set to 0.0 if you want to only use the Ratio
-    pub min_delay: Duration,
-    /// The interpolation delay is a ratio of the update-rate from the server
-    /// The higher the server update_rate (i.e. smaller send_interval), the smaller the interpolation delay
-    /// Set to 0.0 if you want to only use the Delay
-    pub send_interval_ratio: f32,
-}
-
-impl Default for InterpolationConfig {
-    fn default() -> Self {
-        Self {
-            min_delay: Duration::from_millis(5),
-            send_interval_ratio: 1.3,
-        }
-    }
-}
-
-impl InterpolationConfig {
-    pub fn with_min_delay(mut self, min_delay: Duration) -> Self {
-        self.min_delay = min_delay;
-        self
-    }
-
-    pub fn with_send_interval_ratio(mut self, send_interval_ratio: f32) -> Self {
-        self.send_interval_ratio = send_interval_ratio;
-        self
-    }
-
-    /// How much behind the latest server update we want the interpolation time to be
-    pub(crate) fn to_duration(self, server_send_interval: Duration) -> Duration {
-        // TODO: deal with server_send_interval = 0 (set to frame rate)
-        let ratio_value = server_send_interval.mul_f32(self.send_interval_ratio);
-        core::cmp::max(ratio_value, self.min_delay)
-    }
-}
-
 #[derive(Default)]
-pub struct InterpolationPlugin {
-    config: InterpolationConfig,
-}
-
-impl InterpolationPlugin {
-    pub fn new(config: InterpolationConfig) -> Self {
-        Self { config }
-    }
-}
+pub struct InterpolationPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InterpolationSet {
@@ -243,8 +189,7 @@ impl Plugin for InterpolationPlugin {
         app.register_required_components::<HostClient, InterpolationDelay>();
 
         // REFLECT
-        app.register_type::<InterpolationConfig>()
-            .register_type::<InterpolationDelay>()
+        app.register_type::<InterpolationDelay>()
             .register_type::<Interpolated>();
 
         // SETS

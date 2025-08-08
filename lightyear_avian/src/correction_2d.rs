@@ -27,6 +27,8 @@
 //! Id the user is running FrameInterpolation<GlobalTransform>, we can:
 //! -
 use bevy_app::prelude::*;
+
+#[allow(dead_code)]
 pub struct Correction2DPlugin;
 
 impl Plugin for Correction2DPlugin {

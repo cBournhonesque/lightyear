@@ -24,6 +24,7 @@ std = [
 ]
 test_utils = [
     "lightyear_core/test_utils",
+    "lightyear_transport/test_utils",
     "lightyear_replication/test_utils",
     "lightyear_crossbeam/test_utils",
     "lightyear_aeronet/test_utils",

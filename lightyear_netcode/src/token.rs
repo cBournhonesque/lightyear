@@ -61,7 +61,7 @@ impl AddressList {
     pub fn len(&self) -> usize {
         self.addrs.len()
     }
-    pub fn iter(&self) -> FreeListIter<SocketAddr, MAX_SERVERS_PER_CONNECT> {
+    pub fn iter(&self) -> FreeListIter<'_, SocketAddr, MAX_SERVERS_PER_CONNECT> {
         FreeListIter {
             free_list: &self.addrs,
             index: 0,

@@ -97,22 +97,22 @@ impl WebTransportServerPlugin {
         child_query: Query<(&ChildOf, &PeerAddr), With<WebTransportServerClient>>,
         mut commands: Commands,
     ) {
-        if let Ok((child_of, peer_addr)) = child_query.get(trigger.target()) {
-            if let Ok(server_link) = query.get(child_of.parent()) {
-                let link_entity = commands
-                    .spawn((
-                        LinkOf {
-                            server: server_link.0,
-                        },
-                        Link::new(None),
-                        PeerAddr(peer_addr.0),
-                    ))
-                    .id();
-                commands.entity(trigger.target()).insert((
-                    AeronetLinkOf(link_entity),
-                    Name::from("WebTransportClientOf"),
-                ));
-            }
+        if let Ok((child_of, peer_addr)) = child_query.get(trigger.target())
+            && let Ok(server_link) = query.get(child_of.parent())
+        {
+            let link_entity = commands
+                .spawn((
+                    LinkOf {
+                        server: server_link.0,
+                    },
+                    Link::new(None),
+                    PeerAddr(peer_addr.0),
+                ))
+                .id();
+            commands.entity(trigger.target()).insert((
+                AeronetLinkOf(link_entity),
+                Name::from("WebTransportClientOf"),
+            ));
         }
     }
 }

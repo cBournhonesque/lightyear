@@ -193,26 +193,26 @@ impl AuthorityPlugin {
             &mut TriggerSender<AuthorityTransferRequest>,
         )>,
     ) {
-        if let Some(sender_entity) = metadata.mapping.get(&trigger.remote_peer) {
-            if let Ok((mut sender, mut trigger_sender)) = sender_query.get_mut(*sender_entity) {
-                sender
-                    .replicated_entities
-                    .entry(trigger.entity)
-                    .and_modify(|entry| {
-                        if *entry {
-                            // we have authority over the entity, we can give it away
-                            trace!(
-                                "Give authority for entity {:?} to peer: {:?}",
-                                trigger.entity, trigger.remote_peer
-                            );
-                            trigger_sender.trigger_targets::<AuthorityChannel>(
-                                AuthorityTransferRequest::Give,
-                                core::iter::once(trigger.entity),
-                            );
-                            *entry = false;
-                        }
-                    });
-            }
+        if let Some(sender_entity) = metadata.mapping.get(&trigger.remote_peer)
+            && let Ok((mut sender, mut trigger_sender)) = sender_query.get_mut(*sender_entity)
+        {
+            sender
+                .replicated_entities
+                .entry(trigger.entity)
+                .and_modify(|entry| {
+                    if *entry {
+                        // we have authority over the entity, we can give it away
+                        trace!(
+                            "Give authority for entity {:?} to peer: {:?}",
+                            trigger.entity, trigger.remote_peer
+                        );
+                        trigger_sender.trigger_targets::<AuthorityChannel>(
+                            AuthorityTransferRequest::Give,
+                            core::iter::once(trigger.entity),
+                        );
+                        *entry = false;
+                    }
+                });
         }
     }
 
@@ -224,19 +224,18 @@ impl AuthorityPlugin {
             &mut TriggerSender<AuthorityTransferRequest>,
         )>,
     ) {
-        if let Some(sender_entity) = metadata.mapping.get(&trigger.remote_peer) {
-            if let Ok((sender, mut trigger_sender)) = sender_query.get_mut(*sender_entity) {
-                if !sender.has_authority(trigger.entity) {
-                    trace!(
-                        "Request authority for entity {:?} from peer: {:?}",
-                        trigger.entity, trigger.remote_peer
-                    );
-                    trigger_sender.trigger_targets::<AuthorityChannel>(
-                        AuthorityTransferRequest::Request,
-                        core::iter::once(trigger.entity),
-                    );
-                }
-            }
+        if let Some(sender_entity) = metadata.mapping.get(&trigger.remote_peer)
+            && let Ok((sender, mut trigger_sender)) = sender_query.get_mut(*sender_entity)
+            && !sender.has_authority(trigger.entity)
+        {
+            trace!(
+                "Request authority for entity {:?} from peer: {:?}",
+                trigger.entity, trigger.remote_peer
+            );
+            trigger_sender.trigger_targets::<AuthorityChannel>(
+                AuthorityTransferRequest::Request,
+                core::iter::once(trigger.entity),
+            );
         }
     }
 }

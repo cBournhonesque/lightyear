@@ -111,7 +111,7 @@ pub struct LinkReceiver {
 }
 
 impl LinkReceiver {
-    pub fn drain(&mut self) -> Drain<RecvPayload> {
+    pub fn drain(&mut self) -> Drain<'_, RecvPayload> {
         self.buffer.drain(..)
     }
 
@@ -149,7 +149,7 @@ impl LinkReceiver {
 pub struct LinkSender(VecDeque<SendPayload>);
 
 impl LinkSender {
-    pub fn drain(&mut self) -> Drain<SendPayload> {
+    pub fn drain(&mut self) -> Drain<'_, SendPayload> {
         self.0.drain(..)
     }
 

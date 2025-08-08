@@ -341,15 +341,14 @@ impl TransportPlugin {
             }
 
             // adjust the real amount of bytes that we sent through the limiter (to account for the actual packet size)
-            if transport.priority_manager.config.enabled {
-                if let Ok(remaining_bytes_to_add) =
+            if transport.priority_manager.config.enabled
+                && let Ok(remaining_bytes_to_add) =
                     (total_bytes_sent - num_bytes_added_to_limiter).try_into()
                 {
                     let _ = transport
                         .priority_manager
                         .limiter
                         .check_n(remaining_bytes_to_add);
-                }
             }
         })
     }

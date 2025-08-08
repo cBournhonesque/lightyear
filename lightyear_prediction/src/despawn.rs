@@ -44,10 +44,9 @@ impl Command for PredictionDespawnCommand {
         if world
             .get_resource::<PredictionResource>()
             .is_none_or(|r| world.entity(r.link_entity).contains::<HostClient>())
+            && let Ok(e) = world.get_entity_mut(self.entity)
         {
-            if let Ok(e) = world.get_entity_mut(self.entity) {
-                e.despawn();
-            }
+            e.despawn();
         };
 
         if let Ok(mut entity) = world.get_entity_mut(self.entity) {
@@ -103,12 +102,11 @@ pub(crate) fn despawn_confirmed(
     query: Query<&Confirmed>,
     mut commands: Commands,
 ) -> Result {
-    if let Ok(confirmed) = query.get(trigger.target()) {
-        if let Some(predicted) = confirmed.predicted {
-            if let Ok(mut entity_mut) = commands.get_entity(predicted) {
-                entity_mut.try_despawn();
-            }
-        }
+    if let Ok(confirmed) = query.get(trigger.target())
+        && let Some(predicted) = confirmed.predicted
+        && let Ok(mut entity_mut) = commands.get_entity(predicted)
+    {
+        entity_mut.try_despawn();
     }
     Ok(())
 }

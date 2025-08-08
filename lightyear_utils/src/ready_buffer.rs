@@ -62,10 +62,10 @@ impl<K: Ord + Clone, T> ReadyBuffer<K, T> {
 
     /// Same as `pop_item` but does not remove the item from the queue
     pub fn peek_item(&self, current_key: &K) -> Option<(K, &T)> {
-        if self.has_item(current_key) {
-            if let Some(container) = self.heap.peek() {
-                return Some((container.key.clone(), &container.item));
-            }
+        if self.has_item(current_key)
+            && let Some(container) = self.heap.peek()
+        {
+            return Some((container.key.clone(), &container.item));
         }
         None
     }
@@ -73,10 +73,10 @@ impl<K: Ord + Clone, T> ReadyBuffer<K, T> {
     /// Pops the top item (with smallest key) from the queue if the key is above the provided `current_key`
     /// (i.e. we are beyond the instant associated with the item)
     pub fn pop_item(&mut self, current_key: &K) -> Option<(K, T)> {
-        if self.has_item(current_key) {
-            if let Some(container) = self.heap.pop() {
-                return Some((container.key, container.item));
-            }
+        if self.has_item(current_key)
+            && let Some(container) = self.heap.pop()
+        {
+            return Some((container.key, container.item));
         }
         None
     }
