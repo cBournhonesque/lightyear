@@ -5,7 +5,7 @@ use crate::channel::senders::ChannelSend;
 use crate::error::TransportError;
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
-use crate::packet::message::{FragmentData, ReceiveMessage, SingleData};
+use crate::packet::message::{FragmentData, MessageAck, ReceiveMessage, SingleData};
 #[cfg(feature = "test_utils")]
 use crate::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
@@ -19,6 +19,7 @@ use bevy_ecs::{
 };
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::{observer::Trigger, world::OnAdd};
+use bevy_platform::collections::hash_map::Entry;
 use bevy_time::{Real, Time};
 #[cfg(feature = "test_utils")]
 use bevy_utils::default;
@@ -90,7 +91,7 @@ impl TransportPlugin {
                     .drain(..)
                     .try_for_each(|lost_packet| {
                         if let Some(message_map) =
-                            transport.packet_to_message_ack_map.remove(&lost_packet)
+                            transport.packet_to_message_map.remove(&lost_packet)
                         {
                             for (channel_kind, message_ack) in message_map {
                                 let sender_metadata = transport
@@ -105,6 +106,9 @@ impl TransportPlugin {
                                     message_ack.message_id
                                 );
                                 sender_metadata.message_nacks.push(message_ack.message_id);
+                                if message_ack.fragment_id.is_some() {
+                                    transport.fragment_acks.remove(&message_ack.message_id);
+                                }
                             }
                         }
                         Ok::<(), TransportError>(())
@@ -185,19 +189,34 @@ impl TransportPlugin {
                     .try_for_each(|acked_packet| {
                         trace!("Acked packet {:?}", acked_packet);
                         if let Some(message_acks) =
-                            transport.packet_to_message_ack_map.remove(&acked_packet)
+                            transport.packet_to_message_map.remove(&acked_packet)
                         {
                             for (channel_kind, message_ack) in message_acks {
                                 let sender_metadata = transport
                                     .senders
                                     .get_mut(&channel_kind)
                                     .ok_or(PacketError::ChannelNotFound)?;
-                                trace!(
-                                    "Acked message in packet: channel={:?},message_ack={:?}",
-                                    sender_metadata.name, message_ack
-                                );
-                                sender_metadata.message_acks.push(message_ack.message_id);
-                                sender_metadata.sender.receive_ack(&message_ack);
+
+                                if message_ack.fragment_id.is_none() {
+                                    trace!(
+                                        "Acked message in packet: channel={:?},message_ack={:?}",
+                                        sender_metadata.name, message_ack
+                                    );
+                                    sender_metadata.message_acks.push(message_ack.message_id);
+                                    sender_metadata.sender.receive_ack(&message_ack);
+                                } else if let Entry::Occupied(mut entry) = transport.fragment_acks.entry(message_ack.message_id) {
+                                        let num_fragments = entry.get_mut();
+                                        *num_fragments -= 1;
+                                        if *num_fragments == 0 {
+                                            entry.remove();
+                                            trace!(
+                                                "Acked all fragments in packet: channel={:?},message_ack={:?}",
+                                                sender_metadata.name, message_ack
+                                            );
+                                            sender_metadata.message_acks.push(message_ack.message_id);
+                                            sender_metadata.sender.receive_ack(&message_ack);
+                                        }
+                                    }
                             }
                         }
                         Ok::<(), TransportError>(())
@@ -281,10 +300,10 @@ impl TransportPlugin {
 
                 // TODO: should we update this to include fragment info as well?
                 // Update the packet_to_message_id_map (only for channels that care about acks)
-                core::mem::take(&mut packet.message_acks)
+                core::mem::take(&mut packet.messages)
                     .into_iter()
-                    .try_for_each(|(channel_id, message_ack)| {
-                        // TODO: get channel_settings from ECS
+                    .try_for_each(|metadata| {
+                        let channel_id = metadata.channel;
                         let channel_kind = channel_registry
                             .get_kind_from_net_id(channel_id)
                             .ok_or(PacketError::ChannelNotFound)?;
@@ -296,13 +315,22 @@ impl TransportPlugin {
                             trace!(
                                 "Registering message ack (ChannelId:{:?} {:?}) for packet {:?}",
                                 channel_id,
-                                message_ack,
+                                metadata,
                                 packet.packet_id
                             );
-                            transport.packet_to_message_ack_map
+
+                            if let Some(num_fragments) = metadata.num_fragments {
+                                transport.fragment_acks.insert(metadata.message, num_fragments);
+                            }
+
+                            transport.packet_to_message_map
                                 .entry(packet.packet_id)
                                 .or_default()
-                                .push((*channel_kind, message_ack));
+                                .push((*channel_kind, MessageAck {
+                                    message_id: metadata.message,
+                                    fragment_id: metadata.fragment_index,
+                                }));
+
                         }
                         Ok::<(), PacketError>(())
                     }).inspect_err(|e| error!("Error updating packet to message ack: {e:?}")).ok();

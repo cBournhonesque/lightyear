@@ -62,9 +62,17 @@ pub struct Transport {
     pub priority_manager: PriorityManager,
     /// PacketBuilder shared between all channels of this transport
     pub(crate) packet_manager: PacketBuilder,
+
+    // TODO: do a HashMap<MessageId, PacketId> instead?
+    // - when we receive a packet, go through all messages and check which ones match the packet? there shouldn't be too many
+    //   since packets are quickly acked/nacked. We could also have a map from packet_id to message_ids.
+    // - if the message is fragmented, we need to ack num_fragment packets to actually receive the ack. Any nack results in a nack
     /// Map to keep track of which messages have been sent in which packets, so that
     /// reliable senders can stop trying to send a message that has already been received
-    pub(crate) packet_to_message_ack_map: HashMap<PacketId, Vec<(ChannelKind, MessageAck)>>,
+    pub(crate) packet_to_message_map: HashMap<PacketId, Vec<(ChannelKind, MessageAck)>>,
+    /// For fragmented messages, we only ack if we acked the packets of all fragments.
+    /// This counter keeps track of the number of packet acks remaining before we can ack the message.
+    pub(crate) fragment_acks: HashMap<MessageId, u64>,
 
     /// mpsc channel sender/receiver to allow users to write bytes to the same channel in parallel
     pub send_channel: Sender<(ChannelKind, Bytes, f32)>,
@@ -84,7 +92,8 @@ impl Transport {
             senders: Default::default(),
             priority_manager: PriorityManager::new(priority_config),
             packet_manager: PacketBuilder::default(),
-            packet_to_message_ack_map: Default::default(),
+            packet_to_message_map: Default::default(),
+            fragment_acks: Default::default(),
             send_channel,
             recv_channel,
             send: vec![],
@@ -243,7 +252,7 @@ impl Transport {
         });
         self.priority_manager = Default::default();
         self.packet_manager = Default::default();
-        self.packet_to_message_ack_map = Default::default();
+        self.packet_to_message_map = Default::default();
         let (send_channel, recv_channel) = crossbeam_channel::unbounded();
         self.send_channel = send_channel;
         self.recv_channel = recv_channel;

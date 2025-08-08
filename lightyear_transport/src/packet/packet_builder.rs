@@ -1,8 +1,8 @@
 //! Module to take a buffer of messages to send and build packets
 use crate::channel::registry::ChannelId;
 use crate::packet::header::PacketHeaderManager;
-use crate::packet::message::{FragmentData, MessageAck, SingleData};
-use crate::packet::packet::{FRAGMENT_SIZE, Packet};
+use crate::packet::message::{FragmentData, SingleData};
+use crate::packet::packet::{FRAGMENT_SIZE, MessageMetadata, Packet};
 use crate::packet::packet_type::PacketType;
 use alloc::collections::VecDeque;
 use alloc::{vec, vec::Vec};
@@ -86,7 +86,7 @@ impl PacketBuilder {
         header.to_bytes(&mut cursor)?;
         self.current_packet = Some(Packet {
             payload: cursor,
-            message_acks: vec![],
+            messages: vec![],
             packet_id: header.packet_id,
             prewritten_size: 0,
         });
@@ -112,14 +112,13 @@ impl PacketBuilder {
         fragment_data.to_bytes(&mut cursor)?;
         self.current_packet = Some(Packet {
             payload: cursor,
-            // TODO: reuse this vec allocation instead of newly allocating!
-            message_acks: vec![(
-                ChannelId::from(channel_id),
-                MessageAck {
-                    message_id: fragment_data.message_id,
-                    fragment_id: Some(fragment_data.fragment_id),
-                },
-            )],
+            // TODO(perf): reuse this vec allocation instead of newly allocating!
+            messages: vec![MessageMetadata {
+                channel: ChannelId::from(channel_id),
+                message: fragment_data.message_id,
+                fragment_index: Some(fragment_data.fragment_id),
+                num_fragments: Some(fragment_data.num_fragments.0),
+            }],
             packet_id: header.packet_id,
             prewritten_size: 0,
         });
@@ -329,13 +328,12 @@ impl PacketBuilder {
                     .ok_or(SerializationError::SubtractionOverflow)?;
                 // only send a MessageAck when the message has an id (otherwise we don't expect an ack)
                 if let Some(id) = message.id {
-                    packet.message_acks.push((
-                        channel_id,
-                        MessageAck {
-                            message_id: id,
-                            fragment_id: None,
-                        },
-                    ));
+                    packet.messages.push(MessageMetadata {
+                        channel: channel_id,
+                        message: id,
+                        fragment_index: None,
+                        num_fragments: None,
+                    });
                 }
             }
             *num_messages = 0;
@@ -496,7 +494,7 @@ mod tests {
             manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
         assert_eq!(packets.len(), 1);
         let packet = packets.pop().unwrap();
-        assert_eq!(packet.message_acks, vec![]);
+        assert_eq!(packet.messages, vec![]);
         let contents = packet.parse_packet_payload()?;
         assert_eq!(
             contents.get(channel_id1).unwrap(),
@@ -660,14 +658,13 @@ mod tests {
         // 1st packet
         let packet = packets_queue.pop_front().unwrap();
         assert_eq!(
-            packet.message_acks,
-            vec![(
-                *channel_id2,
-                MessageAck {
-                    message_id: MessageId(3),
-                    fragment_id: Some(FragmentIndex(0)),
-                }
-            )]
+            packet.messages,
+            vec![MessageMetadata {
+                channel: *channel_id2,
+                message: MessageId(3),
+                fragment_index: Some(FragmentIndex(0)),
+                num_fragments: Some(fragments.len() as u64),
+            }]
         );
         let contents = packet.parse_packet_payload()?;
         assert_eq!(
@@ -678,14 +675,13 @@ mod tests {
         // 2nd packet
         let packet = packets_queue.pop_front().unwrap();
         assert_eq!(
-            packet.message_acks,
-            vec![(
-                *channel_id2,
-                MessageAck {
-                    message_id: MessageId(3),
-                    fragment_id: Some(FragmentIndex(1)),
-                }
-            )]
+            packet.messages,
+            vec![MessageMetadata {
+                channel: *channel_id1,
+                message: MessageId(0),
+                fragment_index: Some(FragmentIndex(1)),
+                num_fragments: Some(fragments.len() as u64),
+            }]
         );
         let contents = packet.parse_packet_payload()?;
         assert_eq!(

@@ -174,6 +174,10 @@ impl AeronetPlugin {
             if let Ok(mut link) = link_query.get_mut(parent.get()) {
                 trace!("Received {:?} packets", session.recv.len());
                 session.recv.drain(..).for_each(|recv| {
+                    #[cfg(feature = "test_utils")]
+                    link.recv
+                        .push(recv.payload, lightyear_core::time::Instant::now());
+                    #[cfg(not(feature = "test_utils"))]
                     link.recv.push(recv.payload, recv.recv_at);
                 });
             }

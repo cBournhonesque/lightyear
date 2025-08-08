@@ -21,7 +21,7 @@ use bevy_ecs::{
 use lightyear_aeronet::server::ServerAeronetPlugin;
 use lightyear_aeronet::{AeronetLink, AeronetLinkOf, AeronetPlugin};
 use lightyear_connection::client::{Connected, Disconnected};
-use lightyear_connection::client_of::ClientOf;
+use lightyear_connection::client_of::{ClientOf, SkipNetcode};
 use lightyear_connection::server::{Start, Started, Stop};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::prelude::LinkOf;
@@ -47,6 +47,7 @@ impl Plugin for SteamServerPlugin {
         app.add_observer(Self::on_linked);
         app.add_observer(Self::start);
         app.add_observer(Self::on_session_request);
+        // app.add_observer(Self::on_connecting);
         app.add_observer(Self::on_connection);
         app.add_observer(Self::on_disconnected);
         app.add_observer(Self::stop);
@@ -66,6 +67,12 @@ pub struct SteamServerIo {
     pub target: ListenTarget,
     pub config: SessionConfig,
 }
+
+/// Marker component to identify this link as connected to a Steam Server.
+#[derive(Component)]
+// Steam links don't need to go through Netcode, so we skip it
+#[require(SkipNetcode)]
+pub struct SteamClientOf;
 
 impl SteamServerPlugin {
     fn link(
@@ -109,8 +116,61 @@ impl SteamServerPlugin {
     }
 
     fn on_session_request(mut request: Trigger<SessionRequest>) {
+        trace!("Accepted steam link-of request: {:?}", request.target());
         request.respond(SessionResponse::Accepted);
     }
+
+    // fn on_connecting(
+    //     // SteamNetServerClient is added at the same time as SessionEndpoint
+    //     trigger: Trigger<OnAdd, SteamNetServerClient<ClientManager>>,
+    //     query: Query<&AeronetLinkOf>,
+    //     child_query: Query<(&ChildOf, &SteamNetServerClient<ClientManager>)>,
+    //     mut commands: Commands,
+    // ) {
+    //     if let Ok((child_of, steam_conn)) = child_query.get(trigger.target()) {
+    //         if let Ok(server_link) = query.get(child_of.parent()) {
+    //
+    //             let link_entity = commands
+    //                 .spawn((
+    //                     LinkOf {
+    //                         server: server_link.0,
+    //                     },
+    //                     Link::new(None),
+    //                     ClientOf,
+    //                     Linked,
+    //                     Connecting,
+    //                     RemoteId(PeerId::Steam(steam_conn.steam_id().raw())),
+    //                     SteamClientOf,
+    //                 ))
+    //                 .id();
+    //             trace!(
+    //                 "New Steam LinkOf connecting. AeronetEntity: {:?}, LinkOf: {:?}. Steam id: {:?}",
+    //                 trigger.target(),
+    //                 link_entity,
+    //                 steam_conn.steam_id()
+    //             );
+    //             commands
+    //                 .entity(trigger.target())
+    //                 .insert((AeronetLinkOf(link_entity), Name::from("SteamClientOf")));
+    //         }
+    //     }
+    // }
+    //
+    // fn on_connection(
+    //     trigger: Trigger<OnAdd, Session>,
+    //     link_of_query: Query<&AeronetLinkOf, With<SteamNetServerClient<ClientManager>>>,
+    //     mut commands: Commands,
+    // ) {
+    //     info!("steam connection");
+    //     if let Ok(link_of) = link_of_query.get(trigger.target()) {
+    //         if let Ok(mut link) = commands.get_entity(link_of.0) {
+    //             trace!(
+    //                 "Steam link-of connection established. AeronetEntity: {:?}, LinkOf: {:?}", trigger.target(), link_of.0
+    //             );
+    //             link.insert(Connected);
+    //         }
+    //     }
+    // }
 
     fn on_connection(
         trigger: Trigger<OnAdd, Session>,
@@ -133,6 +193,7 @@ impl SteamServerPlugin {
                         ClientOf,
                         Connected,
                         RemoteId(PeerId::Steam(steam_conn.steam_id().raw())),
+                        SteamClientOf,
                     ))
                     .id();
                 commands
@@ -161,7 +222,7 @@ impl SteamServerPlugin {
                     // Can remove if https://github.com/aecsocket/aeronet/pull/49 is merged
                     .remove::<AeronetLink>()
                     .insert(Disconnected {
-                        reason: Some(format!("Aeronet link disconnected: {:?}", trigger)),
+                        reason: Some(format!("Aeronet link disconnected: {trigger:?}")),
                     })
                     .try_despawn();
             }

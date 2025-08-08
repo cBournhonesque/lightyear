@@ -3,15 +3,15 @@
 use crate::input_buffer::{InputBuffer, InputData};
 use alloc::{format, string::String, vec, vec::Vec};
 use bevy_ecs::{
-    component::{Component, Mutable},
+    component::{Component},
     entity::{Entity, EntityMapper, MapEntities},
     system::SystemParam,
 };
 use bevy_reflect::Reflect;
 use core::fmt::{Debug, Formatter, Write};
-use std::ops::Deref;
+use bevy_app::App;
 use bevy_ecs::bundle::Bundle;
-use bevy_ecs::query::{QueryData, ReadOnlyQueryData};
+use bevy_ecs::query::{QueryData};
 use lightyear_core::prelude::Tick;
 #[cfg(feature = "interpolation")]
 use lightyear_interpolation::plugin::InterpolationDelay;
@@ -56,11 +56,14 @@ pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + 'static {
 /// A QueryData that contains the queryable state that contains the current state of the Action at the given tick
 /// 
 /// This is usually a single component (ActionState) or multiple components in the case of BEI (ActionState, ActionValue, etc.)
-pub trait ActionStateQueryData: QueryData
-where
-    for<'a> <Self as QueryData>::Item<'a>: Deref<Target=<Self::ReadOnly as QueryData>::Item<'a>>,
-{
-    type Bundle: Bundle + Send + Sync + Default + 'static;
+pub trait ActionStateQueryData {
+
+    type Mut: QueryData;
+
+    // Component that should always be present to represent the ActionState
+    type Main: Component + Send + Sync + Default + 'static;
+    type Bundle: Bundle + Send + Sync + 'static;
+    fn as_read_only<'w, 'a: 'w>(state: &'a <Self::Mut as QueryData>::Item<'w>) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'w>;
     fn base_value() -> Self::Bundle;
 }
 
@@ -95,6 +98,15 @@ pub trait ActionStateSequence:
 
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
+
+
+    /// Register the required components for this ActionStateSequence in the App.
+    fn register_required_components(app: &mut App) {
+        app.register_required_components::<<Self::State as ActionStateQueryData>::Main, InputBuffer<Self::Snapshot>>();
+        app.register_required_components::<InputBuffer<Self::Snapshot>, <Self::State as ActionStateQueryData>::Main>();
+        app.try_register_required_components::<Self::Marker, <Self::State as ActionStateQueryData>::Main>()
+            .ok();
+    }
 
     /// Returns the sequence of snapshots from the ActionStateSequence.
     ///
@@ -186,14 +198,13 @@ pub trait ActionStateSequence:
 
     /// Create a snapshot from the given state.
     fn to_snapshot<'w, 's>(
-        // state: AsRef<Self::State::ReadOnly::Item<'w>>,
-        state: <Self::State as QueryData>::Item<'w>,
+        state: &<<Self::State as ActionStateQueryData>::Mut as QueryData>::Item<'w>,
         context: &<Self::Context as SystemParam>::Item<'w, 's>,
     ) -> Self::Snapshot;
 
     /// Modify the given state to reflect the given snapshot.
     fn from_snapshot<'w, 's>(
-        state: <Self::State as QueryData>::Item<'w>,
+        state: &mut <<Self::State as ActionStateQueryData>::Mut as QueryData>::Item<'w>,
         snapshot: &Self::Snapshot,
         context: &<Self::Context as SystemParam>::Item<'w, 's>,
     );

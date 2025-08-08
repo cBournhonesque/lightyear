@@ -7,6 +7,8 @@ use bevy_ecs::{
 use bevy_reflect::{FromReflect, Reflect, Reflectable};
 use core::cmp::max;
 use core::fmt::Debug;
+use bevy_ecs::change_detection::Mut;
+use bevy_ecs::component::Component;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
@@ -40,8 +42,7 @@ impl<A> IntoIterator for NativeStateSequence<A> {
     }
 }
 
-impl<
-    A: Serialize
+impl<A: Serialize
         + DeserializeOwned
         + Clone
         + PartialEq
@@ -115,18 +116,18 @@ impl<
     }
 
     fn to_snapshot<'w, 's>(
-        state: &Self::State,
+        state: &Mut<'w, ActionState<A>>,
         _: &<Self::Context as SystemParam>::Item<'w, 's>,
     ) -> Self::Snapshot {
-        state.clone()
+        (*state).clone()
     }
 
     fn from_snapshot<'w, 's>(
-        state: &mut Self::State,
+        state: &mut Mut<'w, ActionState<A>>,
         snapshot: &Self::Snapshot,
         _: &<Self::Context as SystemParam>::Item<'w, 's>,
     ) {
-        *state = snapshot.clone();
+        **state = snapshot.clone();
     }
 }
 
@@ -286,8 +287,8 @@ mod tests {
                 InputData::SameAsPrecedent,
             ],
         };
-        let mistmatch = sequence.update_buffer(&mut input_buffer, Tick(11));
-        assert_eq!(mistmatch, None);
+        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(11));
+        assert_eq!(mismatch, None);
         assert_eq!(input_buffer.get(Tick(11)), None);
         assert_eq!(input_buffer.get(Tick(10)), None);
         assert_eq!(input_buffer.get(Tick(9)), None);

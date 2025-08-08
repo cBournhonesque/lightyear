@@ -46,9 +46,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
             .add_map_entities()
             .add_direction(NetworkDirection::Bidirectional);
 
-        app.register_required_components::<S::State, InputBuffer<S::Snapshot>>();
-        app.register_required_components::<InputBuffer<S::Snapshot>, S::State>();
-        app.try_register_required_components::<S::Marker, S::State>()
-            .ok();
+        S::register_required_components(app);
     }
 }

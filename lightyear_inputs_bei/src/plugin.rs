@@ -6,20 +6,21 @@ use bevy_app::FixedPreUpdate;
 use bevy_app::{App, Plugin};
 #[cfg(feature = "client")]
 use bevy_app::{RunFixedMainLoop, RunFixedMainLoopSystem};
+use bevy_ecs::component::Component;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::IntoScheduleConfigs;
 #[cfg(all(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::common_conditions::not;
+use bevy_enhanced_input::context::InputContextAppExt;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_enhanced_input::EnhancedInputSet;
-use bevy_enhanced_input::input_context::{InputContext, InputContextAppExt};
 use lightyear_inputs::config::InputConfig;
 
-pub struct InputPlugin<C: InputContext<Schedule = FixedPreUpdate>> {
+pub struct InputPlugin<C> {
     pub config: InputConfig<C>,
 }
 
-impl<C: InputContext<Schedule = FixedPreUpdate>> Default for InputPlugin<C> {
+impl<C> Default for InputPlugin<C> {
     fn default() -> Self {
         Self {
             config: Default::default(),
@@ -27,7 +28,7 @@ impl<C: InputContext<Schedule = FixedPreUpdate>> Default for InputPlugin<C> {
     }
 }
 
-impl<C: InputContext<Schedule = FixedPreUpdate>> Plugin for InputPlugin<C> {
+impl<C: Component> Plugin for InputPlugin<C> {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<bevy_enhanced_input::EnhancedInputPlugin>() {
             app.add_plugins(bevy_enhanced_input::EnhancedInputPlugin);
@@ -41,12 +42,12 @@ impl<C: InputContext<Schedule = FixedPreUpdate>> Plugin for InputPlugin<C> {
                 BEIStateSequence<C>,
             >::new(self.config));
 
-            app.add_observer(crate::marker::create_add_input_markers_events::<C>);
-            app.add_systems(
-                RunFixedMainLoop,
-                crate::marker::add_input_markers_system::<C>
-                    .in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
-            );
+            // app.add_observer(crate::marker::create_add_input_markers_events::<C>);
+            // app.add_systems(
+            //     RunFixedMainLoop,
+            //     crate::marker::add_input_markers_system::<C>
+            //         .in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
+            // );
 
             // Make sure that the BEI inputs got updated from the InputReader before buffering them
             // in the InputBuffer
@@ -55,7 +56,7 @@ impl<C: InputContext<Schedule = FixedPreUpdate>> Plugin for InputPlugin<C> {
                 (
                     EnhancedInputSet::Update,
                     lightyear_inputs::client::InputSet::BufferClientInputs,
-                    EnhancedInputSet::Trigger,
+                    EnhancedInputSet::Apply,
                 )
                     .chain(),
             );
@@ -86,7 +87,7 @@ impl<C: InputContext<Schedule = FixedPreUpdate>> Plugin for InputPlugin<C> {
             app.configure_sets(
                 FixedPreUpdate,
                 lightyear_inputs::server::InputSet::UpdateActionState
-                    .before(EnhancedInputSet::Trigger),
+                    .before(EnhancedInputSet::Apply),
             );
         }
     }

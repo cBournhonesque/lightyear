@@ -6,9 +6,11 @@ use bevy_ecs::{
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use core::marker::PhantomData;
+use bevy_ecs::query::QueryData;
 use lightyear_inputs::input_buffer::InputData;
 
 use serde::{Deserialize, Serialize};
+use lightyear_inputs::input_message::ActionStateQueryData;
 
 /// The component that will store the current status of the action for the entity
 ///
@@ -19,6 +21,20 @@ use serde::{Deserialize, Serialize};
     Component, Clone, Debug, Default, PartialEq, Serialize, Deserialize, Reflect, Deref, DerefMut,
 )]
 pub struct ActionState<A>(pub A);
+
+impl<A: Default + Send + Sync + 'static> ActionStateQueryData for ActionState<A> {
+    type Mut = &'static mut Self;
+    type Main = ActionState<A>;
+    type Bundle = ActionState<A>;
+
+    fn as_read_only<'w, 'a: 'w>(state: &'a &'w mut ActionState<A>) -> &'w ActionState<A> {
+        &state
+    }
+
+    fn base_value() -> Self::Bundle {
+        ActionState::<A>::default()
+    }
+}
 
 impl<A: MapEntities> MapEntities for ActionState<A> {
     fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {

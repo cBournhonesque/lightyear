@@ -36,6 +36,9 @@ pub struct Channel2;
 pub struct CompA(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompS(pub String);
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompDisabled(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
@@ -158,6 +161,7 @@ impl Plugin for ProtocolPlugin {
         .add_direction(NetworkDirection::Bidirectional);
         // components
         app.register_component::<CompA>();
+        app.register_component::<CompS>();
         app.register_component::<CompFull>()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full);
