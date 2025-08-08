@@ -516,10 +516,10 @@ impl<Ctx> Client<Ctx> {
         // Processing them might mean that we're re-adding them to the receiver so that
         // the Transport can read them later
         for _ in 0..receiver.len() {
-            if let Some(recv_packet) = receiver.pop() {
-                if let Some(payload) = self.recv_packet(recv_packet, now)? {
-                    receiver.push_raw(payload);
-                }
+            if let Some(recv_packet) = receiver.pop()
+                && let Some(payload) = self.recv_packet(recv_packet, now)?
+            {
+                receiver.push_raw(payload);
             }
         }
         Ok(())

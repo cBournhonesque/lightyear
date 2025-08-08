@@ -40,9 +40,7 @@ impl Plugin for SharedPlugins {
         // Note: the server can also do interpolation
         // TODO: move the config to the InterpolationManager
         #[cfg(feature = "interpolation")]
-        app.add_plugins(lightyear_interpolation::plugin::InterpolationPlugin::new(
-            lightyear_interpolation::plugin::InterpolationConfig::default(),
-        ));
+        app.add_plugins(lightyear_interpolation::plugin::InterpolationPlugin);
 
         #[cfg(feature = "avian2d")]
         app.add_plugins(lightyear_avian2d::prelude::LightyearAvianPlugin::default());

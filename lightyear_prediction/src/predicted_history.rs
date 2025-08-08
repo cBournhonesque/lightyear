@@ -90,12 +90,11 @@ pub(crate) fn apply_component_removal_confirmed<C: Component>(
     confirmed_query: Query<&Confirmed>,
 ) {
     // Components that are removed from the Confirmed entity also get removed from the Predicted entity
-    if let Ok(confirmed) = confirmed_query.get(trigger.target()) {
-        if let Some(p) = confirmed.predicted {
-            if let Ok(mut commands) = commands.get_entity(p) {
-                commands.remove::<C>();
-            }
-        }
+    if let Ok(confirmed) = confirmed_query.get(trigger.target())
+        && let Some(p) = confirmed.predicted
+        && let Ok(mut commands) = commands.get_entity(p)
+    {
+        commands.remove::<C>();
     }
 }
 
@@ -117,19 +116,19 @@ pub(crate) fn apply_immutable_confirmed_update<C: Component + Clone>(
     mut commands: Commands,
 ) {
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed_entity.predicted {
-            if confirmed_component.is_changed() && !confirmed_component.is_added() {
-                if let Ok(()) = predicted_entities.get_mut(p) {
-                    assert_eq!(
-                        prediction_registry.prediction_mode::<C>(),
-                        PredictionMode::Simple
-                    );
-                    // map any entities from confirmed to predicted
-                    let mut component = confirmed_component.deref().clone();
-                    let _ = manager.map_entities(&mut component, component_registry.as_ref());
-                    commands.entity(p).try_insert(component);
-                }
-            }
+        if let Some(p) = confirmed_entity.predicted
+            && confirmed_component.is_changed()
+            && !confirmed_component.is_added()
+            && let Ok(()) = predicted_entities.get_mut(p)
+        {
+            assert_eq!(
+                prediction_registry.prediction_mode::<C>(),
+                PredictionMode::Simple
+            );
+            // map any entities from confirmed to predicted
+            let mut component = confirmed_component.deref().clone();
+            let _ = manager.map_entities(&mut component, component_registry.as_ref());
+            commands.entity(p).try_insert(component);
         }
     }
 }
@@ -151,19 +150,19 @@ pub(crate) fn apply_confirmed_update<C: SyncComponent>(
     confirmed_entities: Query<(&Confirmed, Ref<C>)>,
 ) {
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed_entity.predicted {
-            if confirmed_component.is_changed() && !confirmed_component.is_added() {
-                if let Ok(mut predicted_component) = predicted_entities.get_mut(p) {
-                    assert_eq!(
-                        prediction_registry.prediction_mode::<C>(),
-                        PredictionMode::Simple
-                    );
-                    // map any entities from confirmed to predicted
-                    let mut component = confirmed_component.deref().clone();
-                    let _ = manager.map_entities(&mut component, component_registry.as_ref());
-                    *predicted_component = component;
-                }
-            }
+        if let Some(p) = confirmed_entity.predicted
+            && confirmed_component.is_changed()
+            && !confirmed_component.is_added()
+            && let Ok(mut predicted_component) = predicted_entities.get_mut(p)
+        {
+            assert_eq!(
+                prediction_registry.prediction_mode::<C>(),
+                PredictionMode::Simple
+            );
+            // map any entities from confirmed to predicted
+            let mut component = confirmed_component.deref().clone();
+            let _ = manager.map_entities(&mut component, component_registry.as_ref());
+            *predicted_component = component;
         }
     }
 }

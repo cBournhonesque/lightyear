@@ -119,11 +119,11 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
     ///
     /// This should be called every tick.
     pub fn set(&mut self, tick: Tick, value: T) {
-        if let Some(precedent) = self.get(tick - 1) {
-            if precedent == &value {
-                self.set_raw(tick, InputData::SameAsPrecedent);
-                return;
-            }
+        if let Some(precedent) = self.get(tick - 1)
+            && precedent == &value
+        {
+            self.set_raw(tick, InputData::SameAsPrecedent);
+            return;
         }
         self.set_raw(tick, InputData::Input(value));
     }

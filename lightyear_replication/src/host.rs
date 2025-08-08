@@ -133,14 +133,13 @@ impl HostServerPlugin {
 
         query.iter().for_each(|d| {
             add_fake_components(&mut commands, &d, d.entity);
-            if let Some(replicate_like) = &d.replicate_like {
-                if replicate_like.is_changed() {
-                    if let Ok(root_d) = query.get(replicate_like.root) {
-                        // TODO: when a component changes on the root, we should also check if we need to add
-                        //  fake components on the children
-                        add_fake_components(&mut commands, &root_d, d.entity);
-                    }
-                }
+            if let Some(replicate_like) = &d.replicate_like
+                && replicate_like.is_changed()
+                && let Ok(root_d) = query.get(replicate_like.root)
+            {
+                // TODO: when a component changes on the root, we should also check if we need to add
+                //  fake components on the children
+                add_fake_components(&mut commands, &root_d, d.entity);
             }
         });
     }

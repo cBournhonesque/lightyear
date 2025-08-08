@@ -145,13 +145,13 @@ impl LinkOf {
             }
         }
         let target_entity = world.entity(entity).get::<Self>().unwrap().get();
-        if let Ok(mut target_entity_mut) = world.get_entity_mut(target_entity) {
-            if let Some(mut relationship_target) = target_entity_mut.get_mut::<Server>() {
-                RelationshipSourceCollection::remove(
-                    relationship_target.collection_mut_risky(),
-                    entity,
-                );
-            }
+        if let Ok(mut target_entity_mut) = world.get_entity_mut(target_entity)
+            && let Some(mut relationship_target) = target_entity_mut.get_mut::<Server>()
+        {
+            RelationshipSourceCollection::remove(
+                relationship_target.collection_mut_risky(),
+                entity,
+            );
         }
     }
 
@@ -160,10 +160,10 @@ impl LinkOf {
         server: Query<&LocalTimeline, (Without<LinkOf>, With<Server>)>,
         mut query: Query<(&mut LocalTimeline, &LinkOf)>,
     ) {
-        if let Ok((mut timeline, link_of)) = query.get_mut(trigger.target()) {
-            if let Ok(server_timeline) = server.get(link_of.get()) {
-                *timeline = server_timeline.clone();
-            }
+        if let Ok((mut timeline, link_of)) = query.get_mut(trigger.target())
+            && let Ok(server_timeline) = server.get(link_of.get())
+        {
+            *timeline = server_timeline.clone();
         }
     }
 }

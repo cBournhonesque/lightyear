@@ -591,13 +591,13 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
 
 pub trait PredictionAppRegistrationExt {
     /// Enable rollbacks for a component that is not networked.
-    fn add_rollback<C: SyncComponent>(&mut self) -> ComponentRegistration<C>;
+    fn add_rollback<C: SyncComponent>(&mut self) -> ComponentRegistration<'_, C>;
 
     fn add_resource_rollback<R: Resource + Clone>(&mut self);
 }
 
 impl PredictionAppRegistrationExt for App {
-    fn add_rollback<C: SyncComponent>(&mut self) -> ComponentRegistration<C> {
+    fn add_rollback<C: SyncComponent>(&mut self) -> ComponentRegistration<'_, C> {
         let history_id = self
             .world_mut()
             .register_component::<PredictionHistory<C>>();
