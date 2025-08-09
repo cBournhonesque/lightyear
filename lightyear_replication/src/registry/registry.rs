@@ -254,10 +254,10 @@ fn component_mapped_context_deserialize<M: Component>(
 impl ComponentRegistry {
     pub(crate) fn try_add_map_entities<C: Clone + MapEntities + 'static>(&mut self) {
         let kind = ComponentKind::of::<C>();
-        if let Some(metadata) = self.component_metadata_map.get_mut(&kind) {
-            if let Some(serialization) = metadata.serialization.as_mut() {
-                serialization.add_map_entities::<C>();
-            }
+        if let Some(metadata) = self.component_metadata_map.get_mut(&kind)
+            && let Some(serialization) = metadata.serialization.as_mut()
+        {
+            serialization.add_map_entities::<C>();
         }
     }
 

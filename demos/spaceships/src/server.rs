@@ -216,10 +216,10 @@ pub(crate) fn handle_hit_event(
             if let Ok((player, mut score)) = player_q.get_mut(victim_entity) {
                 score.0 -= 1;
             }
-            if let Some(shooter_entity) = client_id_to_player_entity(ev.bullet_owner) {
-                if let Ok((player, mut score)) = player_q.get_mut(shooter_entity) {
-                    score.0 += 1;
-                }
+            if let Some(shooter_entity) = client_id_to_player_entity(ev.bullet_owner)
+                && let Ok((player, mut score)) = player_q.get_mut(shooter_entity)
+            {
+                score.0 += 1;
             }
         }
     }

@@ -294,16 +294,16 @@ impl ReplicationSender {
         // if it's been enough time since we last any action for the group, we can set the last_action_tick to None
         // (meaning that there's no need when we receive the update to check if we have already received a previous action)
         for group_channel in self.group_channels.values_mut() {
-            if let Some(last_action_tick) = group_channel.last_action_tick {
-                if tick - last_action_tick > delta {
-                    debug!(
-                        ?tick,
-                        ?last_action_tick,
-                        ?group_channel,
-                        "Setting the last_action tick to None because there hasn't been any new actions in a while"
-                    );
-                    group_channel.last_action_tick = None;
-                }
+            if let Some(last_action_tick) = group_channel.last_action_tick
+                && tick - last_action_tick > delta
+            {
+                debug!(
+                    ?tick,
+                    ?last_action_tick,
+                    ?group_channel,
+                    "Setting the last_action tick to None because there hasn't been any new actions in a while"
+                );
+                group_channel.last_action_tick = None;
             }
             group_channel
                 .delta_ack_ticks

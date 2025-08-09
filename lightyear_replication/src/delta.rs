@@ -155,7 +155,7 @@ impl DeltaManager {
     }
 
     /// Get the stored component value so that we can compute deltas from it.
-    pub fn get(&self, entity: Entity, tick: Tick, kind: ComponentKind) -> Option<Ptr> {
+    pub fn get(&self, entity: Entity, tick: Tick, kind: ComponentKind) -> Option<Ptr<'_>> {
         let tick_data = self.state.get(&(kind, entity))?;
         let ptr = tick_data.data.get(&tick)?;
         Some(unsafe { Ptr::new(ptr.ptr) })
@@ -170,33 +170,33 @@ impl DeltaManager {
         kind: ComponentKind,
         registry: &ComponentRegistry,
     ) {
-        if let Some(mut group_data) = self.state.get_mut(&(kind, entity)) {
-            if let Some(per_tick_data) = group_data.data.get_mut(&tick) {
-                if per_tick_data.num_acks == 1 {
-                    // TODO: maybe optimize this by keeping track in each message of which delta compression components were included?
-                    trace!(
-                        ?kind,
-                        ?entity,
-                        "DeltaManager: removing data for ticks older to {tick:?}",
-                    );
+        if let Some(mut group_data) = self.state.get_mut(&(kind, entity))
+            && let Some(per_tick_data) = group_data.data.get_mut(&tick)
+        {
+            if per_tick_data.num_acks == 1 {
+                // TODO: maybe optimize this by keeping track in each message of which delta compression components were included?
+                trace!(
+                    ?kind,
+                    ?entity,
+                    "DeltaManager: removing data for ticks older to {tick:?}",
+                );
 
-                    // if all clients have acked this tick, we can remove the data
-                    // for all ticks older than this one
+                // if all clients have acked this tick, we can remove the data
+                // for all ticks older than this one
 
-                    // we can remove all the keys older or equal than the acked key
-                    let recent_data = group_data.data.split_off(&tick);
-                    // call drop on all the data that we are removing
-                    group_data.data.values_mut().for_each(|tick_data| {
-                        // TODO: maybe this is not necessary, because it is extremely unlikely that the component
-                        //  will have anything to drop
-                        // SAFETY: the ptr corresponds to the correct kind
-                        unsafe { registry.erased_drop(tick_data.ptr, kind) }
-                            .expect("unable to drop component value");
-                    });
-                    group_data.data = recent_data;
-                } else {
-                    per_tick_data.num_acks -= 1;
-                }
+                // we can remove all the keys older or equal than the acked key
+                let recent_data = group_data.data.split_off(&tick);
+                // call drop on all the data that we are removing
+                group_data.data.values_mut().for_each(|tick_data| {
+                    // TODO: maybe this is not necessary, because it is extremely unlikely that the component
+                    //  will have anything to drop
+                    // SAFETY: the ptr corresponds to the correct kind
+                    unsafe { registry.erased_drop(tick_data.ptr, kind) }
+                        .expect("unable to drop component value");
+                });
+                group_data.data = recent_data;
+            } else {
+                per_tick_data.num_acks -= 1;
             }
         }
     }

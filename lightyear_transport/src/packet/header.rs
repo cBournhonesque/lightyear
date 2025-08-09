@@ -177,11 +177,11 @@ impl PacketHeaderManager {
         }
         for i in 1..=ACK_BITFIELD_SIZE {
             let packet_id = PacketId(header.last_ack_packet_id.wrapping_sub(i as u16));
-            if header.get_bitfield_bit(i - 1) {
-                if let Some(packet) = self.update_sent_packets_not_acked(&packet_id) {
-                    self.stats_manager.sent_packet_acked();
-                    self.newly_acked_packets.insert(packet);
-                }
+            if header.get_bitfield_bit(i - 1)
+                && let Some(packet) = self.update_sent_packets_not_acked(&packet_id)
+            {
+                self.stats_manager.sent_packet_acked();
+                self.newly_acked_packets.insert(packet);
             }
         }
     }

@@ -297,11 +297,11 @@ pub(crate) fn process_collisions(
     // which is why logic is duplicated twice here
     for contacts in collisions.iter() {
         if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.collider1) {
-            if let Ok(owner) = player_q.get(contacts.collider2) {
-                if bullet.owner == owner.client_id {
-                    // this is our own bullet, don't do anything
-                    continue;
-                }
+            if let Ok(owner) = player_q.get(contacts.collider2)
+                && bullet.owner == owner.client_id
+            {
+                // this is our own bullet, don't do anything
+                continue;
             }
             // despawn the bullet
             commands.entity(contacts.collider1).prediction_despawn();
@@ -318,11 +318,11 @@ pub(crate) fn process_collisions(
             hit_ev_writer.write(ev);
         }
         if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.collider2) {
-            if let Ok(owner) = player_q.get(contacts.collider1) {
-                if bullet.owner == owner.client_id {
-                    // this is our own bullet, don't do anything
-                    continue;
-                }
+            if let Ok(owner) = player_q.get(contacts.collider1)
+                && bullet.owner == owner.client_id
+            {
+                // this is our own bullet, don't do anything
+                continue;
             }
             commands.entity(contacts.collider2).prediction_despawn();
             let victim_client_id = player_q

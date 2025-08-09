@@ -69,25 +69,25 @@ impl HostPlugin {
         query: Query<&LinkOf, (With<Client>, Without<HostClient>)>,
         server_query: Query<(), (With<Server>, With<Started>)>,
     ) {
-        if let Ok(link_of) = query.get(trigger.target()) {
-            if server_query.get(link_of.server).is_ok() {
-                info!("Connected host-client");
-                commands.entity(trigger.target()).insert((
-                    Connected,
-                    // We cannot insert the ids purely from the point of view of the client
-                    // so we set both its to Local
-                    LocalId(PeerId::Local(0)),
-                    RemoteId(PeerId::Local(0)),
-                    ClientOf,
-                    // NOTE: it's very important to insert Connected and HostClient at the same time
-                    //  to avoid race conditions between observers that depend on Connected, and those
-                    // that depend on HostClient
-                    HostClient { buffer: Vec::new() },
-                ));
-                commands.entity(link_of.server).insert(HostServer {
-                    client: trigger.target(),
-                });
-            }
+        if let Ok(link_of) = query.get(trigger.target())
+            && server_query.get(link_of.server).is_ok()
+        {
+            info!("Connected host-client");
+            commands.entity(trigger.target()).insert((
+                Connected,
+                // We cannot insert the ids purely from the point of view of the client
+                // so we set both its to Local
+                LocalId(PeerId::Local(0)),
+                RemoteId(PeerId::Local(0)),
+                ClientOf,
+                // NOTE: it's very important to insert Connected and HostClient at the same time
+                //  to avoid race conditions between observers that depend on Connected, and those
+                // that depend on HostClient
+                HostClient { buffer: Vec::new() },
+            ));
+            commands.entity(link_of.server).insert(HostServer {
+                client: trigger.target(),
+            });
         }
     }
 
@@ -98,17 +98,17 @@ impl HostPlugin {
         query: Query<&LinkOf, With<HostClient>>,
         server_query: Query<(), With<HostServer>>,
     ) {
-        if let Ok(link_of) = query.get(trigger.target()) {
-            if server_query.get(link_of.server).is_ok() {
-                info!("Disconnected host-client");
-                commands
-                    .entity(trigger.target())
-                    .remove::<HostClient>()
-                    .insert(Disconnected {
-                        reason: Some("Client trigger".to_string()),
-                    });
-                commands.entity(link_of.server).remove::<HostServer>();
-            }
+        if let Ok(link_of) = query.get(trigger.target())
+            && server_query.get(link_of.server).is_ok()
+        {
+            info!("Disconnected host-client");
+            commands
+                .entity(trigger.target())
+                .remove::<HostClient>()
+                .insert(Disconnected {
+                    reason: Some("Client trigger".to_string()),
+                });
+            commands.entity(link_of.server).remove::<HostServer>();
         }
     }
 
@@ -121,15 +121,15 @@ impl HostPlugin {
         server_query: Query<(), (With<Started>, With<Server>)>,
         mut commands: Commands,
     ) {
-        if let Ok(link_of) = client_query.get(trigger.target()) {
-            if server_query.get(link_of.server).is_ok() {
-                commands
-                    .entity(trigger.target())
-                    .insert(HostClient { buffer: Vec::new() });
-                commands.entity(link_of.server).insert(HostServer {
-                    client: trigger.target(),
-                });
-            }
+        if let Ok(link_of) = client_query.get(trigger.target())
+            && server_query.get(link_of.server).is_ok()
+        {
+            commands
+                .entity(trigger.target())
+                .insert(HostClient { buffer: Vec::new() });
+            commands.entity(link_of.server).insert(HostServer {
+                client: trigger.target(),
+            });
         }
     }
 

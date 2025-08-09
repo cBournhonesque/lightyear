@@ -283,43 +283,43 @@ impl ClientServerStepper {
             .tick()
     }
 
-    pub fn host_client(&self) -> EntityRef {
+    pub fn host_client(&self) -> EntityRef<'_> {
         self.server_app
             .world()
             .entity(self.host_client_entity.unwrap())
     }
 
-    pub fn host_client_mut(&mut self) -> EntityWorldMut {
+    pub fn host_client_mut(&mut self) -> EntityWorldMut<'_> {
         self.server_app
             .world_mut()
             .entity_mut(self.host_client_entity.unwrap())
     }
 
-    pub fn client(&self, id: usize) -> EntityRef {
+    pub fn client(&self, id: usize) -> EntityRef<'_> {
         self.client_apps[id]
             .world()
             .entity(self.client_entities[id])
     }
 
-    pub fn client_mut(&mut self, id: usize) -> EntityWorldMut {
+    pub fn client_mut(&mut self, id: usize) -> EntityWorldMut<'_> {
         self.client_apps[id]
             .world_mut()
             .entity_mut(self.client_entities[id])
     }
 
-    pub fn server(&self) -> EntityRef {
+    pub fn server(&self) -> EntityRef<'_> {
         self.server_app.world().entity(self.server_entity)
     }
 
-    pub fn server_mut(&mut self) -> EntityWorldMut {
+    pub fn server_mut(&mut self) -> EntityWorldMut<'_> {
         self.server_app.world_mut().entity_mut(self.server_entity)
     }
 
-    pub fn client_of(&self, id: usize) -> EntityRef {
+    pub fn client_of(&self, id: usize) -> EntityRef<'_> {
         self.server_app.world().entity(self.client_of_entities[id])
     }
 
-    pub fn client_of_mut(&mut self, id: usize) -> EntityWorldMut {
+    pub fn client_of_mut(&mut self, id: usize) -> EntityWorldMut<'_> {
         self.server_app
             .world_mut()
             .entity_mut(self.client_of_entities[id])

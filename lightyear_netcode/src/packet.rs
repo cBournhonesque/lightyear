@@ -528,10 +528,11 @@ impl Packet {
         let sequence = cursor.read_sequence(sequence_len)?;
 
         // Replay protection
-        if let Some(replay_protection) = replay_protection.as_ref() {
-            if pkt_kind >= Packet::KEEP_ALIVE && replay_protection.is_already_received(sequence) {
-                return Err(Error::AlreadyReceived(sequence).into());
-            }
+        if let Some(replay_protection) = replay_protection.as_ref()
+            && pkt_kind >= Packet::KEEP_ALIVE
+            && replay_protection.is_already_received(sequence)
+        {
+            return Err(Error::AlreadyReceived(sequence).into());
         }
 
         let decryption_start = cursor.position() as usize;
@@ -549,10 +550,10 @@ impl Packet {
         // remove the last
         let mut cursor = io::Cursor::new(suffix.freeze());
 
-        if let Some(replay_protection) = replay_protection {
-            if pkt_kind >= Packet::KEEP_ALIVE {
-                replay_protection.advance_sequence(sequence);
-            }
+        if let Some(replay_protection) = replay_protection
+            && pkt_kind >= Packet::KEEP_ALIVE
+        {
+            replay_protection.advance_sequence(sequence);
         }
 
         let packet = match pkt_kind {

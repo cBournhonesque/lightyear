@@ -75,8 +75,8 @@ pub struct Interpolation {
     tick_duration: Duration,
     relative_speed: f32,
     pub remote_send_interval: Duration,
-    pub(crate) interpolation_config: InterpolationConfig,
-    pub(crate) sync_config: SyncConfig,
+    pub interpolation_config: InterpolationConfig,
+    pub sync_config: SyncConfig,
     is_synced: bool,
 }
 

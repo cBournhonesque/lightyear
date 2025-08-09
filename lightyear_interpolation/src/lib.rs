@@ -31,9 +31,7 @@ pub mod prelude {
     pub use crate::interpolate::InterpolateStatus;
     pub use crate::interpolation_history::ConfirmedHistory;
     pub use crate::manager::InterpolationManager;
-    pub use crate::plugin::{
-        InterpolationConfig, InterpolationDelay, InterpolationPlugin, InterpolationSet,
-    };
+    pub use crate::plugin::{InterpolationDelay, InterpolationPlugin, InterpolationSet};
     pub use crate::registry::{InterpolationRegistrationExt, InterpolationRegistry};
     pub use crate::timeline::InterpolationTimeline;
     pub use crate::{Interpolated, InterpolationMode};

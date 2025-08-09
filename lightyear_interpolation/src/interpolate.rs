@@ -84,21 +84,21 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
 
         // if the interpolation tick is beyond the previous end tick,
         // we need to replace start with end, and clear end
-        if let Some((end_tick, ref end_value)) = end {
-            if end_tick <= current_interpolate_tick {
-                trace!(
-                    ?entity,
-                    ?end_tick,
-                    ?current_interpolate_tick,
-                    "interpolation is beyond previous end tick"
-                );
-                start.clone_from(&end);
-                // TODO: this clone should be avoidable
-                if let Some(mut component) = component {
-                    *component = end_value.clone();
-                }
-                end = None;
+        if let Some((end_tick, ref end_value)) = end
+            && end_tick <= current_interpolate_tick
+        {
+            trace!(
+                ?entity,
+                ?end_tick,
+                ?current_interpolate_tick,
+                "interpolation is beyond previous end tick"
+            );
+            start.clone_from(&end);
+            // TODO: this clone should be avoidable
+            if let Some(mut component) = component {
+                *component = end_value.clone();
             }
+            end = None;
         }
 
         // TODO: do we need to call this if status.end is set? probably not because the updates are sequenced?
@@ -109,25 +109,25 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
         // clear all values with a tick <= current_interpolate_tick, and get the last cleared value
         // (we need to call this even if status.start is set, because a new more recent server update could have been received)
         let new_start = history.pop_until_tick(current_interpolate_tick);
-        if let Some((new_tick, _)) = new_start {
-            if start.as_ref().is_none_or(|(tick, _)| *tick <= new_tick) {
-                trace!(
+        if let Some((new_tick, _)) = new_start
+            && start.as_ref().is_none_or(|(tick, _)| *tick <= new_tick)
+        {
+            trace!(
                     ?current_interpolate_tick,
                     old_start = ?start.as_ref().map(|(tick, _)| tick),
                     new_start = ?new_tick,
                     "found more recent tick between start and interpolation tick");
-                start = new_start;
-            }
+            start = new_start;
         }
 
         // get the next value immediately > current_interpolate_tick, but without popping
         // (we need to call this even if status.end is set, because a new more recent server update could have been received)
-        if let Some((new_tick, _)) = history.peek() {
-            if end.as_ref().is_none_or(|(tick, _)| new_tick < *tick) {
-                trace!("next value after current_interpolate_tick: {:?}", new_tick);
-                // only pop if we actually put the value in end
-                end = history.pop();
-            }
+        if let Some((new_tick, _)) = history.peek()
+            && end.as_ref().is_none_or(|(tick, _)| new_tick < *tick)
+        {
+            trace!("next value after current_interpolate_tick: {:?}", new_tick);
+            // only pop if we actually put the value in end
+            end = history.pop();
         }
 
         // If it's been too long since we received an update, reset the start tick to None
@@ -236,18 +236,18 @@ pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
 ) {
     for (mut component, status) in query.iter_mut() {
         // NOTE: it is possible that we reach start_tick when end_tick is not set
-        if let Some((start_tick, start_value)) = &status.start {
-            if let Some((end_tick, end_value)) = &status.end {
-                trace!(?start_tick, interpolate_tick=?status.current_tick, ?end_tick, "doing interpolation!");
-                assert!(status.current_tick < *end_tick);
-                if start_tick != end_tick {
-                    let t = status.interpolation_fraction().unwrap();
-                    let value =
-                        component_registry.interpolate(start_value.clone(), end_value.clone(), t);
-                    *component = value.clone();
-                } else {
-                    *component = start_value.clone();
-                }
+        if let Some((start_tick, start_value)) = &status.start
+            && let Some((end_tick, end_value)) = &status.end
+        {
+            trace!(?start_tick, interpolate_tick=?status.current_tick, ?end_tick, "doing interpolation!");
+            assert!(status.current_tick < *end_tick);
+            if start_tick != end_tick {
+                let t = status.interpolation_fraction().unwrap();
+                let value =
+                    component_registry.interpolate(start_value.clone(), end_value.clone(), t);
+                *component = value.clone();
+            } else {
+                *component = start_value.clone();
             }
         }
     }

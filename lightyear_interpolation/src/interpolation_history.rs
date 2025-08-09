@@ -105,41 +105,41 @@ pub(crate) fn add_component_history<C: Component + Clone>(
     let current_tick = timeline.now.tick;
     let current_overstep = timeline.now.overstep;
     for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed_entity.interpolated {
-            if let Ok(interpolated_entity) = interpolated_entities.get(p) {
-                // safety: we know the entity exists
-                let mut interpolated_entity_mut = commands.get_entity(interpolated_entity)?;
-                // insert history
-                let history = ConfirmedHistory::<C>::new();
-                // map any entities from confirmed to interpolated
-                let mut new_component = confirmed_component.clone();
-                let _ = manager.map_entities(&mut new_component, component_registry.as_ref());
-                match interpolation_registry.interpolation_mode::<C>() {
-                    InterpolationMode::Full => {
-                        trace!(?interpolated_entity, tick=?local_timeline.tick(), "Spawn interpolation history for {:?}", core::any::type_name::<C>());
-                        interpolated_entity_mut.insert((
-                            // NOTE: we probably do NOT want to insert the component right away, instead we want to wait until we have two updates
-                            //  we can interpolate between. Otherwise it will look jarring if send_interval is low. (because the entity will
-                            //  stay fixed until we get the next update, then it will start moving)
-                            // new_component,
-                            history,
-                            InterpolateStatus::<C> {
-                                start: Some((current_tick, new_component)),
-                                end: None,
-                                current_tick,
-                                current_overstep: current_overstep.value(),
-                            },
-                        ));
-                    }
-                    InterpolationMode::Once | InterpolationMode::Simple => {
-                        trace!(
-                            "Copy interpolation component for {:?}",
-                            core::any::type_name::<C>()
-                        );
-                        interpolated_entity_mut.insert(new_component);
-                    }
-                    InterpolationMode::None => {}
+        if let Some(p) = confirmed_entity.interpolated
+            && let Ok(interpolated_entity) = interpolated_entities.get(p)
+        {
+            // safety: we know the entity exists
+            let mut interpolated_entity_mut = commands.get_entity(interpolated_entity)?;
+            // insert history
+            let history = ConfirmedHistory::<C>::new();
+            // map any entities from confirmed to interpolated
+            let mut new_component = confirmed_component.clone();
+            let _ = manager.map_entities(&mut new_component, component_registry.as_ref());
+            match interpolation_registry.interpolation_mode::<C>() {
+                InterpolationMode::Full => {
+                    trace!(?interpolated_entity, tick=?local_timeline.tick(), "Spawn interpolation history for {:?}", core::any::type_name::<C>());
+                    interpolated_entity_mut.insert((
+                        // NOTE: we probably do NOT want to insert the component right away, instead we want to wait until we have two updates
+                        //  we can interpolate between. Otherwise it will look jarring if send_interval is low. (because the entity will
+                        //  stay fixed until we get the next update, then it will start moving)
+                        // new_component,
+                        history,
+                        InterpolateStatus::<C> {
+                            start: Some((current_tick, new_component)),
+                            end: None,
+                            current_tick,
+                            current_overstep: current_overstep.value(),
+                        },
+                    ));
                 }
+                InterpolationMode::Once | InterpolationMode::Simple => {
+                    trace!(
+                        "Copy interpolation component for {:?}",
+                        core::any::type_name::<C>()
+                    );
+                    interpolated_entity_mut.insert(new_component);
+                }
+                InterpolationMode::None => {}
             }
         }
     }
@@ -160,41 +160,41 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
     let kind = core::any::type_name::<C>();
     let (timeline, manager) = query.into_inner();
     for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed.interpolated {
-            if confirmed_component.is_changed() && !confirmed_component.is_added() {
-                if let Ok(mut history) = interpolated_entities.get_mut(p) {
-                    // // if has_authority is true, we will consider the Confirmed value as the source of truth
-                    // // else it will be the server updates
-                    // // TODO: as an alternative, we could set the confirmed.tick to be equal to the current tick
-                    // //  if we have authority! Then it would also work for prediction?
-                    // let tick = if has_authority {
-                    //     timeline.tick()
-                    // } else {
-                    //     confirmed.tick
-                    // };
-                    let tick = confirmed.tick;
+        if let Some(p) = confirmed.interpolated
+            && confirmed_component.is_changed()
+            && !confirmed_component.is_added()
+            && let Ok(mut history) = interpolated_entities.get_mut(p)
+        {
+            // // if has_authority is true, we will consider the Confirmed value as the source of truth
+            // // else it will be the server updates
+            // // TODO: as an alternative, we could set the confirmed.tick to be equal to the current tick
+            // //  if we have authority! Then it would also work for prediction?
+            // let tick = if has_authority {
+            //     timeline.tick()
+            // } else {
+            //     confirmed.tick
+            // };
+            let tick = confirmed.tick;
 
-                    // let Some(tick) = client
-                    //     .replication_receiver()
-                    //     .get_confirmed_tick(confirmed_entity)
-                    // else {
-                    //     error!(
-                    //         "Could not find replication channel for entity {:?}",
-                    //         confirmed_entity
-                    //     );
-                    //     continue;
-                    // };
+            // let Some(tick) = client
+            //     .replication_receiver()
+            //     .get_confirmed_tick(confirmed_entity)
+            // else {
+            //     error!(
+            //         "Could not find replication channel for entity {:?}",
+            //         confirmed_entity
+            //     );
+            //     continue;
+            // };
 
-                    // map any entities from confirmed to predicted
-                    let mut component = confirmed_component.deref().clone();
-                    let _ = manager.map_entities(&mut component, component_registry.as_ref());
-                    trace!(?kind, tick = ?tick, "adding confirmed update to history");
-                    // update the history at the value that the entity currently is
-                    history.buffer.push(tick, component);
+            // map any entities from confirmed to predicted
+            let mut component = confirmed_component.deref().clone();
+            let _ = manager.map_entities(&mut component, component_registry.as_ref());
+            trace!(?kind, tick = ?tick, "adding confirmed update to history");
+            // update the history at the value that the entity currently is
+            history.buffer.push(tick, component);
 
-                    // TODO: here we do not want to update directly the component, that will be done during interpolation
-                }
-            }
+            // TODO: here we do not want to update directly the component, that will be done during interpolation
         }
     }
 }
@@ -208,16 +208,16 @@ pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent>(
     confirmed_entities: Query<(&Confirmed, Ref<C>)>,
 ) {
     for (confirmed, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed.interpolated {
-            if confirmed_component.is_changed() && !confirmed_component.is_added() {
-                if let Ok(mut interpolated_component) = interpolated_entities.get_mut(p) {
-                    // for sync-components, we just match the confirmed component
-                    // map any entities from confirmed to interpolated first
-                    let mut component = confirmed_component.deref().clone();
-                    let _ = manager.map_entities(&mut component, component_registry.as_ref());
-                    *interpolated_component = component;
-                }
-            }
+        if let Some(p) = confirmed.interpolated
+            && confirmed_component.is_changed()
+            && !confirmed_component.is_added()
+            && let Ok(mut interpolated_component) = interpolated_entities.get_mut(p)
+        {
+            // for sync-components, we just match the confirmed component
+            // map any entities from confirmed to interpolated first
+            let mut component = confirmed_component.deref().clone();
+            let _ = manager.map_entities(&mut component, component_registry.as_ref());
+            *interpolated_component = component;
         }
     }
 }
@@ -232,16 +232,16 @@ pub(crate) fn apply_confirmed_update_immutable_mode_simple<C: Component + Clone>
     mut commands: Commands,
 ) {
     for (confirmed, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed.interpolated {
-            if confirmed_component.is_changed() && !confirmed_component.is_added() {
-                if let Ok(()) = interpolated_entities.get_mut(p) {
-                    // for sync-components, we just match the confirmed component
-                    // map any entities from confirmed to interpolated first
-                    let mut component = confirmed_component.deref().clone();
-                    let _ = manager.map_entities(&mut component, component_registry.as_ref());
-                    commands.entity(p).try_insert(component);
-                }
-            }
+        if let Some(p) = confirmed.interpolated
+            && confirmed_component.is_changed()
+            && !confirmed_component.is_added()
+            && let Ok(()) = interpolated_entities.get_mut(p)
+        {
+            // for sync-components, we just match the confirmed component
+            // map any entities from confirmed to interpolated first
+            let mut component = confirmed_component.deref().clone();
+            let _ = manager.map_entities(&mut component, component_registry.as_ref());
+            commands.entity(p).try_insert(component);
         }
     }
 }

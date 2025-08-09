@@ -54,10 +54,10 @@ impl ReplicationReceivePlugin {
         // despawn any entities that were spawned from replication
         replicated_query.iter().for_each(|(entity, replicated)| {
             // TODO: how to avoid this O(n) check? should the replication-receiver maintain a list of received entities?
-            if replicated.receiver == trigger.target() {
-                if let Ok(mut commands) = commands.get_entity(entity) {
-                    commands.despawn();
-                }
+            if replicated.receiver == trigger.target()
+                && let Ok(mut commands) = commands.get_entity(entity)
+            {
+                commands.despawn();
             }
         });
         if let Ok(mut receiver) = receiver_query.get_mut(trigger.target()) {
@@ -327,14 +327,14 @@ impl ReplicationReceiver {
         self.last_cleanup_tick = Some(tick);
         // if it's been enough time since we last had any update for the group, we update the latest_tick for the group
         for group_channel in self.group_channels.values_mut() {
-            if let Some(latest_tick) = group_channel.latest_tick {
-                if tick - latest_tick > (i16::MAX / 2) {
-                    debug!(
-                        ?group_channel,
-                        "Setting the latest_tick {latest_tick:?} to tick {tick:?} because there hasn't been any new updates in a while"
-                    );
-                    group_channel.latest_tick = Some(tick);
-                }
+            if let Some(latest_tick) = group_channel.latest_tick
+                && tick - latest_tick > (i16::MAX / 2)
+            {
+                debug!(
+                    ?group_channel,
+                    "Setting the latest_tick {latest_tick:?} to tick {tick:?} because there hasn't been any new updates in a while"
+                );
+                group_channel.latest_tick = Some(tick);
             }
         }
     }
@@ -668,7 +668,7 @@ impl Iterator for UpdatesIterator<'_> {
 
 impl GroupChannel {
     /// Builds an iterator that returns all the available EntityActions for the current [`GroupChannel`]
-    fn read_actions(&mut self, current_tick: Tick) -> ActionsIterator {
+    fn read_actions(&mut self, current_tick: Tick) -> ActionsIterator<'_> {
         ActionsIterator {
             channel: self,
             current_tick,
@@ -678,7 +678,7 @@ impl GroupChannel {
     /// Builds an iterator that returns all the available EntityUpdates for the current [`GroupChannel`]
     /// Needs to run after read_actions for correctness (because we need to update the `latest_tick` of
     /// the group before we can apply the updates)
-    fn read_updates(&mut self) -> UpdatesIterator {
+    fn read_updates(&mut self) -> UpdatesIterator<'_> {
         // the buffered_channel is sorted in descending order,
         // [most_recent_tick, ...,  max_readable_tick (based on last_action_tick), ..., oldest_tick]
         // What we want is to return (not necessarily in order) [max_readable_tick, ..., oldest_tick]
@@ -971,15 +971,15 @@ impl GroupChannel {
             group_id
         );
         self.local_entities.iter().for_each(|local_entity| {
-            if let Ok(mut local_entity_mut) = world.get_entity_mut(*local_entity) {
-                if let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>() {
-                    trace!(
-                        ?remote_tick,
-                        ?local_entity,
-                        "updating confirmed tick for entity"
-                    );
-                    confirmed.tick = remote_tick;
-                }
+            if let Ok(mut local_entity_mut) = world.get_entity_mut(*local_entity)
+                && let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>()
+            {
+                trace!(
+                    ?remote_tick,
+                    ?local_entity,
+                    "updating confirmed tick for entity"
+                );
+                confirmed.tick = remote_tick;
             }
         });
     }

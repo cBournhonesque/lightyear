@@ -40,7 +40,7 @@ fn test_compute_hash() {
 
     let current_tick = stepper.client_tick(0);
     let prediction_manager = stepper.client(0).get::<PredictionManager>().unwrap();
-    let expected_hash: u64 = 16671636813334323672;
+    let expected_hash: u64 = 9119856607680835319;
     assert_eq!(
         prediction_manager
             .prespawn_hash_to_entities

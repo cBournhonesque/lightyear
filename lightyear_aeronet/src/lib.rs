@@ -47,15 +47,15 @@ impl AeronetPlugin {
         query: Query<(&AeronetLinkOf, &LocalAddr)>,
         mut commands: Commands,
     ) {
-        if let Ok((aeronet_link, local_addr)) = query.get(trigger.target()) {
-            if let Ok(mut c) = commands.get_entity(aeronet_link.0) {
-                trace!(
-                    "LocalAddr added on AeronetLink {:?}. Adding on Link entity {:?}",
-                    trigger.target(),
-                    aeronet_link.0
-                );
-                c.insert(LocalAddr(local_addr.0));
-            }
+        if let Ok((aeronet_link, local_addr)) = query.get(trigger.target())
+            && let Ok(mut c) = commands.get_entity(aeronet_link.0)
+        {
+            trace!(
+                "LocalAddr added on AeronetLink {:?}. Adding on Link entity {:?}",
+                trigger.target(),
+                aeronet_link.0
+            );
+            c.insert(LocalAddr(local_addr.0));
         }
     }
 
@@ -65,15 +65,15 @@ impl AeronetPlugin {
         query: Query<(&AeronetLinkOf, &PeerAddr)>,
         mut commands: Commands,
     ) {
-        if let Ok((aeronet_link, peer_addr)) = query.get(trigger.target()) {
-            if let Ok(mut c) = commands.get_entity(aeronet_link.0) {
-                trace!(
-                    "PeerAddr added on AeronetLink {:?}. Adding on Link entity {:?}",
-                    trigger.target(),
-                    aeronet_link.0
-                );
-                c.insert(PeerAddr(peer_addr.0));
-            }
+        if let Ok((aeronet_link, peer_addr)) = query.get(trigger.target())
+            && let Ok(mut c) = commands.get_entity(aeronet_link.0)
+        {
+            trace!(
+                "PeerAddr added on AeronetLink {:?}. Adding on Link entity {:?}",
+                trigger.target(),
+                aeronet_link.0
+            );
+            c.insert(PeerAddr(peer_addr.0));
         }
     }
 
@@ -82,15 +82,15 @@ impl AeronetPlugin {
         query: Query<&AeronetLinkOf, With<SessionEndpoint>>,
         mut commands: Commands,
     ) {
-        if let Ok(aeronet_link) = query.get(trigger.target()) {
-            if let Ok(mut c) = commands.get_entity(aeronet_link.0) {
-                trace!(
-                    "SessionEndpoint added on AeronetLink {:?}. Adding Linking on Link entity {:?}",
-                    trigger.target(),
-                    aeronet_link.0
-                );
-                c.insert(Linking);
-            }
+        if let Ok(aeronet_link) = query.get(trigger.target())
+            && let Ok(mut c) = commands.get_entity(aeronet_link.0)
+        {
+            trace!(
+                "SessionEndpoint added on AeronetLink {:?}. Adding Linking on Link entity {:?}",
+                trigger.target(),
+                aeronet_link.0
+            );
+            c.insert(Linking);
         }
     }
 
@@ -99,15 +99,15 @@ impl AeronetPlugin {
         query: Query<&AeronetLinkOf, With<Session>>,
         mut commands: Commands,
     ) {
-        if let Ok(aeronet_link) = query.get(trigger.target()) {
-            if let Ok(mut c) = commands.get_entity(aeronet_link.0) {
-                trace!(
-                    "Session added on AeronetLink {:?}. Adding Linked on Link entity {:?}",
-                    trigger.target(),
-                    aeronet_link.0
-                );
-                c.insert(Linked);
-            }
+        if let Ok(aeronet_link) = query.get(trigger.target())
+            && let Ok(mut c) = commands.get_entity(aeronet_link.0)
+        {
+            trace!(
+                "Session added on AeronetLink {:?}. Adding Linked on Link entity {:?}",
+                trigger.target(),
+                aeronet_link.0
+            );
+            c.insert(Linked);
         }
     }
 
@@ -116,27 +116,27 @@ impl AeronetPlugin {
         query: Query<&AeronetLinkOf>,
         mut commands: Commands,
     ) {
-        if let Ok(aeronet_io) = query.get(trigger.target()) {
-            if let Ok(mut c) = commands.get_entity(aeronet_io.0) {
-                let reason = match &*trigger {
-                    Disconnected::ByUser(reason) => {
-                        format!("Disconnected by user: {reason}")
-                    }
-                    Disconnected::ByPeer(reason) => {
-                        format!("Disconnected by remote: {reason}")
-                    }
-                    Disconnected::ByError(err) => {
-                        format!("Disconnected due to error: {err:?}")
-                    }
-                };
-                trace!(
-                    "Disconnected (reason: {reason:?}) triggered added on AeronetLink {:?}. Adding Unlinked on Link entity {:?}",
-                    trigger.target(),
-                    aeronet_io.0
-                );
-                // we try insert, because the LinkOf entity might have been despawned already
-                c.try_insert(Unlinked { reason });
-            }
+        if let Ok(aeronet_io) = query.get(trigger.target())
+            && let Ok(mut c) = commands.get_entity(aeronet_io.0)
+        {
+            let reason = match &*trigger {
+                Disconnected::ByUser(reason) => {
+                    format!("Disconnected by user: {reason}")
+                }
+                Disconnected::ByPeer(reason) => {
+                    format!("Disconnected by remote: {reason}")
+                }
+                Disconnected::ByError(err) => {
+                    format!("Disconnected due to error: {err:?}")
+                }
+            };
+            trace!(
+                "Disconnected (reason: {reason:?}) triggered added on AeronetLink {:?}. Adding Unlinked on Link entity {:?}",
+                trigger.target(),
+                aeronet_io.0
+            );
+            // we try insert, because the LinkOf entity might have been despawned already
+            c.try_insert(Unlinked { reason });
         }
     }
 
@@ -146,22 +146,22 @@ impl AeronetPlugin {
         aeronet_query: Query<Has<Server>>,
         mut commands: Commands,
     ) {
-        if let Ok(aeronet_link) = query.get(trigger.target()) {
+        if let Ok(aeronet_link) = query.get(trigger.target())
             // get the aeronet session entity
-            if let Ok(is_server) = aeronet_query.get(aeronet_link.0) {
-                let reason = core::mem::take(&mut trigger.reason);
-                trace!(
-                    "Unlink triggered on Link entity {:?} (reason: {reason:?}). Closing/Disconnecting AeronetLink entity {:?}",
-                    trigger.target(),
-                    aeronet_link.0
-                );
-                if is_server {
-                    commands.entity(aeronet_link.0).trigger(Close::new(reason));
-                } else {
-                    commands
-                        .entity(aeronet_link.0)
-                        .trigger(Disconnect::new(reason));
-                }
+            && let Ok(is_server) = aeronet_query.get(aeronet_link.0)
+        {
+            let reason = core::mem::take(&mut trigger.reason);
+            trace!(
+                "Unlink triggered on Link entity {:?} (reason: {reason:?}). Closing/Disconnecting AeronetLink entity {:?}",
+                trigger.target(),
+                aeronet_link.0
+            );
+            if is_server {
+                commands.entity(aeronet_link.0).trigger(Close::new(reason));
+            } else {
+                commands
+                    .entity(aeronet_link.0)
+                    .trigger(Disconnect::new(reason));
             }
         }
     }

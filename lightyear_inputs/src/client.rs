@@ -555,13 +555,12 @@ fn prepare_input_message<S: ActionStateSequence>(
                 trace!("not sending inputs because couldnt find server entity");
                 None
             }
-        } {
-            if let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_tick, tick) {
-                message.inputs.push(PerTargetData {
-                    target,
-                    states: state_sequence,
-                });
-            }
+        } && let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_tick, tick)
+        {
+            message.inputs.push(PerTargetData {
+                target,
+                states: state_sequence,
+            });
         }
     }
 
