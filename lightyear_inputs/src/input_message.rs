@@ -63,15 +63,24 @@ pub trait ActionStateQueryData {
     // If the ActionState is a single component, then this is simply `&'static mut Self`.
     type Mut: QueryData;
 
+    // The inner value corresponding to Self::Mut::Item<'w> (i.e. for Mut<'w, ActionState<A>, this is &'mut ActionState<A>)
+    type MutItemInner<'w>;
+
     // Component that should always be present to represent the ActionState.
     // We use this for registering required components in the App.
     type Main: Component + Send + Sync + Default + 'static;
 
     // Bundle that contains all the components needed to represent the ActionState.
     type Bundle: Bundle + Send + Sync + 'static;
+
+    // Convert from the mutable query item (i.e. Mut<'w, ActionState<A>>) to the read-only query item (i.e. &ActionState<A>)
     fn as_read_only<'w, 'a: 'w>(state: &'a <Self::Mut as QueryData>::Item<'w>) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'w>;
 
-    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> <Self::Mut as QueryData>::Item<'w>;
+    // Convert from the mutable query item (i.e. Mut<'w, ActionState<A>>) to the inner mutable item (i.e. &mut ActionState<A>)
+    fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w>;
+
+    // Convert from the Bundle (ActionState<A>) to the inner mutable item (i.e. &mut ActionState<A>)
+    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w>;
     fn base_value() -> Self::Bundle;
 }
 
@@ -86,6 +95,9 @@ pub(crate) type StateMut<S: ActionStateSequence> = <S::State as ActionStateQuery
 
 // equivalent to Mut<'w, ActionState<S::Action>>
 pub(crate) type StateMutItem<'w, S: ActionStateSequence> = <StateMut<S> as QueryData>::Item<'w>;
+
+pub(crate) type StateMutItemInner<'w, S: ActionStateSequence> =
+    <S::State as ActionStateQueryData>::MutItemInner<'w>;
 
 /// An ActionStateSequence represents a sequence of states that can be serialized and sent over the network.
 ///
@@ -102,7 +114,6 @@ pub trait ActionStateSequence:
 
     /// The component that is used by the user to get the list of active actions.
     type State: ActionStateQueryData;
-
 
     /// Marker component to identify the ActionState that the player is actively updating
     /// (as opposed to the ActionState of other players, for instance)
@@ -210,12 +221,12 @@ pub trait ActionStateSequence:
 
     /// Create a snapshot from the given state.
     fn to_snapshot<'w, 's>(
-        state: &StateRefItem<'w, Self>,
+        state: StateRefItem<'w, Self>,
     ) -> Self::Snapshot;
 
     /// Modify the given state to reflect the given snapshot.
     fn from_snapshot<'w, 's>(
-        state: &mut StateMutItem<'w, Self>,
+        state: StateMutItemInner<'w, Self>,
         snapshot: &Self::Snapshot,
     );
 }

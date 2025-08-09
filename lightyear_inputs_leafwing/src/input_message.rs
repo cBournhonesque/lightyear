@@ -1,7 +1,7 @@
 use bevy_platform::time::Instant;
 
 use crate::action_diff::ActionDiff;
-use crate::action_state::{ActionStateWrapper, ActionStateWrapperItem, LeafwingUserAction};
+use crate::action_state::{ActionStateWrapper, ActionStateWrapperItem, ActionStateWrapperReadOnlyItem, LeafwingUserAction};
 use alloc::vec::Vec;
 use std::ops::DerefMut;
 use bevy_derive::{Deref, DerefMut};
@@ -135,16 +135,16 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     }
 
     fn to_snapshot<'w, 's>(
-        state: &ActionStateWrapperItem<A>,
+        state: ActionStateWrapperReadOnlyItem<A>,
     ) -> Self::Snapshot {
         LeafwingSnapshot(state.inner.clone())
     }
 
     fn from_snapshot<'w, 's>(
-        state: &mut ActionStateWrapperItem<A>,
+        state: &mut ActionState<A>,
         snapshot: &Self::Snapshot,
     ) {
-        *state.inner = snapshot.0.clone();
+        *state = snapshot.0.clone();
     }
 }
 

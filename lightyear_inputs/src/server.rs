@@ -103,7 +103,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
 fn receive_input_message<S: ActionStateSequence>(
     config: Res<ServerInputConfig<S>>,
     server: Query<&Server>,
-    context: StaticSystemParam<S::Context>,
     mut sender: ServerMultiMessageSender,
     mut receivers: Query<
         (
@@ -205,7 +204,6 @@ fn receive_input_message<S: ActionStateSequence>(
 /// plugin for host-clients. This system also removes old inputs from the buffer, which is why we
 /// can also skip `clear_buffers` on host-clients
 fn update_action_state<S: ActionStateSequence>(
-    context: StaticSystemParam<S::Context>,
     // TODO: what if there are multiple servers? maybe we can use Replicate to figure out which inputs should be replicating on which servers?
     //  and use the timeline from that connection? i.e. find from which entity we got the first InputMessage?
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
@@ -214,13 +212,13 @@ fn update_action_state<S: ActionStateSequence>(
 ) {
     let (server, timeline) = server.into_inner();
     let tick = timeline.tick();
-    for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
+    for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         trace!(?tick, ?server, ?input_buffer, "input buffer on server");
         // We only apply the ActionState from the buffer if we have one.
         // If we don't (because the input packet is late or lost), we won't do anything.
         // This is equivalent to considering that the player will keep playing the last action they played.
         if let Some(snapshot) = input_buffer.get(tick) {
-            S::from_snapshot(&mut action_state, snapshot, &context);
+            S::from_snapshot(S::State::into_inner(action_state), snapshot);
             trace!(
                 ?tick,
                 ?entity,

@@ -25,11 +25,20 @@ pub struct ActionState<A>(pub A);
 
 impl<A: Default + Send + Sync + 'static> ActionStateQueryData for ActionState<A> {
     type Mut = &'static mut Self;
+    type MutItemInner<'w> = &'w mut ActionState<A>;
     type Main = ActionState<A>;
     type Bundle = ActionState<A>;
 
     fn as_read_only<'w, 'a: 'w>(state: &'a Mut<'w, ActionState<A>>) -> &'w ActionState<A> {
         &state
+    }
+
+    fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w> {
+        mut_item.into_inner()
+    }
+
+    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w> {
+        bundle
     }
 
     fn base_value() -> Self::Bundle {

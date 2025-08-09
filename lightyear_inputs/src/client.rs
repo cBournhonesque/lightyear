@@ -46,7 +46,7 @@
 use crate::InputChannel;
 use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
-use crate::input_message::{ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, PerTargetData, StateMut, StateMutItem, StateRef};
+use crate::input_message::{ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, PerTargetData, StateMut, StateMutItem, StateMutItemInner, StateRef};
 use crate::plugin::InputPlugin;
 #[cfg(feature = "metrics")]
 use alloc::format;
@@ -269,7 +269,7 @@ fn buffer_action_state<S: ActionStateSequence>(
         InputBuffer::set(
             &mut input_buffer,
             tick,
-            S::to_snapshot(&action_state),
+            S::to_snapshot(action_state),
         );
         trace!(
             ?entity,
@@ -293,7 +293,6 @@ fn buffer_action_state<S: ActionStateSequence>(
 
 /// Retrieve the ActionState for the current tick.
 fn get_action_state<S: ActionStateSequence>(
-    context: StaticSystemParam<S::Context>,
     // NOTE: we skip this for host-client because a similar system does the same thing
     //  in the server, and also clears the buffers
     sender: Single<(&LocalTimeline, &InputTimeline, Has<Rollback>), Without<HostClient>>,
@@ -352,7 +351,7 @@ fn get_action_state<S: ActionStateSequence>(
             // TODO: should we decay_tick the snapshot?
 
             debug!(?is_local, "Updating action_state for tick {tick:?}");
-            S::from_snapshot(action_state, snapshot, &context);
+            S::from_snapshot(S::State::into_inner(action_state), snapshot);
             trace!(
                 ?entity,
                 ?tick,
@@ -369,7 +368,6 @@ fn get_action_state<S: ActionStateSequence>(
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<S: ActionStateSequence>(
-    context: StaticSystemParam<S::Context>,
     sender: Query<(&InputTimeline, &LocalTimeline, Has<Rollback>), With<IsSynced<InputTimeline>>>,
     mut action_state_query: Query<
         (Entity, StateMut<S>, &InputBuffer<S::Snapshot>),
@@ -385,11 +383,11 @@ fn get_delayed_action_state<S: ActionStateSequence>(
         return;
     }
     let delayed_tick = local_timeline.tick() + input_delay_ticks;
-    for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
+    for (entity, action_state, input_buffer) in action_state_query.iter_mut() {
         // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
         //  the problem is that the Leafwing Plugin works on ActionState directly...
         if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
-            S::from_snapshot(&mut action_state, delayed_action_state, &context);
+            S::from_snapshot(S::State::into_inner(action_state), delayed_action_state);
             trace!(
                 ?entity,
                 ?delayed_tick,
@@ -589,7 +587,6 @@ fn prepare_input_message<S: ActionStateSequence>(
 ///
 /// We will apply the diffs on the Predicted entity.
 fn receive_remote_player_input_messages<S: ActionStateSequence>(
-    context: StaticSystemParam<S::Context>,
     mut commands: Commands,
     link: Single<
         (
@@ -657,8 +654,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
                     &mut input_buffer,
-                    &mut action_state.expect("there should always be an ActionState if the InputBuffer is present"),
-                    &context,
+                    S::State::into_inner(action_state.expect("there should always be an ActionState if the InputBuffer is present")),
                     tick,
                     message.end_tick,
                     entity,
@@ -672,8 +668,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
                     &mut input_buffer,
-                    &mut S::State::as_mut(&mut action_state),
-                    &context,
+                    S::State::as_mut(&mut action_state),
                     tick,
                     message.end_tick,
                     entity,
@@ -745,8 +740,7 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
 fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
     sequence: S,
     input_buffer: &mut InputBuffer<S::Snapshot>,
-    action_state: &mut StateMutItem<S>,
-    context: &StaticSystemParam<S::Context>,
+    action_state: StateMutItemInner<S>,
     tick: Tick,
     end_tick: Tick,
     entity: Entity,
@@ -762,7 +756,7 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
         // update the ActionState immediately with the `last_value` because that would be incorrect, instead we will
         // fetch the ActionState from the buffer in the `get_action_state` system when we reach that tick.
         if new_end_tick <= tick {
-            S::from_snapshot(action_state, snapshot, context);
+            S::from_snapshot(action_state, snapshot);
         }
 
         // find the earliest mismatch tick across all clients

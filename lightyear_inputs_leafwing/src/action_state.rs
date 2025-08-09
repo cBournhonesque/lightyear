@@ -47,6 +47,7 @@ pub struct ActionStateWrapper<A: LeafwingUserAction>{
 
 impl<A: LeafwingUserAction> ActionStateQueryData for ActionStateWrapper<A> {
     type Mut = Self;
+    type MutItemInner<'w> = &'w mut ActionState<A>;
     type Main = ActionState<A>;
     type Bundle = ActionState<A>;
 
@@ -54,6 +55,14 @@ impl<A: LeafwingUserAction> ActionStateQueryData for ActionStateWrapper<A> {
         ActionStateWrapperReadOnlyItem {
             inner: &state.inner,
         }
+    }
+
+    fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w> {
+        mut_item.inner.into_inner()
+    }
+
+    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w> {
+        bundle
     }
 
     fn base_value() -> Self::Bundle {

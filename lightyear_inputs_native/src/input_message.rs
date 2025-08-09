@@ -115,16 +115,16 @@ impl<A: Serialize
     }
 
     fn to_snapshot<'w, 's>(
-        state: &Mut<'w, ActionState<A>>,
+        state: &'w ActionState<A>,
     ) -> Self::Snapshot {
         (*state).clone()
     }
 
     fn from_snapshot<'w, 's>(
-        state: &mut Mut<'w, ActionState<A>>,
+        state: &'w mut ActionState<A>,
         snapshot: &Self::Snapshot,
     ) {
-        **state = snapshot.clone();
+        *state = snapshot.clone();
     }
 }
 

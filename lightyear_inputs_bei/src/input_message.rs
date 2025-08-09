@@ -167,10 +167,17 @@ pub struct ActionData {
     time: &'static mut ActionTime,
 }
 
-
+pub struct ActionDataInnerItem<'w> {
+    pub state: &'w mut ActionState,
+    pub value: &'w mut ActionValue,
+    pub events: &'w mut ActionEvents,
+    pub time: &'w mut ActionTime,
+}
 
 impl ActionStateQueryData for ActionData {
     type Mut = ActionData;
+
+    type MutItemInner<'w> = ActionDataInnerItem<'w>;
 
     type Main = ActionState;
     type Bundle = (ActionState, ActionValue, ActionEvents, ActionTime);
@@ -184,12 +191,22 @@ impl ActionStateQueryData for ActionData {
         }
     }
 
-    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> <Self::Mut as QueryData>::Item<'w> {
-        ActionDataItem {
-            state: &mut bundle.0,
-            value: &mut bundle.1,
-            events: &mut bundle.2,
-            time: &mut bundle.3,
+    fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w> {
+        ActionDataInnerItem {
+            state: mut_item.state.into_inner(),
+            value: mut_item.value.into_inner(),
+            events: mut_item.events.into_inner(),
+            time: mut_item.time.into_inner(),
+        }
+    }
+
+    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w> {
+        let (state, value, events, time) = bundle;
+        ActionDataInnerItem {
+            state,
+            value,
+            events,
+            time,
         }
     }
 
@@ -266,8 +283,7 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
     }
 
     fn to_snapshot<'w, 's>(
-        // state: &ActionDataReadOnlyItem,
-        state: &ActionDataItem,
+        state: ActionDataReadOnlyItem,
     ) -> Self::Snapshot {
         ActionsSnapshot {
             state: ActionsMessage {
@@ -281,7 +297,7 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
     }
 
     fn from_snapshot<'w, 's>(
-        state: &mut ActionDataItem,
+        state: ActionDataInnerItem,
         snapshot: &Self::Snapshot,
     ) {
         let snapshot = &snapshot.state;
