@@ -60,7 +60,6 @@ impl<A: Serialize
     type State = ActionState<A>;
     type Marker = InputMarker<A>;
 
-    type Context = ();
 
     fn is_empty(&self) -> bool {
         self.states.is_empty()
@@ -117,7 +116,6 @@ impl<A: Serialize
 
     fn to_snapshot<'w, 's>(
         state: &Mut<'w, ActionState<A>>,
-        _: &<Self::Context as SystemParam>::Item<'w, 's>,
     ) -> Self::Snapshot {
         (*state).clone()
     }
@@ -125,7 +123,6 @@ impl<A: Serialize
     fn from_snapshot<'w, 's>(
         state: &mut Mut<'w, ActionState<A>>,
         snapshot: &Self::Snapshot,
-        _: &<Self::Context as SystemParam>::Item<'w, 's>,
     ) {
         **state = snapshot.clone();
     }

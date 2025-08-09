@@ -54,23 +54,38 @@ pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + 'static {
 
 
 /// A QueryData that contains the queryable state that contains the current state of the Action at the given tick
-/// 
-/// This is usually a single component (ActionState) or multiple components in the case of BEI (ActionState, ActionValue, etc.)
+///
+/// This is used to simply be `ActionState<A>`, but BEI switched to representing the action state with multiple components,
+/// so this traits abstracts over that difference.
 pub trait ActionStateQueryData {
 
+    // The mutable QueryData that allows modifying the ActionState.
+    // If the ActionState is a single component, then this is simply `&'static mut Self`.
     type Mut: QueryData;
 
-    // Component that should always be present to represent the ActionState
+    // Component that should always be present to represent the ActionState.
+    // We use this for registering required components in the App.
     type Main: Component + Send + Sync + Default + 'static;
+
+    // Bundle that contains all the components needed to represent the ActionState.
     type Bundle: Bundle + Send + Sync + 'static;
     fn as_read_only<'w, 'a: 'w>(state: &'a <Self::Mut as QueryData>::Item<'w>) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'w>;
+
+    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> <Self::Mut as QueryData>::Item<'w>;
     fn base_value() -> Self::Bundle;
 }
 
-// pub trait ActionStateQueryDataMut {
-//     type Mut;
-//     fn as_mut(&mut self) -> &mut Self::Mut;
-// }
+// equivalent to &ActionState<S::Action>
+pub(crate) type StateRef<S: ActionStateSequence> = <<S::State as ActionStateQueryData>::Mut as QueryData>::ReadOnly;
+
+// equivalent to &'w ActionState<S::Action>
+pub(crate) type StateRefItem<'w, S: ActionStateSequence> = <StateRef<S> as QueryData>::Item<'w>;
+
+// equivalent to &mut ActionState<S::Action>
+pub(crate) type StateMut<S: ActionStateSequence> = <S::State as ActionStateQueryData>::Mut;
+
+// equivalent to Mut<'w, ActionState<S::Action>>
+pub(crate) type StateMutItem<'w, S: ActionStateSequence> = <StateMut<S> as QueryData>::Item<'w>;
 
 /// An ActionStateSequence represents a sequence of states that can be serialized and sent over the network.
 ///
@@ -92,9 +107,6 @@ pub trait ActionStateSequence:
     /// Marker component to identify the ActionState that the player is actively updating
     /// (as opposed to the ActionState of other players, for instance)
     type Marker: Component;
-
-    /// Extra context that needs to be fetched and is needed to build the state sequence from the input buffer
-    type Context: SystemParam;
 
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
@@ -198,15 +210,13 @@ pub trait ActionStateSequence:
 
     /// Create a snapshot from the given state.
     fn to_snapshot<'w, 's>(
-        state: &<<Self::State as ActionStateQueryData>::Mut as QueryData>::Item<'w>,
-        context: &<Self::Context as SystemParam>::Item<'w, 's>,
+        state: &StateRefItem<'w, Self>,
     ) -> Self::Snapshot;
 
     /// Modify the given state to reflect the given snapshot.
     fn from_snapshot<'w, 's>(
-        state: &mut <<Self::State as ActionStateQueryData>::Mut as QueryData>::Item<'w>,
+        state: &mut StateMutItem<'w, Self>,
         snapshot: &Self::Snapshot,
-        context: &<Self::Context as SystemParam>::Item<'w, 's>,
     );
 }
 

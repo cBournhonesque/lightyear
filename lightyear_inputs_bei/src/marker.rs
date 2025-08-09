@@ -3,12 +3,8 @@
 use bevy_ecs::{
     component::Component,
     entity::Entity,
-    event::{Event, EventReader, EventWriter},
-    observer::Trigger,
-    query::Without,
-    system::{Commands, Query},
+    event::{Event},
 };
-// use bevy_enhanced_input::input_context::{Bind, InputContext};
 use bevy_enhanced_input::prelude::Actions;
 
 /// Marker component that indicates that the entity is actively listening for physical user inputs.

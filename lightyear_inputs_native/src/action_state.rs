@@ -2,6 +2,7 @@ use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
     component::Component,
     entity::{EntityMapper, MapEntities},
+    prelude::Mut,
 };
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
@@ -27,7 +28,7 @@ impl<A: Default + Send + Sync + 'static> ActionStateQueryData for ActionState<A>
     type Main = ActionState<A>;
     type Bundle = ActionState<A>;
 
-    fn as_read_only<'w, 'a: 'w>(state: &'a &'w mut ActionState<A>) -> &'w ActionState<A> {
+    fn as_read_only<'w, 'a: 'w>(state: &'a Mut<'w, ActionState<A>>) -> &'w ActionState<A> {
         &state
     }
 

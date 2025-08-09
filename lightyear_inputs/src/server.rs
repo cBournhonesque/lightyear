@@ -2,7 +2,7 @@
 
 use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
-use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
+use crate::input_message::{ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut};
 use crate::plugin::InputPlugin;
 #[cfg(feature = "metrics")]
 use alloc::format;
@@ -179,7 +179,7 @@ fn receive_input_message<S: ActionStateSequence>(
                                 data.states.update_buffer(&mut buffer, message.end_tick);
                                 commands.entity(entity).insert((
                                     buffer,
-                                    S::State::default()
+                                    S::State::base_value()
                                 ));
                                 // commands.command_scope(|mut commands| {
                                 //     commands.entity(entity).insert((
@@ -210,7 +210,7 @@ fn update_action_state<S: ActionStateSequence>(
     //  and use the timeline from that connection? i.e. find from which entity we got the first InputMessage?
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
     server: Single<(Entity, &LocalTimeline), With<Started>>,
-    mut action_state_query: Query<(Entity, &mut S::State, &mut InputBuffer<S::Snapshot>)>,
+    mut action_state_query: Query<(Entity, StateMut<S>, &mut InputBuffer<S::Snapshot>)>,
 ) {
     let (server, timeline) = server.into_inner();
     let tick = timeline.tick();
@@ -220,7 +220,7 @@ fn update_action_state<S: ActionStateSequence>(
         // If we don't (because the input packet is late or lost), we won't do anything.
         // This is equivalent to considering that the player will keep playing the last action they played.
         if let Some(snapshot) = input_buffer.get(tick) {
-            S::from_snapshot(action_state.as_mut(), snapshot, &context);
+            S::from_snapshot(&mut action_state, snapshot, &context);
             trace!(
                 ?tick,
                 ?entity,
