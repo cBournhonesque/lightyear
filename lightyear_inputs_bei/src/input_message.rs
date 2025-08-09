@@ -2,7 +2,6 @@ use crate::marker::InputMarker;
 use alloc::{vec, vec::Vec};
 use bevy_ecs::{
     entity::{EntityMapper, MapEntities},
-    system::{SystemParam},
 };
 use bevy_enhanced_input::prelude::{ActionEvents, ActionState, ActionValue, Actions};
 use core::cmp::max;

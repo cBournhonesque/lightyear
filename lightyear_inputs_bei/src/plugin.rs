@@ -1,6 +1,5 @@
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::input_message::BEIStateSequence;
-use crate::marker::AddInputMarkers;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_app::FixedPreUpdate;
 use bevy_app::{App, Plugin};
@@ -15,6 +14,7 @@ use bevy_enhanced_input::context::InputContextAppExt;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_enhanced_input::EnhancedInputSet;
 use lightyear_inputs::config::InputConfig;
+use crate::marker::{add_input_marker_from_binding, add_input_marker_from_parent, propagate_input_marker};
 
 pub struct InputPlugin<C> {
     pub config: InputConfig<C>,
@@ -34,20 +34,16 @@ impl<C: Component> Plugin for InputPlugin<C> {
             app.add_plugins(bevy_enhanced_input::EnhancedInputPlugin);
         }
         app.add_input_context::<C>();
-        // for the component id <C>, add a type-erased function to add
-        app.add_event::<AddInputMarkers<C>>();
+
         #[cfg(feature = "client")]
         {
+            app.add_observer(propagate_input_marker::<C>);
+            app.add_observer(add_input_marker_from_parent::<C>);
+            app.add_observer(add_input_marker_from_binding::<C>);
+
             app.add_plugins(lightyear_inputs::client::ClientInputPlugin::<
                 BEIStateSequence<C>,
             >::new(self.config));
-
-            // app.add_observer(crate::marker::create_add_input_markers_events::<C>);
-            // app.add_systems(
-            //     RunFixedMainLoop,
-            //     crate::marker::add_input_markers_system::<C>
-            //         .in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
-            // );
 
             // Make sure that the BEI inputs got updated from the InputReader before buffering them
             // in the InputBuffer

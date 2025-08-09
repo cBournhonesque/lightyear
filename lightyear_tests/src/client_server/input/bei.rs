@@ -4,7 +4,7 @@ use crate::stepper::{ClientServerStepper, TICK_DURATION};
 use bevy::app::{App, FixedPostUpdate};
 use bevy::ecs::system::SystemState;
 use bevy::prelude::{Query, Res, Single, With};
-use bevy_enhanced_input::prelude::{ActionState, Actions, MockSpan};
+use bevy_enhanced_input::prelude::*;
 use lightyear::input::bei;
 use lightyear::input::bei::input_message::{ActionsSnapshot, BEIStateSequence};
 use lightyear::input::input_buffer::InputBuffer;
@@ -29,11 +29,17 @@ fn test_buffer_inputs_with_delay() {
     let mut actions = Actions::<BEIContext>::default();
     actions.bind::<BEIAction1>();
 
-    let server_entity = stepper
-        .server_app
-        .world_mut()
-        .spawn((actions, Replicate::to_clients(NetworkTarget::All)))
-        .id();
+    let server_entity = stepper.server_app.world_mut()
+        .spawn((
+            BEIContext,
+            Replicate::to_clients(NetworkTarget::All),
+            actions!(BEIContext[
+                (
+                    Action::<BEIAction1>::new(),
+                ),
+            ]),
+    )).id();
+
     stepper.frame_step(2);
     let client_entity = stepper
         .client(0)
