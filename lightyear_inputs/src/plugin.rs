@@ -1,7 +1,6 @@
 //! Plugin to register and handle user inputs.
 
 use crate::InputChannel;
-use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage};
 use bevy_app::{App, Plugin};
 use bevy_ecs::entity::MapEntities;

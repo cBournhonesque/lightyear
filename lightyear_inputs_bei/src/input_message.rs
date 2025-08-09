@@ -3,7 +3,7 @@ use alloc::{vec, vec::Vec};
 use bevy_ecs::{
     entity::{EntityMapper, MapEntities},
 };
-use bevy_enhanced_input::prelude::{ActionEvents, ActionState, ActionValue, Actions};
+use bevy_enhanced_input::prelude::{ActionEvents, ActionState, ActionValue};
 use core::cmp::max;
 use core::fmt::{Debug, Formatter};
 use bevy_ecs::query::{QueryData};

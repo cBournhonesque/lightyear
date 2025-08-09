@@ -13,7 +13,7 @@ use bevy_ecs::{
     query::With,
     resource::Resource,
     schedule::{IntoScheduleConfigs, SystemSet},
-    system::{Commands, Query, Res, Single, StaticSystemParam},
+    system::{Commands, Query, Res, Single},
 };
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;

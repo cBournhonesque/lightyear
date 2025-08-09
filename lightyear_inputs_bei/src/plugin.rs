@@ -3,8 +3,6 @@ use crate::input_message::BEIStateSequence;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_app::FixedPreUpdate;
 use bevy_app::{App, Plugin};
-#[cfg(feature = "client")]
-use bevy_app::{RunFixedMainLoop, RunFixedMainLoopSystem};
 use bevy_ecs::component::Component;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::IntoScheduleConfigs;

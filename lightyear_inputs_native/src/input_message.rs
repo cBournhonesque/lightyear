@@ -2,13 +2,10 @@ use crate::action_state::{ActionState, InputMarker};
 use alloc::{vec, vec::Vec};
 use bevy_ecs::{
     entity::{EntityMapper, MapEntities},
-    system::SystemParam,
 };
 use bevy_reflect::{FromReflect, Reflect, Reflectable};
 use core::cmp::max;
 use core::fmt::Debug;
-use bevy_ecs::change_detection::Mut;
-use bevy_ecs::component::Component;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};

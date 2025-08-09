@@ -1,11 +1,11 @@
 // lightyear_inputs/src/input_message.rs
+#![allow(type_alias_bounds)]
 #![allow(clippy::module_inception)]
 use crate::input_buffer::{InputBuffer, InputData};
 use alloc::{format, string::String, vec, vec::Vec};
 use bevy_ecs::{
     component::{Component},
     entity::{Entity, EntityMapper, MapEntities},
-    system::SystemParam,
 };
 use bevy_reflect::Reflect;
 use core::fmt::{Debug, Formatter, Write};

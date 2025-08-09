@@ -1,5 +1,4 @@
 use core::fmt::Debug;
-use bevy_ecs::change_detection::Mut;
 use bevy_ecs::query::QueryData;
 use leafwing_input_manager::Actionlike;
 use serde::Serialize;

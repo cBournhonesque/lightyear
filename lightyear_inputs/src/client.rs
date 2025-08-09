@@ -46,7 +46,7 @@
 use crate::InputChannel;
 use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
-use crate::input_message::{ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, PerTargetData, StateMut, StateMutItem, StateMutItemInner, StateRef};
+use crate::input_message::{ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, PerTargetData, StateMut, StateMutItemInner, StateRef};
 use crate::plugin::InputPlugin;
 #[cfg(feature = "metrics")]
 use alloc::format;
@@ -54,14 +54,14 @@ use alloc::{vec, vec::Vec};
 use bevy_app::{
     App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoopSystem,
 };
-use bevy_ecs::query::{Or, QueryData};
+use bevy_ecs::query::{Or};
 use bevy_ecs::{
     entity::{Entity, MapEntities},
     observer::Trigger,
     query::{Has, With, Without},
     resource::Resource,
     schedule::{IntoScheduleConfigs, SystemSet},
-    system::{Commands, Query, Res, ResMut, Single, StaticSystemParam},
+    system::{Commands, Query, Res, ResMut, Single},
 };
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::*;
