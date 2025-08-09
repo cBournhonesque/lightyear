@@ -174,8 +174,12 @@ fn update_collider_history(
     children_query
         .iter_mut()
         .for_each(|(child_of, mut collider, mut position)| {
-            let (parent_position, parent_rotation, parent_aabb, mut history) =
-                parent_query.get_mut(child_of.parent()).unwrap();
+            let Ok((parent_position, parent_rotation, parent_aabb, mut history)) =
+                parent_query.get_mut(child_of.parent())
+            else {
+                debug!("The lag compensation collider is not yet spawned! For one of the entities");
+                return;
+            };
 
             // step 1. update the history buffer of the parent
             history.add_update(tick, (*parent_position, *parent_rotation, *parent_aabb));
