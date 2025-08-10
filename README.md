@@ -74,7 +74,7 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
     - **Interest management**: *lightyear* supports replicating only a subset of the World to clients. Interest
       management is made flexible by the use of `Rooms`
     - **Input Delay**: you can add a custom amount of input-delay as a trade-off between having a more responsive game
-      or more mis-predictions
+      or more miss-predictions
     - **Bandwidth Management**: you can set a cap to the bandwidth for the connection. Then messages will be sent in
       decreasing order of priority (that you can set yourself), with a priority-accumulation scheme
     - **Lag Compensation** is available so that predicted entities can interact with interpolated entities (used most often for fps games)
