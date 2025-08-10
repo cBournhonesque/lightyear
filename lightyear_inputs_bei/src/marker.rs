@@ -3,7 +3,6 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
 use bevy_enhanced_input::prelude::*;
-use tracing::info;
 
 /// Marker component that indicates that the entity is actively listening for physical user inputs.
 ///
@@ -47,7 +46,6 @@ pub(crate) fn add_input_marker_from_parent<C: Component>(
     if let Ok(action_of) = action_of.get(trigger.target())
         && context.get(action_of.get()).is_ok()
     {
-        info!("ADDING MARKER");
         commands
             .entity(trigger.target())
             .insert(InputMarker::<C>::default());

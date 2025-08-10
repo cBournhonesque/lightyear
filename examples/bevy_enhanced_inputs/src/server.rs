@@ -34,6 +34,9 @@ impl Plugin for ExampleServerPlugin {
 pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.target()).insert((
         ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        // We need a ReplicationReceiver on the server side because the Action entities are spawned
+        // on the client and replicated to the server.
+        ReplicationReceiver::default(),
         Name::from("Client"),
     ));
 }

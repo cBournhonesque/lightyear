@@ -26,7 +26,7 @@ pub struct PlayerColor(pub(crate) Color);
 // Inputs
 
 // the context will be replicated
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, Serialize, Deserialize, Reflect, Clone, Debug, PartialEq)]
 pub struct Player;
 
 #[derive(Debug, InputAction)]

@@ -81,6 +81,7 @@ use lightyear_messages::prelude::{MessageReceiver, MessageSender};
 #[cfg(feature = "prediction")]
 use lightyear_prediction::prelude::*;
 use lightyear_replication::components::{Confirmed, PrePredicted};
+use lightyear_replication::prelude::Replicate;
 use lightyear_sync::plugin::SyncSet;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
@@ -466,6 +467,7 @@ fn prepare_input_message<S: ActionStateSequence>(
             &InputBuffer<S::Snapshot>,
             Option<&Predicted>,
             Option<&PrePredicted>,
+            Option<&Replicate>,
         ),
         With<S::Marker>,
     >,
@@ -503,7 +505,7 @@ fn prepare_input_message<S: ActionStateSequence>(
         .unwrap();
     num_tick *= input_config.packet_redundancy;
     let mut message = InputMessage::<S>::new(tick);
-    for (entity, input_buffer, predicted, pre_predicted) in input_buffer_query.iter() {
+    for (entity, input_buffer, predicted, pre_predicted, replicate) in input_buffer_query.iter() {
         trace!(
             ?tick,
             ?entity,
@@ -541,6 +543,9 @@ fn prepare_input_message<S: ActionStateSequence>(
             // 0. the entity is pre-predicted, no need to convert the entity (the mapping will be done on the server, when
             // receiving the message. It's possible because the server received the PrePredicted entity before)
             Some(InputTarget::PrePredictedEntity(entity))
+        } else if replicate.is_some() {
+            // this only happens if the entity is a BEI Action entity
+            Some(InputTarget::ActionEntity(entity))
         } else {
             // 1. if the entity is confirmed, we need to convert the entity to the server's entity
             // 2. if the entity is predicted, we need to first convert the entity to confirmed, and then from confirmed to remote
@@ -625,7 +630,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                         .entity_mapper
                         .get_local(entity)
                 }
-                InputTarget::PrePredictedEntity(entity) => Some(entity),
+                InputTarget::ActionEntity(entity) | InputTarget::PrePredictedEntity(entity) => Some(entity),
             };
             let Some(entity) = entity else {
                 error!("Could not find entity in entity_map for remote player input message {:?}", target_data.target);

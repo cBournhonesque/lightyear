@@ -28,6 +28,9 @@ pub enum InputTarget {
     /// The input is for a pre-predicted entity.
     /// On the server, the server's local entity is mapped to the client's pre-predicted entity.
     PrePredictedEntity(Entity),
+    /// The input is on a BEI action entity that was spawned on the client and replicated to the server.
+    /// Entity must be applied on the server-side
+    ActionEntity(Entity),
 }
 
 /// Contains the input data for a specific target entity over a range of ticks.
@@ -243,9 +246,11 @@ pub struct InputMessage<S> {
 impl<S: ActionStateSequence + MapEntities> MapEntities for InputMessage<S> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.inputs.iter_mut().for_each(|data| {
-            // Only map PrePredictedEntity targets during message deserialization
-            if let InputTarget::PrePredictedEntity(e) = &mut data.target {
-                *e = entity_mapper.get_mapped(*e);
+            match &mut data.target {
+                InputTarget::PrePredictedEntity(e) | InputTarget::ActionEntity(e) => {
+                    *e = entity_mapper.get_mapped(*e);
+                }
+                _ => {}
             }
             data.states.map_entities(entity_mapper);
         });

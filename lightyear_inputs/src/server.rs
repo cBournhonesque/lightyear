@@ -157,12 +157,13 @@ fn receive_input_message<S: ActionStateSequence>(
 
             for data in message.inputs {
                 match data.target {
-                    // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
+                    // - for action/pre-predicted entities, we already did the mapping on server side upon receiving the message
                     // (which is possible because the server received the entity)
                     // - for non-pre predicted entities, the mapping was already done on client side
                     // (client converted from their local entity to the remote server entity)
                     InputTarget::Entity(entity)
-                    | InputTarget::PrePredictedEntity(entity) => {
+                    | InputTarget::PrePredictedEntity(entity)
+                    | InputTarget::ActionEntity(entity) => {
                         // TODO Don't update input buffer if inputs arrived too late?
                         trace!("received input for entity: {:?}", entity);
 
