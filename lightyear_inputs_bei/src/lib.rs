@@ -12,10 +12,12 @@ pub mod input_message;
 
 mod marker;
 mod plugin;
+mod setup;
 
 pub mod prelude {
     pub use crate::input_message::SnapshotBuffer;
     pub use crate::marker::InputMarker;
     pub use crate::plugin::InputPlugin;
     pub use bevy_enhanced_input::prelude::*;
+    pub use crate::setup::InputRegistryExt;
 }

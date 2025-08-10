@@ -1,8 +1,6 @@
 use crate::action_state::{ActionState, InputMarker};
 use alloc::{vec, vec::Vec};
-use bevy_ecs::{
-    entity::{EntityMapper, MapEntities},
-};
+use bevy_ecs::entity::{EntityMapper, MapEntities};
 use bevy_reflect::{FromReflect, Reflect, Reflectable};
 use core::cmp::max;
 use core::fmt::Debug;
@@ -39,7 +37,8 @@ impl<A> IntoIterator for NativeStateSequence<A> {
     }
 }
 
-impl<A: Serialize
+impl<
+    A: Serialize
         + DeserializeOwned
         + Clone
         + PartialEq
@@ -56,7 +55,6 @@ impl<A: Serialize
     type Snapshot = ActionState<A>;
     type State = ActionState<A>;
     type Marker = InputMarker<A>;
-
 
     fn is_empty(&self) -> bool {
         self.states.is_empty()
@@ -111,16 +109,11 @@ impl<A: Serialize
         Some(Self { states })
     }
 
-    fn to_snapshot<'w, 's>(
-        state: &'w ActionState<A>,
-    ) -> Self::Snapshot {
+    fn to_snapshot<'w, 's>(state: &'w ActionState<A>) -> Self::Snapshot {
         (*state).clone()
     }
 
-    fn from_snapshot<'w, 's>(
-        state: &'w mut ActionState<A>,
-        snapshot: &Self::Snapshot,
-    ) {
+    fn from_snapshot<'w, 's>(state: &'w mut ActionState<A>, snapshot: &Self::Snapshot) {
         *state = snapshot.clone();
     }
 }

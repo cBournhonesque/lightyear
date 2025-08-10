@@ -4,9 +4,7 @@ use crate::action_diff::ActionDiff;
 use crate::action_state::{ActionStateWrapper, ActionStateWrapperReadOnlyItem, LeafwingUserAction};
 use alloc::vec::Vec;
 use bevy_derive::{Deref, DerefMut};
-use bevy_ecs::{
-    entity::{EntityMapper, MapEntities},
-};
+use bevy_ecs::entity::{EntityMapper, MapEntities};
 use leafwing_input_manager::Actionlike;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
@@ -132,16 +130,11 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
         })
     }
 
-    fn to_snapshot<'w, 's>(
-        state: ActionStateWrapperReadOnlyItem<A>,
-    ) -> Self::Snapshot {
+    fn to_snapshot<'w, 's>(state: ActionStateWrapperReadOnlyItem<A>) -> Self::Snapshot {
         LeafwingSnapshot(state.inner.clone())
     }
 
-    fn from_snapshot<'w, 's>(
-        state: &mut ActionState<A>,
-        snapshot: &Self::Snapshot,
-    ) {
+    fn from_snapshot<'w, 's>(state: &mut ActionState<A>, snapshot: &Self::Snapshot) {
         *state = snapshot.0.clone();
     }
 }

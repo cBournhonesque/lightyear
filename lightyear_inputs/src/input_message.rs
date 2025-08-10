@@ -3,15 +3,15 @@
 #![allow(clippy::module_inception)]
 use crate::input_buffer::{InputBuffer, InputData};
 use alloc::{format, string::String, vec, vec::Vec};
+use bevy_app::App;
+use bevy_ecs::bundle::Bundle;
+use bevy_ecs::query::QueryData;
 use bevy_ecs::{
-    component::{Component},
+    component::Component,
     entity::{Entity, EntityMapper, MapEntities},
 };
 use bevy_reflect::Reflect;
 use core::fmt::{Debug, Formatter, Write};
-use bevy_app::App;
-use bevy_ecs::bundle::Bundle;
-use bevy_ecs::query::{QueryData};
 use lightyear_core::prelude::Tick;
 #[cfg(feature = "interpolation")]
 use lightyear_interpolation::plugin::InterpolationDelay;
@@ -52,13 +52,11 @@ pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + 'static {
     fn decay_tick(&mut self);
 }
 
-
 /// A QueryData that contains the queryable state that contains the current state of the Action at the given tick
 ///
 /// This is used to simply be `ActionState<A>`, but BEI switched to representing the action state with multiple components,
 /// so this traits abstracts over that difference.
 pub trait ActionStateQueryData {
-
     // The mutable QueryData that allows modifying the ActionState.
     // If the ActionState is a single component, then this is simply `&'static mut Self`.
     type Mut: QueryData;
@@ -74,7 +72,9 @@ pub trait ActionStateQueryData {
     type Bundle: Bundle + Send + Sync + 'static;
 
     // Convert from the mutable query item (i.e. Mut<'w, ActionState<A>>) to the read-only query item (i.e. &ActionState<A>)
-    fn as_read_only<'w, 'a: 'w>(state: &'a <Self::Mut as QueryData>::Item<'w>) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'w>;
+    fn as_read_only<'w, 'a: 'w>(
+        state: &'a <Self::Mut as QueryData>::Item<'w>,
+    ) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'w>;
 
     // Convert from the mutable query item (i.e. Mut<'w, ActionState<A>>) to the inner mutable item (i.e. &mut ActionState<A>)
     fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w>;
@@ -85,7 +85,8 @@ pub trait ActionStateQueryData {
 }
 
 // equivalent to &ActionState<S::Action>
-pub(crate) type StateRef<S: ActionStateSequence> = <<S::State as ActionStateQueryData>::Mut as QueryData>::ReadOnly;
+pub(crate) type StateRef<S: ActionStateSequence> =
+    <<S::State as ActionStateQueryData>::Mut as QueryData>::ReadOnly;
 
 // equivalent to &'w ActionState<S::Action>
 pub(crate) type StateRefItem<'w, S: ActionStateSequence> = <StateRef<S> as QueryData>::Item<'w>;
@@ -121,7 +122,6 @@ pub trait ActionStateSequence:
 
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
-
 
     /// Register the required components for this ActionStateSequence in the App.
     fn register_required_components(app: &mut App) {
@@ -220,15 +220,10 @@ pub trait ActionStateSequence:
         Self: Sized;
 
     /// Create a snapshot from the given state.
-    fn to_snapshot<'w, 's>(
-        state: StateRefItem<'w, Self>,
-    ) -> Self::Snapshot;
+    fn to_snapshot<'w>(state: StateRefItem<'w, Self>) -> Self::Snapshot;
 
     /// Modify the given state to reflect the given snapshot.
-    fn from_snapshot<'w, 's>(
-        state: StateMutItemInner<'w, Self>,
-        snapshot: &Self::Snapshot,
-    );
+    fn from_snapshot<'w>(state: StateMutItemInner<'w, Self>, snapshot: &Self::Snapshot);
 }
 
 /// Message used to send client inputs to the server.

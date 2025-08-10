@@ -6,14 +6,15 @@ use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 use lightyear::input::bei;
 use lightyear::input::bei::input_message::{ActionData, ActionsSnapshot, BEIStateSequence};
-use lightyear::input::input_message::ActionStateQueryData;
 use lightyear::input::input_buffer::InputBuffer;
+use lightyear::input::input_message::ActionStateQueryData;
 use lightyear::input::input_message::ActionStateSequence;
 use lightyear_connection::client::Client;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick, Timeline};
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::Replicate;
+use lightyear::prelude::ReplicateLike;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::{Input, InputDelayConfig};
 use test_log::test;
@@ -26,7 +27,9 @@ fn test_buffer_inputs_with_delay() {
     stepper.client_mut(0).insert(InputTimeline(Timeline::from(
         Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
     )));
-    let server_entity = stepper.server_app.world_mut()
+    let server_entity = stepper
+        .server_app
+        .world_mut()
         .spawn((
             BEIContext,
             Replicate::to_clients(NetworkTarget::All),
@@ -35,17 +38,10 @@ fn test_buffer_inputs_with_delay() {
                     Action::<BEIAction1>::new(),
                 ),
             ]),
-    )).id();
-    let server_action = stepper
-        .server_app
-        .world()
-        .entity(server_entity)
-        .get::<Actions<BEIContext>>()
-        .unwrap()
-        .collection()
-        [0];
-
+        ))
+        .id();
     stepper.frame_step(2);
+
     let client_entity = stepper
         .client(0)
         .get::<MessageManager>()
@@ -53,20 +49,69 @@ fn test_buffer_inputs_with_delay() {
         .entity_mapper
         .get_local(server_entity)
         .expect("entity is not present in entity map");
-    let client_action = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_action)
-        .expect("entity is not present in entity map");
 
+    // we spawn an action entity on the client
+    let client_action = stepper.client_app()
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(client_entity),
+            Action::<BEIAction1>::default(),
+        )).id();
+
+    // check that the Action entity contains Replicate
+    assert!(
+        stepper
+            .client_app()
+            .world()
+        .entity(client_action)
+        .contains::<Replicate>()
+    );
+
+    stepper.frame_step(1);
+
+    // Add an InputMarker to the Context entity on the client to indicate that the client controls this entity
     stepper
         .client_app()
         .world_mut()
         .entity_mut(client_entity)
         .insert(bei::prelude::InputMarker::<BEIContext>::default());
-    stepper.frame_step(1);
+
+    // check that the InputMarker was propagated to the Action entity
+    assert!(stepper
+        .client_app()
+        .world()
+        .entity(client_action)
+        .contains::<bei::prelude::InputMarker<BEIContext>>());
+    assert!(stepper
+        .client_app()
+        .world()
+        .entity(client_action)
+        .contains::<InputBuffer<ActionsSnapshot<BEIContext>>>());
+    assert!(stepper
+        .client_app()
+        .world()
+        .entity(client_action)
+        .contains::<ActionState>());
+    assert!(stepper
+        .client_app()
+        .world()
+        .entity(client_action)
+        .contains::<ActionTime>());
+
+    let server_action = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_action)
+        .expect("entity is not present in entity map");
+
+    // Check that the server entity also has the Action component
+    assert!(stepper
+        .server_app
+        .world()
+        .entity(server_action)
+        .contains::<Action<BEIAction1>>());
 
     // mock press on a key
     info!("Mocking press on BEIAction1");
@@ -135,7 +180,9 @@ fn test_buffer_inputs_with_delay() {
 fn test_client_rollback() {
     let mut stepper = ClientServerStepper::single();
 
-    let server_entity = stepper.server_app.world_mut()
+    let server_entity = stepper
+        .server_app
+        .world_mut()
         .spawn((
             BEIContext,
             Replicate::to_clients(NetworkTarget::All),
@@ -144,15 +191,15 @@ fn test_client_rollback() {
                     Action::<BEIAction1>::new(),
                 ),
             ]),
-    )).id();
+        ))
+        .id();
     let server_action = stepper
         .server_app
         .world()
         .entity(server_entity)
         .get::<Actions<BEIContext>>()
         .unwrap()
-        .collection()
-        [0];
+        .collection()[0];
 
     stepper.frame_step(2);
     let client_entity = stepper
@@ -190,13 +237,8 @@ fn test_client_rollback() {
     stepper.frame_step(3);
     let client_tick = stepper.client_tick(0);
 
-    let client_action_ref = stepper
-        .client_app()
-        .world()
-        .entity(client_action);
-    let action_time = client_action_ref
-        .get::<ActionTime>()
-        .unwrap();
+    let client_action_ref = stepper.client_app().world().entity(client_action);
+    let action_time = client_action_ref.get::<ActionTime>().unwrap();
     // the duration starts incrementing from the second tick after the action is pressed
     assert_eq!(action_time.fired_secs, TICK_DURATION.as_secs_f32() * 2.0);
     stepper.frame_step(2);

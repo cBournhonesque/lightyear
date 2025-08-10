@@ -2,7 +2,7 @@
 use alloc::string::String;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
-use bevy_enhanced_input::prelude::{InputAction};
+use bevy_enhanced_input::prelude::InputAction;
 use leafwing_input_manager::Actionlike;
 use lightyear::prelude::input::*;
 use lightyear::prelude::*;
@@ -209,5 +209,6 @@ impl Plugin for ProtocolPlugin {
                 ..default()
             },
         });
+        app.register_input_action::<BEIAction1>();
     }
 }

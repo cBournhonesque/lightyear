@@ -1,10 +1,10 @@
-use core::fmt::Debug;
 use bevy_ecs::query::QueryData;
+use core::fmt::Debug;
 use leafwing_input_manager::Actionlike;
+use leafwing_input_manager::action_state::ActionState;
+use lightyear_inputs::input_message::ActionStateQueryData;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use lightyear_inputs::input_message::ActionStateQueryData;
-use leafwing_input_manager::action_state::ActionState;
 
 pub trait LeafwingUserAction:
     Serialize
@@ -40,8 +40,8 @@ impl<
 #[derive(QueryData)]
 #[query_data(mutable)]
 /// To bypass the orphan rule, we wrap the ActionState from leafwing_input_manager
-pub struct ActionStateWrapper<A: LeafwingUserAction>{
-    pub(crate) inner: &'static mut ActionState<A>
+pub struct ActionStateWrapper<A: LeafwingUserAction> {
+    pub(crate) inner: &'static mut ActionState<A>,
 }
 
 impl<A: LeafwingUserAction> ActionStateQueryData for ActionStateWrapper<A> {
@@ -50,7 +50,9 @@ impl<A: LeafwingUserAction> ActionStateQueryData for ActionStateWrapper<A> {
     type Main = ActionState<A>;
     type Bundle = ActionState<A>;
 
-    fn as_read_only<'w, 'a: 'w>(state: &'a ActionStateWrapperItem<'w, A>) -> ActionStateWrapperReadOnlyItem<'w, A> {
+    fn as_read_only<'w, 'a: 'w>(
+        state: &'a ActionStateWrapperItem<'w, A>,
+    ) -> ActionStateWrapperReadOnlyItem<'w, A> {
         ActionStateWrapperReadOnlyItem {
             inner: &state.inner,
         }

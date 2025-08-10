@@ -9,8 +9,9 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::reflect::ReflectMapEntities;
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
+use bevy_ecs::relationship::Relationship;
 use smallvec::SmallVec;
-use tracing::trace;
+use tracing::{trace};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RelationshipSet {
@@ -48,7 +49,7 @@ pub struct ReplicateLike {
 #[reflect(Component)]
 pub struct ReplicateLikeChildren(Vec<Entity>);
 
-/// Plugin that helps lightyear propagate replication components through the ChildOf relationship.
+/// Plugin that helps lightyear propagate replication components through a relationship.
 ///
 /// The main idea is this:
 /// - when `Replicate` is added, we will add a `ReplicateLike` component to all children
@@ -63,14 +64,19 @@ pub struct ReplicateLikeChildren(Vec<Entity>);
 /// - this is mainly useful for replicating visibility components through the hierarchy. Instead of having to
 ///   add all the child entities to a room, or propagating the `NetworkVisibility` through the hierarchy,
 ///   the child entity can just use the root's `NetworkVisibility` value
-///
-/// Note that currently propagating the replication components and propagating `ChildOfSync` (which helps you
-/// replicate the `ChildOf` relationship) have the same logic. They use the same `DisableReplicateHierarchy` to
-/// determine when to stop the propagation.
-#[derive(Default)]
-pub struct HierarchySendPlugin;
+pub struct HierarchySendPlugin<R: Relationship> {
+    marker: core::marker::PhantomData<R>
+}
 
-impl Plugin for HierarchySendPlugin {
+impl<R: Relationship> Default for HierarchySendPlugin<R> {
+    fn default() -> Self {
+        Self {
+            marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<R: Relationship> Plugin for HierarchySendPlugin<R> {
     fn build(&self, app: &mut App) {
         app.register_component::<ChildOf>()
             .add_component_map_entities();
@@ -86,7 +92,7 @@ impl Plugin for HierarchySendPlugin {
     }
 }
 
-impl HierarchySendPlugin {
+impl<R: Relationship> HierarchySendPlugin<R> {
     /// Propagate certain replication components through the hierarchy.
     /// - If new children are added, `Replicate` is added, `PrePredicted` is added, we recursively
     ///   go through the descendants and add `ReplicateLike`, `ChildOfSync`, ... if the child does not have
@@ -101,11 +107,11 @@ impl HierarchySendPlugin {
             (
                 With<Replicate>,
                 Without<DisableReplicateHierarchy>,
-                With<Children>,
-                Or<(Changed<Children>, Added<PrePredicted>, Added<Replicate>)>,
+                With<R::RelationshipTarget>,
+                Or<(Changed<R::RelationshipTarget>, Added<PrePredicted>, Added<Replicate>)>,
             ),
         >,
-        children_query: Query<&Children>,
+        children_query: Query<&R::RelationshipTarget>,
         // exclude those that have `Replicate` (as we don't want to overwrite the `ReplicateLike` component
         // for their descendants, and we don't want to add `ReplicateLike` on them)
         child_filter: Query<(), (Without<DisableReplicateHierarchy>, Without<Replicate>)>,
@@ -147,12 +153,12 @@ impl HierarchySendPlugin {
         root_query: Query<
             (),
             (
-                With<Children>,
+                With<R::RelationshipTarget>,
                 Without<DisableReplicateHierarchy>,
                 With<Replicate>,
             ),
         >,
-        children_query: Query<&Children>,
+        children_query: Query<&R::RelationshipTarget>,
         // exclude those that have `Replicate` (as we don't want to remove the `ReplicateLike` component
         // for their descendants)
         child_filter: Query<(), (Without<Replicate>, With<ReplicateLike>)>,
@@ -186,7 +192,7 @@ mod tests {
 
     fn setup_hierarchy() -> (App, Entity, Entity, Entity) {
         let mut app = App::default();
-        app.add_plugins(HierarchySendPlugin);
+        app.add_plugins(HierarchySendPlugin::<ChildOf>::default());
         let grandparent = app.world_mut().spawn_empty().id();
         let parent = app.world_mut().spawn(ChildOf(grandparent)).id();
         let child = app.world_mut().spawn(ChildOf(parent)).id();
@@ -198,7 +204,7 @@ mod tests {
     #[test]
     fn propagate_replicate_like_children_updated() {
         let mut app = App::default();
-        app.add_plugins(HierarchySendPlugin);
+        app.add_plugins(HierarchySendPlugin::<ChildOf>::default());
 
         let grandparent = app.world_mut().spawn(Replicate::manual(vec![])).id();
         // parent with no ReplicationMarker: ReplicateLike should be propagated
@@ -286,7 +292,7 @@ mod tests {
     #[test]
     fn propagate_replicate_like_replication_marker_added() {
         let mut app = App::default();
-        app.add_plugins(HierarchySendPlugin);
+        app.add_plugins(HierarchySendPlugin::<ChildOf>::default());
 
         let grandparent = app.world_mut().spawn_empty().id();
         // parent with no ReplicationMarker: ReplicateLike should be propagated

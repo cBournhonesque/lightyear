@@ -1,6 +1,7 @@
 //! Bevy [`Plugin`] used by both the server and the client
 use bevy_app::{App, Plugin};
 use core::time::Duration;
+use bevy_ecs::prelude::ChildOf;
 use lightyear_core::plugin::CorePlugins;
 
 pub struct SharedPlugins {
@@ -27,7 +28,7 @@ impl Plugin for SharedPlugins {
         #[cfg(feature = "replication")]
         app.add_plugins(lightyear_replication::prelude::ReplicationSendPlugin)
             .add_plugins(lightyear_replication::prelude::NetworkVisibilityPlugin)
-            .add_plugins(lightyear_replication::prelude::HierarchySendPlugin)
+            .add_plugins(lightyear_replication::prelude::HierarchySendPlugin::<ChildOf>::default())
             .add_plugins(lightyear_replication::prelude::AuthorityPlugin)
             .add_plugins(lightyear_replication::prelude::ReplicationReceivePlugin);
 

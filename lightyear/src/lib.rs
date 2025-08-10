@@ -365,6 +365,8 @@ pub mod prelude {
         pub mod bei {
             pub use lightyear_inputs_bei::prelude::*;
         }
+        #[cfg(feature = "input_bei")]
+        pub use lightyear_inputs_bei::prelude::InputRegistryExt;
 
         #[cfg(feature = "leafwing")]
         pub mod leafwing {

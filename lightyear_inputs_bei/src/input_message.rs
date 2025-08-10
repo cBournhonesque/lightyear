@@ -1,13 +1,11 @@
 use crate::marker::InputMarker;
 use alloc::{vec, vec::Vec};
-use bevy_ecs::{
-    entity::{EntityMapper, MapEntities},
-};
+use bevy_ecs::entity::{EntityMapper, MapEntities};
+use bevy_ecs::query::QueryData;
+use bevy_enhanced_input::action::ActionTime;
 use bevy_enhanced_input::prelude::{ActionEvents, ActionState, ActionValue};
 use core::cmp::max;
 use core::fmt::{Debug, Formatter};
-use bevy_ecs::query::{QueryData};
-use bevy_enhanced_input::action::ActionTime;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::input_message::{ActionStateQueryData, ActionStateSequence, InputSnapshot};
@@ -70,7 +68,6 @@ impl<C> MapEntities for BEIStateSequence<C> {
     fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {}
 }
 
-
 /// Instead of replicating the BEI Actions, we will replicate a serializable subset that can be used to
 /// fully know on the remote client which actions should be triggered. This data will be used
 /// to update the BEI `Actions` component
@@ -107,7 +104,7 @@ pub struct ActionsSnapshot<C> {
 impl<C> Clone for ActionsSnapshot<C> {
     fn clone(&self) -> Self {
         Self {
-            state: self.state.clone(),
+            state: self.state,
             _marker: core::marker::PhantomData,
         }
     }
@@ -135,9 +132,8 @@ impl<C: Send + Sync + 'static> InputSnapshot for ActionsSnapshot<C> {
 }
 
 impl ActionsMessage {
-
     fn from_snapshot<C>(snapshot: &ActionsSnapshot<C>) -> Self {
-        snapshot.state.clone()
+        snapshot.state
     }
 
     #[allow(clippy::wrong_self_convention)]
@@ -147,13 +143,6 @@ impl ActionsMessage {
             _marker: core::marker::PhantomData,
         }
     }
-}
-
-/// Context needed to work with the BEI state sequence.
-struct BEIContext<C> {
-    // registry: Res<'static, InputRegistry>,
-    // actions: Query<'static, 'static, (&'static ActionState, &'static ActionValue, &'static ActionEvents, &'static ActionTime), With<ActionOf<C>>>,
-    _marker: core::marker::PhantomData<C>,
 }
 
 
@@ -210,11 +199,14 @@ impl ActionStateQueryData for ActionData {
     }
 
     fn base_value() -> Self::Bundle {
-        (ActionState::default(), ActionValue::Bool(false), ActionEvents::empty(), ActionTime::default())
+        (
+            ActionState::default(),
+            ActionValue::Bool(false),
+            ActionEvents::empty(),
+            ActionTime::default(),
+        )
     }
-
 }
-
 
 impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
     type Action = C;
@@ -281,13 +273,11 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
         })
     }
 
-    fn to_snapshot<'w, 's>(
-        state: ActionDataReadOnlyItem,
-    ) -> Self::Snapshot {
+    fn to_snapshot<'w, 's>(state: ActionDataReadOnlyItem) -> Self::Snapshot {
         ActionsSnapshot {
             state: ActionsMessage {
                 state: *state.state,
-                value: state.value.clone(),
+                value: *state.value,
                 events: *state.events,
                 time: *state.time,
             },
@@ -295,13 +285,10 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
         }
     }
 
-    fn from_snapshot<'w, 's>(
-        state: ActionDataInnerItem,
-        snapshot: &Self::Snapshot,
-    ) {
+    fn from_snapshot<'w, 's>(state: ActionDataInnerItem, snapshot: &Self::Snapshot) {
         let snapshot = &snapshot.state;
         *state.state = snapshot.state;
-        *state.value = snapshot.value.clone();
+        *state.value = snapshot.value;
         *state.events = snapshot.events;
         *state.time = snapshot.time;
     }
@@ -311,7 +298,7 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
 mod tests {
     use super::*;
 
-    use bevy_enhanced_input::prelude::{InputAction};
+    use bevy_enhanced_input::prelude::InputAction;
     use bevy_reflect::Reflect;
     use test_log::test;
     use tracing::info;
@@ -362,25 +349,25 @@ mod tests {
                 // tick 2
                 states: vec![
                     InputData::Input(ActionsMessage {
-                            state: ActionState::None,
-                            value: ActionValue::Bool(false),
-                            events: ActionEvents::empty(),
-                            time: ActionTime::default(),
+                        state: ActionState::None,
+                        value: ActionValue::Bool(false),
+                        events: ActionEvents::empty(),
+                        time: ActionTime::default(),
                     }),
                     InputData::Input(ActionsMessage {
-                            state: ActionState::Fired,
-                            value: ActionValue::Bool(true),
-                            events: ActionEvents::empty(),
-                            time: ActionTime::default(),
+                        state: ActionState::Fired,
+                        value: ActionValue::Bool(true),
+                        events: ActionEvents::empty(),
+                        time: ActionTime::default(),
                     }),
                     InputData::SameAsPrecedent,
                     InputData::SameAsPrecedent,
                     InputData::SameAsPrecedent,
                     InputData::Input(ActionsMessage {
-                            state: ActionState::None,
-                            value: ActionValue::Bool(false),
-                            events: ActionEvents::empty(),
-                            time: ActionTime::default(),
+                        state: ActionState::None,
+                        value: ActionValue::Bool(false),
+                        events: ActionEvents::empty(),
+                        time: ActionTime::default(),
                     }),
                     InputData::Absent,
                     InputData::Absent,
@@ -468,14 +455,8 @@ mod tests {
         // With empty buffer, the first tick received is a mismatch
         assert_eq!(earliest_mismatch, Some(Tick(5)));
         assert_eq!(input_buffer.start_tick, Some(Tick(5)));
-        assert_eq!(
-            input_buffer.get(Tick(5)),
-            Some(&state.to_snapshot())
-        );
-        assert_eq!(
-            input_buffer.get(Tick(6)),
-            Some(&state.to_snapshot())
-        );
+        assert_eq!(input_buffer.get(Tick(5)), Some(&state.to_snapshot()));
+        assert_eq!(input_buffer.get(Tick(6)), Some(&state.to_snapshot()));
         assert_eq!(input_buffer.get(Tick(7)), None);
     }
 
@@ -492,10 +473,7 @@ mod tests {
         state.value = ActionValue::Bool(true);
 
         let sequence = BEIStateSequence::<Context1> {
-            states: vec![
-                InputData::Input(state),
-                InputData::SameAsPrecedent,
-            ],
+            states: vec![InputData::Input(state), InputData::SameAsPrecedent],
             marker: Default::default(),
         };
 
@@ -506,14 +484,8 @@ mod tests {
         assert_eq!(earliest_mismatch, Some(Tick(7)));
         // Filled the gap with SameAsPrecedent at tick 6, then set the new action at tick 7 and 8
         assert_eq!(input_buffer.get_raw(Tick(6)), &InputData::SameAsPrecedent);
-        assert_eq!(
-            input_buffer.get(Tick(7)),
-            Some(&state.to_snapshot())
-        );
-        assert_eq!(
-            input_buffer.get(Tick(8)),
-            Some(&state.to_snapshot())
-        );
+        assert_eq!(input_buffer.get(Tick(7)), Some(&state.to_snapshot()));
+        assert_eq!(input_buffer.get(Tick(8)), Some(&state.to_snapshot()));
     }
 
     #[test]
@@ -556,10 +528,7 @@ mod tests {
         state.value = ActionValue::Bool(false);
 
         let sequence = BEIStateSequence::<Context1> {
-            states: vec![
-                InputData::Input(state),
-                InputData::SameAsPrecedent,
-            ],
+            states: vec![InputData::Input(state), InputData::SameAsPrecedent],
             marker: Default::default(),
         };
 
@@ -568,14 +537,8 @@ mod tests {
         // Should detect mismatch at tick 6 (first tick after previous_end_tick=5)
         // We predicted continuation of first_action, but got second_action
         assert_eq!(earliest_mismatch, Some(Tick(6)));
-        assert_eq!(
-            input_buffer.get(Tick(6)),
-            Some(&state.to_snapshot())
-        );
-        assert_eq!(
-            input_buffer.get(Tick(7)),
-            Some(&state.to_snapshot())
-        );
+        assert_eq!(input_buffer.get(Tick(6)), Some(&state.to_snapshot()));
+        assert_eq!(input_buffer.get(Tick(7)), Some(&state.to_snapshot()));
     }
 
     #[test]
@@ -589,10 +552,7 @@ mod tests {
         input_buffer.set(Tick(5), state.to_snapshot());
 
         let sequence = BEIStateSequence::<Context1> {
-            states: vec![
-                InputData::Input(state),
-                InputData::SameAsPrecedent,
-            ],
+            states: vec![InputData::Input(state), InputData::SameAsPrecedent],
             marker: Default::default(),
         };
 
@@ -625,10 +585,10 @@ mod tests {
         // Message covers ticks 5-8, but we should only process ticks 7-8
         let sequence = BEIStateSequence::<Context1> {
             states: vec![
-                InputData::Input(first_state), // tick 5 - should be skipped
-                InputData::SameAsPrecedent,             // tick 6 - should be skipped
+                InputData::Input(first_state),  // tick 5 - should be skipped
+                InputData::SameAsPrecedent,     // tick 6 - should be skipped
                 InputData::Input(second_state), // tick 7 - should detect mismatch
-                InputData::SameAsPrecedent,             // tick 8 - should be processed
+                InputData::SameAsPrecedent,     // tick 8 - should be processed
             ],
             marker: Default::default(),
         };
@@ -638,22 +598,10 @@ mod tests {
         // Should detect mismatch at tick 7 (first tick after previous_end_tick=6)
         assert_eq!(earliest_mismatch, Some(Tick(7)));
         // Ticks 5 and 6 should remain unchanged
-        assert_eq!(
-            input_buffer.get(Tick(5)),
-            Some(&first_state.to_snapshot())
-        );
-        assert_eq!(
-            input_buffer.get(Tick(6)),
-            Some(&first_state.to_snapshot())
-        );
+        assert_eq!(input_buffer.get(Tick(5)), Some(&first_state.to_snapshot()));
+        assert_eq!(input_buffer.get(Tick(6)), Some(&first_state.to_snapshot()));
         // Ticks 7 and 8 should be updated
-        assert_eq!(
-            input_buffer.get(Tick(7)),
-            Some(&second_state.to_snapshot())
-        );
-        assert_eq!(
-            input_buffer.get(Tick(8)),
-            Some(&second_state.to_snapshot())
-        );
+        assert_eq!(input_buffer.get(Tick(7)), Some(&second_state.to_snapshot()));
+        assert_eq!(input_buffer.get(Tick(8)), Some(&second_state.to_snapshot()));
     }
 }

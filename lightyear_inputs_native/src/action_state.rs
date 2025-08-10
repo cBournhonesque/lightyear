@@ -1,4 +1,5 @@
 use bevy_derive::{Deref, DerefMut};
+use bevy_ecs::query::QueryData;
 use bevy_ecs::{
     component::Component,
     entity::{EntityMapper, MapEntities},
@@ -7,11 +8,10 @@ use bevy_ecs::{
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use bevy_ecs::query::QueryData;
 use lightyear_inputs::input_buffer::InputData;
 
-use serde::{Deserialize, Serialize};
 use lightyear_inputs::input_message::ActionStateQueryData;
+use serde::{Deserialize, Serialize};
 
 /// The component that will store the current status of the action for the entity
 ///
@@ -30,7 +30,7 @@ impl<A: Default + Send + Sync + 'static> ActionStateQueryData for ActionState<A>
     type Bundle = ActionState<A>;
 
     fn as_read_only<'w, 'a: 'w>(state: &'a Mut<'w, ActionState<A>>) -> &'w ActionState<A> {
-        &state
+        state
     }
 
     fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w> {

@@ -46,7 +46,10 @@
 use crate::InputChannel;
 use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
-use crate::input_message::{ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, PerTargetData, StateMut, StateMutItemInner, StateRef};
+use crate::input_message::{
+    ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, PerTargetData, StateMut,
+    StateMutItemInner, StateRef,
+};
 use crate::plugin::InputPlugin;
 #[cfg(feature = "metrics")]
 use alloc::format;
@@ -54,7 +57,7 @@ use alloc::{vec, vec::Vec};
 use bevy_app::{
     App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoopSystem,
 };
-use bevy_ecs::query::{Or};
+use bevy_ecs::query::Or;
 use bevy_ecs::{
     entity::{Entity, MapEntities},
     observer::Trigger,
@@ -266,11 +269,7 @@ fn buffer_action_state<S: ActionStateSequence>(
     let current_tick = local_timeline.tick();
     let tick = current_tick + input_timeline.input_delay() as i16;
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
-        InputBuffer::set(
-            &mut input_buffer,
-            tick,
-            S::to_snapshot(action_state),
-        );
+        InputBuffer::set(&mut input_buffer, tick, S::to_snapshot(action_state));
         trace!(
             ?entity,
             // ?action_state,

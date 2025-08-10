@@ -18,6 +18,9 @@ server = ["lightyear_inputs/server", "lightyear_connection"]
 lightyear_core.workspace = true
 lightyear_inputs.workspace = true
 lightyear_utils.workspace = true
+lightyear_prediction.workspace = true
+lightyear_replication.workspace = true
+lightyear_serde.workspace = true
 lightyear_connection = { workspace = true, optional = true }
 
 # inputs
