@@ -124,7 +124,7 @@ pub enum LeafwingInput2 {
 }
 
 // BEI Inputs
-#[derive(Component)]
+#[derive(Serialize, Deserialize, Component, Clone, PartialEq, Debug)]
 pub struct BEIContext;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, InputAction)]

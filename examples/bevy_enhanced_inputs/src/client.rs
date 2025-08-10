@@ -8,7 +8,7 @@
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
-use lightyear::input::bei::prelude::{Actions, Cardinal, Fired};
+use lightyear::input::bei::prelude::{Action, ActionOf, Bindings, Cardinal, Fired};
 use lightyear::prelude::*;
 
 pub struct ExampleClientPlugin;
@@ -51,9 +51,12 @@ pub(crate) fn handle_predicted_spawn(
         };
         color.0 = Color::from(hsva);
         warn!("Add InputMarker to entity: {:?}", entity);
-        let mut actions = Actions::<Player>::default();
-        actions.bind::<Movement>().to(Cardinal::wasd_keys());
-        commands.entity(entity).insert(actions);
+        // add Action entities to the predicted Context
+        commands.spawn((
+            ActionOf::<Player>::new(entity),
+            Action::<Movement>::new(),
+            Bindings::spawn(Cardinal::wasd_keys()),
+        ));
     }
 }
 

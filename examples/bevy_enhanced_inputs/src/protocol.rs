@@ -25,13 +25,12 @@ pub struct PlayerColor(pub(crate) Color);
 
 // Inputs
 
-// the context needs to be evaluated in FixedPreUpdate
-#[derive(InputContext)]
-#[input_context(schedule = FixedPreUpdate)]
+// the context will be replicated
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Player;
 
 #[derive(Debug, InputAction)]
-#[input_action(output = Vec2)]
+#[action_output(Vec2)]
 pub struct Movement;
 
 // Protocol

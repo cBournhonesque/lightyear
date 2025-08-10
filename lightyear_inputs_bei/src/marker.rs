@@ -45,11 +45,12 @@ pub(crate) fn add_input_marker_from_parent<C: Component>(
     mut commands: Commands,
 ) {
     if let Ok(action_of) = action_of.get(trigger.target())
-        && context.get(action_of.get()).is_ok() {
-            info!("ADDING MARKER");
-            commands
-                .entity(trigger.target())
-                .insert(InputMarker::<C>::default());
+        && context.get(action_of.get()).is_ok()
+    {
+        info!("ADDING MARKER");
+        commands
+            .entity(trigger.target())
+            .insert(InputMarker::<C>::default());
     }
 }
 
@@ -61,9 +62,10 @@ pub(crate) fn add_input_marker_from_binding<C: Component>(
     mut commands: Commands,
 ) {
     if let Ok(binding_of) = binding_of.get(trigger.target())
-        && action.get(binding_of.get()).is_ok() {
-            commands
-                .entity(binding_of.get())
-                .insert(InputMarker::<C>::default());
+        && action.get(binding_of.get()).is_ok()
+    {
+        commands
+            .entity(binding_of.get())
+            .insert(InputMarker::<C>::default());
     }
 }

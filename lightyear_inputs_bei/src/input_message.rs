@@ -101,6 +101,15 @@ pub struct ActionsSnapshot<C> {
     _marker: core::marker::PhantomData<C>,
 }
 
+impl<C> Default for ActionsSnapshot<C> {
+    fn default() -> Self {
+        Self {
+            state: ActionsMessage::default(),
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
 impl<C> Clone for ActionsSnapshot<C> {
     fn clone(&self) -> Self {
         Self {
@@ -144,7 +153,6 @@ impl ActionsMessage {
         }
     }
 }
-
 
 #[derive(QueryData)]
 #[query_data(mutable)]

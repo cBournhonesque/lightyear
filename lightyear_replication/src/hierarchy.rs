@@ -7,11 +7,11 @@ use bevy_app::prelude::*;
 use bevy_ecs::entity::MapEntities;
 use bevy_ecs::prelude::*;
 use bevy_ecs::reflect::ReflectMapEntities;
+use bevy_ecs::relationship::Relationship;
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
-use bevy_ecs::relationship::Relationship;
 use smallvec::SmallVec;
-use tracing::{trace};
+use tracing::trace;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RelationshipSet {
@@ -65,7 +65,7 @@ pub struct ReplicateLikeChildren(Vec<Entity>);
 ///   add all the child entities to a room, or propagating the `NetworkVisibility` through the hierarchy,
 ///   the child entity can just use the root's `NetworkVisibility` value
 pub struct HierarchySendPlugin<R: Relationship> {
-    marker: core::marker::PhantomData<R>
+    marker: core::marker::PhantomData<R>,
 }
 
 impl<R: Relationship> Default for HierarchySendPlugin<R> {
@@ -108,7 +108,11 @@ impl<R: Relationship> HierarchySendPlugin<R> {
                 With<Replicate>,
                 Without<DisableReplicateHierarchy>,
                 With<R::RelationshipTarget>,
-                Or<(Changed<R::RelationshipTarget>, Added<PrePredicted>, Added<Replicate>)>,
+                Or<(
+                    Changed<R::RelationshipTarget>,
+                    Added<PrePredicted>,
+                    Added<Replicate>,
+                )>,
             ),
         >,
         children_query: Query<&R::RelationshipTarget>,

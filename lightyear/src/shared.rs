@@ -1,7 +1,7 @@
 //! Bevy [`Plugin`] used by both the server and the client
 use bevy_app::{App, Plugin};
-use core::time::Duration;
 use bevy_ecs::prelude::ChildOf;
+use core::time::Duration;
 use lightyear_core::plugin::CorePlugins;
 
 pub struct SharedPlugins {

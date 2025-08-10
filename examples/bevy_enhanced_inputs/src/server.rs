@@ -59,6 +59,8 @@ pub(crate) fn handle_connected(
     let color = Color::hsl(h, s, l);
     let entity = commands
         .spawn((
+            // Add the context component on the server; it will be replicated to the client
+            Player,
             PlayerId(client_id),
             PlayerPosition(Vec2::ZERO),
             PlayerColor(color),

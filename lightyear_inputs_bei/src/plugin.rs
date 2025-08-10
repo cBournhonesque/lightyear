@@ -14,11 +14,15 @@ use bevy_ecs::schedule::common_conditions::not;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_enhanced_input::EnhancedInputSet;
 use bevy_enhanced_input::context::InputContextAppExt;
-use bevy_enhanced_input::prelude::{ActionEvents, ActionOf, ActionState, ActionTime, ActionValue};
+use bevy_enhanced_input::prelude::ActionOf;
+use core::fmt::Debug;
 use lightyear_inputs::config::InputConfig;
 use lightyear_prediction::PredictionMode;
 use lightyear_prediction::prelude::PredictionRegistrationExt;
 use lightyear_replication::prelude::AppComponentExt;
+use lightyear_replication::registry::replication::GetWriteFns;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 pub struct InputPlugin<C> {
     pub config: InputConfig<C>,
@@ -32,8 +36,15 @@ impl<C> Default for InputPlugin<C> {
     }
 }
 
-
-impl<C: Component> Plugin for InputPlugin<C> {
+impl<
+    C: Component<Mutability: GetWriteFns<C>>
+        + PartialEq
+        + Clone
+        + Debug
+        + Serialize
+        + DeserializeOwned,
+> Plugin for InputPlugin<C>
+{
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<bevy_enhanced_input::EnhancedInputPlugin>() {
             app.add_plugins(bevy_enhanced_input::EnhancedInputPlugin);
@@ -47,6 +58,8 @@ impl<C: Component> Plugin for InputPlugin<C> {
         // }
 
         app.add_input_context_to::<FixedPreUpdate, C>();
+        app.register_component::<C>()
+            .add_immutable_prediction(PredictionMode::Once);
         app.register_component::<ActionOf<C>>()
             .add_component_map_entities()
             .add_immutable_prediction(PredictionMode::Once);
