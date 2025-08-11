@@ -47,6 +47,7 @@ impl ChecksumSendPlugin {
         world: ChecksumWorld<'_, '_, true>,
         client: Single<
             (
+                &LocalTimeline,
                 &LastConfirmedInput,
                 &MessageManager,
                 &mut MessageSender<ChecksumMessage>,
@@ -56,8 +57,14 @@ impl ChecksumSendPlugin {
     ) {
         let mut checksum = 0u64;
 
-        let (last_confirmed_input, message_manager, mut sender) = client.into_inner();
+        let (local_timeline, last_confirmed_input, message_manager, mut sender) =
+            client.into_inner();
+        let current_tick = local_timeline.tick();
         let tick = last_confirmed_input.tick.get();
+        // only compute the checksum when we have received remote inputs
+        if tick > current_tick {
+            return;
+        }
 
         world.iter_archetypes().for_each(|(archetype, checksum_archetype)| {
             // TODO: how can we guarantee that the order is the same on client and server? We need a stable order for entities, otherwise the checksum will differ even if the data is the same.

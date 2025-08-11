@@ -43,11 +43,11 @@
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
 //!   will read the inputs using the [`InputBuffer`] component.
 
-use crate::InputChannel;
 use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
 use crate::plugin::InputPlugin;
+use crate::{HISTORY_DEPTH, InputChannel};
 #[cfg(feature = "metrics")]
 use alloc::format;
 use alloc::{vec, vec::Vec};
@@ -412,7 +412,7 @@ fn clean_buffers<S: ActionStateSequence>(
         return;
     };
     // assuming that we don't rollback more than 20 ticks, or send more than 20 ticks worth of inputs
-    let old_tick = local_timeline.tick() - 20;
+    let old_tick = local_timeline.tick() - HISTORY_DEPTH;
 
     // trace!(
     //     "popping all input buffers since old tick: {old_tick:?}",

@@ -1,12 +1,13 @@
 //! Handle input messages received from the clients
 
-use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
 use crate::plugin::InputPlugin;
+use crate::{HISTORY_DEPTH, InputChannel};
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
+use bevy_ecs::prelude::Has;
 use bevy_ecs::{
     entity::{Entity, MapEntities},
     error::Result,
@@ -17,6 +18,7 @@ use bevy_ecs::{
 };
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
+use lightyear_connection::host::HostServer;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_connection::server::Started;
 use lightyear_core::id::RemoteId;
@@ -209,10 +211,10 @@ fn update_action_state<S: ActionStateSequence>(
     // TODO: what if there are multiple servers? maybe we can use Replicate to figure out which inputs should be replicating on which servers?
     //  and use the timeline from that connection? i.e. find from which entity we got the first InputMessage?
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
-    server: Single<(Entity, &LocalTimeline), With<Started>>,
+    server: Single<(Entity, &LocalTimeline, Has<HostServer>), With<Started>>,
     mut action_state_query: Query<(Entity, &mut S::State, &mut InputBuffer<S::Snapshot>)>,
 ) {
-    let (server, timeline) = server.into_inner();
+    let (server, timeline, host_client) = server.into_inner();
     let tick = timeline.tick();
     for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
         trace!(?tick, ?server, ?input_buffer, "input buffer on server");
@@ -241,12 +243,24 @@ fn update_action_state<S: ActionStateSequence>(
             }
         }
 
-        // TODO: in host-server mode, if we rebroadcast inputs, we might want to keep a bit of a history
-        //  in the buffer so that we have redundancy when we broadcast to other clients
+        // NOTE: if we are the host-client, it is important to keep some history in the inputs
+        // The reason is that we are sending our inputs to other clients, which might cause rollbacks.
+        // For example there are new inputs starting from tick 7: L, L, L
+        // But the other clients might receive the message from tick 9 first (because of reordering), in which case it
+        // is important that they know that the action L was first pressed at tick 7! If the history is cut too short,
+        // then that information is not included in the message
+        // Basically, in host-client we are producer of inputs, so we need to include some redundancy. (like when
+        // normal clients send inputs)
+        let history_depth = if host_client {
+            HISTORY_DEPTH
+        } else {
+            // if we are a server and not a host-client, there is no need to keep history
+            1
+        };
         // TODO: + we also want to keep enough inputs on the client to be able to do prediction effectively!
         // remove all the previous values
         // we keep the current value in the InputBuffer so that if future messages are lost, we can still
         // fallback on the last known value
-        input_buffer.pop(tick - 1);
+        input_buffer.pop(tick - history_depth);
     }
 }
