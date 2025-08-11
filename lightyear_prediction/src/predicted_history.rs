@@ -46,6 +46,10 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
     for (component, mut history) in query.iter_mut() {
         // change detection works even when running the schedule for rollback
         if component.is_changed() {
+            trace!(
+                "Prediction history changed for tick {tick:?} component {:?}",
+                core::any::type_name::<T>()
+            );
             history.add_update(tick, component.deref().clone());
         }
     }
@@ -61,6 +65,11 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
     mut query: Query<&mut PredictionHistory<C>>,
 ) {
     for mut history in query.iter_mut() {
+        trace!(
+            "Prediction history updated for {:?} with tick delta {:?}",
+            core::any::type_name::<C>(),
+            trigger.tick_delta
+        );
         history.update_ticks(trigger.tick_delta);
     }
 }
@@ -251,6 +260,11 @@ pub(crate) fn add_prediction_history<C: Component>(
     >,
 ) {
     if query.get(trigger.target()).is_ok() {
+        trace!(
+            "Add prediction history for {:?} on entity {:?}",
+            core::any::type_name::<C>(),
+            trigger.target()
+        );
         commands
             .entity(trigger.target())
             .insert(PredictionHistory::<C>::default());

@@ -20,6 +20,8 @@ pub mod plugin;
 #[cfg(feature = "server")]
 pub mod server;
 
+pub(crate) const HISTORY_DEPTH: u16 = 20;
+
 /// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
 /// A marker struct for the default channel used to send inputs from client to server.
 ///

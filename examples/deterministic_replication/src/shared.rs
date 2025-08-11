@@ -6,6 +6,7 @@ use core::hash::{Hash, Hasher};
 use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
+use lightyear::connection::host::HostClient;
 use lightyear::input::input_buffer::InputBuffer;
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
@@ -230,7 +231,7 @@ pub(crate) fn fixed_pre_physics(
 
 pub(crate) fn fixed_last_log(
     contact_graph: Res<ContactGraph>,
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, With<HostClient>)>>,
     players: Query<
         (
             Entity,

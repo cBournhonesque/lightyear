@@ -1,3 +1,4 @@
+use avian2d::parry::shape::Ball;
 use avian2d::prelude::*;
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
@@ -18,6 +19,7 @@ impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(FixedUpdate, handle_game_start);
         app.add_observer(handle_player_spawn);
+        app.add_observer(handle_ball_spawn);
     }
 }
 
@@ -35,12 +37,13 @@ fn handle_player_spawn(
     let tick = timeline.tick();
 
     // store the tick when the game started, so we can remove the DisableRollback component later
-    commands.insert_resource(GameStart(tick));
-    info!("Received GameStart at tick: {tick:?}");
 
     let peer_id = player_query.get(trigger.target()).unwrap().0;
+    info!("Received player spawn for player {peer_id:?} at tick {tick:?}");
     let mut entity_mut = commands.entity(trigger.target());
     entity_mut.insert(player_bundle(peer_id));
+    // keep track of when the entity was spawned
+    entity_mut.insert(Spawned(tick));
     if local_id.0 == peer_id {
         entity_mut.insert(InputMap::new([
             (PlayerActions::Up, KeyCode::KeyW),
@@ -51,24 +54,37 @@ fn handle_player_spawn(
     }
 }
 
-#[derive(Resource)]
-struct GameStart(Tick);
+// Same thing, we insert Spawned on the ball so that DisableRollback can get removed
+fn handle_ball_spawn(
+    trigger: Trigger<OnAdd, BallMarker>,
+    client: Single<&LocalTimeline, With<Client>>,
+    mut commands: Commands,
+) {
+    commands
+        .entity(trigger.target())
+        .insert(Spawned(client.tick()));
+}
+
+#[derive(Component)]
+struct Spawned(Tick);
 
 /// Remove the DisableRollback component from all entities a little bit after the game started.
 fn handle_game_start(
-    timeline: Single<&LocalTimeline, With<Client>>,
-    query: Query<Entity, With<DisableRollback>>,
+    timeline: Single<&LocalTimeline, (With<Client>, With<IsSynced<InputTimeline>>)>,
+    query: Query<(Entity, &Spawned, &PredictionHistory<Position>), With<DisableRollback>>,
     mut commands: Commands,
-    resource: Option<Res<GameStart>>,
 ) {
-    if let Some(res) = resource
-        && timeline.tick() >= res.0 + 20
-    {
-        info!("Time to remove DisableRollback");
-        query.iter().for_each(|e| {
-            info!("Removed DisableRollback from entity: {:?}", e);
-            commands.entity(e).remove::<DisableRollback>();
-        });
-        commands.remove_resource::<GameStart>();
-    }
+    let tick = timeline.tick();
+    query.iter().for_each(|(e, spawned, history)| {
+        if tick > spawned.0 + 20 {
+            info!(
+                "Removed DisableRollback from entity: {:?}. History: {:?}",
+                e, history
+            );
+            commands
+                .entity(e)
+                .remove::<DisableRollback>()
+                .remove::<Spawned>();
+        }
+    });
 }
