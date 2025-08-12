@@ -29,7 +29,7 @@ impl PluginGroup for ClientPlugins {
 
         // if the server feature is enabled (e.g. for host-server mode), then we don't need
         // the client to send checksum messages
-        #[cfg(all(feature = "deterministic", not(feature = "server")))]
+        #[cfg(feature = "deterministic")]
         let builder = builder.add(lightyear_deterministic_replication::prelude::ChecksumSendPlugin);
 
         #[cfg(feature = "prediction")]

@@ -21,11 +21,6 @@ impl Plugin for ExampleRendererPlugin {
                 .after(RollbackSet::VisualCorrection),
         );
 
-        #[cfg(feature = "client")]
-        {
-            app.add_systems(Startup, ready_button);
-        }
-
         // add visual interpolation for Position and Rotation
         // (normally we would interpolate on Transform but here this is fine
         // since rendering is done via Gizmos that only depend on Position/Rotation)
@@ -78,36 +73,4 @@ pub(crate) fn draw_elements(
     for (wall, color) in &walls {
         gizmos.line_2d(wall.start, wall.end, color.0);
     }
-}
-
-#[cfg(feature = "client")]
-pub(crate) fn ready_button(mut commands: Commands) {
-    commands
-        .spawn((
-            Text("Ready".to_string()),
-            TextColor(Color::srgb(0.9, 0.9, 0.9)),
-            TextFont::from_font_size(20.0),
-            Button,
-            BorderColor(Color::BLACK),
-            Node {
-                width: Val::Px(150.0),
-                height: Val::Px(65.0),
-                padding: UiRect::all(Val::Px(10.0)),
-                border: UiRect::all(Val::Px(5.0)),
-                position_type: PositionType::Absolute,
-                right: Val::Percent(0.10),
-                // horizontally center child text
-                justify_content: JustifyContent::Center,
-                // vertically center child text
-                align_items: AlignItems::Center,
-                ..default()
-            },
-        ))
-        .observe(
-            |_: Trigger<Pointer<Click>>,
-             mut sender: Single<&mut TriggerSender<Ready>, (With<Client>, With<Connected>)>| {
-                info!("Client is ready!");
-                sender.trigger::<Channel1>(Ready);
-            },
-        );
 }

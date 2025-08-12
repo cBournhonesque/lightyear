@@ -24,7 +24,7 @@ pub struct ExampleServerPlugin;
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(handle_new_client);
-        app.add_observer(start_game);
+        app.add_observer(handle_connected);
     }
 }
 
@@ -38,37 +38,19 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
         ));
 }
 
-// TODO: how can we achieve this without replication from the server?
-//  if there is no server, we could have all clients spawn the same world at the same time?
-
-/// When we decide to start the game, we will replicate player entities to all clients.
-pub(crate) fn start_game(
-    trigger: Trigger<RemoteTrigger<Ready>>,
-    server: Single<&Server, With<Started>>,
+pub(crate) fn handle_connected(
+    trigger: Trigger<OnAdd, Connected>,
+    query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
-    query: Query<&RemoteId, (With<ClientOf>, With<Connected>)>,
-    mut ready_count: Local<usize>,
 ) {
-    *ready_count += 1;
-    if *ready_count == server.collection().len() {
-        info!("All clients are ready, starting game!");
-        *ready_count = 0;
-    } else {
-        info!("Received ready message from client: {:?}", trigger.from);
+    let Ok(remote_id) = query.get(trigger.target()) else {
         return;
-    }
-
-    server.collection().iter().for_each(|link| {
-        if let Ok(remote_id) = query.get(*link) {
-            info!("Spawning player for client {:?}", remote_id);
-            // we spawn an entity that will be replicated to all clients
-            commands.spawn((
-                Replicate::to_clients(NetworkTarget::All),
-                PlayerId(remote_id.0),
-                player_bundle(remote_id.0),
-            ));
-        } else {
-            panic!("Failed to get entity for server link {link:?}");
-        };
-    });
+    };
+    info!("Spawning player for client {:?}", remote_id);
+    // we spawn an entity that will be replicated to all clients
+    commands.spawn((
+        Replicate::to_clients(NetworkTarget::All),
+        PlayerId(remote_id.0),
+        player_bundle(remote_id.0),
+    ));
 }

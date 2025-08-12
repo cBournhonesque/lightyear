@@ -341,6 +341,8 @@ pub trait AppMessageExt {
         &mut self,
     ) -> MessageRegistration<'_, M>;
 
+    fn is_message_registered<M: Message>(&self) -> bool;
+
     /// Register a regular message type `M` with custom serialization functions.
     fn add_message_custom_serde<M: Message>(
         &mut self,
@@ -357,6 +359,12 @@ impl AppMessageExt for App {
         &mut self,
     ) -> MessageRegistration<'_, M> {
         self.add_message_custom_serde::<M>(SerializeFns::<M>::default())
+    }
+
+    fn is_message_registered<M: Message>(&self) -> bool {
+        self.world()
+            .get_resource::<MessageRegistry>()
+            .is_some_and(|r| r.kind_map.net_id(&MessageKind::of::<M>()).is_some())
     }
 
     fn add_message_custom_serde<M: Message>(
