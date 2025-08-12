@@ -2,7 +2,7 @@
 use alloc::string::String;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
-use bevy_enhanced_input::prelude::{InputAction, InputContext};
+use bevy_enhanced_input::prelude::InputAction;
 use leafwing_input_manager::Actionlike;
 use lightyear::prelude::input::*;
 use lightyear::prelude::*;
@@ -124,12 +124,11 @@ pub enum LeafwingInput2 {
 }
 
 // BEI Inputs
-#[derive(InputContext)]
-#[input_context(schedule = FixedPreUpdate)]
+#[derive(Serialize, Deserialize, Component, Clone, PartialEq, Debug, Reflect)]
 pub struct BEIContext;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, InputAction)]
-#[input_action(output = bool)]
+#[action_output(bool)]
 pub struct BEIAction1;
 
 // Protocol

@@ -1,9 +1,6 @@
 use crate::action_state::{ActionState, InputMarker};
 use alloc::{vec, vec::Vec};
-use bevy_ecs::{
-    entity::{EntityMapper, MapEntities},
-    system::SystemParam,
-};
+use bevy_ecs::entity::{EntityMapper, MapEntities};
 use bevy_reflect::{FromReflect, Reflect, Reflectable};
 use core::cmp::max;
 use core::fmt::Debug;
@@ -59,8 +56,6 @@ impl<
     type State = ActionState<A>;
     type Marker = InputMarker<A>;
 
-    type Context = ();
-
     fn is_empty(&self) -> bool {
         self.states.is_empty()
             || self
@@ -114,18 +109,11 @@ impl<
         Some(Self { states })
     }
 
-    fn to_snapshot<'w, 's>(
-        state: &Self::State,
-        _: &<Self::Context as SystemParam>::Item<'w, 's>,
-    ) -> Self::Snapshot {
-        state.clone()
+    fn to_snapshot<'w, 's>(state: &'w ActionState<A>) -> Self::Snapshot {
+        (*state).clone()
     }
 
-    fn from_snapshot<'w, 's>(
-        state: &mut Self::State,
-        snapshot: &Self::Snapshot,
-        _: &<Self::Context as SystemParam>::Item<'w, 's>,
-    ) {
+    fn from_snapshot<'w, 's>(state: &'w mut ActionState<A>, snapshot: &Self::Snapshot) {
         *state = snapshot.clone();
     }
 }
@@ -286,8 +274,8 @@ mod tests {
                 InputData::SameAsPrecedent,
             ],
         };
-        let mistmatch = sequence.update_buffer(&mut input_buffer, Tick(11));
-        assert_eq!(mistmatch, None);
+        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(11));
+        assert_eq!(mismatch, None);
         assert_eq!(input_buffer.get(Tick(11)), None);
         assert_eq!(input_buffer.get(Tick(10)), None);
         assert_eq!(input_buffer.get(Tick(9)), None);

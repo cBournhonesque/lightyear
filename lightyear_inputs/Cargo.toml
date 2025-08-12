@@ -37,9 +37,7 @@ lightyear_sync = { workspace = true, optional = true }
 lightyear_link = { workspace = true, optional = true }
 lightyear_messages.workspace = true
 lightyear_transport.workspace = true
-# NOTE: this is only needed to handle Predicted/PrePredicted/PredictionDisabled inputs correctly.
-#  - ideally this should be feature-gated
-lightyear_replication = { workspace = true, optional = true }
+lightyear_replication.workspace = true
 lightyear_prediction = { workspace = true, optional = true }
 lightyear_interpolation = { workspace = true, optional = true }
 

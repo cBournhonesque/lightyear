@@ -8,7 +8,7 @@ use lightyear_utils::registry::TypeKind;
 pub mod buffered;
 mod delta;
 pub mod registry;
-pub(crate) mod replication;
+pub mod replication;
 
 #[cfg(feature = "deterministic")]
 pub mod deterministic;

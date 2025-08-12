@@ -34,6 +34,9 @@ impl Plugin for ExampleServerPlugin {
 pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.target()).insert((
         ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        // We need a ReplicationReceiver on the server side because the Action entities are spawned
+        // on the client and replicated to the server.
+        ReplicationReceiver::default(),
         Name::from("Client"),
     ));
 }
@@ -59,6 +62,8 @@ pub(crate) fn handle_connected(
     let color = Color::hsl(h, s, l);
     let entity = commands
         .spawn((
+            // Add the context component on the server; it will be replicated to the client
+            Player,
             PlayerId(client_id),
             PlayerPosition(Vec2::ZERO),
             PlayerColor(color),

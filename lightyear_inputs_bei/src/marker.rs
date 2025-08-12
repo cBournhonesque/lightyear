@@ -1,15 +1,8 @@
 //! Add an [`InputMarker<C>`] component for each entity that have an [`Actions<C>`] where there is at least one [`InputBinding`](bevy_enhanced_input::prelude::InputBinding).
 
-use bevy_ecs::{
-    component::Component,
-    entity::Entity,
-    event::{Event, EventReader, EventWriter},
-    observer::Trigger,
-    query::Without,
-    system::{Commands, Query},
-};
-use bevy_enhanced_input::input_context::{Bind, InputContext};
-use bevy_enhanced_input::prelude::Actions;
+use bevy_ecs::prelude::*;
+use bevy_ecs::relationship::Relationship;
+use bevy_enhanced_input::prelude::*;
 
 /// Marker component that indicates that the entity is actively listening for physical user inputs.
 ///
@@ -28,37 +21,49 @@ impl<C> Default for InputMarker<C> {
     }
 }
 
-#[derive(Event)]
-pub(crate) struct AddInputMarkers<C> {
-    entity: Entity,
-    marker: core::marker::PhantomData<C>,
-}
-
-// Check in FixedPreUpdate if we need to add the InputMarker component to any entity
-pub(crate) fn add_input_markers_system<C: InputContext>(
+/// Propagate the InputMarker component from the Context entity to the Action entities
+/// whenever an InputMarker is added to a Context entity.
+pub(crate) fn propagate_input_marker<C: Component>(
+    trigger: Trigger<OnAdd, InputMarker<C>>,
+    actions: Query<&Actions<C>>,
     mut commands: Commands,
-    mut events: EventReader<AddInputMarkers<C>>,
-    query: Query<&Actions<C>, Without<InputMarker<C>>>,
 ) {
-    for event in events.read() {
-        if let Ok(actions) = query.get(event.entity)
-            && !actions.bindings().is_empty()
-        {
-            commands.entity(event.entity).insert(InputMarker::<C> {
-                marker: core::marker::PhantomData,
-            });
-        }
+    if let Ok(actions) = actions.get(trigger.target()) {
+        actions.iter().for_each(|action| {
+            commands.entity(action).insert(InputMarker::<C>::default());
+        });
     }
 }
 
-// When the user binds anything to a context, emit an event so that we can check at the end of the frame
-// if we need to insert the InputMarker component
-pub(crate) fn create_add_input_markers_events<C: InputContext>(
-    trigger: Trigger<Bind<C>>,
-    mut events: EventWriter<AddInputMarkers<C>>,
+/// When an Action entity is added to a Context entity that has an InputMarker,
+/// add the InputMarker to the Action entity as well.
+pub(crate) fn add_input_marker_from_parent<C: Component>(
+    trigger: Trigger<OnAdd, ActionOf<C>>,
+    action_of: Query<&ActionOf<C>>,
+    context: Query<(), With<InputMarker<C>>>,
+    mut commands: Commands,
 ) {
-    events.write(AddInputMarkers::<C> {
-        entity: trigger.target(),
-        marker: core::marker::PhantomData,
-    });
+    if let Ok(action_of) = action_of.get(trigger.target())
+        && context.get(action_of.get()).is_ok()
+    {
+        commands
+            .entity(trigger.target())
+            .insert(InputMarker::<C>::default());
+    }
+}
+
+/// If a Binding is added to an Action entity, add the InputMarker to that Action entity.
+pub(crate) fn add_input_marker_from_binding<C: Component>(
+    trigger: Trigger<OnAdd, BindingOf>,
+    binding_of: Query<&BindingOf>,
+    action: Query<(), With<ActionOf<C>>>,
+    mut commands: Commands,
+) {
+    if let Ok(binding_of) = binding_of.get(trigger.target())
+        && action.get(binding_of.get()).is_ok()
+    {
+        commands
+            .entity(binding_of.get())
+            .insert(InputMarker::<C>::default());
+    }
 }

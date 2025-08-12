@@ -1,11 +1,14 @@
 // lightyear_inputs/src/input_message.rs
+#![allow(type_alias_bounds)]
 #![allow(clippy::module_inception)]
 use crate::input_buffer::{InputBuffer, InputData};
 use alloc::{format, string::String, vec, vec::Vec};
+use bevy_app::App;
+use bevy_ecs::bundle::Bundle;
+use bevy_ecs::query::QueryData;
 use bevy_ecs::{
-    component::{Component, Mutable},
+    component::Component,
     entity::{Entity, EntityMapper, MapEntities},
-    system::SystemParam,
 };
 use bevy_reflect::Reflect;
 use core::fmt::{Debug, Formatter, Write};
@@ -25,6 +28,9 @@ pub enum InputTarget {
     /// The input is for a pre-predicted entity.
     /// On the server, the server's local entity is mapped to the client's pre-predicted entity.
     PrePredictedEntity(Entity),
+    /// The input is on a BEI action entity that was spawned on the client and replicated to the server.
+    /// Entity must be applied on the server-side
+    ActionEntity(Entity),
 }
 
 /// Contains the input data for a specific target entity over a range of ticks.
@@ -49,6 +55,54 @@ pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + 'static {
     fn decay_tick(&mut self);
 }
 
+/// A QueryData that contains the queryable state that contains the current state of the Action at the given tick
+///
+/// This is used to simply be `ActionState<A>`, but BEI switched to representing the action state with multiple components,
+/// so this traits abstracts over that difference.
+pub trait ActionStateQueryData {
+    // The mutable QueryData that allows modifying the ActionState.
+    // If the ActionState is a single component, then this is simply `&'static mut Self`.
+    type Mut: QueryData;
+
+    // The inner value corresponding to Self::Mut::Item<'w> (i.e. for Mut<'w, ActionState<A>, this is &'mut ActionState<A>)
+    type MutItemInner<'w>;
+
+    // Component that should always be present to represent the ActionState.
+    // We use this for registering required components in the App.
+    type Main: Component + Send + Sync + Default + 'static;
+
+    // Bundle that contains all the components needed to represent the ActionState.
+    type Bundle: Bundle + Send + Sync + 'static;
+
+    // Convert from the mutable query item (i.e. Mut<'w, ActionState<A>>) to the read-only query item (i.e. &ActionState<A>)
+    fn as_read_only<'w, 'a: 'w>(
+        state: &'a <Self::Mut as QueryData>::Item<'w>,
+    ) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'w>;
+
+    // Convert from the mutable query item (i.e. Mut<'w, ActionState<A>>) to the inner mutable item (i.e. &mut ActionState<A>)
+    fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w>;
+
+    // Convert from the Bundle (ActionState<A>) to the inner mutable item (i.e. &mut ActionState<A>)
+    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w>;
+    fn base_value() -> Self::Bundle;
+}
+
+// equivalent to &ActionState<S::Action>
+pub(crate) type StateRef<S: ActionStateSequence> =
+    <<S::State as ActionStateQueryData>::Mut as QueryData>::ReadOnly;
+
+// equivalent to &'w ActionState<S::Action>
+pub(crate) type StateRefItem<'w, S: ActionStateSequence> = <StateRef<S> as QueryData>::Item<'w>;
+
+// equivalent to &mut ActionState<S::Action>
+pub(crate) type StateMut<S: ActionStateSequence> = <S::State as ActionStateQueryData>::Mut;
+
+// equivalent to Mut<'w, ActionState<S::Action>>
+pub(crate) type StateMutItem<'w, S: ActionStateSequence> = <StateMut<S> as QueryData>::Item<'w>;
+
+pub(crate) type StateMutItemInner<'w, S: ActionStateSequence> =
+    <S::State as ActionStateQueryData>::MutItemInner<'w>;
+
 /// An ActionStateSequence represents a sequence of states that can be serialized and sent over the network.
 ///
 /// The sequence can be decoded back into a `Iterator<Item = InputData<Self::Snapshot>>`
@@ -63,17 +117,22 @@ pub trait ActionStateSequence:
     type Snapshot: InputSnapshot<Action = Self::Action>;
 
     /// The component that is used by the user to get the list of active actions.
-    type State: Component<Mutability = Mutable> + Default;
+    type State: ActionStateQueryData;
 
     /// Marker component to identify the ActionState that the player is actively updating
     /// (as opposed to the ActionState of other players, for instance)
     type Marker: Component;
 
-    /// Extra context that needs to be fetched and is needed to build the state sequence from the input buffer
-    type Context: SystemParam;
-
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
+
+    /// Register the required components for this ActionStateSequence in the App.
+    fn register_required_components(app: &mut App) {
+        app.register_required_components::<<Self::State as ActionStateQueryData>::Main, InputBuffer<Self::Snapshot>>();
+        app.register_required_components::<InputBuffer<Self::Snapshot>, <Self::State as ActionStateQueryData>::Main>();
+        app.try_register_required_components::<Self::Marker, <Self::State as ActionStateQueryData>::Main>()
+            .ok();
+    }
 
     /// Returns the sequence of snapshots from the ActionStateSequence.
     ///
@@ -164,17 +223,10 @@ pub trait ActionStateSequence:
         Self: Sized;
 
     /// Create a snapshot from the given state.
-    fn to_snapshot<'w, 's>(
-        state: &Self::State,
-        context: &<Self::Context as SystemParam>::Item<'w, 's>,
-    ) -> Self::Snapshot;
+    fn to_snapshot<'w>(state: StateRefItem<'w, Self>) -> Self::Snapshot;
 
     /// Modify the given state to reflect the given snapshot.
-    fn from_snapshot<'w, 's>(
-        state: &mut Self::State,
-        snapshot: &Self::Snapshot,
-        context: &<Self::Context as SystemParam>::Item<'w, 's>,
-    );
+    fn from_snapshot<'w>(state: StateMutItemInner<'w, Self>, snapshot: &Self::Snapshot);
 }
 
 /// Message used to send client inputs to the server.
@@ -194,9 +246,11 @@ pub struct InputMessage<S> {
 impl<S: ActionStateSequence + MapEntities> MapEntities for InputMessage<S> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.inputs.iter_mut().for_each(|data| {
-            // Only map PrePredictedEntity targets during message deserialization
-            if let InputTarget::PrePredictedEntity(e) = &mut data.target {
-                *e = entity_mapper.get_mapped(*e);
+            match &mut data.target {
+                InputTarget::PrePredictedEntity(e) | InputTarget::ActionEntity(e) => {
+                    *e = entity_mapper.get_mapped(*e);
+                }
+                _ => {}
             }
             data.states.map_entities(entity_mapper);
         });

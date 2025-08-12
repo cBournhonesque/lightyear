@@ -1,7 +1,6 @@
 //! Plugin to register and handle user inputs.
 
 use crate::InputChannel;
-use crate::input_buffer::InputBuffer;
 use crate::input_message::{ActionStateSequence, InputMessage};
 use bevy_app::{App, Plugin};
 use bevy_ecs::entity::MapEntities;
@@ -46,9 +45,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
             .add_map_entities()
             .add_direction(NetworkDirection::Bidirectional);
 
-        app.register_required_components::<S::State, InputBuffer<S::Snapshot>>();
-        app.register_required_components::<InputBuffer<S::Snapshot>, S::State>();
-        app.try_register_required_components::<S::Marker, S::State>()
-            .ok();
+        S::register_required_components(app);
     }
 }

@@ -1,7 +1,9 @@
 //! Handle input messages received from the clients
 
 use crate::input_buffer::InputBuffer;
-use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
+use crate::input_message::{
+    ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut,
+};
 use crate::plugin::InputPlugin;
 use crate::{HISTORY_DEPTH, InputChannel};
 #[cfg(feature = "metrics")]
@@ -14,7 +16,7 @@ use bevy_ecs::{
     query::With,
     resource::Resource,
     schedule::{IntoScheduleConfigs, SystemSet},
-    system::{Commands, Query, Res, Single, StaticSystemParam},
+    system::{Commands, Query, Res, Single},
 };
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
@@ -105,7 +107,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
 fn receive_input_message<S: ActionStateSequence>(
     config: Res<ServerInputConfig<S>>,
     server: Query<&Server>,
-    context: StaticSystemParam<S::Context>,
     mut sender: ServerMultiMessageSender,
     mut receivers: Query<
         (
@@ -158,12 +159,13 @@ fn receive_input_message<S: ActionStateSequence>(
 
             for data in message.inputs {
                 match data.target {
-                    // - for pre-predicted entities, we already did the mapping on server side upon receiving the message
+                    // - for action/pre-predicted entities, we already did the mapping on server side upon receiving the message
                     // (which is possible because the server received the entity)
                     // - for non-pre predicted entities, the mapping was already done on client side
                     // (client converted from their local entity to the remote server entity)
                     InputTarget::Entity(entity)
-                    | InputTarget::PrePredictedEntity(entity) => {
+                    | InputTarget::PrePredictedEntity(entity)
+                    | InputTarget::ActionEntity(entity) => {
                         // TODO Don't update input buffer if inputs arrived too late?
                         trace!("received input for entity: {:?}", entity);
 
@@ -181,7 +183,7 @@ fn receive_input_message<S: ActionStateSequence>(
                                 data.states.update_buffer(&mut buffer, message.end_tick);
                                 commands.entity(entity).insert((
                                     buffer,
-                                    S::State::default()
+                                    S::State::base_value()
                                 ));
                                 // commands.command_scope(|mut commands| {
                                 //     commands.entity(entity).insert((
@@ -207,22 +209,21 @@ fn receive_input_message<S: ActionStateSequence>(
 /// plugin for host-clients. This system also removes old inputs from the buffer, which is why we
 /// can also skip `clear_buffers` on host-clients
 fn update_action_state<S: ActionStateSequence>(
-    context: StaticSystemParam<S::Context>,
     // TODO: what if there are multiple servers? maybe we can use Replicate to figure out which inputs should be replicating on which servers?
     //  and use the timeline from that connection? i.e. find from which entity we got the first InputMessage?
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
     server: Single<(Entity, &LocalTimeline, Has<HostServer>), With<Started>>,
-    mut action_state_query: Query<(Entity, &mut S::State, &mut InputBuffer<S::Snapshot>)>,
+    mut action_state_query: Query<(Entity, StateMut<S>, &mut InputBuffer<S::Snapshot>)>,
 ) {
     let (server, timeline, host_client) = server.into_inner();
     let tick = timeline.tick();
-    for (entity, mut action_state, mut input_buffer) in action_state_query.iter_mut() {
+    for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         trace!(?tick, ?server, ?input_buffer, "input buffer on server");
         // We only apply the ActionState from the buffer if we have one.
         // If we don't (because the input packet is late or lost), we won't do anything.
         // This is equivalent to considering that the player will keep playing the last action they played.
         if let Some(snapshot) = input_buffer.get(tick) {
-            S::from_snapshot(action_state.as_mut(), snapshot, &context);
+            S::from_snapshot(S::State::into_inner(action_state), snapshot);
             trace!(
                 ?tick,
                 ?entity,

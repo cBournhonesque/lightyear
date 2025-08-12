@@ -1,13 +1,10 @@
 use bevy_platform::time::Instant;
 
 use crate::action_diff::ActionDiff;
-use crate::action_state::LeafwingUserAction;
+use crate::action_state::{ActionStateWrapper, ActionStateWrapperReadOnlyItem, LeafwingUserAction};
 use alloc::vec::Vec;
 use bevy_derive::{Deref, DerefMut};
-use bevy_ecs::{
-    entity::{EntityMapper, MapEntities},
-    system::SystemParam,
-};
+use bevy_ecs::entity::{EntityMapper, MapEntities};
 use leafwing_input_manager::Actionlike;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
@@ -53,9 +50,8 @@ impl<A: LeafwingUserAction> MapEntities for LeafwingSequence<A> {
 impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     type Action = A;
     type Snapshot = LeafwingSnapshot<A>;
-    type State = ActionState<A>;
+    type State = ActionStateWrapper<A>;
     type Marker = InputMap<A>;
-    type Context = ();
 
     fn is_empty(&self) -> bool {
         self.diffs
@@ -134,18 +130,11 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
         })
     }
 
-    fn to_snapshot<'w, 's>(
-        state: &Self::State,
-        _: &<Self::Context as SystemParam>::Item<'w, 's>,
-    ) -> Self::Snapshot {
-        LeafwingSnapshot(state.clone())
+    fn to_snapshot<'w, 's>(state: ActionStateWrapperReadOnlyItem<A>) -> Self::Snapshot {
+        LeafwingSnapshot(state.inner.clone())
     }
 
-    fn from_snapshot<'w, 's>(
-        state: &mut Self::State,
-        snapshot: &Self::Snapshot,
-        _: &<Self::Context as SystemParam>::Item<'w, 's>,
-    ) {
+    fn from_snapshot<'w, 's>(state: &mut ActionState<A>, snapshot: &Self::Snapshot) {
         *state = snapshot.0.clone();
     }
 }

@@ -1,13 +1,16 @@
 use bevy_derive::{Deref, DerefMut};
+use bevy_ecs::query::QueryData;
 use bevy_ecs::{
     component::Component,
     entity::{EntityMapper, MapEntities},
+    prelude::Mut,
 };
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 use lightyear_inputs::input_buffer::InputData;
 
+use lightyear_inputs::input_message::ActionStateQueryData;
 use serde::{Deserialize, Serialize};
 
 /// The component that will store the current status of the action for the entity
@@ -19,6 +22,29 @@ use serde::{Deserialize, Serialize};
     Component, Clone, Debug, Default, PartialEq, Serialize, Deserialize, Reflect, Deref, DerefMut,
 )]
 pub struct ActionState<A>(pub A);
+
+impl<A: Default + Send + Sync + 'static> ActionStateQueryData for ActionState<A> {
+    type Mut = &'static mut Self;
+    type MutItemInner<'w> = &'w mut ActionState<A>;
+    type Main = ActionState<A>;
+    type Bundle = ActionState<A>;
+
+    fn as_read_only<'w, 'a: 'w>(state: &'a Mut<'w, ActionState<A>>) -> &'w ActionState<A> {
+        state
+    }
+
+    fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w> {
+        mut_item.into_inner()
+    }
+
+    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w> {
+        bundle
+    }
+
+    fn base_value() -> Self::Bundle {
+        ActionState::<A>::default()
+    }
+}
 
 impl<A: MapEntities> MapEntities for ActionState<A> {
     fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {

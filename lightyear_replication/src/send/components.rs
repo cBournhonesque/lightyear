@@ -18,6 +18,7 @@ use lightyear_core::id::RemoteId;
 use lightyear_link::server::LinkOf;
 #[cfg(feature = "server")]
 use lightyear_link::server::Server;
+use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -49,6 +50,7 @@ pub struct ComponentReplicationOverride {
     pub enable: bool,
     pub replicate_once: bool,
     pub replicate_always: bool,
+    pub entity_map: SendEntityMap,
 }
 
 impl<C> ComponentReplicationOverrides<C> {

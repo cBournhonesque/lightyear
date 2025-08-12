@@ -45,7 +45,10 @@
 
 use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
-use crate::input_message::{ActionStateSequence, InputMessage, InputTarget, PerTargetData};
+use crate::input_message::{
+    ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, PerTargetData, StateMut,
+    StateMutItemInner, StateRef,
+};
 use crate::plugin::InputPlugin;
 use crate::{HISTORY_DEPTH, InputChannel};
 #[cfg(feature = "metrics")]
@@ -61,7 +64,7 @@ use bevy_ecs::{
     query::{Has, With, Without},
     resource::Resource,
     schedule::{IntoScheduleConfigs, SystemSet},
-    system::{Commands, Query, Res, ResMut, Single, StaticSystemParam},
+    system::{Commands, Query, Res, ResMut, Single},
 };
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::*;
@@ -78,6 +81,7 @@ use lightyear_messages::prelude::{MessageReceiver, MessageSender};
 #[cfg(feature = "prediction")]
 use lightyear_prediction::prelude::*;
 use lightyear_replication::components::{Confirmed, PrePredicted};
+use lightyear_replication::prelude::Replicate;
 use lightyear_sync::plugin::SyncSet;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
@@ -243,6 +247,8 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
     }
 }
 
+// equivalent to &ActionState<S::Action>
+
 /// Write the value of the ActionState in the InputBuffer.
 /// (so that we can pull it for rollback or for delayed inputs)
 ///
@@ -251,13 +257,12 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
 ///
 /// We do not need to buffer inputs during rollback, as they have already been buffered!
 fn buffer_action_state<S: ActionStateSequence>(
-    context: StaticSystemParam<S::Context>,
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
     sender: Single<(&InputTimeline, &LocalTimeline), Without<Rollback>>,
     mut action_state_query: Query<
-        (Entity, &S::State, &mut InputBuffer<S::Snapshot>),
+        (Entity, StateRef<S>, &mut InputBuffer<S::Snapshot>),
         With<S::Marker>,
     >,
 ) {
@@ -265,11 +270,7 @@ fn buffer_action_state<S: ActionStateSequence>(
     let current_tick = local_timeline.tick();
     let tick = current_tick + input_timeline.input_delay() as i16;
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
-        InputBuffer::set(
-            &mut input_buffer,
-            tick,
-            S::to_snapshot(action_state, &context),
-        );
+        InputBuffer::set(&mut input_buffer, tick, S::to_snapshot(action_state));
         trace!(
             ?entity,
             // ?action_state,
@@ -292,7 +293,6 @@ fn buffer_action_state<S: ActionStateSequence>(
 
 /// Retrieve the ActionState for the current tick.
 fn get_action_state<S: ActionStateSequence>(
-    context: StaticSystemParam<S::Context>,
     // NOTE: we skip this for host-client because a similar system does the same thing
     //  in the server, and also clears the buffers
     sender: Single<(&LocalTimeline, &InputTimeline, Has<Rollback>), Without<HostClient>>,
@@ -304,7 +304,7 @@ fn get_action_state<S: ActionStateSequence>(
     //  TODO: We could maybe have some decay logic where the input decays to the middle)
     mut action_state_query: Query<(
         Entity,
-        &mut S::State,
+        StateMut<S>,
         &InputBuffer<S::Snapshot>,
         Has<S::Marker>,
     )>,
@@ -312,7 +312,7 @@ fn get_action_state<S: ActionStateSequence>(
     let (local_timeline, input_timeline, is_rollback) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
     let tick = local_timeline.tick();
-    for (entity, mut action_state, input_buffer, is_local) in action_state_query.iter_mut() {
+    for (entity, action_state, input_buffer, is_local) in action_state_query.iter_mut() {
         if !is_rollback {
             // for local clients, if there is no rollback and no input_delay:
             // we just buffered the input for the current tick so the action state is already up to date
@@ -351,7 +351,7 @@ fn get_action_state<S: ActionStateSequence>(
             // TODO: should we decay_tick the snapshot?
 
             debug!(?is_local, "Updating action_state for tick {tick:?}");
-            S::from_snapshot(action_state.as_mut(), snapshot, &context);
+            S::from_snapshot(S::State::into_inner(action_state), snapshot);
             trace!(
                 ?entity,
                 ?tick,
@@ -368,10 +368,9 @@ fn get_action_state<S: ActionStateSequence>(
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<S: ActionStateSequence>(
-    context: StaticSystemParam<S::Context>,
     sender: Query<(&InputTimeline, &LocalTimeline, Has<Rollback>), With<IsSynced<InputTimeline>>>,
     mut action_state_query: Query<
-        (Entity, &mut S::State, &InputBuffer<S::Snapshot>),
+        (Entity, StateMut<S>, &InputBuffer<S::Snapshot>),
         // Filter so that this is only for directly controlled players, not remote players
         With<S::Marker>,
     >,
@@ -384,11 +383,11 @@ fn get_delayed_action_state<S: ActionStateSequence>(
         return;
     }
     let delayed_tick = local_timeline.tick() + input_delay_ticks;
-    for (entity, mut action_state, input_buffer) in action_state_query.iter_mut() {
+    for (entity, action_state, input_buffer) in action_state_query.iter_mut() {
         // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
         //  the problem is that the Leafwing Plugin works on ActionState directly...
         if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
-            S::from_snapshot(action_state.as_mut(), delayed_action_state, &context);
+            S::from_snapshot(S::State::into_inner(action_state), delayed_action_state);
             trace!(
                 ?entity,
                 ?delayed_tick,
@@ -468,6 +467,7 @@ fn prepare_input_message<S: ActionStateSequence>(
             &InputBuffer<S::Snapshot>,
             Option<&Predicted>,
             Option<&PrePredicted>,
+            Option<&Replicate>,
         ),
         With<S::Marker>,
     >,
@@ -505,7 +505,7 @@ fn prepare_input_message<S: ActionStateSequence>(
         .unwrap();
     num_tick *= input_config.packet_redundancy;
     let mut message = InputMessage::<S>::new(tick);
-    for (entity, input_buffer, predicted, pre_predicted) in input_buffer_query.iter() {
+    for (entity, input_buffer, predicted, pre_predicted, replicate) in input_buffer_query.iter() {
         trace!(
             ?tick,
             ?entity,
@@ -543,6 +543,9 @@ fn prepare_input_message<S: ActionStateSequence>(
             // 0. the entity is pre-predicted, no need to convert the entity (the mapping will be done on the server, when
             // receiving the message. It's possible because the server received the PrePredicted entity before)
             Some(InputTarget::PrePredictedEntity(entity))
+        } else if replicate.is_some() {
+            // this only happens if the entity is a BEI Action entity
+            Some(InputTarget::ActionEntity(entity))
         } else {
             // 1. if the entity is confirmed, we need to convert the entity to the server's entity
             // 2. if the entity is predicted, we need to first convert the entity to confirmed, and then from confirmed to remote
@@ -587,7 +590,6 @@ fn prepare_input_message<S: ActionStateSequence>(
 ///
 /// We will apply the diffs on the Predicted entity.
 fn receive_remote_player_input_messages<S: ActionStateSequence>(
-    context: StaticSystemParam<S::Context>,
     mut commands: Commands,
     link: Single<
         (
@@ -603,7 +605,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     // TODO: for deterministic replication, the
     confirmed_query: Query<&Confirmed, Without<S::Marker>>,
     mut predicted_query: Query<
-        (Option<&mut InputBuffer<S::Snapshot>>, Option<&mut S::State>),
+        (Option<&mut InputBuffer<S::Snapshot>>, Option<StateMut<S>>),
         (
             Or<(With<Predicted>, With<DeterministicPredicted>)>,
             Without<S::Marker>,
@@ -628,7 +630,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                         .entity_mapper
                         .get_local(entity)
                 }
-                InputTarget::PrePredictedEntity(entity) => Some(entity),
+                InputTarget::ActionEntity(entity) | InputTarget::PrePredictedEntity(entity) => Some(entity),
             };
             let Some(entity) = entity else {
                 error!("Could not find entity in entity_map for remote player input message {:?}", target_data.target);
@@ -655,8 +657,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
                     &mut input_buffer,
-                    &mut action_state.expect("there should always be an ActionState if the InputBuffer is present"),
-                    &context,
+                    S::State::into_inner(action_state.expect("there should always be an ActionState if the InputBuffer is present")),
                     tick,
                     message.end_tick,
                     entity,
@@ -665,12 +666,12 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             } else {
                 // add the ActionState or InputBuffer if they are missing
                 let mut input_buffer = InputBuffer::<S::Snapshot>::default();
-                let mut action_state = S::State::default();
+                let mut action_state = S::State::base_value();
+
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
                     &mut input_buffer,
-                    &mut action_state,
-                    &context,
+                    S::State::as_mut(&mut action_state),
                     tick,
                     message.end_tick,
                     entity,
@@ -742,8 +743,7 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
 fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
     sequence: S,
     input_buffer: &mut InputBuffer<S::Snapshot>,
-    action_state: &mut S::State,
-    context: &StaticSystemParam<S::Context>,
+    action_state: StateMutItemInner<S>,
     tick: Tick,
     end_tick: Tick,
     entity: Entity,
@@ -759,7 +759,7 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
         // update the ActionState immediately with the `last_value` because that would be incorrect, instead we will
         // fetch the ActionState from the buffer in the `get_action_state` system when we reach that tick.
         if new_end_tick <= tick {
-            S::from_snapshot(action_state, snapshot, context);
+            S::from_snapshot(action_state, snapshot);
         }
 
         // find the earliest mismatch tick across all clients
