@@ -94,7 +94,7 @@ You can also find more information in this WIP [book](https://cbournhonesque.git
 
 | Lightyear | Bevy |
 |-----------|------|
-| 0.20-0.22 | 0.16 |
+| 0.20-0.23 | 0.16 |
 | 0.18-0.19 | 0.15 |
 | 0.16-0.17 | 0.14 |
 | 0.10-0.15 | 0.13 |
