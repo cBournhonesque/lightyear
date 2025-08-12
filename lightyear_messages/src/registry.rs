@@ -362,11 +362,9 @@ impl AppMessageExt for App {
     }
 
     fn is_message_registered<M: Message>(&self) -> bool {
-        if let Some(registry) = self.world().get_resource::<MessageRegistry>() {
-            registry.kind_map.net_id(&MessageKind::of::<M>()).is_some()
-        } else {
-            false
-        }
+        self.world().get_resource::<MessageRegistry>().is_some_and(|r| {
+            r.kind_map.net_id(&MessageKind::of::<M>()).is_some()
+        })
     }
 
     fn add_message_custom_serde<M: Message>(
