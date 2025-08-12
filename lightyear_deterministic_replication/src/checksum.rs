@@ -219,8 +219,10 @@ impl Plugin for ChecksumReceivePlugin {
         // the server will check the checksum validity
         app.register_required_components::<Server, ChecksumHistory>();
 
-        app.add_message::<ChecksumMessage>()
-            .add_direction(NetworkDirection::ClientToServer);
+        if !app.is_message_registered::<ChecksumMessage>() {
+            app.add_message::<ChecksumMessage>()
+                .add_direction(NetworkDirection::ClientToServer);
+        }
 
         app.add_systems(
             PostUpdate,
