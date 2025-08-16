@@ -34,6 +34,19 @@ fn handle_new_client(trigger: Trigger<OnAdd, Connected>, mut commands: Commands)
             SendUpdatesMode::SinceLastAck,
             false,
         ));
+    let mut found = vec![];
+    for _ in 0..10 {
+        found.push(
+            commands
+                .spawn((
+                    Replicate::to_clients(NetworkTarget::All),
+                    StressComponent {
+                        entities: found.clone(),
+                    },
+                ))
+                .id(),
+        );
+    }
 }
 
 /// Start the server
@@ -48,3 +61,4 @@ fn startup(mut commands: Commands) -> Result {
     commands.trigger_targets(Start, server);
     Ok(())
 }
+
