@@ -38,6 +38,8 @@ impl PluginGroup for ClientPlugins {
         // IO
         #[cfg(feature = "webtransport")]
         let builder = builder.add(lightyear_webtransport::client::WebTransportClientPlugin);
+        #[cfg(feature = "websocket")]
+        let builder = builder.add(lightyear_websocket::client::WebSocketClientPlugin);
         #[cfg(feature = "steam")]
         let builder = builder.add(lightyear_steam::client::SteamClientPlugin);
 

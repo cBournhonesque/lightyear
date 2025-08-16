@@ -2,11 +2,11 @@
 use crate::input_message::BEIStateSequence;
 
 use crate::setup::ActionOfWrapper;
+#[cfg(any(feature = "client", feature = "server"))]
+use crate::setup::InputRegistryPlugin;
 use bevy_app::FixedPreUpdate;
 use bevy_app::{App, Plugin};
 use bevy_ecs::component::Component;
-#[cfg(any(feature = "client", feature = "server"))]
-use crate::setup::InputRegistryPlugin;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::IntoScheduleConfigs;
 #[cfg(all(feature = "client", feature = "server"))]
@@ -24,7 +24,6 @@ use lightyear_replication::prelude::AppComponentExt;
 use lightyear_replication::registry::replication::GetWriteFns;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-
 
 pub struct InputPlugin<C> {
     pub config: InputConfig<C>,

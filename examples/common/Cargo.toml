@@ -56,6 +56,8 @@ lightyear = { "workspace" = true, features = [
   "webtransport",
   "webtransport_self_signed",
   "webtransport_dangerous_configuration",
+  "websocket",
+  "websocket_self_signed",
   "udp",
 ] }
 async-compat.workspace = true

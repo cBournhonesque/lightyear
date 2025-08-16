@@ -119,6 +119,7 @@ impl Cli {
                         server_addr: SERVER_ADDR,
                         conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
                         // transport: ClientTransports::Udp,
+                        // transport: ClientTransports::WebSocket,
                         transport: ClientTransports::WebTransport,
                         // #[cfg(feature = "steam")]
                         // transport: ClientTransports::Steam,
@@ -134,6 +135,9 @@ impl Cli {
                     .spawn(ExampleServer {
                         conditioner: None,
                         // transport: ServerTransports::Udp {
+                        //     local_port: SERVER_PORT,
+                        // },
+                        // transport: ServerTransports::WebSocket {
                         //     local_port: SERVER_PORT,
                         // },
                         transport: ServerTransports::WebTransport {
@@ -161,6 +165,9 @@ impl Cli {
                     .spawn(ExampleServer {
                         conditioner: None,
                         // transport: ServerTransports::Udp {
+                        //     local_port: SERVER_PORT,
+                        // },
+                        // transport: ServerTransports::WebSocket {
                         //     local_port: SERVER_PORT,
                         // },
                         transport: ServerTransports::WebTransport {
