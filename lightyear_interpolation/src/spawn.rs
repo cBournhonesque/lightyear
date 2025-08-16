@@ -6,14 +6,17 @@ use bevy_ecs::{
     query::{Added, With},
     system::{Commands, Query, Single},
 };
+use lightyear_connection::client::Connected;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver, ShouldBeInterpolated};
 use tracing::trace;
-use lightyear_connection::client::Connected;
 
 /// Spawn an interpolated entity for each confirmed entity that has the `ShouldBeInterpolated` component added
 pub(crate) fn spawn_interpolated_entity(
-    connection: Single<(&ReplicationReceiver, &LocalTimeline), (With<InterpolationManager>, With<Connected>)>,
+    connection: Single<
+        (&ReplicationReceiver, &LocalTimeline),
+        (With<InterpolationManager>, With<Connected>),
+    >,
     mut commands: Commands,
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBeInterpolated>>,
 ) -> Result {

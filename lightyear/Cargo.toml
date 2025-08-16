@@ -57,6 +57,7 @@ client = [
   "lightyear_sync/client",
   "lightyear_transport/client",
   "lightyear_webtransport?/client",
+  "lightyear_websocket?/client",
 ]
 ## enable server plugins and server-only features
 server = [
@@ -74,6 +75,7 @@ server = [
   "lightyear_transport/server",
   "lightyear_udp?/server",
   "lightyear_webtransport?/server",
+  "lightyear_websocket?/server",
 ]
 ## Adds helper plugins to use for deterministic replication (where only inputs are replicated)
 deterministic = [
@@ -123,13 +125,7 @@ metrics = [
 ##
 ## Note: currently, this must always be enabled when not using Steam
 netcode = ["dep:lightyear_netcode"]
-## Enable WebTransport support as an IO layer (defers to aeronet_webtransport)
-webtransport = ["std", "dep:lightyear_webtransport"]
-webtransport_self_signed = ["lightyear_webtransport/self-signed"]
-## Enable unsafe configurations for WebTransport (e.g. allowing unencrypted connections) as a convenience for testing
-webtransport_dangerous_configuration = [
-  "lightyear_webtransport/dangerous-configuration",
-]
+
 ## Add support for handling inputs where you can define your own input structs
 input_native = ["dep:lightyear_inputs", "dep:lightyear_inputs_native"]
 ## Add support for handling inputs using the leafwing-input-manager crate
@@ -148,11 +144,20 @@ avian3d = ["dep:lightyear_avian3d"]
 # IO LAYERS
 ## Enables UDP as an IO layer
 udp = ["dep:lightyear_udp", "std"]
-websocket = ["std"]
 ## Enables crossbeam channels as an IO layer
 ##
 ## This is useful when running a client and server in two processes of the same machine so that a client can act as the host
 crossbeam = ["dep:lightyear_crossbeam"]
+## Enable WebTransport support as an IO layer (defers to aeronet_webtransport)
+webtransport = ["std", "dep:lightyear_webtransport"]
+webtransport_self_signed = ["lightyear_webtransport/self-signed"]
+## Enable unsafe configurations for WebTransport (e.g. allowing unencrypted connections) as a convenience for testing
+webtransport_dangerous_configuration = [
+  "lightyear_webtransport/dangerous-configuration",
+]
+## Enable WebSocket support as an IO layer (defers to aeronet_websocket)
+websocket = ["std", "dep:lightyear_websocket"]
+websocket_self_signed = ["lightyear_websocket/self-signed"]
 
 # CONNECTION LAYERS
 ## Enables Steam as a connection layer
@@ -183,6 +188,7 @@ lightyear_inputs_leafwing = { workspace = true, optional = true }
 lightyear_inputs_native = { workspace = true, optional = true }
 lightyear_crossbeam = { workspace = true, optional = true }
 lightyear_webtransport = { workspace = true, optional = true }
+lightyear_websocket = { workspace = true, optional = true }
 lightyear_steam = { workspace = true, optional = true }
 
 # bevy

@@ -1,0 +1,44 @@
+[package]
+name = "lightyear_websocket"
+version = "0.23.0"
+authors = ["cbournhonesque <charlesbour@gmail.com", "aecsocket <aecsocket@tutanota.com>"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Websocket IO support for lightyear"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustflags = ["--cfg=web_sys_unstable_apis"]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+
+[features]
+default = ["self-signed"]
+client = ["aeronet_websocket/client"]
+server = ["aeronet_websocket/server", "bevy_reflect/std"]
+
+## Enables `wtransport/self-signed`, allowing you to generate self-signed certificates easily for
+## use in a server.
+##
+## Note that, without explicitly allowing your server's self-signed certificate, clients will not be able to
+## connect to a server with self-signed certificates.
+self-signed = ["aeronet_websocket/self-signed"]
+
+[dependencies]
+aeronet_websocket.workspace = true
+aeronet_io.workspace = true
+lightyear_link.workspace = true
+lightyear_aeronet.workspace = true
+
+tracing.workspace = true
+
+# bevy
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_reflect = { workspace = true, optional = true }
+
+thiserror.workspace = true

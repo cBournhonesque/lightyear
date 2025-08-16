@@ -66,15 +66,20 @@ pub fn get_digest_on_wasm() -> Option<String> {
 #[non_exhaustive]
 pub enum ServerTransports {
     #[cfg(feature = "udp")]
-    Udp { local_port: u16 },
+    Udp {
+        local_port: u16,
+    },
     WebTransport {
         local_port: u16,
         certificate: WebTransportCertificateSettings,
     },
-    #[cfg(feature = "websocket")]
-    WebSocket { local_port: u16 },
+    WebSocket {
+        local_port: u16,
+    },
     #[cfg(feature = "steam")]
-    Steam { local_port: u16 },
+    Steam {
+        local_port: u16,
+    },
 }
 
 #[derive(Component, Debug)]
@@ -109,7 +114,6 @@ impl ExampleServer {
                     ..Default::default()
                 }));
             };
-
             match settings.transport {
                 #[cfg(feature = "udp")]
                 ServerTransports::Udp { local_port } => {
@@ -129,6 +133,21 @@ impl ExampleServer {
                             certificate: (&certificate).into(),
                         },
                     ));
+                }
+                ServerTransports::WebSocket { local_port } => {
+                    add_netcode(&mut entity_mut);
+                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
+                    let sans = vec![
+                        "localhost".to_string(),
+                        "127.0.0.1".to_string(),
+                        "::1".to_string(),
+                    ];
+                    let config = ServerConfig::builder()
+                        .with_bind_address(server_addr)
+                        .with_identity(
+                            lightyear::websocket::server::Identity::self_signed(sans).unwrap(),
+                        );
+                    entity_mut.insert((LocalAddr(server_addr), WebSocketServerIo { config }));
                 }
                 #[cfg(feature = "steam")]
                 ServerTransports::Steam { local_port } => {

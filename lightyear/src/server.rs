@@ -65,6 +65,8 @@ impl PluginGroup for ServerPlugins {
         let builder = builder.add(lightyear_udp::server::ServerUdpPlugin);
         #[cfg(feature = "webtransport")]
         let builder = builder.add(lightyear_webtransport::server::WebTransportServerPlugin);
+        #[cfg(feature = "websocket")]
+        let builder = builder.add(lightyear_websocket::server::WebSocketServerPlugin);
         #[cfg(feature = "steam")]
         let builder = builder.add(lightyear_steam::server::SteamServerPlugin);
 

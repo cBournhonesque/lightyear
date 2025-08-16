@@ -28,6 +28,7 @@ members = [
   "lightyear_udp",
   "lightyear_utils",
   "lightyear_webtransport",
+  "lightyear_websocket",
   # internal
   "benches/*",
   "demos/*",
@@ -92,6 +93,7 @@ lightyear_udp = { path = "./lightyear_udp", version = "0.23.0", default-features
 lightyear_utils = { path = "./lightyear_utils", version = "0.23.0", default-features = false }
 lightyear_tests = { path = "./lightyear_tests", version = "0.23.0", default-features = false }
 lightyear_webtransport = { path = "./lightyear_webtransport", version = "0.23.0", default-features = false }
+lightyear_websocket = { path = "./lightyear_websocket", version = "0.23.0", default-features = false }
 
 # examples
 lightyear_examples_common = { path = "./examples/common", version = "0.23.0", default-features = false }
@@ -155,6 +157,7 @@ metrics = "0.24"
 
 # transport
 aeronet_webtransport = "0.14.0"
+aeronet_websocket = "0.14.0"
 aeronet_steam = "0.14.1"
 aeronet_io = "0.14.0"
 # we don't need any tokio features, we use only use the tokio channels

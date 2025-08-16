@@ -284,6 +284,11 @@ pub mod webtransport {
     pub use lightyear_webtransport::*;
 }
 
+#[cfg(feature = "websocket")]
+pub mod websocket {
+    pub use lightyear_websocket::*;
+}
+
 #[cfg(feature = "avian2d")]
 pub mod avian2d {
     pub use lightyear_avian2d::*;
@@ -339,6 +344,10 @@ pub mod prelude {
     #[cfg(feature = "webtransport")]
     pub use lightyear_webtransport::prelude::*;
 
+    #[allow(unused_imports)]
+    #[cfg(feature = "websocket")]
+    pub use lightyear_websocket::prelude::*;
+
     #[cfg(feature = "steam")]
     pub use lightyear_steam::prelude::*;
 
@@ -384,6 +393,8 @@ pub mod prelude {
         pub use lightyear_netcode::prelude::client::*;
         #[cfg(feature = "steam")]
         pub use lightyear_steam::prelude::client::*;
+        #[cfg(feature = "websocket")]
+        pub use lightyear_websocket::prelude::client::*;
         #[cfg(feature = "webtransport")]
         pub use lightyear_webtransport::prelude::client::*;
 
@@ -406,6 +417,8 @@ pub mod prelude {
         pub use lightyear_netcode::prelude::server::*;
         #[cfg(feature = "steam")]
         pub use lightyear_steam::prelude::server::*;
+        #[cfg(feature = "websocket")]
+        pub use lightyear_websocket::prelude::server::*;
         #[cfg(feature = "webtransport")]
         pub use lightyear_webtransport::prelude::server::*;
 

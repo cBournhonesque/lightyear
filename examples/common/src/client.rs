@@ -20,7 +20,6 @@ pub enum ClientTransports {
     #[cfg(not(target_family = "wasm"))]
     Udp,
     WebTransport,
-    #[cfg(feature = "websocket")]
     WebSocket,
     #[cfg(feature = "steam")]
     Steam,
@@ -97,6 +96,11 @@ impl ExampleClient {
                         }
                     };
                     entity_mut.insert(WebTransportClientIo { certificate_digest });
+                }
+                ClientTransports::WebSocket => {
+                    add_netcode(&mut entity_mut)?;
+                    let config = ClientConfig::builder().with_no_cert_validation();
+                    entity_mut.insert(WebSocketClientIo { config });
                 }
                 #[cfg(feature = "steam")]
                 ClientTransports::Steam => {
