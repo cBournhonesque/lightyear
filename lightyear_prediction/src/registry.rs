@@ -3,7 +3,7 @@ use crate::plugin::{
     add_immutable_prediction_systems, add_non_networked_rollback_systems, add_prediction_systems,
     add_resource_rollback_systems,
 };
-use crate::predicted_history::PredictionHistory;
+use crate::predicted_history::{self, PredictionHistory};
 use crate::{PredictionMode, SyncComponent};
 #[cfg(feature = "metrics")]
 use alloc::format;
@@ -16,8 +16,8 @@ use bevy_ecs::{
     world::{FilteredEntityMut, FilteredEntityRef, World},
 };
 use bevy_math::{
-    Curve,
     curve::{Ease, EaseFunction, EasingCurve},
+    Curve,
 };
 use core::fmt::Debug;
 use lightyear_core::history_buffer::HistoryState;
@@ -347,6 +347,11 @@ impl PredictionRegistry {
             return confirmed_component.is_some();
         };
 
+        //Don't rollback before any history has been added
+        if predicted_history.is_new {
+            return false;
+        }
+
         #[cfg(feature = "metrics")]
         metrics::gauge!(format!(
             "prediction::rollbacks::history::{:?}::num_values",
@@ -358,6 +363,7 @@ impl PredictionRegistry {
         debug!(?history_value, ?confirmed_component, "check");
         let predicted_exist = history_value.is_some();
         let confirmed_exist = confirmed_component.is_some();
+
         match confirmed_component {
             // TODO: history-value should not be empty here; should we panic if it is?
             // confirm does not exist. rollback if history value is not Removed
@@ -381,6 +387,7 @@ impl PredictionRegistry {
             // confirm exist. rollback if history value is different
             Some(c) => history_value.map_or_else(
                 || {
+
                     debug!(
                         "Should Rollback! Confirmed component exists, but history value does not exists",
                     );

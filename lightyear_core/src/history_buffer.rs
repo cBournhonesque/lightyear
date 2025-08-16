@@ -36,12 +36,14 @@ pub struct HistoryBuffer<R> {
     // Another option would be to store the tick difference between two updates, and only the first (most recent update)
     // gets updated in case of a TickEvent.
     pub(crate) buffer: VecDeque<(Tick, HistoryState<R>)>,
+    pub is_new: bool,
 }
 
 impl<R> Default for HistoryBuffer<R> {
     fn default() -> Self {
         Self {
             buffer: VecDeque::new(),
+            is_new: true,
         }
     }
 }
@@ -130,6 +132,7 @@ impl<R> HistoryBuffer<R> {
                 self.buffer.pop_back();
             }
         }
+        self.is_new = false;
         self.buffer.push_back((
             tick,
             match value {
