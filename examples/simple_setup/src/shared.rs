@@ -29,6 +29,7 @@ impl Plugin for SharedPlugin {
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             ..default()
-        });
+        })
+            .add_direction(NetworkDirection::Bidirectional);
     }
 }
