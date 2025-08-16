@@ -492,7 +492,7 @@ impl<Ctx> Client<Ctx> {
             self.token.protocol_id,
             now,
             self.token.server_to_client_key,
-            Some(&mut self.replay_protection),
+            (self.state == ClientState::Connected).then_some(&mut self.replay_protection),
             Self::ALLOWED_PACKETS,
         ) {
             Ok(packet) => packet,
