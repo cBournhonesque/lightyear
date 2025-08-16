@@ -9,6 +9,7 @@ use bevy_ecs::{
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver, ShouldBePredicted};
 use tracing::debug;
+use lightyear_connection::client::Connected;
 
 /// Spawn a predicted entity for each confirmed entity that has the `ShouldBePredicted` component added
 /// The `Confirmed` entity could already exist because we share the Confirmed component for prediction and interpolation.
@@ -19,7 +20,7 @@ pub(crate) fn spawn_predicted_entity(
     // only handle predicted that have ShouldBePredicted
     // (if the entity was handled by prespawn or prepredicted before, ShouldBePredicted gets removed)
     mut confirmed_entities: Query<(Entity, Option<&mut Confirmed>), Added<ShouldBePredicted>>,
-    link: Single<(&ReplicationReceiver, &LocalTimeline), With<PredictionManager>>,
+    link: Single<(&ReplicationReceiver, &LocalTimeline), (With<PredictionManager>, With<Connected>)>,
 ) {
     let (receiver, timeline) = link.into_inner();
     // TODO: should we check if the sender for the entity corresponds to the link?
