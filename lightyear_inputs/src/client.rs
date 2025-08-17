@@ -87,7 +87,7 @@ use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::ChannelRegistry;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, warn};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSet {
@@ -633,7 +633,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 InputTarget::ActionEntity(entity) | InputTarget::PrePredictedEntity(entity) => Some(entity),
             };
             let Some(entity) = entity else {
-                error!("Could not find entity in entity_map for remote player input message {:?}", target_data.target);
+                warn!("Could not find entity in entity_map for remote player input message {:?}", target_data.target);
                 continue;
             };
             debug!(
