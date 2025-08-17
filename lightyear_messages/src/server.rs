@@ -5,6 +5,7 @@ use crate::registry::MessageRegistration;
 use crate::send::Priority;
 use crate::send_trigger::TriggerSender;
 use crate::trigger::TriggerRegistration;
+use bevy_ecs::entity::Entity;
 use bevy_ecs::{
     error::Result,
     event::Event,
@@ -87,6 +88,63 @@ impl ServerMultiMessageSender<'_, '_> {
                     }
                 },
             );
+        }
+        Ok(())
+    }
+
+    pub fn send_to_entities<M: Message, C: Channel>(
+        &mut self,
+        message: &M,
+        server: &Server,
+        target: impl Iterator<Item = Entity>,
+    ) -> Result {
+        self.send_to_entities_with_priority::<M, C>(message, server, target, 1.0)
+    }
+
+    /// Send to an iterator of ClientOf entities
+    pub fn send_to_entities_with_priority<M: Message, C: Channel>(
+        &mut self,
+        message: &M,
+        server: &Server,
+        target: impl Iterator<Item = Entity>,
+        priority: Priority,
+    ) -> Result {
+        // if the message is not map-entities, we can serialize it once and clone the bytes
+        if !self.sender.registry.is_map_entities::<M>()? {
+            // TODO: serialize once for all senders. Figure out how to get a shared writer. Maybe on Server? Or as a global resource?
+            //   or as Local?
+            self.sender.registry.serialize::<M>(
+                message,
+                &mut self.sender.writer,
+                &mut SendEntityMap::default(),
+            )?;
+            let bytes = self.sender.writer.split();
+            target.for_each(|sender| {
+                if let Ok((_, transport)) = self.sender.query.get(sender) {
+                    transport
+                        .send_with_priority::<C>(bytes.clone(), priority)
+                        .inspect_err(|e| error!("Failed to send message: {e}"))
+                        .ok();
+                }
+            });
+        } else {
+            target.for_each(|sender| {
+                if let Ok((_, transport)) = self.sender.query.get(sender) {
+                    self.sender
+                        .registry
+                        .serialize::<M>(
+                            message,
+                            &mut self.sender.writer,
+                            &mut SendEntityMap::default(),
+                        )
+                        .unwrap();
+                    let bytes = self.sender.writer.split();
+                    transport
+                        .send_with_priority::<C>(bytes.clone(), priority)
+                        .inspect_err(|e| error!("Failed to send message: {e}"))
+                        .ok();
+                }
+            });
         }
         Ok(())
     }

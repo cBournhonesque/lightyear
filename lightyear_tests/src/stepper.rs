@@ -75,7 +75,7 @@ impl ClientServerStepper {
             InputPlugin,
             LogPlugin::default(),
         ));
-        server_app.add_plugins(server::ServerPlugins { tick_duration });
+        server_app.add_plugins((server::ServerPlugins { tick_duration }, RoomPlugin));
         // ProtocolPlugin needs to be added AFTER InputPlugin
         server_app.add_plugins(ProtocolPlugin);
         let server_entity = server_app

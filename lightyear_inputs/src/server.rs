@@ -9,6 +9,7 @@ use crate::{HISTORY_DEPTH, InputChannel};
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
+use bevy_ecs::component::Component;
 use bevy_ecs::prelude::Has;
 use bevy_ecs::{
     entity::{Entity, MapEntities},
@@ -18,6 +19,7 @@ use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
     system::{Commands, Query, Res, Single},
 };
+use core::fmt::Formatter;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostServer;
@@ -29,6 +31,7 @@ use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
+use lightyear_replication::prelude::Room;
 use tracing::{debug, error, trace};
 
 pub struct ServerInputPlugin<S> {
@@ -57,6 +60,36 @@ pub enum InputSet {
     ReceiveInputs,
     /// Use the ActionDiff received from the client to update the `ActionState`
     UpdateActionState,
+}
+
+/// Component that is used to customize how inputs will be rebroadcasted
+///
+/// If absent, the inputs received on a given `ClientOf` entity will be rebroadcasted to all other clients
+#[derive(Component)]
+pub enum InputRebroadcaster<S> {
+    // Rebroadcast to all users in the room
+    Room(Entity),
+    Target(NetworkTarget),
+    Marker(core::marker::PhantomData<S>),
+}
+
+impl<S> core::fmt::Debug for InputRebroadcaster<S> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        match self {
+            InputRebroadcaster::Room(entity) => f.debug_tuple("Room").field(entity).finish(),
+            InputRebroadcaster::Target(target) => f.debug_tuple("Target").field(target).finish(),
+            InputRebroadcaster::Marker(_) => f
+                .debug_tuple("Marker")
+                .field(&core::any::type_name::<S>())
+                .finish(),
+        }
+    }
+}
+
+impl<S> Default for InputRebroadcaster<S> {
+    fn default() -> Self {
+        Self::Target(NetworkTarget::All)
+    }
 }
 
 impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
@@ -108,6 +141,7 @@ fn receive_input_message<S: ActionStateSequence>(
     config: Res<ServerInputConfig<S>>,
     server: Query<&Server>,
     mut sender: ServerMultiMessageSender,
+    rooms: Query<&Room>,
     mut receivers: Query<
         (
             Entity,
@@ -115,6 +149,7 @@ fn receive_input_message<S: ActionStateSequence>(
             &ClientOf,
             &mut MessageReceiver<InputMessage<S>>,
             &RemoteId,
+            Option<&InputRebroadcaster<S::Action>>,
         ),
         // We also receive inputs from the HostClient, in case we want the HostClient's inputs to be
         // rebroadcast to other clients (so that they can do prediction of the HostClient's entity)
@@ -124,7 +159,7 @@ fn receive_input_message<S: ActionStateSequence>(
     mut commands: Commands,
 ) -> Result {
     // TODO: use par_iter_mut
-    receivers.iter_mut().try_for_each(|(client_entity, link_of, client_of, mut receiver, client_id)| {
+    receivers.iter_mut().try_for_each(|(client_entity, link_of, client_of, mut receiver, client_id, rebroadcaster)| {
         // TODO: this drains the messages... but the user might want to re-broadcast them?
         //  should we just read instead?
         let server_entity = link_of.server;
@@ -133,6 +168,9 @@ fn receive_input_message<S: ActionStateSequence>(
             // if we're not doing rebroadcasting
             if client_id.is_local() && !config.rebroadcast_inputs {
                 error!("Received input message from HostClient for action {:?} even though rebroadcasting is disabled. Ignoring the message.", core::any::type_name::<S::Action>());
+                return Ok(())
+            }
+            if message.is_empty() {
                 return Ok(())
             }
             trace!(?client_id, action = ?core::any::type_name::<S::Action>(), ?message.end_tick, ?message.inputs, "received input message");
@@ -146,14 +184,34 @@ fn receive_input_message<S: ActionStateSequence>(
             }
 
             #[cfg(feature = "prediction")]
-            if config.rebroadcast_inputs {
-                trace!("Rebroadcast input message {message:?} from client {client_id:?} to other clients");
-                if let Ok(server) = server.get(server_entity) {
-                    sender.send::<_, InputChannel>(
-                        &message,
-                        server,
-                        &NetworkTarget::AllExceptSingle(client_id.0)
-                    )?;
+            if config.rebroadcast_inputs && let Ok(server) = server.get(server_entity) {
+                trace!("Rebroadcast input message {message:?} from client {client_id:?} with rebroadcaster {rebroadcaster:?}");
+
+                match rebroadcaster {
+                    None => {
+                        sender.send::<_, InputChannel>(
+                            &message,
+                            server,
+                            &NetworkTarget::AllExceptSingle(client_id.0)
+                        )?;
+                    }
+                    Some(InputRebroadcaster::Room(room)) => {
+                        if let Ok(room) = rooms.get(*room) {
+                            sender.send_to_entities::<_, InputChannel>(
+                                &message,
+                                server,
+                                room.clients.iter().filter(|e| **e != client_entity).copied()
+                            )?;
+                        }
+                    },
+                    Some(InputRebroadcaster::Target(target)) => {
+                        sender.send::<_, InputChannel>(
+                            &message,
+                            server,
+                            target
+                        )?;
+                    }
+                    Some(InputRebroadcaster::Marker(_)) => unreachable!()
                 }
             }
 
