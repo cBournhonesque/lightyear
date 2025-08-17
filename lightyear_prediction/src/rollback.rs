@@ -1,3 +1,5 @@
+use std::vec::Vec;
+
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
 use super::{Predicted, PredictionMode, SyncComponent};
@@ -9,6 +11,7 @@ use crate::plugin::PredictionSet;
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
 use bevy_app::{App, FixedMain, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::entity_disabling::Disabled;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::ScheduleLabel;
 use bevy_ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
@@ -18,12 +21,12 @@ use bevy_time::{Fixed, Time};
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::{Rollback, is_in_rollback};
+use lightyear_core::timeline::{is_in_rollback, Rollback};
 use lightyear_frame_interpolation::FrameInterpolationSet;
 use lightyear_replication::components::PrePredicted;
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
-use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::registry::ComponentKind;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
 use tracing::{debug, debug_span, error, trace, trace_span, warn};
 
@@ -180,6 +183,16 @@ pub struct DeterministicPredicted;
 /// It won't be part of rollback checks, and it won't be rolled back to a past state if a rollback happens.
 #[derive(Component)]
 pub struct DisableRollback;
+
+#[derive(Component)]
+/// Marker component used to indicate this entity is predicted (It has a PredictionHistory),
+/// but it won't check for rollback from state updates.
+///
+/// This can be used to mark predicted non-networked entities in deterministic replication, or to stop a
+/// state-replicated entity from being able to trigger rollbacks from state mismatch.
+///
+/// This entity will still get rolled back to its predicted history when a rollback happens.
+pub struct DisabledDuringRollback;
 
 /// Check if we need to do a rollback.
 /// We do this separately from `prepare_rollback` because even we stop the `check_rollback` function
@@ -778,6 +791,16 @@ pub(crate) fn run_rollback(world: &mut World) {
     //  otherwise setting Time<()> to Time<Fixed> should be enough
     //  as Time<Physics> uses Time<()>'s delta
 
+    let disable_during_rollback_entities: Vec<Entity> = world
+        .query::<(Entity, &DisabledDuringRollback)>()
+        .query_mut(world)
+        .iter_mut()
+        .filter_map(|disable_during| return Some(disable_during.0))
+        .collect();
+
+    for disable_entity in disable_during_rollback_entities.iter() {
+        world.entity_mut(*disable_entity).insert(Disabled);
+    }
     // Run the fixed update schedule (which should contain ALL
     // predicted/rollback components and resources). This is similar to what
     // `bevy_time::fixed::run_fixed_main_schedule()` does
@@ -798,6 +821,10 @@ pub(crate) fn run_rollback(world: &mut World) {
         // not.
         let timestep = world.resource::<Time<Fixed>>().timestep();
         world.resource_mut::<Time<Fixed>>().advance_by(timestep);
+    }
+
+    for disable_entity in disable_during_rollback_entities {
+        world.entity_mut(disable_entity).remove::<Disabled>();
     }
 
     // Restore the fixed time resource.
