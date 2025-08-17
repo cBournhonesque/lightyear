@@ -39,7 +39,7 @@ impl InterpolationManager {
     /// Call MapEntities on the given component.
     ///
     /// Using this function only requires `&self` instead of `&mut self` (on the MapEntities trait), which is useful for parallelism
-    pub(crate) fn map_entities<C: 'static>(
+    pub fn map_entities<C: 'static>(
         &self,
         component: &mut C,
         component_registry: &ComponentRegistry,
