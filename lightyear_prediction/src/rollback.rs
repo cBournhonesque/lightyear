@@ -185,13 +185,9 @@ pub struct DeterministicPredicted;
 pub struct DisableRollback;
 
 #[derive(Component)]
-/// Marker component used to indicate this entity is predicted (It has a PredictionHistory),
-/// but it won't check for rollback from state updates.
+/// Marker component used to indicate this entity is disabled during a rollback
 ///
-/// This can be used to mark predicted non-networked entities in deterministic replication, or to stop a
-/// state-replicated entity from being able to trigger rollbacks from state mismatch.
-///
-/// This entity will still get rolled back to its predicted history when a rollback happens.
+/// This means that if a rollback happens it will not participate in the looping of FixUpdate
 pub struct DisabledDuringRollback;
 
 /// Check if we need to do a rollback.
