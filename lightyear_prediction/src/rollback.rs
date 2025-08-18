@@ -795,7 +795,9 @@ pub(crate) fn run_rollback(world: &mut World) {
         .collect();
 
     for disable_entity in disable_during_rollback_entities.iter() {
-        world.entity_mut(*disable_entity).insert(Disabled);
+        if let Ok(mut entity_result) = world.get_entity_mut(*disable_entity) {
+            entity_result.insert(Disabled);
+        }
     }
     // Run the fixed update schedule (which should contain ALL
     // predicted/rollback components and resources). This is similar to what
@@ -819,8 +821,17 @@ pub(crate) fn run_rollback(world: &mut World) {
         world.resource_mut::<Time<Fixed>>().advance_by(timestep);
     }
 
-    for disable_entity in disable_during_rollback_entities {
-        world.entity_mut(disable_entity).remove::<Disabled>();
+    let disable_during_rollback_entities_end: Vec<Entity> = world
+        .query::<(Entity, &DisabledDuringRollback, &Disabled)>()
+        .query_mut(world)
+        .iter_mut()
+        .filter_map(|disable_during| return Some(disable_during.0))
+        .collect();
+
+    for disable_entity in disable_during_rollback_entities_end {
+        if let Ok(mut entity_result) = world.get_entity_mut(disable_entity) {
+            entity_result.remove::<Disabled>();
+        }
     }
 
     // Restore the fixed time resource.
