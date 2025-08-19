@@ -15,7 +15,7 @@ use lightyear::prelude::*;
 use crate::protocol::*;
 
 #[cfg(feature = "server")]
-use lightyear::visibility::room::{Room, RoomEvent};
+use lightyear::prelude::{Room, RoomEvent};
 
 const EPS: f32 = 0.0001;
 pub const BOT_RADIUS: f32 = 15.0;
@@ -31,13 +31,6 @@ impl Plugin for SharedPlugin {
         app.add_plugins(ProtocolPlugin);
         app.register_type::<PlayerId>();
 
-        // Add lightyear's room system for interest management
-        #[cfg(feature = "server")]
-        app.add_plugins(lightyear::visibility::room::RoomPlugin);
-
-        app.add_systems(Startup, setup_replication_rooms);
-        app.init_resource::<ReplicationRooms>();
-
         app.add_systems(PreUpdate, despawn_after);
 
         // debug systems
@@ -52,8 +45,6 @@ impl Plugin for SharedPlugin {
                 player_movement,
                 weapon_cycling,
                 replication_mode_cycling,
-                room_cycling,
-                manage_room_membership,
                 shoot_weapon,
                 simulate_client_projectiles,
                 update_weapon_ring_buffer,
@@ -204,7 +195,6 @@ pub(crate) fn weapon_cycling(
             // Update weapon properties based on type
             match new_weapon_type {
                 WeaponType::Hitscan => weapon.fire_rate = 5.0,
-                WeaponType::HitscanSlowVisuals => weapon.fire_rate = 3.0,
                 WeaponType::LinearProjectile => weapon.fire_rate = 2.0,
                 WeaponType::Shotgun => weapon.fire_rate = 1.0,
                 WeaponType::PhysicsProjectile => weapon.fire_rate = 1.5,
@@ -219,12 +209,12 @@ pub(crate) fn weapon_cycling(
 /// Handle replication mode cycling input
 pub(crate) fn replication_mode_cycling(
     mut query: Query<
-        (&mut Weapon, &ActionState<PlayerActions>),
+        (&mut Weapon, &ActionState<ExampleActions>),
         (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
     >,
 ) {
     for (mut weapon, action) in query.iter_mut() {
-        if action.just_pressed(&PlayerActions::CycleReplicationMode) {
+        if action.just_pressed(&ExampleActions::CycleProjectileMode) {
             let new_mode = weapon.projectile_replication_mode.next();
             weapon.projectile_replication_mode = new_mode;
 
@@ -240,7 +230,7 @@ pub(crate) fn shoot_weapon(
     mut commands: Commands,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     time: Res<Time>,
-    query: Query<&SpatialQuery, With<Server>>,
+    query: SpatialQuery,
     mut player_query: Query<
         (
             &PlayerId,
@@ -267,7 +257,7 @@ pub(crate) fn shoot_weapon(
             if let Some(last_fire) = weapon.last_fire_tick {
                 let ticks_since_last_fire = tick.0.saturating_sub(last_fire.0);
                 let time_since_last_fire = Duration::from_secs_f64(ticks_since_last_fire as f64 / 64.0);
-                let min_fire_interval = Duration::from_secs_f64(1.0 / weapon.fire_rate);
+                let min_fire_interval = Duration::from_secs_f32(1.0 / weapon.fire_rate);
 
                 if time_since_last_fire < min_fire_interval {
                     continue; // Too soon to fire again
@@ -308,9 +298,6 @@ fn shoot_with_full_entity_replication(
         WeaponType::Hitscan => {
             shoot_hitscan(commands, timeline, transform, id, color, controlled_by, false);
         },
-        WeaponType::HitscanSlowVisuals => {
-            shoot_hitscan(commands, timeline, transform, id, color, controlled_by, true);
-        },
         WeaponType::LinearProjectile => {
             shoot_linear_projectile(commands, timeline, transform, id, color, controlled_by, is_server);
         },
@@ -341,7 +328,7 @@ fn shoot_with_direction_only_replication(
     let direction = transform.up().as_vec3().truncate();
     let position = transform.translation.truncate();
     let speed = match weapon_type {
-        WeaponType::Hitscan | WeaponType::HitscanSlowVisuals => 1000.0, // Instant
+        WeaponType::Hitscan => 1000.0, // Instant
         WeaponType::LinearProjectile => BULLET_MOVE_SPEED,
         WeaponType::Shotgun => BULLET_MOVE_SPEED * 0.8,
         WeaponType::PhysicsProjectile => BULLET_MOVE_SPEED * 0.6,
@@ -448,7 +435,7 @@ fn shoot_linear_projectile(
     controlled_by: Option<&ControlledBy>,
     is_server: bool,
 ) {
-    let mut bullet_transform = transform.clone();
+    let bullet_transform = transform.clone();
     let bullet_bundle = (
         bullet_transform,
         LinearVelocity(bullet_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED),
@@ -534,7 +521,7 @@ fn shoot_physics_projectile(
     controlled_by: Option<&ControlledBy>,
     is_server: bool,
 ) {
-    let mut bullet_transform = transform.clone();
+    let bullet_transform = transform.clone();
     let bullet_bundle = (
         bullet_transform,
         LinearVelocity(bullet_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED * 0.6),
@@ -578,7 +565,7 @@ fn shoot_homing_missile(
     is_server: bool,
     target: Option<Entity>,
 ) {
-    let mut missile_transform = transform.clone();
+    let missile_transform = transform.clone();
     let missile_bundle = (
         missile_transform,
         LinearVelocity(missile_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED * 0.4),
@@ -831,103 +818,14 @@ struct DespawnAfter(pub Timer);
 
 /// Resource to track room entities for each replication mode
 #[derive(Resource)]
-pub struct ReplicationRooms {
+pub struct Rooms {
     pub rooms: Vec<Entity>, // One room per GameReplicationMode
 }
 
-impl Default for ReplicationRooms {
+impl Default for Rooms {
     fn default() -> Self {
         Self {
             rooms: Vec::new(),
-        }
-    }
-}
-
-/// Setup rooms for each replication mode on startup
-fn setup_replication_rooms(
-    mut commands: Commands,
-    mut rooms: ResMut<ReplicationRooms>,
-) {
-    // Create one room for each GameReplicationMode (6 rooms total)
-    for i in 0..6 {
-        #[cfg(feature = "server")]
-        {
-            let room_entity = commands.spawn((
-                Room::default(),
-                Name::new(format!("ReplicationRoom_{}", i)),
-            )).id();
-            rooms.rooms.push(room_entity);
-        }
-
-        #[cfg(not(feature = "server"))]
-        {
-            // On client, just create placeholder entities to keep indices consistent
-            let room_entity = commands.spawn(Name::new(format!("ReplicationRoom_{}", i))).id();
-            rooms.rooms.push(room_entity);
-        }
-    }
-    info!("Created {} replication rooms", rooms.rooms.len());
-}
-
-/// Handle room cycling input and update room membership
-pub(crate) fn room_cycling(
-    mut query: Query<
-        (&mut PlayerRoom, &ActionState<PlayerActions>, Entity),
-        (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
-    >,
-    rooms: Res<ReplicationRooms>,
-    mut commands: Commands,
-) {
-    for (mut player_room, action, player_entity) in query.iter_mut() {
-        if action.just_pressed(&PlayerActions::CycleRoom) {
-            let current_mode = GameReplicationMode::from_room_id(player_room.room_id);
-            let new_mode = current_mode.next();
-            let new_room_id = new_mode.room_id();
-
-            #[cfg(feature = "server")]
-            {
-                // Remove from old room
-                if let Some(old_room) = rooms.rooms.get(player_room.room_id as usize) {
-                    commands.trigger_targets(RoomEvent::RemoveSender(player_entity), *old_room);
-                }
-
-                // Add to new room
-                if let Some(new_room) = rooms.rooms.get(new_room_id as usize) {
-                    commands.trigger_targets(RoomEvent::AddSender(player_entity), *new_room);
-                }
-            }
-
-            player_room.room_id = new_room_id;
-            info!("Player switched to room: {} ({})", new_room_id, new_mode.name());
-        }
-    }
-}
-
-/// Manage room membership for entities and players
-pub(crate) fn manage_room_membership(
-    // Track players joining rooms for the first time
-    new_players: Query<(Entity, &PlayerRoom), (Added<PlayerRoom>, With<PlayerMarker>)>,
-    // Track entities that should be in rooms
-    replicated_entities: Query<Entity, (With<Replicate>, Without<PlayerMarker>)>,
-    rooms: Res<ReplicationRooms>,
-    mut commands: Commands,
-) {
-    #[cfg(feature = "server")]
-    {
-        // Add new players to their rooms
-        for (player_entity, player_room) in new_players.iter() {
-            if let Some(room_entity) = rooms.rooms.get(player_room.room_id as usize) {
-                commands.trigger_targets(RoomEvent::AddSender(player_entity), *room_entity);
-                info!("Added player {:?} to room {}", player_entity, player_room.room_id);
-            }
-        }
-
-        // Add all replicated entities to all rooms (for now - in a real implementation,
-        // you might want different logic based on the replication mode)
-        for entity in replicated_entities.iter() {
-            for room_entity in &rooms.rooms {
-                commands.trigger_targets(RoomEvent::AddEntity(entity), *room_entity);
-            }
         }
     }
 }

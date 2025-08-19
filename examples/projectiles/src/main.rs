@@ -2,6 +2,8 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
+extern crate core;
+
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_examples_common::cli::{Cli, Mode};

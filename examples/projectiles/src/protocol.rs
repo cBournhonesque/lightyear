@@ -3,7 +3,7 @@ use avian2d::prelude::RigidBody;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::prelude::InputConfig;
-use lightyear::prelude::input::leafwing;
+use lightyear::prelude::input::{leafwing, native};
 use lightyear::prelude::Channel;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -47,14 +47,19 @@ pub enum PlayerActions {
     Shoot,
     MoveCursor,
     CycleWeapon,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone, Copy, Hash, Reflect)]
+pub enum ExampleActions {
+    CycleProjectileMode,
     CycleReplicationMode,
-    CycleRoom,
+    #[default]
+    None,
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum WeaponType {
     Hitscan,
-    HitscanSlowVisuals,
     LinearProjectile,
     Shotgun,
     PhysicsProjectile,
@@ -70,8 +75,7 @@ impl Default for WeaponType {
 impl WeaponType {
     pub fn next(&self) -> Self {
         match self {
-            WeaponType::Hitscan => WeaponType::HitscanSlowVisuals,
-            WeaponType::HitscanSlowVisuals => WeaponType::LinearProjectile,
+            WeaponType::Hitscan => WeaponType::LinearProjectile,
             WeaponType::LinearProjectile => WeaponType::Shotgun,
             WeaponType::Shotgun => WeaponType::PhysicsProjectile,
             WeaponType::PhysicsProjectile => WeaponType::HomingMissile,
@@ -82,7 +86,6 @@ impl WeaponType {
     pub fn name(&self) -> &'static str {
         match self {
             WeaponType::Hitscan => "Hitscan",
-            WeaponType::HitscanSlowVisuals => "Hitscan (Slow Visuals)",
             WeaponType::LinearProjectile => "Linear Projectile",
             WeaponType::Shotgun => "Shotgun",
             WeaponType::PhysicsProjectile => "Physics Projectile",
@@ -161,7 +164,7 @@ impl GameReplicationMode {
         }
     }
 
-    pub fn room_id(&self) -> u32 {
+    pub fn room_id(&self) -> usize {
         match self {
             GameReplicationMode::AllPredicted => 0,
             GameReplicationMode::ClientPredictedNoComp => 1,
@@ -172,7 +175,7 @@ impl GameReplicationMode {
         }
     }
 
-    pub fn from_room_id(room_id: u32) -> Self {
+    pub fn from_room_id(room_id: usize) -> Self {
         match room_id {
             0 => GameReplicationMode::AllPredicted,
             1 => GameReplicationMode::ClientPredictedNoComp,
@@ -217,11 +220,10 @@ impl Default for Weapon {
     }
 }
 
-// Using lightyear's built-in Room system instead of custom implementation
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub struct PlayerRoom {
-    pub room_id: u32,
+    pub room_id: usize,
 }
 
 impl Default for PlayerRoom {
@@ -305,6 +307,7 @@ impl Plugin for ProtocolPlugin {
                 ..default()
             },
         });
+        app.add_plugins(native::InputPlugin::<ExampleActions>::default());
         // components
         app.register_component::<Name>()
             .add_prediction(PredictionMode::Once)
@@ -364,15 +367,9 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
 
-        // Room component is handled by lightyear's RoomPlugin
-
         app.register_component::<PlayerRoom>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
-
-        app.register_component::<HitscanVisual>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full);
 
         app.register_component::<PhysicsProjectile>()
             .add_prediction(PredictionMode::Full)
@@ -393,15 +390,5 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ClientProjectile>()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full);
-
-        // do not replicate Transform but make sure to register an interpolation function
-        // for it so that we can do visual interpolation
-        // (another option would be to replicate transform and not use Position/Rotation at all)
-        app.world_mut()
-            .resource_mut::<InterpolationRegistry>()
-            .set_interpolation::<Transform>(TransformLinearInterpolation::lerp);
-        app.world_mut()
-            .resource_mut::<InterpolationRegistry>()
-            .set_interpolation_mode::<Transform>(InterpolationMode::None);
     }
 }

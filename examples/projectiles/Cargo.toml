@@ -38,10 +38,12 @@ avian2d = { workspace = true, features = [
   "serialize",
 ] }
 lightyear = { workspace = true, features = [
+  "crossbeam",
   "interpolation",
   "prediction",
   "replication",
   "avian2d",
+  "input_native",
   "leafwing",
 ] }
 lightyear_examples_common.workspace = true
@@ -51,6 +53,7 @@ lightyear_avian2d = { workspace = true, features = ["2d", "lag_compensation"] }
 leafwing-input-manager.workspace = true
 serde.workspace = true
 bevy.workspace = true
+rand = "0.8.5"
 
 [package.metadata.bevy_cli.web]
 rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
