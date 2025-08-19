@@ -7,10 +7,10 @@ use leafwing_input_manager::prelude::*;
 use lightyear::input::client::InputSet;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-
+use lightyear::prelude::input::native;
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, shared_player_movement};
+use crate::shared::{color_from_id, shared_player_movement, Rooms};
 
 pub struct ExampleClientPlugin;
 
@@ -70,8 +70,6 @@ pub(crate) fn handle_predicted_spawn(
             (PlayerActions::Right, KeyCode::KeyD),
             (PlayerActions::Shoot, KeyCode::Space),
             (PlayerActions::CycleWeapon, KeyCode::KeyQ),
-            (PlayerActions::CycleReplicationMode, KeyCode::KeyE),
-            (PlayerActions::CycleRoom, KeyCode::KeyR),
         ]),));
     }
 }
@@ -86,5 +84,30 @@ pub(crate) fn handle_interpolated_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
+    }
+}
+
+// TODO: ReplicationMetadata sends Client<>ClientOf mapping on connection
+pub(crate) fn display_mode(
+    trigger: Trigger<OnAdd, Client>,
+    mut commands: Commands,
+) {
+    // commands.entity(trigger.target())
+    //     .insert(native::InputMarker::new([
+    //         (ExampleActions::CycleReplicationMode, KeyCode::KeyE),
+    //         (ExampleActions::CycleRoom, KeyCode::KeyR),
+    //     ]));
+}
+
+pub(crate) fn mode_cycling(
+    client: Single<(&mut GameReplicationMode, &mut ProjectileReplicationMode, &native::ActionState<ExampleActions>), With<Client>>,
+) {
+    for (mut replication_mode, mut projectile_mode, action) in client.iter_mut() {
+        if action.just_pressed(&ExampleActions::CycleReplicationMode) {
+            *replication_mode = replication_mode.next();
+        }
+        if action.just_pressed(&ExampleActions::CycleProjectileMode) {
+            *projectile_mode = projectile_mode.next();
+        }
     }
 }

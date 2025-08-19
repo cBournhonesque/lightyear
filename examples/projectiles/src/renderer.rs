@@ -7,7 +7,7 @@ use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use lightyear::interpolation::Interpolated;
 use lightyear::prediction::prespawn::PreSpawned;
-use lightyear::prelude::{Predicted, Replicate, Replicated};
+use lightyear::prelude::{Client, Predicted, Replicate, Replicated};
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -130,6 +130,12 @@ fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut
             Color::WHITE,
         );
     })
+}
+
+#[cfg(feature = "client")]
+fn display_room_name(single: Query<Entity, With<Client>>,
+) {
+
 }
 
 /// Convenient for filter for entities that should be visible
