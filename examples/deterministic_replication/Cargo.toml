@@ -6,12 +6,13 @@ edition.workspace = true
 publish = false
 
 [features]
-default = ["client", "gui", "server", "netcode", "udp"]
+default = ["server", "netcode", "udp", "steam"]
 client = ["lightyear_examples_common/client"]
 gui = ["lightyear_examples_common/gui"]
 server = ["lightyear_examples_common/server"]
 netcode = ["lightyear_examples_common/netcode"]
 udp = ["lightyear_examples_common/udp"]
+steam = ["lightyear_examples_common/steam"]
 
 [dependencies]
 lightyear = { workspace = true, features = [

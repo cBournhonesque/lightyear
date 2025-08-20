@@ -9,11 +9,12 @@ edition.workspace = true
 publish = false
 
 [features]
-default = ["client", "gui", "server", "netcode", "udp"]
+default = ["server", "netcode", "udp", "steam"]
 client = ["gui", "lightyear/client", "lightyear_examples_common/client"]
 gui = ["lightyear_examples_common/gui"]
-server = ["lightyear/server", "lightyear_examples_common/server"]
+server = ["lightyear/server", "lightyear_examples_common/server", "steam", "netcode"]
 netcode = ["lightyear_examples_common/netcode"]
+steam = ["lightyear_examples_common/steam"]
 udp = [
   "lightyear_examples_common/udp",
   # udp requires std

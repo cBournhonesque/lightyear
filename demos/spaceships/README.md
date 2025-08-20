@@ -1,4 +1,4 @@
-# Spaceships Demo
+`# Spaceships Demo
 
 This example extends what the `xpbd_physics` demo offers, making all entities server authoritative and
 predicted by clients. Bullets are prespawned when you fire, or remote players fire if we have their inputs early.
