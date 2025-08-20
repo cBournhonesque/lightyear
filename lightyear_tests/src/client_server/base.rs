@@ -87,3 +87,31 @@ fn test_setup_client_server() {
     assert!(stepper.client_of(0).contains::<LocalId>());
     assert!(stepper.client_of(0).contains::<RemoteId>());
 }
+
+#[test]
+fn test_sender_metadata() {
+    let stepper = ClientServerStepper::single();
+    let client = stepper.client(0).id();
+    let client_of = stepper.client_of(0).id();
+
+    assert_eq!(
+        stepper
+            .client_of(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(client)
+            .expect("client is not present in entity map"),
+        client_of
+    );
+    assert_eq!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(client_of)
+            .expect("client_of is not present in entity map"),
+        client
+    );
+}
