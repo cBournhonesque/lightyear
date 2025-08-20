@@ -2,6 +2,7 @@ use crate::client_server::prediction::trigger_state_rollback;
 use crate::protocol::{BEIAction1, BEIContext};
 use crate::stepper::{ClientServerStepper, TICK_DURATION};
 use bevy::app::{App, FixedPostUpdate};
+use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 use lightyear::input::bei;
@@ -18,6 +19,78 @@ use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::{Input, InputDelayConfig};
 use test_log::test;
 use tracing::info;
+
+/// Check that we can insert actions on the client entity
+#[test]
+fn test_actions_on_client_entity() {
+    let mut stepper = ClientServerStepper::single();
+    // we spawn an action entity on the client
+    let client_entity = stepper.client(0).id();
+    let client_action = stepper
+        .client_app()
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(client_entity),
+            Action::<BEIAction1>::default(),
+        ))
+        .id();
+    stepper.frame_step(1);
+    // Add an InputMarker to the Context entity on the client
+    // to indicate that the client controls this entity
+    // (it gets propagated to the Action entity)
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert((
+            BEIContext,
+            bei::prelude::InputMarker::<BEIContext>::default(),
+        ));
+
+    let server_action = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_action)
+        .expect("entity is not present in entity map");
+    let client_of_entity = stepper.client_of(0).id();
+    // Check that the ActionOf component was mapped correctly on the server
+    // (i.e the context entity is the Client on the client, and the ClientOf on the server)
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_action)
+            .get::<ActionOf<BEIContext>>()
+            .unwrap()
+            .get(),
+        client_of_entity
+    );
+
+    info!("Mocking press on BEIAction1");
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_action)
+        .insert(ActionMock::once(ActionState::Fired, true));
+    stepper.frame_step(1);
+    let client_tick = stepper.client_tick(0);
+
+    let snapshot = stepper
+        .server_app
+        .world()
+        .entity(server_action)
+        .get::<InputBuffer<ActionsSnapshot<BEIContext>>>()
+        .unwrap()
+        .get(client_tick)
+        .cloned()
+        .unwrap_or(ActionsSnapshot::<BEIContext>::default());
+    let mut actions = ActionData::base_value();
+    BEIStateSequence::from_snapshot(ActionData::as_mut(&mut actions), &snapshot);
+    // check that we received the snapshot on the server
+    assert_eq!(actions.0, ActionState::Fired);
+}
 
 /// Check that ActionStates are stored correctly in the InputBuffer
 #[test]

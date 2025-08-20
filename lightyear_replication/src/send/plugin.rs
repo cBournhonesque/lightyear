@@ -154,13 +154,21 @@ impl ReplicationSendPlugin {
         //  added BEFORE the ReplicationSender is added. (ClientOf is spawned by netcode, ReplicationSender is added by the user)
         trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
         tick_duration: Res<TickDuration>,
-        mut query: Query<(&ReplicationSender, &mut TriggerSender<SenderMetadata>), With<Connected>>,
+        mut query: Query<
+            (
+                Entity,
+                &ReplicationSender,
+                &mut TriggerSender<SenderMetadata>,
+            ),
+            With<Connected>,
+        >,
     ) {
-        if let Ok((sender, mut trigger_sender)) = query.get_mut(trigger.target()) {
+        if let Ok((sender_entity, sender, mut trigger_sender)) = query.get_mut(trigger.target()) {
             let send_interval = sender.send_interval();
             let send_interval_delta = TickDelta::from_duration(send_interval, tick_duration.0);
             let metadata = SenderMetadata {
                 send_interval: send_interval_delta.into(),
+                sender_entity: sender_entity,
             };
             trigger_sender.trigger::<MetadataChannel>(metadata);
         }

@@ -1,19 +1,16 @@
 //! General struct handling replication
 use alloc::collections::BTreeMap;
 use bevy_app::{App, Plugin, PreUpdate};
+use bevy_ecs::prelude::*;
 use bevy_ecs::{
-    component::Component,
-    entity::{Entity, EntityHash, EntityIndexMap},
-    observer::Trigger,
-    query::{QueryState, With},
+    entity::{EntityHash, EntityIndexMap},
+    query::QueryState,
     schedule::IntoScheduleConfigs,
-    system::{Commands, Local, Query},
-    world::{OnAdd, World},
 };
 use bevy_platform::collections::{HashMap, HashSet};
 
 use crate::components::{Confirmed, InitialReplicated, Replicated};
-use crate::message::{ActionsMessage, SpawnAction, UpdatesMessage};
+use crate::message::{ActionsMessage, SenderMetadata, SpawnAction, UpdatesMessage};
 use crate::registry::registry::ComponentRegistry;
 use alloc::vec::Vec;
 use lightyear_core::tick::Tick;
@@ -25,13 +22,13 @@ use crate::plugin;
 use crate::plugin::ReplicationSet;
 use crate::prelude::{ReplicationGroupId, ReplicationSender};
 use crate::registry::buffered::{BufferedChanges, BufferedEntity};
-use lightyear_connection::client::{Connected, Disconnected};
+use lightyear_connection::client::{Connected, Disconnected, PeerMetadata};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
-use lightyear_messages::prelude::MessageReceiver;
+use lightyear_messages::prelude::{MessageReceiver, RemoteTrigger};
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
@@ -62,6 +59,21 @@ impl ReplicationReceivePlugin {
         });
         if let Ok(mut receiver) = receiver_query.get_mut(trigger.target()) {
             *receiver = ReplicationReceiver::default();
+        }
+    }
+
+    // Update the mapping between our local Receiver entity and the remove Sender entity upon receiving the SenderMetadata
+    fn receive_sender_metadata(
+        trigger: Trigger<RemoteTrigger<SenderMetadata>>,
+        peer_metadata: Res<PeerMetadata>,
+        mut receiver: Query<&mut MessageManager>,
+    ) {
+        if let Some(receiver_entity) = peer_metadata.mapping.get(&trigger.from) {
+            if let Ok(mut manager) = receiver.get_mut(*receiver_entity) {
+                manager
+                    .entity_mapper
+                    .insert(trigger.trigger.sender_entity, *receiver_entity);
+            }
         }
     }
 
@@ -174,6 +186,7 @@ impl Plugin for ReplicationReceivePlugin {
                 .in_set(ReplicationSet::Receive),
         );
         app.add_observer(Self::handle_disconnection);
+        app.add_observer(Self::receive_sender_metadata);
     }
 }
 
