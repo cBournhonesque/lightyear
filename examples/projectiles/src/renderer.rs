@@ -5,6 +5,7 @@ use bevy::color::palettes::basic::GREEN;
 use bevy::color::palettes::css::BLUE;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
+use lightyear::input::bei::prelude::InputMarker;
 use lightyear::interpolation::Interpolated;
 use lightyear::prediction::prespawn::PreSpawned;
 use lightyear::prelude::{Client, Predicted, Replicate, Replicated};
@@ -29,7 +30,7 @@ impl Plugin for ExampleRendererPlugin {
 
         #[cfg(feature = "client")]
         {
-            app.add_systems(Update, (display_score, display_weapon_info, render_hitscan_lines));
+            app.add_systems(Update, (display_score, display_weapon_info, render_hitscan_lines, display_modes));
         }
 
         #[cfg(feature = "server")]
@@ -53,15 +54,15 @@ fn init(mut commands: Commands) {
             },
             ScoreText,
         ));
-        
+
         commands.spawn((
-            Text::new("Weapon: Hitscan\nReplication: Full Entity\nRoom: 0 (All Predicted)\nPress Q/E/R to cycle"),
+            Text::new(""),
             TextFont::from_font_size(20.0),
             TextColor(Color::WHITE.with_alpha(0.7)),
             Node {
                 align_self: AlignSelf::Start,
                 position_type: PositionType::Absolute,
-                top: Val::Px(10.0),
+                top: Val::Px(30.0),
                 left: Val::Px(10.0),
                 ..default()
             },
@@ -72,6 +73,9 @@ fn init(mut commands: Commands) {
 
 #[derive(Component)]
 struct ScoreText;
+
+#[derive(Component)]
+struct ModeText;
 
 #[derive(Component)]
 struct WeaponText;
@@ -90,21 +94,17 @@ fn display_score(
 
 #[cfg(feature = "client")]
 fn display_weapon_info(
-    mut weapon_text: Query<&mut Text, With<WeaponText>>,
-    weapon_query: Query<(&WeaponType, &Weapon, &PlayerRoom), (With<Predicted>, With<PlayerMarker>)>,
+    mut weapon_text: Single<&mut Text, With<WeaponText>>,
+    weapon_type: Single<&WeaponType, With<InputMarker<PlayerContext>>>,
+    client_query: Single<(&ProjectileReplicationMode, &GameReplicationMode), With<Client>>,
 ) {
-    if let Ok((weapon_type, weapon, player_room)) = weapon_query.single() {
-        if let Ok(mut text) = weapon_text.single_mut() {
-            let room_mode = GameReplicationMode::from_room_id(player_room.room_id);
-            text.0 = format!(
-                "Weapon: {}\nReplication: {}\nRoom: {} ({})\nPress Q to cycle weapons\nPress E to cycle replication\nPress R to cycle rooms\nPress Space to shoot", 
-                weapon_type.name(),
-                weapon.projectile_replication_mode.name(),
-                player_room.room_id,
-                room_mode.name()
-            );
-        }
-    }
+    let (projectile_mode, replication_mode) = client_query.into_inner();
+    weapon_text.0 = format!(
+        "Weapon: {}\nProjectile Mode: {}\nReplication Mode: {}\nPress Q to cycle weapons\nPress E to cycle replication\nPress R to cycle rooms\nPress Space to shoot",
+        weapon_type.name(),
+        projectile_mode.name(),
+        replication_mode.name(),
+    );
 }
 
 #[cfg(feature = "client")]
@@ -133,9 +133,12 @@ fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut
 }
 
 #[cfg(feature = "client")]
-fn display_room_name(single: Query<Entity, With<Client>>,
+fn display_modes(
+    client: Single<(&GameReplicationMode, &ProjectileReplicationMode), With<Client>>,
+    mut text: Single<&mut Text, With<ModeText>>
 ) {
-
+    let (replication_mode, projectile_mode) = client.into_inner();
+    text.0 = format!("ReplicationMode: {:?}, ProjectileMode: {:?}", replication_mode.name(), projectile_mode.name());
 }
 
 /// Convenient for filter for entities that should be visible

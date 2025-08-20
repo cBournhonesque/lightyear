@@ -1,13 +1,13 @@
+use lightyear::input::bei::prelude;
 use avian2d::position::{Position, Rotation};
 use avian2d::prelude::RigidBody;
 use bevy::prelude::*;
-use leafwing_input_manager::prelude::*;
 use lightyear::input::prelude::InputConfig;
-use lightyear::prelude::input::{leafwing, native};
 use lightyear::prelude::Channel;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
-
+use lightyear::prelude::input::bei::InputAction;
+use lightyear::prelude::input::bei::*;
 use crate::shared::color_from_id;
 
 pub const BULLET_SIZE: f32 = 3.0;
@@ -37,25 +37,37 @@ pub struct ColorComponent(pub(crate) Color);
 pub struct BulletMarker;
 
 // Inputs
+#[derive(Component, Serialize, Deserialize, Reflect, Clone, Debug, PartialEq)]
+pub struct PlayerContext;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect)]
-pub enum PlayerActions {
-    Up,
-    Down,
-    Left,
-    Right,
-    Shoot,
-    MoveCursor,
-    CycleWeapon,
-}
+#[derive(Debug, InputAction)]
+#[action_output(Vec2)]
+pub struct MovePlayer;
 
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone, Copy, Hash, Reflect)]
-pub enum ExampleActions {
-    CycleProjectileMode,
-    CycleReplicationMode,
-    #[default]
-    None,
-}
+#[derive(Debug, InputAction)]
+#[action_output(Vec2)]
+pub struct MoveCursor;
+
+#[derive(Debug, InputAction)]
+#[action_output(bool)]
+pub struct Shoot;
+
+#[derive(Debug, InputAction)]
+#[action_output(bool)]
+pub struct CycleWeapon;
+
+
+#[derive(Component, Serialize, Deserialize, Reflect, Clone, Debug, PartialEq)]
+pub struct ClientContext;
+
+#[derive(Debug, InputAction)]
+#[action_output(bool)]
+pub struct CycleProjectileMode;
+
+#[derive(Debug, InputAction)]
+#[action_output(bool)]
+pub struct CycleReplicationMode;
+
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum WeaponType {
@@ -281,33 +293,30 @@ pub struct ClientProjectile {
     pub weapon_type: WeaponType,
 }
 
-impl Actionlike for PlayerActions {
-    // Record what kind of inputs make sense for each action.
-    fn input_control_kind(&self) -> InputControlKind {
-        match self {
-            Self::MoveCursor => InputControlKind::DualAxis,
-            _ => InputControlKind::Button,
-        }
-    }
-}
 
 // Protocol
 pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<(PlayerActions, ColorComponent)>();
         // inputs
         // Use new input plugin path and default config
-        app.add_plugins(leafwing::InputPlugin::<PlayerActions> {
-            config: InputConfig::<PlayerActions> {
+        app.add_plugins(InputPlugin::<PlayerContext> {
+            config: InputConfig::<PlayerContext> {
                 // enable lag compensation; the input messages sent to the server will include the
                 // interpolation delay of that client
                 lag_compensation: true,
                 ..default()
             },
         });
-        app.add_plugins(native::InputPlugin::<ExampleActions>::default());
+        app.register_input_action::<MovePlayer>();
+        app.register_input_action::<MoveCursor>();
+        app.register_input_action::<Shoot>();
+        app.register_input_action::<CycleWeapon>();
+        app.add_plugins(InputPlugin::<ClientContext>::default());
+        app.register_input_action::<CycleProjectileMode>();
+        app.register_input_action::<CycleReplicationMode>();
+
         // components
         app.register_component::<Name>()
             .add_prediction(PredictionMode::Once)

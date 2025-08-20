@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, shared_player_movement, Rooms, BOT_RADIUS};
+use crate::shared::{color_from_id, Rooms, BOT_RADIUS};
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
@@ -31,7 +31,7 @@ impl Plugin for ExampleServerPlugin {
 
         app.add_plugins(LagCompensationPlugin);
         app.add_systems(Startup, (
-            spawn_bots,
+            // spawn_bots,
             setup_replication_rooms
         ));
         app.add_observer(handle_new_client);
@@ -58,10 +58,18 @@ impl Plugin for ExampleServerPlugin {
 pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
     commands
         .entity(trigger.target())
-        .insert(ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
+        .insert((
+            ReplicationSender::new(
+                SEND_INTERVAL,
+                SendUpdatesMode::SinceLastAck,
+                false,
+            ),
+            // We need a ReplicationReceiver on the server side because the Action entities are spawned
+            // on the client and replicated to the server.
+            ReplicationReceiver::default(),
+            Name::from("ClientOf"),
+            // the context needs to be inserted on both the server and client
+            ClientContext,
         ));
 }
 
@@ -87,6 +95,10 @@ pub(crate) fn spawn_player(
     info!("Spawning player with id: {}", client_id);
 
     for (i, room) in rooms.rooms.iter().enumerate() {
+        // start by adding the player to the first room
+        if i == 0 {
+            commands.entity(*room).trigger(RoomEvent::AddSender(trigger.target()));
+        }
         let player = player_bundle(*room, client_id, sender);
         let player_entity = match GameReplicationMode::from_room_id(i) {
             GameReplicationMode::AllPredicted => {
@@ -128,6 +140,7 @@ pub(crate) fn spawn_player(
                 )
             }
         }.id();
+        info!("Spawning player {player_entity:?} for room: {room:?}");
         commands.entity(*room).trigger(RoomEvent::AddEntity(player_entity));
     }
 }
@@ -135,8 +148,9 @@ pub(crate) fn spawn_player(
 fn player_bundle(room: Entity, client_id: PeerId, owner: Entity) -> impl Bundle {
     let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
     let color = color_from_id(client_id);
-    info!("Spawning player with id: {}", client_id);
     (
+        // the context needs to be inserted on the server, and will be replicated to the client
+        PlayerContext,
         Replicate::to_clients(NetworkTarget::All),
         NetworkVisibility::default(),
         ControlledBy {
@@ -152,7 +166,7 @@ fn player_bundle(room: Entity, client_id: PeerId, owner: Entity) -> impl Bundle 
         Weapon::default(),
         WeaponType::default(),
         Name::new("Player"),
-    );
+    )
 }
 
 /// Spawn bots (one predicted, one interpolated)
@@ -303,13 +317,13 @@ fn setup_replication_rooms(
     // Create one room for each GameReplicationMode (6 rooms total)
     for i in 0..6 {
         {
+            let replication_mode = GameReplicationMode::from_room_id(i);
             let room_entity = commands.spawn((
                 Room::default(),
-                Name::new(format!("ReplicationRoom_{}", i)),
+                Name::new(format!("Room{}", replication_mode.name())),
             )).id();
             rooms.rooms.push(room_entity);
         }
-
     }
     info!("Created {} replication rooms", rooms.rooms.len());
 }

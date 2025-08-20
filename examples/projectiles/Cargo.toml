@@ -43,9 +43,9 @@ lightyear = { workspace = true, features = [
   "prediction",
   "replication",
   "avian2d",
-  "input_native",
-  "leafwing",
+  "input_bei",
 ] }
+bevy_enhanced_input.workspace = true
 lightyear_examples_common.workspace = true
 lightyear_frame_interpolation.workspace = true
 lightyear_avian2d = { workspace = true, features = ["2d", "lag_compensation"] }

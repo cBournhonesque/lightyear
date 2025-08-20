@@ -5,6 +5,8 @@ use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use core::ops::DerefMut;
 use core::time::Duration;
+use bevy_enhanced_input::action::Action;
+use bevy_enhanced_input::prelude::{ActionValue, Fired};
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::prediction::plugin::PredictionSet;
@@ -31,6 +33,13 @@ impl Plugin for SharedPlugin {
         app.add_plugins(ProtocolPlugin);
         app.register_type::<PlayerId>();
 
+        app.add_observer(cycle_replication_mode);
+        app.add_observer(cycle_projectile_mode);
+        app.add_observer(rotate_player);
+        app.add_observer(move_player);
+        app.add_observer(shoot_weapon);
+        app.add_observer(weapon_cycling);
+
         app.add_systems(PreUpdate, despawn_after);
 
         // debug systems
@@ -42,16 +51,12 @@ impl Plugin for SharedPlugin {
             FixedUpdate,
             (
                 predicted_bot_movement,
-                player_movement,
-                weapon_cycling,
-                replication_mode_cycling,
-                shoot_weapon,
                 simulate_client_projectiles,
                 update_weapon_ring_buffer,
                 update_hitscan_visuals,
                 update_physics_projectiles,
                 update_homing_missiles,
-            ).chain(),
+            )
         );
         // both client and server need physics
         // (the client also needs the physics plugin to be able to compute predicted bullet hits)
@@ -73,57 +78,43 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     Color::hsl(h, s, l)
 }
 
-// This system defines how we update the player's positions when we receive an input
-pub(crate) fn shared_player_movement(
-    mut position: Mut<Position>,
-    mut rotation: Mut<Rotation>,
-    action: &ActionState<PlayerActions>,
+pub(crate) fn rotate_player(
+    trigger: Trigger<Fired<MoveCursor>>,
+    mut player: Query<(&mut Rotation, &Position)>,
 ) {
-    const PLAYER_MOVE_SPEED: f32 = 10.0;
-    let Some(cursor_data) = action.dual_axis_data(&PlayerActions::MoveCursor) else {
-        return;
-    };
-    let angle = Vec2::new(0.0, 1.0).angle_to(cursor_data.pair - position.0);
-    // careful to only activate change detection if there was an actual change
-    if (angle - rotation.as_radians()).abs() > EPS {
-        *rotation = Rotation::from(angle);
-    }
-    // TODO: look_at should work
-    // transform.look_at(Vec3::new(mouse_position.x, mouse_position.y, 0.0), Vec3::Y);
-    if action.pressed(&PlayerActions::Up) {
-        position.y += PLAYER_MOVE_SPEED;
-    }
-    if action.pressed(&PlayerActions::Down) {
-        position.y -= PLAYER_MOVE_SPEED;
-    }
-    if action.pressed(&PlayerActions::Right) {
-        position.x += PLAYER_MOVE_SPEED;
-    }
-    if action.pressed(&PlayerActions::Left) {
-        position.x -= PLAYER_MOVE_SPEED;
+    if let Ok((mut rotation, position)) = player.get_mut(trigger.target()) {
+        let angle = Vec2::new(0.0, 1.0).angle_to(trigger.value - position.0);
+        info!("angle: {angle:?}");
+        // careful to only activate change detection if there was an actual change
+        if (angle - rotation.as_radians()).abs() > EPS {
+            *rotation = Rotation::from(angle);
+        }
     }
 }
 
-// The client input only gets applied to predicted entities that we own
-// This works because we only predict the user's controlled entity.
-// If we were predicting more entities, we would have to only apply movement to the player owned one.
-fn player_movement(
-    timeline: Single<&LocalTimeline, Without<ClientOf>>,
-    mut player_query: Query<
-        (
-            &mut Position,
-            &mut Rotation,
-            &ActionState<PlayerActions>,
-            &PlayerId,
-        ),
-        (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
-    >,
+pub(crate) fn move_player(
+    trigger: Trigger<Fired<MovePlayer>>,
+    mut player: Query<&mut Position>,
 ) {
-    for (position, rotation, action_state, player_id) in player_query.iter_mut() {
-        debug!(tick = ?timeline.tick(), action = ?action_state.dual_axis_data(&PlayerActions::MoveCursor), "Data in Movement (FixedUpdate)");
-        shared_player_movement(position, rotation, action_state);
+    const PLAYER_MOVE_SPEED: f32 = 10.0;
+    if let Ok(mut position) = player.get_mut(trigger.target()) {
+        let value = trigger.value;
+        if value.x > 0.0 {
+            position.x += PLAYER_MOVE_SPEED
+        }
+        if value.x < 0.0 {
+            position.x -= PLAYER_MOVE_SPEED
+        }
+        if value.y > 0.0 {
+            position.y += PLAYER_MOVE_SPEED
+        }
+        if value.y < 0.0 {
+            position.y -= PLAYER_MOVE_SPEED
+        }
     }
 }
+
+
 
 fn predicted_bot_movement(
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
@@ -181,45 +172,24 @@ pub(crate) fn fixed_update_log(
 
 /// Handle weapon cycling input
 pub(crate) fn weapon_cycling(
-    mut query: Query<
-        (&mut Weapon, &mut WeaponType, &ActionState<PlayerActions>),
-        (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
-    >,
+    trigger: Trigger<Fired<CycleWeapon>>,
+    mut query: Query<(&mut Weapon, &mut WeaponType)>,
 ) {
-    for (mut weapon, mut weapon_type, action) in query.iter_mut() {
-        if action.just_pressed(&PlayerActions::CycleWeapon) {
-            let new_weapon_type = weapon_type.next();
-            *weapon_type = new_weapon_type;
-            weapon.weapon_type = new_weapon_type;
+    if let Ok((mut weapon, mut weapon_type)) = query.get_mut(trigger.target()) {
+        let new_weapon_type = weapon_type.next();
+        *weapon_type = new_weapon_type;
+        weapon.weapon_type = new_weapon_type;
 
-            // Update weapon properties based on type
-            match new_weapon_type {
-                WeaponType::Hitscan => weapon.fire_rate = 5.0,
-                WeaponType::LinearProjectile => weapon.fire_rate = 2.0,
-                WeaponType::Shotgun => weapon.fire_rate = 1.0,
-                WeaponType::PhysicsProjectile => weapon.fire_rate = 1.5,
-                WeaponType::HomingMissile => weapon.fire_rate = 0.5,
-            }
-
-            info!("Switched to weapon: {}", new_weapon_type.name());
+        // Update weapon properties based on type
+        match new_weapon_type {
+            WeaponType::Hitscan => weapon.fire_rate = 5.0,
+            WeaponType::LinearProjectile => weapon.fire_rate = 2.0,
+            WeaponType::Shotgun => weapon.fire_rate = 1.0,
+            WeaponType::PhysicsProjectile => weapon.fire_rate = 1.5,
+            WeaponType::HomingMissile => weapon.fire_rate = 0.5,
         }
-    }
-}
 
-/// Handle replication mode cycling input
-pub(crate) fn replication_mode_cycling(
-    mut query: Query<
-        (&mut Weapon, &ActionState<ExampleActions>),
-        (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
-    >,
-) {
-    for (mut weapon, action) in query.iter_mut() {
-        if action.just_pressed(&ExampleActions::CycleProjectileMode) {
-            let new_mode = weapon.projectile_replication_mode.next();
-            weapon.projectile_replication_mode = new_mode;
-
-            info!("Switched to replication mode: {}", new_mode.name());
-        }
+        info!("Switched to weapon: {}", new_weapon_type.name());
     }
 }
 
@@ -227,6 +197,7 @@ pub(crate) fn replication_mode_cycling(
 
 /// Main weapon shooting system that handles all weapon types
 pub(crate) fn shoot_weapon(
+    trigger: Trigger<Fired<Shoot>>,
     mut commands: Commands,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     time: Res<Time>,
@@ -236,7 +207,6 @@ pub(crate) fn shoot_weapon(
             &PlayerId,
             &Transform,
             &ColorComponent,
-            &mut ActionState<PlayerActions>,
             &mut Weapon,
             &WeaponType,
             Option<&ControlledBy>,
@@ -249,35 +219,33 @@ pub(crate) fn shoot_weapon(
     let tick = timeline.tick();
     let tick_duration = Duration::from_secs_f64(1.0 / 64.0); // Assuming 64 Hz fixed timestep
 
-    for (id, transform, color, action, mut weapon, weapon_type, controlled_by) in player_query.iter_mut() {
+    if let Ok((id, transform, color, mut weapon, weapon_type, controlled_by)) = player_query.get_mut(trigger.target()) {
         let is_server = controlled_by.is_some();
 
-        if action.just_pressed(&PlayerActions::Shoot) {
-            // Check fire rate
-            if let Some(last_fire) = weapon.last_fire_tick {
-                let ticks_since_last_fire = tick.0.saturating_sub(last_fire.0);
-                let time_since_last_fire = Duration::from_secs_f64(ticks_since_last_fire as f64 / 64.0);
-                let min_fire_interval = Duration::from_secs_f32(1.0 / weapon.fire_rate);
+        // Check fire rate
+        if let Some(last_fire) = weapon.last_fire_tick {
+            let ticks_since_last_fire = tick.0.saturating_sub(last_fire.0);
+            let time_since_last_fire = Duration::from_secs_f64(ticks_since_last_fire as f64 / 64.0);
+            let min_fire_interval = Duration::from_secs_f32(1.0 / weapon.fire_rate);
 
-                if time_since_last_fire < min_fire_interval {
-                    continue; // Too soon to fire again
-                }
+            if time_since_last_fire < min_fire_interval {
+                return; // Too soon to fire again
             }
+        }
 
-            weapon.last_fire_tick = Some(tick);
+        weapon.last_fire_tick = Some(tick);
 
-            // Handle replication mode before shooting
-            match weapon.projectile_replication_mode {
-                ProjectileReplicationMode::FullEntity => {
-                    shoot_with_full_entity_replication(&mut commands, &timeline, transform, id, color, controlled_by, is_server, weapon_type, &bot_query);
-                },
-                ProjectileReplicationMode::DirectionOnly => {
-                    shoot_with_direction_only_replication(&mut commands, &timeline, transform, id, color, controlled_by, is_server, weapon_type);
-                },
-                ProjectileReplicationMode::RingBuffer => {
-                    shoot_with_ring_buffer_replication(&mut weapon, &timeline, transform, id, weapon_type);
-                },
-            }
+        // Handle replication mode before shooting
+        match weapon.projectile_replication_mode {
+            ProjectileReplicationMode::FullEntity => {
+                shoot_with_full_entity_replication(&mut commands, &timeline, transform, id, color, controlled_by, is_server, weapon_type, &bot_query);
+            },
+            ProjectileReplicationMode::DirectionOnly => {
+                shoot_with_direction_only_replication(&mut commands, &timeline, transform, id, color, controlled_by, is_server, weapon_type);
+            },
+            ProjectileReplicationMode::RingBuffer => {
+                shoot_with_ring_buffer_replication(&mut weapon, &timeline, transform, id, weapon_type);
+            },
         }
     }
 }
@@ -710,7 +678,7 @@ pub(crate) fn simulate_client_projectiles(
 ) {
     let current_tick = timeline.tick();
 
-    for (entity, mut transform, mut velocity, projectile) in query.iter_mut() {
+    for (entity, mut transform, velocity, projectile) in query.iter_mut() {
         let ticks_elapsed = current_tick.0.saturating_sub(projectile.spawn_tick.0);
         let time_elapsed = ticks_elapsed as f32 / 64.0; // Assuming 64 Hz fixed timestep
 
@@ -841,5 +809,24 @@ fn despawn_after(
         if despawn_after.0.finished() {
             commands.entity(entity).despawn();
         }
+    }
+}
+
+
+pub fn cycle_replication_mode(
+    trigger: Trigger<Fired<CycleReplicationMode>>,
+    mut client: Query<&mut GameReplicationMode>,
+) {
+    if let Ok(mut replication_mode) = client.get_mut(trigger.target()) {
+        *replication_mode = replication_mode.next();
+    }
+}
+
+pub fn cycle_projectile_mode(
+    trigger: Trigger<Fired<CycleProjectileMode>>,
+    mut client: Query<&mut ProjectileReplicationMode>,
+) {
+    if let Ok(mut projectile_mode) = client.get_mut(trigger.target()) {
+        *projectile_mode = projectile_mode.next();
     }
 }

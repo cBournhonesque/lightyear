@@ -6,11 +6,13 @@ extern crate core;
 
 use bevy::prelude::*;
 use core::time::Duration;
+use lightyear::prelude::{ReplicationSender, SendUpdatesMode};
 use lightyear_examples_common::cli::{Cli, Mode};
-use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
+use lightyear_examples_common::shared::{FIXED_TIMESTEP_HZ, SEND_INTERVAL};
 
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
+use crate::protocol::ClientContext;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
@@ -39,6 +41,7 @@ fn main() {
         #[cfg(feature = "client")]
         Some(Mode::Client { .. }) => {
             app.add_plugins(ExampleClientPlugin);
+            update_client(&mut app);
         }
         #[cfg(feature = "server")]
         Some(Mode::Server) => {
@@ -48,6 +51,7 @@ fn main() {
         Some(Mode::HostClient { client_id }) => {
             app.add_plugins(ExampleClientPlugin);
             app.add_plugins(ExampleServerPlugin);
+            update_client(&mut app);
         }
         _ => {}
     }
@@ -57,4 +61,33 @@ fn main() {
 
     // run the app
     app.run();
+}
+
+#[cfg(feature = "client")]
+fn update_client(app: &mut App) {
+    use lightyear::prelude::client::{Input, InputDelayConfig};
+    use lightyear::prelude::{Client, InputTimeline, Timeline};
+    let client = app
+        .world_mut()
+        .query_filtered::<Entity, With<Client>>()
+        .single(app.world_mut())
+        .unwrap();
+
+    // we need to add a ReplicationSender to the client entity to replicate the Action entities to the server
+    app.world_mut()
+        .entity_mut(client)
+        .insert((
+            ReplicationSender::new(
+                SEND_INTERVAL,
+                SendUpdatesMode::SinceLastAck,
+                false,
+            ),
+        ));
+
+    // // set some input-delay since we are predicting all entities
+    // app.world_mut()
+    //     .entity_mut(client)
+    //     .insert(InputTimeline(Timeline::from(
+    //         Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(0)),
+    //     )));
 }
