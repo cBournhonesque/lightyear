@@ -106,8 +106,8 @@ impl WeaponType {
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum ProjectileReplicationMode {
-    FullEntity,    // Regular entity replication with updates
-    DirectionOnly, // Only initial direction replicated, client simulates
+    FullEntity,    // Spawn a new entity per projectile
+    DirectionOnly, // Only initial direction replicated
     RingBuffer,    // Weapon component with ring buffer
 }
 
@@ -135,7 +135,7 @@ impl ProjectileReplicationMode {
     }
 }
 
-#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect)]
 pub enum GameReplicationMode {
     AllPredicted,           // Current mode: all predicted, server hit detection
     ClientPredictedNoComp,  // Client predicted, enemies interpolated, no lag comp
@@ -205,7 +205,6 @@ impl GameReplicationMode {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Weapon {
     pub weapon_type: WeaponType,
-    pub projectile_replication_mode: ProjectileReplicationMode,
     pub fire_rate: f32, // shots per second
     pub last_fire_tick: Option<Tick>,
     // Ring buffer for projectiles (used with RingBuffer replication mode)
@@ -225,7 +224,6 @@ impl Default for Weapon {
     fn default() -> Self {
         Self {
             weapon_type: WeaponType::default(),
-            projectile_replication_mode: ProjectileReplicationMode::default(),
             fire_rate: 2.0, // 2 shots per second by default
             last_fire_tick: None,
             projectile_buffer: Vec::new(),
@@ -299,6 +297,10 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<(
+            GameReplicationMode,
+            ProjectileReplicationMode
+        )>();
         // inputs
         // Use new input plugin path and default config
         app.add_plugins(InputPlugin::<PlayerContext> {

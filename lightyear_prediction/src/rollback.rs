@@ -1,6 +1,7 @@
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
 use super::{Predicted, PredictionMode, SyncComponent};
+use alloc::vec::Vec;
 use crate::correction::PreviousVisual;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
@@ -180,6 +181,11 @@ pub struct DeterministicPredicted;
 /// It won't be part of rollback checks, and it won't be rolled back to a past state if a rollback happens.
 #[derive(Component)]
 pub struct DisableRollback;
+
+#[derive(Component)]
+/// Marker `Disabled` component inserted on `DisableRollback` entities during rollbacks so
+/// that they are ignored from all queries
+pub struct DisabledDuringRollback;
 
 /// Check if we need to do a rollback.
 /// We do this separately from `prepare_rollback` because even we stop the `check_rollback` function
@@ -778,6 +784,15 @@ pub(crate) fn run_rollback(world: &mut World) {
     //  otherwise setting Time<()> to Time<Fixed> should be enough
     //  as Time<Physics> uses Time<()>'s delta
 
+    // Insert the DisabledDuringRollback component on all entities that have the DisableRollback component
+    let disabled_entities = world
+        .query_filtered::<Entity, With<DisableRollback>>()
+        .iter(world)
+        .collect::<Vec<_>>();
+    disabled_entities.iter().for_each(|entity| {
+        world.entity_mut(*entity).insert(DisabledDuringRollback);
+    });
+
     // Run the fixed update schedule (which should contain ALL
     // predicted/rollback components and resources). This is similar to what
     // `bevy_time::fixed::run_fixed_main_schedule()` does
@@ -799,6 +814,11 @@ pub(crate) fn run_rollback(world: &mut World) {
         let timestep = world.resource::<Time<Fixed>>().timestep();
         world.resource_mut::<Time<Fixed>>().advance_by(timestep);
     }
+
+    // Remove the DisabledDuringRollback component on all entities that have it
+    disabled_entities.into_iter().for_each(|entity| {
+        world.entity_mut(entity).remove::<DisabledDuringRollback>();
+    });
 
     // Restore the fixed time resource.
     // `current_fixed_time` and the fixed time resource in use (e.g. the

@@ -4,11 +4,14 @@ use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use bevy_enhanced_input::action::Action;
-use bevy_enhanced_input::prelude::{ActionValue, Fired};
+use bevy_enhanced_input::prelude::{ActionValue, Completed, Fired, Started};
 use core::ops::DerefMut;
 use core::time::Duration;
+use bevy::platform::collections::HashMap;
 use leafwing_input_manager::prelude::ActionState;
+use lightyear::connection::client::PeerMetadata;
 use lightyear::connection::client_of::ClientOf;
+use lightyear::core::tick::TickDuration;
 use lightyear::prediction::plugin::PredictionSet;
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prediction::prespawn::PreSpawned;
@@ -52,7 +55,7 @@ impl Plugin for SharedPlugin {
             (
                 predicted_bot_movement,
                 simulate_client_projectiles,
-                update_weapon_ring_buffer,
+                // update_weapon_ring_buffer,
                 update_hitscan_visuals,
                 update_physics_projectiles,
                 update_homing_missiles,
@@ -84,7 +87,6 @@ pub(crate) fn rotate_player(
 ) {
     if let Ok((mut rotation, position)) = player.get_mut(trigger.target()) {
         let angle = Vec2::new(0.0, 1.0).angle_to(trigger.value - position.0);
-        info!("angle: {angle:?}");
         // careful to only activate change detection if there was an actual change
         if (angle - rotation.as_radians()).abs() > EPS {
             *rotation = Rotation::from(angle);
@@ -167,7 +169,7 @@ pub(crate) fn fixed_update_log(
 
 /// Handle weapon cycling input
 pub(crate) fn weapon_cycling(
-    trigger: Trigger<Fired<CycleWeapon>>,
+    trigger: Trigger<Completed<CycleWeapon>>,
     mut query: Query<(&mut Weapon, &mut WeaponType)>,
 ) {
     if let Ok((mut weapon, mut weapon_type)) = query.get_mut(trigger.target()) {
@@ -188,14 +190,13 @@ pub(crate) fn weapon_cycling(
     }
 }
 
-// Room cycling function is now implemented later in the file with proper room management
-
 /// Main weapon shooting system that handles all weapon types
 pub(crate) fn shoot_weapon(
-    trigger: Trigger<Fired<Shoot>>,
+    trigger: Trigger<Completed<Shoot>>,
     mut commands: Commands,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     time: Res<Time>,
+    tick_duration: Res<TickDuration>,
     query: SpatialQuery,
     mut player_query: Query<
         (
@@ -206,24 +207,18 @@ pub(crate) fn shoot_weapon(
             &WeaponType,
             Option<&ControlledBy>,
         ),
-        (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
+        With<PlayerMarker>,
     >,
-    // Query for potential homing targets
-    bot_query: Query<
-        (Entity, &Transform),
-        (
-            Or<(With<PredictedBot>, With<InterpolatedBot>)>,
-            Without<PlayerMarker>,
-        ),
-    >,
+    client: Query<(&ProjectileReplicationMode, &GameReplicationMode)>,
 ) {
     let tick = timeline.tick();
-    let tick_duration = Duration::from_secs_f64(1.0 / 64.0); // Assuming 64 Hz fixed timestep
+    let tick_duration = tick_duration.0;
 
     if let Ok((id, transform, color, mut weapon, weapon_type, controlled_by)) =
         player_query.get_mut(trigger.target())
     {
         let is_server = controlled_by.is_some();
+        let (projectile_mode, replication_mode) = controlled_by.map_or_else(|| client.single().unwrap(),|c| client.get(c.owner).unwrap());
 
         // Check fire rate
         if let Some(last_fire) = weapon.last_fire_tick {
@@ -239,7 +234,7 @@ pub(crate) fn shoot_weapon(
         weapon.last_fire_tick = Some(tick);
 
         // Handle replication mode before shooting
-        match weapon.projectile_replication_mode {
+        match projectile_mode {
             ProjectileReplicationMode::FullEntity => {
                 shoot_with_full_entity_replication(
                     &mut commands,
@@ -250,7 +245,7 @@ pub(crate) fn shoot_weapon(
                     controlled_by,
                     is_server,
                     weapon_type,
-                    &bot_query,
+                    replication_mode
                 );
             }
             ProjectileReplicationMode::DirectionOnly => {
@@ -262,6 +257,7 @@ pub(crate) fn shoot_weapon(
                     color,
                     controlled_by,
                     is_server,
+                    replication_mode,
                     weapon_type,
                 );
             }
@@ -278,7 +274,7 @@ pub(crate) fn shoot_weapon(
     }
 }
 
-/// Full entity replication - current behavior
+/// Full entity replication: spawn a replicated entity for the projectile
 fn shoot_with_full_entity_replication(
     commands: &mut Commands,
     timeline: &LocalTimeline,
@@ -288,13 +284,7 @@ fn shoot_with_full_entity_replication(
     controlled_by: Option<&ControlledBy>,
     is_server: bool,
     weapon_type: &WeaponType,
-    bot_query: &Query<
-        (Entity, &Transform),
-        (
-            Or<(With<PredictedBot>, With<InterpolatedBot>)>,
-            Without<PlayerMarker>,
-        ),
-    >,
+    replication_mode: &GameReplicationMode
 ) {
     match weapon_type {
         WeaponType::Hitscan => {
@@ -305,6 +295,7 @@ fn shoot_with_full_entity_replication(
                 id,
                 color,
                 controlled_by,
+                replication_mode,
                 false,
             );
         }
@@ -316,43 +307,46 @@ fn shoot_with_full_entity_replication(
                 id,
                 color,
                 controlled_by,
+                replication_mode,
                 is_server,
             );
         }
         WeaponType::Shotgun => {
-            shoot_shotgun(
-                commands,
-                timeline,
-                transform,
-                id,
-                color,
-                controlled_by,
-                is_server,
-            );
+            // shoot_shotgun(
+            //     commands,
+            //     timeline,
+            //     transform,
+            //     id,
+            //     color,
+            //     controlled_by,
+            //     replication_mode,
+            //     is_server,
+            // );
         }
         WeaponType::PhysicsProjectile => {
-            shoot_physics_projectile(
-                commands,
-                timeline,
-                transform,
-                id,
-                color,
-                controlled_by,
-                is_server,
-            );
+            // shoot_physics_projectile(
+            //     commands,
+            //     timeline,
+            //     transform,
+            //     id,
+            //     color,
+            //     controlled_by,
+            //     replication_mode,
+            //     is_server,
+            // );
         }
         WeaponType::HomingMissile => {
-            let target = find_nearest_target(transform, bot_query);
-            shoot_homing_missile(
-                commands,
-                timeline,
-                transform,
-                id,
-                color,
-                controlled_by,
-                is_server,
-                target,
-            );
+            // let target = find_nearest_target(transform);
+            // shoot_homing_missile(
+            //     commands,
+            //     timeline,
+            //     transform,
+            //     id,
+            //     color,
+            //     controlled_by,
+            //     is_server,
+            //     target,
+            // );
         }
     }
 }
@@ -366,6 +360,7 @@ fn shoot_with_direction_only_replication(
     color: &ColorComponent,
     controlled_by: Option<&ControlledBy>,
     is_server: bool,
+    replication_mode: &GameReplicationMode,
     weapon_type: &WeaponType,
 ) {
     let direction = transform.up().as_vec3().truncate();
@@ -387,15 +382,64 @@ fn shoot_with_direction_only_replication(
         player_id: id.0,
     };
 
+    // TODO: instead of replicating an entity; we can just send a one-off message?
+    //  but how to do prediction?
+    // TODO: with entity:
+    //  - prediction: client predicted the SpawnInfo entity and spawned children projectile entities
+    //     if we were mispredicting and the client didn't shoot, then we have to despawn all the predicted projectiles
+    //  - interpolation: ideally the client interpolates by adjusting the position to account for the exact fire tick
+
     if is_server {
-        #[cfg(feature = "server")]
-        commands.spawn((
-            spawn_info,
-            *color,
-            Replicate::to_clients(NetworkTarget::All),
-            controlled_by.unwrap().clone(),
-            Name::new("ProjectileSpawn"),
-        ));
+        match replication_mode {
+            GameReplicationMode::AllPredicted => {
+                commands.spawn((
+                    spawn_info,
+                    *color,
+                    Replicate::to_clients(NetworkTarget::All),
+                    PredictionTarget::to_clients(NetworkTarget::All),
+                    controlled_by.unwrap().clone(),
+                    PreSpawned::default(),
+                    Name::new("ProjectileSpawn"),
+                ));
+            }
+            GameReplicationMode::ClientPredictedNoComp => {
+                commands.spawn((
+                    spawn_info,
+                    *color,
+                    Replicate::to_clients(NetworkTarget::All),
+                    PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
+                    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    PreSpawned::default(),
+                    controlled_by.unwrap().clone(),
+                    Name::new("ProjectileSpawn"),
+                ));
+            }
+            GameReplicationMode::ClientPredictedLagComp => {
+                commands.spawn((
+                    spawn_info,
+                    *color,
+                    Replicate::to_clients(NetworkTarget::All),
+                    PredictionTarget::to_clients(NetworkTarget::All),
+                    controlled_by.unwrap().clone(),
+                    PreSpawned::default(),
+                    Name::new("ProjectileSpawn"),
+                ));
+            }
+            GameReplicationMode::ClientSideHitDetection => {
+                commands.spawn((
+                    spawn_info,
+                    *color,
+                    Replicate::to_clients(NetworkTarget::All),
+                    PredictionTarget::to_clients(NetworkTarget::All),
+                    controlled_by.unwrap().clone(),
+                    PreSpawned::default(),
+                    Name::new("ProjectileSpawn"),
+                ));
+            }
+            GameReplicationMode::AllInterpolated => {}
+            GameReplicationMode::OnlyInputsReplicated => {}
+        }
+
     } else {
         // Client creates the projectile immediately for prediction
         create_client_projectile(commands, &spawn_info, color);
@@ -427,6 +471,20 @@ fn shoot_with_ring_buffer_replication(
     }
 }
 
+#[derive(Component)]
+pub struct ClientHitDetection;
+
+
+// fn hitscan_hit_detection(
+//     mut commands: Commands,
+//     players: Query<&Position, With<PlayerMarker>>,
+//     mut query: Query<(&mut Transform, &mut LinearVelocity, &mut HitscanVisual,  ClientHitDetection)>,
+// ) {
+//     for (mut transform, mut linear_velocity, mut hitscan_visual, mut client_hit_detection) in query.iter_mut() {
+
+// }
+
+
 fn shoot_hitscan(
     commands: &mut Commands,
     timeline: &LocalTimeline,
@@ -434,6 +492,7 @@ fn shoot_hitscan(
     id: &PlayerId,
     color: &ColorComponent,
     controlled_by: Option<&ControlledBy>,
+    replication_mode: &GameReplicationMode,
     slow_visuals: bool,
 ) {
     let is_server = controlled_by.is_some();
@@ -455,18 +514,71 @@ fn shoot_hitscan(
         Name::new("HitscanVisual"),
     );
 
-    if is_server {
-        #[cfg(feature = "server")]
-        commands.spawn((
-            visual_bundle,
-            Replicate::to_clients(NetworkTarget::All),
-            controlled_by.unwrap().clone(),
-        ));
-    } else {
-        commands.spawn(visual_bundle);
-    }
 
-    // TODO: Implement actual hit detection for hitscan
+    if is_server {
+        match replication_mode {
+            GameReplicationMode::AllPredicted => {
+                // clients predict other clients using their inputs
+                // TODO: how does it work for shots fired by others?
+            },
+            GameReplicationMode::ClientPredictedNoComp => {
+                commands.spawn((
+                    visual_bundle,
+                    // no need to replicate to the shooting player since they are predicting their shot
+                    Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                ));
+                // TODO: do hit detection without lag comp
+
+            },
+            GameReplicationMode::ClientPredictedLagComp  => {
+                commands.spawn((
+                    visual_bundle,
+                    // no need to replicate to the shooting player since they are predicting their shot
+                    Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                ));
+                // TODO: do hit detection with lag comp
+            }
+            GameReplicationMode::ClientSideHitDetection => {
+                commands.spawn((
+                    visual_bundle,
+                    // no need to replicate to the shooting player since they are predicting their shot
+                    Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    ClientHitDetection,
+                ));
+                // TODO: client detects hits for the bullets they fire and then send message to the server
+            }
+            GameReplicationMode::AllInterpolated => {
+                commands.spawn((
+                    visual_bundle,
+                    Replicate::to_clients(NetworkTarget::All)
+                ));
+            }
+            GameReplicationMode::OnlyInputsReplicated => {}
+        }
+    } else {
+        // Visuals are purely client-side
+
+        match replication_mode {
+            GameReplicationMode::AllPredicted => {
+                // should we predict other clients shooting?
+                commands.spawn(visual_bundle);
+            },
+            GameReplicationMode::ClientPredictedNoComp | GameReplicationMode::ClientPredictedLagComp  => {
+                commands.spawn(visual_bundle);
+            }
+            GameReplicationMode::ClientSideHitDetection => {
+                commands.spawn(visual_bundle);
+                // do hit detection
+            }
+            GameReplicationMode::AllInterpolated => {
+                // we don't spawn the visuals, it will be replicated to us
+            }
+            GameReplicationMode::OnlyInputsReplicated => {
+                // do hit detection
+                commands.spawn(visual_bundle);
+            }
+        }
+    }
 }
 
 fn shoot_linear_projectile(
@@ -476,6 +588,7 @@ fn shoot_linear_projectile(
     id: &PlayerId,
     color: &ColorComponent,
     controlled_by: Option<&ControlledBy>,
+    replication_mode: &GameReplicationMode,
     is_server: bool,
 ) {
     let bullet_transform = transform.clone();
@@ -490,18 +603,74 @@ fn shoot_linear_projectile(
     );
 
     if is_server {
-        #[cfg(feature = "server")]
-        commands.spawn((
-            bullet_bundle,
-            PreSpawned::default(),
-            DespawnAfter(Timer::new(Duration::from_secs(3), TimerMode::Once)),
-            Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
-            InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
-            controlled_by.unwrap().clone(),
-        ));
+        match replication_mode {
+            GameReplicationMode::AllPredicted => {}
+            GameReplicationMode::ClientPredictedNoComp => {
+                commands.spawn((
+                    bullet_bundle,
+                    PreSpawned::default(),
+                    DespawnAfter(Timer::new(Duration::from_secs(3), TimerMode::Once)),
+                    Replicate::to_clients(NetworkTarget::All),
+                    PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
+                    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    controlled_by.unwrap().clone(),
+                ));
+                // TODO: hit detection
+            }
+            GameReplicationMode::ClientPredictedLagComp => {
+                commands.spawn((
+                    bullet_bundle,
+                    PreSpawned::default(),
+                    DespawnAfter(Timer::new(Duration::from_secs(3), TimerMode::Once)),
+                    Replicate::to_clients(NetworkTarget::All),
+                    PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
+                    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    controlled_by.unwrap().clone(),
+                ));
+                // TODO: hit detection
+            }
+            GameReplicationMode::ClientSideHitDetection => {
+                commands.spawn((
+                    bullet_bundle,
+                    PreSpawned::default(),
+                    DespawnAfter(Timer::new(Duration::from_secs(3), TimerMode::Once)),
+                    Replicate::to_clients(NetworkTarget::All),
+                    PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
+                    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    controlled_by.unwrap().clone(),
+                ));
+            }
+            GameReplicationMode::AllInterpolated => {
+                commands.spawn((
+                    bullet_bundle,
+                    DespawnAfter(Timer::new(Duration::from_secs(3), TimerMode::Once)),
+                    Replicate::to_clients(NetworkTarget::All),
+                    InterpolationTarget::to_clients(NetworkTarget::All),
+                    controlled_by.unwrap().clone(),
+                ));
+            }
+            GameReplicationMode::OnlyInputsReplicated => {}
+        }
     } else {
-        commands.spawn((bullet_bundle, PreSpawned::default()));
+        match replication_mode {
+            GameReplicationMode::AllPredicted => {
+                // should we predict other clients shooting?
+                commands.spawn((bullet_bundle, PreSpawned::default()));
+            },
+            GameReplicationMode::ClientPredictedNoComp | GameReplicationMode::ClientPredictedLagComp  => {
+                commands.spawn((bullet_bundle, PreSpawned::default()));
+            }
+            GameReplicationMode::ClientSideHitDetection => {
+                commands.spawn((bullet_bundle, PreSpawned::default()));
+                // do hit detection
+            }
+            GameReplicationMode::AllInterpolated => {
+                // we don't spawn anything, it will be replicated to us
+            }
+            GameReplicationMode::OnlyInputsReplicated => {
+                commands.spawn((bullet_bundle, DeterministicPredicted));
+            }
+        }
     }
 }
 
@@ -512,6 +681,7 @@ fn shoot_shotgun(
     id: &PlayerId,
     color: &ColorComponent,
     controlled_by: Option<&ControlledBy>,
+    replication_mode: &GameReplicationMode,
     is_server: bool,
 ) {
     let pellet_count = 8;
@@ -563,6 +733,7 @@ fn shoot_physics_projectile(
     id: &PlayerId,
     color: &ColorComponent,
     controlled_by: Option<&ControlledBy>,
+    replication_mode: &GameReplicationMode,
     is_server: bool,
 ) {
     let bullet_transform = transform.clone();
@@ -808,13 +979,11 @@ pub(crate) fn update_weapon_ring_buffer(
         ),
         With<PlayerMarker>,
     >,
+
 ) {
     let current_tick = timeline.tick();
 
     for (mut weapon, player_id, color, controlled_by) in query.iter_mut() {
-        if weapon.projectile_replication_mode != ProjectileReplicationMode::RingBuffer {
-            continue;
-        }
 
         // Process projectiles that should be spawned based on their tick
         let mut projectiles_to_spawn = Vec::new();
@@ -904,12 +1073,12 @@ struct DespawnAfter(pub Timer);
 /// Resource to track room entities for each replication mode
 #[derive(Resource)]
 pub struct Rooms {
-    pub rooms: Vec<Entity>, // One room per GameReplicationMode
+    pub rooms: HashMap<GameReplicationMode, Entity>,
 }
 
 impl Default for Rooms {
     fn default() -> Self {
-        Self { rooms: Vec::new() }
+        Self { rooms: HashMap::default() }
     }
 }
 
@@ -928,19 +1097,21 @@ fn despawn_after(
 }
 
 pub fn cycle_replication_mode(
-    trigger: Trigger<Fired<CycleReplicationMode>>,
+    trigger: Trigger<Completed<CycleReplicationMode>>,
     mut client: Query<&mut GameReplicationMode>,
 ) {
     if let Ok(mut replication_mode) = client.get_mut(trigger.target()) {
         *replication_mode = replication_mode.next();
+        info!("Done cycling replication mode to {:?}. Entity: {:?}", replication_mode, trigger.target());
     }
 }
 
 pub fn cycle_projectile_mode(
-    trigger: Trigger<Fired<CycleProjectileMode>>,
+    trigger: Trigger<Completed<CycleProjectileMode>>,
     mut client: Query<&mut ProjectileReplicationMode>,
 ) {
     if let Ok(mut projectile_mode) = client.get_mut(trigger.target()) {
         *projectile_mode = projectile_mode.next();
+        info!("Done cycling projectile mode to {:?}. Entity: {:?}", projectile_mode, trigger.target());
     }
 }
