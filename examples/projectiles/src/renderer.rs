@@ -30,7 +30,15 @@ impl Plugin for ExampleRendererPlugin {
 
         #[cfg(feature = "client")]
         {
-            app.add_systems(Update, (display_score, display_weapon_info, render_hitscan_lines, display_modes));
+            app.add_systems(
+                Update,
+                (
+                    display_score,
+                    display_weapon_info,
+                    render_hitscan_lines,
+                    display_modes,
+                ),
+            );
         }
 
         #[cfg(feature = "server")]
@@ -108,15 +116,12 @@ fn display_weapon_info(
 }
 
 #[cfg(feature = "client")]
-fn render_hitscan_lines(
-    query: Query<(&HitscanVisual, &ColorComponent)>,
-    mut gizmos: Gizmos,
-) {
+fn render_hitscan_lines(query: Query<(&HitscanVisual, &ColorComponent)>, mut gizmos: Gizmos) {
     for (visual, color) in query.iter() {
         let progress = visual.lifetime / visual.max_lifetime;
         let alpha = (1.0 - progress).max(0.0);
         let line_color = color.0.with_alpha(alpha);
-        
+
         gizmos.line_2d(visual.start, visual.end, line_color);
     }
 }
@@ -135,10 +140,14 @@ fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut
 #[cfg(feature = "client")]
 fn display_modes(
     client: Single<(&GameReplicationMode, &ProjectileReplicationMode), With<Client>>,
-    mut text: Single<&mut Text, With<ModeText>>
+    mut text: Single<&mut Text, With<ModeText>>,
 ) {
     let (replication_mode, projectile_mode) = client.into_inner();
-    text.0 = format!("ReplicationMode: {:?}, ProjectileMode: {:?}", replication_mode.name(), projectile_mode.name());
+    text.0 = format!(
+        "ReplicationMode: {:?}, ProjectileMode: {:?}",
+        replication_mode.name(),
+        projectile_mode.name()
+    );
 }
 
 /// Convenient for filter for entities that should be visible
@@ -263,12 +272,11 @@ fn add_hitscan_visual(
 ) {
     if let Ok((visual, color)) = query.get(trigger.target()) {
         // For now, we'll use gizmos to draw the line in a separate system
-        // This is a simple implementation; in a real game you might want 
+        // This is a simple implementation; in a real game you might want
         // more sophisticated line rendering
-        commands.entity(trigger.target()).insert((
-            Visibility::default(),
-            Name::new("HitscanLine"),
-        ));
+        commands
+            .entity(trigger.target())
+            .insert((Visibility::default(), Name::new("HitscanLine")));
     }
 }
 
@@ -283,7 +291,7 @@ fn add_physics_projectile_visuals(
     if let Ok((color, interpolated)) = query.get(trigger.target()) {
         // Make physics projectiles slightly larger and more orange
         let physics_color = Color::srgb(1.0, 0.5, 0.0); // Orange color for physics projectiles
-        
+
         commands.entity(trigger.target()).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
@@ -313,14 +321,14 @@ fn add_homing_missile_visuals(
     if let Ok((color, interpolated)) = query.get(trigger.target()) {
         // Make homing missiles red and triangle-shaped
         let missile_color = Color::srgb(1.0, 0.0, 0.0); // Red color for missiles
-        
+
         // Create a triangle mesh for the missile
         let triangle = Triangle2d::new(
-            Vec2::new(0.0, BULLET_SIZE * 2.0),   // Top point
+            Vec2::new(0.0, BULLET_SIZE * 2.0),     // Top point
             Vec2::new(-BULLET_SIZE, -BULLET_SIZE), // Bottom left
             Vec2::new(BULLET_SIZE, -BULLET_SIZE),  // Bottom right
         );
-        
+
         commands.entity(trigger.target()).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(triangle))),

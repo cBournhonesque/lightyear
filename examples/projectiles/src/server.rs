@@ -7,6 +7,7 @@ use bevy::time::Stopwatch;
 use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
+use lightyear::core::tick::TickDuration;
 use lightyear::crossbeam::CrossbeamIo;
 use lightyear::interpolation::plugin::InterpolationDelay;
 use lightyear::netcode::NetcodeClient;
@@ -18,7 +19,6 @@ use lightyear_avian2d::prelude::{
 use lightyear_examples_common::cli::new_headless_app;
 use lightyear_examples_common::shared::{SEND_INTERVAL, SERVER_ADDR, SHARED_SETTINGS};
 use rand::random;
-use lightyear::core::tick::TickDuration;
 
 pub struct ExampleServerPlugin;
 
@@ -30,17 +30,22 @@ impl Plugin for ExampleServerPlugin {
         app.init_resource::<Rooms>();
 
         app.add_plugins(LagCompensationPlugin);
-        app.add_systems(Startup, (
-            // spawn_bots,
-            setup_replication_rooms
-        ));
+        app.add_systems(
+            Startup,
+            (
+                // spawn_bots,
+                setup_replication_rooms
+            ),
+        );
         app.add_observer(handle_new_client);
         app.add_observer(spawn_player);
         // the lag compensation systems need to run after LagCompensationSet::UpdateHistory
-        app.add_systems(FixedUpdate, (
-            interpolated_bot_movement,
-            // room_cycling)
-            )
+        app.add_systems(
+            FixedUpdate,
+            (
+                interpolated_bot_movement,
+                // room_cycling)
+            ),
         );
         app.add_systems(
             PhysicsSchedule,
@@ -56,21 +61,15 @@ impl Plugin for ExampleServerPlugin {
 }
 
 pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
-    commands
-        .entity(trigger.target())
-        .insert((
-            ReplicationSender::new(
-                SEND_INTERVAL,
-                SendUpdatesMode::SinceLastAck,
-                false,
-            ),
-            // We need a ReplicationReceiver on the server side because the Action entities are spawned
-            // on the client and replicated to the server.
-            ReplicationReceiver::default(),
-            Name::from("ClientOf"),
-            // the context needs to be inserted on both the server and client
-            ClientContext,
-        ));
+    commands.entity(trigger.target()).insert((
+        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        // We need a ReplicationReceiver on the server side because the Action entities are spawned
+        // on the client and replicated to the server.
+        ReplicationReceiver::default(),
+        Name::from("ClientOf"),
+        // the context needs to be inserted on both the server and client
+        ClientContext,
+    ));
 }
 
 // Replicate the pre-spawned entities back to the client
@@ -97,51 +96,40 @@ pub(crate) fn spawn_player(
     for (i, room) in rooms.rooms.iter().enumerate() {
         // start by adding the player to the first room
         if i == 0 {
-            commands.entity(*room).trigger(RoomEvent::AddSender(trigger.target()));
+            commands
+                .entity(*room)
+                .trigger(RoomEvent::AddSender(trigger.target()));
         }
         let player = player_bundle(*room, client_id, sender);
         let player_entity = match GameReplicationMode::from_room_id(i) {
             GameReplicationMode::AllPredicted => {
-                commands.spawn((
-                    player,
-                    PredictionTarget::to_clients(NetworkTarget::All),
-                ))
+                commands.spawn((player, PredictionTarget::to_clients(NetworkTarget::All)))
             }
-            GameReplicationMode::ClientPredictedNoComp => {
-                commands.spawn((
-                    player,
-                    PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
-                    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-                ))
-            }
-            GameReplicationMode::ClientPredictedLagComp => {
-                commands.spawn((
-                    player,
-                    PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
-                    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-                ))
-            }
-            GameReplicationMode::ClientSideHitDetection => {
-                commands.spawn((
-                    player,
-                    PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
-                    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-                ))
-            }
+            GameReplicationMode::ClientPredictedNoComp => commands.spawn((
+                player,
+                PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+                InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+            )),
+            GameReplicationMode::ClientPredictedLagComp => commands.spawn((
+                player,
+                PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+                InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+            )),
+            GameReplicationMode::ClientSideHitDetection => commands.spawn((
+                player,
+                PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+                InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+            )),
             GameReplicationMode::AllInterpolated => {
-                commands.spawn((
-                    player,
-                    InterpolationTarget::to_clients(NetworkTarget::All),
-                ))
+                commands.spawn((player, InterpolationTarget::to_clients(NetworkTarget::All)))
             }
-            GameReplicationMode::OnlyInputsReplicated => {
-                commands.spawn(
-                    player
-                )
-            }
-        }.id();
+            GameReplicationMode::OnlyInputsReplicated => commands.spawn(player),
+        }
+        .id();
         info!("Spawning player {player_entity:?} for room: {room:?}");
-        commands.entity(*room).trigger(RoomEvent::AddEntity(player_entity));
+        commands
+            .entity(*room)
+            .trigger(RoomEvent::AddEntity(player_entity));
     }
 }
 
@@ -308,20 +296,18 @@ fn interpolated_bot_movement(
     });
 }
 
-
 /// Setup rooms for each replication mode on startup
-fn setup_replication_rooms(
-    mut commands: Commands,
-    mut rooms: ResMut<Rooms>,
-) {
+fn setup_replication_rooms(mut commands: Commands, mut rooms: ResMut<Rooms>) {
     // Create one room for each GameReplicationMode (6 rooms total)
     for i in 0..6 {
         {
             let replication_mode = GameReplicationMode::from_room_id(i);
-            let room_entity = commands.spawn((
-                Room::default(),
-                Name::new(format!("Room{}", replication_mode.name())),
-            )).id();
+            let room_entity = commands
+                .spawn((
+                    Room::default(),
+                    Name::new(format!("Room{}", replication_mode.name())),
+                ))
+                .id();
             rooms.rooms.push(room_entity);
         }
     }
@@ -390,14 +376,14 @@ fn spawn_bot_app(
     trigger: Trigger<SpawnBot>,
     tick_duration: Res<TickDuration>,
     server: Single<Entity, With<Server>>,
-    mut commands: Commands
+    mut commands: Commands,
 ) {
     let (crossbeam_client, crossbeam_server) = CrossbeamIo::new_pair();
 
     let mut app = new_headless_app();
-    app.add_plugins(
-        lightyear::prelude::client::ClientPlugins { tick_duration: tick_duration.0 }
-    );
+    app.add_plugins(lightyear::prelude::client::ClientPlugins {
+        tick_duration: tick_duration.0,
+    });
 
     let client_id = rand::random::<u64>();
     let auth = Authentication::Manual {
@@ -407,28 +393,29 @@ fn spawn_bot_app(
         protocol_id: SHARED_SETTINGS.protocol_id,
     };
 
-    app
-        .world_mut()
-        .spawn((
-            Client::default(),
-            // Send pings every frame, so that the Acks are sent every frame
-            PingManager::new(PingConfig {
-                ping_interval: Duration::default(),
-            }),
-            ReplicationReceiver::default(),
-            NetcodeClient::new(auth, lightyear::netcode::client_plugin::NetcodeConfig::default()).unwrap(),
-            crossbeam_client,
-            PredictionManager::default(),
-            InterpolationManager::default(),
-        ));
+    app.world_mut().spawn((
+        Client::default(),
+        // Send pings every frame, so that the Acks are sent every frame
+        PingManager::new(PingConfig {
+            ping_interval: Duration::default(),
+        }),
+        ReplicationReceiver::default(),
+        NetcodeClient::new(
+            auth,
+            lightyear::netcode::client_plugin::NetcodeConfig::default(),
+        )
+        .unwrap(),
+        crossbeam_client,
+        PredictionManager::default(),
+        InterpolationManager::default(),
+    ));
     let server = server.into_inner();
-    commands
-        .spawn((
-            LinkOf { server },
-            ClientOf,
-            BotClient,
-            crossbeam_server,
-            ReplicationSender::default(),
+    commands.spawn((
+        LinkOf { server },
+        ClientOf,
+        BotClient,
+        crossbeam_server,
+        ReplicationSender::default(),
     ));
     let mut bot_app = BotApp(app);
     std::thread::spawn(move || {

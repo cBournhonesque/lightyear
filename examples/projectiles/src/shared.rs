@@ -3,10 +3,10 @@ use avian2d::PhysicsPlugins;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
-use core::ops::DerefMut;
-use core::time::Duration;
 use bevy_enhanced_input::action::Action;
 use bevy_enhanced_input::prelude::{ActionValue, Fired};
+use core::ops::DerefMut;
+use core::time::Duration;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::prediction::plugin::PredictionSet;
@@ -56,7 +56,7 @@ impl Plugin for SharedPlugin {
                 update_hitscan_visuals,
                 update_physics_projectiles,
                 update_homing_missiles,
-            )
+            ),
         );
         // both client and server need physics
         // (the client also needs the physics plugin to be able to compute predicted bullet hits)
@@ -92,10 +92,7 @@ pub(crate) fn rotate_player(
     }
 }
 
-pub(crate) fn move_player(
-    trigger: Trigger<Fired<MovePlayer>>,
-    mut player: Query<&mut Position>,
-) {
+pub(crate) fn move_player(trigger: Trigger<Fired<MovePlayer>>, mut player: Query<&mut Position>) {
     const PLAYER_MOVE_SPEED: f32 = 10.0;
     if let Ok(mut position) = player.get_mut(trigger.target()) {
         let value = trigger.value;
@@ -113,8 +110,6 @@ pub(crate) fn move_player(
         }
     }
 }
-
-
 
 fn predicted_bot_movement(
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
@@ -214,12 +209,20 @@ pub(crate) fn shoot_weapon(
         (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
     >,
     // Query for potential homing targets
-    bot_query: Query<(Entity, &Transform), (Or<(With<PredictedBot>, With<InterpolatedBot>)>, Without<PlayerMarker>)>,
+    bot_query: Query<
+        (Entity, &Transform),
+        (
+            Or<(With<PredictedBot>, With<InterpolatedBot>)>,
+            Without<PlayerMarker>,
+        ),
+    >,
 ) {
     let tick = timeline.tick();
     let tick_duration = Duration::from_secs_f64(1.0 / 64.0); // Assuming 64 Hz fixed timestep
 
-    if let Ok((id, transform, color, mut weapon, weapon_type, controlled_by)) = player_query.get_mut(trigger.target()) {
+    if let Ok((id, transform, color, mut weapon, weapon_type, controlled_by)) =
+        player_query.get_mut(trigger.target())
+    {
         let is_server = controlled_by.is_some();
 
         // Check fire rate
@@ -238,14 +241,39 @@ pub(crate) fn shoot_weapon(
         // Handle replication mode before shooting
         match weapon.projectile_replication_mode {
             ProjectileReplicationMode::FullEntity => {
-                shoot_with_full_entity_replication(&mut commands, &timeline, transform, id, color, controlled_by, is_server, weapon_type, &bot_query);
-            },
+                shoot_with_full_entity_replication(
+                    &mut commands,
+                    &timeline,
+                    transform,
+                    id,
+                    color,
+                    controlled_by,
+                    is_server,
+                    weapon_type,
+                    &bot_query,
+                );
+            }
             ProjectileReplicationMode::DirectionOnly => {
-                shoot_with_direction_only_replication(&mut commands, &timeline, transform, id, color, controlled_by, is_server, weapon_type);
-            },
+                shoot_with_direction_only_replication(
+                    &mut commands,
+                    &timeline,
+                    transform,
+                    id,
+                    color,
+                    controlled_by,
+                    is_server,
+                    weapon_type,
+                );
+            }
             ProjectileReplicationMode::RingBuffer => {
-                shoot_with_ring_buffer_replication(&mut weapon, &timeline, transform, id, weapon_type);
-            },
+                shoot_with_ring_buffer_replication(
+                    &mut weapon,
+                    &timeline,
+                    transform,
+                    id,
+                    weapon_type,
+                );
+            }
         }
     }
 }
@@ -260,25 +288,72 @@ fn shoot_with_full_entity_replication(
     controlled_by: Option<&ControlledBy>,
     is_server: bool,
     weapon_type: &WeaponType,
-    bot_query: &Query<(Entity, &Transform), (Or<(With<PredictedBot>, With<InterpolatedBot>)>, Without<PlayerMarker>)>,
+    bot_query: &Query<
+        (Entity, &Transform),
+        (
+            Or<(With<PredictedBot>, With<InterpolatedBot>)>,
+            Without<PlayerMarker>,
+        ),
+    >,
 ) {
     match weapon_type {
         WeaponType::Hitscan => {
-            shoot_hitscan(commands, timeline, transform, id, color, controlled_by, false);
-        },
+            shoot_hitscan(
+                commands,
+                timeline,
+                transform,
+                id,
+                color,
+                controlled_by,
+                false,
+            );
+        }
         WeaponType::LinearProjectile => {
-            shoot_linear_projectile(commands, timeline, transform, id, color, controlled_by, is_server);
-        },
+            shoot_linear_projectile(
+                commands,
+                timeline,
+                transform,
+                id,
+                color,
+                controlled_by,
+                is_server,
+            );
+        }
         WeaponType::Shotgun => {
-            shoot_shotgun(commands, timeline, transform, id, color, controlled_by, is_server);
-        },
+            shoot_shotgun(
+                commands,
+                timeline,
+                transform,
+                id,
+                color,
+                controlled_by,
+                is_server,
+            );
+        }
         WeaponType::PhysicsProjectile => {
-            shoot_physics_projectile(commands, timeline, transform, id, color, controlled_by, is_server);
-        },
+            shoot_physics_projectile(
+                commands,
+                timeline,
+                transform,
+                id,
+                color,
+                controlled_by,
+                is_server,
+            );
+        }
         WeaponType::HomingMissile => {
             let target = find_nearest_target(transform, bot_query);
-            shoot_homing_missile(commands, timeline, transform, id, color, controlled_by, is_server, target);
-        },
+            shoot_homing_missile(
+                commands,
+                timeline,
+                transform,
+                id,
+                color,
+                controlled_by,
+                is_server,
+                target,
+            );
+        }
     }
 }
 
@@ -443,7 +518,8 @@ fn shoot_shotgun(
     let spread_angle = 0.3; // 30 degrees spread
 
     for i in 0..pellet_count {
-        let angle_offset = (i as f32 - (pellet_count - 1) as f32 / 2.0) * spread_angle / (pellet_count - 1) as f32;
+        let angle_offset =
+            (i as f32 - (pellet_count - 1) as f32 / 2.0) * spread_angle / (pellet_count - 1) as f32;
         let mut pellet_transform = transform.clone();
         pellet_transform.rotate_z(angle_offset);
 
@@ -567,16 +643,30 @@ fn shoot_homing_missile(
 
 fn find_nearest_target(
     transform: &Transform,
-    bot_query: &Query<(Entity, &Transform), (Or<(With<PredictedBot>, With<InterpolatedBot>)>, Without<PlayerMarker>)>,
+    bot_query: &Query<
+        (Entity, &Transform),
+        (
+            Or<(With<PredictedBot>, With<InterpolatedBot>)>,
+            Without<PlayerMarker>,
+        ),
+    >,
 ) -> Option<Entity> {
     let player_pos = transform.translation.truncate();
 
     bot_query
         .iter()
         .min_by(|(_, a_transform), (_, b_transform)| {
-            let a_dist = a_transform.translation.truncate().distance_squared(player_pos);
-            let b_dist = b_transform.translation.truncate().distance_squared(player_pos);
-            a_dist.partial_cmp(&b_dist).unwrap_or(std::cmp::Ordering::Equal)
+            let a_dist = a_transform
+                .translation
+                .truncate()
+                .distance_squared(player_pos);
+            let b_dist = b_transform
+                .translation
+                .truncate()
+                .distance_squared(player_pos);
+            a_dist
+                .partial_cmp(&b_dist)
+                .unwrap_or(std::cmp::Ordering::Equal)
         })
         .map(|(entity, _)| entity)
 }
@@ -614,7 +704,13 @@ pub(crate) fn update_physics_projectiles(
 pub(crate) fn update_homing_missiles(
     time: Res<Time>,
     mut missile_query: Query<(&mut Transform, &mut LinearVelocity, &HomingMissile)>,
-    target_query: Query<&Transform, (Or<(With<PredictedBot>, With<InterpolatedBot>)>, Without<HomingMissile>)>,
+    target_query: Query<
+        &Transform,
+        (
+            Or<(With<PredictedBot>, With<InterpolatedBot>)>,
+            Without<HomingMissile>,
+        ),
+    >,
 ) {
     for (mut missile_transform, mut velocity, homing) in missile_query.iter_mut() {
         if let Some(target_entity) = homing.target_entity {
@@ -674,7 +770,12 @@ fn create_client_projectile(
 pub(crate) fn simulate_client_projectiles(
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     mut commands: Commands,
-    mut query: Query<(Entity, &mut Transform, &mut LinearVelocity, &ClientProjectile)>,
+    mut query: Query<(
+        Entity,
+        &mut Transform,
+        &mut LinearVelocity,
+        &ClientProjectile,
+    )>,
 ) {
     let current_tick = timeline.tick();
 
@@ -683,7 +784,8 @@ pub(crate) fn simulate_client_projectiles(
         let time_elapsed = ticks_elapsed as f32 / 64.0; // Assuming 64 Hz fixed timestep
 
         // Update position based on physics simulation
-        let expected_position = projectile.start_position + projectile.direction * projectile.speed * time_elapsed;
+        let expected_position =
+            projectile.start_position + projectile.direction * projectile.speed * time_elapsed;
         transform.translation = expected_position.extend(0.0);
 
         // Despawn after 3 seconds
@@ -697,7 +799,15 @@ pub(crate) fn simulate_client_projectiles(
 pub(crate) fn update_weapon_ring_buffer(
     mut commands: Commands,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
-    mut query: Query<(&mut Weapon, &PlayerId, &ColorComponent, Option<&ControlledBy>), With<PlayerMarker>>,
+    mut query: Query<
+        (
+            &mut Weapon,
+            &PlayerId,
+            &ColorComponent,
+            Option<&ControlledBy>,
+        ),
+        With<PlayerMarker>,
+    >,
 ) {
     let current_tick = timeline.tick();
 
@@ -722,7 +832,14 @@ pub(crate) fn update_weapon_ring_buffer(
 
         for &index in &projectiles_to_spawn {
             if let Some(projectile_info) = weapon.projectile_buffer.get(index) {
-                spawn_projectile_from_buffer(&mut commands, projectile_info, player_id, color, controlled_by, is_server);
+                spawn_projectile_from_buffer(
+                    &mut commands,
+                    projectile_info,
+                    player_id,
+                    color,
+                    controlled_by,
+                    is_server,
+                );
             }
         }
 
@@ -792,9 +909,7 @@ pub struct Rooms {
 
 impl Default for Rooms {
     fn default() -> Self {
-        Self {
-            rooms: Vec::new(),
-        }
+        Self { rooms: Vec::new() }
     }
 }
 
@@ -811,7 +926,6 @@ fn despawn_after(
         }
     }
 }
-
 
 pub fn cycle_replication_mode(
     trigger: Trigger<Fired<CycleReplicationMode>>,

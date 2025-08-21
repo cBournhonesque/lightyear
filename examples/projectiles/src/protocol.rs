@@ -1,14 +1,14 @@
-use lightyear::input::bei::prelude;
+use crate::shared::color_from_id;
 use avian2d::position::{Position, Rotation};
 use avian2d::prelude::RigidBody;
 use bevy::prelude::*;
+use lightyear::input::bei::prelude;
 use lightyear::input::prelude::InputConfig;
+use lightyear::prelude::input::bei::InputAction;
+use lightyear::prelude::input::bei::*;
 use lightyear::prelude::Channel;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
-use lightyear::prelude::input::bei::InputAction;
-use lightyear::prelude::input::bei::*;
-use crate::shared::color_from_id;
 
 pub const BULLET_SIZE: f32 = 3.0;
 pub const PLAYER_SIZE: f32 = 40.0;
@@ -56,7 +56,6 @@ pub struct Shoot;
 #[action_output(bool)]
 pub struct CycleWeapon;
 
-
 #[derive(Component, Serialize, Deserialize, Reflect, Clone, Debug, PartialEq)]
 pub struct ClientContext;
 
@@ -67,7 +66,6 @@ pub struct CycleProjectileMode;
 #[derive(Debug, InputAction)]
 #[action_output(bool)]
 pub struct CycleReplicationMode;
-
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum WeaponType {
@@ -108,9 +106,9 @@ impl WeaponType {
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum ProjectileReplicationMode {
-    FullEntity,      // Regular entity replication with updates
-    DirectionOnly,   // Only initial direction replicated, client simulates
-    RingBuffer,      // Weapon component with ring buffer
+    FullEntity,    // Regular entity replication with updates
+    DirectionOnly, // Only initial direction replicated, client simulates
+    RingBuffer,    // Weapon component with ring buffer
 }
 
 impl Default for ProjectileReplicationMode {
@@ -139,12 +137,12 @@ impl ProjectileReplicationMode {
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum GameReplicationMode {
-    AllPredicted,              // Current mode: all predicted, server hit detection
-    ClientPredictedNoComp,     // Client predicted, enemies interpolated, no lag comp
-    ClientPredictedLagComp,    // Client predicted, enemies interpolated, with lag comp
-    ClientSideHitDetection,    // Hits computed on client
-    AllInterpolated,           // Everything interpolated with delay
-    OnlyInputsReplicated,      // Everything predicted, only inputs replicated
+    AllPredicted,           // Current mode: all predicted, server hit detection
+    ClientPredictedNoComp,  // Client predicted, enemies interpolated, no lag comp
+    ClientPredictedLagComp, // Client predicted, enemies interpolated, with lag comp
+    ClientSideHitDetection, // Hits computed on client
+    AllInterpolated,        // Everything interpolated with delay
+    OnlyInputsReplicated,   // Everything predicted, only inputs replicated
 }
 
 impl Default for GameReplicationMode {
@@ -157,8 +155,12 @@ impl GameReplicationMode {
     pub fn next(&self) -> Self {
         match self {
             GameReplicationMode::AllPredicted => GameReplicationMode::ClientPredictedNoComp,
-            GameReplicationMode::ClientPredictedNoComp => GameReplicationMode::ClientPredictedLagComp,
-            GameReplicationMode::ClientPredictedLagComp => GameReplicationMode::ClientSideHitDetection,
+            GameReplicationMode::ClientPredictedNoComp => {
+                GameReplicationMode::ClientPredictedLagComp
+            }
+            GameReplicationMode::ClientPredictedLagComp => {
+                GameReplicationMode::ClientSideHitDetection
+            }
             GameReplicationMode::ClientSideHitDetection => GameReplicationMode::AllInterpolated,
             GameReplicationMode::AllInterpolated => GameReplicationMode::OnlyInputsReplicated,
             GameReplicationMode::OnlyInputsReplicated => GameReplicationMode::AllPredicted,
@@ -232,7 +234,6 @@ impl Default for Weapon {
     }
 }
 
-
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub struct PlayerRoom {
     pub room_id: usize,
@@ -292,7 +293,6 @@ pub struct ClientProjectile {
     pub spawn_tick: Tick,
     pub weapon_type: WeaponType,
 }
-
 
 // Protocol
 pub(crate) struct ProtocolPlugin;

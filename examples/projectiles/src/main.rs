@@ -76,13 +76,11 @@ fn update_client(app: &mut App) {
     // we need to add a ReplicationSender to the client entity to replicate the Action entities to the server
     app.world_mut()
         .entity_mut(client)
-        .insert((
-            ReplicationSender::new(
-                SEND_INTERVAL,
-                SendUpdatesMode::SinceLastAck,
-                false,
-            ),
-        ));
+        .insert((ReplicationSender::new(
+            SEND_INTERVAL,
+            SendUpdatesMode::SinceLastAck,
+            false,
+        ),));
 
     // // set some input-delay since we are predicting all entities
     // app.world_mut()

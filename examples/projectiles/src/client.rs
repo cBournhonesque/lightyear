@@ -1,14 +1,14 @@
+use crate::protocol::*;
+use crate::shared;
+use crate::shared::{color_from_id, Rooms};
 use bevy::prelude::*;
-use core::time::Duration;
 use bevy_enhanced_input::action::ActionMock;
 use bevy_enhanced_input::bindings;
+use core::time::Duration;
 use lightyear::input::bei::prelude::*;
 use lightyear::input::client::InputSet;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use crate::protocol::*;
-use crate::shared;
-use crate::shared::{color_from_id, Rooms};
 
 pub struct ExampleClientPlugin;
 
@@ -17,7 +17,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             PreUpdate,
             // mock the action before BEI evaluates it. BEI evaluated actions mocks in FixedPreUpdate
-            update_cursor_state_from_window
+            update_cursor_state_from_window,
         );
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
@@ -71,24 +71,22 @@ pub(crate) fn handle_predicted_spawn(
         commands.spawn((
             ActionOf::<PlayerContext>::new(trigger.target()),
             Action::<MoveCursor>::new(),
-            ActionMock::new(ActionState::Fired, ActionValue::zero(ActionValueDim::Axis2D), MockSpan::Manual),
+            ActionMock::new(
+                ActionState::Fired,
+                ActionValue::zero(ActionValueDim::Axis2D),
+                MockSpan::Manual,
+            ),
             InputMarker::<PlayerContext>::default(),
         ));
         commands.spawn((
             ActionOf::<PlayerContext>::new(trigger.target()),
             Action::<Shoot>::new(),
-            Bindings::spawn_one((
-                Binding::from(KeyCode::Space),
-                Name::from("Binding"),
-            )),
+            Bindings::spawn_one((Binding::from(KeyCode::Space), Name::from("Binding"))),
         ));
         commands.spawn((
             ActionOf::<PlayerContext>::new(trigger.target()),
             Action::<CycleWeapon>::new(),
-            Bindings::spawn_one((
-                Binding::from(KeyCode::KeyQ),
-                Name::from("Binding"),
-            )),
+            Bindings::spawn_one((Binding::from(KeyCode::KeyQ), Name::from("Binding"))),
         ));
     }
 }
@@ -106,25 +104,18 @@ pub(crate) fn handle_interpolated_spawn(
     }
 }
 
-pub(crate) fn add_client_actions(
-    trigger: Trigger<OnAdd, Client>,
-    mut commands: Commands,
-) {
+pub(crate) fn add_client_actions(trigger: Trigger<OnAdd, Client>, mut commands: Commands) {
     // the context needs to be added on both client and server
     commands.entity(trigger.target()).insert(ClientContext);
     commands.spawn((
         ActionOf::<ClientContext>::new(trigger.target()),
         Action::<CycleProjectileMode>::new(),
-        bindings![
-            KeyCode::KeyE,
-        ],
+        bindings![KeyCode::KeyE,],
     ));
     commands.spawn((
         ActionOf::<ClientContext>::new(trigger.target()),
         Action::<CycleReplicationMode>::new(),
-        bindings![
-            KeyCode::KeyR,
-        ],
+        bindings![KeyCode::KeyR,],
     ));
 }
 
