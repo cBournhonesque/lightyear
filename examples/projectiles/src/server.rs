@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use core::ops::DerefMut;
 use core::time::Duration;
+use bevy_enhanced_input::prelude::{Completed, Started};
 use leafwing_input_manager::prelude::*;
 use lightyear::core::tick::TickDuration;
 use lightyear::crossbeam::CrossbeamIo;
@@ -30,15 +31,9 @@ impl Plugin for ExampleServerPlugin {
         app.init_resource::<Rooms>();
 
         app.add_plugins(LagCompensationPlugin);
-        app.add_systems(
-            Startup,
-            (
-                // spawn_bots,
-                setup_replication_rooms
-            ),
-        );
         app.add_observer(handle_new_client);
         app.add_observer(spawn_player);
+        app.add_observer(cycle_replication_mode);
         // the lag compensation systems need to run after LagCompensationSet::UpdateHistory
         app.add_systems(
             FixedUpdate,
@@ -69,6 +64,9 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
         Name::from("ClientOf"),
         // the context needs to be inserted on both the server and client
         ClientContext,
+        // TODO: should we replicate these?
+        GameReplicationMode::default(),
+        ProjectileReplicationMode::default(),
     ));
 }
 
@@ -80,7 +78,7 @@ pub(crate) fn spawn_player(
     trigger: Trigger<OnAdd, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
-    rooms: Res<Rooms>,
+    mut rooms: ResMut<Rooms>,
     replicated_players: Query<
         (Entity, &InitialReplicated),
         (Added<InitialReplicated>, With<PlayerId>),
@@ -93,42 +91,76 @@ pub(crate) fn spawn_player(
     let client_id = client_id.0;
     info!("Spawning player with id: {}", client_id);
 
-    for (i, room) in rooms.rooms.iter().enumerate() {
+    for i in 0..6 {
+        let replication_mode = GameReplicationMode::from_room_id(i);
+        let room = *rooms.rooms.entry(replication_mode)
+            .or_insert_with(|| {
+                 commands
+                    .spawn(
+                    (
+                            Room::default(),
+                            Name::new(format!("Room{}", replication_mode.name())),
+                        )
+                ).id()
+            });
+
         // start by adding the player to the first room
         if i == 0 {
             commands
-                .entity(*room)
+                .entity(room)
                 .trigger(RoomEvent::AddSender(trigger.target()));
         }
-        let player = player_bundle(*room, client_id, sender);
+        let player = player_bundle(room, client_id, sender);
         let player_entity = match GameReplicationMode::from_room_id(i) {
             GameReplicationMode::AllPredicted => {
-                commands.spawn((player, PredictionTarget::to_clients(NetworkTarget::All)))
+                commands.spawn((
+                    player,
+                    PredictionTarget::to_clients(NetworkTarget::All),
+                    GameReplicationMode::AllPredicted,
+                ))
             }
             GameReplicationMode::ClientPredictedNoComp => commands.spawn((
                 player,
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+                GameReplicationMode::ClientPredictedNoComp
             )),
             GameReplicationMode::ClientPredictedLagComp => commands.spawn((
                 player,
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+                GameReplicationMode::ClientPredictedLagComp
             )),
             GameReplicationMode::ClientSideHitDetection => commands.spawn((
                 player,
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+                GameReplicationMode::ClientSideHitDetection
             )),
             GameReplicationMode::AllInterpolated => {
-                commands.spawn((player, InterpolationTarget::to_clients(NetworkTarget::All)))
+                commands.spawn((
+                    player,
+                    InterpolationTarget::to_clients(NetworkTarget::All),
+                    GameReplicationMode::AllInterpolated
+                ))
             }
-            GameReplicationMode::OnlyInputsReplicated => commands.spawn(player),
+            GameReplicationMode::OnlyInputsReplicated => commands.spawn((
+                PlayerContext,
+                Replicate::to_clients(NetworkTarget::All),
+                NetworkVisibility::default(),
+                ControlledBy {
+                    owner: sender,
+                    lifetime: Default::default(),
+                },
+                PlayerMarker,
+                Name::new("Player"),
+                GameReplicationMode::OnlyInputsReplicated
+            )),
         }
         .id();
         info!("Spawning player {player_entity:?} for room: {room:?}");
         commands
-            .entity(*room)
+            .entity(room)
             .trigger(RoomEvent::AddEntity(player_entity));
     }
 }
@@ -296,24 +328,6 @@ fn interpolated_bot_movement(
     });
 }
 
-/// Setup rooms for each replication mode on startup
-fn setup_replication_rooms(mut commands: Commands, mut rooms: ResMut<Rooms>) {
-    // Create one room for each GameReplicationMode (6 rooms total)
-    for i in 0..6 {
-        {
-            let replication_mode = GameReplicationMode::from_room_id(i);
-            let room_entity = commands
-                .spawn((
-                    Room::default(),
-                    Name::new(format!("Room{}", replication_mode.name())),
-                ))
-                .id();
-            rooms.rooms.push(room_entity);
-        }
-    }
-    info!("Created {} replication rooms", rooms.rooms.len());
-}
-
 // /// Handle room cycling input and update room membership
 // pub(crate) fn room_cycling(
 //     mut query: Query<
@@ -370,6 +384,7 @@ impl BotApp {
     }
 }
 
+
 /// On the server, we will create a second app to host a bot that is similar to a real client,
 /// but their inputs are mocked
 fn spawn_bot_app(
@@ -421,4 +436,21 @@ fn spawn_bot_app(
     std::thread::spawn(move || {
         bot_app.run();
     });
+}
+
+
+pub fn cycle_replication_mode(
+    // we use Completed to guarantee that the ReplicationMode hasn't already been switched
+    trigger: Trigger<Started<CycleReplicationMode>>,
+    rooms: Res<Rooms>,
+    mut client: Query<&GameReplicationMode, With<ClientOf>>,
+    mut commands: Commands,
+) {
+    if let Ok(replication_mode) = client.get_mut(trigger.target())
+        && let Some(room) = rooms.rooms.get(replication_mode) {
+        commands.trigger_targets(RoomEvent::RemoveSender(trigger.target()), *room);
+        let next_room = rooms.rooms.get(&replication_mode.next()).unwrap();
+        commands.trigger_targets(RoomEvent::AddSender(trigger.target()), *next_room);
+        info!("Switching client {:?} from room {room:?} to room {next_room:?}", trigger.target());
+    }
 }

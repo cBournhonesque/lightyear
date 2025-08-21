@@ -48,65 +48,91 @@ fn update_cursor_state_from_window(
     }
 }
 
+// TODO: add deterministic Predicted
+
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation
 // - add physics components so that its movement can be predicted
 pub(crate) fn handle_predicted_spawn(
     trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
     mut commands: Commands,
-    mut player_query: Query<&mut ColorComponent, With<Predicted>>,
+    mut player_query: Query<(&mut ColorComponent, &GameReplicationMode), With<Predicted>>,
 ) {
-    if let Ok(mut color) = player_query.get_mut(trigger.target()) {
+    if let Ok((mut color, replication)) = player_query.get_mut(trigger.target()) {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        commands.entity(trigger.target()).insert(PlayerContext);
-        commands.spawn((
-            ActionOf::<PlayerContext>::new(trigger.target()),
-            Action::<MovePlayer>::new(),
-            Bindings::spawn(Cardinal::wasd_keys()),
-        ));
-        commands.spawn((
-            ActionOf::<PlayerContext>::new(trigger.target()),
-            Action::<MoveCursor>::new(),
-            ActionMock::new(
-                ActionState::Fired,
-                ActionValue::zero(ActionValueDim::Axis2D),
-                MockSpan::Manual,
-            ),
-            InputMarker::<PlayerContext>::default(),
-        ));
-        commands.spawn((
-            ActionOf::<PlayerContext>::new(trigger.target()),
-            Action::<Shoot>::new(),
-            Bindings::spawn_one((Binding::from(KeyCode::Space), Name::from("Binding"))),
-        ));
-        commands.spawn((
-            ActionOf::<PlayerContext>::new(trigger.target()),
-            Action::<CycleWeapon>::new(),
-            Bindings::spawn_one((Binding::from(KeyCode::KeyQ), Name::from("Binding"))),
-        ));
+        match replication {
+            GameReplicationMode::AllInterpolated => {},
+            _ => {
+                add_actions(&mut commands, trigger.target());
+            }
+        }
     }
 }
 
 pub(crate) fn handle_interpolated_spawn(
     trigger: Trigger<OnAdd, ColorComponent>,
-    mut interpolated: Query<&mut ColorComponent, Added<Interpolated>>,
+    mut interpolated: Query<(&mut ColorComponent, &GameReplicationMode), Added<Interpolated>>,
+    mut commands: Commands,
 ) {
-    if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
+    if let Ok((mut color, replication_mode)) = interpolated.get_mut(trigger.target()) {
         let hsva = Hsva {
             saturation: 0.1,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
+        if let GameReplicationMode::AllInterpolated = replication_mode {
+            add_actions(&mut commands, trigger.target());
+        }
     }
 }
 
-pub(crate) fn add_client_actions(trigger: Trigger<OnAdd, Client>, mut commands: Commands) {
+fn add_actions(
+    commands: &mut Commands,
+    player: Entity,
+) {
+    commands.entity(player).insert(PlayerContext);
+    commands.spawn((
+        ActionOf::<PlayerContext>::new(player),
+        Action::<MovePlayer>::new(),
+        Bindings::spawn(Cardinal::wasd_keys()),
+    ));
+    commands.spawn((
+        ActionOf::<PlayerContext>::new(player),
+        Action::<MoveCursor>::new(),
+        ActionMock::new(
+            ActionState::Fired,
+            ActionValue::zero(ActionValueDim::Axis2D),
+            MockSpan::Manual,
+        ),
+        InputMarker::<PlayerContext>::default(),
+    ));
+    commands.spawn((
+        ActionOf::<PlayerContext>::new(player),
+        Action::<Shoot>::new(),
+        Bindings::spawn_one((Binding::from(KeyCode::Space), Name::from("Binding"))),
+    ));
+    commands.spawn((
+        ActionOf::<PlayerContext>::new(player),
+        Action::<CycleWeapon>::new(),
+        Bindings::spawn_one((Binding::from(KeyCode::KeyQ), Name::from("Binding"))),
+    ));
+}
+
+// Add components on the Client entity when it connects
+pub(crate) fn add_client_actions(
+    trigger: Trigger<OnAdd, Connected>,
+    mut commands: Commands
+) {
     // the context needs to be added on both client and server
-    commands.entity(trigger.target()).insert(ClientContext);
+    commands.entity(trigger.target()).insert((
+        ClientContext,
+        ProjectileReplicationMode::default(),
+        GameReplicationMode::default(),
+    ));
     commands.spawn((
         ActionOf::<ClientContext>::new(trigger.target()),
         Action::<CycleProjectileMode>::new(),
@@ -118,19 +144,3 @@ pub(crate) fn add_client_actions(trigger: Trigger<OnAdd, Client>, mut commands: 
         bindings![KeyCode::KeyR,],
     ));
 }
-
-// pub fn cycle_replication_mode(
-//     trigger: Trigger<Fired<CycleReplicationMode>>,
-//     client: Single<&mut GameReplicationMode, With<Client>>,
-// ) {
-//     let mut replication_mode = client.into_inner();
-//     *replication_mode = replication_mode.next();
-// }
-//
-// pub fn cycle_projectile_mode(
-//     trigger: Trigger<Fired<CycleProjectileMode>>,
-//     client: Single<&mut ProjectileReplicationMode, With<Client>>,
-// ) {
-//     let mut projectile_mode = client.into_inner();
-//     *projectile_mode = projectile_mode.next();
-// }

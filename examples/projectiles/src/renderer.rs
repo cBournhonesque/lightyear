@@ -5,6 +5,7 @@ use bevy::color::palettes::basic::GREEN;
 use bevy::color::palettes::css::BLUE;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
+use bevy_enhanced_input::prelude::Actions;
 use lightyear::input::bei::prelude::InputMarker;
 use lightyear::interpolation::Interpolated;
 use lightyear::prediction::prespawn::PreSpawned;
@@ -103,7 +104,7 @@ fn display_score(
 #[cfg(feature = "client")]
 fn display_weapon_info(
     mut weapon_text: Single<&mut Text, With<WeaponText>>,
-    weapon_type: Single<&WeaponType, With<InputMarker<PlayerContext>>>,
+    weapon_type: Single<&WeaponType, (With<Actions<PlayerContext>>, With<PlayerMarker>)>,
     client_query: Single<(&ProjectileReplicationMode, &GameReplicationMode), With<Client>>,
 ) {
     let (projectile_mode, replication_mode) = client_query.into_inner();
@@ -170,7 +171,9 @@ pub struct VisibleFilter {
 /// Add visuals to newly spawned players
 fn add_player_visuals(
     trigger: Trigger<OnAdd, PlayerId>,
-    query: Query<(Has<Predicted>, &ColorComponent), (VisibleFilter, Without<BulletMarker>)>,
+    // TODO: make sure that interpolation components are synced together to guarantee
+    //  that interpolation entities are visible
+    query: Query<(Has<Predicted>, &ColorComponent), (VisibleFilter, With<PlayerMarker>)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
