@@ -41,7 +41,7 @@ pub mod prelude {
     pub use crate::registry::{
         PredictionAppRegistrationExt, PredictionRegistrationExt, PredictionRegistry,
     };
-    pub use crate::rollback::{DeterministicPredicted, RollbackSet};
+    pub use crate::rollback::{DeterministicPredicted, DisableRollback, DisabledDuringRollback, RollbackSet};
 
     #[cfg(feature = "server")]
     pub mod server {
