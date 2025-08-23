@@ -4,6 +4,7 @@ use crate::shared::{color_from_id, Rooms};
 use bevy::prelude::*;
 use bevy_enhanced_input::action::ActionMock;
 use bevy_enhanced_input::bindings;
+use lightyear::prediction::rollback::DisableRollback;
 use core::time::Duration;
 use lightyear::input::bei::prelude::*;
 use lightyear::input::client::InputSet;
@@ -24,6 +25,8 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(add_client_actions);
         // app.add_observer(cycle_projectile_mode);
         // app.add_observer(cycle_replication_mode);
+        app.add_systems(RunFixedMainLoop, cycle_replication_mode.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop));
+        app.add_systems(FixedUpdate, cycle_replication_mode_fixed_update);
     }
 }
 
@@ -133,14 +136,39 @@ pub(crate) fn add_client_actions(
         ProjectileReplicationMode::default(),
         GameReplicationMode::default(),
     ));
+    // TODO: we should have a way to spawn Inputs/Actions in Update, where they are not affected by rollback!
     commands.spawn((
         ActionOf::<ClientContext>::new(trigger.target()),
         Action::<CycleProjectileMode>::new(),
+        // we don't want to retrigger this action during rollback
+        DisableRollback,
         bindings![KeyCode::KeyE,],
     ));
     commands.spawn((
         ActionOf::<ClientContext>::new(trigger.target()),
         Action::<CycleReplicationMode>::new(),
+        // we don't want to retrigger this action during rollback
+        DisableRollback,
         bindings![KeyCode::KeyR,],
     ));
+}
+
+pub fn cycle_replication_mode(
+    timeline: Single<(&LocalTimeline, Has<Rollback>)>,
+    action: Single<(Entity, &ActionValue, &ActionEvents), With<Action<CycleReplicationMode>>>,
+) {
+    let (timeline, rollback) = timeline.into_inner();
+    let tick = timeline.tick();
+    let (entity, action_value, action_events) = action.into_inner();
+    info!(?tick, ?rollback, ?entity, "CycleReplicationMode PreUpdate action value: {:?}, events: {:?}", action_value, action_events);
+}
+
+pub fn cycle_replication_mode_fixed_update(
+    timeline: Single<(&LocalTimeline, Has<Rollback>)>,
+    action: Single<(Entity, &ActionValue, &ActionEvents), With<Action<CycleReplicationMode>>>,
+) {
+    let (timeline, rollback) = timeline.into_inner();
+    let tick = timeline.tick();
+    let (entity, action_value, action_events) = action.into_inner();
+    info!(?tick, ?rollback, ?entity, "CycleReplicationMode FixedUpdate action value: {:?}, events: {:?}", action_value, action_events);
 }

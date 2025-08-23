@@ -186,6 +186,7 @@ fn player_bundle(room: Entity, client_id: PeerId, owner: Entity) -> impl Bundle 
         Weapon::default(),
         WeaponType::default(),
         Name::new("Player"),
+        // TODO: add collider
     )
 }
 

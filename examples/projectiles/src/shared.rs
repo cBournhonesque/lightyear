@@ -471,6 +471,20 @@ fn shoot_with_ring_buffer_replication(
     }
 }
 
+#[derive(Component)]
+pub struct ClientHitDetection;
+
+
+// fn hitscan_hit_detection(
+//     mut commands: Commands,
+//     players: Query<&Position, With<PlayerMarker>>,
+//     mut query: Query<(&mut Transform, &mut LinearVelocity, &mut HitscanVisual,  ClientHitDetection)>,
+// ) {
+//     for (mut transform, mut linear_velocity, mut hitscan_visual, mut client_hit_detection) in query.iter_mut() {
+
+// }
+
+
 fn shoot_hitscan(
     commands: &mut Commands,
     timeline: &LocalTimeline,
@@ -529,6 +543,7 @@ fn shoot_hitscan(
                     visual_bundle,
                     // no need to replicate to the shooting player since they are predicting their shot
                     Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    ClientHitDetection,
                 ));
                 // TODO: client detects hits for the bullets they fire and then send message to the server
             }
@@ -1097,5 +1112,6 @@ pub fn cycle_projectile_mode(
 ) {
     if let Ok(mut projectile_mode) = client.get_mut(trigger.target()) {
         *projectile_mode = projectile_mode.next();
+        info!("Done cycling projectile mode to {:?}. Entity: {:?}", projectile_mode, trigger.target());
     }
 }
