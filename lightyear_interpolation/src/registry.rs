@@ -4,12 +4,16 @@ use crate::plugin::{
 };
 use crate::{InterpolationMode, SyncComponent};
 use bevy_ecs::{component::Component, resource::Resource};
+use bevy_ecs::component::ComponentId;
+use bevy_ecs::entity::Entity;
+use bevy_ecs::prelude::World;
 use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
 };
 use bevy_platform::collections::HashMap;
-use lightyear_replication::prelude::ComponentRegistration;
+use lightyear_replication::prelude::{ComponentRegistration, ComponentRegistry};
+use lightyear_replication::registry::buffered::BufferedChanges;
 use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::LerpFn;
 
@@ -76,6 +80,103 @@ impl InterpolationRegistry {
         let interpolation_fn: LerpFn<C> =
             unsafe { core::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
         interpolation_fn(start, end, t)
+    }
+    
+    // TODO: also sync removals!
+    /// Clone the components from the confirmed entity to the interpolated entity
+    /// All the cloned components are inserted at once.
+    pub(crate) fn batch_sync(
+        &self,
+        component_registry: &ComponentRegistry,
+        component_ids: &[ComponentId],
+        confirmed: Entity,
+        predicted: Entity,
+        world: &mut World,
+        buffer: &mut BufferedChanges,
+    ) {
+        // clone each component to be synced into a temporary buffer
+        component_ids.iter().for_each(|component_id| {
+            let kind = component_registry
+                .component_id_to_kind
+                .get(component_id)
+                .unwrap();
+            let interpolated_metadata = self
+                .interpolation_map
+                .get(kind)
+                .expect("the component is not part of the protocol");
+            (interpolated_metadata.buffer_sync)(
+                self,
+                component_registry,
+                confirmed,
+                predicted,
+                world,
+                buffer,
+            );
+        });
+        // insert all the components in the predicted entity
+        if let Ok(mut entity_world_mut) = world.get_entity_mut(predicted) {
+            buffer.apply(&mut entity_world_mut);
+        };
+    }
+
+    /// Sync a component value from the confirmed entity to the interpolated entity
+    fn buffer_sync<C: Component + Clone>(
+        &self,
+        component_registry: &ComponentRegistry,
+        confirmed: Entity,
+        interpolated: Entity,
+        world: &World,
+        buffer: &mut BufferedChanges,
+    ) {
+        let kind = ComponentKind::of::<C>();
+        let interpolation_metadata = self
+            .interpolation_map
+            .get(&kind)
+            .expect("the component is not part of the protocol");
+
+        // NOTE: this is not needed because we have an observer that inserts the History as soon as C is inserted.
+        // // for Full components, also insert a PredictionHistory component
+        // // no need to add any value to it because otherwise it would contain a value with the wrong tick
+        // // since we are running this outside of FixedUpdate
+        // if prediction_metadata.prediction_mode == PredictionMode::Full {
+        //     // if the predicted entity already had a PredictionHistory component (for example
+        //     // if the entity was PreSpawned entity), we don't want to overwrite it.
+        //     if world.get::<PredictionHistory<C>>(predicted).is_none() {
+        //         unsafe {
+        //             self.temp_write_buffer.buffer_insert_raw_ptrs(
+        //                 PredictionHistory::<C>::default(),
+        //                 world
+        //                     .component_id::<PredictionHistory<C>>()
+        //                     .expect("PredictionHistory not registered"),
+        //             )
+        //         };
+        //     }
+        // }
+        
+        // InterpolationMode::Full: we don't want to sync the component directly, but we want to insert the InterpolationHistory
+        //  (we don't want to sync the component value directly because it would be too early; we want to only add the component
+        //   when it interpolates between two updates)
+        // InterpolationMode::Once: 
+
+        
+        // InterpolationMode::Once, we only need to sync it once
+        // InterpolationMode::Simple, every component update will be synced via a separate system
+        if world.get::<C>(interpolated).is_some() {
+            return;
+        }
+        if let Some(value) = world.get::<C>(confirmed) {
+            let mut clone = value.clone();
+            let prediction_entity = world.resource::<PredictionResource>().link_entity;
+            world
+                .get::<PredictionManager>(prediction_entity)
+                .unwrap()
+                .map_entities(&mut clone, component_registry)
+                .unwrap();
+            // SAFETY: the component_id matches the component of type C
+            unsafe {
+                buffer.insert::<C>(clone, world.component_id::<C>().unwrap());
+            };
+        }
     }
 }
 
