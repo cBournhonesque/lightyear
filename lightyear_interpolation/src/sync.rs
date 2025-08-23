@@ -8,9 +8,10 @@ use bevy_ecs::observer::Trigger;
 use bevy_ecs::prelude::{EntityRef, OnInsert, Query, World};
 use bevy_reflect::Reflect;
 use tracing::trace;
-use lightyear_replication::components::Confirmed;
+use lightyear_replication::components::{Confirmed, Replicated};
 use lightyear_replication::prelude::ComponentRegistry;
 use lightyear_replication::registry::buffered::BufferedChanges;
+use crate::InterpolationMode;
 use crate::prelude::InterpolationRegistry;
 
 #[derive(Event, Debug)]
@@ -33,7 +34,7 @@ fn apply_interpolated_sync(world: &mut World) {
             //  might trigger other Observers that might also use the ComponentRegistry
             //  Instead we'll use UnsafeWorldCell since the rest of the world does not modify the registry
             let unsafe_world = world.as_unsafe_world_cell();
-            let prediction_registry =
+            let interpolated_registry =
                 unsafe { unsafe_world.get_resource::<InterpolationRegistry>() }.unwrap();
             let component_registry =
                 unsafe { unsafe_world.get_resource::<ComponentRegistry>() }.unwrap();
@@ -55,7 +56,8 @@ fn apply_interpolated_sync(world: &mut World) {
                 component_registry,
                 &event.components,
                 event.confirmed,
-                event.predicted,
+                event.interpolated,
+                event.manager,
                 world,
                 buffer,
             );
@@ -63,7 +65,7 @@ fn apply_interpolated_sync(world: &mut World) {
     });
 }
 
-/// When the Confirmed component is added, sync components to the Predicted entity
+/// When the Confirmed component is added, sync components to the Interpolated entity
 ///
 /// This is needed in two cases:
 /// - when an entity is replicated, the components are replicated onto the Confirmed entity before the Confirmed
@@ -73,11 +75,11 @@ fn apply_interpolated_sync(world: &mut World) {
 ///
 /// We have some ordering constraints related to syncing hierarchy so we don't want to sync components
 /// immediately here (because the ParentSync component might not be able to get mapped properly since the parent entity
-/// might not be predicted yet). Therefore we send a InterpolatedSyncEvent so that all components can be synced at once.
+/// might not be interpolated yet). Therefore we send a InterpolatedSyncEvent so that all components can be synced at once.
 fn confirmed_added_sync(
     trigger: Trigger<OnInsert, Confirmed>,
     confirmed_query: Query<EntityRef>,
-    prediction_registry: Res<InterpolationRegistry>,
+    interpolation_registry: Res<InterpolationRegistry>,
     component_registry: Res<ComponentRegistry>,
     events: Option<ResMut<Events<InterpolatedSyncEvent>>>,
 ) {
@@ -88,16 +90,17 @@ fn confirmed_added_sync(
     let confirmed = trigger.target();
     let entity_ref = confirmed_query.get(confirmed).unwrap();
     let confirmed_component = entity_ref.get::<Confirmed>().unwrap();
-    let Some(predicted) = confirmed_component.predicted else {
+    let replicated = entity_ref.get::<Replicated>().unwrap();
+    let Some(interpolated) = confirmed_component.interpolated else {
         return;
     };
     let components: Vec<ComponentId> = entity_ref
         .archetype()
         .components()
         .filter(|id| {
-            prediction_registry
-                .get_prediction_mode(*id, &component_registry)
-                .is_ok_and(|mode| mode != PredictionMode::None)
+            interpolation_registry
+                .get_interpolation_mode(*id, &component_registry)
+                .is_ok_and(|mode| mode != InterpolationMode::None)
         })
         .collect();
     if components.is_empty() {
@@ -105,38 +108,39 @@ fn confirmed_added_sync(
     }
     events.send(InterpolatedSyncEvent {
         confirmed,
-        predicted,
+        interpolated,
+        manager: replicated.receiver,
         components,
     });
 }
 
-/// Sync any components that were added to the Confirmed entity onto the Predicted entity
-/// and potentially add a PredictedHistory component
+/// Sync any components that were added to the Confirmed entity onto the Interpolated entity
+/// and potentially add a InterpolatedHistory component
 ///
-/// We use a global observer which will listen to the Insertion of **any** predicted component on any Confirmed entity.
+/// We use a global observer which will listen to the Insertion of **any** interpolated component on any Confirmed entity.
 /// (using observers to react on insertion is more efficient than using the `Added` filter which iterates
 /// through all confirmed archetypes)
 ///
 /// We have some ordering constraints related to syncing hierarchy so we don't want to sync components
 /// immediately here (because the ParentSync component might not be able to get mapped properly since the parent entity
-/// might not be predicted yet). Therefore we send a InterpolatedSyncEvent so that all components can be synced at once.
+/// might not be interpolated yet). Therefore we send a InterpolatedSyncEvent so that all components can be synced at once.
 fn added_on_confirmed_sync(
     // NOTE: we use OnInsert and not OnAdd because the confirmed entity might already have the component (for example if the client transferred authority to server)
     trigger: Trigger<OnInsert>,
-    prediction_registry: Res<InterpolationRegistry>,
+    interpolation_registry: Res<InterpolationRegistry>,
     component_registry: Res<ComponentRegistry>,
-    confirmed_query: Query<&Confirmed>,
+    confirmed_query: Query<(&Confirmed, &Replicated)>,
     events: Option<ResMut<Events<InterpolatedSyncEvent>>>,
 ) {
-    // `events` is None while we are inside the `apply_predicted_sync` system
-    // that shouldn't be an issue because the components are being inserted only on Predicted entities
+    // `events` is None while we are inside the `apply_interpolated_sync` system
+    // that shouldn't be an issue because the components are being inserted only on Interpolated entities
     // so we don't want to react to them
     let Some(mut events) = events else { return };
     // make sure the components were added on the confirmed entity
-    let Ok(confirmed_component) = confirmed_query.get(trigger.target()) else {
+    let Ok((confirmed_component, replicated)) = confirmed_query.get(trigger.target()) else {
         return;
     };
-    let Some(predicted) = confirmed_component.predicted else {
+    let Some(interpolated) = confirmed_component.interpolated else {
         return;
     };
     let confirmed = trigger.target();
@@ -150,16 +154,17 @@ fn added_on_confirmed_sync(
         .components()
         .iter()
         .filter(|id| {
-            prediction_registry
-                .get_prediction_mode(**id, &component_registry)
-                .is_ok_and(|mode| mode != PredictionMode::None)
+            interpolation_registry
+                .get_interpolation_mode(**id, &component_registry)
+                .is_ok_and(|mode| mode != InterpolationMode::None)
         })
         .copied()
         .collect();
 
     events.send(InterpolatedSyncEvent {
         confirmed,
-        predicted,
+        interpolated,
+        manager: replicated.receiver,
         components,
     });
 }

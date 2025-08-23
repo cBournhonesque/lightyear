@@ -14,19 +14,32 @@ use bevy_math::{
 use bevy_platform::collections::HashMap;
 use lightyear_replication::prelude::{ComponentRegistration, ComponentRegistry};
 use lightyear_replication::registry::buffered::BufferedChanges;
-use lightyear_replication::registry::ComponentKind;
+use lightyear_replication::registry::{ComponentError, ComponentKind};
 use lightyear_replication::registry::registry::LerpFn;
+use crate::manager::InterpolationManager;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
     curve.sample_unchecked(t)
 }
 
+/// Function that will sync a component value from the confirmed entity to the interpolated entity
+type SyncFn = fn(
+    &InterpolationRegistry,
+    &ComponentRegistry,
+    confirmed: Entity,
+    predicted: Entity,
+    manager: Entity,
+    &World,
+    &mut BufferedChanges,
+);
+
 #[derive(Debug, Clone)]
 pub struct InterpolationMetadata {
     pub interpolation_mode: InterpolationMode,
     pub interpolation: Option<unsafe fn()>,
     pub custom_interpolation: bool,
+    pub buffer_sync: SyncFn,
 }
 
 #[derive(Resource, Debug, Default)]
@@ -35,7 +48,7 @@ pub struct InterpolationRegistry {
 }
 
 impl InterpolationRegistry {
-    pub fn set_interpolation_mode<C: Component>(&mut self, mode: InterpolationMode) {
+    pub fn set_interpolation_mode<C: Component + Clone>(&mut self, mode: InterpolationMode) {
         let kind = ComponentKind::of::<C>();
         self.interpolation_map
             .entry(kind)
@@ -43,6 +56,7 @@ impl InterpolationRegistry {
                 interpolation_mode: mode,
                 interpolation: None,
                 custom_interpolation: false,
+                buffer_sync: Self::buffer_sync::<C>,
             })
             .interpolation_mode = mode;
     }
@@ -51,7 +65,7 @@ impl InterpolationRegistry {
         self.set_interpolation(lerp::<C>);
     }
 
-    pub fn set_interpolation<C: Component>(&mut self, interpolation_fn: LerpFn<C>) {
+    pub fn set_interpolation<C: Component + Clone>(&mut self, interpolation_fn: LerpFn<C>) {
         let kind = ComponentKind::of::<C>();
         self.interpolation_map
             .entry(kind)
@@ -59,6 +73,7 @@ impl InterpolationRegistry {
                 interpolation_mode: InterpolationMode::Full,
                 interpolation: None,
                 custom_interpolation: false,
+                buffer_sync: Self::buffer_sync::<C>,
             })
             .interpolation = Some(unsafe { core::mem::transmute(interpolation_fn) });
     }
@@ -71,6 +86,22 @@ impl InterpolationRegistry {
                 metadata.interpolation_mode
             })
     }
+
+    pub(crate) fn get_interpolation_mode(
+        &self,
+        id: ComponentId,
+        component_registry: &ComponentRegistry,
+    ) -> Result<InterpolationMode, ComponentError> {
+        let kind = component_registry
+            .component_id_to_kind
+            .get(&id)
+            .ok_or(ComponentError::NotRegistered)?;
+        Ok(self
+            .interpolation_map
+            .get(kind)
+            .map_or(InterpolationMode::None, |metadata| metadata.interpolation_mode))
+    }
+
     pub fn interpolate<C: Component>(&self, start: C, end: C, t: f32) -> C {
         let kind = ComponentKind::of::<C>();
         let interpolation_metadata = self
@@ -91,6 +122,7 @@ impl InterpolationRegistry {
         component_ids: &[ComponentId],
         confirmed: Entity,
         predicted: Entity,
+        manager: Entity,
         world: &mut World,
         buffer: &mut BufferedChanges,
     ) {
@@ -109,6 +141,7 @@ impl InterpolationRegistry {
                 component_registry,
                 confirmed,
                 predicted,
+                manager,
                 world,
                 buffer,
             );
@@ -125,6 +158,7 @@ impl InterpolationRegistry {
         component_registry: &ComponentRegistry,
         confirmed: Entity,
         interpolated: Entity,
+        manager: Entity,
         world: &World,
         buffer: &mut BufferedChanges,
     ) {
@@ -156,9 +190,6 @@ impl InterpolationRegistry {
         // InterpolationMode::Full: we don't want to sync the component directly, but we want to insert the InterpolationHistory
         //  (we don't want to sync the component value directly because it would be too early; we want to only add the component
         //   when it interpolates between two updates)
-        // InterpolationMode::Once: 
-
-        
         // InterpolationMode::Once, we only need to sync it once
         // InterpolationMode::Simple, every component update will be synced via a separate system
         if world.get::<C>(interpolated).is_some() {
@@ -166,9 +197,8 @@ impl InterpolationRegistry {
         }
         if let Some(value) = world.get::<C>(confirmed) {
             let mut clone = value.clone();
-            let prediction_entity = world.resource::<PredictionResource>().link_entity;
             world
-                .get::<PredictionManager>(prediction_entity)
+                .get::<InterpolationManager>(manager)
                 .unwrap()
                 .map_entities(&mut clone, component_registry)
                 .unwrap();
