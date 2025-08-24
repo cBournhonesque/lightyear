@@ -9,7 +9,7 @@ use bevy_enhanced_input::prelude::Actions;
 use lightyear::input::bei::prelude::InputMarker;
 use lightyear::interpolation::Interpolated;
 use lightyear::prediction::prespawn::PreSpawned;
-use lightyear::prelude::{Client, Predicted, Replicate, Replicated};
+use lightyear::prelude::{Client, DeterministicPredicted, Predicted, Replicate, Replicated};
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -157,28 +157,30 @@ fn display_modes(
 pub struct VisibleFilter {
     a: Or<(
         With<Predicted>,
+        With<DeterministicPredicted>,
         // to show prespawned entities
         With<PreSpawned>,
         With<Interpolated>,
         // to show entities on the server
         With<Replicate>,
     )>,
-    // we don't show any replicated (confirmed) entities
-    b: Without<Replicated>,
+    // we don't show any replicated (confirmed) entities unless it's the DeterministicPredicted case
+    b: Or<(
+        Without<Replicated>,
+        With<DeterministicPredicted>,
+    )>
 }
 
 // TODO: interpolated players are not visible because components are not inserted at the same time?
 /// Add visuals to newly spawned players
 fn add_player_visuals(
     trigger: Trigger<OnAdd, PlayerId>,
-    // TODO: make sure that interpolation components are synced together to guarantee
-    //  that interpolation entities are visible
-    query: Query<(Has<Predicted>, &ColorComponent), (VisibleFilter, With<PlayerMarker>)>,
+    query: Query<(Has<Predicted>, Has<DeterministicPredicted>, &ColorComponent), (VisibleFilter, With<PlayerMarker>)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((is_predicted, color)) = query.get(trigger.target()) {
+    if let Ok((is_predicted, is_det_predicted, color)) = query.get(trigger.target()) {
         commands.entity(trigger.target()).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(PLAYER_SIZE)))),
@@ -187,7 +189,7 @@ fn add_player_visuals(
                 ..Default::default()
             })),
         ));
-        if is_predicted {
+        if is_predicted || is_det_predicted {
             commands
                 .entity(trigger.target())
                 .insert(FrameInterpolate::<Transform>::default());

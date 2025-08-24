@@ -16,7 +16,7 @@ use alloc::vec::Vec;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::packet::message::MessageId;
-use tracing::{debug, error, info, trace, trace_span, warn};
+use tracing::{debug, error, info, info_span, trace, trace_span, warn};
 
 use crate::plugin;
 use crate::plugin::ReplicationSet;
@@ -128,7 +128,7 @@ impl ReplicationReceivePlugin {
         receiver_entities
             .drain(..)
             .for_each(|(entity, remote_peer)| {
-                let span = trace_span!("receive", entity = ?entity);
+                let span = info_span!("receive", entity = ?entity);
                 let _guard = span.enter();
                 let unsafe_world = world.as_unsafe_world_cell();
                 // Get the list of entities which we might have authority over

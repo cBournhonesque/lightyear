@@ -83,7 +83,7 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
 
 pub(crate) fn rotate_player(
     trigger: Trigger<Fired<MoveCursor>>,
-    mut player: Query<(&mut Rotation, &Position)>,
+    mut player: Query<(&mut Rotation, &Position), Without<Confirmed>>,
 ) {
     if let Ok((mut rotation, position)) = player.get_mut(trigger.target()) {
         let angle = Vec2::new(0.0, 1.0).angle_to(trigger.value - position.0);
@@ -94,7 +94,12 @@ pub(crate) fn rotate_player(
     }
 }
 
-pub(crate) fn move_player(trigger: Trigger<Fired<MovePlayer>>, mut player: Query<&mut Position>) {
+pub(crate) fn move_player(
+    trigger: Trigger<Fired<MovePlayer>>,
+    // exclude Confirmed for the case where the all players are interpolated and the
+    // user controls the Confirmed entity
+    mut player: Query<&mut Position, Without<Confirmed>>
+) {
     const PLAYER_MOVE_SPEED: f32 = 10.0;
     if let Ok(mut position) = player.get_mut(trigger.target()) {
         let value = trigger.value;
@@ -207,7 +212,7 @@ pub(crate) fn shoot_weapon(
             &WeaponType,
             Option<&ControlledBy>,
         ),
-        With<PlayerMarker>,
+        (With<PlayerMarker>, Without<Confirmed>)
     >,
     client: Query<(&ProjectileReplicationMode, &GameReplicationMode)>,
 ) {

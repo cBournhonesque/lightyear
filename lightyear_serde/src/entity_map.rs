@@ -9,7 +9,7 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::entity::{EntityMapper, hash_map::EntityHashMap};
 use bevy_ecs::world::{EntityWorldMut, World};
 use bevy_reflect::Reflect;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 const MARKED: u64 = 1 << 62;
 
@@ -99,6 +99,7 @@ impl RemoteEntityMap {
     /// Insert a new mapping between a remote entity and a local entity
     #[inline]
     pub fn insert(&mut self, remote_entity: Entity, local_entity: Entity) {
+        info!("Mapping remote entity {remote_entity:?} to local entity {local_entity:?}");
         self.remote_to_local.insert(remote_entity, local_entity);
         self.local_to_remote.insert(local_entity, remote_entity);
     }
