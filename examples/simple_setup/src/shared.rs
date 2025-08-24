@@ -3,6 +3,7 @@
 use bevy::prelude::*;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 use core::time::Duration;
+use bevy::ecs::entity::MapEntities;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -20,11 +21,26 @@ pub struct Channel1;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Message1(pub usize);
 
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct StressComponent {
+    pub(crate) entities: Vec<Entity>,
+}
+
+impl MapEntities for StressComponent {
+    fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {
+        self.entities.map_entities(entity_mapper);
+    }
+}
+
+
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         // Register your protocol, which is shared between client and server
         app.add_message::<Message1>()
             .add_direction(NetworkDirection::Bidirectional);
+        
+        app.register_component::<StressComponent>()
+            .add_map_entities();
 
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
