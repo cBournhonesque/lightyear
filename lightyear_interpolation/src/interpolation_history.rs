@@ -1,20 +1,16 @@
 use core::ops::Deref;
 
-use crate::interpolate::InterpolateStatus;
 use crate::manager::InterpolationManager;
-use crate::registry::InterpolationRegistry;
-use crate::timeline::InterpolationTimeline;
-use crate::{Interpolated, InterpolationMode, SyncComponent};
+use crate::{Interpolated, SyncComponent};
 use bevy_ecs::{
     change_detection::DetectChanges,
     component::Component,
     entity::Entity,
-    error::Result,
     query::{With, Without},
     system::{Commands, Query, Res, Single},
     world::Ref,
 };
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
+use lightyear_core::prelude::{LocalTimeline, Tick};
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_utils::ready_buffer::ReadyBuffer;
@@ -79,72 +75,7 @@ impl<C: Component> ConfirmedHistory<C> {
     }
 }
 
-// TODO: maybe add the component history on the Confirmed entity instead of Interpolated? would make more sense maybe
-/// Add a component history for all Interpolated entities, that will store the history of the Confirmed component
-/// that we want to interpolate between entities that have the `Confirmed` component
-pub(crate) fn add_component_history<C: Component + Clone>(
-    interpolation_registry: Res<InterpolationRegistry>,
-    component_registry: Res<ComponentRegistry>,
-    // TODO: handle multiple receivers
-    query: Single<(
-        &LocalTimeline,
-        &InterpolationTimeline,
-        &InterpolationManager,
-    )>,
-    mut commands: Commands,
-    interpolated_entities: Query<
-        Entity,
-        (Without<ConfirmedHistory<C>>, Without<C>, With<Interpolated>),
-    >,
-    // we can't use Added<C> because the interpolated entity might be created
-    // for a confirmed entity that already had the components inserted
-    // (in case of authority transfer)
-    confirmed_entities: Query<(&Confirmed, &C)>,
-) -> Result {
-    let (local_timeline, timeline, manager) = query.into_inner();
-    let current_tick = timeline.now.tick;
-    let current_overstep = timeline.now.overstep;
-    for (confirmed_entity, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed_entity.interpolated
-            && let Ok(interpolated_entity) = interpolated_entities.get(p)
-        {
-            // safety: we know the entity exists
-            let mut interpolated_entity_mut = commands.get_entity(interpolated_entity)?;
-            // insert history
-            let history = ConfirmedHistory::<C>::new();
-            // map any entities from confirmed to interpolated
-            let mut new_component = confirmed_component.clone();
-            let _ = manager.map_entities(&mut new_component, component_registry.as_ref());
-            match interpolation_registry.interpolation_mode::<C>() {
-                InterpolationMode::Full => {
-                    trace!(?interpolated_entity, tick=?local_timeline.tick(), "Spawn interpolation history for {:?}", core::any::type_name::<C>());
-                    interpolated_entity_mut.insert((
-                        // NOTE: we probably do NOT want to insert the component right away, instead we want to wait until we have two updates
-                        //  we can interpolate between. Otherwise it will look jarring if send_interval is low. (because the entity will
-                        //  stay fixed until we get the next update, then it will start moving)
-                        // new_component,
-                        history,
-                        InterpolateStatus::<C> {
-                            start: Some((current_tick, new_component)),
-                            end: None,
-                            current_tick,
-                            current_overstep: current_overstep.value(),
-                        },
-                    ));
-                }
-                InterpolationMode::Once | InterpolationMode::Simple => {
-                    trace!(
-                        "Copy interpolation component for {:?}",
-                        core::any::type_name::<C>()
-                    );
-                    interpolated_entity_mut.insert(new_component);
-                }
-                InterpolationMode::None => {}
-            }
-        }
-    }
-    Ok(())
-}
+
 
 /// When we receive a server update for an interpolated component, we need to store it in the confirmed history,
 pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(

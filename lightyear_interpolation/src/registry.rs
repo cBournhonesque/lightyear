@@ -5,18 +5,23 @@ use crate::plugin::{
 use crate::{InterpolationMode, SyncComponent};
 use bevy_ecs::{component::Component, resource::Resource};
 use bevy_ecs::component::ComponentId;
-use bevy_ecs::entity::Entity;
+use bevy_ecs::entity::{Entity};
 use bevy_ecs::prelude::World;
 use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
 };
 use bevy_platform::collections::HashMap;
+use lightyear_core::prelude::NetworkTimeline;
+use lightyear_core::timeline::LocalTimeline;
 use lightyear_replication::prelude::{ComponentRegistration, ComponentRegistry};
 use lightyear_replication::registry::buffered::BufferedChanges;
 use lightyear_replication::registry::{ComponentError, ComponentKind};
 use lightyear_replication::registry::registry::LerpFn;
+use crate::interpolate::InterpolateStatus;
+use crate::interpolation_history::ConfirmedHistory;
 use crate::manager::InterpolationManager;
+use crate::timeline::InterpolationTimeline;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -30,7 +35,7 @@ type SyncFn = fn(
     confirmed: Entity,
     predicted: Entity,
     manager: Entity,
-    &World,
+    &mut World,
     &mut BufferedChanges,
 );
 
@@ -159,53 +164,74 @@ impl InterpolationRegistry {
         confirmed: Entity,
         interpolated: Entity,
         manager: Entity,
-        world: &World,
+        world: &mut World,
         buffer: &mut BufferedChanges,
     ) {
+        let Some(value) = world.get::<C>(confirmed) else {
+            return
+        };
+        let mut new_component = value.clone();
         let kind = ComponentKind::of::<C>();
         let interpolation_metadata = self
             .interpolation_map
             .get(&kind)
             .expect("the component is not part of the protocol");
+        match interpolation_metadata.interpolation_mode {
+            InterpolationMode::Full => {
+                // InterpolationMode::Full: we don't want to sync the component directly, but we want to insert the InterpolationHistory
+                //  (we don't want to sync the component value directly because it would be too early; we want to only add the component
+                //   when it interpolates between two updates)
+                if world.get::<ConfirmedHistory<C>>(interpolated).is_some() {
+                    return;
+                }
+                let history_component_id = world.register_component::<ConfirmedHistory<C>>();
+                let interpolate_status_component_id = world.register_component::<InterpolateStatus<C>>();
 
-        // NOTE: this is not needed because we have an observer that inserts the History as soon as C is inserted.
-        // // for Full components, also insert a PredictionHistory component
-        // // no need to add any value to it because otherwise it would contain a value with the wrong tick
-        // // since we are running this outside of FixedUpdate
-        // if prediction_metadata.prediction_mode == PredictionMode::Full {
-        //     // if the predicted entity already had a PredictionHistory component (for example
-        //     // if the entity was PreSpawned entity), we don't want to overwrite it.
-        //     if world.get::<PredictionHistory<C>>(predicted).is_none() {
-        //         unsafe {
-        //             self.temp_write_buffer.buffer_insert_raw_ptrs(
-        //                 PredictionHistory::<C>::default(),
-        //                 world
-        //                     .component_id::<PredictionHistory<C>>()
-        //                     .expect("PredictionHistory not registered"),
-        //             )
-        //         };
-        //     }
-        // }
-        
-        // InterpolationMode::Full: we don't want to sync the component directly, but we want to insert the InterpolationHistory
-        //  (we don't want to sync the component value directly because it would be too early; we want to only add the component
-        //   when it interpolates between two updates)
-        // InterpolationMode::Once, we only need to sync it once
-        // InterpolationMode::Simple, every component update will be synced via a separate system
-        if world.get::<C>(interpolated).is_some() {
-            return;
-        }
-        if let Some(value) = world.get::<C>(confirmed) {
-            let mut clone = value.clone();
-            world
-                .get::<InterpolationManager>(manager)
-                .unwrap()
-                .map_entities(&mut clone, component_registry)
-                .unwrap();
-            // SAFETY: the component_id matches the component of type C
-            unsafe {
-                buffer.insert::<C>(clone, world.component_id::<C>().unwrap());
-            };
+                let manager_entity_ref = world.entity(manager);
+                let local_timeline = manager_entity_ref.get::<LocalTimeline>().unwrap();
+                let timeline = manager_entity_ref.get::<InterpolationTimeline>().unwrap();
+                let interpolation_manager = manager_entity_ref.get::<InterpolationManager>().unwrap();
+                let current_tick = local_timeline.tick();
+                let current_overstep = timeline.overstep();
+
+                // map any entities from confirmed to interpolated
+                let _ = interpolation_manager.map_entities(&mut new_component, component_registry);
+
+                // NOTE: we probably do NOT want to insert the component right away, instead we want to wait until we have two updates
+                //  we can interpolate between. Otherwise it will look jarring if send_interval is low. (because the entity will
+                //  stay fixed until we get the next update, then it will start moving)
+
+                // SAFETY: the component_id matches the component
+                unsafe {
+                    buffer.insert(ConfirmedHistory::<C>::new(), history_component_id);
+                };
+                let status =  InterpolateStatus::<C> {
+                    start: Some((current_tick, new_component)),
+                    end: None,
+                    current_tick,
+                    current_overstep: current_overstep.value(),
+                };
+                // SAFETY: the component_id matches the component
+                unsafe {
+                    buffer.insert(status, interpolate_status_component_id);
+                };
+            }
+            InterpolationMode::Simple | InterpolationMode::Once => {
+                // InterpolationMode::Once, we only need to sync it once
+                // InterpolationMode::Simple, every component update will be synced via a separate system
+                if world.get::<C>(interpolated).is_some() {
+                    return;
+                }
+                let manager_entity_ref = world.entity(manager);
+                let interpolation_manager = manager_entity_ref.get::<InterpolationManager>().unwrap();
+                // map any entities from confirmed to interpolated
+                let _ = interpolation_manager.map_entities(&mut new_component, component_registry);
+                // SAFETY: the component_id matches the component
+                unsafe {
+                    buffer.insert(new_component, world.component_id::<C>().unwrap());
+                };
+            }
+            InterpolationMode::None => {}
         }
     }
 }

@@ -110,7 +110,7 @@ pub(crate) fn spawn_player(
                 .entity(room)
                 .trigger(RoomEvent::AddSender(trigger.target()));
         }
-        let player = player_bundle(room, client_id, sender);
+        let player = server_player_bundle(room, client_id, sender);
         let player_entity = match GameReplicationMode::from_room_id(i) {
             GameReplicationMode::AllPredicted => {
                 commands.spawn((
@@ -165,28 +165,16 @@ pub(crate) fn spawn_player(
     }
 }
 
-fn player_bundle(room: Entity, client_id: PeerId, owner: Entity) -> impl Bundle {
-    let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
-    let color = color_from_id(client_id);
+fn server_player_bundle(room: Entity, client_id: PeerId, owner: Entity) -> impl Bundle {
+    let bundle = shared::player_bundle(client_id);
     (
-        // the context needs to be inserted on the server, and will be replicated to the client
-        PlayerContext,
         Replicate::to_clients(NetworkTarget::All),
         NetworkVisibility::default(),
         ControlledBy {
             owner,
             lifetime: Default::default(),
         },
-        Score(0),
-        PlayerId(client_id),
-        RigidBody::Kinematic,
-        Transform::from_xyz(0.0, y, 0.0),
-        ColorComponent(color),
-        PlayerMarker,
-        Weapon::default(),
-        WeaponType::default(),
-        Name::new("Player"),
-        // TODO: add collider
+        bundle
     )
 }
 

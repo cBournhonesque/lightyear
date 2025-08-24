@@ -1,18 +1,64 @@
 use std::prelude::rust_2015::Vec;
+use bevy_app::{App, Plugin, PreUpdate};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::change_detection::{Mut, Res, ResMut};
 use bevy_ecs::component::{Component, ComponentId};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::event::{Event, Events};
-use bevy_ecs::observer::Trigger;
-use bevy_ecs::prelude::{EntityRef, OnInsert, Query, World};
+use bevy_ecs::observer::{Observer, Trigger};
+use bevy_ecs::prelude::{EntityRef, IntoScheduleConfigs, OnInsert, Query, World};
 use bevy_reflect::Reflect;
 use tracing::trace;
 use lightyear_replication::components::{Confirmed, Replicated};
-use lightyear_replication::prelude::ComponentRegistry;
+use lightyear_replication::prelude::{ComponentRegistry, ReplicationSet};
 use lightyear_replication::registry::buffered::BufferedChanges;
 use crate::InterpolationMode;
+use crate::plugin::InterpolationSet;
 use crate::prelude::InterpolationRegistry;
+
+
+
+/// Plugin that syncs components that were inserted on the Confirmed entity to the Interpolated entity
+pub(crate) struct SyncPlugin;
+
+impl Plugin for SyncPlugin {
+    fn build(&self, app: &mut App) {
+    }
+
+    fn cleanup(&self, app: &mut App) {
+        // we don't need to automatically update the events because they will be drained every frame
+        app.init_resource::<Events<InterpolatedSyncEvent>>();
+
+        let interpolation_registry = app.world().resource::<InterpolationRegistry>();
+        let component_registry = app.world().resource::<ComponentRegistry>();
+
+        // Sync components that are added on the Confirmed entity
+        let mut observer = Observer::new(added_on_confirmed_sync);
+        for component_id in interpolation_registry.interpolation_map.keys().filter_map(|k| {
+            component_registry
+                .component_metadata_map
+                .get(k)
+                .map(|m| m.component_id)
+        }) {
+            observer = observer.with_component(component_id);
+        }
+        app.world_mut().spawn(observer);
+
+        // Sync components when the Confirmed component is added
+        app.add_observer(confirmed_added_sync);
+
+        // Apply the sync events
+        // make sure to Sync before the RelationshipSync systems run
+        app.configure_sets(
+            PreUpdate,
+            InterpolationSet::Sync.before(ReplicationSet::ReceiveRelationships),
+        );
+        app.add_systems(PreUpdate, apply_interpolated_sync.in_set(InterpolationSet::Sync));
+    }
+}
+
+
+
 
 #[derive(Event, Debug)]
 struct InterpolatedSyncEvent {
@@ -90,7 +136,6 @@ fn confirmed_added_sync(
     let confirmed = trigger.target();
     let entity_ref = confirmed_query.get(confirmed).unwrap();
     let confirmed_component = entity_ref.get::<Confirmed>().unwrap();
-    let replicated = entity_ref.get::<Replicated>().unwrap();
     let Some(interpolated) = confirmed_component.interpolated else {
         return;
     };
@@ -106,6 +151,7 @@ fn confirmed_added_sync(
     if components.is_empty() {
         return;
     }
+    let replicated = entity_ref.get::<Replicated>().unwrap();
     events.send(InterpolatedSyncEvent {
         confirmed,
         interpolated,

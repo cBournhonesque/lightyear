@@ -22,6 +22,7 @@ impl Plugin for ExampleClientPlugin {
         );
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
+        app.add_observer(handle_deterministic_spawn);
         app.add_observer(add_client_actions);
         // app.add_observer(cycle_projectile_mode);
         // app.add_observer(cycle_replication_mode);
@@ -51,8 +52,6 @@ fn update_cursor_state_from_window(
     }
 }
 
-// TODO: add deterministic Predicted
-
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation
 // - add physics components so that its movement can be predicted
@@ -78,17 +77,42 @@ pub(crate) fn handle_predicted_spawn(
 
 pub(crate) fn handle_interpolated_spawn(
     trigger: Trigger<OnAdd, ColorComponent>,
-    mut interpolated: Query<(&mut ColorComponent, &GameReplicationMode), Added<Interpolated>>,
+    mut interpolated: Query<(&mut ColorComponent, &GameReplicationMode, &Interpolated), Added<Interpolated>>,
     mut commands: Commands,
 ) {
-    if let Ok((mut color, replication_mode)) = interpolated.get_mut(trigger.target()) {
+    if let Ok((mut color, replication_mode, interpolated)) = interpolated.get_mut(trigger.target()) {
         let hsva = Hsva {
             saturation: 0.1,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
+        // In the interpolated case, the client controls the confirmed entity
         if let GameReplicationMode::AllInterpolated = replication_mode {
-            add_actions(&mut commands, trigger.target());
+            add_actions(&mut commands, interpolated.confirmed_entity);
+        }
+    }
+}
+
+pub(crate) fn handle_deterministic_spawn(
+    trigger: Trigger<OnAdd, GameReplicationMode>,
+    client: Single<&LocalId, With<Client>>,
+    query: Query<&GameReplicationMode>,
+    mut commands: Commands,
+) {
+    // TODO: it's controllable by the client, but it doesn't render!
+    let client_id = client.into_inner();
+    if let Ok(replication_mode) = query.get(trigger.target()) {
+        match replication_mode {
+            GameReplicationMode::OnlyInputsReplicated => {
+                commands.entity(trigger.target()).insert((
+                    shared::player_bundle(client_id.0),
+                    DeterministicPredicted
+                ));
+                add_actions(&mut commands, trigger.target());
+            },
+            _ => {
+                // handled in the predicted/interpolated spawn handlers
+            }
         }
     }
 }

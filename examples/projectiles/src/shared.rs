@@ -1115,3 +1115,22 @@ pub fn cycle_projectile_mode(
         info!("Done cycling projectile mode to {:?}. Entity: {:?}", projectile_mode, trigger.target());
     }
 }
+
+
+pub fn player_bundle(client_id: PeerId) -> impl Bundle {
+    let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
+    let color = color_from_id(client_id);
+    (
+        // the context needs to be inserted on the server, and will be replicated to the client
+        PlayerContext,
+        Score(0),
+        PlayerId(client_id),
+        RigidBody::Kinematic,
+        Transform::from_xyz(0.0, y, 0.0),
+        ColorComponent(color),
+        PlayerMarker,
+        Weapon::default(),
+        WeaponType::default(),
+        Name::new("Player"),
+    )
+}
