@@ -1,11 +1,13 @@
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, Rooms, BOT_RADIUS};
+use crate::shared::{color_from_id, Rooms, SharedPlugin, BOT_RADIUS};
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use core::ops::DerefMut;
 use core::time::Duration;
+use std::net::SocketAddr;
+use bevy::input::InputPlugin;
 use bevy_enhanced_input::prelude::{Completed, Started};
 use leafwing_input_manager::prelude::*;
 use lightyear::core::tick::TickDuration;
@@ -20,6 +22,7 @@ use lightyear_avian2d::prelude::{
 use lightyear_examples_common::cli::new_headless_app;
 use lightyear_examples_common::shared::{SEND_INTERVAL, SERVER_ADDR, SHARED_SETTINGS};
 use rand::random;
+use crate::client::ExampleClientPlugin;
 
 pub struct ExampleServerPlugin;
 
@@ -34,6 +37,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(handle_new_client);
         app.add_observer(spawn_player);
         app.add_observer(cycle_replication_mode);
+
         // the lag compensation systems need to run after LagCompensationSet::UpdateHistory
         app.add_systems(
             FixedUpdate,
@@ -52,8 +56,17 @@ impl Plugin for ExampleServerPlugin {
             // check collisions after physics have run
             compute_hit_prediction.after(PhysicsSet::Sync),
         );
+
+        app.add_plugins(BotPlugin);
     }
 }
+
+/// Spawn bots when the server starts
+/// NOTE: this has to be done after `Plugin::finish()` so that BEI has finished building.
+pub(crate) fn spawn_bots(mut commands: Commands) {
+    commands.trigger(SpawnBot);
+}
+
 
 pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.target()).insert((
@@ -178,34 +191,6 @@ fn server_player_bundle(room: Entity, client_id: PeerId, owner: Entity) -> impl 
     )
 }
 
-/// Spawn bots (one predicted, one interpolated)
-pub(crate) fn spawn_bots(mut commands: Commands) {
-    commands.spawn((
-        InterpolatedBot,
-        Name::new("InterpolatedBot"),
-        Replicate::to_clients(NetworkTarget::All),
-        InterpolationTarget::to_clients(NetworkTarget::All),
-        // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
-        DisableReplicateHierarchy,
-        Transform::from_xyz(-200.0, 10.0, 0.0),
-        RigidBody::Kinematic,
-        Collider::circle(BOT_RADIUS),
-        // add the component to make lag-compensation possible!
-        LagCompensationHistory::default(),
-    ));
-    commands.spawn((
-        PredictedBot,
-        Name::new("PredictedBot"),
-        Replicate::to_clients(NetworkTarget::All),
-        PredictionTarget::to_clients(NetworkTarget::All),
-        // NOTE: all predicted entities must be part of the same replication group!
-        // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
-        DisableReplicateHierarchy,
-        Transform::from_xyz(200.0, 10.0, 0.0),
-        RigidBody::Kinematic,
-        Collider::circle(BOT_RADIUS),
-    ));
-}
 
 /// Compute hits if the bullet hits the bot, and increment the score on the player
 pub(crate) fn compute_hit_lag_compensation(
@@ -317,42 +302,16 @@ fn interpolated_bot_movement(
     });
 }
 
-// /// Handle room cycling input and update room membership
-// pub(crate) fn room_cycling(
-//     mut query: Query<
-//         (&mut PlayerRoom, &ActionState<PlayerActions>, Entity),
-//         (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
-//     >,
-//     rooms: Res<Rooms>,
-//     mut commands: Commands,
-// ) {
-//     for (mut player_room, action, player_entity) in query.iter_mut() {
-//         if action.just_pressed(&ExampleActions::CycleReplicationModek) {
-//             let current_mode = GameReplicationMode::from_room_id(player_room.room_id);
-//             let new_mode = current_mode.next();
-//             let new_room_id = new_mode.room_id();
-//
-//             // Remove from old room
-//             if let Some(old_room) = rooms.rooms.get(player_room.room_id as usize) {
-//                 commands.trigger_targets(RoomEvent::RemoveSender(player_entity), *old_room);
-//             }
-//
-//             // Add to new room
-//             if let Some(new_room) = rooms.rooms.get(new_room_id as usize) {
-//                 commands.trigger_targets(RoomEvent::AddSender(player_entity), *new_room);
-//             }
-//
-//             player_room.room_id = new_room_id;
-//             info!("Player switched to room: {} ({})", new_room_id, new_mode.name());
-//         }
-//     }
-// }
-
 pub struct BotPlugin;
 
 impl Plugin for BotPlugin {
     fn build(&self, app: &mut App) {
+    }
+
+    // run in `cleanup` because BEI finishes building in `finish`
+    fn cleanup(&self, app: &mut App) {
         app.add_observer(spawn_bot_app);
+        app.add_systems(Startup, spawn_bots);
     }
 }
 
@@ -382,12 +341,16 @@ fn spawn_bot_app(
     server: Single<Entity, With<Server>>,
     mut commands: Commands,
 ) {
+    info!("Spawning bot app");
     let (crossbeam_client, crossbeam_server) = CrossbeamIo::new_pair();
 
     let mut app = new_headless_app();
+    app.add_plugins(InputPlugin);
     app.add_plugins(lightyear::prelude::client::ClientPlugins {
         tick_duration: tick_duration.0,
     });
+    app.add_plugins(SharedPlugin);
+    app.add_plugins(ExampleClientPlugin);
 
     let client_id = rand::random::<u64>();
     let auth = Authentication::Manual {
@@ -399,10 +362,12 @@ fn spawn_bot_app(
 
     app.world_mut().spawn((
         Client::default(),
-        // Send pings every frame, so that the Acks are sent every frame
-        PingManager::new(PingConfig {
-            ping_interval: Duration::default(),
-        }),
+        BotClient,
+        ReplicationSender::new(
+            SEND_INTERVAL,
+            SendUpdatesMode::SinceLastAck,
+            false,
+        ),
         ReplicationReceiver::default(),
         NetcodeClient::new(
             auth,
@@ -412,19 +377,34 @@ fn spawn_bot_app(
         crossbeam_client,
         PredictionManager::default(),
         InterpolationManager::default(),
+        Name::from("BotClient"),
     ));
     let server = server.into_inner();
+    let conditioner = RecvLinkConditioner::new(LinkConditionerConfig::average_condition());
     commands.spawn((
         LinkOf { server },
+        Link::new(Some(conditioner)),
+        Linked,
         ClientOf,
         BotClient,
         crossbeam_server,
         ReplicationSender::default(),
     ));
+
+    app.add_systems(Startup, bot_connect);
     let mut bot_app = BotApp(app);
     std::thread::spawn(move || {
         bot_app.run();
     });
+}
+
+fn bot_connect(
+    bot: Single<Entity, (With<BotClient>, With<Client>)>,
+    mut commands: Commands
+) {
+    let entity = bot.into_inner();
+    info!("Bot entity {entity:?} connecting to server");
+    commands.entity(entity).trigger(Connect);
 }
 
 

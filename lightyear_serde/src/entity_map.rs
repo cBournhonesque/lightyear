@@ -173,6 +173,7 @@ impl RemoteEntityMap {
 
     /// Remove the entity from our mapping and return the local entity
     pub fn remove_by_remote(&mut self, remote_entity: Entity) -> Option<Entity> {
+        info!("Remvoe by remote");
         // the entity is actually local, because it has already been mapped!
         if Self::is_mapped(remote_entity) {
             let local = Self::mark_unmapped(remote_entity);
@@ -193,6 +194,7 @@ impl RemoteEntityMap {
     }
 
     pub fn clear(&mut self) {
+        info!("clear");
         self.local_to_remote.clear();
         self.remote_to_local.clear();
     }

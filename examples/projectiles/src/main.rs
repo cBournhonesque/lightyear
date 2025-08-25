@@ -27,7 +27,6 @@ mod renderer;
 #[cfg(feature = "server")]
 mod server;
 mod shared;
-
 fn main() {
     let cli = Cli::default();
 
