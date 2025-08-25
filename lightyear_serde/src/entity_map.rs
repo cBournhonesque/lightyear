@@ -99,7 +99,6 @@ impl RemoteEntityMap {
     /// Insert a new mapping between a remote entity and a local entity
     #[inline]
     pub fn insert(&mut self, remote_entity: Entity, local_entity: Entity) {
-        info!("Mapping remote entity {remote_entity:?} to local entity {local_entity:?}");
         self.remote_to_local.insert(remote_entity, local_entity);
         self.local_to_remote.insert(local_entity, remote_entity);
     }
@@ -173,7 +172,6 @@ impl RemoteEntityMap {
 
     /// Remove the entity from our mapping and return the local entity
     pub fn remove_by_remote(&mut self, remote_entity: Entity) -> Option<Entity> {
-        info!("Remvoe by remote");
         // the entity is actually local, because it has already been mapped!
         if Self::is_mapped(remote_entity) {
             let local = Self::mark_unmapped(remote_entity);
@@ -194,7 +192,6 @@ impl RemoteEntityMap {
     }
 
     pub fn clear(&mut self) {
-        info!("clear");
         self.local_to_remote.clear();
         self.remote_to_local.clear();
     }

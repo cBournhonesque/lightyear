@@ -23,11 +23,11 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(handle_deterministic_spawn);
-        app.add_observer(add_client_actions);
+        app.add_observer(add_global_actions);
         // app.add_observer(cycle_projectile_mode);
         // app.add_observer(cycle_replication_mode);
-        app.add_systems(RunFixedMainLoop, cycle_replication_mode.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop));
-        app.add_systems(FixedUpdate, cycle_replication_mode_fixed_update);
+        // app.add_systems(RunFixedMainLoop, cycle_replication_mode.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop));
+        // app.add_systems(FixedUpdate, cycle_replication_mode_fixed_update);
     }
 }
 
@@ -61,6 +61,7 @@ pub(crate) fn handle_predicted_spawn(
     mut player_query: Query<(&mut ColorComponent, &GameReplicationMode), With<Predicted>>,
 ) {
     if let Ok((mut color, replication)) = player_query.get_mut(trigger.target()) {
+        info!("Adding actions to predicted player {:?}", trigger.target());
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
@@ -149,18 +150,12 @@ fn add_actions(
     ));
 }
 
-// Add components on the Client entity when it connects
-pub(crate) fn add_client_actions(
-    trigger: Trigger<OnAdd, Connected>,
+pub(crate) fn add_global_actions(
+    trigger: Trigger<OnAdd, ClientContext>,
     mut commands: Commands
 ) {
-    // the context needs to be added on both client and server
-    commands.entity(trigger.target()).insert((
-        ClientContext,
-        ProjectileReplicationMode::default(),
-        GameReplicationMode::default(),
-    ));
-    // TODO: we should have a way to spawn Inputs/Actions in Update, where they are not affected by rollback!
+    info!("Add global actions");
+    // TODO: we should have a way to add BEI for PreUpdate schedule, where they are not affected by rollback!
     commands.spawn((
         ActionOf::<ClientContext>::new(trigger.target()),
         Action::<CycleProjectileMode>::new(),

@@ -30,6 +30,7 @@ use lightyear_serde::SerializationError;
 use lightyear_serde::registry::SerializeFns;
 use lightyear_serde::writer::Writer;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 /// Wrapper around ActionOf<C> that is needed for replication with custom entity mapping
 #[derive(Component, Serialize, Deserialize)]
@@ -84,6 +85,7 @@ impl InputRegistryPlugin {
         if let Ok(action_of) = action.get(trigger.target())
             && let Ok(predicted) = query.get(action_of.get())
         {
+            // TODO: remove ActionOfWrapper after the first replication?
             if let Some(predicted) = predicted {
                 commands.entity(trigger.target()).insert((
                     // we replicate using the confirmed entity so that the server can map it to the server entity

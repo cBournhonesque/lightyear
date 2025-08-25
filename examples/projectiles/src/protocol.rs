@@ -14,6 +14,9 @@ pub const BULLET_SIZE: f32 = 3.0;
 pub const PLAYER_SIZE: f32 = 40.0;
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct Bot;
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PredictedBot;
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
@@ -355,6 +358,10 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
 
+        app.register_component::<Bot>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
+
         app.register_component::<PredictedBot>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
@@ -401,5 +408,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ClientProjectile>()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full);
+
+        app.register_component::<ClientContext>();
     }
 }

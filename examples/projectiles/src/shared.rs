@@ -21,6 +21,7 @@ use crate::protocol::*;
 
 #[cfg(feature = "server")]
 use lightyear::prelude::{Room, RoomEvent};
+use crate::server::BotClient;
 
 const EPS: f32 = 0.0001;
 pub const BOT_RADIUS: f32 = 15.0;
@@ -83,7 +84,7 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
 
 pub(crate) fn rotate_player(
     trigger: Trigger<Fired<MoveCursor>>,
-    mut player: Query<(&mut Rotation, &Position), Without<Confirmed>>,
+    mut player: Query<(&mut Rotation, &Position), (Without<Confirmed>, Without<Bot>)>,
 ) {
     if let Ok((mut rotation, position)) = player.get_mut(trigger.target()) {
         let angle = Vec2::new(0.0, 1.0).angle_to(trigger.value - position.0);
@@ -214,16 +215,16 @@ pub(crate) fn shoot_weapon(
         ),
         (With<PlayerMarker>, Without<Confirmed>)
     >,
-    client: Query<(&ProjectileReplicationMode, &GameReplicationMode)>,
+    global: Single<(&ProjectileReplicationMode, &GameReplicationMode)>,
 ) {
     let tick = timeline.tick();
     let tick_duration = tick_duration.0;
+    let (projectile_mode, replication_mode) = global.into_inner();
 
     if let Ok((id, transform, color, mut weapon, weapon_type, controlled_by)) =
         player_query.get_mut(trigger.target())
     {
         let is_server = controlled_by.is_some();
-        let (projectile_mode, replication_mode) = controlled_by.map_or_else(|| client.single().unwrap(),|c| client.get(c.owner).unwrap());
 
         // Check fire rate
         if let Some(last_fire) = weapon.last_fire_tick {
@@ -1101,6 +1102,7 @@ fn despawn_after(
     }
 }
 
+// Cycle the global GameReplicationMode
 pub fn cycle_replication_mode(
     trigger: Trigger<Completed<CycleReplicationMode>>,
     mut client: Query<&mut GameReplicationMode>,
@@ -1111,6 +1113,8 @@ pub fn cycle_replication_mode(
     }
 }
 
+
+// Cycle the global ProjectileReplicationMode
 pub fn cycle_projectile_mode(
     trigger: Trigger<Completed<CycleProjectileMode>>,
     mut client: Query<&mut ProjectileReplicationMode>,

@@ -19,7 +19,7 @@ use lightyear::prelude::*;
 use lightyear_avian2d::prelude::{
     LagCompensationHistory, LagCompensationPlugin, LagCompensationSet, LagCompensationSpatialQuery,
 };
-use lightyear_examples_common::cli::new_headless_app;
+use lightyear_examples_common::cli::{new_gui_app, new_headless_app};
 use lightyear_examples_common::shared::{SEND_INTERVAL, SERVER_ADDR, SHARED_SETTINGS};
 use rand::random;
 use crate::client::ExampleClientPlugin;
@@ -38,6 +38,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(spawn_player);
         app.add_observer(cycle_replication_mode);
 
+        app.add_systems(Startup, spawn_global_control);
         // the lag compensation systems need to run after LagCompensationSet::UpdateHistory
         app.add_systems(
             FixedUpdate,
@@ -75,11 +76,18 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
         // on the client and replicated to the server.
         ReplicationReceiver::default(),
         Name::from("ClientOf"),
-        // the context needs to be inserted on both the server and client
+    ));
+}
+
+pub(crate) fn spawn_global_control(
+    mut commands: Commands,
+) {
+    commands.spawn((
         ClientContext,
-        // TODO: should we replicate these?
+        Replicate::to_clients(NetworkTarget::All),
         GameReplicationMode::default(),
         ProjectileReplicationMode::default(),
+        Name::new("ClientContext"),
     ));
 }
 
@@ -89,7 +97,7 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 // has been removed
 pub(crate) fn spawn_player(
     trigger: Trigger<OnAdd, Connected>,
-    query: Query<&RemoteId, With<ClientOf>>,
+    query: Query<(&RemoteId, Has<BotClient>), With<ClientOf>>,
     mut commands: Commands,
     mut rooms: ResMut<Rooms>,
     replicated_players: Query<
@@ -98,7 +106,7 @@ pub(crate) fn spawn_player(
     >,
 ) {
     let sender = trigger.target();
-    let Ok(client_id) = query.get(sender) else {
+    let Ok((client_id, is_bot)) = query.get(sender) else {
         return;
     };
     let client_id = client_id.0;
@@ -171,6 +179,9 @@ pub(crate) fn spawn_player(
             )),
         }
         .id();
+        if is_bot {
+            commands.entity(player_entity).insert(Bot);
+        }
         info!("Spawning player {player_entity:?} for room: {room:?}");
         commands
             .entity(room)
@@ -344,7 +355,11 @@ fn spawn_bot_app(
     info!("Spawning bot app");
     let (crossbeam_client, crossbeam_server) = CrossbeamIo::new_pair();
 
-    let mut app = new_headless_app();
+    // let mut app = new_headless_app();
+    // TODO: just spawn a bot player entity without creating a new client
+    // cannot use headless app because the frame rate is too fast so
+    // the bot sends too many packets
+    let mut app = new_gui_app(false);
     app.add_plugins(InputPlugin);
     app.add_plugins(lightyear::prelude::client::ClientPlugins {
         tick_duration: tick_duration.0,
@@ -392,6 +407,7 @@ fn spawn_bot_app(
     ));
 
     app.add_systems(Startup, bot_connect);
+    app.add_systems(First, bot_inputs);
     let mut bot_app = BotApp(app);
     std::thread::spawn(move || {
         bot_app.run();
@@ -407,19 +423,51 @@ fn bot_connect(
     commands.entity(entity).trigger(Connect);
 }
 
+fn bot_inputs(
+    time: Res<Time>,
+    mut input: ResMut<ButtonInput<KeyCode>>,
+    mut local: Local<(Stopwatch, bool)>,
+) {
+    let (stopwatch, press_a) = local.deref_mut();
+    stopwatch.tick(time.delta());
+
+    if stopwatch.elapsed_secs() >= 0.5 {
+        stopwatch.reset();
+        if *press_a {
+            input.release(KeyCode::KeyA);
+        } else {
+            input.release(KeyCode::KeyD);
+        }
+        *press_a = !*press_a;
+    }
+
+    if *press_a {
+        input.press(KeyCode::KeyA);
+    } else {
+        input.press(KeyCode::KeyD);
+    }
+    trace!("Bot pressing {:?}", input.get_pressed().collect::<Vec<_>>());
+}
+
 
 pub fn cycle_replication_mode(
     // we use Completed to guarantee that the ReplicationMode hasn't already been switched
     trigger: Trigger<Started<CycleReplicationMode>>,
+    global: Query<&GameReplicationMode, With<ClientContext>>,
     rooms: Res<Rooms>,
-    mut client: Query<&GameReplicationMode, With<ClientOf>>,
+    mut client: Query<Entity, With<ClientOf>>,
     mut commands: Commands,
 ) {
-    if let Ok(replication_mode) = client.get_mut(trigger.target())
+    if let Ok(replication_mode) = global.get(trigger.target())
         && let Some(room) = rooms.rooms.get(replication_mode) {
-        commands.trigger_targets(RoomEvent::RemoveSender(trigger.target()), *room);
-        let next_room = rooms.rooms.get(&replication_mode.next()).unwrap();
-        commands.trigger_targets(RoomEvent::AddSender(trigger.target()), *next_room);
-        info!("Switching client {:?} from room {room:?} to room {next_room:?}", trigger.target());
+
+        for entity in client.iter() {
+            commands.trigger_targets(RoomEvent::RemoveSender(trigger.target()), *room);
+            let next_room = rooms.rooms.get(&replication_mode.next()).unwrap();
+            commands.trigger_targets(RoomEvent::AddSender(trigger.target()), *next_room);
+            info!("Switching client {:?} from room {room:?} to room {next_room:?}", trigger.target());
+        }
     }
 }
+
+

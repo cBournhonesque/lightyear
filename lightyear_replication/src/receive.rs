@@ -16,7 +16,7 @@ use alloc::vec::Vec;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::packet::message::MessageId;
-use tracing::{debug, error, info, info_span, trace, trace_span, warn};
+use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::plugin;
 use crate::plugin::ReplicationSet;
@@ -70,6 +70,7 @@ impl ReplicationReceivePlugin {
     ) {
         if let Some(receiver_entity) = peer_metadata.mapping.get(&trigger.from) {
             if let Ok(mut manager) = receiver.get_mut(*receiver_entity) {
+                trace!("Add mapping from local Receiver entity to remote Sender entity");
                 manager
                     .entity_mapper
                     .insert(trigger.trigger.sender_entity, *receiver_entity);
@@ -128,7 +129,7 @@ impl ReplicationReceivePlugin {
         receiver_entities
             .drain(..)
             .for_each(|(entity, remote_peer)| {
-                let span = info_span!("receive", entity = ?entity);
+                let span = trace_span!("receive", entity = ?entity);
                 let _guard = span.enter();
                 let unsafe_world = world.as_unsafe_world_cell();
                 // Get the list of entities which we might have authority over
@@ -378,9 +379,6 @@ impl ReplicationReceiver {
         current_tick: Tick,
     ) {
         // apply all actions first
-        // TODO: it's extremely strange, but it seems like the value of TempWriteBuffer can linger from previous
-        //  frames. Let's clear it manually for now
-        // self.buffer = BufferedChanges::default();
         self.group_channels
             .iter_mut()
             .for_each(|(group_id, channel)| {
