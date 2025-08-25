@@ -36,8 +36,11 @@ pub struct Score(pub usize);
 #[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Reflect)]
 pub struct ColorComponent(pub(crate) Color);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct BulletMarker;
+#[derive(Component, MapEntities, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct BulletMarker{
+    #[entities]
+    pub shooter: Entity,
+}
 
 // Inputs
 #[derive(Component, Serialize, Deserialize, Reflect, Clone, Debug, PartialEq)]
@@ -140,10 +143,12 @@ impl ProjectileReplicationMode {
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, Reflect)]
 pub enum GameReplicationMode {
-    AllPredicted,           // Current mode: all predicted, server hit detection
+    // TODO: do we predict other entities shooting? or just their movement?
+    //  maybe just their movement?
+    AllPredicted,           // Current mode: client predicts all entities, server hit detection
     ClientPredictedNoComp,  // Client predicted, enemies interpolated, no lag comp
     ClientPredictedLagComp, // Client predicted, enemies interpolated, with lag comp
-    ClientSideHitDetection, // Hits computed on client
+    ClientSideHitDetection, // Client predicted, enemies interpolated, hits computed on client
     AllInterpolated,        // Everything interpolated with delay
     OnlyInputsReplicated,   // Everything predicted, only inputs replicated
 }
@@ -355,6 +360,7 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(PredictionMode::Once);
 
         app.register_component::<BulletMarker>()
+            .add_map_entities()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
 
