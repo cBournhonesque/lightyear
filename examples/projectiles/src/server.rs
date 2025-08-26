@@ -8,6 +8,7 @@ use core::ops::DerefMut;
 use core::time::Duration;
 use std::net::SocketAddr;
 use bevy::input::InputPlugin;
+use bevy_enhanced_input::EnhancedInputSet;
 use bevy_enhanced_input::prelude::{Completed, Started};
 use leafwing_input_manager::prelude::*;
 use lightyear::core::tick::TickDuration;
@@ -19,9 +20,9 @@ use lightyear::prelude::*;
 use lightyear_avian2d::prelude::{
     LagCompensationHistory, LagCompensationPlugin, LagCompensationSet, LagCompensationSpatialQuery,
 };
-use lightyear_examples_common::cli::{new_gui_app, new_headless_app};
 use lightyear_examples_common::shared::{SEND_INTERVAL, SERVER_ADDR, SHARED_SETTINGS};
 use rand::random;
+use lightyear_examples_common::cli::new_headless_app;
 use crate::client::ExampleClientPlugin;
 
 pub struct ExampleServerPlugin;
@@ -39,6 +40,10 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(cycle_replication_mode);
 
         app.add_systems(Startup, spawn_global_control);
+
+        // we don't want to panic when trying to read the InputReader if gui is not enabled
+        app.configure_sets(PreUpdate, EnhancedInputSet::Prepare.run_if(|| false));
+
         // the lag compensation systems need to run after LagCompensationSet::UpdateHistory
         app.add_systems(
             FixedUpdate,
@@ -137,32 +142,27 @@ pub(crate) fn spawn_player(
                 commands.spawn((
                     player,
                     PredictionTarget::to_clients(NetworkTarget::All),
-                    GameReplicationMode::AllPredicted,
                 ))
             }
             GameReplicationMode::ClientPredictedNoComp => commands.spawn((
                 player,
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-                GameReplicationMode::ClientPredictedNoComp
             )),
             GameReplicationMode::ClientPredictedLagComp => commands.spawn((
                 player,
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-                GameReplicationMode::ClientPredictedLagComp
             )),
             GameReplicationMode::ClientSideHitDetection => commands.spawn((
                 player,
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-                GameReplicationMode::ClientSideHitDetection
             )),
             GameReplicationMode::AllInterpolated => {
                 commands.spawn((
                     player,
                     InterpolationTarget::to_clients(NetworkTarget::All),
-                    GameReplicationMode::AllInterpolated
                 ))
             }
             GameReplicationMode::OnlyInputsReplicated => commands.spawn((
@@ -175,7 +175,6 @@ pub(crate) fn spawn_player(
                 },
                 PlayerMarker,
                 Name::new("Player"),
-                GameReplicationMode::OnlyInputsReplicated
             )),
         }
         .id();
@@ -355,11 +354,11 @@ fn spawn_bot_app(
     info!("Spawning bot app");
     let (crossbeam_client, crossbeam_server) = CrossbeamIo::new_pair();
 
-    // let mut app = new_headless_app();
+    let mut app = new_headless_app();
     // TODO: just spawn a bot player entity without creating a new client
     // cannot use headless app because the frame rate is too fast so
     // the bot sends too many packets
-    let mut app = new_gui_app(false);
+    // let mut app = new_gui_app(false);
     app.add_plugins(InputPlugin);
     app.add_plugins(lightyear::prelude::client::ClientPlugins {
         tick_duration: tick_duration.0,
@@ -408,6 +407,8 @@ fn spawn_bot_app(
 
     app.add_systems(Startup, bot_connect);
     app.add_systems(First, bot_inputs);
+    #[cfg(not(feature = "gui"))]
+    app.add_systems(Update, bot_wait);
     let mut bot_app = BotApp(app);
     std::thread::spawn(move || {
         bot_app.run();
@@ -449,21 +450,49 @@ fn bot_inputs(
     trace!("Bot pressing {:?}", input.get_pressed().collect::<Vec<_>>());
 }
 
+#[cfg(not(feature = "gui"))]
+// prevent the bot from running too fast
+fn bot_wait(
+    timeline: Single<&LocalTimeline>)
+{
+    std::thread::sleep(Duration::from_millis(15));
+}
+
+pub fn cycle_replication_mode(
+    trigger: Trigger<Completed<CycleReplicationMode>>,
+    mut client: Query<&mut GameReplicationMode>,
+) {
+    if let Ok(mut replication_mode) = client.get_mut(trigger.target()) {
+        *replication_mode = replication_mode.next();
+        info!("Done cycling replication mode to {:?}. Entity: {:?}", replication_mode, trigger.target());
+    }
+}
+
+pub fn cycle_projectile_mode(
+    trigger: Trigger<Completed<CycleProjectileMode>>,
+    mut client: Query<&mut ProjectileReplicationMode>,
+) {
+    if let Ok(mut projectile_mode) = client.get_mut(trigger.target()) {
+        *projectile_mode = projectile_mode.next();
+        info!("Done cycling projectile mode to {:?}. Entity: {:?}", projectile_mode, trigger.target());
+    }
+}
+
 
 pub fn cycle_replication_mode(
     // we use Completed to guarantee that the ReplicationMode hasn't already been switched
     trigger: Trigger<Started<CycleReplicationMode>>,
-    global: Query<&GameReplicationMode, With<ClientContext>>,
+    global: Single<&mut GameReplicationMode, With<ClientContext>>,
     rooms: Res<Rooms>,
-    mut client: Query<Entity, With<ClientOf>>,
+    client: Query<Entity, With<ClientOf>>,
     mut commands: Commands,
 ) {
-    if let Ok(replication_mode) = global.get(trigger.target())
-        && let Some(room) = rooms.rooms.get(replication_mode) {
-
+    // TODO: fix this, we need to find the entity for each mode!!!
+    let mut replication_mode = global.into_inner();
+    if let Some(room) = rooms.rooms.get(replication_mode) {
+        let next_room = rooms.rooms.get(&replication_mode.next()).unwrap();
         for entity in client.iter() {
             commands.trigger_targets(RoomEvent::RemoveSender(trigger.target()), *room);
-            let next_room = rooms.rooms.get(&replication_mode.next()).unwrap();
             commands.trigger_targets(RoomEvent::AddSender(trigger.target()), *next_room);
             info!("Switching client {:?} from room {room:?} to room {next_room:?}", trigger.target());
         }

@@ -240,6 +240,7 @@ fn check_rollback(
                 ?tick,
                 "Trying to do a rollback of {delta:?} ticks. The max is {max_rollback_ticks:?}! Aborting"
             );
+            prediction_manager.set_non_rollback();
             return;
         }
         // if prediction_manager.last_rollback_tick.is_some_and(|t| t >= rollback_tick)  {

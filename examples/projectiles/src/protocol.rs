@@ -1,6 +1,7 @@
 use crate::shared::color_from_id;
 use avian2d::position::{Position, Rotation};
 use avian2d::prelude::RigidBody;
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear::input::bei::prelude;
 use lightyear::input::prelude::InputConfig;
@@ -383,13 +384,9 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Weapon>()
             .add_prediction(PredictionMode::Full);
 
-        app.register_component::<ProjectileReplicationMode>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<ProjectileReplicationMode>();
 
-        app.register_component::<GameReplicationMode>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<GameReplicationMode>();
 
         app.register_component::<PlayerRoom>()
             .add_prediction(PredictionMode::Once)

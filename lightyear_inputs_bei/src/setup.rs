@@ -20,8 +20,9 @@ use bevy_ecs::prelude::*;
 #[cfg(feature = "client")]
 use bevy_ecs::relationship::Relationship;
 #[cfg(feature = "client")]
-use lightyear_replication::prelude::{Replicate, Replicated};
+use lightyear_replication::prelude::Replicate;
 
+use lightyear_replication::prelude::Replicated;
 use bevy_enhanced_input::prelude::*;
 #[cfg(feature = "client")]
 use lightyear_core::prediction::Predicted;

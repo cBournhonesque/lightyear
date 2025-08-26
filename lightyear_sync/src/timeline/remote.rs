@@ -16,7 +16,7 @@ use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, Timeline, TimelineContext};
 use lightyear_link::Linked;
 use lightyear_transport::plugin::PacketReceived;
-use tracing::trace;
+use tracing::{info, trace};
 
 /// The local peer's estimate of the remote peer's timeline
 ///

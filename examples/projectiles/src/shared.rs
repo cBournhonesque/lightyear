@@ -89,14 +89,14 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
 
 pub(crate) fn rotate_player(
     trigger: Trigger<Fired<MoveCursor>>,
-    mut player: Query<(&mut Rotation, &Position)>,
+    mut player: Query<(&mut Rotation, &Position), (Without<Confirmed>, Without<Bot>)>,
 ) {
     if let Ok((mut rotation, position)) = player.get_mut(trigger.target()) {
         let angle = Vec2::new(0.0, 1.0).angle_to(trigger.value - position.0);
         // careful to only activate change detection if there was an actual change
         if (angle - rotation.as_radians()).abs() > EPS {
             *rotation = Rotation::from(angle);
-
+        }
     }
 }
 
@@ -192,18 +192,17 @@ pub(crate) fn shoot_weapon(
         ),
         With<PlayerMarker>,
     >,
-    client: Query<(&ProjectileReplicationMode, &GameReplicationMode)>,
+    global: Single<(&ProjectileReplicationMode, &GameReplicationMode)>,
 ) {
     let tick = timeline.tick();
     let tick_duration = tick_duration.0;
     let shooter = trigger.target();
+    let (projectile_mode, replication_mode) = global.into_inner();
 
     if let Ok((id, transform, color, mut weapon, weapon_type, controlled_by)) =
         player_query.get_mut(trigger.target())
     {
         let is_server = controlled_by.is_some();
-        let (projectile_mode, replication_mode) = controlled_by.map_or_else(|| client.single().unwrap(),|c| client.get(c.owner).unwrap());
-
         // Check fire rate
         if let Some(last_fire) = weapon.last_fire_tick {
             let ticks_since_last_fire = tick.0.saturating_sub(last_fire.0);
@@ -295,6 +294,7 @@ fn shoot_with_full_entity_replication(
                 timeline,
                 transform,
                 id,
+                shooter,
                 color,
                 controlled_by,
                 replication_mode,
@@ -348,6 +348,7 @@ fn shoot_with_direction_only_replication(
     timeline: &LocalTimeline,
     transform: &Transform,
     id: &PlayerId,
+    shooter: Entity,
     color: &ColorComponent,
     controlled_by: Option<&ControlledBy>,
     is_server: bool,
@@ -382,6 +383,7 @@ fn shoot_with_direction_only_replication(
     //  - interpolation: ideally the client interpolates by adjusting the position to account for the exact fire tick
 
     if is_server {
+        #[cfg(feature = "server")]
         match replication_mode {
             GameReplicationMode::AllPredicted => {
                 commands.spawn((
@@ -434,7 +436,7 @@ fn shoot_with_direction_only_replication(
 
     } else {
         // Client creates the projectile immediately for prediction
-        create_client_projectile(commands, &spawn_info, color);
+        create_client_projectile(commands, &spawn_info, color, shooter);
     }
 }
 
@@ -474,8 +476,10 @@ pub(crate) fn hitscan_hit_detection(
     server: Query<Entity, With<Server>>,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     mode: Single<&GameReplicationMode>,
-    lag_comp_query: LagCompensationSpatialQuery,
-    query: SpatialQuery,
+    mut spatial_set: ParamSet<(
+        LagCompensationSpatialQuery,
+        SpatialQuery,
+    )>,
     bullet: Query<(&HitscanVisual, &BulletMarker, &PlayerId)>,
     target_query: Query<(), (With<PlayerMarker>, Without<Confirmed>)>,
     // the InterpolationDelay component is stored directly on the client entity
@@ -510,15 +514,16 @@ pub(crate) fn hitscan_hit_detection(
 
     match mode {
         GameReplicationMode::ClientPredictedLagComp => {
-            let owner = player_query.get(shooter).map(|(_, _, controlled_by)| controlled_by.owner) else {
+            let Ok(Some(controlled_by)) = player_query.get(shooter).map(|(_, _, controlled_by)| controlled_by) else {
                 error!("Could not retrieve controlled_by for client {id:?}");
                 return;
             };
-            let Ok(delay) = client_query.get(owner) else {
+            let Ok(delay) = client_query.get(controlled_by.owner) else {
                 error!("Could not retrieve InterpolationDelay for client {id:?}");
                 return;
             };
-            if let Some(hit_data) = lag_comp_query.cast_ray(
+            let query = spatial_set.p0();
+            if let Some(hit_data) = query.cast_ray(
                 // the delay is sent in every input message; the latest InterpolationDelay received
                 // is stored on the client entity
                 *delay,
@@ -546,6 +551,7 @@ pub(crate) fn hitscan_hit_detection(
             }
         }
         _ => {
+            let query = spatial_set.p1();
             if let Some(hit_data) = query.cast_ray_predicate(
                 start,
                 Dir2::new_unchecked(direction),
@@ -583,8 +589,10 @@ pub(crate) fn bullet_hit_detection(
     server: Query<Entity, With<Server>>,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     mode: Single<&GameReplicationMode>,
-    lag_comp_query: LagCompensationSpatialQuery,
-    query: SpatialQuery,
+    mut spatial_set: ParamSet<(
+        LagCompensationSpatialQuery,
+        SpatialQuery,
+    )>,
     bullet: Query<(&Position, &LinearVelocity, &BulletMarker, &PlayerId)>,
     target_query: Query<(), (With<PlayerMarker>, Without<Confirmed>)>,
     // the InterpolationDelay component is stored directly on the client entity
@@ -616,15 +624,16 @@ pub(crate) fn bullet_hit_detection(
 
         match mode {
             GameReplicationMode::ClientPredictedLagComp => {
-                let owner = player_query.get(shooter).map(|(_, _, controlled_by)| controlled_by.owner) else {
+                let Ok(Some(controlled)) = player_query.get(shooter).map(|(_, _, controlled_by)| controlled_by) else {
                     error!("Could not retrieve controlled_by for client {id:?}");
                     return;
                 };
-                let Ok(delay) = client_query.get(owner) else {
+                let Ok(delay) = client_query.get(controlled.owner) else {
                     error!("Could not retrieve InterpolationDelay for client {id:?}");
                     return;
                 };
-                if let Some(hit_data) = lag_comp_query.cast_ray(
+                let query = spatial_set.p0();
+                if let Some(hit_data) = query.cast_ray(
                     // the delay is sent in every input message; the latest InterpolationDelay received
                     // is stored on the client entity
                     *delay,
@@ -652,6 +661,7 @@ pub(crate) fn bullet_hit_detection(
                 }
             }
             _ => {
+                let query = spatial_set.p1();
                 if let Some(hit_data) = query.cast_ray_predicate(
                     start,
                     Dir2::new_unchecked(direction),
@@ -720,6 +730,7 @@ fn shoot_hitscan(
 
 
     if is_server {
+        #[cfg(feature = "server")]
         match replication_mode {
             GameReplicationMode::AllPredicted => {
                 // clients predict other clients using their inputs
@@ -790,6 +801,7 @@ fn shoot_linear_projectile(
     timeline: &LocalTimeline,
     transform: &Transform,
     id: &PlayerId,
+    shooter: Entity,
     color: &ColorComponent,
     controlled_by: Option<&ControlledBy>,
     replication_mode: &GameReplicationMode,
@@ -802,11 +814,14 @@ fn shoot_linear_projectile(
         RigidBody::Kinematic,
         *id,
         *color,
-        BulletMarker,
+        BulletMarker {
+            shooter
+        },
         Name::new("LinearProjectile"),
     );
 
     if is_server {
+        #[cfg(feature = "server")]
         match replication_mode {
             GameReplicationMode::AllPredicted => {}
             GameReplicationMode::ClientPredictedNoComp => {
@@ -883,6 +898,7 @@ fn shoot_shotgun(
     timeline: &LocalTimeline,
     transform: &Transform,
     id: &PlayerId,
+    shooter: Entity,
     color: &ColorComponent,
     controlled_by: Option<&ControlledBy>,
     replication_mode: &GameReplicationMode,
@@ -903,7 +919,7 @@ fn shoot_shotgun(
             RigidBody::Kinematic,
             *id,
             *color,
-            BulletMarker,
+            BulletMarker { shooter},
             ShotgunPellet {
                 pellet_index: i,
                 spread_angle: angle_offset,
@@ -935,6 +951,7 @@ fn shoot_physics_projectile(
     timeline: &LocalTimeline,
     transform: &Transform,
     id: &PlayerId,
+    shooter: Entity,
     color: &ColorComponent,
     controlled_by: Option<&ControlledBy>,
     replication_mode: &GameReplicationMode,
@@ -949,7 +966,7 @@ fn shoot_physics_projectile(
         Restitution::new(0.8), // Bouncy
         *id,
         *color,
-        BulletMarker,
+        BulletMarker { shooter },
         PhysicsProjectile {
             bounce_count: 0,
             max_bounces: 3,
@@ -979,6 +996,7 @@ fn shoot_homing_missile(
     timeline: &LocalTimeline,
     transform: &Transform,
     id: &PlayerId,
+    shooter: Entity,
     color: &ColorComponent,
     controlled_by: Option<&ControlledBy>,
     is_server: bool,
@@ -991,7 +1009,7 @@ fn shoot_homing_missile(
         RigidBody::Kinematic,
         *id,
         *color,
-        BulletMarker,
+        BulletMarker { shooter },
         HomingMissile {
             target_entity: target,
             turn_speed: 2.0,
@@ -1116,6 +1134,7 @@ fn create_client_projectile(
     commands: &mut Commands,
     spawn_info: &ProjectileSpawn,
     color: &ColorComponent,
+    shooter: Entity,
 ) {
     let mut transform = Transform::from_translation(spawn_info.position.extend(0.0));
     let angle = Vec2::new(0.0, 1.0).angle_to(spawn_info.direction);
@@ -1129,7 +1148,7 @@ fn create_client_projectile(
         RigidBody::Kinematic,
         PlayerId(spawn_info.player_id),
         *color,
-        BulletMarker,
+        BulletMarker { shooter },
         ClientProjectile {
             start_position: spawn_info.position,
             direction: spawn_info.direction,
@@ -1176,6 +1195,7 @@ pub(crate) fn update_weapon_ring_buffer(
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     mut query: Query<
         (
+            Entity,
             &mut Weapon,
             &PlayerId,
             &ColorComponent,
@@ -1187,7 +1207,7 @@ pub(crate) fn update_weapon_ring_buffer(
 ) {
     let current_tick = timeline.tick();
 
-    for (mut weapon, player_id, color, controlled_by) in query.iter_mut() {
+    for (shooter, mut weapon, player_id, color, controlled_by) in query.iter_mut() {
 
         // Process projectiles that should be spawned based on their tick
         let mut projectiles_to_spawn = Vec::new();
@@ -1209,6 +1229,7 @@ pub(crate) fn update_weapon_ring_buffer(
                     &mut commands,
                     projectile_info,
                     player_id,
+                    shooter,
                     color,
                     controlled_by,
                     is_server,
@@ -1228,6 +1249,7 @@ fn spawn_projectile_from_buffer(
     commands: &mut Commands,
     projectile_info: &ProjectileSpawnInfo,
     player_id: &PlayerId,
+    shooter: Entity,
     color: &ColorComponent,
     controlled_by: Option<&ControlledBy>,
     is_server: bool,
@@ -1252,7 +1274,7 @@ fn spawn_projectile_from_buffer(
         RigidBody::Kinematic,
         *player_id,
         *color,
-        BulletMarker,
+        BulletMarker { shooter },
         Name::new("RingBufferProjectile"),
     );
 
@@ -1300,22 +1322,22 @@ fn despawn_after(
     }
 }
 
-pub fn cycle_replication_mode(
-    trigger: Trigger<Completed<CycleReplicationMode>>,
-    mut client: Query<&mut GameReplicationMode>,
-) {
-    if let Ok(mut replication_mode) = client.get_mut(trigger.target()) {
-        *replication_mode = replication_mode.next();
-        info!("Done cycling replication mode to {:?}. Entity: {:?}", replication_mode, trigger.target());
-    }
-}
 
-pub fn cycle_projectile_mode(
-    trigger: Trigger<Completed<CycleProjectileMode>>,
-    mut client: Query<&mut ProjectileReplicationMode>,
-) {
-    if let Ok(mut projectile_mode) = client.get_mut(trigger.target()) {
-        *projectile_mode = projectile_mode.next();
-        info!("Done cycling projectile mode to {:?}. Entity: {:?}", projectile_mode, trigger.target());
-    }
+
+pub fn player_bundle(client_id: PeerId) -> impl Bundle {
+    let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
+    let color = color_from_id(client_id);
+    (
+        // the context needs to be inserted on the server, and will be replicated to the client
+        PlayerContext,
+        Score(0),
+        PlayerId(client_id),
+        RigidBody::Kinematic,
+        Transform::from_xyz(0.0, y, 0.0),
+        ColorComponent(color),
+        PlayerMarker,
+        Weapon::default(),
+        WeaponType::default(),
+        Name::new("Player"),
+    )
 }

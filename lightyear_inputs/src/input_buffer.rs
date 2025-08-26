@@ -18,7 +18,7 @@ use bevy_reflect::Reflect;
 use core::fmt::{Debug, Formatter};
 use lightyear_core::tick::Tick;
 use serde::{Deserialize, Serialize};
-use tracing::trace;
+use tracing::{trace};
 
 #[derive(Component, Debug, Reflect)]
 pub struct InputBuffer<T> {

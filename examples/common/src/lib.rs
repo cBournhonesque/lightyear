@@ -81,11 +81,6 @@ compile_error!("steam feature is not supported in wasm");
 #[cfg(all(feature = "server", target_family = "wasm"))]
 compile_error!("server feature is not supported in wasm");
 
-// Assumption: client implies gui, although technically not necessarily true,
-// if you want to build a headless client to run a bot, it's possible, but unhandled here.
-#[cfg(all(feature = "client", not(feature = "gui")))]
-compile_error!("client feature requires gui feature");
-
 #[cfg(all(feature = "gui", feature = "client"))]
 pub mod client_renderer;
 

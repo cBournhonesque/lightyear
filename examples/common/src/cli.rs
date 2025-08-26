@@ -50,11 +50,20 @@ impl Cli {
         }
     }
 
+    pub fn create_app(add_inspector: bool) -> App {
+        #[cfg(feature = "gui")]
+        let app = new_gui_app(add_inspector);
+        #[cfg(not(feature = "gui"))]
+        let app = new_headless_app();
+
+        app
+    }
+
     pub fn build_app(&self, tick_duration: Duration, add_inspector: bool) -> App {
+        let mut app = Cli::create_app(add_inspector);
         match self.mode {
             #[cfg(feature = "client")]
             Some(Mode::Client { client_id }) => {
-                let mut app = new_gui_app(add_inspector);
                 #[cfg(feature = "steam")]
                 app.add_steam_resources(STEAM_APP_ID);
                 app.add_plugins((
@@ -66,13 +75,6 @@ impl Cli {
             }
             #[cfg(feature = "server")]
             Some(Mode::Server) => {
-                cfg_if::cfg_if! {
-                    if #[cfg(feature = "gui")] {
-                        let mut app = new_gui_app(add_inspector);
-                    } else {
-                        let mut app = new_headless_app();
-                    }
-                }
                 #[cfg(feature = "steam")]
                 app.add_steam_resources(STEAM_APP_ID);
                 app.add_plugins((
@@ -84,7 +86,6 @@ impl Cli {
             }
             #[cfg(all(feature = "client", feature = "server"))]
             Some(Mode::HostClient { client_id }) => {
-                let mut app = new_gui_app(add_inspector);
                 #[cfg(feature = "steam")]
                 app.add_steam_resources(STEAM_APP_ID);
                 app.add_plugins((

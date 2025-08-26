@@ -5,11 +5,12 @@ use bevy::color::palettes::basic::GREEN;
 use bevy::color::palettes::css::BLUE;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
-use bevy_enhanced_input::prelude::Actions;
+use bevy_enhanced_input::action::{Action, ActionMock};
+use bevy_enhanced_input::prelude::{ActionValue, Actions};
 use lightyear::input::bei::prelude::InputMarker;
 use lightyear::interpolation::Interpolated;
 use lightyear::prediction::prespawn::PreSpawned;
-use lightyear::prelude::{Client, DeterministicPredicted, Predicted, Replicate, Replicated};
+use lightyear::prelude::{Client, Controlled, DeterministicPredicted, Predicted, Replicate, Replicated};
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -32,12 +33,16 @@ impl Plugin for ExampleRendererPlugin {
         #[cfg(feature = "client")]
         {
             app.add_systems(
+                PreUpdate,
+                // mock the action before BEI evaluates it. BEI evaluated actions mocks in FixedPreUpdate
+                update_cursor_state_from_window,
+            );
+            app.add_systems(
                 Update,
                 (
                     display_score,
-                    display_weapon_info,
                     render_hitscan_lines,
-                    display_modes,
+                    display_info,
                 ),
             );
         }
@@ -45,6 +50,27 @@ impl Plugin for ExampleRendererPlugin {
         #[cfg(feature = "server")]
         {
             app.add_systems(PostUpdate, draw_aabb_envelope);
+        }
+    }
+}
+
+/// Compute the world-position of the cursor and set it in the DualAxis input
+fn update_cursor_state_from_window(
+    window: Single<&Window>,
+    q_camera: Query<(&Camera, &GlobalTransform)>,
+    mut action_query: Query<&mut ActionMock, With<Action<MoveCursor>>>,
+) {
+    let Ok((camera, camera_transform)) = q_camera.single() else {
+        error!("Expected to find only one camera");
+        return;
+    };
+    if let Some(world_position) = window
+        .cursor_position()
+        .and_then(|cursor| Some(camera.viewport_to_world(camera_transform, cursor).unwrap()))
+        .map(|ray| ray.origin.truncate())
+    {
+        for mut action_mock in action_query.iter_mut() {
+            action_mock.value = ActionValue::Axis2D(world_position);
         }
     }
 }
@@ -75,7 +101,7 @@ fn init(mut commands: Commands) {
                 left: Val::Px(10.0),
                 ..default()
             },
-            WeaponText,
+            ModeText,
         ));
     }
 }
@@ -85,9 +111,6 @@ struct ScoreText;
 
 #[derive(Component)]
 struct ModeText;
-
-#[derive(Component)]
-struct WeaponText;
 
 #[cfg(feature = "client")]
 fn display_score(
@@ -102,13 +125,13 @@ fn display_score(
 }
 
 #[cfg(feature = "client")]
-fn display_weapon_info(
-    mut weapon_text: Single<&mut Text, With<WeaponText>>,
-    weapon_type: Single<&WeaponType, (With<Actions<PlayerContext>>, With<PlayerMarker>)>,
-    client_query: Single<(&ProjectileReplicationMode, &GameReplicationMode), With<Client>>,
+fn display_info(
+    mut mode_text: Single<&mut Text, With<ModeText>>,
+    weapon_type: Single<&WeaponType, (With<Actions<PlayerContext>>, With<PlayerMarker>, With<Controlled>)>,
+    mode_query: Single<(&GameReplicationMode, &ProjectileReplicationMode)>,
 ) {
-    let (projectile_mode, replication_mode) = client_query.into_inner();
-    weapon_text.0 = format!(
+    let (projectile_mode, replication_mode) = mode_query.into_inner();
+    mode_text.0 = format!(
         "Weapon: {}\nProjectile Mode: {}\nReplication Mode: {}\nPress Q to cycle weapons\nPress E to cycle replication\nPress R to cycle rooms\nPress Space to shoot",
         weapon_type.name(),
         projectile_mode.name(),
@@ -136,19 +159,6 @@ fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut
             Color::WHITE,
         );
     })
-}
-
-#[cfg(feature = "client")]
-fn display_modes(
-    client: Single<(&GameReplicationMode, &ProjectileReplicationMode), With<Client>>,
-    mut text: Single<&mut Text, With<ModeText>>,
-) {
-    let (replication_mode, projectile_mode) = client.into_inner();
-    text.0 = format!(
-        "ReplicationMode: {:?}, ProjectileMode: {:?}",
-        replication_mode.name(),
-        projectile_mode.name()
-    );
 }
 
 /// Convenient for filter for entities that should be visible

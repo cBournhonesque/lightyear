@@ -17,7 +17,7 @@ use lightyear_core::prelude::Tick;
 use lightyear_interpolation::plugin::InterpolationDelay;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug};
 
 /// Enum indicating the target entity for the input.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]

@@ -205,6 +205,9 @@ impl From<Tick> for TickInstant {
     }
 }
 
+// TODO: this format greatly complicates the code; why not just use a f32?
+//  one benefit is that PositiveTickDelta can be serialized with only 3 bytes, but that's not worth it.
+//  Just switch this to f32.
 /// Represents the difference between two TickInstants
 #[derive(Clone, Copy, PartialEq, Eq, Reflect)]
 pub struct TickDelta {
@@ -428,22 +431,54 @@ impl Sub for TickDelta {
             return -(rhs + (-self));
         }
 
-        let total_ticks = self.tick_diff.wrapping_sub(rhs.tick_diff);
-
-        // Handle underflow in overstep subtraction
-        if self.overstep.value() >= rhs.overstep.value() {
-            // No underflow
-            TickDelta {
-                tick_diff: total_ticks,
-                overstep: Overstep::from_f32(self.overstep.value() - rhs.overstep.value()),
-                neg: false,
+        if self.tick_diff > rhs.tick_diff {
+            let total_ticks = self.tick_diff - rhs.tick_diff;
+            if self.overstep.value() >= rhs.overstep.value() {
+                // No underflow
+                TickDelta {
+                    tick_diff: total_ticks,
+                    overstep: Overstep::from_f32(self.overstep.value() - rhs.overstep.value()),
+                    neg: false,
+                }
+            } else {
+                // Underflow - need to borrow from tick
+                TickDelta {
+                    tick_diff: total_ticks.checked_sub(1).expect("Tick underflow in subtraction"),
+                    overstep: Overstep::from_f32(1.0 + self.overstep.value() - rhs.overstep.value()),
+                    neg: false,
+                }
+            }
+        } else if self.tick_diff == rhs.tick_diff {
+            // Special case: if ticks are equal, check overstep
+            if self.overstep.value() >= rhs.overstep.value() {
+                TickDelta {
+                    tick_diff: 0,
+                    overstep: Overstep::from_f32(self.overstep.value() - rhs.overstep.value()),
+                    neg: false,
+                }
+            } else {
+                // Result is negative
+                TickDelta {
+                    tick_diff: 0,
+                    overstep: Overstep::from_f32(rhs.overstep.value() - self.overstep.value()),
+                    neg: true,
+                }
             }
         } else {
-            // Underflow - need to borrow from tick
-            TickDelta {
-                tick_diff: total_ticks.wrapping_sub(1),
-                overstep: Overstep::from_f32(1.0 + self.overstep.value() - rhs.overstep.value()),
-                neg: false,
+            // If rhs is greater, result will be negative
+            let total_ticks = rhs.tick_diff - self.tick_diff;
+            if rhs.overstep.value() >= self.overstep.value() {
+                TickDelta {
+                    tick_diff: total_ticks,
+                    overstep: Overstep::from_f32(rhs.overstep.value() - self.overstep.value()),
+                    neg: true,
+                }
+            } else {
+                TickDelta {
+                    tick_diff: total_ticks.checked_sub(1).expect("Tick underflow in subtraction"),
+                    overstep: Overstep::from_f32(1.0 + rhs.overstep.value() - self.overstep.value()),
+                    neg: true,
+                }
             }
         }
     }
@@ -871,6 +906,48 @@ mod tests {
                 neg: false,
             }
         );
+    }
+
+    #[test]
+    fn test_tickdelta_substraction(){
+        let delta = TickDelta::from(10i16);
+        let sub = delta - TickDelta::from(20i16);
+        assert_relative_eq!(sub.to_f32(), -10.0);
+
+        let a = TickDelta::new(0, Overstep::from_f32(0.1), false);
+        let b = TickDelta::new(0, Overstep::from_f32(0.6), false);
+        let sub = a - b;
+        assert_relative_eq!(sub.to_f32(), -0.5);
+
+        // Same tick, a > b
+        let a = TickDelta::new(0, Overstep::from_f32(0.8), false);
+        let b = TickDelta::new(0, Overstep::from_f32(0.3), false);
+        let sub = a - b;
+        assert_relative_eq!(sub.to_f32(), 0.5);
+
+        // Different tick, no underflow
+        let a = TickDelta::new(2, Overstep::from_f32(0.7), false);
+        let b = TickDelta::new(1, Overstep::from_f32(0.2), false);
+        let sub = a - b;
+        assert_relative_eq!(sub.to_f32(), 1.5);
+
+        // Different tick, underflow
+        let a = TickDelta::new(2, Overstep::from_f32(0.1), false);
+        let b = TickDelta::new(1, Overstep::from_f32(0.6), false);
+        let sub = a - b;
+        assert_relative_eq!(sub.to_f32(), 0.5);
+
+        // rhs > self, no underflow
+        let a = TickDelta::new(1, Overstep::from_f32(0.2), false);
+        let b = TickDelta::new(2, Overstep::from_f32(0.7), false);
+        let sub = a - b;
+        assert_relative_eq!(sub.to_f32(), -1.5);
+
+        // rhs > self, underflow
+        let a = TickDelta::new(1, Overstep::from_f32(0.6), false);
+        let b = TickDelta::new(2, Overstep::from_f32(0.1), false);
+        let sub = a - b;
+        assert_relative_eq!(sub.to_f32(), -0.5);
     }
 
     #[test]
