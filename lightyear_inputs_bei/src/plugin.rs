@@ -1,7 +1,7 @@
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::input_message::BEIStateSequence;
 
-use crate::setup::ActionOfWrapper;
+use crate::setup::{ActionOfWrapper, ReplicateLike};
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::setup::InputRegistryPlugin;
 use bevy_app::FixedPreUpdate;
@@ -64,6 +64,10 @@ impl<
         app.register_component::<ActionOfWrapper<C>>()
             .add_map_entities();
 
+        // Register ReplicateLike component for input rebroadcasting
+        app.register_component::<ReplicateLike<C>>()
+            .add_map_entities();
+
         #[cfg(feature = "client")]
         {
             use crate::marker::{
@@ -74,6 +78,7 @@ impl<
             app.add_observer(add_input_marker_from_binding::<C>);
 
             app.add_observer(InputRegistryPlugin::add_action_of_replicate::<C>);
+            app.add_observer(InputRegistryPlugin::on_rebroadcast_action_received::<C>);
 
             app.add_plugins(lightyear_inputs::client::ClientInputPlugin::<
                 BEIStateSequence<C>,

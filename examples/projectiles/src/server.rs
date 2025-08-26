@@ -38,6 +38,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(handle_new_client);
         app.add_observer(spawn_player);
         app.add_observer(cycle_replication_mode);
+        app.add_observer(cycle_projectile_mode);
 
         app.add_systems(Startup, spawn_global_control);
 
@@ -136,8 +137,8 @@ pub(crate) fn spawn_player(
                 .entity(room)
                 .trigger(RoomEvent::AddSender(trigger.target()));
         }
-        let player = server_player_bundle(room, client_id, sender);
-        let player_entity = match GameReplicationMode::from_room_id(i) {
+        let player = server_player_bundle(room, client_id, sender, replication_mode);
+        let player_entity = match replication_mode {
             GameReplicationMode::AllPredicted => {
                 commands.spawn((
                     player,
@@ -188,7 +189,7 @@ pub(crate) fn spawn_player(
     }
 }
 
-fn server_player_bundle(room: Entity, client_id: PeerId, owner: Entity) -> impl Bundle {
+fn server_player_bundle(room: Entity, client_id: PeerId, owner: Entity, replication_mode: GameReplicationMode) -> impl Bundle {
     let bundle = shared::player_bundle(client_id);
     (
         Replicate::to_clients(NetworkTarget::All),
@@ -197,6 +198,7 @@ fn server_player_bundle(room: Entity, client_id: PeerId, owner: Entity) -> impl 
             owner,
             lifetime: Default::default(),
         },
+        replication_mode,
         bundle
     )
 }
@@ -424,16 +426,52 @@ fn bot_connect(
     commands.entity(entity).trigger(Connect);
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+enum BotMovementMode {
+    #[default]
+    Strafing,    // 200ms intervals
+    StraightLine, // 1s intervals
+}
+
+impl BotMovementMode {
+    fn interval(&self) -> f32 {
+        match self {
+            BotMovementMode::Strafing => 0.2,     // 200ms for strafing
+            BotMovementMode::StraightLine => 1.0, // 1s for straight line
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            BotMovementMode::Strafing => "strafing",
+            BotMovementMode::StraightLine => "straight-line",
+        }
+    }
+}
+
 fn bot_inputs(
     time: Res<Time>,
     mut input: ResMut<ButtonInput<KeyCode>>,
-    mut local: Local<(Stopwatch, bool)>,
+    mut local: Local<(Stopwatch, Stopwatch, BotMovementMode, bool)>,
 ) {
-    let (stopwatch, press_a) = local.deref_mut();
-    stopwatch.tick(time.delta());
+    let (mode_timer, key_timer, current_mode, press_a) = local.deref_mut();
 
-    if stopwatch.elapsed_secs() >= 0.5 {
-        stopwatch.reset();
+    mode_timer.tick(time.delta());
+    key_timer.tick(time.delta());
+
+    // Switch modes every 4 seconds
+    if mode_timer.elapsed_secs() >= 4.0 {
+        mode_timer.reset();
+        *current_mode = match *current_mode {
+            BotMovementMode::Strafing => BotMovementMode::StraightLine,
+            BotMovementMode::StraightLine => BotMovementMode::Strafing,
+        };
+        info!("Bot switching to {} mode", current_mode.name());
+    }
+
+    // Switch keys based on the current mode's interval
+    if key_timer.elapsed_secs() >= current_mode.interval() {
+        key_timer.reset();
         if *press_a {
             input.release(KeyCode::KeyA);
         } else {
@@ -442,12 +480,16 @@ fn bot_inputs(
         *press_a = !*press_a;
     }
 
+    // Press the current key
     if *press_a {
         input.press(KeyCode::KeyA);
     } else {
         input.press(KeyCode::KeyD);
     }
-    trace!("Bot pressing {:?}", input.get_pressed().collect::<Vec<_>>());
+
+    trace!("Bot in {} mode, pressing {:?}",
+           current_mode.name(),
+           input.get_pressed().collect::<Vec<_>>());
 }
 
 #[cfg(not(feature = "gui"))]
@@ -458,44 +500,42 @@ fn bot_wait(
     std::thread::sleep(Duration::from_millis(15));
 }
 
+/// Handle room switching when replication mode changes
 pub fn cycle_replication_mode(
     trigger: Trigger<Completed<CycleReplicationMode>>,
-    mut client: Query<&mut GameReplicationMode>,
-) {
-    if let Ok(mut replication_mode) = client.get_mut(trigger.target()) {
-        *replication_mode = replication_mode.next();
-        info!("Done cycling replication mode to {:?}. Entity: {:?}", replication_mode, trigger.target());
-    }
-}
-
-pub fn cycle_projectile_mode(
-    trigger: Trigger<Completed<CycleProjectileMode>>,
-    mut client: Query<&mut ProjectileReplicationMode>,
-) {
-    if let Ok(mut projectile_mode) = client.get_mut(trigger.target()) {
-        *projectile_mode = projectile_mode.next();
-        info!("Done cycling projectile mode to {:?}. Entity: {:?}", projectile_mode, trigger.target());
-    }
-}
-
-
-pub fn cycle_replication_mode(
-    // we use Completed to guarantee that the ReplicationMode hasn't already been switched
-    trigger: Trigger<Started<CycleReplicationMode>>,
-    global: Single<&mut GameReplicationMode, With<ClientContext>>,
+    mut global: Query<&mut GameReplicationMode, With<ClientContext>>,
     rooms: Res<Rooms>,
-    client: Query<Entity, With<ClientOf>>,
+    clients: Query<Entity, With<ClientOf>>,
     mut commands: Commands,
 ) {
-    // TODO: fix this, we need to find the entity for each mode!!!
-    let mut replication_mode = global.into_inner();
-    if let Some(room) = rooms.rooms.get(replication_mode) {
-        let next_room = rooms.rooms.get(&replication_mode.next()).unwrap();
-        for entity in client.iter() {
-            commands.trigger_targets(RoomEvent::RemoveSender(trigger.target()), *room);
-            commands.trigger_targets(RoomEvent::AddSender(trigger.target()), *next_room);
-            info!("Switching client {:?} from room {room:?} to room {next_room:?}", trigger.target());
+        if let Ok(mut replication_mode) = global.single_mut() {
+        let current_mode = *replication_mode;
+        *replication_mode = replication_mode.next();
+
+        // Move all clients from current room to next room
+        if let (Some(current_room), Some(next_room)) = (
+            rooms.rooms.get(&current_mode),
+            rooms.rooms.get(&*replication_mode)
+        ) {
+            for client_entity in clients.iter() {
+                commands.trigger_targets(RoomEvent::RemoveSender(client_entity), *current_room);
+                commands.trigger_targets(RoomEvent::AddSender(client_entity), *next_room);
+                info!("Switching client {client_entity:?} from room {current_room:?} to room {next_room:?}");
+            }
         }
+
+        info!("Cycled to replication mode: {}", replication_mode.name());
+    }
+}
+
+/// Handle cycling through projectile replication modes
+pub fn cycle_projectile_mode(
+    trigger: Trigger<Completed<CycleProjectileMode>>,
+    mut global: Query<&mut ProjectileReplicationMode, With<ClientContext>>,
+) {
+    if let Ok(mut projectile_mode) = global.single_mut() {
+        *projectile_mode = projectile_mode.next();
+        info!("Cycled to projectile mode: {}", projectile_mode.name());
     }
 }
 

@@ -317,6 +317,8 @@ impl Plugin for ProtocolPlugin {
                 // enable lag compensation; the input messages sent to the server will include the
                 // interpolation delay of that client
                 lag_compensation: true,
+                // enable input rebroadcasting so clients can predict other players' actions
+                rebroadcast_inputs: true,
                 ..default()
             },
         });
@@ -386,7 +388,9 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<ProjectileReplicationMode>();
 
-        app.register_component::<GameReplicationMode>();
+        app.register_component::<GameReplicationMode>()
+            .add_prediction(PredictionMode::Once)
+            .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<PlayerRoom>()
             .add_prediction(PredictionMode::Once)

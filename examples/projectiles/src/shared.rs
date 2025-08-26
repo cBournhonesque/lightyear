@@ -45,6 +45,9 @@ impl Plugin for SharedPlugin {
         app.add_observer(shoot_weapon);
         app.add_observer(weapon_cycling);
 
+        // projectile spawning
+        app.add_observer(handle_projectile_spawn);
+
         // hit detection
         app.add_observer(hitscan_hit_detection);
         app.add_systems(FixedUpdate, bullet_hit_detection);
@@ -192,7 +195,7 @@ pub(crate) fn shoot_weapon(
         ),
         With<PlayerMarker>,
     >,
-    global: Single<(&ProjectileReplicationMode, &GameReplicationMode)>,
+    global: Single<(&ProjectileReplicationMode, &GameReplicationMode), With<ClientContext>>,
 ) {
     let tick = timeline.tick();
     let tick_duration = tick_duration.0;
@@ -471,16 +474,16 @@ pub struct ClientHitDetection;
 
 
 pub(crate) fn hitscan_hit_detection(
-    trigger: Trigger<OnAdd, HitscanVisual>,
-    mut commands: Commands,
+    trigger: Trigger<OnAdd, ProjectileSpawn>,
+    commands: Commands,
     server: Query<Entity, With<Server>>,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
-    mode: Single<&GameReplicationMode>,
+    mode: Single<&GameReplicationMode, With<ClientContext>>,
     mut spatial_set: ParamSet<(
         LagCompensationSpatialQuery,
         SpatialQuery,
     )>,
-    bullet: Query<(&HitscanVisual, &BulletMarker, &PlayerId)>,
+    bullet: Query<(&ProjectileSpawn, &BulletMarker, &PlayerId)>,
     target_query: Query<(), (With<PlayerMarker>, Without<Confirmed>)>,
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
@@ -488,12 +491,19 @@ pub(crate) fn hitscan_hit_detection(
     client_query: Query<&InterpolationDelay, With<ClientOf>>,
     mut player_query: Query<(&mut Score, &PlayerId, Option<&ControlledBy>), With<PlayerMarker>>,
 ) {
-    let Ok((hitscan, bullet_marker, id)) = bullet.get(trigger.target()) else {
+    let Ok((projectile_spawn, bullet_marker, id)) = bullet.get(trigger.target()) else {
         return;
     };
+
+    // Only handle hitscan projectiles in this function
+    if projectile_spawn.weapon_type != WeaponType::Hitscan {
+        return;
+    }
+
     let shooter = bullet_marker.shooter;
-    let (start, end) = (hitscan.start, hitscan.end);
-    let direction = (end - start).normalize();
+    let start = projectile_spawn.position;
+    let direction = projectile_spawn.direction;
+    let end = start + direction * 1000.0; // Hitscan range
     let position = start;
 
     let tick = timeline.tick();
@@ -585,10 +595,10 @@ pub(crate) fn hitscan_hit_detection(
 
 
 pub(crate) fn bullet_hit_detection(
-    mut commands: Commands,
+    commands: Commands,
     server: Query<Entity, With<Server>>,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
-    mode: Single<&GameReplicationMode>,
+    mode: Single<&GameReplicationMode, With<ClientContext>>,
     mut spatial_set: ParamSet<(
         LagCompensationSpatialQuery,
         SpatialQuery,
@@ -711,21 +721,25 @@ fn shoot_hitscan(
     let start = transform.translation.truncate();
     let end = start + direction * 1000.0; // Long hitscan range
 
-    // Create visual effect
-    let visual_lifetime = if slow_visuals { 0.5 } else { 0.1 };
-    let visual_bundle = (
-        HitscanVisual {
-            start,
-            end,
-            lifetime: 0.0,
-            max_lifetime: visual_lifetime,
-        },
+    // Create ProjectileSpawn for hitscan
+    let direction = (end - start).normalize();
+    let spawn_info = ProjectileSpawn {
+        spawn_tick: timeline.tick(),
+        position: start,
+        direction,
+        speed: 1000.0, // Instant hitscan speed
+        weapon_type: WeaponType::Hitscan,
+        player_id: id.0,
+    };
+
+    let spawn_bundle = (
+        spawn_info,
         BulletMarker {
             shooter,
         },
         *color,
         *id,
-        Name::new("HitscanVisual"),
+        Name::new("HitscanProjectileSpawn"),
     );
 
 
@@ -738,34 +752,44 @@ fn shoot_hitscan(
             },
             GameReplicationMode::ClientPredictedNoComp => {
                 commands.spawn((
-                    visual_bundle,
+                    spawn_bundle,
                     // no need to replicate to the shooting player since they are predicting their shot
                     Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
+                    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    controlled_by.unwrap().clone(),
+                    PreSpawned::default(),
                 ));
-                // TODO: do hit detection without lag comp
-
             },
             GameReplicationMode::ClientPredictedLagComp  => {
                 commands.spawn((
-                    visual_bundle,
+                    spawn_bundle,
                     // no need to replicate to the shooting player since they are predicting their shot
                     Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
+                    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    controlled_by.unwrap().clone(),
+                    PreSpawned::default(),
                 ));
-                // TODO: do hit detection with lag comp
             }
             GameReplicationMode::ClientSideHitDetection => {
                 commands.spawn((
-                    visual_bundle,
+                    spawn_bundle,
                     // no need to replicate to the shooting player since they are predicting their shot
                     Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
+                    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    controlled_by.unwrap().clone(),
+                    PreSpawned::default(),
                     ClientHitDetection,
                 ));
-                // TODO: client detects hits for the bullets they fire and then send message to the server
             }
             GameReplicationMode::AllInterpolated => {
                 commands.spawn((
-                    visual_bundle,
-                    Replicate::to_clients(NetworkTarget::All)
+                    spawn_bundle,
+                    Replicate::to_clients(NetworkTarget::All),
+                    InterpolationTarget::to_clients(NetworkTarget::All),
+                    controlled_by.unwrap().clone(),
                 ));
             }
             GameReplicationMode::OnlyInputsReplicated => {}
@@ -776,21 +800,21 @@ fn shoot_hitscan(
         match replication_mode {
             GameReplicationMode::AllPredicted => {
                 // should we predict other clients shooting?
-                commands.spawn(visual_bundle);
+                commands.spawn((spawn_bundle, PreSpawned::default()));
             },
             GameReplicationMode::ClientPredictedNoComp | GameReplicationMode::ClientPredictedLagComp  => {
-                commands.spawn(visual_bundle);
+                commands.spawn((spawn_bundle, PreSpawned::default()));
             }
             GameReplicationMode::ClientSideHitDetection => {
-                commands.spawn(visual_bundle);
+                commands.spawn((spawn_bundle, PreSpawned::default()));
                 // do hit detection
             }
             GameReplicationMode::AllInterpolated => {
-                // we don't spawn the visuals, it will be replicated to us
+                // we don't spawn anything, it will be replicated to us
             }
             GameReplicationMode::OnlyInputsReplicated => {
                 // do hit detection
-                commands.spawn(visual_bundle);
+                commands.spawn((spawn_bundle, DeterministicPredicted));
             }
         }
     }
@@ -1322,7 +1346,346 @@ fn despawn_after(
     }
 }
 
+/// Handle cycling through replication modes
+pub(crate) fn cycle_replication_mode(
+    trigger: Trigger<Completed<CycleReplicationMode>>,
+    mut global: Query<&mut GameReplicationMode, With<ClientContext>>,
+) {
+    if let Ok(mut replication_mode) = global.single_mut() {
+        *replication_mode = replication_mode.next();
+        info!("Cycled to replication mode: {}", replication_mode.name());
+    }
+}
 
+/// Handle cycling through projectile replication modes
+pub(crate) fn cycle_projectile_mode(
+    trigger: Trigger<Completed<CycleProjectileMode>>,
+    mut global: Query<&mut ProjectileReplicationMode, With<ClientContext>>,
+) {
+    if let Ok(mut projectile_mode) = global.single_mut() {
+        *projectile_mode = projectile_mode.next();
+        info!("Cycled to projectile mode: {}", projectile_mode.name());
+    }
+}
+
+/// Handle ProjectileSpawn by spawning child entities for projectiles
+pub(crate) fn handle_projectile_spawn(
+    trigger: Trigger<OnAdd, ProjectileSpawn>,
+    mut commands: Commands,
+    timeline: Single<&LocalTimeline, Without<ClientOf>>,
+    tick_duration: Res<TickDuration>,
+    spawn_query: Query<(&ProjectileSpawn, &ColorComponent, &BulletMarker, Has<Predicted>, Has<Interpolated>)>,
+) {
+    let Ok((spawn_info, color, bullet_marker, is_predicted, is_interpolated)) = spawn_query.get(trigger.target()) else {
+        return;
+    };
+
+    let current_tick = timeline.tick();
+    let shooter = bullet_marker.shooter;
+
+    match spawn_info.weapon_type {
+        WeaponType::Hitscan => {
+            // Create hitscan visual child entity
+            spawn_hitscan_visual(
+                &mut commands,
+                spawn_info,
+                color,
+                shooter,
+                current_tick,
+                is_predicted,
+                is_interpolated
+            );
+        }
+        WeaponType::LinearProjectile => {
+            // Create linear projectile child entity
+            spawn_linear_projectile_child(
+                &mut commands,
+                spawn_info,
+                color,
+                shooter,
+                current_tick,
+                tick_duration.0,
+                is_predicted,
+                is_interpolated
+            );
+        }
+        WeaponType::Shotgun => {
+            // Create shotgun pellets
+            spawn_shotgun_pellets(
+                &mut commands,
+                spawn_info,
+                color,
+                shooter,
+                current_tick,
+                tick_duration.0,
+                is_predicted,
+                is_interpolated
+            );
+        }
+        WeaponType::PhysicsProjectile => {
+            // Create physics projectile child entity
+            spawn_physics_projectile_child(
+                &mut commands,
+                spawn_info,
+                color,
+                shooter,
+                current_tick,
+                tick_duration.0,
+                is_predicted,
+                is_interpolated
+            );
+        }
+        WeaponType::HomingMissile => {
+            // Create homing missile child entity
+            spawn_homing_missile_child(
+                &mut commands,
+                spawn_info,
+                color,
+                shooter,
+                current_tick,
+                tick_duration.0,
+                is_predicted,
+                is_interpolated
+            );
+        }
+    }
+}
+
+/// Spawn hitscan visual as child entity
+fn spawn_hitscan_visual(
+    commands: &mut Commands,
+    spawn_info: &ProjectileSpawn,
+    color: &ColorComponent,
+    shooter: Entity,
+    current_tick: Tick,
+    is_predicted: bool,
+    is_interpolated: bool,
+) {
+    let start = spawn_info.position;
+    let end = start + spawn_info.direction * 1000.0;
+
+    let visual_bundle = (
+        HitscanVisual {
+            start,
+            end,
+            lifetime: 0.0,
+            max_lifetime: 0.1,
+        },
+        BulletMarker { shooter },
+        *color,
+        PlayerId(spawn_info.player_id),
+        Name::new("HitscanVisual"),
+    );
+
+    if is_predicted {
+        commands.spawn((visual_bundle, PreSpawned::default()));
+    } else if is_interpolated {
+        commands.spawn(visual_bundle);
+    } else {
+        commands.spawn(visual_bundle);
+    }
+}
+
+/// Spawn linear projectile as child entity
+fn spawn_linear_projectile_child(
+    commands: &mut Commands,
+    spawn_info: &ProjectileSpawn,
+    color: &ColorComponent,
+    shooter: Entity,
+    current_tick: Tick,
+    tick_duration: Duration,
+    is_predicted: bool,
+    is_interpolated: bool,
+) {
+    let mut position = spawn_info.position;
+    let mut transform = Transform::from_translation(position.extend(0.0));
+
+    // For interpolation, adjust spawn position to account for delay
+    if is_interpolated {
+        let ticks_elapsed = current_tick.0.saturating_sub(spawn_info.spawn_tick.0);
+        let time_elapsed = ticks_elapsed as f32 * tick_duration.as_secs_f32();
+        position += spawn_info.direction * spawn_info.speed * time_elapsed;
+        transform.translation = position.extend(0.0);
+    }
+
+    let angle = Vec2::new(0.0, 1.0).angle_to(spawn_info.direction);
+    transform.rotation = Quat::from_rotation_z(angle);
+
+    let bullet_bundle = (
+        transform,
+        LinearVelocity(spawn_info.direction * spawn_info.speed),
+        RigidBody::Kinematic,
+        PlayerId(spawn_info.player_id),
+        *color,
+        BulletMarker { shooter },
+        DespawnAfter(Timer::new(Duration::from_secs(3), TimerMode::Once)),
+        Name::new("LinearProjectile"),
+    );
+
+    if is_predicted {
+        commands.spawn((bullet_bundle, PreSpawned::default()));
+    } else {
+        commands.spawn(bullet_bundle);
+    }
+}
+
+/// Spawn shotgun pellets as child entities
+fn spawn_shotgun_pellets(
+    commands: &mut Commands,
+    spawn_info: &ProjectileSpawn,
+    color: &ColorComponent,
+    shooter: Entity,
+    current_tick: Tick,
+    tick_duration: Duration,
+    is_predicted: bool,
+    is_interpolated: bool,
+) {
+    let pellet_count = 8;
+    let spread_angle = 0.3; // 30 degrees spread
+
+    for i in 0..pellet_count {
+        let angle_offset =
+            (i as f32 - (pellet_count - 1) as f32 / 2.0) * spread_angle / (pellet_count - 1) as f32;
+
+        let rotation = Quat::from_rotation_z(angle_offset);
+        let pellet_direction = rotation * spawn_info.direction.extend(0.0);
+        let pellet_direction = pellet_direction.truncate();
+
+        let mut position = spawn_info.position;
+        let mut transform = Transform::from_translation(position.extend(0.0));
+
+        // For interpolation, adjust spawn position to account for delay
+        if is_interpolated {
+            let ticks_elapsed = current_tick.0.saturating_sub(spawn_info.spawn_tick.0);
+            let time_elapsed = ticks_elapsed as f32 * tick_duration.as_secs_f32();
+            position += pellet_direction * spawn_info.speed * 0.8 * time_elapsed;
+            transform.translation = position.extend(0.0);
+        }
+
+        let angle = Vec2::new(0.0, 1.0).angle_to(pellet_direction);
+        transform.rotation = Quat::from_rotation_z(angle);
+
+        let pellet_bundle = (
+            transform,
+            LinearVelocity(pellet_direction * spawn_info.speed * 0.8),
+            RigidBody::Kinematic,
+            PlayerId(spawn_info.player_id),
+            *color,
+            BulletMarker { shooter },
+            ShotgunPellet {
+                pellet_index: i,
+                spread_angle: angle_offset,
+            },
+            DespawnAfter(Timer::new(Duration::from_secs(2), TimerMode::Once)),
+            Name::new("ShotgunPellet"),
+        );
+
+        let salt = i as u64;
+        if is_predicted {
+            commands.spawn((pellet_bundle, PreSpawned::default_with_salt(salt)));
+        } else {
+            commands.spawn(pellet_bundle);
+        }
+    }
+}
+
+/// Spawn physics projectile as child entity
+fn spawn_physics_projectile_child(
+    commands: &mut Commands,
+    spawn_info: &ProjectileSpawn,
+    color: &ColorComponent,
+    shooter: Entity,
+    current_tick: Tick,
+    tick_duration: Duration,
+    is_predicted: bool,
+    is_interpolated: bool,
+) {
+    let mut position = spawn_info.position;
+    let mut transform = Transform::from_translation(position.extend(0.0));
+
+    // For interpolation, adjust spawn position to account for delay
+    if is_interpolated {
+        let ticks_elapsed = current_tick.0.saturating_sub(spawn_info.spawn_tick.0);
+        let time_elapsed = ticks_elapsed as f32 * tick_duration.as_secs_f32();
+        position += spawn_info.direction * spawn_info.speed * 0.6 * time_elapsed;
+        transform.translation = position.extend(0.0);
+    }
+
+    let angle = Vec2::new(0.0, 1.0).angle_to(spawn_info.direction);
+    transform.rotation = Quat::from_rotation_z(angle);
+
+    let bullet_bundle = (
+        transform,
+        LinearVelocity(spawn_info.direction * spawn_info.speed * 0.6),
+        RigidBody::Dynamic,
+        Collider::circle(BULLET_SIZE),
+        Restitution::new(0.8),
+        PlayerId(spawn_info.player_id),
+        *color,
+        BulletMarker { shooter },
+        PhysicsProjectile {
+            bounce_count: 0,
+            max_bounces: 3,
+            deceleration: 50.0,
+        },
+        DespawnAfter(Timer::new(Duration::from_secs(5), TimerMode::Once)),
+        Name::new("PhysicsProjectile"),
+    );
+
+    if is_predicted {
+        commands.spawn((bullet_bundle, PreSpawned::default()));
+    } else {
+        commands.spawn(bullet_bundle);
+    }
+}
+
+/// Spawn homing missile as child entity
+fn spawn_homing_missile_child(
+    commands: &mut Commands,
+    spawn_info: &ProjectileSpawn,
+    color: &ColorComponent,
+    shooter: Entity,
+    current_tick: Tick,
+    tick_duration: Duration,
+    is_predicted: bool,
+    is_interpolated: bool,
+) {
+    let mut position = spawn_info.position;
+    let mut transform = Transform::from_translation(position.extend(0.0));
+
+    // For interpolation, adjust spawn position to account for delay
+    if is_interpolated {
+        let ticks_elapsed = current_tick.0.saturating_sub(spawn_info.spawn_tick.0);
+        let time_elapsed = ticks_elapsed as f32 * tick_duration.as_secs_f32();
+        position += spawn_info.direction * spawn_info.speed * 0.4 * time_elapsed;
+        transform.translation = position.extend(0.0);
+    }
+
+    let angle = Vec2::new(0.0, 1.0).angle_to(spawn_info.direction);
+    transform.rotation = Quat::from_rotation_z(angle);
+
+    let missile_bundle = (
+        transform,
+        LinearVelocity(spawn_info.direction * spawn_info.speed * 0.4),
+        RigidBody::Kinematic,
+        PlayerId(spawn_info.player_id),
+        *color,
+        BulletMarker { shooter },
+        HomingMissile {
+            target_entity: None, // TODO: find nearest target
+            turn_speed: 2.0,
+            acceleration: 100.0,
+        },
+        DespawnAfter(Timer::new(Duration::from_secs(8), TimerMode::Once)),
+        Name::new("HomingMissile"),
+    );
+
+    if is_predicted {
+        commands.spawn((missile_bundle, PreSpawned::default()));
+    } else {
+        commands.spawn(missile_bundle);
+    }
+}
 
 pub fn player_bundle(client_id: PeerId) -> impl Bundle {
     let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;

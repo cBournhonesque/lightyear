@@ -1,3 +1,149 @@
+Great question. Photon Fusion’s “projectile data buffer” (a small, networked ring/circular buffer) is a state‑based way to replicate shots. It’s favored over “one network event/RPC per shot” because it rides on Fusion’s normal snapshot/state replication instead of creating a separate stream of messages.
+
+1) Why a ring buffer beats “send an event every time the gun fires”
+
+It’s state‑based, not message‑based.
+With a ring buffer the authoritative object (usually the weapon owner) exposes two pieces of state:
+
+a monotonic counter (e.g., fireCount = “number of shots ever fired”), and
+
+a fixed‑size array of ProjectileData slots used as a circular log.
+
+On each shot the authority overwrites buffer[fireCount % capacity] with the new ProjectileData and increments fireCount. Clients render anything whose sequence they haven’t shown yet. Fusion’s official sample calls this out explicitly: a fixed array acting as a circular buffer, with clients catching up using their local head (“visibleFireCount”).
+Photon Engine
+
+Much less fragile under loss/out‑of‑order.
+If a packet is dropped, the next snapshot still carries the latest fireCount and the changed slots. Clients simply “catch up” to that count. You don’t need per‑event reliability/ack logic or to replay missed shots; the next state snapshot fixes everything. This maps to Fusion’s snapshot replication model where clients constantly replace predicted state with the authoritative state for the snapshot’s tick.
+Photon Engine
+
+Delta/compression friendly.
+Fusion only transmits changes to networked properties/collections. Updating a couple of array entries and the counter will send just those deltas, not the whole buffer every tick. (Photon: “Fusion always sends only the delta between peers.”) The engine’s state‑transfer path includes delta compression by design.
+forum.photonengine.com
+Photon Engine
+
+Aggregates bursts cheaply.
+If a weapon fires several times between two snapshots, the buffer accumulates those shots and they arrive together via normal state replication. With per‑shot RPC/events you pay header + reliability costs per event.
+
+Interest management is simpler.
+Because the buffer lives on the controlling object (player/weapon), standard interest culling applies—clients only receive that object’s state if they should see it. The samples highlight this advantage.
+Photon Engine
+
+Good default for most projectile types.
+Photon’s Projectiles Essentials and Projectiles Advanced samples recommend and center around this buffer approach for hitscan and many kinematic projectiles (visuals are local Unity objects; you replicate only the sparse data needed to reconstruct the path).
+Photon Engine
++2
+Photon Engine
++2
+
+Caveat: A ring buffer tied to the owner object can’t outlive that object. For “very long‑living/important” projectiles you might use a dedicated networked object or different manager pattern. The docs call this out.
+Photon Engine
+
+2) Minimal Rust sketch (data structure + client usage)
+
+Below is a compact, engine‑agnostic sketch of the idea. Think of head_seq like Fusion’s fireCount, and next_seq like a client’s visibleFireCount. The buffer index is always seq % CAPACITY. (In Fusion C#, the sample does exactly this.
+Photon Engine
+)
+
+#[derive(Copy, Clone, Default, Debug)]
+struct Vec3 { x: f32, y: f32, z: f32 }
+
+#[derive(Copy, Clone, Default, Debug)]
+struct ProjectileData {
+    fire_tick: u32,            // or use a separate monotonic shot counter
+    origin: Vec3,              // muzzle position at fire time
+    dir: Vec3,                 // normalized direction (or velocity)
+    hit_pos: Option<Vec3>,     // hitscan: where it hit (if known)
+    finish_tick: Option<u32>,  // when it hit/expired (kinematic)
+}
+
+struct RingBuffer<T: Copy + Default, const N: usize> {
+    buf: [T; N],
+    head_seq: u64, // total items ever written (monotonic)
+}
+
+impl<T: Copy + Default, const N: usize> RingBuffer<T, N> {
+    fn new() -> Self { Self { buf: [T::default(); N], head_seq: 0 } }
+    fn capacity(&self) -> usize { N }
+    fn idx(&self, seq: u64) -> usize { (seq % N as u64) as usize }
+
+    /// Authority-side write: append one shot, return new head sequence
+    fn push(&mut self, item: T) -> u64 {
+        let seq = self.head_seq;
+        let idx = self.idx(seq);
+        self.buf[idx] = item;
+        self.head_seq = seq + 1;
+        self.head_seq
+    }
+
+    /// Iterate items in [start_seq, head_seq)
+    fn iter_from<'a>(&'a self, start_seq: u64) -> impl Iterator<Item=(u64, &'a T)> {
+        let end = self.head_seq;
+        (start_seq..end).map(move |seq| (seq, &self.buf[self.idx(seq)]))
+    }
+}
+
+// --- Authority (server/state-authority) usage ---
+fn fire_weapon<const N: usize>(
+    ring: &mut RingBuffer<ProjectileData, N>,
+    origin: Vec3, dir: Vec3, tick: u32
+) -> u64 {
+    let data = ProjectileData { fire_tick: tick, origin, dir, hit_pos: None, finish_tick: None };
+    ring.push(data) // Fusion would replicate the changed slot + head_seq
+}
+
+// --- Client usage: keep a cursor ("last seen sequence") and catch up ---
+struct ClientCursor { next_seq: u64 } // next sequence the client expects to render
+impl ClientCursor {
+    fn new() -> Self { Self { next_seq: 0 } }
+
+    fn catch_up<const N: usize>(&mut self, ring: &RingBuffer<ProjectileData, N>) {
+        // If we fell behind by more than N, some entries were overwritten—skip to oldest available.
+        if ring.head_seq.saturating_sub(self.next_seq) > N as u64 {
+            self.next_seq = ring.head_seq - N as u64;
+        }
+        for (_seq, proj) in ring.iter_from(self.next_seq) {
+            // spawn/update local visual using `proj`
+        }
+        self.next_seq = ring.head_seq; // mark all processed
+    }
+}
+
+
+Do clients track “last seen sequence” or “last seen index”?
+Track a sequence number (monotonic count), not just the index. The index wraps (seq % capacity), so keeping only an index becomes ambiguous after wrap‑around. Fusion’s sample mirrors this: fireCount (authoritative sequence) and visibleFireCount (client cursor) with index computed as % capacity.
+Photon Engine
+
+Practical tips
+
+Keep ProjectileData sparse. Store the minimal fire data (origin, direction/velocity, seed/tick, maybe a hit point) and reconstruct visuals locally. Photon recommends sparse projectile data for bandwidth.
+Photon Engine
+
+Pick capacity from fire‑rate & network jitter. Capacity ≈ (max shots/sec) × (worst‑case “catch‑up” seconds) × safety factor.
+
+Late joiners / rewind. Because the buffer is part of replicated state, late joiners receive the most recent N entries and can reconstruct recent shots. Photon’s helpers also show ring‑buffer patterns aimed at late joiners or loss‑less syncing of small items.
+Photon Engine
+
+If you want, I can adapt this sketch to your exact projectile fields (hitscan vs. kinematic) and show how to write/read two times per shot for kinematic projectiles (spawn + finish), which is also how the Fusion samples do it.
+
+- Server spawns C
+- Client gets C' and spawns P' (predicted context) and spawns A'
+- Add ActionOfWrapper(C') on A' and replicates to server
+- server spawns A with ActionOf(C)
+
+Redirect input:
+- ActionOfWrapper should contain metadata that tells us if predicted or not.
+- ActionOfWrapper gets replicated to other clients
+  - ActionOfWrapper gets mapped to C''
+  - thanks to the metadata, the other client will attach the actions on the predicted entity for these other clients
+  (input replication is only useful for prediction anyway)
+  - the client C'' maintains the mapping between their Action A'' entity and the servers' A'
+
+Projectile Ring buffer:
+- when you press Fire, you add in the buffer a projectile metadata.
+- there is a separate non-networked component that tracks the index in the buffer.
+If it's behind, it pops from the buffer so spawn projectiles.
+
+
 # Current bugs:
 
 - with input-delay, we receive remote inputs at a different tick than when the client sent them!
@@ -11,7 +157,7 @@
 
 ### DON'T ENABLE GUI ON SERVER - all these errors seem related
 - Is the sync system even working? C1 is 7 ticks behind the server and stays behind!
- 
+
 - C2 can suddenly receive a TON of remote input messages in one tick. Maybe because we were out of sync? Right after that I notice there is a SyncEvent.
   - and for an extended period of time, no remote inputs are sent.
   - the server is on tick 800, and is broadcasting remote inputs for tick ~806, but suddently we are sending 60 messages in one frame for ticks 800-860,
@@ -20,16 +166,16 @@
   - aeronet say we receive 56 packets!
   - on the C1, it says we received 30 packets (via aeronet) at tick 249, but on the server logs I don't see that.
   - it looks like it's because there's a 1 second period where the frame does not advance.
-  - Probably due to alt-tabbing on the server or something? Anyway it is fixed by doing a headless server. But this means that 
+  - Probably due to alt-tabbing on the server or something? Anyway it is fixed by doing a headless server. But this means that
 
 - on C1, massive rollback from state, with 80 tick rollback! Instead of actually rolling back, we should just not accept it.
   I.e. if the number of rollback ticks is too big, just ignore.
   -> this was due to the above issue I think.
- 
+
 - a lot of ticks can pass where we don't receive any input message -> also due to previous issue
 
 - the remote message's end_tick can be in the future compare to our own end_tick. That seems BAD.
-  - for some reason it seems like C2 could be too slow and never catch up to C1? 
+  - for some reason it seems like C2 could be too slow and never catch up to C1?
   - why are they so not time-synced?
 
 
