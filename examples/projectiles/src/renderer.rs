@@ -10,7 +10,9 @@ use bevy_enhanced_input::prelude::{ActionValue, Actions};
 use lightyear::input::bei::prelude::InputMarker;
 use lightyear::interpolation::Interpolated;
 use lightyear::prediction::prespawn::PreSpawned;
-use lightyear::prelude::{Client, Controlled, DeterministicPredicted, Predicted, Replicate, Replicated};
+use lightyear::prelude::{
+    Client, Controlled, DeterministicPredicted, Predicted, Replicate, Replicated,
+};
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -37,14 +39,7 @@ impl Plugin for ExampleRendererPlugin {
                 // mock the action before BEI evaluates it. BEI evaluated actions mocks in FixedPreUpdate
                 update_cursor_state_from_window,
             );
-            app.add_systems(
-                Update,
-                (
-                    display_score,
-                    render_hitscan_lines,
-                    display_info,
-                ),
-            );
+            app.add_systems(Update, (display_score, render_hitscan_lines, display_info));
         }
 
         #[cfg(feature = "server")]
@@ -127,7 +122,14 @@ fn display_score(
 #[cfg(feature = "client")]
 fn display_info(
     mut mode_text: Single<&mut Text, With<ModeText>>,
-    weapon_type: Single<&WeaponType, (With<Actions<PlayerContext>>, With<PlayerMarker>, With<Controlled>)>,
+    weapon_type: Single<
+        &WeaponType,
+        (
+            With<Actions<PlayerContext>>,
+            With<PlayerMarker>,
+            With<Controlled>,
+        ),
+    >,
     mode_query: Single<(&ProjectileReplicationMode, &GameReplicationMode), With<ClientContext>>,
 ) {
     let (projectile_mode, replication_mode) = mode_query.into_inner();
@@ -175,17 +177,17 @@ pub struct VisibleFilter {
         With<Replicate>,
     )>,
     // we don't show any replicated (confirmed) entities unless it's the DeterministicPredicted case
-    b: Or<(
-        Without<Replicated>,
-        With<DeterministicPredicted>,
-    )>
+    b: Or<(Without<Replicated>, With<DeterministicPredicted>)>,
 }
 
 // TODO: interpolated players are not visible because components are not inserted at the same time?
 /// Add visuals to newly spawned players
 fn add_player_visuals(
     trigger: Trigger<OnAdd, PlayerId>,
-    query: Query<(Has<Predicted>, Has<DeterministicPredicted>, &ColorComponent), (VisibleFilter, With<PlayerMarker>)>,
+    query: Query<
+        (Has<Predicted>, Has<DeterministicPredicted>, &ColorComponent),
+        (VisibleFilter, With<PlayerMarker>),
+    >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,

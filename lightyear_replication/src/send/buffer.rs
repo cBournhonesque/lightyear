@@ -20,7 +20,8 @@ use bevy_ecs::{
 use bevy_ptr::Ptr;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
-use tracing::{error, info, info_span, trace};
+#[allow(unused_imports)]
+use tracing::{error, info, info_span, trace, trace_span};
 
 use crate::components::ComponentReplicationOverrides;
 use crate::control::{Controlled, ControlledBy};
@@ -86,7 +87,7 @@ pub(crate) fn replicate(
     // past ticks where the component changes.
     manager_query.par_iter_mut().for_each(
         |(sender_entity, mut sender, mut message_manager, timeline, delta_manager, link_of)| {
-            let _span = info_span!("replicate", sender = ?sender_entity).entered();
+            let _span = trace_span!("replicate", sender = ?sender_entity).entered();
             // delta: either the delta manager is present on the sender directly (Client)
             // or the delta is on the server
             let delta = delta_manager
@@ -124,6 +125,7 @@ pub(crate) fn replicate(
                     trace!("Replicated Entity {:?} not found in entity_query", entity);
                     return;
                 };
+                let _root_span = trace_span!("root", ?entity).entered();
                 replicate_entity(
                     entity,
                     tick,
@@ -138,6 +140,7 @@ pub(crate) fn replicate(
                 );
                 if let Some(children) = root_entity_ref.get::<ReplicateLikeChildren>() {
                     for child in children.collection() {
+                        let _child_span = trace_span!("child", ?child).entered();
                         let child_entity_ref = entity_query.get(*child).unwrap();
                         replicate_entity(
                             *child,
@@ -239,9 +242,6 @@ pub(crate) fn replicate_entity(
             )
         }
     };
-    if is_replicate_like_added {
-        info!(?entity, ?replicate, ?cached_replicate, "Replicate like")
-    }
 
     #[cfg(feature = "prediction")]
     let prediction_target = entity_ref

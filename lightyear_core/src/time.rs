@@ -443,8 +443,12 @@ impl Sub for TickDelta {
             } else {
                 // Underflow - need to borrow from tick
                 TickDelta {
-                    tick_diff: total_ticks.checked_sub(1).expect("Tick underflow in subtraction"),
-                    overstep: Overstep::from_f32(1.0 + self.overstep.value() - rhs.overstep.value()),
+                    tick_diff: total_ticks
+                        .checked_sub(1)
+                        .expect("Tick underflow in subtraction"),
+                    overstep: Overstep::from_f32(
+                        1.0 + self.overstep.value() - rhs.overstep.value(),
+                    ),
                     neg: false,
                 }
             }
@@ -475,8 +479,12 @@ impl Sub for TickDelta {
                 }
             } else {
                 TickDelta {
-                    tick_diff: total_ticks.checked_sub(1).expect("Tick underflow in subtraction"),
-                    overstep: Overstep::from_f32(1.0 + rhs.overstep.value() - self.overstep.value()),
+                    tick_diff: total_ticks
+                        .checked_sub(1)
+                        .expect("Tick underflow in subtraction"),
+                    overstep: Overstep::from_f32(
+                        1.0 + rhs.overstep.value() - self.overstep.value(),
+                    ),
                     neg: true,
                 }
             }
@@ -909,7 +917,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tickdelta_substraction(){
+    fn test_tickdelta_substraction() {
         let delta = TickDelta::from(10i16);
         let sub = delta - TickDelta::from(20i16);
         assert_relative_eq!(sub.to_f32(), -10.0);

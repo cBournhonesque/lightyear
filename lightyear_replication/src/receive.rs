@@ -16,6 +16,7 @@ use alloc::vec::Vec;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_transport::packet::message::MessageId;
+#[allow(unused_imports)]
 use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::plugin;

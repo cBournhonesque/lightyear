@@ -28,7 +28,7 @@ use lightyear_replication::components::PrePredicted;
 use lightyear_replication::prelude::{Confirmed, ReplicationSet};
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::InputTimeline;
-use tracing::{trace};
+use tracing::trace;
 
 pub type PredictionHistory<C> = HistoryBuffer<C>;
 

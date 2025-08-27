@@ -18,6 +18,6 @@ pub mod prelude {
     pub use crate::input_message::SnapshotBuffer;
     pub use crate::marker::InputMarker;
     pub use crate::plugin::InputPlugin;
-    pub use crate::setup::{InputRegistryExt, ActionOfWrapper};
+    pub use crate::setup::{ActionOfWrapper, InputRegistryExt};
     pub use bevy_enhanced_input::prelude::*;
 }

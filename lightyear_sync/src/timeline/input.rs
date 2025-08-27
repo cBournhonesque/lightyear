@@ -15,7 +15,7 @@ use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineContext};
 use lightyear_link::{Link, LinkStats, Linked};
-use tracing::{trace};
+use tracing::trace;
 
 /// Timeline that is used to make sure that Inputs from this peer will arrive on time
 /// on the remote peer

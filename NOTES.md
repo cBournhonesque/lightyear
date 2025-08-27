@@ -1,3 +1,26 @@
+CURRENT INPUT MAPPING ISSUE:
+- Server has the mapping for A_c (action entity of client).
+- The mapping is on S_c (sender entity for client)
+- It tries to send A_c to bot
+- S_b (sender entity for bot) doesn't have any mapping
+
+
+- IT LOOKS LIKE FOR SOME REASON WE DONT SEND THE ACTION A_C TO BOT
+- the root doesn't even try to replicate the player entity! room issue?
+
+- bot already exists and sender is in room A
+- new client connnects to room A
+- we spawn player C_c in room A
+- C_c doesn't seem to be added in sender's S"b entities
+
+
+
+
+
+
+-------------------------
+
+
 Great question. Photon Fusion’s “projectile data buffer” (a small, networked ring/circular buffer) is a state‑based way to replicate shots. It’s favored over “one network event/RPC per shot” because it rides on Fusion’s normal snapshot/state replication instead of creating a separate stream of messages.
 
 1) Why a ring buffer beats “send an event every time the gun fires”
@@ -124,7 +147,6 @@ Late joiners / rewind. Because the buffer is part of replicated state, late join
 Photon Engine
 
 If you want, I can adapt this sketch to your exact projectile fields (hitscan vs. kinematic) and show how to write/read two times per shot for kinematic projectiles (spawn + finish), which is also how the Fusion samples do it.
-
 - Server spawns C
 - Client gets C' and spawns P' (predicted context) and spawns A'
 - Add ActionOfWrapper(C') on A' and replicates to server

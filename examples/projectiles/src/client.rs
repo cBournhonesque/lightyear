@@ -1,13 +1,13 @@
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, Rooms};
+use crate::shared::{Rooms, color_from_id};
 use bevy::prelude::*;
 use bevy_enhanced_input::action::ActionMock;
 use bevy_enhanced_input::bindings;
-use lightyear::prediction::rollback::DisableRollback;
 use core::time::Duration;
 use lightyear::input::bei::prelude::*;
 use lightyear::input::client::InputSet;
+use lightyear::prediction::rollback::DisableRollback;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -25,8 +25,6 @@ impl Plugin for ExampleClientPlugin {
         // app.add_systems(FixedUpdate, cycle_replication_mode_fixed_update);
     }
 }
-
-
 
 // When the predicted copy of the client-owned entity is spawned, do stuff
 // - assign it a different saturation
@@ -48,10 +46,10 @@ pub(crate) fn handle_predicted_spawn(
         };
         color.0 = Color::from(hsva);
         match replication_mode {
-            GameReplicationMode::AllInterpolated => {},
+            GameReplicationMode::AllInterpolated => {}
             _ => {
                 if player_id.0 != client_id {
-                    return
+                    return;
                 }
                 add_actions(&mut commands, trigger.target());
             }
@@ -62,7 +60,10 @@ pub(crate) fn handle_predicted_spawn(
 pub(crate) fn handle_interpolated_spawn(
     trigger: Trigger<OnAdd, (PlayerId, Interpolated)>,
     mode: Single<&GameReplicationMode, With<ClientContext>>,
-    mut interpolated: Query<(&mut ColorComponent, &Interpolated), (With<Interpolated>, With<Controlled>)>,
+    mut interpolated: Query<
+        (&mut ColorComponent, &Interpolated),
+        (With<Interpolated>, With<Controlled>),
+    >,
     mut commands: Commands,
 ) {
     let replication_mode = mode.into_inner();
@@ -90,22 +91,18 @@ pub(crate) fn handle_deterministic_spawn(
     let client_id = client.into_inner();
     match replication_mode {
         GameReplicationMode::OnlyInputsReplicated => {
-            commands.entity(trigger.target()).insert((
-                shared::player_bundle(client_id.0),
-                DeterministicPredicted
-            ));
+            commands
+                .entity(trigger.target())
+                .insert((shared::player_bundle(client_id.0), DeterministicPredicted));
             add_actions(&mut commands, trigger.target());
-        },
+        }
         _ => {
             // handled in the predicted/interpolated spawn handlers
         }
     }
 }
 
-fn add_actions(
-    commands: &mut Commands,
-    player: Entity,
-) {
+fn add_actions(commands: &mut Commands, player: Entity) {
     commands.entity(player).insert(PlayerContext);
     commands.spawn((
         ActionOf::<PlayerContext>::new(player),
@@ -134,10 +131,7 @@ fn add_actions(
     // ));
 }
 
-pub(crate) fn add_global_actions(
-    trigger: Trigger<OnAdd, ClientContext>,
-    mut commands: Commands
-) {
+pub(crate) fn add_global_actions(trigger: Trigger<OnAdd, ClientContext>, mut commands: Commands) {
     info!("Add global actions");
     // TODO: we should have a way to add BEI for PreUpdate schedule, where they are not affected by rollback!
     // commands.spawn((
@@ -163,7 +157,14 @@ pub fn cycle_replication_mode(
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
     let (entity, action_value, action_events) = action.into_inner();
-    trace!(?tick, ?rollback, ?entity, "CycleReplicationMode PreUpdate action value: {:?}, events: {:?}", action_value, action_events);
+    trace!(
+        ?tick,
+        ?rollback,
+        ?entity,
+        "CycleReplicationMode PreUpdate action value: {:?}, events: {:?}",
+        action_value,
+        action_events
+    );
 }
 
 pub fn cycle_replication_mode_fixed_update(
@@ -173,5 +174,12 @@ pub fn cycle_replication_mode_fixed_update(
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
     let (entity, action_value, action_events) = action.into_inner();
-    trace!(?tick, ?rollback, ?entity, "CycleReplicationMode FixedUpdate action value: {:?}, events: {:?}", action_value, action_events);
+    trace!(
+        ?tick,
+        ?rollback,
+        ?entity,
+        "CycleReplicationMode FixedUpdate action value: {:?}, events: {:?}",
+        action_value,
+        action_events
+    );
 }

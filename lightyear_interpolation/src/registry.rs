@@ -1,12 +1,16 @@
+use crate::interpolate::InterpolateStatus;
+use crate::interpolation_history::ConfirmedHistory;
+use crate::manager::InterpolationManager;
 use crate::plugin::{
     add_immutable_prepare_interpolation_systems, add_interpolation_systems,
     add_prepare_interpolation_systems,
 };
+use crate::timeline::InterpolationTimeline;
 use crate::{InterpolationMode, SyncComponent};
-use bevy_ecs::{component::Component, resource::Resource};
 use bevy_ecs::component::ComponentId;
-use bevy_ecs::entity::{Entity};
+use bevy_ecs::entity::Entity;
 use bevy_ecs::prelude::World;
+use bevy_ecs::{component::Component, resource::Resource};
 use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
@@ -16,12 +20,8 @@ use lightyear_core::prelude::NetworkTimeline;
 use lightyear_core::timeline::LocalTimeline;
 use lightyear_replication::prelude::{ComponentRegistration, ComponentRegistry};
 use lightyear_replication::registry::buffered::BufferedChanges;
-use lightyear_replication::registry::{ComponentError, ComponentKind};
 use lightyear_replication::registry::registry::LerpFn;
-use crate::interpolate::InterpolateStatus;
-use crate::interpolation_history::ConfirmedHistory;
-use crate::manager::InterpolationManager;
-use crate::timeline::InterpolationTimeline;
+use lightyear_replication::registry::{ComponentError, ComponentKind};
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -104,7 +104,9 @@ impl InterpolationRegistry {
         Ok(self
             .interpolation_map
             .get(kind)
-            .map_or(InterpolationMode::None, |metadata| metadata.interpolation_mode))
+            .map_or(InterpolationMode::None, |metadata| {
+                metadata.interpolation_mode
+            }))
     }
 
     pub fn interpolate<C: Component>(&self, start: C, end: C, t: f32) -> C {
@@ -117,7 +119,7 @@ impl InterpolationRegistry {
             unsafe { core::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
         interpolation_fn(start, end, t)
     }
-    
+
     // TODO: also sync removals!
     /// Clone the components from the confirmed entity to the interpolated entity
     /// All the cloned components are inserted at once.
@@ -168,7 +170,7 @@ impl InterpolationRegistry {
         buffer: &mut BufferedChanges,
     ) {
         let Some(value) = world.get::<C>(confirmed) else {
-            return
+            return;
         };
         let mut new_component = value.clone();
         let kind = ComponentKind::of::<C>();
@@ -185,12 +187,14 @@ impl InterpolationRegistry {
                     return;
                 }
                 let history_component_id = world.register_component::<ConfirmedHistory<C>>();
-                let interpolate_status_component_id = world.register_component::<InterpolateStatus<C>>();
+                let interpolate_status_component_id =
+                    world.register_component::<InterpolateStatus<C>>();
 
                 let manager_entity_ref = world.entity(manager);
                 let local_timeline = manager_entity_ref.get::<LocalTimeline>().unwrap();
                 let timeline = manager_entity_ref.get::<InterpolationTimeline>().unwrap();
-                let interpolation_manager = manager_entity_ref.get::<InterpolationManager>().unwrap();
+                let interpolation_manager =
+                    manager_entity_ref.get::<InterpolationManager>().unwrap();
                 let current_tick = local_timeline.tick();
                 let current_overstep = timeline.overstep();
 
@@ -205,7 +209,7 @@ impl InterpolationRegistry {
                 unsafe {
                     buffer.insert(ConfirmedHistory::<C>::new(), history_component_id);
                 };
-                let status =  InterpolateStatus::<C> {
+                let status = InterpolateStatus::<C> {
                     start: Some((current_tick, new_component)),
                     end: None,
                     current_tick,
@@ -223,7 +227,8 @@ impl InterpolationRegistry {
                     return;
                 }
                 let manager_entity_ref = world.entity(manager);
-                let interpolation_manager = manager_entity_ref.get::<InterpolationManager>().unwrap();
+                let interpolation_manager =
+                    manager_entity_ref.get::<InterpolationManager>().unwrap();
                 // map any entities from confirmed to interpolated
                 let _ = interpolation_manager.map_entities(&mut new_component, component_registry);
                 // SAFETY: the component_id matches the component

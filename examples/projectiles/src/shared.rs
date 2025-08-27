@@ -1,14 +1,13 @@
-use avian2d::prelude::*;
 use avian2d::PhysicsPlugins;
+use avian2d::prelude::*;
 use bevy::diagnostic::LogDiagnosticsPlugin;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use bevy_enhanced_input::action::Action;
 use bevy_enhanced_input::prelude::{ActionValue, Completed, Fired, Started};
-use lightyear_avian2d::prelude::LagCompensationSpatialQuery;
 use core::ops::DerefMut;
 use core::time::Duration;
-use bevy::platform::collections::HashMap;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client::PeerMetadata;
 use lightyear::connection::client_of::ClientOf;
@@ -17,6 +16,7 @@ use lightyear::prediction::plugin::PredictionSet;
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prediction::prespawn::PreSpawned;
 use lightyear::prelude::*;
+use lightyear_avian2d::prelude::LagCompensationSpatialQuery;
 
 use crate::protocol::*;
 
@@ -118,8 +118,6 @@ pub(crate) fn move_player(trigger: Trigger<Fired<MovePlayer>>, mut player: Query
         }
     }
 }
-
-
 
 pub(crate) fn fixed_update_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
@@ -230,7 +228,7 @@ pub(crate) fn shoot_weapon(
                     controlled_by,
                     is_server,
                     weapon_type,
-                    replication_mode
+                    replication_mode,
                 );
             }
             (_, ProjectileReplicationMode::DirectionOnly) => {
@@ -273,7 +271,7 @@ fn shoot_with_full_entity_replication(
     controlled_by: Option<&ControlledBy>,
     is_server: bool,
     weapon_type: &WeaponType,
-    replication_mode: &GameReplicationMode
+    replication_mode: &GameReplicationMode,
 ) {
     match weapon_type {
         WeaponType::Hitscan => {
@@ -340,7 +338,6 @@ fn shoot_with_full_entity_replication(
         }
     }
 }
-
 
 /// Direction-only replication - only replicate spawn parameters
 fn shoot_with_direction_only_replication(
@@ -433,7 +430,6 @@ fn shoot_with_direction_only_replication(
             GameReplicationMode::AllInterpolated => {}
             GameReplicationMode::OnlyInputsReplicated => {}
         }
-
     } else {
         // Client creates the projectile immediately for prediction
         create_client_projectile(commands, &spawn_info, color, shooter);
@@ -469,17 +465,13 @@ fn shoot_with_ring_buffer_replication(
 #[derive(Component)]
 pub struct ClientHitDetection;
 
-
 pub(crate) fn hitscan_hit_detection(
     trigger: Trigger<OnAdd, HitscanVisual>,
     commands: Commands,
     server: Query<Entity, With<Server>>,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     mode: Single<&GameReplicationMode, With<ClientContext>>,
-    mut spatial_set: ParamSet<(
-        LagCompensationSpatialQuery,
-        SpatialQuery,
-    )>,
+    mut spatial_set: ParamSet<(LagCompensationSpatialQuery, SpatialQuery)>,
     bullet: Query<(&HitscanVisual, &BulletMarker, &PlayerId)>,
     target_query: Query<(), (With<PlayerMarker>, Without<Confirmed>)>,
     // the InterpolationDelay component is stored directly on the client entity
@@ -503,11 +495,15 @@ pub(crate) fn hitscan_hit_detection(
 
     // check if we should be running hit detection on the server or client
     if is_server {
-        if mode == &GameReplicationMode::ClientSideHitDetection || mode == &GameReplicationMode::OnlyInputsReplicated {
+        if mode == &GameReplicationMode::ClientSideHitDetection
+            || mode == &GameReplicationMode::OnlyInputsReplicated
+        {
             return;
         }
     } else {
-        if mode != &GameReplicationMode::ClientSideHitDetection && mode != &GameReplicationMode::OnlyInputsReplicated {
+        if mode != &GameReplicationMode::ClientSideHitDetection
+            && mode != &GameReplicationMode::OnlyInputsReplicated
+        {
             return;
         }
         // TODO: ignore bullets that were fired by other clients
@@ -516,7 +512,10 @@ pub(crate) fn hitscan_hit_detection(
 
     match mode {
         GameReplicationMode::ClientPredictedLagComp => {
-            let Ok(Some(controlled_by)) = player_query.get(shooter).map(|(_, _, controlled_by)| controlled_by) else {
+            let Ok(Some(controlled_by)) = player_query
+                .get(shooter)
+                .map(|(_, _, controlled_by)| controlled_by)
+            else {
                 error!("Could not retrieve controlled_by for client {id:?}");
                 return;
             };
@@ -536,13 +535,7 @@ pub(crate) fn hitscan_hit_detection(
                 &mut SpatialQueryFilter::default(),
             ) {
                 let target = hit_data.entity;
-                info!(
-                    ?tick,
-                    ?hit_data,
-                    ?shooter,
-                    ?target,
-                    "Hitscan hit detected"
-                );
+                info!(?tick, ?hit_data, ?shooter, ?target, "Hitscan hit detected");
                 // if there is a hit, increment the score
                 player_query
                     .iter_mut()
@@ -560,9 +553,7 @@ pub(crate) fn hitscan_hit_detection(
                 HITSCAN_COLLISION_DISTANCE_CHECK,
                 false,
                 &SpatialQueryFilter::default(),
-                &|entity| {
-                    target_query.get(entity).is_ok()
-                },
+                &|entity| target_query.get(entity).is_ok(),
             ) {
                 let target = hit_data.entity;
                 info!(
@@ -581,20 +572,16 @@ pub(crate) fn hitscan_hit_detection(
                         score.0 += 1;
                     });
             }
-        },
+        }
     }
 }
-
 
 pub(crate) fn bullet_hit_detection(
     commands: Commands,
     server: Query<Entity, With<Server>>,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     mode: Single<&GameReplicationMode, With<ClientContext>>,
-    mut spatial_set: ParamSet<(
-        LagCompensationSpatialQuery,
-        SpatialQuery,
-    )>,
+    mut spatial_set: ParamSet<(LagCompensationSpatialQuery, SpatialQuery)>,
     bullet: Query<(&Position, &LinearVelocity, &BulletMarker, &PlayerId)>,
     target_query: Query<(), (With<PlayerMarker>, Without<Confirmed>)>,
     // the InterpolationDelay component is stored directly on the client entity
@@ -609,93 +596,93 @@ pub(crate) fn bullet_hit_detection(
 
     // check if we should be running hit detection on the server or client
     if is_server {
-        if mode == &GameReplicationMode::ClientSideHitDetection || mode == &GameReplicationMode::OnlyInputsReplicated {
+        if mode == &GameReplicationMode::ClientSideHitDetection
+            || mode == &GameReplicationMode::OnlyInputsReplicated
+        {
             return;
         }
     } else {
-        if mode != &GameReplicationMode::ClientSideHitDetection && mode != &GameReplicationMode::OnlyInputsReplicated {
+        if mode != &GameReplicationMode::ClientSideHitDetection
+            && mode != &GameReplicationMode::OnlyInputsReplicated
+        {
             return;
         }
         // TODO: ignore bullets that were fired by other clients
     }
-    bullet.iter().for_each(|(position, velocity, bullet_marker, id)| {
-        let shooter = bullet_marker.shooter;
-        let direction = velocity.0.normalize();
-        let start = position.0;
-        let max_distance = velocity.0.length();
+    bullet
+        .iter()
+        .for_each(|(position, velocity, bullet_marker, id)| {
+            let shooter = bullet_marker.shooter;
+            let direction = velocity.0.normalize();
+            let start = position.0;
+            let max_distance = velocity.0.length();
 
-        match mode {
-            GameReplicationMode::ClientPredictedLagComp => {
-                let Ok(Some(controlled)) = player_query.get(shooter).map(|(_, _, controlled_by)| controlled_by) else {
-                    error!("Could not retrieve controlled_by for client {id:?}");
-                    return;
-                };
-                let Ok(delay) = client_query.get(controlled.owner) else {
-                    error!("Could not retrieve InterpolationDelay for client {id:?}");
-                    return;
-                };
-                let query = spatial_set.p0();
-                if let Some(hit_data) = query.cast_ray(
-                    // the delay is sent in every input message; the latest InterpolationDelay received
-                    // is stored on the client entity
-                    *delay,
-                    start,
-                    Dir2::new_unchecked(direction),
-                    max_distance,
-                    false,
-                    &mut SpatialQueryFilter::default(),
-                ) {
-                    let target = hit_data.entity;
-                    info!(
-                        ?tick,
-                        ?hit_data,
-                        ?shooter,
-                        ?target,
-                        "Hitscan hit detected"
-                    );
-                    // if there is a hit, increment the score
-                    player_query
-                        .iter_mut()
-                        .find(|(_, player_id, _)| player_id.0 == id.0)
-                        .map(|(mut score, _, _)| {
-                            score.0 += 1;
-                        });
+            match mode {
+                GameReplicationMode::ClientPredictedLagComp => {
+                    let Ok(Some(controlled)) = player_query
+                        .get(shooter)
+                        .map(|(_, _, controlled_by)| controlled_by)
+                    else {
+                        error!("Could not retrieve controlled_by for client {id:?}");
+                        return;
+                    };
+                    let Ok(delay) = client_query.get(controlled.owner) else {
+                        error!("Could not retrieve InterpolationDelay for client {id:?}");
+                        return;
+                    };
+                    let query = spatial_set.p0();
+                    if let Some(hit_data) = query.cast_ray(
+                        // the delay is sent in every input message; the latest InterpolationDelay received
+                        // is stored on the client entity
+                        *delay,
+                        start,
+                        Dir2::new_unchecked(direction),
+                        max_distance,
+                        false,
+                        &mut SpatialQueryFilter::default(),
+                    ) {
+                        let target = hit_data.entity;
+                        info!(?tick, ?hit_data, ?shooter, ?target, "Hitscan hit detected");
+                        // if there is a hit, increment the score
+                        player_query
+                            .iter_mut()
+                            .find(|(_, player_id, _)| player_id.0 == id.0)
+                            .map(|(mut score, _, _)| {
+                                score.0 += 1;
+                            });
+                    }
+                }
+                _ => {
+                    let query = spatial_set.p1();
+                    if let Some(hit_data) = query.cast_ray_predicate(
+                        start,
+                        Dir2::new_unchecked(direction),
+                        max_distance,
+                        false,
+                        &SpatialQueryFilter::default(),
+                        &|entity| target_query.get(entity).is_ok(),
+                    ) {
+                        let target = hit_data.entity;
+                        info!(
+                            ?mode,
+                            ?tick,
+                            ?hit_data,
+                            ?shooter,
+                            ?target,
+                            "Hitscan hit detected"
+                        );
+                        // if there is a hit, increment the score
+                        player_query
+                            .iter_mut()
+                            .find(|(_, player_id, _)| player_id.0 == id.0)
+                            .map(|(mut score, _, _)| {
+                                score.0 += 1;
+                            });
+                    }
                 }
             }
-            _ => {
-                let query = spatial_set.p1();
-                if let Some(hit_data) = query.cast_ray_predicate(
-                    start,
-                    Dir2::new_unchecked(direction),
-                    max_distance,
-                    false,
-                    &SpatialQueryFilter::default(),
-                    &|entity| {
-                        target_query.get(entity).is_ok()
-                    },
-                ) {
-                    let target = hit_data.entity;
-                    info!(
-                        ?mode,
-                        ?tick,
-                        ?hit_data,
-                        ?shooter,
-                        ?target,
-                        "Hitscan hit detected"
-                    );
-                    // if there is a hit, increment the score
-                    player_query
-                        .iter_mut()
-                        .find(|(_, player_id, _)| player_id.0 == id.0)
-                        .map(|(mut score, _, _)| {
-                            score.0 += 1;
-                        });
-                }
-            },
-        }
-    });
+        });
 }
-
 
 fn shoot_hitscan(
     commands: &mut Commands,
@@ -720,9 +707,7 @@ fn shoot_hitscan(
             lifetime: 0.0,
             max_lifetime: 0.1,
         },
-        BulletMarker {
-            shooter,
-        },
+        BulletMarker { shooter },
         *color,
         *id,
         Name::new("HitscanProjectileSpawn"),
@@ -734,7 +719,7 @@ fn shoot_hitscan(
             GameReplicationMode::AllPredicted => {
                 // clients predict other clients using their inputs
                 // TODO: how does it work for shots fired by others?
-            },
+            }
             GameReplicationMode::ClientPredictedNoComp => {
                 commands.spawn((
                     spawn_bundle,
@@ -745,8 +730,8 @@ fn shoot_hitscan(
                     controlled_by.unwrap().clone(),
                     PreSpawned::default(),
                 ));
-            },
-            GameReplicationMode::ClientPredictedLagComp  => {
+            }
+            GameReplicationMode::ClientPredictedLagComp => {
                 commands.spawn((
                     spawn_bundle,
                     // no need to replicate to the shooting player since they are predicting their shot
@@ -785,8 +770,9 @@ fn shoot_hitscan(
             GameReplicationMode::AllPredicted => {
                 // should we predict other clients shooting?
                 commands.spawn((spawn_bundle, PreSpawned::default()));
-            },
-            GameReplicationMode::ClientPredictedNoComp | GameReplicationMode::ClientPredictedLagComp  => {
+            }
+            GameReplicationMode::ClientPredictedNoComp
+            | GameReplicationMode::ClientPredictedLagComp => {
                 commands.spawn((spawn_bundle, PreSpawned::default()));
             }
             GameReplicationMode::ClientSideHitDetection => {
@@ -822,9 +808,7 @@ fn shoot_linear_projectile(
         RigidBody::Kinematic,
         *id,
         *color,
-        BulletMarker {
-            shooter
-        },
+        BulletMarker { shooter },
         Name::new("LinearProjectile"),
     );
 
@@ -883,8 +867,9 @@ fn shoot_linear_projectile(
             GameReplicationMode::AllPredicted => {
                 // should we predict other clients shooting?
                 commands.spawn((bullet_bundle, PreSpawned::default()));
-            },
-            GameReplicationMode::ClientPredictedNoComp | GameReplicationMode::ClientPredictedLagComp  => {
+            }
+            GameReplicationMode::ClientPredictedNoComp
+            | GameReplicationMode::ClientPredictedLagComp => {
                 commands.spawn((bullet_bundle, PreSpawned::default()));
             }
             GameReplicationMode::ClientSideHitDetection => {
@@ -927,7 +912,7 @@ fn shoot_shotgun(
             RigidBody::Kinematic,
             *id,
             *color,
-            BulletMarker { shooter},
+            BulletMarker { shooter },
             ShotgunPellet {
                 pellet_index: i,
                 spread_angle: angle_offset,
@@ -1211,12 +1196,10 @@ pub(crate) fn update_weapon_ring_buffer(
         ),
         With<PlayerMarker>,
     >,
-
 ) {
     let current_tick = timeline.tick();
 
     for (shooter, mut weapon, player_id, color, controlled_by) in query.iter_mut() {
-
         // Process projectiles that should be spawned based on their tick
         let mut projectiles_to_spawn = Vec::new();
 
@@ -1312,7 +1295,9 @@ pub struct Rooms {
 
 impl Default for Rooms {
     fn default() -> Self {
-        Self { rooms: HashMap::default() }
+        Self {
+            rooms: HashMap::default(),
+        }
     }
 }
 
@@ -1330,16 +1315,23 @@ fn despawn_after(
     }
 }
 
-
 /// Handle ProjectileSpawn by spawning child entities for projectiles
 pub(crate) fn handle_projectile_spawn(
     trigger: Trigger<OnAdd, ProjectileSpawn>,
     mut commands: Commands,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     tick_duration: Res<TickDuration>,
-    spawn_query: Query<(&ProjectileSpawn, &ColorComponent, &BulletMarker, Has<Predicted>, Has<Interpolated>)>,
+    spawn_query: Query<(
+        &ProjectileSpawn,
+        &ColorComponent,
+        &BulletMarker,
+        Has<Predicted>,
+        Has<Interpolated>,
+    )>,
 ) {
-    let Ok((spawn_info, color, bullet_marker, is_predicted, is_interpolated)) = spawn_query.get(trigger.target()) else {
+    let Ok((spawn_info, color, bullet_marker, is_predicted, is_interpolated)) =
+        spawn_query.get(trigger.target())
+    else {
         return;
     };
 
@@ -1357,7 +1349,7 @@ pub(crate) fn handle_projectile_spawn(
                 shooter,
                 current_tick,
                 is_predicted,
-                is_interpolated
+                is_interpolated,
             );
         }
         WeaponType::LinearProjectile => {
@@ -1370,7 +1362,7 @@ pub(crate) fn handle_projectile_spawn(
                 current_tick,
                 tick_duration.0,
                 is_predicted,
-                is_interpolated
+                is_interpolated,
             );
         }
         WeaponType::Shotgun => {
@@ -1383,7 +1375,7 @@ pub(crate) fn handle_projectile_spawn(
                 current_tick,
                 tick_duration.0,
                 is_predicted,
-                is_interpolated
+                is_interpolated,
             );
         }
         WeaponType::PhysicsProjectile => {
@@ -1396,7 +1388,7 @@ pub(crate) fn handle_projectile_spawn(
                 current_tick,
                 tick_duration.0,
                 is_predicted,
-                is_interpolated
+                is_interpolated,
             );
         }
         WeaponType::HomingMissile => {
@@ -1409,7 +1401,7 @@ pub(crate) fn handle_projectile_spawn(
                 current_tick,
                 tick_duration.0,
                 is_predicted,
-                is_interpolated
+                is_interpolated,
             );
         }
     }

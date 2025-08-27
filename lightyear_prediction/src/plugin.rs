@@ -233,7 +233,9 @@ impl Plugin for PredictionPlugin {
         app.add_observer(PredictionManager::handle_tick_sync);
 
         // Custom entity disabling
-        let rollback_disable_id = app.world_mut().register_component::<DisabledDuringRollback>();
+        let rollback_disable_id = app
+            .world_mut()
+            .register_component::<DisabledDuringRollback>();
         let prediction_disable_id = app.world_mut().register_component::<PredictionDisable>();
         app.world_mut()
             .resource_mut::<DefaultQueryFilters>()

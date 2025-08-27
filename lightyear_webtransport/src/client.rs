@@ -98,7 +98,10 @@ impl WebTransportClientPlugin {
     // `cert_digest` is expected to be the hexadecimal representation of the SHA256 Digest, without colons
     #[cfg(not(target_family = "wasm"))]
     fn client_config(cert_digest: String) -> Result<ClientConfig> {
-        use {aeronet_webtransport::wtransport::{config::IpBindConfig, tls::Sha256Digest}, core::time::Duration};
+        use {
+            aeronet_webtransport::wtransport::{config::IpBindConfig, tls::Sha256Digest},
+            core::time::Duration,
+        };
 
         // TODO: for some reason on linux the default can bind to ipv6 which is not supported.
         //  Let the user specify the config

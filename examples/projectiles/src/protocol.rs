@@ -5,9 +5,9 @@ use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear::input::bei::prelude;
 use lightyear::input::prelude::InputConfig;
+use lightyear::prelude::Channel;
 use lightyear::prelude::input::bei::InputAction;
 use lightyear::prelude::input::bei::*;
-use lightyear::prelude::Channel;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -38,7 +38,7 @@ pub struct Score(pub usize);
 pub struct ColorComponent(pub(crate) Color);
 
 #[derive(Component, MapEntities, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct BulletMarker{
+pub struct BulletMarker {
     #[entities]
     pub shooter: Entity,
 }
@@ -146,12 +146,12 @@ impl ProjectileReplicationMode {
 pub enum GameReplicationMode {
     // TODO: do we predict other entities shooting? or just their movement?
     //  maybe just their movement?
-    AllPredicted,           // Current mode: client predicts all entities, server hit detection
-    ClientPredictedNoComp,  // Client predicted, enemies interpolated, no lag comp
+    AllPredicted, // Current mode: client predicts all entities, server hit detection
+    ClientPredictedNoComp, // Client predicted, enemies interpolated, no lag comp
     ClientPredictedLagComp, // Client predicted, enemies interpolated, with lag comp
     ClientSideHitDetection, // Client predicted, enemies interpolated, hits computed on client
-    AllInterpolated,        // Everything interpolated with delay
-    OnlyInputsReplicated,   // Everything predicted, only inputs replicated
+    AllInterpolated, // Everything interpolated with delay
+    OnlyInputsReplicated, // Everything predicted, only inputs replicated
 }
 
 impl Default for GameReplicationMode {

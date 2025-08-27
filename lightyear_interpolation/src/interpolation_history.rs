@@ -75,8 +75,6 @@ impl<C: Component> ConfirmedHistory<C> {
     }
 }
 
-
-
 /// When we receive a server update for an interpolated component, we need to store it in the confirmed history,
 pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
     component_registry: Res<ComponentRegistry>,

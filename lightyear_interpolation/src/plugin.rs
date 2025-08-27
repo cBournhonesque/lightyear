@@ -1,9 +1,13 @@
-use super::interpolation_history::{apply_confirmed_update_immutable_mode_simple, apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple};
+use super::interpolation_history::{
+    apply_confirmed_update_immutable_mode_simple, apply_confirmed_update_mode_full,
+    apply_confirmed_update_mode_simple,
+};
 use crate::despawn::{despawn_interpolated, removed_components};
 use crate::interpolate::{insert_interpolated_component, interpolate, update_interpolate_status};
 use crate::prelude::InterpolationRegistrationExt;
 use crate::registry::InterpolationRegistry;
 use crate::spawn::spawn_interpolated_entity;
+use crate::sync::SyncPlugin;
 use crate::timeline::TimelinePlugin;
 use crate::{
     Interpolated, InterpolationMode, SyncComponent, interpolated_on_add_hook,
@@ -26,7 +30,6 @@ use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_sync::plugin::SyncSet;
 use serde::{Deserialize, Serialize};
-use crate::sync::SyncPlugin;
 
 /// Interpolation delay of the client at the time the message is sent
 ///
@@ -185,10 +188,7 @@ impl Plugin for InterpolationPlugin {
         // SETS
         app.configure_sets(
             PreUpdate,
-            (
-                InterpolationSet::Spawn,
-                InterpolationSet::Sync,
-            )
+            (InterpolationSet::Spawn, InterpolationSet::Sync)
                 .in_set(InterpolationSet::All)
                 .chain(),
         );

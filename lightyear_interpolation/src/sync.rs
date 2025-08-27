@@ -1,4 +1,6 @@
-use std::prelude::rust_2015::Vec;
+use crate::InterpolationMode;
+use crate::plugin::InterpolationSet;
+use crate::prelude::InterpolationRegistry;
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::change_detection::{Mut, Res, ResMut};
@@ -8,22 +10,17 @@ use bevy_ecs::event::{Event, Events};
 use bevy_ecs::observer::{Observer, Trigger};
 use bevy_ecs::prelude::{EntityRef, IntoScheduleConfigs, OnInsert, Query, World};
 use bevy_reflect::Reflect;
-use tracing::trace;
 use lightyear_replication::components::{Confirmed, Replicated};
 use lightyear_replication::prelude::{ComponentRegistry, ReplicationSet};
 use lightyear_replication::registry::buffered::BufferedChanges;
-use crate::InterpolationMode;
-use crate::plugin::InterpolationSet;
-use crate::prelude::InterpolationRegistry;
-
-
+use std::prelude::rust_2015::Vec;
+use tracing::trace;
 
 /// Plugin that syncs components that were inserted on the Confirmed entity to the Interpolated entity
 pub(crate) struct SyncPlugin;
 
 impl Plugin for SyncPlugin {
-    fn build(&self, app: &mut App) {
-    }
+    fn build(&self, app: &mut App) {}
 
     fn cleanup(&self, app: &mut App) {
         // we don't need to automatically update the events because they will be drained every frame
@@ -34,12 +31,16 @@ impl Plugin for SyncPlugin {
 
         // Sync components that are added on the Confirmed entity
         let mut observer = Observer::new(added_on_confirmed_sync);
-        for component_id in interpolation_registry.interpolation_map.keys().filter_map(|k| {
-            component_registry
-                .component_metadata_map
-                .get(k)
-                .map(|m| m.component_id)
-        }) {
+        for component_id in interpolation_registry
+            .interpolation_map
+            .keys()
+            .filter_map(|k| {
+                component_registry
+                    .component_metadata_map
+                    .get(k)
+                    .map(|m| m.component_id)
+            })
+        {
             observer = observer.with_component(component_id);
         }
         app.world_mut().spawn(observer);
@@ -49,12 +50,12 @@ impl Plugin for SyncPlugin {
 
         // Apply the sync events
         app.configure_sets(PreUpdate, InterpolationSet::Sync);
-        app.add_systems(PreUpdate, apply_interpolated_sync.in_set(InterpolationSet::Sync));
+        app.add_systems(
+            PreUpdate,
+            apply_interpolated_sync.in_set(InterpolationSet::Sync),
+        );
     }
 }
-
-
-
 
 #[derive(Event, Debug)]
 struct InterpolatedSyncEvent {

@@ -1,7 +1,6 @@
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
 use super::{Predicted, PredictionMode, SyncComponent};
-use alloc::vec::Vec;
 use crate::correction::PreviousVisual;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
@@ -9,6 +8,7 @@ use crate::manager::{LastConfirmedInput, PredictionManager, RollbackMode};
 use crate::plugin::PredictionSet;
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
+use alloc::vec::Vec;
 use bevy_app::{App, FixedMain, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::ScheduleLabel;

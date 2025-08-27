@@ -21,28 +21,27 @@ use bevy_ecs::entity::unique_slice::cast_slice_of_mut_unique_entity_slice_mut;
 use bevy_ecs::prelude::*;
 #[cfg(feature = "client")]
 use {
-    bevy_ecs::relationship::Relationship,
+    bevy_ecs::relationship::Relationship, lightyear_core::prediction::Predicted,
     lightyear_replication::prelude::Replicate,
-    lightyear_core::prediction::Predicted
 };
 
-use lightyear_replication::prelude::{ComponentReplicationOverrides, InterpolationTarget, NetworkVisibility, PredictionTarget, Replicated, ShouldBePredicted};
 use bevy_enhanced_input::prelude::*;
 use bevy_reflect::Reflect;
+use lightyear_link::prelude::Server;
+use lightyear_prediction::prelude::DeterministicPredicted;
+use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::{AppComponentExt, ComponentReplicationConfig};
+use lightyear_replication::prelude::{
+    ComponentReplicationOverrides, InterpolationTarget, NetworkVisibility, PredictionTarget,
+    Replicated, ShouldBePredicted,
+};
 use lightyear_serde::SerializationError;
 use lightyear_serde::registry::SerializeFns;
 use lightyear_serde::writer::Writer;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
-use lightyear_link::prelude::Server;
 #[cfg(feature = "server")]
-use {
-    lightyear_inputs::config::InputConfig,
-    lightyear_replication::prelude::ReplicateLike,
-};
-use lightyear_prediction::prelude::DeterministicPredicted;
-use lightyear_replication::components::Confirmed;
+use {lightyear_inputs::config::InputConfig, lightyear_replication::prelude::ReplicateLike};
 
 /// Wrapper around ActionOf<C> that is needed for replication with custom entity mapping
 #[derive(Component, Serialize, Deserialize, Reflect)]
@@ -81,7 +80,6 @@ impl<C> MapEntities for ActionOfWrapper<C> {
         self.context = entity_mapper.get_mapped(self.context);
     }
 }
-
 
 pub struct InputRegistryPlugin;
 
@@ -136,7 +134,9 @@ impl InputRegistryPlugin {
             if config.rebroadcast_inputs {
                 debug!(action_entity = ?entity, "On server, insert ReplicateLike({:?}) for action entity ActionOf<{:?}>", wrapper.context, core::any::type_name::<C>());
                 commands.entity(entity).insert((
-                    ReplicateLike { root: wrapper.context },
+                    ReplicateLike {
+                        root: wrapper.context,
+                    },
                     // we don't want to spawn Predicted Action entities
                     PredictionTarget::manual(vec![]),
                     InterpolationTarget::manual(vec![]),

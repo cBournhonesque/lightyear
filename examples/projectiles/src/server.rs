@@ -1,15 +1,15 @@
+use crate::client::ExampleClientPlugin;
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, Rooms, SharedPlugin, BOT_RADIUS};
+use crate::shared::{BOT_RADIUS, Rooms, SharedPlugin, color_from_id};
 use avian2d::prelude::*;
+use bevy::input::InputPlugin;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
-use core::ops::DerefMut;
-use core::time::Duration;
-use std::net::SocketAddr;
-use bevy::input::InputPlugin;
 use bevy_enhanced_input::EnhancedInputSet;
 use bevy_enhanced_input::prelude::{Actions, Completed, Started};
+use core::ops::DerefMut;
+use core::time::Duration;
 use leafwing_input_manager::prelude::*;
 use lightyear::core::tick::TickDuration;
 use lightyear::crossbeam::CrossbeamIo;
@@ -20,10 +20,10 @@ use lightyear::prelude::*;
 use lightyear_avian2d::prelude::{
     LagCompensationHistory, LagCompensationPlugin, LagCompensationSet, LagCompensationSpatialQuery,
 };
+use lightyear_examples_common::cli::new_headless_app;
 use lightyear_examples_common::shared::{SEND_INTERVAL, SERVER_ADDR, SHARED_SETTINGS};
 use rand::random;
-use lightyear_examples_common::cli::new_headless_app;
-use crate::client::ExampleClientPlugin;
+use std::net::SocketAddr;
 
 pub struct ExampleServerPlugin;
 
@@ -54,9 +54,11 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
     commands.trigger(SpawnBot);
 }
 
-
 pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
-    info!("Adding ReplicationSender to new ClientOf entity: {:?}", trigger.target());
+    info!(
+        "Adding ReplicationSender to new ClientOf entity: {:?}",
+        trigger.target()
+    );
     commands.entity(trigger.target()).insert((
         ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
         // We need a ReplicationReceiver on the server side because the Action entities are spawned
@@ -66,9 +68,7 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
     ));
 }
 
-pub(crate) fn spawn_global_control(
-    mut commands: Commands,
-) {
+pub(crate) fn spawn_global_control(mut commands: Commands) {
     commands.spawn((
         ClientContext,
         Replicate::to_clients(NetworkTarget::All),
@@ -99,18 +99,16 @@ pub(crate) fn spawn_player(
     let client_id = client_id.0;
     info!("Spawning player with id: {}", client_id);
 
-    for i in 0..6 {
+    for i in 0..1 {
         let replication_mode = GameReplicationMode::from_room_id(i);
-        let room = *rooms.rooms.entry(replication_mode)
-            .or_insert_with(|| {
-                 commands
-                    .spawn(
-                    (
-                            Room::default(),
-                            Name::new(format!("Room{}", replication_mode.name())),
-                        )
-                ).id()
-            });
+        let room = *rooms.rooms.entry(replication_mode).or_insert_with(|| {
+            commands
+                .spawn((
+                    Room::default(),
+                    Name::new(format!("Room{}", replication_mode.name())),
+                ))
+                .id()
+        });
 
         // start by adding the player to the first room
         if i == 0 {
@@ -121,10 +119,7 @@ pub(crate) fn spawn_player(
         let player = server_player_bundle(room, client_id, sender, replication_mode);
         let player_entity = match replication_mode {
             GameReplicationMode::AllPredicted => {
-                commands.spawn((
-                    player,
-                    PredictionTarget::to_clients(NetworkTarget::All),
-                ))
+                commands.spawn((player, PredictionTarget::to_clients(NetworkTarget::All)))
             }
             GameReplicationMode::ClientPredictedNoComp => commands.spawn((
                 player,
@@ -142,10 +137,7 @@ pub(crate) fn spawn_player(
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             )),
             GameReplicationMode::AllInterpolated => {
-                commands.spawn((
-                    player,
-                    InterpolationTarget::to_clients(NetworkTarget::All),
-                ))
+                commands.spawn((player, InterpolationTarget::to_clients(NetworkTarget::All)))
             }
             GameReplicationMode::OnlyInputsReplicated => commands.spawn((
                 PlayerContext,
@@ -170,7 +162,12 @@ pub(crate) fn spawn_player(
     }
 }
 
-fn server_player_bundle(room: Entity, client_id: PeerId, owner: Entity, replication_mode: GameReplicationMode) -> impl Bundle {
+fn server_player_bundle(
+    room: Entity,
+    client_id: PeerId,
+    owner: Entity,
+    replication_mode: GameReplicationMode,
+) -> impl Bundle {
     let bundle = shared::player_bundle(client_id);
     (
         Replicate::to_clients(NetworkTarget::All),
@@ -180,16 +177,14 @@ fn server_player_bundle(room: Entity, client_id: PeerId, owner: Entity, replicat
             lifetime: Default::default(),
         },
         replication_mode,
-        bundle
+        bundle,
     )
 }
-
 
 pub struct BotPlugin;
 
 impl Plugin for BotPlugin {
-    fn build(&self, app: &mut App) {
-    }
+    fn build(&self, app: &mut App) {}
 
     // run in `cleanup` because BEI finishes building in `finish`
     fn cleanup(&self, app: &mut App) {
@@ -211,10 +206,11 @@ unsafe impl Sync for BotApp {}
 
 impl BotApp {
     fn run(&mut self) {
-        self.0.run();
+        info_span!("bot").in_scope(|| {
+            self.0.run();
+        });
     }
 }
-
 
 /// On the server, we will create a second app to host a bot that is similar to a real client,
 /// but their inputs are mocked
@@ -250,11 +246,7 @@ fn spawn_bot_app(
     app.world_mut().spawn((
         Client::default(),
         BotClient,
-        ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ),
+        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
         ReplicationReceiver::default(),
         NetcodeClient::new(
             auth,
@@ -284,14 +276,11 @@ fn spawn_bot_app(
     app.add_systems(Update, bot_wait);
     let mut bot_app = BotApp(app);
     std::thread::spawn(move || {
-        info_span!("bot").in_scope(|| bot_app.run());
+        bot_app.run();
     });
 }
 
-fn bot_connect(
-    bot: Single<Entity, (With<BotClient>, With<Client>)>,
-    mut commands: Commands
-) {
+fn bot_connect(bot: Single<Entity, (With<BotClient>, With<Client>)>, mut commands: Commands) {
     let entity = bot.into_inner();
     info!("Bot entity {entity:?} connecting to server");
     commands.entity(entity).trigger(Connect);
@@ -300,7 +289,7 @@ fn bot_connect(
 #[derive(Debug, Clone, Copy, Default)]
 enum BotMovementMode {
     #[default]
-    Strafing,    // 200ms intervals
+    Strafing, // 200ms intervals
     StraightLine, // 1s intervals
 }
 
@@ -393,16 +382,16 @@ fn bot_inputs(
         input.press(KeyCode::KeyD);
         input.release(KeyCode::KeyA);
     }
-    trace!("Bot in {} mode, pressing {:?}",
-           current_mode.name(),
-           input.get_pressed().collect::<Vec<_>>());
+    trace!(
+        "Bot in {} mode, pressing {:?}",
+        current_mode.name(),
+        input.get_pressed().collect::<Vec<_>>()
+    );
 }
 
 #[cfg(not(feature = "gui"))]
 // prevent the bot from running too fast
-fn bot_wait(
-    timeline: Single<&LocalTimeline>)
-{
+fn bot_wait(timeline: Single<&LocalTimeline>) {
     std::thread::sleep(Duration::from_millis(15));
 }
 
@@ -421,12 +410,14 @@ pub fn cycle_replication_mode(
     // Move all clients from current room to next room
     if let (Some(current_room), Some(next_room)) = (
         rooms.rooms.get(&current_mode),
-        rooms.rooms.get(&*replication_mode)
+        rooms.rooms.get(&*replication_mode),
     ) {
         for client_entity in clients.iter() {
             commands.trigger_targets(RoomEvent::RemoveSender(client_entity), *current_room);
             commands.trigger_targets(RoomEvent::AddSender(client_entity), *next_room);
-            info!("Switching client {client_entity:?} from room {current_room:?} to room {next_room:?}");
+            info!(
+                "Switching client {client_entity:?} from room {current_room:?} to room {next_room:?}"
+            );
         }
     }
 
@@ -442,5 +433,3 @@ pub fn cycle_projectile_mode(
     *projectile_mode = projectile_mode.next();
     info!("Cycled to projectile mode: {}", projectile_mode.name());
 }
-
-

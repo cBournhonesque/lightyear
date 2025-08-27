@@ -1,11 +1,11 @@
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::input_message::BEIStateSequence;
 
-use crate::setup::{ActionOfWrapper};
+use crate::setup::ActionOfWrapper;
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::setup::InputRegistryPlugin;
-use bevy_app::{FixedPreUpdate, PreUpdate};
 use bevy_app::{App, Plugin};
+use bevy_app::{FixedPreUpdate, PreUpdate};
 use bevy_ecs::component::Component;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::IntoScheduleConfigs;
@@ -13,19 +13,19 @@ use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::schedule::common_conditions::not;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_enhanced_input::EnhancedInputSet;
+use bevy_enhanced_input::action::ActionState;
 use bevy_enhanced_input::context::InputContextAppExt;
 use bevy_enhanced_input::prelude::ActionOf;
 use bevy_reflect::TypePath;
 use core::fmt::Debug;
-use bevy_enhanced_input::action::ActionState;
 use lightyear_inputs::config::InputConfig;
 use lightyear_prediction::PredictionMode;
+use lightyear_prediction::plugin::PredictionSet;
 use lightyear_prediction::prelude::PredictionRegistrationExt;
 use lightyear_replication::prelude::AppComponentExt;
 use lightyear_replication::registry::replication::GetWriteFns;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use lightyear_prediction::plugin::PredictionSet;
 
 pub struct InputPlugin<C> {
     pub config: InputConfig<C>,
@@ -66,8 +66,6 @@ impl<
         app.register_component::<ActionOfWrapper<C>>()
             .add_map_entities();
 
-
-
         #[cfg(feature = "client")]
         {
             use crate::marker::{
@@ -82,8 +80,10 @@ impl<
             app.add_observer(add_input_marker_from_binding::<C>);
 
             app.add_observer(InputRegistryPlugin::add_action_of_replicate::<C>);
-            app.add_systems(PreUpdate, InputRegistryPlugin::on_rebroadcast_action_received::<C>
-                .after(PredictionSet::Sync));
+            app.add_systems(
+                PreUpdate,
+                InputRegistryPlugin::on_rebroadcast_action_received::<C>.after(PredictionSet::Sync),
+            );
 
             app.add_plugins(lightyear_inputs::client::ClientInputPlugin::<
                 BEIStateSequence<C>,
