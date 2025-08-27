@@ -1,7 +1,7 @@
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::input_message::BEIStateSequence;
 
-use crate::setup::{ActionOfWrapper, ReplicateLike};
+use crate::setup::{ActionOfWrapper};
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::setup::InputRegistryPlugin;
 use bevy_app::FixedPreUpdate;
@@ -62,10 +62,6 @@ impl<
         // i.e. if the Action is spawned on the predicted entity on the client, we want the ActionOf<C> entity
         // to be able to be mapped
         app.register_component::<ActionOfWrapper<C>>()
-            .add_map_entities();
-
-        // Register ReplicateLike component for input rebroadcasting
-        app.register_component::<ReplicateLike<C>>()
             .add_map_entities();
 
         #[cfg(feature = "client")]

@@ -52,18 +52,15 @@ pub(crate) fn add_input_marker_from_parent<C: Component>(
     }
 }
 
-/// If a Binding is added to an Action entity, add the InputMarker to that Action entity.
+/// If Bindings or ActionMock is added to an Action entity, add the InputMarker to that Action entity.
 pub(crate) fn add_input_marker_from_binding<C: Component>(
-    trigger: Trigger<OnAdd, BindingOf>,
-    binding_of: Query<&BindingOf>,
+    trigger: Trigger<OnAdd, (Bindings, ActionMock)>,
     action: Query<(), With<ActionOf<C>>>,
     mut commands: Commands,
 ) {
-    if let Ok(binding_of) = binding_of.get(trigger.target())
-        && action.get(binding_of.get()).is_ok()
-    {
+    if action.get(trigger.target()).is_ok() {
         commands
-            .entity(binding_of.get())
+            .entity(trigger.target())
             .insert(InputMarker::<C>::default());
     }
 }

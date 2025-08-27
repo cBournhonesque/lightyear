@@ -17,7 +17,7 @@ use lightyear_core::prelude::{LocalTimeline, NetworkTimelinePlugin};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent};
-use tracing::{debug, info, trace};
+use tracing::{debug, trace};
 
 /// Marker component to indicate that the timeline has been synced
 #[derive(Component, Debug)]

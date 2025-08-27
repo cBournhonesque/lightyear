@@ -32,7 +32,7 @@ use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
 use lightyear_replication::prelude::Room;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
 pub struct ServerInputPlugin<S> {
     pub rebroadcast_inputs: bool,

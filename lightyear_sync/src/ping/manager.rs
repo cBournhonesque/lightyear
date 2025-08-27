@@ -10,7 +10,7 @@ use core::time::Duration;
 use lightyear_core::time::Instant;
 use lightyear_core::time::TickDelta;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
-use tracing::{error, info, trace};
+use tracing::{error, trace};
 
 /// Config for the ping manager, which sends regular pings to the remote machine in order
 /// to compute network statistics (RTT, jitter)

@@ -18,25 +18,26 @@ use bevy_app::App;
 use bevy_ecs::entity::MapEntities;
 use bevy_ecs::prelude::*;
 #[cfg(feature = "client")]
-use bevy_ecs::relationship::Relationship;
-#[cfg(feature = "client")]
-use lightyear_replication::prelude::Replicate;
+use {
+    bevy_ecs::relationship::Relationship,
+    lightyear_replication::prelude::Replicate,
+    lightyear_core::prediction::Predicted
+};
 
-use lightyear_replication::prelude::Replicated;
-use lightyear_connection::prelude::NetworkTarget;
+use lightyear_replication::prelude::{Replicated};
 use bevy_enhanced_input::prelude::*;
-#[cfg(feature = "client")]
-use lightyear_core::prediction::Predicted;
-#[cfg(feature = "server")]
-use lightyear_inputs::config::InputConfig;
-use lightyear_replication::prelude::{AppComponentExt, ComponentReplicationConfig, PredictionTarget, InterpolationTarget};
-#[cfg(feature = "server")]
-use lightyear_replication::send::components::ReplicationMode;
+use lightyear_replication::prelude::{AppComponentExt, ComponentReplicationConfig};
 use lightyear_serde::SerializationError;
 use lightyear_serde::registry::SerializeFns;
 use lightyear_serde::writer::Writer;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+#[cfg(feature = "server")]
+use {
+    lightyear_inputs::config::InputConfig,
+    lightyear_replication::prelude::ReplicateLike,
+    lightyear_link::prelude::Server
+};
+use lightyear_replication::components::Confirmed;
 
 /// Wrapper around ActionOf<C> that is needed for replication with custom entity mapping
 #[derive(Component, Serialize, Deserialize)]
@@ -75,27 +76,6 @@ impl<C> MapEntities for ActionOfWrapper<C> {
     }
 }
 
-/// Component that tells Action entities to copy replication settings from their Context entity
-#[derive(Component, Serialize, Deserialize, Clone, PartialEq)]
-pub(crate) struct ReplicateLike<C> {
-    pub context: Entity,
-    pub marker: core::marker::PhantomData<C>,
-}
-
-impl<C> ReplicateLike<C> {
-    pub fn new(context: Entity) -> Self {
-        Self {
-            context,
-            marker: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<C> MapEntities for ReplicateLike<C> {
-    fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {
-        self.context = entity_mapper.get_mapped(self.context);
-    }
-}
 
 pub struct InputRegistryPlugin;
 
@@ -136,13 +116,8 @@ impl InputRegistryPlugin {
     pub(crate) fn on_action_of_replicated<C: Component>(
         trigger: Trigger<OnAdd, ActionOfWrapper<C>>,
         query: Query<&ActionOfWrapper<C>, With<Replicated>>,
+        is_server: Single<(), (With<Server>)>,
         config: Res<InputConfig<C>>,
-        // Query to get replication settings from the context entity
-        context_query: Query<(
-            Option<&Replicate>,
-            Option<&PredictionTarget>,
-            Option<&InterpolationTarget>,
-        )>,
         mut commands: Commands,
     ) {
         let entity = trigger.target();
@@ -150,49 +125,11 @@ impl InputRegistryPlugin {
             commands
                 .entity(entity)
                 .insert(ActionOf::<C>::new(wrapper.context))
-                .remove::<ActionOfWrapper<C>>();
+                .remove::<Replicated>();
 
             // If rebroadcast_inputs is enabled, set up replication to other clients
             if config.rebroadcast_inputs {
-                // Get replication settings from the context entity
-                if let Ok((replicate, prediction_target, interpolation_target)) =
-                    context_query.get(wrapper.context)
-                {
-                    // Copy replication settings from context entity, but exclude the original sender
-                    if let Some(replicate) = replicate {
-                        // Extract the network target from the ReplicationMode
-                        let modified_replicate = if let ReplicationMode::SingleServer(target) = &replicate.mode {
-                            match target {
-                                NetworkTarget::All => Replicate::to_clients(NetworkTarget::All),
-                                NetworkTarget::AllExceptSingle(excluded) => {
-                                    Replicate::to_clients(NetworkTarget::AllExceptSingle(*excluded))
-                                }
-                                NetworkTarget::Single(client) => {
-                                    // Don't rebroadcast to the sender
-                                    Replicate::to_clients(NetworkTarget::AllExceptSingle(*client))
-                                }
-                                _ => Replicate::to_clients(NetworkTarget::All),
-                            }
-                        } else {
-                            // Default fallback
-                            Replicate::to_clients(NetworkTarget::All)
-                        };
-                        commands.entity(entity).insert(modified_replicate);
-                    }
-
-                    // Copy prediction target settings
-                    if let Some(prediction_target) = prediction_target {
-                        commands.entity(entity).insert(prediction_target.clone());
-                    }
-
-                    // Copy interpolation target settings
-                    if let Some(interpolation_target) = interpolation_target {
-                        commands.entity(entity).insert(interpolation_target.clone());
-                    }
-
-                    // Add ReplicateLike marker to help clients map to correct context
-                    commands.entity(entity).insert(ReplicateLike::<C>::new(wrapper.context));
-                }
+                commands.entity(entity).insert(ReplicateLike { root: wrapper.context });
             }
         }
     }
@@ -201,34 +138,20 @@ impl InputRegistryPlugin {
     /// attach it to the correct Predicted context entity
     #[cfg(feature = "client")]
     pub(crate) fn on_rebroadcast_action_received<C: Component>(
-        trigger: Trigger<OnAdd, ReplicateLike<C>>,
-        query: Query<&ReplicateLike<C>, With<Replicated>>,
-        // Query to find the predicted entity for the mapped context
-        context_query: Query<Entity, (With<Predicted>, With<C>)>,
+        trigger: Trigger<OnAdd, ActionOfWrapper<C>>,
+        query: Query<&ActionOfWrapper<C>, With<Replicated>>,
+        context_query: Query<&Confirmed, With<C>>,
         mut commands: Commands,
     ) {
         let entity = trigger.target();
-        if let Ok(replicate_like) = query.get(entity) {
-            // Find the predicted entity that corresponds to the mapped context
-            // The replicate_like.context should already be mapped to the predicted entity
-            if context_query.get(replicate_like.context).is_ok() {
+        if let Ok(action_of_wrapper) = query.get(entity)
+            && let Ok(confirmed) = context_query.get(action_of_wrapper.context)
+            && let Some(predicted) = confirmed.predicted {
                 // Attach ActionOf to the predicted context entity
                 commands
                     .entity(entity)
-                    .insert(ActionOf::<C>::new(replicate_like.context))
-                    .remove::<ReplicateLike<C>>();
-
-                info!(
-                    "Attached rebroadcast Action entity {:?} to predicted context {:?}",
-                    entity, replicate_like.context
-                );
-            } else {
-                // If we can't find the predicted entity, log a warning
-                info!(
-                    "Could not find predicted context entity {:?} for rebroadcast Action {:?}",
-                    replicate_like.context, entity
-                );
-            }
+                    .insert(ActionOf::<C>::new(predicted))
+                    .remove::<ActionOfWrapper<C>>();
         }
     }
 

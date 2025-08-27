@@ -21,7 +21,7 @@ use lightyear_messages::prelude::AppMessageExt;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, Transport};
-use tracing::{info, trace};
+use tracing::{trace};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PingSet {

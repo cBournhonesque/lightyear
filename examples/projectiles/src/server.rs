@@ -466,7 +466,7 @@ fn bot_inputs(
             BotMovementMode::Strafing => BotMovementMode::StraightLine,
             BotMovementMode::StraightLine => BotMovementMode::Strafing,
         };
-        info!("Bot switching to {} mode", current_mode.name());
+        trace!("Bot switching to {} mode", current_mode.name());
     }
 
     // Switch keys based on the current mode's interval
