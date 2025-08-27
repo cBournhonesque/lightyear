@@ -21,7 +21,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(add_global_actions);
         // app.add_observer(cycle_projectile_mode);
         // app.add_observer(cycle_replication_mode);
-        // app.add_systems(RunFixedMainLoop, cycle_replication_mode.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop));
+        // app.add_systems(RunFixedMainLoop, cycle_replication_mode.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop), "gui");
         // app.add_systems(FixedUpdate, cycle_replication_mode_fixed_update);
     }
 }
@@ -34,9 +34,9 @@ impl Plugin for ExampleClientPlugin {
 pub(crate) fn handle_predicted_spawn(
     trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
     client: Single<&LocalId, With<Client>>,
-    mode: Single<&GameReplicationMode>,
+    mode: Single<&GameReplicationMode, With<ClientContext>>,
     mut commands: Commands,
-    mut player_query: Query<(&mut ColorComponent, &PlayerId), With<Predicted>>,
+    mut player_query: Query<(&mut ColorComponent, &PlayerId), (With<Predicted>, With<Controlled>)>,
 ) {
     let client_id = client.into_inner().0;
     let replication_mode = mode.into_inner();
@@ -60,9 +60,9 @@ pub(crate) fn handle_predicted_spawn(
 }
 
 pub(crate) fn handle_interpolated_spawn(
-    trigger: Trigger<OnAdd, ColorComponent>,
-    mode: Single<&GameReplicationMode>,
-    mut interpolated: Query<(&mut ColorComponent, &Interpolated), Added<Interpolated>>,
+    trigger: Trigger<OnAdd, (PlayerId, Interpolated)>,
+    mode: Single<&GameReplicationMode, With<ClientContext>>,
+    mut interpolated: Query<(&mut ColorComponent, &Interpolated), (With<Interpolated>, With<Controlled>)>,
     mut commands: Commands,
 ) {
     let replication_mode = mode.into_inner();
@@ -82,7 +82,7 @@ pub(crate) fn handle_interpolated_spawn(
 pub(crate) fn handle_deterministic_spawn(
     trigger: Trigger<OnAdd, PlayerId>,
     client: Single<&LocalId, With<Client>>,
-    mode: Single<&GameReplicationMode>,
+    mode: Single<&GameReplicationMode, With<ClientContext>>,
     mut commands: Commands,
 ) {
     let replication_mode = mode.into_inner();
@@ -112,26 +112,26 @@ fn add_actions(
         Action::<MovePlayer>::new(),
         Bindings::spawn(Cardinal::wasd_keys()),
     ));
-    commands.spawn((
-        ActionOf::<PlayerContext>::new(player),
-        Action::<MoveCursor>::new(),
-        ActionMock::new(
-            ActionState::Fired,
-            ActionValue::zero(ActionValueDim::Axis2D),
-            MockSpan::Manual,
-        ),
-        InputMarker::<PlayerContext>::default(),
-    ));
-    commands.spawn((
-        ActionOf::<PlayerContext>::new(player),
-        Action::<Shoot>::new(),
-        Bindings::spawn_one((Binding::from(KeyCode::Space), Name::from("Binding"))),
-    ));
-    commands.spawn((
-        ActionOf::<PlayerContext>::new(player),
-        Action::<CycleWeapon>::new(),
-        Bindings::spawn_one((Binding::from(KeyCode::KeyQ), Name::from("Binding"))),
-    ));
+    // commands.spawn((
+    //     ActionOf::<PlayerContext>::new(player),
+    //     Action::<MoveCursor>::new(),
+    //     ActionMock::new(
+    //         ActionState::Fired,
+    //         ActionValue::zero(ActionValueDim::Axis2D),
+    //         MockSpan::Manual,
+    //     ),
+    //     InputMarker::<PlayerContext>::default(),
+    // ));
+    // commands.spawn((
+    //     ActionOf::<PlayerContext>::new(player),
+    //     Action::<Shoot>::new(),
+    //     Bindings::spawn_one((Binding::from(KeyCode::Space), Name::from("Binding"))),
+    // ));
+    // commands.spawn((
+    //     ActionOf::<PlayerContext>::new(player),
+    //     Action::<CycleWeapon>::new(),
+    //     Bindings::spawn_one((Binding::from(KeyCode::KeyQ), Name::from("Binding"))),
+    // ));
 }
 
 pub(crate) fn add_global_actions(
@@ -140,20 +140,20 @@ pub(crate) fn add_global_actions(
 ) {
     info!("Add global actions");
     // TODO: we should have a way to add BEI for PreUpdate schedule, where they are not affected by rollback!
-    commands.spawn((
-        ActionOf::<ClientContext>::new(trigger.target()),
-        Action::<CycleProjectileMode>::new(),
-        // we don't want to retrigger this action during rollback
-        DisableRollback,
-        bindings![KeyCode::KeyE,],
-    ));
-    commands.spawn((
-        ActionOf::<ClientContext>::new(trigger.target()),
-        Action::<CycleReplicationMode>::new(),
-        // we don't want to retrigger this action during rollback
-        DisableRollback,
-        bindings![KeyCode::KeyR,],
-    ));
+    // commands.spawn((
+    //     ActionOf::<ClientContext>::new(trigger.target()),
+    //     Action::<CycleProjectileMode>::new(),
+    //     // we don't want to retrigger this action during rollback
+    //     DisableRollback,
+    //     bindings![KeyCode::KeyE,],
+    // ));
+    // commands.spawn((
+    //     ActionOf::<ClientContext>::new(trigger.target()),
+    //     Action::<CycleReplicationMode>::new(),
+    //     // we don't want to retrigger this action during rollback
+    //     DisableRollback,
+    //     bindings![KeyCode::KeyR,],
+    // ));
 }
 
 pub fn cycle_replication_mode(

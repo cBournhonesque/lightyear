@@ -128,7 +128,7 @@ fn display_score(
 fn display_info(
     mut mode_text: Single<&mut Text, With<ModeText>>,
     weapon_type: Single<&WeaponType, (With<Actions<PlayerContext>>, With<PlayerMarker>, With<Controlled>)>,
-    mode_query: Single<(&GameReplicationMode, &ProjectileReplicationMode)>,
+    mode_query: Single<(&ProjectileReplicationMode, &GameReplicationMode), With<ClientContext>>,
 ) {
     let (projectile_mode, replication_mode) = mode_query.into_inner();
     mode_text.0 = format!(
@@ -210,12 +210,12 @@ fn add_player_visuals(
 /// Add visuals to newly spawned bullets
 fn add_bullet_visuals(
     trigger: Trigger<OnAdd, BulletMarker>,
-    query: Query<(&ColorComponent, Has<Interpolated>), VisibleFilter>,
+    query: Query<(&ColorComponent, &Position, Has<Interpolated>), VisibleFilter>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((color, interpolated)) = query.get(trigger.target()) {
+    if let Ok((color, position, interpolated)) = query.get(trigger.target()) {
         commands.entity(trigger.target()).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {

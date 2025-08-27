@@ -621,7 +621,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         for target_data in message.inputs {
             // - the input target has already been set to the server entity in the InputMessage
             // - it has been mapped to a client-entity on the client during deserialization
-            //   ONLY if it's PrePredicted (look at the MapEntities implementation)
+            //   ONLY if it's PrePredicted or ActionEntity (look at the MapEntities implementation)
             let entity = match target_data.target {
                 InputTarget::Entity(entity) => {
                     // TODO: find a better way!

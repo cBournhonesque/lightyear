@@ -14,8 +14,10 @@
 //! Option 2:
 //! - shared system to spawn context + actions on both client and server, and we need to perform entity mapping.
 
+use alloc::vec;
 use bevy_app::App;
 use bevy_ecs::entity::MapEntities;
+use bevy_ecs::entity::unique_slice::cast_slice_of_mut_unique_entity_slice_mut;
 use bevy_ecs::prelude::*;
 #[cfg(feature = "client")]
 use {
@@ -24,25 +26,29 @@ use {
     lightyear_core::prediction::Predicted
 };
 
-use lightyear_replication::prelude::{Replicated};
+use lightyear_replication::prelude::{ComponentReplicationOverrides, InterpolationTarget, NetworkVisibility, PredictionTarget, Replicated, ShouldBePredicted};
 use bevy_enhanced_input::prelude::*;
+use bevy_reflect::Reflect;
 use lightyear_replication::prelude::{AppComponentExt, ComponentReplicationConfig};
 use lightyear_serde::SerializationError;
 use lightyear_serde::registry::SerializeFns;
 use lightyear_serde::writer::Writer;
 use serde::{Deserialize, Serialize};
+use tracing::debug;
+use lightyear_link::prelude::Server;
 #[cfg(feature = "server")]
 use {
     lightyear_inputs::config::InputConfig,
     lightyear_replication::prelude::ReplicateLike,
-    lightyear_link::prelude::Server
 };
+use lightyear_prediction::prelude::DeterministicPredicted;
 use lightyear_replication::components::Confirmed;
 
 /// Wrapper around ActionOf<C> that is needed for replication with custom entity mapping
-#[derive(Component, Serialize, Deserialize)]
-pub(crate) struct ActionOfWrapper<C> {
+#[derive(Component, Serialize, Deserialize, Reflect)]
+pub struct ActionOfWrapper<C> {
     context: Entity,
+    #[reflect(ignore)]
     marker: core::marker::PhantomData<C>,
 }
 
@@ -85,28 +91,27 @@ impl InputRegistryPlugin {
     #[cfg(feature = "client")]
     pub(crate) fn add_action_of_replicate<C: Component>(
         trigger: Trigger<OnAdd, ActionOf<C>>,
+        server: Query<(), With<Server>>,
         // we don't want to add Replicate on action entities that were already replicated
         action: Query<&ActionOf<C>, Without<Replicated>>,
         query: Query<Option<&Predicted>>,
         mut commands: Commands,
     ) {
-        if let Ok(action_of) = action.get(trigger.target())
+        if let Ok(_) = server.single() {
+            // we're on the server, don't do anything
+            return;
+        }
+        let entity = trigger.target();
+        if let Ok(action_of) = action.get(entity)
             && let Ok(predicted) = query.get(action_of.get())
         {
-            // TODO: remove ActionOfWrapper after the first replication?
-            if let Some(predicted) = predicted {
-                commands.entity(trigger.target()).insert((
-                    // we replicate using the confirmed entity so that the server can map it to the server entity
-                    ActionOfWrapper::<C>::new(predicted.confirmed_entity.unwrap()),
-                    Replicate::to_server(),
-                ));
-            } else {
-                commands.entity(trigger.target()).insert((
-                    // we replicate using the confirmed entity so that the server can map it to the server entity
-                    ActionOfWrapper::<C>::new(action_of.get()),
-                    Replicate::to_server(),
-                ));
-            }
+            // we replicate using the confirmed entity so that the server can map it to the server entity
+            let context_entity = predicted.map_or(action_of.get(), |p| p.confirmed_entity.unwrap());
+            debug!(action_entity = ?entity, "Replicating ActionOf<{:?}> for context entity {context_entity:?} from client to server", core::any::type_name::<C>());
+            commands.entity(entity).insert((
+                ActionOfWrapper::<C>::new(context_entity),
+                Replicate::to_server(),
+            ));
         }
     }
 
@@ -116,7 +121,7 @@ impl InputRegistryPlugin {
     pub(crate) fn on_action_of_replicated<C: Component>(
         trigger: Trigger<OnAdd, ActionOfWrapper<C>>,
         query: Query<&ActionOfWrapper<C>, With<Replicated>>,
-        is_server: Single<(), (With<Server>)>,
+        is_server: Single<(), With<Server>>,
         config: Res<InputConfig<C>>,
         mut commands: Commands,
     ) {
@@ -129,30 +134,46 @@ impl InputRegistryPlugin {
 
             // If rebroadcast_inputs is enabled, set up replication to other clients
             if config.rebroadcast_inputs {
-                commands.entity(entity).insert(ReplicateLike { root: wrapper.context });
+                debug!(action_entity = ?entity, "On server, insert ReplicateLike({:?}) for action entity ActionOf<{:?}>", wrapper.context, core::any::type_name::<C>());
+                commands.entity(entity).insert((
+                    ReplicateLike { root: wrapper.context },
+                    // we don't want to spawn Predicted Action entities
+                    PredictionTarget::manual(vec![]),
+                    InterpolationTarget::manual(vec![]),
+                ));
             }
+
+            // TODO: THE PROBLEM IS THAT THE ENTITY MAPPING IS DONE PER CLIENT OF? THINK ABOUT IT
+            //  HOW COME THE SERVER HAS FAILED FOR THE ACTION THAT WAS REPLICATED FROM CLIENT ?
         }
     }
 
     /// When the client receives a rebroadcast Action entity with ReplicateLike,
     /// attach it to the correct Predicted context entity
+    ///
+    /// This cannot be a trigger because we need to wait until the Predicted entity is spawned
     #[cfg(feature = "client")]
     pub(crate) fn on_rebroadcast_action_received<C: Component>(
-        trigger: Trigger<OnAdd, ActionOfWrapper<C>>,
-        query: Query<&ActionOfWrapper<C>, With<Replicated>>,
+        query: Query<(Entity, &ActionOfWrapper<C>), (With<Replicated>, Without<ActionOf<C>>)>,
         context_query: Query<&Confirmed, With<C>>,
         mut commands: Commands,
     ) {
-        let entity = trigger.target();
-        if let Ok(action_of_wrapper) = query.get(entity)
-            && let Ok(confirmed) = context_query.get(action_of_wrapper.context)
+        query.iter().for_each(|(entity, action_of_wrapper)| {
+            if let Ok(confirmed) = context_query.get(action_of_wrapper.context)
             && let Some(predicted) = confirmed.predicted {
+                debug!(?entity, "On client, insert ActionOf({:?}) for action entity ActionOf<{:?}> from input rebroadcast", predicted, core::any::type_name::<C>());
                 // Attach ActionOf to the predicted context entity
                 commands
                     .entity(entity)
-                    .insert(ActionOf::<C>::new(predicted))
+                    .insert((
+                        ActionOf::<C>::new(predicted),
+                        // We add DeterministicPredicted because lightyear_inputs::client expects the recipient
+                        // to be a predicted entity
+                        DeterministicPredicted,
+                    ))
                     .remove::<ActionOfWrapper<C>>();
-        }
+            }
+        });
     }
 
     // we don't care about the actual data in Action<A>, so nothing to serialize

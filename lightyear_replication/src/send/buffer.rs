@@ -20,7 +20,7 @@ use bevy_ecs::{
 use bevy_ptr::Ptr;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
-use tracing::{error, info_span, trace};
+use tracing::{error, info, info_span, trace};
 
 use crate::components::ComponentReplicationOverrides;
 use crate::control::{Controlled, ControlledBy};
@@ -239,6 +239,9 @@ pub(crate) fn replicate_entity(
             )
         }
     };
+    if is_replicate_like_added {
+        info!(?entity, ?replicate, ?cached_replicate, "Replicate like")
+    }
 
     #[cfg(feature = "prediction")]
     let prediction_target = entity_ref

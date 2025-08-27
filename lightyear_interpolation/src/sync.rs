@@ -48,11 +48,7 @@ impl Plugin for SyncPlugin {
         app.add_observer(confirmed_added_sync);
 
         // Apply the sync events
-        // make sure to Sync before the RelationshipSync systems run
-        app.configure_sets(
-            PreUpdate,
-            InterpolationSet::Sync.before(ReplicationSet::ReceiveRelationships),
-        );
+        app.configure_sets(PreUpdate, InterpolationSet::Sync);
         app.add_systems(PreUpdate, apply_interpolated_sync.in_set(InterpolationSet::Sync));
     }
 }

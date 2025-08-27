@@ -38,8 +38,6 @@ impl Plugin for SharedPlugin {
         app.add_plugins(ProtocolPlugin);
         app.register_type::<PlayerId>();
 
-        app.add_observer(cycle_replication_mode);
-        app.add_observer(cycle_projectile_mode);
         app.add_observer(rotate_player);
         app.add_observer(move_player);
         app.add_observer(shoot_weapon);
@@ -68,7 +66,6 @@ impl Plugin for SharedPlugin {
                 update_homing_missiles,
             ),
         );
-
 
         // both client and server need physics
         // (the client also needs the physics plugin to be able to compute predicted bullet hits)
@@ -220,8 +217,9 @@ pub(crate) fn shoot_weapon(
         weapon.last_fire_tick = Some(tick);
 
         // Handle replication mode before shooting
-        match projectile_mode {
-            ProjectileReplicationMode::FullEntity => {
+        match (weapon_type, projectile_mode) {
+            //
+            (_, ProjectileReplicationMode::FullEntity) => {
                 shoot_with_full_entity_replication(
                     &mut commands,
                     &timeline,
@@ -235,7 +233,7 @@ pub(crate) fn shoot_weapon(
                     replication_mode
                 );
             }
-            ProjectileReplicationMode::DirectionOnly => {
+            (_, ProjectileReplicationMode::DirectionOnly) => {
                 shoot_with_direction_only_replication(
                     &mut commands,
                     &timeline,
@@ -249,7 +247,7 @@ pub(crate) fn shoot_weapon(
                     weapon_type,
                 );
             }
-            ProjectileReplicationMode::RingBuffer => {
+            (_, ProjectileReplicationMode::RingBuffer) => {
                 shoot_with_ring_buffer_replication(
                     &mut weapon,
                     &timeline,
@@ -288,7 +286,6 @@ fn shoot_with_full_entity_replication(
                 color,
                 controlled_by,
                 replication_mode,
-                false,
             );
         }
         WeaponType::LinearProjectile => {
@@ -474,7 +471,7 @@ pub struct ClientHitDetection;
 
 
 pub(crate) fn hitscan_hit_detection(
-    trigger: Trigger<OnAdd, ProjectileSpawn>,
+    trigger: Trigger<OnAdd, HitscanVisual>,
     commands: Commands,
     server: Query<Entity, With<Server>>,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
@@ -483,7 +480,7 @@ pub(crate) fn hitscan_hit_detection(
         LagCompensationSpatialQuery,
         SpatialQuery,
     )>,
-    bullet: Query<(&ProjectileSpawn, &BulletMarker, &PlayerId)>,
+    bullet: Query<(&HitscanVisual, &BulletMarker, &PlayerId)>,
     target_query: Query<(), (With<PlayerMarker>, Without<Confirmed>)>,
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
@@ -491,24 +488,18 @@ pub(crate) fn hitscan_hit_detection(
     client_query: Query<&InterpolationDelay, With<ClientOf>>,
     mut player_query: Query<(&mut Score, &PlayerId, Option<&ControlledBy>), With<PlayerMarker>>,
 ) {
-    let Ok((projectile_spawn, bullet_marker, id)) = bullet.get(trigger.target()) else {
+    let Ok((hitscan, bullet_marker, id)) = bullet.get(trigger.target()) else {
         return;
     };
 
-    // Only handle hitscan projectiles in this function
-    if projectile_spawn.weapon_type != WeaponType::Hitscan {
-        return;
-    }
-
     let shooter = bullet_marker.shooter;
-    let start = projectile_spawn.position;
-    let direction = projectile_spawn.direction;
-    let end = start + direction * 1000.0; // Hitscan range
-    let position = start;
+    let direction = (hitscan.end - hitscan.start).normalize();
 
     let tick = timeline.tick();
     let is_server = server.single().is_ok();
     let mode = mode.into_inner();
+
+    info!(?hitscan, "Hitscan visual hit detection");
 
     // check if we should be running hit detection on the server or client
     if is_server {
@@ -521,6 +512,7 @@ pub(crate) fn hitscan_hit_detection(
         }
         // TODO: ignore bullets that were fired by other clients
     }
+    info!("Hit detection for hitscan");
 
     match mode {
         GameReplicationMode::ClientPredictedLagComp => {
@@ -537,7 +529,7 @@ pub(crate) fn hitscan_hit_detection(
                 // the delay is sent in every input message; the latest InterpolationDelay received
                 // is stored on the client entity
                 *delay,
-                start,
+                hitscan.start,
                 Dir2::new_unchecked(direction),
                 HITSCAN_COLLISION_DISTANCE_CHECK,
                 false,
@@ -563,7 +555,7 @@ pub(crate) fn hitscan_hit_detection(
         _ => {
             let query = spatial_set.p1();
             if let Some(hit_data) = query.cast_ray_predicate(
-                start,
+                hitscan.start,
                 Dir2::new_unchecked(direction),
                 HITSCAN_COLLISION_DISTANCE_CHECK,
                 false,
@@ -714,26 +706,20 @@ fn shoot_hitscan(
     color: &ColorComponent,
     controlled_by: Option<&ControlledBy>,
     replication_mode: &GameReplicationMode,
-    slow_visuals: bool,
 ) {
     let is_server = controlled_by.is_some();
     let direction = transform.up().as_vec3().truncate();
     let start = transform.translation.truncate();
     let end = start + direction * 1000.0; // Long hitscan range
 
-    // Create ProjectileSpawn for hitscan
-    let direction = (end - start).normalize();
-    let spawn_info = ProjectileSpawn {
-        spawn_tick: timeline.tick(),
-        position: start,
-        direction,
-        speed: 1000.0, // Instant hitscan speed
-        weapon_type: WeaponType::Hitscan,
-        player_id: id.0,
-    };
-
+    // For Hitscan, we directly spawn an entity that represents the 'bullet'
     let spawn_bundle = (
-        spawn_info,
+        HitscanVisual {
+            start,
+            end,
+            lifetime: 0.0,
+            max_lifetime: 0.1,
+        },
         BulletMarker {
             shooter,
         },
@@ -741,7 +727,6 @@ fn shoot_hitscan(
         *id,
         Name::new("HitscanProjectileSpawn"),
     );
-
 
     if is_server {
         #[cfg(feature = "server")]
@@ -796,7 +781,6 @@ fn shoot_hitscan(
         }
     } else {
         // Visuals are purely client-side
-
         match replication_mode {
             GameReplicationMode::AllPredicted => {
                 // should we predict other clients shooting?
@@ -1346,27 +1330,6 @@ fn despawn_after(
     }
 }
 
-/// Handle cycling through replication modes
-pub(crate) fn cycle_replication_mode(
-    trigger: Trigger<Completed<CycleReplicationMode>>,
-    mut global: Query<&mut GameReplicationMode, With<ClientContext>>,
-) {
-    if let Ok(mut replication_mode) = global.single_mut() {
-        *replication_mode = replication_mode.next();
-        info!("Cycled to replication mode: {}", replication_mode.name());
-    }
-}
-
-/// Handle cycling through projectile replication modes
-pub(crate) fn cycle_projectile_mode(
-    trigger: Trigger<Completed<CycleProjectileMode>>,
-    mut global: Query<&mut ProjectileReplicationMode, With<ClientContext>>,
-) {
-    if let Ok(mut projectile_mode) = global.single_mut() {
-        *projectile_mode = projectile_mode.next();
-        info!("Cycled to projectile mode: {}", projectile_mode.name());
-    }
-}
 
 /// Handle ProjectileSpawn by spawning child entities for projectiles
 pub(crate) fn handle_projectile_spawn(
@@ -1385,6 +1348,7 @@ pub(crate) fn handle_projectile_spawn(
 
     match spawn_info.weapon_type {
         WeaponType::Hitscan => {
+            // TODO: spawn the hitscan at the right time on the Interpolation Timeline!
             // Create hitscan visual child entity
             spawn_hitscan_visual(
                 &mut commands,
@@ -1476,6 +1440,7 @@ fn spawn_hitscan_visual(
         PlayerId(spawn_info.player_id),
         Name::new("HitscanVisual"),
     );
+    info!("Spawning hitscan visual: {:?}", visual_bundle);
 
     if is_predicted {
         commands.spawn((visual_bundle, PreSpawned::default()));

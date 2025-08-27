@@ -166,7 +166,7 @@ impl Plugin for InterpolationPlugin {
         app.register_component::<Controlled>()
             .add_interpolation(InterpolationMode::Once);
         app.register_component::<ChildOf>()
-            .add_immutable_interpolation(InterpolationMode::Once);
+            .add_immutable_interpolation(InterpolationMode::Simple);
 
         // HOOKS
         // TODO: add tests for these!

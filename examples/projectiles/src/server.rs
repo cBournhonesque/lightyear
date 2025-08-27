@@ -9,7 +9,7 @@ use core::time::Duration;
 use std::net::SocketAddr;
 use bevy::input::InputPlugin;
 use bevy_enhanced_input::EnhancedInputSet;
-use bevy_enhanced_input::prelude::{Completed, Started};
+use bevy_enhanced_input::prelude::{Actions, Completed, Started};
 use leafwing_input_manager::prelude::*;
 use lightyear::core::tick::TickDuration;
 use lightyear::crossbeam::CrossbeamIo;
@@ -44,26 +44,6 @@ impl Plugin for ExampleServerPlugin {
 
         // we don't want to panic when trying to read the InputReader if gui is not enabled
         app.configure_sets(PreUpdate, EnhancedInputSet::Prepare.run_if(|| false));
-
-        // the lag compensation systems need to run after LagCompensationSet::UpdateHistory
-        app.add_systems(
-            FixedUpdate,
-            (
-                interpolated_bot_movement,
-                // room_cycling)
-            ),
-        );
-        app.add_systems(
-            PhysicsSchedule,
-            // lag compensation collisions must run after the SpatialQuery has been updated
-            compute_hit_lag_compensation.in_set(LagCompensationSet::Collisions),
-        );
-        app.add_systems(
-            FixedPostUpdate,
-            // check collisions after physics have run
-            compute_hit_prediction.after(PhysicsSet::Sync),
-        );
-
         app.add_plugins(BotPlugin);
     }
 }
@@ -76,6 +56,7 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
 
 
 pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+    info!("Adding ReplicationSender to new ClientOf entity: {:?}", trigger.target());
     commands.entity(trigger.target()).insert((
         ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
         // We need a ReplicationReceiver on the server side because the Action entities are spawned
@@ -204,116 +185,6 @@ fn server_player_bundle(room: Entity, client_id: PeerId, owner: Entity, replicat
 }
 
 
-/// Compute hits if the bullet hits the bot, and increment the score on the player
-pub(crate) fn compute_hit_lag_compensation(
-    // instead of directly using avian's SpatialQuery, we want to use the LagCompensationSpatialQuery
-    // to apply lag-compensation (i.e. compute the collision between the bullet and the collider as it
-    // was seen by the client when they fired the shot)
-    mut commands: Commands,
-    timeline: Single<&LocalTimeline, With<Server>>,
-    query: LagCompensationSpatialQuery,
-    bullets: Query<
-        (Entity, &PlayerId, &Position, &LinearVelocity, &ControlledBy),
-        With<BulletMarker>,
-    >,
-    // the InterpolationDelay component is stored directly on the client entity
-    // (the server creates one entity for each client to store client-specific
-    // metadata)
-    client_query: Query<&InterpolationDelay, With<ClientOf>>,
-    mut player_query: Query<(&mut Score, &PlayerId), With<PlayerMarker>>,
-) {
-    let tick = timeline.tick();
-    bullets
-        .iter()
-        .for_each(|(entity, id, position, velocity, controlled_by)| {
-            let Ok(delay) = client_query.get(controlled_by.owner) else {
-                error!("Could not retrieve InterpolationDelay for client {id:?}");
-                return;
-            };
-            if let Some(hit_data) = query.cast_ray(
-                // the delay is sent in every input message; the latest InterpolationDelay received
-                // is stored on the client entity
-                *delay,
-                position.0,
-                Dir2::new_unchecked(velocity.0.normalize()),
-                // TODO: shouldn't this be based on velocity length?
-                BULLET_COLLISION_DISTANCE_CHECK,
-                false,
-                &mut SpatialQueryFilter::default(),
-            ) {
-                info!(
-                    ?tick,
-                    ?hit_data,
-                    ?entity,
-                    "Collision with interpolated bot! Despawning bullet"
-                );
-                // if there is a hit, increment the score
-                player_query
-                    .iter_mut()
-                    .find(|(_, player_id)| player_id.0 == id.0)
-                    .map(|(mut score, _)| {
-                        score.0 += 1;
-                    });
-                commands.entity(entity).despawn();
-            }
-        })
-}
-
-pub(crate) fn compute_hit_prediction(
-    mut commands: Commands,
-    timeline: Single<&LocalTimeline, With<Server>>,
-    query: SpatialQuery,
-    bullets: Query<(Entity, &PlayerId, &Position, &LinearVelocity), With<BulletMarker>>,
-    bot_query: Query<(), (With<PredictedBot>, Without<Confirmed>)>,
-    // the InterpolationDelay component is stored directly on the client entity
-    // (the server creates one entity for each client to store client-specific
-    // metadata)
-    mut player_query: Query<(&mut Score, &PlayerId), With<PlayerMarker>>,
-) {
-    let tick = timeline.tick();
-    bullets.iter().for_each(|(entity, id, position, velocity)| {
-        if let Some(hit_data) = query.cast_ray_predicate(
-            position.0,
-            Dir2::new_unchecked(velocity.0.normalize()),
-            // TODO: shouldn't this be based on velocity length?
-            BULLET_COLLISION_DISTANCE_CHECK,
-            false,
-            &SpatialQueryFilter::default(),
-            &|entity| {
-                // only confirm the hit on predicted bots
-                bot_query.get(entity).is_ok()
-            },
-        ) {
-            info!(
-                ?tick,
-                ?hit_data,
-                ?entity,
-                "Collision with predicted bot! Despawn bullet"
-            );
-            // if there is a hit, increment the score
-            player_query
-                .iter_mut()
-                .find(|(_, player_id)| player_id.0 == id.0)
-                .map(|(mut score, _)| {
-                    score.0 += 1;
-                });
-            commands.entity(entity).despawn();
-        }
-    })
-}
-
-fn interpolated_bot_movement(
-    timeline: Single<&LocalTimeline, With<Server>>,
-    mut query: Query<&mut Position, With<InterpolatedBot>>,
-) {
-    let tick = timeline.tick();
-    query.iter_mut().for_each(|mut position| {
-        // change direction every 200ticks
-        let direction = if (tick.0 / 200) % 2 == 0 { 1.0 } else { -1.0 };
-        position.x += shared::BOT_MOVE_SPEED * direction;
-    });
-}
-
 pub struct BotPlugin;
 
 impl Plugin for BotPlugin {
@@ -413,7 +284,7 @@ fn spawn_bot_app(
     app.add_systems(Update, bot_wait);
     let mut bot_app = BotApp(app);
     std::thread::spawn(move || {
-        bot_app.run();
+        info_span!("bot").in_scope(|| bot_app.run());
     });
 }
 
@@ -449,12 +320,39 @@ impl BotMovementMode {
     }
 }
 
+#[derive(Default)]
+struct BotLocal {
+    mode_timer: Stopwatch,
+    key_timer: Stopwatch,
+    current_mode: BotMovementMode,
+    press_a: bool,
+    override_direction: Option<bool>, // None = normal, Some(true) = force A, Some(false) = force D
+}
+
 fn bot_inputs(
     time: Res<Time>,
     mut input: ResMut<ButtonInput<KeyCode>>,
-    mut local: Local<(Stopwatch, Stopwatch, BotMovementMode, bool)>,
+    player: Single<&Position, (With<Controlled>, Without<Confirmed>)>,
+    mut local: Local<BotLocal>,
 ) {
-    let (mode_timer, key_timer, current_mode, press_a) = local.deref_mut();
+    let BotLocal {
+        mode_timer,
+        key_timer,
+        current_mode,
+        press_a,
+        override_direction,
+    } = local.deref_mut();
+
+    // If bot is too far from x = 0, override direction
+    let threshold = 500.0;
+    let pos_x = player.x;
+    if pos_x.abs() > threshold {
+        // If too far right, press A; if too far left, press D
+        *override_direction = Some(pos_x > 0.0);
+    } else if override_direction.is_some() && pos_x.abs() <= threshold * 0.8 {
+        // If bot is close enough to center, resume normal strafing
+        *override_direction = None;
+    }
 
     mode_timer.tick(time.delta());
     key_timer.tick(time.delta());
@@ -480,13 +378,21 @@ fn bot_inputs(
         *press_a = !*press_a;
     }
 
+    // Decide which key to press
+    let press_a_now = match *override_direction {
+        Some(true) => true,   // Press A to move left
+        Some(false) => false, // Press D to move right
+        None => *press_a,
+    };
+
     // Press the current key
-    if *press_a {
+    if press_a_now {
         input.press(KeyCode::KeyA);
+        input.release(KeyCode::KeyD);
     } else {
         input.press(KeyCode::KeyD);
+        input.release(KeyCode::KeyA);
     }
-
     trace!("Bot in {} mode, pressing {:?}",
            current_mode.name(),
            input.get_pressed().collect::<Vec<_>>());
@@ -503,40 +409,38 @@ fn bot_wait(
 /// Handle room switching when replication mode changes
 pub fn cycle_replication_mode(
     trigger: Trigger<Completed<CycleReplicationMode>>,
-    mut global: Query<&mut GameReplicationMode, With<ClientContext>>,
+    global: Single<&mut GameReplicationMode, With<ClientContext>>,
     rooms: Res<Rooms>,
     clients: Query<Entity, With<ClientOf>>,
     mut commands: Commands,
 ) {
-        if let Ok(mut replication_mode) = global.single_mut() {
-        let current_mode = *replication_mode;
-        *replication_mode = replication_mode.next();
+    let mut replication_mode = global.into_inner();
+    let current_mode = *replication_mode;
+    *replication_mode = replication_mode.next();
 
-        // Move all clients from current room to next room
-        if let (Some(current_room), Some(next_room)) = (
-            rooms.rooms.get(&current_mode),
-            rooms.rooms.get(&*replication_mode)
-        ) {
-            for client_entity in clients.iter() {
-                commands.trigger_targets(RoomEvent::RemoveSender(client_entity), *current_room);
-                commands.trigger_targets(RoomEvent::AddSender(client_entity), *next_room);
-                info!("Switching client {client_entity:?} from room {current_room:?} to room {next_room:?}");
-            }
+    // Move all clients from current room to next room
+    if let (Some(current_room), Some(next_room)) = (
+        rooms.rooms.get(&current_mode),
+        rooms.rooms.get(&*replication_mode)
+    ) {
+        for client_entity in clients.iter() {
+            commands.trigger_targets(RoomEvent::RemoveSender(client_entity), *current_room);
+            commands.trigger_targets(RoomEvent::AddSender(client_entity), *next_room);
+            info!("Switching client {client_entity:?} from room {current_room:?} to room {next_room:?}");
         }
-
-        info!("Cycled to replication mode: {}", replication_mode.name());
     }
+
+    info!("Cycled to replication mode: {}", replication_mode.name());
 }
 
 /// Handle cycling through projectile replication modes
 pub fn cycle_projectile_mode(
     trigger: Trigger<Completed<CycleProjectileMode>>,
-    mut global: Query<&mut ProjectileReplicationMode, With<ClientContext>>,
+    global: Single<&mut ProjectileReplicationMode, With<ClientContext>>,
 ) {
-    if let Ok(mut projectile_mode) = global.single_mut() {
-        *projectile_mode = projectile_mode.next();
-        info!("Cycled to projectile mode: {}", projectile_mode.name());
-    }
+    let mut projectile_mode = global.into_inner();
+    *projectile_mode = projectile_mode.next();
+    info!("Cycled to projectile mode: {}", projectile_mode.name());
 }
 
 

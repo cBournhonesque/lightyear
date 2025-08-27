@@ -396,9 +396,6 @@ pub(crate) fn add_sync_systems(app: &mut App) {
 
     // Apply the sync events
     // make sure to Sync before the RelationshipSync systems run
-    app.configure_sets(
-        PreUpdate,
-        PredictionSet::Sync.before(ReplicationSet::ReceiveRelationships),
-    );
+    app.configure_sets(PreUpdate, PredictionSet::Sync);
     app.add_systems(PreUpdate, apply_predicted_sync.in_set(PredictionSet::Sync));
 }

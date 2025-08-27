@@ -308,7 +308,10 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<(
             GameReplicationMode,
-            ProjectileReplicationMode
+            ProjectileReplicationMode,
+            Actions<PlayerMarker>,
+            ActionOf<PlayerMarker>,
+            ActionOfWrapper<PlayerContext>,
         )>();
         // inputs
         // Use new input plugin path and default config
