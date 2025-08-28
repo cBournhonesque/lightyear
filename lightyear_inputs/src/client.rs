@@ -591,6 +591,7 @@ fn prepare_input_message<S: ActionStateSequence>(
 /// We will apply the diffs on the Predicted entity.
 fn receive_remote_player_input_messages<S: ActionStateSequence>(
     mut commands: Commands,
+    tick_duration: Res<TickDuration>,
     link: Single<
         (
             &MessageManager,
@@ -662,6 +663,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     message.end_tick,
                     entity,
                     prediction_manager,
+                    *tick_duration
                 );
             } else {
                 // add the ActionState or InputBuffer if they are missing
@@ -676,6 +678,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     message.end_tick,
                     entity,
                     prediction_manager,
+                    *tick_duration
                 );
                 // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
                 commands.entity(predicted).insert((
@@ -748,8 +751,9 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
     end_tick: Tick,
     entity: Entity,
     prediction_manager: &PredictionManager,
+    tick_duration: TickDuration,
 ) {
-    let mismatch = sequence.update_buffer(input_buffer, end_tick);
+    let mismatch = sequence.update_buffer(input_buffer, end_tick, tick_duration);
 
     if let Some((new_end_tick, snapshot)) = input_buffer.get_last_with_tick() {
         // IMPORTANT: immediately update the ActionState from the buffer ONLY if the new_end_tick is in the past!

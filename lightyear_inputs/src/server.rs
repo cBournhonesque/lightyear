@@ -33,6 +33,7 @@ use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
 use lightyear_replication::prelude::Room;
 use tracing::{debug, error, trace};
+use lightyear_core::tick::TickDuration;
 
 pub struct ServerInputPlugin<S> {
     pub rebroadcast_inputs: bool,
@@ -142,6 +143,7 @@ fn receive_input_message<S: ActionStateSequence>(
     server: Query<&Server>,
     // make sure to only rebroadcast inputs to connected clients
     mut sender: ServerMultiMessageSender<With<Connected>>,
+    tick_duration: Res<TickDuration>,
     rooms: Query<&Room>,
     mut receivers: Query<
         (
@@ -235,11 +237,11 @@ fn receive_input_message<S: ActionStateSequence>(
                                     buffer.as_ref(),
                                     data.states
                                 );
-                                data.states.update_buffer(&mut buffer, message.end_tick);
+                                data.states.update_buffer(&mut buffer, message.end_tick, *tick_duration);
                             } else {
                                 debug!("Adding InputBuffer and ActionState which are missing on the entity");
                                 let mut buffer = InputBuffer::<S::Snapshot>::default();
-                                data.states.update_buffer(&mut buffer, message.end_tick);
+                                data.states.update_buffer(&mut buffer, message.end_tick, *tick_duration);
                                 commands.entity(entity).insert((
                                     buffer,
                                     S::State::base_value()
