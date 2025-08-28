@@ -30,11 +30,18 @@ use core::time::Duration;
 /// - [`MessagePlugin`](lightyear_messages::plugin::MessagePlugin): Handles the messaging system.
 /// - [`ConnectionPlugin`](lightyear_connection::ConnectionPlugin): Handles connections, which are long-term connections with a persistent id on top of a link
 ///   REPLICATION
-#[derive(Default)]
 pub struct ServerPlugins {
     /// The tick interval for the server. This is used to determine how often the server should tick.
     /// The default value is 1/60 seconds.
     pub tick_duration: Duration,
+}
+
+impl Default for ServerPlugins {
+    fn default() -> Self {
+        Self {
+            tick_duration: Duration::from_secs_f32(1.0 / 60.0),
+        }
+    }
 }
 
 impl PluginGroup for ServerPlugins {
