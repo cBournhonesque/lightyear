@@ -1,21 +1,8 @@
-CURRENT INPUT MAPPING ISSUE:
-- Server has the mapping for A_c (action entity of client).
-- The mapping is on S_c (sender entity for client)
-- It tries to send A_c to bot
-- S_b (sender entity for bot) doesn't have any mapping
+- Inputs: should we keep progressing remote inputs locally in between remote inputs?
+  - yes, because we can update information like the `time`
+  - yes, because then we have fewer mismatches (otherwise we only have old inputs so the mismatch check always fires?)
 
-
-- IT LOOKS LIKE FOR SOME REASON WE DONT SEND THE ACTION A_C TO BOT
-- the root doesn't even try to replicate the player entity! room issue?
-
-- bot already exists and sender is in room A
-- new client connnects to room A
-- we spawn player C_c in room A
-- C_c doesn't seem to be added in sender's S"b entities
-
-
-
-
+- Need to add unit test for BEI and input decay, especially for Fired inputs.
 
 
 -------------------------
