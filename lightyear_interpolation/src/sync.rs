@@ -11,7 +11,7 @@ use bevy_ecs::observer::{Observer, Trigger};
 use bevy_ecs::prelude::{EntityRef, IntoScheduleConfigs, OnInsert, Query, World};
 use bevy_reflect::Reflect;
 use lightyear_replication::components::{Confirmed, Replicated};
-use lightyear_replication::prelude::{ComponentRegistry, ReplicationSet};
+use lightyear_replication::prelude::{ComponentRegistry};
 use lightyear_replication::registry::buffered::BufferedChanges;
 use std::prelude::rust_2015::Vec;
 use tracing::trace;

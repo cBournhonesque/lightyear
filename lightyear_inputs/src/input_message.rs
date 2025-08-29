@@ -19,7 +19,6 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 use lightyear_core::tick::TickDuration;
-use lightyear_core::tick::TickDuration;
 
 /// Enum indicating the target entity for the input.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
@@ -168,9 +167,7 @@ pub trait ActionStateSequence:
             if previous_end_tick.is_some_and(|t| tick > t) {
                 previous_predicted_input = previous_predicted_input.map(|prev| {
                     let mut prev = prev;
-                    info!("About to decay input {prev:?} at tick {tick:?}. Tick duration: {tick_duration:?}");
                     prev.decay_tick(tick_duration);
-                    info!("After decay input {prev:?} at tick {tick:?}");
                     prev
                 });
             }
@@ -190,15 +187,11 @@ pub trait ActionStateSequence:
                             _ => false,
                         }
                     {
+                        // no mismatch but this is a tick after our previous_end_tick so we want to add it to the buffer.
+                        input_buffer.set_raw(tick, input);
                         continue;
                     }
-                    // mismatch! fill the ticks between previous_end_tick and this tick
-                    if let Some(prev_end) = previous_end_tick {
-                        for delta in 1..(tick - prev_end) {
-                            // TODO: THEY SHOULD ALSO USE INPUT DECAY?
-                            input_buffer.set_raw(prev_end + delta, InputData::SameAsPrecedent);
-                        }
-                    }
+                    // first mismatch tick!
                     // set the new value for the mismatch tick
                     debug!(
                         "Mismatch detected at tick {tick:?} for new_input {input:?}. Previous predicted input: {previous_predicted_input:?}"
@@ -206,15 +199,6 @@ pub trait ActionStateSequence:
                     input_buffer.set_raw(tick, input);
                     earliest_mismatch = Some(tick);
                 }
-            }
-        }
-
-        // if there was 0 mismatch, fill the gap between previous_end_tick and end_tick
-        if earliest_mismatch.is_none()
-            && let Some(prev_end) = previous_end_tick
-        {
-            for delta in 1..(end_tick - prev_end + 1) {
-                input_buffer.set_raw(prev_end + delta, InputData::SameAsPrecedent);
             }
         }
         debug!("input buffer after update: {input_buffer:?}");

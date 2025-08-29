@@ -74,10 +74,10 @@ impl<C> MapEntities for BEIStateSequence<C> {
 /// to update the BEI `Actions` component
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 struct ActionsMessage {
-    pub state: ActionState,
-    pub value: ActionValue,
-    pub time: ActionTime,
-    pub events: ActionEvents,
+    state: ActionState,
+    value: ActionValue,
+    time: ActionTime,
+    events: ActionEvents,
 }
 
 impl Default for ActionsMessage {
@@ -100,6 +100,25 @@ impl Default for ActionsMessage {
 pub struct ActionsSnapshot<C> {
     state: ActionsMessage,
     _marker: core::marker::PhantomData<C>,
+}
+
+impl<C> ActionsSnapshot<C> {
+    pub fn new(
+        state: ActionState,
+        value: ActionValue,
+        time: ActionTime,
+        events: ActionEvents,
+    ) -> Self {
+        Self {
+            state: ActionsMessage {
+                state,
+                value,
+                time,
+                events,
+            },
+            _marker: core::marker::PhantomData,
+        }
+    }
 }
 
 impl<C> Default for ActionsSnapshot<C> {
@@ -137,6 +156,8 @@ impl<C> Debug for ActionsSnapshot<C> {
 impl<C: Send + Sync + 'static> InputSnapshot for ActionsSnapshot<C> {
     type Action = C;
     fn decay_tick(&mut self, tick_duration: TickDuration) {
+        // We keep ActionState the same but update ActionEvents and ActionTime
+        self.state.events = ActionEvents::new(self.state.state, self.state.state);
         // TODO: use self.state.time.update() when it's public
         let delta_secs = tick_duration.as_secs_f32();
         match self.state.state {

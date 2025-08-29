@@ -133,6 +133,8 @@ impl InputRegistryPlugin {
             // If rebroadcast_inputs is enabled, set up replication to other clients
             if config.rebroadcast_inputs {
                 debug!(action_entity = ?entity, "On server, insert ReplicateLike({:?}) for action entity ActionOf<{:?}>", wrapper.context, core::any::type_name::<C>());
+                
+                // TODO: don't rebroadcast to the original client
                 commands.entity(entity).insert((
                     ReplicateLike {
                         root: wrapper.context,

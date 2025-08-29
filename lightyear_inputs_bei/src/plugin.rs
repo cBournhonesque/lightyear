@@ -26,6 +26,7 @@ use lightyear_replication::prelude::AppComponentExt;
 use lightyear_replication::registry::replication::GetWriteFns;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use lightyear_inputs::client::InputSet;
 
 pub struct InputPlugin<C> {
     pub config: InputConfig<C>,
@@ -82,7 +83,9 @@ impl<
             app.add_observer(InputRegistryPlugin::add_action_of_replicate::<C>);
             app.add_systems(
                 PreUpdate,
-                InputRegistryPlugin::on_rebroadcast_action_received::<C>.after(PredictionSet::Sync),
+                InputRegistryPlugin::on_rebroadcast_action_received::<C>
+                    // we need to wait for the predicted Context entity to be spawned first
+                    .after(PredictionSet::Sync),
             );
 
             app.add_plugins(lightyear_inputs::client::ClientInputPlugin::<
