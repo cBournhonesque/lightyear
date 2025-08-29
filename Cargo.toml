@@ -217,7 +217,7 @@ avian2d = { version = "0.3", default-features = false }
 avian3d = { version = "0.3", default-features = false }
 
 # gui debug ui
-bevy-inspector-egui = { version = "0.32", default-features = false, features = [
+bevy-inspector-egui = { version = "0.33", default-features = false, features = [
   "bevy_pbr",
   "bevy_image",
   "bevy_render",
