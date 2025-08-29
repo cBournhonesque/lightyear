@@ -151,9 +151,10 @@ impl ExampleServer {
                 }
                 #[cfg(feature = "steam")]
                 ServerTransports::Steam { local_port } => {
-                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
+                    info!("started Steam Server");
+                    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 4001);
                     entity_mut.insert(SteamServerIo {
-                        target: ListenTarget::Addr(server_addr),
+                        target: ListenTarget::Peer { virtual_port: 4001 },
                         config: SessionConfig::default(),
                     });
                 }
