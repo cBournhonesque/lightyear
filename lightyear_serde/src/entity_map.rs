@@ -9,7 +9,8 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::entity::{EntityMapper, hash_map::EntityHashMap};
 use bevy_ecs::world::{EntityWorldMut, World};
 use bevy_reflect::Reflect;
-use tracing::{debug, error, trace};
+#[allow(unused_imports)]
+use tracing::{debug, error, info, trace};
 
 const MARKED: u64 = 1 << 62;
 

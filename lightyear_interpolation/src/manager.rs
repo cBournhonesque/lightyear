@@ -1,4 +1,5 @@
 //! Defines bevy resources needed for Interpolation
+use crate::sync::InterpolationSyncBuffer;
 use crate::timeline::InterpolationTimeline;
 use bevy_ecs::component::Component;
 use bevy_reflect::Reflect;
@@ -16,6 +17,7 @@ pub struct InterpolatedEntityMap {
 
 #[derive(Component, Default)]
 #[require(InterpolationTimeline)]
+#[require(InterpolationSyncBuffer)]
 pub struct InterpolationManager {
     /// Map between confirmed and interpolated entities
     ///

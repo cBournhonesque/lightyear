@@ -17,7 +17,8 @@ use lightyear_core::prelude::Tick;
 use lightyear_interpolation::plugin::InterpolationDelay;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, info};
+use lightyear_core::tick::TickDuration;
 
 /// Enum indicating the target entity for the input.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
@@ -52,7 +53,7 @@ pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + 'static {
     ///
     /// By default Snapshots do not decay, i.e. we predict that they stay the same and the user
     /// keeps pressing the same button.
-    fn decay_tick(&mut self);
+    fn decay_tick(&mut self, tick_duration: TickDuration);
 }
 
 /// A QueryData that contains the queryable state that contains the current state of the Action at the given tick
@@ -148,6 +149,7 @@ pub trait ActionStateSequence:
         self,
         input_buffer: &mut InputBuffer<Self::Snapshot>,
         end_tick: Tick,
+        tick_duration: TickDuration,
     ) -> Option<Tick> {
         let previous_end_tick = input_buffer.end_tick();
 
@@ -159,11 +161,13 @@ pub trait ActionStateSequence:
         for (delta, input) in self.get_snapshots_from_message().enumerate() {
             let tick = start_tick + Tick(delta as u16);
 
+            // TODO: instead of doing this every time, should we just keep updating/mocking the inputs for the remote clients?
+            //  then the buffer would be filled with predicted inputs up to the current tick
             // for ticks after the last tick in the buffer, we start decaying our previous_predicted_input
             if previous_end_tick.is_some_and(|t| tick > t) {
                 previous_predicted_input = previous_predicted_input.map(|prev| {
                     let mut prev = prev;
-                    prev.decay_tick();
+                    prev.decay_tick(tick_duration);
                     prev
                 });
             }
@@ -183,14 +187,11 @@ pub trait ActionStateSequence:
                             _ => false,
                         }
                     {
+                        // no mismatch but this is a tick after our previous_end_tick so we want to add it to the buffer.
+                        input_buffer.set_raw(tick, input);
                         continue;
                     }
-                    // mismatch! fill the ticks between previous_end_tick and this tick
-                    if let Some(prev_end) = previous_end_tick {
-                        for delta in 1..(tick - prev_end) {
-                            input_buffer.set_raw(prev_end + delta, InputData::SameAsPrecedent);
-                        }
-                    }
+                    // first mismatch tick!
                     // set the new value for the mismatch tick
                     debug!(
                         "Mismatch detected at tick {tick:?} for new_input {input:?}. Previous predicted input: {previous_predicted_input:?}"
@@ -198,15 +199,6 @@ pub trait ActionStateSequence:
                     input_buffer.set_raw(tick, input);
                     earliest_mismatch = Some(tick);
                 }
-            }
-        }
-
-        // if there was 0 mismatch, fill the gap between previous_end_tick and end_tick
-        if earliest_mismatch.is_none()
-            && let Some(prev_end) = previous_end_tick
-        {
-            for delta in 1..(end_tick - prev_end + 1) {
-                input_buffer.set_raw(prev_end + delta, InputData::SameAsPrecedent);
             }
         }
         debug!("input buffer after update: {input_buffer:?}");

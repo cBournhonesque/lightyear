@@ -12,6 +12,8 @@ use bevy_platform::collections::HashMap;
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_link::Link;
+#[allow(unused_imports)]
+use tracing::trace;
 
 use crate::channel::Channel;
 use crate::error::TransportError;
@@ -141,6 +143,11 @@ impl Transport {
 
     // TODO: make this available via observer by triggering AddSender<C> on the Transport entity.
     pub fn add_sender_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
+        trace!(
+            "Adding sender from registry for channel {}. Kind: {:?}",
+            core::any::type_name::<C>(),
+            ChannelKind::of::<C>()
+        );
         let Some(settings) = registry.settings(ChannelKind::of::<C>()) else {
             panic!(
                 "ChannelSettings not found for channel {}",

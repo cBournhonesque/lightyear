@@ -28,7 +28,8 @@ use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
-use tracing::{debug, trace};
+#[allow(unused_imports)]
+use tracing::{debug, info, trace};
 
 /// Function used to interpolate from one component state (`start`) to another (`other`)
 /// t goes from 0.0 (`start`) to 1.0 (`other`)
@@ -209,6 +210,11 @@ fn mapped_context_serialize<M: MapEntities + Clone>(
     serialize_fn: SerializeFn<M>,
 ) -> Result<(), SerializationError> {
     let mut message = message.clone();
+    trace!(
+        "mapped_context_serialize: {:?}. Mapper: {:?}",
+        core::any::type_name::<M>(),
+        mapper
+    );
     message.map_entities(mapper);
     serialize_fn(&message, writer)
 }

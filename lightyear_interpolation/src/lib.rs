@@ -24,6 +24,7 @@ mod manager;
 pub mod plugin;
 pub mod registry;
 mod spawn;
+mod sync;
 pub mod timeline;
 
 /// Commonly used items for client-side interpolation.
