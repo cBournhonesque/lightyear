@@ -32,7 +32,7 @@ use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
 use lightyear_replication::prelude::Room;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 pub struct ServerInputPlugin<S> {
     pub rebroadcast_inputs: bool,
@@ -321,5 +321,6 @@ fn update_action_state<S: ActionStateSequence>(
         // we keep the current value in the InputBuffer so that if future messages are lost, we can still
         // fallback on the last known value
         input_buffer.pop(tick - history_depth);
+        // info!("Buffer lenght: {}", input_buffer.len());
     }
 }
