@@ -12,13 +12,14 @@ use bevy_ecs::{
 };
 use bevy_reflect::Reflect;
 use core::fmt::{Debug, Formatter, Write};
+use core::time::Duration;
 use lightyear_core::prelude::Tick;
 #[cfg(feature = "interpolation")]
 use lightyear_interpolation::plugin::InterpolationDelay;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+#[allow(unused_imports)]
 use tracing::{debug, info};
-use lightyear_core::tick::TickDuration;
 
 /// Enum indicating the target entity for the input.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
@@ -53,7 +54,7 @@ pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + 'static {
     ///
     /// By default Snapshots do not decay, i.e. we predict that they stay the same and the user
     /// keeps pressing the same button.
-    fn decay_tick(&mut self, tick_duration: TickDuration);
+    fn decay_tick(&mut self, tick_duration: Duration);
 }
 
 /// A QueryData that contains the queryable state that contains the current state of the Action at the given tick
@@ -76,9 +77,9 @@ pub trait ActionStateQueryData {
     type Bundle: Bundle + Send + Sync + 'static;
 
     // Convert from the mutable query item (i.e. Mut<'w, ActionState<A>>) to the read-only query item (i.e. &ActionState<A>)
-    fn as_read_only<'w, 'a: 'w>(
+    fn as_read_only<'a, 'w: 'a>(
         state: &'a <Self::Mut as QueryData>::Item<'w>,
-    ) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'w>;
+    ) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'a>;
 
     // Convert from the mutable query item (i.e. Mut<'w, ActionState<A>>) to the inner mutable item (i.e. &mut ActionState<A>)
     fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w>;
@@ -149,7 +150,7 @@ pub trait ActionStateSequence:
         self,
         input_buffer: &mut InputBuffer<Self::Snapshot>,
         end_tick: Tick,
-        tick_duration: TickDuration,
+        tick_duration: Duration,
     ) -> Option<Tick> {
         let previous_end_tick = input_buffer.end_tick();
 

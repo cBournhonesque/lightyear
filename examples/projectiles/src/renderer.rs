@@ -23,14 +23,13 @@ impl Plugin for ExampleRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
 
-        app.add_observer(add_interpolated_bot_visuals);
-        app.add_observer(add_predicted_bot_visuals);
         app.add_observer(add_bullet_visuals);
         app.add_observer(add_player_visuals);
         app.add_observer(add_hitscan_visual);
         app.add_observer(add_physics_projectile_visuals);
         app.add_observer(add_homing_missile_visuals);
-        app.add_plugins(FrameInterpolationPlugin::<Transform>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Position>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
 
         #[cfg(feature = "client")]
         {
@@ -204,7 +203,10 @@ fn add_player_visuals(
         if is_predicted || is_det_predicted {
             commands
                 .entity(trigger.target())
-                .insert(FrameInterpolate::<Transform>::default());
+                .insert((
+                    FrameInterpolate::<Position>::default(),
+                    FrameInterpolate::<Rotation>::default(),
+                ));
         }
     }
 }
@@ -231,55 +233,14 @@ fn add_bullet_visuals(
         if interpolated {
             commands
                 .entity(trigger.target())
-                .insert(FrameInterpolate::<Transform>::default());
+                .insert((
+                    FrameInterpolate::<Position>::default(),
+                    FrameInterpolate::<Rotation>::default()
+                ));
         }
     }
 }
 
-/// Add visuals to newly spawned bots
-fn add_interpolated_bot_visuals(
-    trigger: Trigger<OnAdd, InterpolatedBot>,
-    query: Query<(), VisibleFilter>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    let entity = trigger.target();
-    if query.get(entity).is_ok() {
-        // add visibility
-        commands.entity(entity).insert((
-            Visibility::default(),
-            Mesh2d(meshes.add(Mesh::from(Circle { radius: BOT_RADIUS }))),
-            MeshMaterial2d(materials.add(ColorMaterial {
-                color: GREEN.into(),
-                ..Default::default()
-            })),
-        ));
-    }
-}
-
-fn add_predicted_bot_visuals(
-    trigger: Trigger<OnAdd, PredictedBot>,
-    query: Query<(), VisibleFilter>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    let entity = trigger.target();
-    if query.get(entity).is_ok() {
-        // add visibility
-        commands.entity(entity).insert((
-            Visibility::default(),
-            Mesh2d(meshes.add(Mesh::from(Circle { radius: BOT_RADIUS }))),
-            MeshMaterial2d(materials.add(ColorMaterial {
-                color: BLUE.into(),
-                ..Default::default()
-            })),
-            // predicted entities are updated in FixedUpdate so they need to be visually interpolated
-            FrameInterpolate::<Transform>::default(),
-        ));
-    }
-}
 
 /// Add visuals to hitscan effects
 fn add_hitscan_visual(
@@ -319,10 +280,13 @@ fn add_physics_projectile_visuals(
                 ..Default::default()
             })),
         ));
-        if interpolated {
+        if !interpolated {
             commands
                 .entity(trigger.target())
-                .insert(FrameInterpolate::<Transform>::default());
+                .insert((
+                    FrameInterpolate::<Position>::default(),
+                    FrameInterpolate::<Rotation>::default()
+                ));
         }
     }
 }
@@ -354,10 +318,13 @@ fn add_homing_missile_visuals(
                 ..Default::default()
             })),
         ));
-        if interpolated {
+        if !interpolated {
             commands
                 .entity(trigger.target())
-                .insert(FrameInterpolate::<Transform>::default());
+                .insert((
+                    FrameInterpolate::<Position>::default(),
+                    FrameInterpolate::<Rotation>::default()
+                ));
         }
     }
 }

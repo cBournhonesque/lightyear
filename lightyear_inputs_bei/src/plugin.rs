@@ -4,9 +4,8 @@ use crate::input_message::BEIStateSequence;
 use crate::setup::ActionOfWrapper;
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::setup::InputRegistryPlugin;
-use bevy_app::{App, Plugin};
-use bevy_app::{FixedPreUpdate, PreUpdate};
-use bevy_ecs::component::Component;
+use bevy_app::prelude::*;
+use bevy_ecs::prelude::*;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::IntoScheduleConfigs;
 #[cfg(all(feature = "client", feature = "server"))]
@@ -18,6 +17,7 @@ use bevy_enhanced_input::context::InputContextAppExt;
 use bevy_enhanced_input::prelude::ActionOf;
 use bevy_reflect::TypePath;
 use core::fmt::Debug;
+use bevy_ecs::schedule::ScheduleLabel;
 use lightyear_inputs::config::InputConfig;
 use lightyear_prediction::PredictionMode;
 use lightyear_prediction::plugin::PredictionSet;
@@ -26,16 +26,28 @@ use lightyear_replication::prelude::AppComponentExt;
 use lightyear_replication::registry::replication::GetWriteFns;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use lightyear_core::prelude::is_in_rollback;
 use lightyear_inputs::client::InputSet;
 
-pub struct InputPlugin<C> {
+pub struct InputPlugin<C, S = FixedPreUpdate> {
     pub config: InputConfig<C>,
+    _marker: core::marker::PhantomData<S>,
 }
 
-impl<C> Default for InputPlugin<C> {
+impl<C, S> Default for InputPlugin<C, S> {
     fn default() -> Self {
         Self {
             config: Default::default(),
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<C, S> InputPlugin<C, S> {
+    pub fn new(config: InputConfig<C>) -> Self {
+        Self {
+            config,
+            _marker: core::marker::PhantomData,
         }
     }
 }
@@ -48,7 +60,8 @@ impl<
         + Serialize
         + DeserializeOwned
         + TypePath,
-> Plugin for InputPlugin<C>
+    S: ScheduleLabel + Default + BEIScheduleExt
+> Plugin for InputPlugin<C, S>
 {
     fn build(&self, app: &mut App) {
         app.register_type::<ActionOf<C>>();
@@ -56,7 +69,7 @@ impl<
             app.add_plugins(bevy_enhanced_input::EnhancedInputPlugin);
         }
 
-        app.add_input_context_to::<FixedPreUpdate, C>();
+        app.add_input_context_to::<S, C>();
         // we register the context C entity so that it can be replicated from the server to the client
         app.register_component::<C>()
             .add_immutable_prediction(PredictionMode::Once);
@@ -66,6 +79,10 @@ impl<
         // to be able to be mapped
         app.register_component::<ActionOfWrapper<C>>()
             .add_map_entities();
+
+        if self.config.rebroadcast_inputs {
+            S::add_rebroadcast::<C>(app);
+        }
 
         #[cfg(feature = "client")]
         {
@@ -81,12 +98,6 @@ impl<
             app.add_observer(add_input_marker_from_binding::<C>);
 
             app.add_observer(InputRegistryPlugin::add_action_of_replicate::<C>);
-            app.add_systems(
-                PreUpdate,
-                InputRegistryPlugin::on_rebroadcast_action_received::<C>
-                    // we need to wait for the predicted Context entity to be spawned first
-                    .after(PredictionSet::Sync),
-            );
 
             app.add_plugins(lightyear_inputs::client::ClientInputPlugin::<
                 BEIStateSequence<C>,
@@ -97,8 +108,9 @@ impl<
             app.configure_sets(
                 FixedPreUpdate,
                 (
-                    EnhancedInputSet::Update,
-                    lightyear_inputs::client::InputSet::BufferClientInputs,
+                    // do not run Update during rollback as we already know all inputs
+                    EnhancedInputSet::Update.run_if(not(is_in_rollback)),
+                    InputSet::BufferClientInputs,
                     EnhancedInputSet::Apply,
                 )
                     .chain(),
@@ -141,6 +153,29 @@ impl<
         }
     }
 }
+
+
+trait BEIScheduleExt {
+    fn add_rebroadcast<C: Component>(app: &mut App) {}
+}
+
+
+impl BEIScheduleExt for FixedPreUpdate {
+    fn add_rebroadcast<C: Component>(app: &mut App) {
+        #[cfg(feature = "client")]
+        app.add_systems(
+            PreUpdate,
+            InputRegistryPlugin::on_rebroadcast_action_received::<C>
+                // we need to wait for the predicted Context entity to be spawned first
+                .after(PredictionSet::Sync),
+        );
+    }
+}
+impl BEIScheduleExt for PreUpdate {
+    fn add_rebroadcast<C: Component>(_: &mut App) {}
+}
+
+
 
 fn never() -> bool {
     false

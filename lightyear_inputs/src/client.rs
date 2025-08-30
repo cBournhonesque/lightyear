@@ -45,10 +45,7 @@
 
 use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
-use crate::input_message::{
-    ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, PerTargetData, StateMut,
-    StateMutItemInner, StateRef,
-};
+use crate::input_message::{ActionStateQueryData, ActionStateSequence, InputMessage, InputSnapshot, InputTarget, PerTargetData, StateMut, StateMutItemInner, StateRef};
 use crate::plugin::InputPlugin;
 use crate::{HISTORY_DEPTH, InputChannel};
 #[cfg(feature = "metrics")]
@@ -293,6 +290,8 @@ fn buffer_action_state<S: ActionStateSequence>(
 
 /// Retrieve the ActionState for the current tick.
 fn get_action_state<S: ActionStateSequence>(
+    tick_duration: Res<TickDuration>,
+    config: Res<InputConfig<S::Action>>,
     // NOTE: we skip this for host-client because a similar system does the same thing
     //  in the server, and also clears the buffers
     sender: Single<(&LocalTimeline, &InputTimeline, Has<Rollback>), Without<HostClient>>,
@@ -312,29 +311,18 @@ fn get_action_state<S: ActionStateSequence>(
     let (local_timeline, input_timeline, is_rollback) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
     let tick = local_timeline.tick();
+    // TODO!: if config.rebroadcast = False, we don't need to handle remote players, try to encode that statically!
     for (entity, action_state, input_buffer, is_local) in action_state_query.iter_mut() {
-        if !is_rollback {
+        if !is_rollback && is_local && input_delay == 0 {
             // for local clients, if there is no rollback and no input_delay:
             // we just buffered the input for the current tick so the action state is already up to date
-            if is_local && input_delay == 0 {
-                continue;
-            }
-
-            // for remote clients, if there is no rollback and the input message we received was for the past:
-            // we already updated the ActionState in `receive_input_message`
-            if !is_local && input_buffer.end_tick().is_none_or(|t| t < tick) {
-                if input_timeline.is_lockstep() {
-                    error!(
-                        "We are in lockstep mode but didn't receive an input for tick {tick:?}!"
-                    );
-                }
-                continue;
-            }
+            continue;
         }
 
         // NOTE: for remote players:
         // - if we receive a remote input from an older tick (because of prediction), then upon receipt we update the ActionState
-        //   immediately so that we can trigger a rollback (in `receive_input_message`)
+        //   immediately so that we can trigger a rollback (in `receive_input_message`) and the ActionState is correctly set
+        //   to the past state for the rollback
         // - we cannot just rely on that, because in some cases (lockstep), we receive the remote input in the future, so we need
         //   to read from the buffer to restore the ActionState to the correct tick.
         // - we cannot use `is_lockstep` to check if we receive inputs in the future, because there are cases in non-lockstep where
@@ -346,7 +334,7 @@ fn get_action_state<S: ActionStateSequence>(
         // - For remote inputs with lockstep: the last input is in the future, so we need to fetch the exact value from the buffer
         // - For remote inputs without lockstep: we might receive a message that updates our input buffer, and the last input is
         //   in the past. We already updated the ActionState in `receive_input_message` for that past tick, which means we are
-        //   predicting that the action hasn't changed since
+        //   predicting that the action hasn't changed since. We just need to decay it (for rollback or without rollback)
         if let Some(snapshot) = input_buffer.get(tick) {
             // TODO: should we decay_tick the snapshot?
 
@@ -361,6 +349,22 @@ fn get_action_state<S: ActionStateSequence>(
                 // action_state.get_pressed(),
                 input_buffer
             );
+        } else {
+            if !is_local && config.rebroadcast_inputs {
+                if input_timeline.is_lockstep() {
+                    error!(
+                        "We are in lockstep mode but didn't receive an input for tick {tick:?}!"
+                    );
+                }
+                // we are here if:
+                // - we are in rollback and we reach a tick further than the last tick we received from the remote
+                // - we are not in rollback, in which case we want to decay the ActionState
+                let mut snapshot = S::to_snapshot(S::State::as_read_only(&action_state));
+                snapshot.decay_tick(tick_duration.0);
+                debug!(?entity, ?tick, "Action = {}, For remote input; no input for tick so we decay the ActionState to: {:?}", core::any::type_name::<S::Action>(), snapshot);
+                // update the action state with decay
+                S::from_snapshot(S::State::into_inner(action_state), &snapshot);
+            }
         }
     }
 }
@@ -753,7 +757,7 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
     prediction_manager: &PredictionManager,
     tick_duration: TickDuration,
 ) {
-    let mismatch = sequence.update_buffer(input_buffer, end_tick, tick_duration);
+    let mismatch = sequence.update_buffer(input_buffer, end_tick, tick_duration.0);
 
     if let Some((new_end_tick, snapshot)) = input_buffer.get_last_with_tick() {
         // IMPORTANT: immediately update the ActionState from the buffer ONLY if the new_end_tick is in the past!

@@ -1,5 +1,6 @@
 use bevy_platform::time::Instant;
 
+use core::time::Duration;
 use crate::action_diff::ActionDiff;
 use crate::action_state::{ActionStateWrapper, ActionStateWrapperReadOnlyItem, LeafwingUserAction};
 use alloc::vec::Vec;
@@ -18,8 +19,8 @@ pub type SnapshotBuffer<A> = InputBuffer<LeafwingSnapshot<A>>;
 impl<A: LeafwingUserAction> InputSnapshot for LeafwingSnapshot<A> {
     type Action = A;
 
-    fn decay_tick(&mut self, tick_duration: TickDuration) {
-        self.tick(Instant::now(), Instant::now() + tick_duration.0);
+    fn decay_tick(&mut self, tick_duration: Duration) {
+        self.tick(Instant::now(), Instant::now() + tick_duration);
     }
 }
 

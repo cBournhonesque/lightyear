@@ -4,12 +4,12 @@ use bevy_ecs::entity::{EntityMapper, MapEntities};
 use bevy_reflect::{FromReflect, Reflect, Reflectable};
 use core::cmp::max;
 use core::fmt::Debug;
+use core::time::Duration;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use lightyear_core::tick::TickDuration;
 
 pub type SnapshotBuffer<A> = InputBuffer<ActionState<A>>;
 
@@ -21,7 +21,7 @@ pub struct NativeStateSequence<A> {
 impl<A: Debug + PartialEq + Clone + Send + Sync + 'static> InputSnapshot for ActionState<A> {
     type Action = A;
 
-    fn decay_tick(&mut self, tick_duration: TickDuration) {}
+    fn decay_tick(&mut self, tick_duration: Duration) {}
 }
 
 impl<A> IntoIterator for NativeStateSequence<A> {

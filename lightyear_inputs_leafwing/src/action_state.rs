@@ -50,9 +50,9 @@ impl<A: LeafwingUserAction> ActionStateQueryData for ActionStateWrapper<A> {
     type Main = ActionState<A>;
     type Bundle = ActionState<A>;
 
-    fn as_read_only<'w, 'a: 'w>(
+    fn as_read_only<'a, 'w: 'a>(
         state: &'a ActionStateWrapperItem<'w, A>,
-    ) -> ActionStateWrapperReadOnlyItem<'w, A> {
+    ) -> ActionStateWrapperReadOnlyItem<'a, A> {
         ActionStateWrapperReadOnlyItem {
             inner: &state.inner,
         }

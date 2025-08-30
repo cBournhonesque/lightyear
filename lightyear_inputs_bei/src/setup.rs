@@ -14,10 +14,8 @@
 //! Option 2:
 //! - shared system to spawn context + actions on both client and server, and we need to perform entity mapping.
 
-use alloc::vec;
 use bevy_app::App;
 use bevy_ecs::entity::MapEntities;
-use bevy_ecs::entity::unique_slice::cast_slice_of_mut_unique_entity_slice_mut;
 use bevy_ecs::prelude::*;
 #[cfg(feature = "client")]
 use {
@@ -30,16 +28,13 @@ use bevy_reflect::Reflect;
 use lightyear_link::prelude::Server;
 use lightyear_prediction::prelude::DeterministicPredicted;
 use lightyear_replication::components::Confirmed;
-use lightyear_replication::prelude::{AppComponentExt, ComponentReplicationConfig};
-use lightyear_replication::prelude::{
-    ComponentReplicationOverrides, InterpolationTarget, NetworkVisibility, PredictionTarget,
-    Replicated, ShouldBePredicted,
-};
+use lightyear_replication::prelude::*;
 use lightyear_serde::SerializationError;
 use lightyear_serde::registry::SerializeFns;
 use lightyear_serde::writer::Writer;
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+#[allow(unused_imports)]
+use tracing::{debug, info};
 #[cfg(feature = "server")]
 use {lightyear_inputs::config::InputConfig, lightyear_replication::prelude::ReplicateLike};
 
@@ -110,6 +105,10 @@ impl InputRegistryPlugin {
                 ActionOfWrapper::<C>::new(context_entity),
                 Replicate::to_server(),
             ));
+            if predicted.is_some() {
+                // we can remove the context from the Confirmed entity since the Actions are on the Predicted entity
+                commands.entity(context_entity).remove_with_requires::<C>();
+            }
         }
     }
 
@@ -133,15 +132,15 @@ impl InputRegistryPlugin {
             // If rebroadcast_inputs is enabled, set up replication to other clients
             if config.rebroadcast_inputs {
                 debug!(action_entity = ?entity, "On server, insert ReplicateLike({:?}) for action entity ActionOf<{:?}>", wrapper.context, core::any::type_name::<C>());
-                
+
                 // TODO: don't rebroadcast to the original client
                 commands.entity(entity).insert((
                     ReplicateLike {
                         root: wrapper.context,
                     },
                     // we don't want to spawn Predicted Action entities
-                    PredictionTarget::manual(vec![]),
-                    InterpolationTarget::manual(vec![]),
+                    PredictionTarget::manual(alloc::vec![]),
+                    InterpolationTarget::manual(alloc::vec![]),
                 ));
             }
 
@@ -172,8 +171,11 @@ impl InputRegistryPlugin {
                         // We add DeterministicPredicted because lightyear_inputs::client expects the recipient
                         // to be a predicted entity
                         DeterministicPredicted,
+                        bevy_enhanced_input::context::ExternallyMocked,
                     ))
                     .remove::<ActionOfWrapper<C>>();
+                // remove the Context from the confirmed entity, since we the predicted entity is what matters
+                commands.entity(action_of_wrapper.context).remove_with_requires::<C>();
             }
         });
     }

@@ -237,11 +237,11 @@ fn receive_input_message<S: ActionStateSequence>(
                                     buffer.as_ref(),
                                     data.states
                                 );
-                                data.states.update_buffer(&mut buffer, message.end_tick, *tick_duration);
+                                data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
                             } else {
                                 debug!("Adding InputBuffer and ActionState which are missing on the entity");
                                 let mut buffer = InputBuffer::<S::Snapshot>::default();
-                                data.states.update_buffer(&mut buffer, message.end_tick, *tick_duration);
+                                data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
                                 commands.entity(entity).insert((
                                     buffer,
                                     S::State::base_value()

@@ -2,7 +2,32 @@
   - yes, because we can update information like the `time`
   - yes, because then we have fewer mismatches (otherwise we only have old inputs so the mismatch check always fires?)
 
-- Need to add unit test for BEI and input decay, especially for Fired inputs.
+- The wrong Context is inserted on every Action entity! Maybe because of observers? 
+  i.e. the action entities for the player have a ClientContext component
+
+- We can do: 
+  - at the end of applying remote inputs we insert ActionMock with the last event so that the next BEI::Update doesn't reset the State/Value
+  - for non-local entities, we keep decay the ActionState and buffer it in the InputBuffer
+  - then to compute mismatches, we don't need any special decay logic because the InputBuffer already has the latest inputs.
+  - we still want to keep track of the LastConfirmedInput, let's make sure that it doesn't rely on the last tick of the InputBuffer.
+    - NOTE: it does rely on the end_tick of each InputBuffer, so we would need a new implementation where we have 
+      two LastConfirmedInput. (we can't update LastConfirmedInput directly when we receive the remote input messages because for rollback
+      we need the previous LastConfirmedInput.)
+  - for BEI, there is no need to do anything in decay; since calling BEI::Update will apply decay for us?
+    - but it won't do so in rollback!!
+
+- We could also do a first phase where we apply `decay_tick` but don't update the InputBuffer.
+
+
+i.e.
+- don't run BEI::Update in rollback because it's wasteful
+- for remote inputs; in rollback, we first apply the inputs from the message and add ActionMock. 
+  When we rollback, we start doing `decay_tick` when we are past the last input tick, and we buffer them in the InputBuffer.
+ 
+- outside of rollback, we do run BEI for remote inputs, we just apply decay_tick and store in InputBuffer.
+- or we could NOT apply the mock, and make sure that we don't run BEI for remote inputs
+
+PROBLEM: for leafwing, we want to apply decay outside of rollback too..
 
 
 -------------------------

@@ -296,6 +296,7 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
     }
 
     /// Get the last tick in the buffer
+    #[inline(always)]
     pub fn end_tick(&self) -> Option<Tick> {
         self.start_tick
             .map(|start_tick| start_tick + (self.buffer.len() as i16 - 1))

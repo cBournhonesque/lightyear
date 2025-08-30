@@ -101,7 +101,7 @@ pub(crate) fn rotate_player(
 }
 
 pub(crate) fn move_player(trigger: Trigger<Fired<MovePlayer>>, mut player: Query<&mut Position>) {
-    const PLAYER_MOVE_SPEED: f32 = 10.0;
+    const PLAYER_MOVE_SPEED: f32 = 5.0;
     if let Ok(mut position) = player.get_mut(trigger.target()) {
         let value = trigger.value;
         if value.x > 0.0 {

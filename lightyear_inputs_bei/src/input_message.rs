@@ -6,11 +6,11 @@ use bevy_enhanced_input::action::ActionTime;
 use bevy_enhanced_input::prelude::{ActionEvents, ActionState, ActionValue};
 use core::cmp::max;
 use core::fmt::{Debug, Formatter};
+use core::time::Duration;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::input_message::{ActionStateQueryData, ActionStateSequence, InputSnapshot};
 use serde::{Deserialize, Serialize};
-use lightyear_core::tick::TickDuration;
 
 pub type SnapshotBuffer<A> = InputBuffer<ActionsSnapshot<A>>;
 
@@ -155,7 +155,7 @@ impl<C> Debug for ActionsSnapshot<C> {
 
 impl<C: Send + Sync + 'static> InputSnapshot for ActionsSnapshot<C> {
     type Action = C;
-    fn decay_tick(&mut self, tick_duration: TickDuration) {
+    fn decay_tick(&mut self, tick_duration: Duration) {
         // We keep ActionState the same but update ActionEvents and ActionTime
         self.state.events = ActionEvents::new(self.state.state, self.state.state);
         // TODO: use self.state.time.update() when it's public
@@ -215,7 +215,7 @@ impl ActionStateQueryData for ActionData {
     type Main = ActionState;
     type Bundle = (ActionState, ActionValue, ActionEvents, ActionTime);
 
-    fn as_read_only<'w, 'a: 'w>(state: &'a ActionDataItem<'w>) -> ActionDataReadOnlyItem<'w> {
+    fn as_read_only<'a, 'w: 'a>(state: &'a ActionDataItem<'w>) -> ActionDataReadOnlyItem<'a> {
         ActionDataReadOnlyItem {
             state: &state.state,
             value: &state.value,

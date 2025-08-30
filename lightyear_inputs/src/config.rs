@@ -4,7 +4,7 @@ use core::time::Duration;
 use bevy_ecs::resource::Resource;
 use bevy_reflect::Reflect;
 
-// TODO: make this a component ?
+// TODO: add builder functions on InputPlugin to add
 #[derive(Debug, Reflect, Resource)]
 pub struct InputConfig<A> {
     #[cfg(feature = "interpolation")]

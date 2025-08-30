@@ -109,45 +109,39 @@ fn add_actions(commands: &mut Commands, player: Entity) {
         Action::<MovePlayer>::new(),
         Bindings::spawn(Cardinal::wasd_keys()),
     ));
-    // commands.spawn((
-    //     ActionOf::<PlayerContext>::new(player),
-    //     Action::<MoveCursor>::new(),
-    //     ActionMock::new(
-    //         ActionState::Fired,
-    //         ActionValue::zero(ActionValueDim::Axis2D),
-    //         MockSpan::Manual,
-    //     ),
-    //     InputMarker::<PlayerContext>::default(),
-    // ));
-    // commands.spawn((
-    //     ActionOf::<PlayerContext>::new(player),
-    //     Action::<Shoot>::new(),
-    //     Bindings::spawn_one((Binding::from(KeyCode::Space), Name::from("Binding"))),
-    // ));
-    // commands.spawn((
-    //     ActionOf::<PlayerContext>::new(player),
-    //     Action::<CycleWeapon>::new(),
-    //     Bindings::spawn_one((Binding::from(KeyCode::KeyQ), Name::from("Binding"))),
-    // ));
+    commands.spawn((
+        ActionOf::<PlayerContext>::new(player),
+        Action::<MoveCursor>::new(),
+        ActionMock::new(
+            ActionState::Fired,
+            ActionValue::zero(ActionValueDim::Axis2D),
+            MockSpan::Manual,
+        ),
+        InputMarker::<PlayerContext>::default(),
+    ));
+    commands.spawn((
+        ActionOf::<PlayerContext>::new(player),
+        Action::<Shoot>::new(),
+        Bindings::spawn_one((Binding::from(KeyCode::Space), Name::from("Binding"))),
+    ));
+    commands.spawn((
+        ActionOf::<PlayerContext>::new(player),
+        Action::<CycleWeapon>::new(),
+        Bindings::spawn_one((Binding::from(KeyCode::KeyQ), Name::from("Binding"))),
+    ));
 }
 
 pub(crate) fn add_global_actions(trigger: Trigger<OnAdd, ClientContext>, mut commands: Commands) {
-    info!("Add global actions");
-    // TODO: we should have a way to add BEI for PreUpdate schedule, where they are not affected by rollback!
-    // commands.spawn((
-    //     ActionOf::<ClientContext>::new(trigger.target()),
-    //     Action::<CycleProjectileMode>::new(),
-    //     // we don't want to retrigger this action during rollback
-    //     DisableRollback,
-    //     bindings![KeyCode::KeyE,],
-    // ));
-    // commands.spawn((
-    //     ActionOf::<ClientContext>::new(trigger.target()),
-    //     Action::<CycleReplicationMode>::new(),
-    //     // we don't want to retrigger this action during rollback
-    //     DisableRollback,
-    //     bindings![KeyCode::KeyR,],
-    // ));
+    commands.spawn((
+        ActionOf::<ClientContext>::new(trigger.target()),
+        Action::<CycleProjectileMode>::new(),
+        bindings![KeyCode::KeyE,],
+    ));
+    commands.spawn((
+        ActionOf::<ClientContext>::new(trigger.target()),
+        Action::<CycleReplicationMode>::new(),
+        bindings![KeyCode::KeyR,],
+    ));
 }
 
 pub fn cycle_replication_mode(
