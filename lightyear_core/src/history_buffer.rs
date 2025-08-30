@@ -7,9 +7,10 @@ use bevy_ecs::resource::Resource;
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use core::iter::FilterMap;
-use tracing::debug;
+use tracing::{debug, info};
 
 /// Stores a past value in the history buffer
+// We use this enum instead of Option<R> in case we need to distniguish between more states in the future
 #[derive(Debug, PartialEq, Clone, Default, Reflect)]
 pub enum HistoryState<R> {
     // we add a Default implementation simply so that Reflection works
@@ -18,6 +19,23 @@ pub enum HistoryState<R> {
     Removed,
     /// the value got updated
     Updated(R),
+}
+
+impl<R> Into<Option<R>> for HistoryState<R> {
+    fn into(self) -> Option<R> {
+        match self {
+            HistoryState::Removed => None,
+            HistoryState::Updated(r) => Some(r),
+        }
+    }
+}
+impl<'w, R> Into<Option<&'w R>> for &'w HistoryState<R> {
+    fn into(self) -> Option<&'w R> {
+        match self {
+            HistoryState::Removed => None,
+            HistoryState::Updated(r) => Some(r),
+        }
+    }
 }
 
 /// HistoryBuffer stores past values (usually of a Component or Resource) in a buffer, to allow for rollback
@@ -70,18 +88,34 @@ impl<R> HistoryBuffer<R> {
         self.buffer.back()
     }
 
-    /// Get the nth most recent value in the buffer. HistoryState::Removed will be converted to None
+    #[doc(hidden)]
+    /// Get the second most recent value in the buffer, knowing that tick is the current tick.
     ///
-    /// n = 0 -> most recent value
-    pub fn nth_most_recent(&self, n: usize) -> Option<&R> {
-        let len = self.len();
-        if len <= n {
+    /// Used to efficiently get the previous value when doing correction.
+    pub fn second_most_recent(&self, tick: Tick) -> Option<&R> {
+        let Some((most_recent_tick, most_recent)) = self.most_recent() else {
+            return None;
+        };
+        if *most_recent_tick < tick {
+            return most_recent.into()
+        }
+        let len = self.buffer.len();
+        if len < 2 {
             return None;
         }
-        self.buffer.get(len - (n + 1)).and_then(|(_, x)| match x {
-            HistoryState::Updated(value) => Some(value),
-            HistoryState::Removed => None,
-        })
+        self.buffer.get(len - 2).and_then(|(_, x)| x.into())
+    }
+
+    /// Get the value at the specified tick.
+    pub fn get(&self, tick: Tick) -> Option<&R> {
+        // find first idx `partition` such that self.buffer[partition].0 > tick
+        let partition = self.buffer
+            .partition_point(|(buffer_tick, _)| *buffer_tick <= tick);
+        if partition == 0 {
+            return None;
+        }
+        self.buffer.get(partition - 1)
+            .and_then(|(_, x)| x.into())
     }
 
     /// Reset the history for this resource
@@ -275,6 +309,7 @@ impl<R: Clone> HistoryBuffer<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_log::test;
     use alloc::vec;
 
     #[derive(Clone, PartialEq, Debug)]
@@ -340,5 +375,36 @@ mod tests {
             history.into_iter().collect::<Vec<_>>(),
             vec![(Tick(4), TestValue(4.0))]
         );
+    }
+
+    #[test]
+    fn test_get() {
+        let mut history = HistoryBuffer::<TestValue>::default();
+
+        history.add_update(Tick(1), TestValue(1.0));
+        history.add_update(Tick(2), TestValue(2.0));
+        history.add_update(Tick(4), TestValue(4.0));
+
+        assert_eq!(history.get(Tick(0)), None);
+        assert_eq!(history.get(Tick(1)), Some(&TestValue(1.0)));
+        assert_eq!(history.get(Tick(2)), Some(&TestValue(2.0)));
+        assert_eq!(history.get(Tick(3)), Some(&TestValue(2.0)));
+        assert_eq!(history.get(Tick(4)), Some(&TestValue(4.0)));
+        assert_eq!(history.get(Tick(5)), Some(&TestValue(4.0)));
+    }
+
+    #[test]
+    fn test_second_most_recent() {
+        let mut history = HistoryBuffer::<TestValue>::default();
+
+        assert_eq!(history.second_most_recent(Tick(0)), None);
+        history.add_update(Tick(1), TestValue(1.0));
+        assert_eq!(history.second_most_recent(Tick(1)), None);
+        history.add_update(Tick(2), TestValue(2.0));
+        assert_eq!(history.second_most_recent(Tick(2)), Some(&TestValue(1.0)));
+        assert_eq!(history.second_most_recent(Tick(3)), Some(&TestValue(2.0)));
+        history.add_update(Tick(4), TestValue(4.0));
+        assert_eq!(history.second_most_recent(Tick(4)), Some(&TestValue(2.0)));
+        assert_eq!(history.second_most_recent(Tick(5)), Some(&TestValue(4.0)));
     }
 }

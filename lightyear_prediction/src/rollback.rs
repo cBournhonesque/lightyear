@@ -26,7 +26,8 @@ use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
-use tracing::{debug, debug_span, error, trace, trace_span, warn};
+#[allow(unused_imports)]
+use tracing::{debug, debug_span, error, info, trace, trace_span, warn};
 
 /// Responsible for re-running the FixedMain schedule a fixed number of times in order
 /// to rollback the simulation to a previous state.
@@ -647,6 +648,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                         if prediction_registry.has_correction::<C>() {
                             entity_mut.insert(PreviousVisual(predicted_component.clone()));
                             trace!(
+                                ?predicted_entity,
                                 previous_visual = ?predicted_component,
                                 "Storing PreviousVisual for correction"
                             );

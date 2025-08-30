@@ -156,6 +156,9 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
 pub struct FrameInterpolate<C: Component> {
     /// If true, every change of the component due to visual interpolation will trigger change detection
     /// (this can be useful for `Transform` to trigger a `TransformPropagate` system)
+    ///
+    /// If using FrameInterpolation<Position>: This is important so that syncing from Position->Transform works correctly in PostUpdate
+    /// If using FrameInterpolation<Transform>: This is important so that changes in Transform trigger a TransformPropagate
     pub trigger_change_detection: bool,
     /// Value of the component at the previous tick
     pub previous_value: Option<C>,
@@ -167,7 +170,7 @@ pub struct FrameInterpolate<C: Component> {
 impl<C: Component> Default for FrameInterpolate<C> {
     fn default() -> Self {
         Self {
-            trigger_change_detection: false,
+            trigger_change_detection: true,
             previous_value: None,
             current_value: None,
         }
@@ -225,12 +228,18 @@ pub(crate) fn update_visual_interpolation_status<
         if let Some(current_value) = interpolate_status.current_value.take() {
             interpolate_status.previous_value = Some(current_value);
         }
-        if !component.is_changed() {
-            trace!(
-                "not updating interpolate status current value because component did not change"
-            );
-            continue;
-        }
+        // this is dangerous because if `current_status` is None, we cannot restore the correct
+        // tick value in `restore_from_visual_interpolation`. We want to always be able to restore
+        // that value because the component value might have changed because of Correction (which runs after FI)
+        // (Even if interpolation is not running, we need to restore!!)
+        // if !component.is_changed() {
+        //     trace!(
+        //         ?component,
+        //         ?interpolate_status,
+        //         "not updating interpolate status current value because component did not change"
+        //     );
+        //     continue;
+        // }
         interpolate_status.current_value = Some(component.clone());
         trace!(
             ?interpolate_status,
@@ -252,7 +261,7 @@ pub(crate) fn restore_from_visual_interpolation<
                 ?kind,
                 visual = ?component,
                 correct = ?current_value,
-                "Restoring visual interpolation"
+                "Restoring correct tick value before FixedMainLoop"
             );
             *component.bypass_change_detection() = current_value.clone();
         }

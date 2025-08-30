@@ -29,7 +29,7 @@ impl Plugin for ExampleRendererPlugin {
         app.add_observer(add_physics_projectile_visuals);
         app.add_observer(add_homing_missile_visuals);
         app.add_plugins(FrameInterpolationPlugin::<Position>::default());
-        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
+        // app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
 
         #[cfg(feature = "client")]
         {

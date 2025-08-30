@@ -54,6 +54,7 @@ impl Plugin for SharedPlugin {
 
         // debug systems
         app.add_systems(FixedLast, fixed_update_log);
+        app.add_systems(Last, last_log);
 
         // every system that is physics-based and can be rolled-back has to be in the `FixedUpdate` schedule
         app.add_systems(
@@ -100,9 +101,16 @@ pub(crate) fn rotate_player(
     }
 }
 
-pub(crate) fn move_player(trigger: Trigger<Fired<MovePlayer>>, mut player: Query<&mut Position>) {
+pub(crate) fn move_player(
+    trigger: Trigger<Fired<MovePlayer>>,
+    mut player: Query<&mut Position>,
+    is_bot: Query<(), With<Bot>>
+) {
     const PLAYER_MOVE_SPEED: f32 = 5.0;
     if let Ok(mut position) = player.get_mut(trigger.target()) {
+        if is_bot.get(trigger.target()).is_err() {
+            info!(?position, "Moving player {:?} by {:?}", trigger.target(), trigger.value);
+        }
         let value = trigger.value;
         if value.x > 0.0 {
             position.x += PLAYER_MOVE_SPEED
@@ -121,32 +129,64 @@ pub(crate) fn move_player(trigger: Trigger<Fired<MovePlayer>>, mut player: Query
 
 pub(crate) fn fixed_update_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
-    player: Query<(Entity, &Transform), (With<PlayerMarker>, With<PlayerId>, Without<Confirmed>)>,
-    predicted_bullet: Query<
-        (Entity, &Transform, Option<&PredictionHistory<Transform>>),
-        (With<BulletMarker>, Without<Confirmed>),
-    >,
+    player: Query<(Entity, &Position), (With<PlayerMarker>, With<PlayerId>, Without<Confirmed>, Without<Bot>)>,
+    // predicted_bullet: Query<
+    //     (Entity, &Position, Option<&PredictionHistory<Position>>),
+    //     (With<BulletMarker>, Without<Confirmed>),
+    // >,
 ) {
     let (timeline, is_rollback) = timeline.into_inner();
     let tick = timeline.tick();
-    for (entity, transform) in player.iter() {
+    for (entity, pos) in player.iter() {
         debug!(
             ?tick,
             ?entity,
-            pos = ?transform.translation.truncate(),
+            ?pos,
             "Player after fixed update"
         );
     }
-    for (entity, transform, history) in predicted_bullet.iter() {
+    // for (entity, transform, history) in predicted_bullet.iter() {
+    //     debug!(
+    //         ?tick,
+    //         ?entity,
+    //         pos = ?transform.translation.truncate(),
+    //         ?history,
+    //         "Bullet after fixed update"
+    //     );
+    // }
+}
+
+pub(crate) fn last_log(
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
+    player: Query<(Entity, &Position, &Transform), (With<PlayerMarker>, With<PlayerId>, Without<Confirmed>, Without<Bot>)>,
+    // predicted_bullet: Query<
+    //     (Entity, &Position, Option<&PredictionHistory<Position>>),
+    //     (With<BulletMarker>, Without<Confirmed>),
+    // >,
+) {
+    let (timeline, is_rollback) = timeline.into_inner();
+    let tick = timeline.tick();
+    for (entity, pos, transform) in player.iter() {
         debug!(
             ?tick,
             ?entity,
-            pos = ?transform.translation.truncate(),
-            ?history,
-            "Bullet after fixed update"
+            ?pos,
+            transform = ?transform.translation,
+            "Player after last"
         );
     }
+    // for (entity, transform, history) in predicted_bullet.iter() {
+    //     debug!(
+    //         ?tick,
+    //         ?entity,
+    //         pos = ?transform.translation.truncate(),
+    //         ?history,
+    //         "Bullet after fixed update"
+    //     );
+    // }
 }
+
+
 
 /// Handle weapon cycling input
 pub(crate) fn weapon_cycling(
@@ -1622,6 +1662,7 @@ fn spawn_homing_missile_child(
     transform.rotation = Quat::from_rotation_z(angle);
 
     let missile_bundle = (
+        // TODO: need to add POSITION/ROTATION DIRECTLY!
         transform,
         LinearVelocity(spawn_info.direction * spawn_info.speed * 0.4),
         RigidBody::Kinematic,
@@ -1653,7 +1694,14 @@ pub fn player_bundle(client_id: PeerId) -> impl Bundle {
         Score(0),
         PlayerId(client_id),
         RigidBody::Kinematic,
-        Transform::from_xyz(0.0, y, 0.0),
+        // TODO: just adding Transform does NOT work, maybe because we disable Transform->Position sync?
+        //  or some system ordering issue?
+        //  I THINK it's because the SyncSet runs in FixedPostUpdate; so it's possible that we didn't sync Transform to Position
+        //  before we replicate Position
+        //  for now do NOT spawn Transform, instead directly use Position/Rotation!
+        // Transform::from_xyz(0.0, y, 0.0),
+        Position::from_xy(0.0, y),
+        Rotation::default(),
         ColorComponent(color),
         PlayerMarker,
         Weapon::default(),

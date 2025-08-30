@@ -347,15 +347,17 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<Position>()
             .add_prediction(PredictionMode::Full)
+            .add_should_rollback(position_should_rollback)
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn()
             .add_linear_correction_fn();
 
         app.register_component::<Rotation>()
             .add_prediction(PredictionMode::Full)
+            .add_should_rollback(rotation_should_rollback)
             .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn()
-            .add_linear_correction_fn();
+            .add_linear_interpolation_fn();
+            // .add_linear_correction_fn();
 
         app.register_component::<ColorComponent>()
             .add_prediction(PredictionMode::Once)
@@ -420,4 +422,12 @@ impl Plugin for ProtocolPlugin {
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full);
     }
+}
+
+fn position_should_rollback(this: &Position, that: &Position) -> bool {
+    (this.0 - that.0).length() >= 0.01
+}
+
+fn rotation_should_rollback(this: &Rotation, that: &Rotation) -> bool {
+    this.angle_between(*that) >= 0.01
 }

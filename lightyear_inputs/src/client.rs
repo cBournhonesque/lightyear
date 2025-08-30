@@ -84,7 +84,8 @@ use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::ChannelRegistry;
-use tracing::{debug, error, trace, warn};
+#[allow(unused_imports)]
+use tracing::{debug, error, info, trace, warn};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSet {
@@ -422,6 +423,7 @@ fn clean_buffers<S: ActionStateSequence>(
     // );
     for mut input_buffer in input_buffer_query.iter_mut() {
         input_buffer.pop(old_tick);
+        //  for now do NOT spawn Transform, instead directly use Position/Rotation!
     }
 }
 
