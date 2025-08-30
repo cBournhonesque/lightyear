@@ -45,7 +45,10 @@
 
 use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
-use crate::input_message::{ActionStateQueryData, ActionStateSequence, InputMessage, InputSnapshot, InputTarget, PerTargetData, StateMut, StateMutItemInner, StateRef};
+use crate::input_message::{
+    ActionStateQueryData, ActionStateSequence, InputMessage, InputSnapshot, InputTarget,
+    PerTargetData, StateMut, StateMutItemInner, StateRef,
+};
 use crate::plugin::InputPlugin;
 use crate::{HISTORY_DEPTH, InputChannel};
 #[cfg(feature = "metrics")]
@@ -350,22 +353,24 @@ fn get_action_state<S: ActionStateSequence>(
                 // action_state.get_pressed(),
                 input_buffer
             );
-        } else {
-            if !is_local && config.rebroadcast_inputs {
-                if input_timeline.is_lockstep() {
-                    error!(
-                        "We are in lockstep mode but didn't receive an input for tick {tick:?}!"
-                    );
-                }
-                // we are here if:
-                // - we are in rollback and we reach a tick further than the last tick we received from the remote
-                // - we are not in rollback, in which case we want to decay the ActionState
-                let mut snapshot = S::to_snapshot(S::State::as_read_only(&action_state));
-                snapshot.decay_tick(tick_duration.0);
-                debug!(?entity, ?tick, "Action = {}, For remote input; no input for tick so we decay the ActionState to: {:?}", core::any::type_name::<S::Action>(), snapshot);
-                // update the action state with decay
-                S::from_snapshot(S::State::into_inner(action_state), &snapshot);
+        } else if !is_local && config.rebroadcast_inputs {
+            if input_timeline.is_lockstep() {
+                error!("We are in lockstep mode but didn't receive an input for tick {tick:?}!");
             }
+            // we are here if:
+            // - we are in rollback and we reach a tick further than the last tick we received from the remote
+            // - we are not in rollback, in which case we want to decay the ActionState
+            let mut snapshot = S::to_snapshot(S::State::as_read_only(&action_state));
+            snapshot.decay_tick(tick_duration.0);
+            debug!(
+                ?entity,
+                ?tick,
+                "Action = {}, For remote input; no input for tick so we decay the ActionState to: {:?}",
+                core::any::type_name::<S::Action>(),
+                snapshot
+            );
+            // update the action state with decay
+            S::from_snapshot(S::State::into_inner(action_state), &snapshot);
         }
     }
 }

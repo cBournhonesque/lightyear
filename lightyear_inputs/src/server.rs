@@ -27,13 +27,13 @@ use lightyear_connection::prelude::NetworkTarget;
 use lightyear_connection::server::Started;
 use lightyear_core::id::RemoteId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::tick::TickDuration;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
 use lightyear_replication::prelude::Room;
 use tracing::{debug, error, trace};
-use lightyear_core::tick::TickDuration;
 
 pub struct ServerInputPlugin<S> {
     pub rebroadcast_inputs: bool,

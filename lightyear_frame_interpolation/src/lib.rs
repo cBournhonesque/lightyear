@@ -14,7 +14,7 @@
 //! To enable FrameInterpolation:
 //! - you will have to register an interpolation function for the component in the protocol
 //! - FrameInterpolation is not enabled by default, you have to add the plugin manually
-//! - To enable VisualInterpolation on a given entity, you need to add the `FrameInterpolate` component to it manually
+//! - To enable FrameInterpolation on a given entity, you need to add the [`FrameInterpolate`] component to it manually
 //! ```rust
 //! # use lightyear_frame_interpolation::prelude::*;
 //! # use bevy_app::App;
@@ -50,7 +50,7 @@ pub mod prelude {
 // - in PreUpdate, we restore the component value to the previous tick values
 use bevy_app::{App, FixedLast, Plugin, PostUpdate, RunFixedMainLoop, RunFixedMainLoopSystem};
 use bevy_ecs::{
-    change_detection::{DetectChanges, DetectChangesMut},
+    change_detection::DetectChangesMut,
     component::{Component, Mutable},
     query::With,
     schedule::{IntoScheduleConfigs, SystemSet, common_conditions::not},
@@ -157,8 +157,8 @@ pub struct FrameInterpolate<C: Component> {
     /// If true, every change of the component due to visual interpolation will trigger change detection
     /// (this can be useful for `Transform` to trigger a `TransformPropagate` system)
     ///
-    /// If using FrameInterpolation<Position>: This is important so that syncing from Position->Transform works correctly in PostUpdate
-    /// If using FrameInterpolation<Transform>: This is important so that changes in Transform trigger a TransformPropagate
+    /// If using `FrameInterpolation<Position>`: This is important so that syncing from Position->Transform works correctly in PostUpdate
+    /// If using `FrameInterpolation<Transform>`: This is important so that changes in Transform trigger a TransformPropagate
     pub trigger_change_detection: bool,
     /// Value of the component at the previous tick
     pub previous_value: Option<C>,

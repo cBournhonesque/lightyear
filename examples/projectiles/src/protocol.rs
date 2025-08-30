@@ -315,16 +315,16 @@ impl Plugin for ProtocolPlugin {
         )>();
 
         // inputs
-        app.add_plugins(InputPlugin::<PlayerContext>::new(
-            InputConfig::<PlayerContext> {
-                // enable lag compensation; the input messages sent to the server will include the
-                // interpolation delay of that client
-                lag_compensation: true,
-                // enable input rebroadcasting so clients can predict other players' actions
-                rebroadcast_inputs: true,
-                ..default()
-            },
-        ));
+        app.add_plugins(InputPlugin::<PlayerContext>::new(InputConfig::<
+            PlayerContext,
+        > {
+            // enable lag compensation; the input messages sent to the server will include the
+            // interpolation delay of that client
+            lag_compensation: true,
+            // enable input rebroadcasting so clients can predict other players' actions
+            rebroadcast_inputs: true,
+            ..default()
+        }));
         app.register_input_action::<MovePlayer>();
         app.register_input_action::<MoveCursor>();
         app.register_input_action::<Shoot>();
@@ -357,7 +357,7 @@ impl Plugin for ProtocolPlugin {
             .add_should_rollback(rotation_should_rollback)
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
-            // .add_linear_correction_fn();
+        // .add_linear_correction_fn();
 
         app.register_component::<ColorComponent>()
             .add_prediction(PredictionMode::Once)

@@ -6,9 +6,7 @@ use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 use lightyear::input::bei;
-use lightyear::input::bei::input_message::{
-    ActionData, ActionsSnapshot, BEIStateSequence,
-};
+use lightyear::input::bei::input_message::{ActionData, ActionsSnapshot, BEIStateSequence};
 use lightyear::input::input_buffer::InputBuffer;
 use lightyear::input::input_message::ActionStateQueryData;
 use lightyear::input::input_message::ActionStateSequence;

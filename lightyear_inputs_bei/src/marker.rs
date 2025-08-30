@@ -1,4 +1,4 @@
-//! Add an [`InputMarker<C>`] component for each entity that have an [`Actions<C>`] where there is at least one [`InputBinding`](bevy_enhanced_input::prelude::InputBinding).
+//! Add an [`InputMarker<C>`] component automatically to [`Action`] entities that need it
 
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
@@ -6,7 +6,8 @@ use bevy_enhanced_input::prelude::*;
 
 /// Marker component that indicates that the entity is actively listening for physical user inputs.
 ///
-/// Concretely this means that the entity has an [`Actions<C>`] component where there is at least one [`InputBinding`](bevy_enhanced_input::prelude::InputBinding).
+/// Concretely this means that the entity has an [`Actions<C>`] component
+/// with at least one [`Binding`] or [`ActionMock`]
 #[derive(Component)]
 pub struct InputMarker<C> {
     marker: core::marker::PhantomData<C>,

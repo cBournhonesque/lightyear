@@ -104,12 +104,17 @@ pub(crate) fn rotate_player(
 pub(crate) fn move_player(
     trigger: Trigger<Fired<MovePlayer>>,
     mut player: Query<&mut Position>,
-    is_bot: Query<(), With<Bot>>
+    is_bot: Query<(), With<Bot>>,
 ) {
     const PLAYER_MOVE_SPEED: f32 = 5.0;
     if let Ok(mut position) = player.get_mut(trigger.target()) {
         if is_bot.get(trigger.target()).is_err() {
-            info!(?position, "Moving player {:?} by {:?}", trigger.target(), trigger.value);
+            info!(
+                ?position,
+                "Moving player {:?} by {:?}",
+                trigger.target(),
+                trigger.value
+            );
         }
         let value = trigger.value;
         if value.x > 0.0 {
@@ -129,7 +134,15 @@ pub(crate) fn move_player(
 
 pub(crate) fn fixed_update_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
-    player: Query<(Entity, &Position), (With<PlayerMarker>, With<PlayerId>, Without<Confirmed>, Without<Bot>)>,
+    player: Query<
+        (Entity, &Position),
+        (
+            With<PlayerMarker>,
+            With<PlayerId>,
+            Without<Confirmed>,
+            Without<Bot>,
+        ),
+    >,
     // predicted_bullet: Query<
     //     (Entity, &Position, Option<&PredictionHistory<Position>>),
     //     (With<BulletMarker>, Without<Confirmed>),
@@ -138,12 +151,7 @@ pub(crate) fn fixed_update_log(
     let (timeline, is_rollback) = timeline.into_inner();
     let tick = timeline.tick();
     for (entity, pos) in player.iter() {
-        debug!(
-            ?tick,
-            ?entity,
-            ?pos,
-            "Player after fixed update"
-        );
+        debug!(?tick, ?entity, ?pos, "Player after fixed update");
     }
     // for (entity, transform, history) in predicted_bullet.iter() {
     //     debug!(
@@ -158,7 +166,15 @@ pub(crate) fn fixed_update_log(
 
 pub(crate) fn last_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
-    player: Query<(Entity, &Position, &Transform), (With<PlayerMarker>, With<PlayerId>, Without<Confirmed>, Without<Bot>)>,
+    player: Query<
+        (Entity, &Position, &Transform),
+        (
+            With<PlayerMarker>,
+            With<PlayerId>,
+            Without<Confirmed>,
+            Without<Bot>,
+        ),
+    >,
     // predicted_bullet: Query<
     //     (Entity, &Position, Option<&PredictionHistory<Position>>),
     //     (With<BulletMarker>, Without<Confirmed>),
@@ -185,8 +201,6 @@ pub(crate) fn last_log(
     //     );
     // }
 }
-
-
 
 /// Handle weapon cycling input
 pub(crate) fn weapon_cycling(
@@ -1092,7 +1106,7 @@ fn find_nearest_target(
                 .distance_squared(player_pos);
             a_dist
                 .partial_cmp(&b_dist)
-                .unwrap_or(std::cmp::Ordering::Equal)
+                .unwrap_or(core::cmp::Ordering::Equal)
         })
         .map(|(entity, _)| entity)
 }

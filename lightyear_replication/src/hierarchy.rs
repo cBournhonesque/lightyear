@@ -4,14 +4,14 @@ use crate::prelude::{PrePredicted, Replicate, ReplicationBufferSet};
 use crate::registry::registry::AppComponentExt;
 use alloc::vec::Vec;
 use bevy_app::prelude::*;
+use bevy_ecs::component::Immutable;
 use bevy_ecs::entity::MapEntities;
 use bevy_ecs::prelude::*;
 use bevy_ecs::reflect::ReflectMapEntities;
 use bevy_ecs::relationship::Relationship;
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
-use bevy_ecs::component::Immutable;
-use serde::{Serialize};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use smallvec::SmallVec;
 use tracing::trace;
@@ -79,7 +79,15 @@ impl<R: Relationship> Default for HierarchySendPlugin<R> {
     }
 }
 
-impl<R: Relationship + Component<Mutability=Immutable> + PartialEq + Clone + Serialize + DeserializeOwned> Plugin for HierarchySendPlugin<R> {
+impl<
+    R: Relationship
+        + Component<Mutability = Immutable>
+        + PartialEq
+        + Clone
+        + Serialize
+        + DeserializeOwned,
+> Plugin for HierarchySendPlugin<R>
+{
     fn build(&self, app: &mut App) {
         app.register_component::<R>()
             // need to remember to use the MapEntities implementation that is provided by the Relationship

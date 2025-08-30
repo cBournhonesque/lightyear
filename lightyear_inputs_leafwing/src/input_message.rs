@@ -1,11 +1,11 @@
 use bevy_platform::time::Instant;
 
-use core::time::Duration;
 use crate::action_diff::ActionDiff;
 use crate::action_state::{ActionStateWrapper, ActionStateWrapperReadOnlyItem, LeafwingUserAction};
 use alloc::vec::Vec;
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::entity::{EntityMapper, MapEntities};
+use core::time::Duration;
 use leafwing_input_manager::Actionlike;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
@@ -13,7 +13,6 @@ use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
 use serde::{Deserialize, Serialize};
-use lightyear_core::tick::TickDuration;
 
 pub type SnapshotBuffer<A> = InputBuffer<LeafwingSnapshot<A>>;
 impl<A: LeafwingUserAction> InputSnapshot for LeafwingSnapshot<A> {
@@ -146,10 +145,10 @@ mod tests {
     use super::*;
 
     use alloc::vec;
-    use std::time::Duration;
     use bevy_reflect::Reflect;
     use leafwing_input_manager::Actionlike;
     use serde::{Deserialize, Serialize};
+    use std::time::Duration;
     use test_log::test;
 
     #[derive(
@@ -249,7 +248,11 @@ mod tests {
                 }],
             ],
         };
-        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(8), TickDuration(Duration::default()));
+        let mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(8),
+            TickDuration(Duration::default()),
+        );
         assert_eq!(mismatch, Some(Tick(7)));
 
         // NOTE: The action_state from the sequence are ticked to avoid having JustPressed on each tick!
@@ -282,7 +285,11 @@ mod tests {
             }]],
         };
         // Should overwrite tick 3
-        sequence.update_buffer(&mut input_buffer, Tick(3), TickDuration(Duration::default()));
+        sequence.update_buffer(
+            &mut input_buffer,
+            Tick(3),
+            TickDuration(Duration::default()),
+        );
         assert_eq!(input_buffer.get(Tick(2)).unwrap().0, action_state);
 
         let mut expected = action_state.clone();

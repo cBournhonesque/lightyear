@@ -1,6 +1,7 @@
 use crate::InterpolationMode;
 use crate::plugin::InterpolationSet;
 use crate::prelude::InterpolationRegistry;
+use alloc::vec::Vec;
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::change_detection::{Mut, Res, ResMut};
@@ -11,9 +12,8 @@ use bevy_ecs::observer::{Observer, Trigger};
 use bevy_ecs::prelude::{EntityRef, IntoScheduleConfigs, OnInsert, Query, World};
 use bevy_reflect::Reflect;
 use lightyear_replication::components::{Confirmed, Replicated};
-use lightyear_replication::prelude::{ComponentRegistry};
+use lightyear_replication::prelude::ComponentRegistry;
 use lightyear_replication::registry::buffered::BufferedChanges;
-use alloc::vec::Vec;
 use tracing::trace;
 
 /// Plugin that syncs components that were inserted on the Confirmed entity to the Interpolated entity

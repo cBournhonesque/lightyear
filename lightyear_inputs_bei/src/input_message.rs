@@ -91,7 +91,7 @@ impl Default for ActionsMessage {
     }
 }
 
-/// Struct that stores a subset of [`Actions<C>`](Actions) that is needed to
+/// Struct that stores a subset of [`Actions<C>`](bevy_enhanced_input::prelude::Actions) that is needed to
 /// reconstruct the actions state on the remote client.
 ///
 /// We need the timing information in the snapshot so that we can rollback the actions state on the client
@@ -341,8 +341,8 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
     use super::*;
+    use std::time::Duration;
 
     use bevy_enhanced_input::prelude::InputAction;
     use bevy_reflect::Reflect;
@@ -473,7 +473,11 @@ mod tests {
             marker: Default::default(),
         };
         // This should extend the buffer to fit ticks 5..=7
-        sequence.update_buffer(&mut input_buffer, Tick(7), TickDuration(Duration::default()));
+        sequence.update_buffer(
+            &mut input_buffer,
+            Tick(7),
+            TickDuration(Duration::default()),
+        );
         assert!(input_buffer.get(Tick(5)).is_some());
         assert!(input_buffer.get(Tick(6)).is_some());
         assert!(input_buffer.get(Tick(7)).is_none());
@@ -494,7 +498,11 @@ mod tests {
             marker: Default::default(),
         };
 
-        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(7), TickDuration(Duration::default()));
+        let earliest_mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(7),
+            TickDuration(Duration::default()),
+        );
 
         info!("Input buffer after update: {:?}", input_buffer);
 
@@ -523,7 +531,11 @@ mod tests {
             marker: Default::default(),
         };
 
-        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(8), TickDuration(Duration::default()));
+        let earliest_mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(8),
+            TickDuration(Duration::default()),
+        );
 
         // Should detect mismatch at tick 7 (first tick after previous_end_tick=5)
         // We predicted continuation of Absent, but got an Input
@@ -549,7 +561,11 @@ mod tests {
             marker: Default::default(),
         };
 
-        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(7), TickDuration(Duration::default()));
+        let earliest_mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(7),
+            TickDuration(Duration::default()),
+        );
 
         // Should detect mismatch at tick 6 (first tick after previous_end_tick=5)
         // We predicted continuation of the action, but got Absent
@@ -578,7 +594,11 @@ mod tests {
             marker: Default::default(),
         };
 
-        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(7), TickDuration(Duration::default()));
+        let earliest_mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(7),
+            TickDuration(Duration::default()),
+        );
 
         // Should detect mismatch at tick 6 (first tick after previous_end_tick=5)
         // We predicted continuation of first_action, but got second_action
@@ -602,7 +622,11 @@ mod tests {
             marker: Default::default(),
         };
 
-        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(7), TickDuration(Duration::default()));
+        let earliest_mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(7),
+            TickDuration(Duration::default()),
+        );
 
         // Should be no mismatch since the action matches our prediction
         assert_eq!(earliest_mismatch, None);
@@ -639,7 +663,11 @@ mod tests {
             marker: Default::default(),
         };
 
-        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(8), TickDuration(Duration::default()));
+        let earliest_mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(8),
+            TickDuration(Duration::default()),
+        );
 
         // Should detect mismatch at tick 7 (first tick after previous_end_tick=6)
         assert_eq!(earliest_mismatch, Some(Tick(7)));

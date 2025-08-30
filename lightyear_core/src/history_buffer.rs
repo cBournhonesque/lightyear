@@ -7,6 +7,7 @@ use bevy_ecs::resource::Resource;
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use core::iter::FilterMap;
+#[allow(unused_imports)]
 use tracing::{debug, info};
 
 /// Stores a past value in the history buffer
@@ -21,17 +22,17 @@ pub enum HistoryState<R> {
     Updated(R),
 }
 
-impl<R> Into<Option<R>> for HistoryState<R> {
-    fn into(self) -> Option<R> {
-        match self {
+impl<'w, R> From<&'w HistoryState<R>> for Option<&'w R> {
+    fn from(val: &'w HistoryState<R>) -> Self {
+        match val {
             HistoryState::Removed => None,
             HistoryState::Updated(r) => Some(r),
         }
     }
 }
-impl<'w, R> Into<Option<&'w R>> for &'w HistoryState<R> {
-    fn into(self) -> Option<&'w R> {
-        match self {
+impl<R> From<HistoryState<R>> for Option<R> {
+    fn from(val: HistoryState<R>) -> Self {
+        match val {
             HistoryState::Removed => None,
             HistoryState::Updated(r) => Some(r),
         }
@@ -93,11 +94,9 @@ impl<R> HistoryBuffer<R> {
     ///
     /// Used to efficiently get the previous value when doing correction.
     pub fn second_most_recent(&self, tick: Tick) -> Option<&R> {
-        let Some((most_recent_tick, most_recent)) = self.most_recent() else {
-            return None;
-        };
+        let (most_recent_tick, most_recent) = self.most_recent()?;
         if *most_recent_tick < tick {
-            return most_recent.into()
+            return most_recent.into();
         }
         let len = self.buffer.len();
         if len < 2 {
@@ -109,13 +108,13 @@ impl<R> HistoryBuffer<R> {
     /// Get the value at the specified tick.
     pub fn get(&self, tick: Tick) -> Option<&R> {
         // find first idx `partition` such that self.buffer[partition].0 > tick
-        let partition = self.buffer
+        let partition = self
+            .buffer
             .partition_point(|(buffer_tick, _)| *buffer_tick <= tick);
         if partition == 0 {
             return None;
         }
-        self.buffer.get(partition - 1)
-            .and_then(|(_, x)| x.into())
+        self.buffer.get(partition - 1).and_then(|(_, x)| x.into())
     }
 
     /// Reset the history for this resource
@@ -309,8 +308,8 @@ impl<R: Clone> HistoryBuffer<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test_log::test;
     use alloc::vec;
+    use test_log::test;
 
     #[derive(Clone, PartialEq, Debug)]
     struct TestValue(f32);

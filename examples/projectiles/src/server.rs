@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use bevy_enhanced_input::EnhancedInputSet;
 use bevy_enhanced_input::prelude::{Actions, Completed, Started};
+use core::net::SocketAddr;
 use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
@@ -23,7 +24,6 @@ use lightyear_avian2d::prelude::{
 use lightyear_examples_common::cli::new_headless_app;
 use lightyear_examples_common::shared::{SEND_INTERVAL, SERVER_ADDR, SHARED_SETTINGS};
 use rand::random;
-use std::net::SocketAddr;
 
 pub struct ExampleServerPlugin;
 

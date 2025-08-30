@@ -8,6 +8,7 @@ use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::IntoScheduleConfigs;
+use bevy_ecs::schedule::ScheduleLabel;
 #[cfg(all(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::common_conditions::not;
 #[cfg(any(feature = "client", feature = "server"))]
@@ -17,7 +18,8 @@ use bevy_enhanced_input::context::InputContextAppExt;
 use bevy_enhanced_input::prelude::ActionOf;
 use bevy_reflect::TypePath;
 use core::fmt::Debug;
-use bevy_ecs::schedule::ScheduleLabel;
+use lightyear_core::prelude::is_in_rollback;
+use lightyear_inputs::client::InputSet;
 use lightyear_inputs::config::InputConfig;
 use lightyear_prediction::PredictionMode;
 use lightyear_prediction::plugin::PredictionSet;
@@ -26,8 +28,6 @@ use lightyear_replication::prelude::AppComponentExt;
 use lightyear_replication::registry::replication::GetWriteFns;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use lightyear_core::prelude::is_in_rollback;
-use lightyear_inputs::client::InputSet;
 
 pub struct InputPlugin<C, S = FixedPreUpdate> {
     pub config: InputConfig<C>,
@@ -60,7 +60,7 @@ impl<
         + Serialize
         + DeserializeOwned
         + TypePath,
-    S: ScheduleLabel + Default + BEIScheduleExt
+    S: ScheduleLabel + Default + BEIScheduleExt,
 > Plugin for InputPlugin<C, S>
 {
     fn build(&self, app: &mut App) {
@@ -154,11 +154,9 @@ impl<
     }
 }
 
-
 trait BEIScheduleExt {
     fn add_rebroadcast<C: Component>(app: &mut App) {}
 }
-
 
 impl BEIScheduleExt for FixedPreUpdate {
     fn add_rebroadcast<C: Component>(app: &mut App) {
@@ -174,8 +172,6 @@ impl BEIScheduleExt for FixedPreUpdate {
 impl BEIScheduleExt for PreUpdate {
     fn add_rebroadcast<C: Component>(_: &mut App) {}
 }
-
-
 
 fn never() -> bool {
     false

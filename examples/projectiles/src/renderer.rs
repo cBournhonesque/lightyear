@@ -201,12 +201,10 @@ fn add_player_visuals(
             })),
         ));
         if is_predicted || is_det_predicted {
-            commands
-                .entity(trigger.target())
-                .insert((
-                    FrameInterpolate::<Position>::default(),
-                    FrameInterpolate::<Rotation>::default(),
-                ));
+            commands.entity(trigger.target()).insert((
+                FrameInterpolate::<Position>::default(),
+                FrameInterpolate::<Rotation>::default(),
+            ));
         }
     }
 }
@@ -231,16 +229,13 @@ fn add_bullet_visuals(
             })),
         ));
         if interpolated {
-            commands
-                .entity(trigger.target())
-                .insert((
-                    FrameInterpolate::<Position>::default(),
-                    FrameInterpolate::<Rotation>::default()
-                ));
+            commands.entity(trigger.target()).insert((
+                FrameInterpolate::<Position>::default(),
+                FrameInterpolate::<Rotation>::default(),
+            ));
         }
     }
 }
-
 
 /// Add visuals to hitscan effects
 fn add_hitscan_visual(
@@ -281,12 +276,10 @@ fn add_physics_projectile_visuals(
             })),
         ));
         if !interpolated {
-            commands
-                .entity(trigger.target())
-                .insert((
-                    FrameInterpolate::<Position>::default(),
-                    FrameInterpolate::<Rotation>::default()
-                ));
+            commands.entity(trigger.target()).insert((
+                FrameInterpolate::<Position>::default(),
+                FrameInterpolate::<Rotation>::default(),
+            ));
         }
     }
 }
@@ -319,12 +312,10 @@ fn add_homing_missile_visuals(
             })),
         ));
         if !interpolated {
-            commands
-                .entity(trigger.target())
-                .insert((
-                    FrameInterpolate::<Position>::default(),
-                    FrameInterpolate::<Rotation>::default()
-                ));
+            commands.entity(trigger.target()).insert((
+                FrameInterpolate::<Position>::default(),
+                FrameInterpolate::<Rotation>::default(),
+            ));
         }
     }
 }

@@ -69,13 +69,13 @@ impl ReplicationReceivePlugin {
         peer_metadata: Res<PeerMetadata>,
         mut receiver: Query<&mut MessageManager>,
     ) {
-        if let Some(receiver_entity) = peer_metadata.mapping.get(&trigger.from) {
-            if let Ok(mut manager) = receiver.get_mut(*receiver_entity) {
-                trace!("Add mapping from local Receiver entity to remote Sender entity");
-                manager
-                    .entity_mapper
-                    .insert(trigger.trigger.sender_entity, *receiver_entity);
-            }
+        if let Some(receiver_entity) = peer_metadata.mapping.get(&trigger.from)
+            && let Ok(mut manager) = receiver.get_mut(*receiver_entity)
+        {
+            trace!("Add mapping from local Receiver entity to remote Sender entity");
+            manager
+                .entity_mapper
+                .insert(trigger.trigger.sender_entity, *receiver_entity);
         }
     }
 

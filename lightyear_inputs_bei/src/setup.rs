@@ -1,19 +1,3 @@
-//! For BEI, option 1:
-//! - Server spawns Context entity
-//! - Client spawns ActionOf entities with Action<A> components + Bindings
-//!   (which inserts all other required components, such as ActionSettings, ActionFns)
-//!   ActionFns is needed to trigger events
-//!
-//! Then:
-//! - Client sends an initial message to the server that contains
-//!   - for a given context, a vec of (Entity, kind) where kind is the type of InputAction
-//!
-//! Alternative:
-//! - client inserts Replicate on the ActionOf entities, but only ActionOf component is replicated from client -> server (which should be ok since other components won't be in the protocol)
-//!
-//! Option 2:
-//! - shared system to spawn context + actions on both client and server, and we need to perform entity mapping.
-
 use bevy_app::App;
 use bevy_ecs::entity::MapEntities;
 use bevy_ecs::prelude::*;
@@ -38,7 +22,7 @@ use tracing::{debug, info};
 #[cfg(feature = "server")]
 use {lightyear_inputs::config::InputConfig, lightyear_replication::prelude::ReplicateLike};
 
-/// Wrapper around ActionOf<C> that is needed for replication with custom entity mapping
+/// Wrapper around [`ActionOf<C>`] that is needed for replication with custom entity mapping
 #[derive(Component, Serialize, Deserialize, Reflect)]
 pub struct ActionOfWrapper<C> {
     context: Entity,
@@ -79,7 +63,7 @@ impl<C> MapEntities for ActionOfWrapper<C> {
 pub struct InputRegistryPlugin;
 
 impl InputRegistryPlugin {
-    /// When an ActionOf<C> component is added to an entity (usually on the client),
+    /// When an [`ActionOf<C>`] component is added to an entity (usually on the client),
     /// we add Replicate to it so that the action entity is also created on the server.
     #[cfg(feature = "client")]
     pub(crate) fn add_action_of_replicate<C: Component>(
@@ -90,7 +74,7 @@ impl InputRegistryPlugin {
         query: Query<Option<&Predicted>>,
         mut commands: Commands,
     ) {
-        if let Ok(_) = server.single() {
+        if server.single().is_ok() {
             // we're on the server, don't do anything
             return;
         }
@@ -112,7 +96,7 @@ impl InputRegistryPlugin {
         }
     }
 
-    /// When the server receives ActionOfWrapper, insert the appropriate ActionOf
+    /// When the server receives [`ActionOfWrapper`], insert the appropriate [`ActionOf`]
     /// and optionally rebroadcast to other clients if rebroadcast_inputs is enabled
     #[cfg(feature = "server")]
     pub(crate) fn on_action_of_replicated<C: Component>(
@@ -149,8 +133,8 @@ impl InputRegistryPlugin {
         }
     }
 
-    /// When the client receives a rebroadcast Action entity with ReplicateLike,
-    /// attach it to the correct Predicted context entity
+    /// When the client receives a rebroadcast Action entity with [`ReplicateLike`],
+    /// attach it to the correct [`Predicted`] context entity
     ///
     /// This cannot be a trigger because we need to wait until the Predicted entity is spawned
     #[cfg(feature = "client")]

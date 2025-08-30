@@ -25,7 +25,7 @@ use lightyear_core::history_buffer::HistoryBuffer;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::timeline::SyncEvent;
 use lightyear_replication::components::PrePredicted;
-use lightyear_replication::prelude::{Confirmed};
+use lightyear_replication::prelude::Confirmed;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::InputTimeline;
 use tracing::trace;
