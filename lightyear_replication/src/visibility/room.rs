@@ -162,7 +162,7 @@ impl RoomPlugin {
                             }
                         });
                 } else {
-                    info!(
+                    trace!(
                         ?entity,
                         "Inserting NetworkVisibility from room visibility: {room_vis:?}"
                     );
