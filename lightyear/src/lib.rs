@@ -232,8 +232,9 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 #[cfg(feature = "client")]
 mod client;
 
-#[cfg(all(feature = "server", not(target_family = "wasm")))]
+#[cfg(feature = "server")]
 mod server;
+
 mod shared;
 
 #[cfg(feature = "replication")]
@@ -404,7 +405,7 @@ pub mod prelude {
         }
     }
 
-    #[cfg(all(feature = "server", not(target_family = "wasm")))]
+    #[cfg(feature = "server")]
     pub mod server {
         pub use crate::server::ServerPlugins;
         pub use lightyear_connection::prelude::server::*;
@@ -419,7 +420,7 @@ pub mod prelude {
         pub use lightyear_steam::prelude::server::*;
         #[cfg(feature = "websocket")]
         pub use lightyear_websocket::prelude::server::*;
-        #[cfg(feature = "webtransport")]
+        #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
         pub use lightyear_webtransport::prelude::server::*;
 
         #[cfg(any(feature = "input_native", feature = "leafwing", feature = "input_bei"))]

@@ -68,13 +68,13 @@ impl PluginGroup for ServerPlugins {
         let builder = builder.add(lightyear_prediction::server::ServerPlugin);
 
         // IO
-        #[cfg(feature = "udp")]
+        #[cfg(all(feature = "udp", not(target_family = "wasm")))]
         let builder = builder.add(lightyear_udp::server::ServerUdpPlugin);
-        #[cfg(feature = "webtransport")]
+        #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
         let builder = builder.add(lightyear_webtransport::server::WebTransportServerPlugin);
-        #[cfg(feature = "websocket")]
+        #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
         let builder = builder.add(lightyear_websocket::server::WebSocketServerPlugin);
-        #[cfg(feature = "steam")]
+        #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         let builder = builder.add(lightyear_steam::server::SteamServerPlugin);
 
         // CONNECTION
