@@ -180,6 +180,8 @@ fn server_player_bundle(
             lifetime: Default::default(),
         },
         replication_mode,
+        // add the component to make lag-compensation possible!
+        LagCompensationHistory::default(),
         bundle,
     )
 }

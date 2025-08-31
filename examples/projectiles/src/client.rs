@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use bevy_enhanced_input::action::ActionMock;
 use bevy_enhanced_input::bindings;
 use core::time::Duration;
+use avian2d::prelude::{Collider, RigidBody};
 use lightyear::input::bei::prelude::*;
 use lightyear::input::client::InputSet;
 use lightyear::prediction::rollback::DisableRollback;
@@ -45,15 +46,27 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
+        if replication_mode == &GameReplicationMode::AllInterpolated {
+            return
+        };
+        // add actions on the predicted entity
+        add_actions(&mut commands, trigger.target());
         match replication_mode {
-            GameReplicationMode::AllInterpolated => {}
-            _ => {
-                if player_id.0 != client_id {
-                    return;
-                }
-                add_actions(&mut commands, trigger.target());
+            GameReplicationMode::ClientSideHitDetection | GameReplicationMode::OnlyInputsReplicated => {
+                // add these so we can do hit-detection on the client
+                commands.entity(trigger.target())
+                    .insert((
+                        Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
+                        RigidBody::Kinematic,
+                    ));
             }
+            _ => {}
+        };
+        if player_id.0 != client_id {
+            return;
         }
+        // add actions on the predicted entity
+        add_actions(&mut commands, trigger.target());
     }
 }
 

@@ -1,12 +1,12 @@
 //! Provides a system parameter for performing spatial queries while doing lag compensation.
 use core::cell::RefCell;
 
-use super::history::{AabbEnvelopeHolder, LagCompensationConfig, LagCompensationHistory};
+use super::history::{AabbEnvelopeHolder, LagCompensationHistory};
 use bevy_ecs::{
     entity::Entity,
     hierarchy::ChildOf,
     query::With,
-    system::{Query, Res, Single, SystemParam},
+    system::{Query, SystemParam},
 };
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_interpolation::plugin::InterpolationDelay;
@@ -29,8 +29,7 @@ use {
 /// Systems using this parameter should run after the [`LagCompensationSet::UpdateHistory`](super::history::LagCompensationSet) set.
 #[derive(SystemParam)]
 pub struct LagCompensationSpatialQuery<'w, 's> {
-    pub timeline: Single<'w, &'static LocalTimeline, With<Server>>,
-    pub config: Res<'w, LagCompensationConfig>,
+    pub timeline: Query<'w, 's, &'static LocalTimeline, With<Server>>,
     spatial_query: SpatialQuery<'w, 's>,
     parent_query: Query<'w, 's, (&'static Collider, &'static LagCompensationHistory)>,
     child_query: Query<'w, 's, &'static ChildOf, With<AabbEnvelopeHolder>>,
@@ -73,7 +72,8 @@ impl LagCompensationSpatialQuery<'_, '_> {
         filter: &mut SpatialQueryFilter,
     ) -> Option<RayHitData> {
         // 1): check if the ray hits the aabb envelope
-        let tick = self.timeline.tick();
+        let timeline = self.timeline.single().ok()?;
+        let tick = timeline.tick();
         // we use interior mutability because the predicate must be a `dyn Fn`
         let exact_hit_data: RefCell<Option<RayHitData>> = RefCell::new(None);
         self.spatial_query.cast_ray_predicate(

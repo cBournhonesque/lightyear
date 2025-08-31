@@ -530,8 +530,8 @@ pub(crate) fn hitscan_hit_detection(
     trigger: Trigger<OnAdd, HitscanVisual>,
     commands: Commands,
     server: Query<Entity, With<Server>>,
-    timeline: Single<&LocalTimeline, Without<ClientOf>>,
-    mode: Single<&GameReplicationMode, With<ClientContext>>,
+    timeline: Query<&LocalTimeline, Without<ClientOf>>,
+    mode: Query<&GameReplicationMode, With<ClientContext>>,
     mut spatial_set: ParamSet<(LagCompensationSpatialQuery, SpatialQuery)>,
     bullet: Query<(&HitscanVisual, &BulletMarker, &PlayerId)>,
     target_query: Query<(), (With<PlayerMarker>, Without<Confirmed>)>,
@@ -541,7 +541,14 @@ pub(crate) fn hitscan_hit_detection(
     client_query: Query<&InterpolationDelay, With<ClientOf>>,
     mut player_query: Query<(&mut Score, &PlayerId, Option<&ControlledBy>), With<PlayerMarker>>,
 ) {
-    info!("hi");
+    let Ok(timeline) = timeline.single() else {
+        info!("no unique timeline");
+        return
+    };
+    let Ok(mode) = mode.single() else {
+        info!("no unique mode");
+        return
+    };
     let Ok((hitscan, bullet_marker, id)) = bullet.get(trigger.target()) else {
         return;
     };
@@ -551,7 +558,6 @@ pub(crate) fn hitscan_hit_detection(
 
     let tick = timeline.tick();
     let is_server = server.single().is_ok();
-    let mode = mode.into_inner();
 
     // check if we should be running hit detection on the server or client
     if is_server {
@@ -833,7 +839,6 @@ fn shoot_hitscan(
             }
             GameReplicationMode::ClientPredictedNoComp
             | GameReplicationMode::ClientPredictedLagComp => {
-                info!("SHOOT");
                 commands.spawn((spawn_bundle, PreSpawned::default()));
             }
             GameReplicationMode::ClientSideHitDetection => {
@@ -1728,5 +1733,7 @@ pub fn player_bundle(client_id: PeerId) -> impl Bundle {
         Weapon::default(),
         WeaponType::default(),
         Name::new("Player"),
+        Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
+
     )
 }
