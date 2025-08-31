@@ -10,7 +10,7 @@ use bevy_ecs::entity::{EntityMapper, hash_map::EntityHashMap};
 use bevy_ecs::world::{EntityWorldMut, World};
 use bevy_reflect::Reflect;
 #[allow(unused_imports)]
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, warn, trace};
 
 const MARKED: u64 = 1 << 62;
 
@@ -30,7 +30,7 @@ impl EntityMapper for EntityMap {
     /// Try to map the entity using the map, or don't do anything if it fails
     fn get_mapped(&mut self, entity: Entity) -> Entity {
         self.0.get(&entity).copied().unwrap_or_else(|| {
-            debug!("Failed to map entity {entity:?}");
+            debug!("Failed to map entity {entity:?}. Map: {self:?}");
             entity
         })
     }
@@ -78,7 +78,7 @@ impl EntityMapper for ReceiveEntityMap {
         } else {
             // if we don't find the entity, return Entity::PLACEHOLDER as an error
             self.0.get(&entity).copied().unwrap_or_else(|| {
-                error!("Failed to map entity {entity:?}");
+                warn!("Failed to map entity {entity:?}");
                 Entity::PLACEHOLDER
             })
         }

@@ -10,7 +10,7 @@ use bevy_ecs::{
     world::DeferredWorld,
 };
 use lightyear_replication::prelude::Replicated;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::manager::InterpolationManager;
 
@@ -46,10 +46,11 @@ pub(crate) fn interpolated_on_add_hook(mut deferred_world: DeferredWorld, contex
         .get::<Interpolated>(interpolated)
         .unwrap()
         .confirmed_entity;
+    // It is possible that by the time the interpolation entity gets spawned, the confirmed entity was despawned?
     // TODO: maybe we need InitialReplicated? in case Replicated gets removed?
     let Some(replicated) = deferred_world.get::<Replicated>(confirmed) else {
         error!(
-            "Could not find the receiver associated with the interpolated entity {:?}",
+            "Add Interpolated. Could not find the receiver associated with the interpolated entity {:?}",
             interpolated
         );
         return;
@@ -70,8 +71,9 @@ pub(crate) fn interpolated_on_remove_hook(mut deferred_world: DeferredWorld, con
         .unwrap()
         .confirmed_entity;
     let Some(replicated) = deferred_world.get::<Replicated>(confirmed) else {
-        error!(
-            "Could not find the receiver associated with the interpolated entity {:?}",
+        // this can happen if the confirmed entity is despawned, which despawns the interpolated entity
+        debug!(
+            "Remove Interpolated. Could not find the receiver associated with the interpolated entity {:?}",
             interpolated
         );
         return;

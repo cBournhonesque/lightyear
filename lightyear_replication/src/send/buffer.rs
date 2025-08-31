@@ -21,8 +21,7 @@ use bevy_ptr::Ptr;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
 #[allow(unused_imports)]
-use tracing::{error, info, info_span, trace, trace_span};
-
+use tracing::{error, debug, info, info_span, trace, trace_span};
 use crate::components::ComponentReplicationOverrides;
 use crate::control::{Controlled, ControlledBy};
 use crate::send::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
@@ -403,7 +402,7 @@ pub(crate) fn buffer_entity_despawn_replicate_updated(
                 .difference(&replicate.senders)
                 .for_each(|sender_entity| {
                     if let Ok(mut sender) = senders.get_mut(*sender_entity) {
-                        trace!(
+                        debug!(
                             ?entity,
                             ?sender_entity,
                             ?replicate,
@@ -430,7 +429,7 @@ pub(crate) fn replicate_entity_despawn(
         .and_then(|v| v.clients.get(&sender_entity))
         .is_some_and(|s| s == &VisibilityState::Lost)
     {
-        trace!(
+        debug!(
             ?entity,
             ?sender_entity,
             "Replicate entity despawn because visibility lost"
@@ -486,7 +485,7 @@ pub(crate) fn replicate_entity_spawn(
     let replicate_like_and_visible = is_replicate_like_added
         && network_visibility.is_none_or(|vis| vis.is_visible(sender_entity));
     if replicate_updated || network_visibility_gained || replicate_like_and_visible {
-        trace!(
+        debug!(
             ?entity,
             ?group_id,
             ?replicate,
@@ -564,7 +563,7 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
     let Ok((group, cached_replicate, network_visibility)) = entity_query.get(root) else {
         return;
     };
-    trace!(?entity, ?cached_replicate, "Buffering entity despawn");
+    debug!(?entity, ?cached_replicate, "Buffering entity despawn");
     // TODO: if ReplicateLike is removed, we need to use the root entity's Replicate
     //  if Replicate is removed, we need to use the CachedReplicate (since Replicate is updated immediately via hook)
     //  for the root_entity and its ReplicateLike children

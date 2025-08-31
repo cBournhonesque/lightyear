@@ -37,7 +37,7 @@ impl<
 {
 }
 
-#[derive(QueryData)]
+#[derive(QueryData, Debug)]
 #[query_data(mutable)]
 /// To bypass the orphan rule, we wrap the ActionState from leafwing_input_manager
 pub struct ActionStateWrapper<A: LeafwingUserAction> {

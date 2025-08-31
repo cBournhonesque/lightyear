@@ -315,6 +315,9 @@ fn get_action_state<S: ActionStateSequence>(
     let (local_timeline, input_timeline, is_rollback) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
     let tick = local_timeline.tick();
+    if is_rollback && config.ignore_rollbacks {
+        return;
+    }
     // TODO!: if config.rebroadcast = False, we don't need to handle remote players, try to encode that statically!
     for (entity, action_state, input_buffer, is_local) in action_state_query.iter_mut() {
         if !is_rollback && is_local && input_delay == 0 {
@@ -342,7 +345,7 @@ fn get_action_state<S: ActionStateSequence>(
         if let Some(snapshot) = input_buffer.get(tick) {
             // TODO: should we decay_tick the snapshot?
 
-            debug!(?is_local, "Updating action_state for tick {tick:?}");
+            trace!(?is_local, "Updating action_state for tick {tick:?}");
             S::from_snapshot(S::State::into_inner(action_state), snapshot);
             trace!(
                 ?entity,
@@ -362,7 +365,7 @@ fn get_action_state<S: ActionStateSequence>(
             // - we are not in rollback, in which case we want to decay the ActionState
             let mut snapshot = S::to_snapshot(S::State::as_read_only(&action_state));
             snapshot.decay_tick(tick_duration.0);
-            debug!(
+            trace!(
                 ?entity,
                 ?tick,
                 "Action = {}, For remote input; no input for tick so we decay the ActionState to: {:?}",
@@ -746,7 +749,7 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
             last_confirmed_input.tick.set_if_lower(end_tick);
         }
     });
-    debug!(
+    trace!(
         kind = ?core::any::type_name::<S::Action>(),
         "Updated LastConfirmedTick to tick {:?}",
         last_confirmed_input.tick.get()

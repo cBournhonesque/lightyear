@@ -109,7 +109,7 @@ pub(crate) fn move_player(
     const PLAYER_MOVE_SPEED: f32 = 5.0;
     if let Ok(mut position) = player.get_mut(trigger.target()) {
         if is_bot.get(trigger.target()).is_err() {
-            info!(
+            trace!(
                 ?position,
                 "Moving player {:?} by {:?}",
                 trigger.target(),
@@ -268,6 +268,13 @@ pub(crate) fn shoot_weapon(
 
         weapon.last_fire_tick = Some(tick);
 
+        info!(
+            ?weapon_type,
+            ?projectile_mode,
+            ?tick,
+            "Player {:?} shooting",
+            shooter
+        );
         // Handle replication mode before shooting
         match (weapon_type, projectile_mode) {
             //
@@ -534,6 +541,7 @@ pub(crate) fn hitscan_hit_detection(
     client_query: Query<&InterpolationDelay, With<ClientOf>>,
     mut player_query: Query<(&mut Score, &PlayerId, Option<&ControlledBy>), With<PlayerMarker>>,
 ) {
+    info!("hi");
     let Ok((hitscan, bullet_marker, id)) = bullet.get(trigger.target()) else {
         return;
     };
@@ -544,8 +552,6 @@ pub(crate) fn hitscan_hit_detection(
     let tick = timeline.tick();
     let is_server = server.single().is_ok();
     let mode = mode.into_inner();
-
-    info!(?hitscan, "Hitscan visual hit detection");
 
     // check if we should be running hit detection on the server or client
     if is_server {
@@ -562,7 +568,7 @@ pub(crate) fn hitscan_hit_detection(
         }
         // TODO: ignore bullets that were fired by other clients
     }
-    info!("Hit detection for hitscan");
+    info!(?hitscan, "Hit detection for hitscan");
 
     match mode {
         GameReplicationMode::ClientPredictedLagComp => {
@@ -827,6 +833,7 @@ fn shoot_hitscan(
             }
             GameReplicationMode::ClientPredictedNoComp
             | GameReplicationMode::ClientPredictedLagComp => {
+                info!("SHOOT");
                 commands.spawn((spawn_bundle, PreSpawned::default()));
             }
             GameReplicationMode::ClientSideHitDetection => {
@@ -1342,7 +1349,7 @@ fn spawn_projectile_from_buffer(
 struct DespawnAfter(pub Timer);
 
 /// Resource to track room entities for each replication mode
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 pub struct Rooms {
     pub rooms: HashMap<GameReplicationMode, Entity>,
 }

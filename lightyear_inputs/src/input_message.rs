@@ -19,7 +19,7 @@ use lightyear_interpolation::plugin::InterpolationDelay;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
 /// Enum indicating the target entity for the input.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
@@ -202,7 +202,7 @@ pub trait ActionStateSequence:
                 }
             }
         }
-        debug!("input buffer after update: {input_buffer:?}");
+        trace!("input buffer after update: {input_buffer:?}");
         earliest_mismatch
     }
 

@@ -191,7 +191,7 @@ impl ActionsMessage {
     }
 }
 
-#[derive(QueryData)]
+#[derive(QueryData, Debug)]
 #[query_data(mutable)]
 pub struct ActionData {
     state: &'static mut ActionState,
@@ -200,6 +200,7 @@ pub struct ActionData {
     time: &'static mut ActionTime,
 }
 
+#[derive(Debug)]
 pub struct ActionDataInnerItem<'w> {
     pub state: &'w mut ActionState,
     pub value: &'w mut ActionValue,

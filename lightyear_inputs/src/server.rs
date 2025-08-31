@@ -1,9 +1,7 @@
 //! Handle input messages received from the clients
 
 use crate::input_buffer::InputBuffer;
-use crate::input_message::{
-    ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut,
-};
+use crate::input_message::{ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut};
 use crate::plugin::InputPlugin;
 use crate::{HISTORY_DEPTH, InputChannel};
 #[cfg(feature = "metrics")]
@@ -19,7 +17,7 @@ use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
     system::{Commands, Query, Res, Single},
 };
-use core::fmt::Formatter;
+use core::fmt::{Debug, Formatter};
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostServer;
@@ -50,8 +48,8 @@ impl<S> Default for ServerInputPlugin<S> {
 }
 
 #[derive(Resource)]
-struct ServerInputConfig<S> {
-    rebroadcast_inputs: bool,
+pub struct ServerInputConfig<S> {
+    pub rebroadcast_inputs: bool,
     pub marker: core::marker::PhantomData<S>,
 }
 
@@ -98,8 +96,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
         if !app.is_plugin_added::<InputPlugin<S>>() {
             app.add_plugins(InputPlugin::<S>::default());
         }
-        app.insert_resource::<ServerInputConfig<S>>(ServerInputConfig::<S> {
-            // TODO: make this changeable dynamically by putting this in a resource?
+        app.insert_resource(ServerInputConfig::<S::Action> {
             rebroadcast_inputs: self.rebroadcast_inputs,
             marker: core::marker::PhantomData,
         });
@@ -139,7 +136,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
 
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<S: ActionStateSequence>(
-    config: Res<ServerInputConfig<S>>,
+    config: Res<ServerInputConfig<S::Action>>,
     server: Query<&Server>,
     // make sure to only rebroadcast inputs to connected clients
     mut sender: ServerMultiMessageSender<With<Connected>>,
@@ -188,7 +185,7 @@ fn receive_input_message<S: ActionStateSequence>(
 
             #[cfg(feature = "prediction")]
             if config.rebroadcast_inputs && let Ok(server) = server.get(server_entity) {
-                trace!("Rebroadcast input message {message:?} from client {client_id:?} with rebroadcaster {rebroadcaster:?}");
+                debug!("Rebroadcast input message {message:?} from client {client_id:?} with rebroadcaster {rebroadcaster:?}");
 
                 match rebroadcaster {
                     None => {

@@ -315,9 +315,7 @@ impl Plugin for ProtocolPlugin {
         )>();
 
         // inputs
-        app.add_plugins(InputPlugin::<PlayerContext>::new(InputConfig::<
-            PlayerContext,
-        > {
+        app.add_plugins(InputPlugin::new(InputConfig::<PlayerContext> {
             // enable lag compensation; the input messages sent to the server will include the
             // interpolation delay of that client
             lag_compensation: true,
@@ -330,7 +328,11 @@ impl Plugin for ProtocolPlugin {
         app.register_input_action::<Shoot>();
         app.register_input_action::<CycleWeapon>();
 
-        app.add_plugins(InputPlugin::<ClientContext, PreUpdate>::default());
+        app.add_plugins(InputPlugin::new(InputConfig::<ClientContext> {
+            // we don't want these actions to be replayed when a rollback happens
+            ignore_rollbacks: true,
+            ..default()
+        }));
         app.register_input_action::<CycleProjectileMode>();
         app.register_input_action::<CycleReplicationMode>();
 
@@ -376,6 +378,8 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Bot>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
+
+        app.register_component::<Score>();
 
         app.register_component::<PredictedBot>()
             .add_prediction(PredictionMode::Once)

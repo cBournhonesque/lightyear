@@ -84,7 +84,7 @@ impl InputRegistryPlugin {
         {
             // we replicate using the confirmed entity so that the server can map it to the server entity
             let context_entity = predicted.map_or(action_of.get(), |p| p.confirmed_entity.unwrap());
-            debug!(action_entity = ?entity, "Replicating ActionOf<{:?}> for context entity {context_entity:?} from client to server", core::any::type_name::<C>());
+            debug!(action_entity = ?entity, "Replicating ActionOf<{:?}> for confirmed entity {context_entity:?} from client to server", core::any::type_name::<C>());
             commands.entity(entity).insert((
                 ActionOfWrapper::<C>::new(context_entity),
                 Replicate::to_server(),
@@ -112,6 +112,7 @@ impl InputRegistryPlugin {
                 .entity(entity)
                 .insert(ActionOf::<C>::new(wrapper.context))
                 .remove::<Replicated>();
+            debug!(?entity, context = ?core::any::type_name::<C>(), "Server received action entity");
 
             // If rebroadcast_inputs is enabled, set up replication to other clients
             if config.rebroadcast_inputs {
@@ -160,6 +161,10 @@ impl InputRegistryPlugin {
                     .remove::<ActionOfWrapper<C>>();
                 // remove the Context from the confirmed entity, since we the predicted entity is what matters
                 commands.entity(action_of_wrapper.context).remove_with_requires::<C>();
+            } else {
+                // we don't have a Predicted entity to attach this action to, just despawn
+                commands.entity(entity)
+                    .despawn();
             }
         });
     }

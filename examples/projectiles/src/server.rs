@@ -7,13 +7,16 @@ use bevy::input::InputPlugin;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use bevy_enhanced_input::EnhancedInputSet;
-use bevy_enhanced_input::prelude::{Actions, Completed, Started};
+use bevy_enhanced_input::action::Action;
+use bevy_enhanced_input::prelude::{ActionOf, Actions, Completed, Started};
 use core::net::SocketAddr;
 use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
 use lightyear::core::tick::TickDuration;
 use lightyear::crossbeam::CrossbeamIo;
+use lightyear::input::config::InputConfig;
+use lightyear::input::server::ServerInputConfig;
 use lightyear::interpolation::plugin::InterpolationDelay;
 use lightyear::netcode::NetcodeClient;
 use lightyear::prelude::server::*;
@@ -99,7 +102,7 @@ pub(crate) fn spawn_player(
     let client_id = client_id.0;
     info!("Spawning player with id: {}", client_id);
 
-    for i in 0..1 {
+    for i in 0..6 {
         let replication_mode = GameReplicationMode::from_room_id(i);
         let room = *rooms.rooms.entry(replication_mode).or_insert_with(|| {
             commands
@@ -400,18 +403,42 @@ pub fn cycle_replication_mode(
     trigger: Trigger<Completed<CycleReplicationMode>>,
     global: Single<&mut GameReplicationMode, With<ClientContext>>,
     rooms: Res<Rooms>,
+    mut input_config: ResMut<ServerInputConfig<PlayerContext>>,
     clients: Query<Entity, With<ClientOf>>,
+    room: Query<&Room>,
     mut commands: Commands,
 ) {
     let mut replication_mode = global.into_inner();
     let current_mode = *replication_mode;
     *replication_mode = replication_mode.next();
 
+    // only rebroadcast if clients predict other clients
+    match replication_mode.as_ref() {
+        GameReplicationMode::AllPredicted | GameReplicationMode::OnlyInputsReplicated => {
+            info!("Setting rebroadcast inputs to True");
+            input_config.rebroadcast_inputs = true;
+        }
+        _ => {
+            info!("Setting rebroadcast inputs to False");
+            input_config.rebroadcast_inputs = false;
+        }
+    }
+
     // Move all clients from current room to next room
     if let (Some(current_room), Some(next_room)) = (
         rooms.rooms.get(&current_mode),
         rooms.rooms.get(&*replication_mode),
     ) {
+        // also manually remove the Actions of the players present in the existing room
+        // (otherwise we might still be sending input messages for those actions even though the clients
+        //  have despawned the corresponding player entities)
+        if let Ok(room) = room.get(*current_room) {
+            room.entities.iter().for_each(|player| {
+                commands
+                    .entity(*player)
+                    .despawn_related::<Actions<PlayerContext>>();
+            })
+        }
         for client_entity in clients.iter() {
             commands.trigger_targets(RoomEvent::RemoveSender(client_entity), *current_room);
             commands.trigger_targets(RoomEvent::AddSender(client_entity), *next_room);
