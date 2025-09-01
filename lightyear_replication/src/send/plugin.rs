@@ -168,7 +168,7 @@ impl ReplicationSendPlugin {
             let send_interval_delta = TickDelta::from_duration(send_interval, tick_duration.0);
             let metadata = SenderMetadata {
                 send_interval: send_interval_delta.into(),
-                sender_entity: sender_entity,
+                sender_entity,
             };
             trigger_sender.trigger::<MetadataChannel>(metadata);
         }

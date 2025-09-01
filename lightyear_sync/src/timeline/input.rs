@@ -240,7 +240,7 @@ impl InputDelayConfig {
 /// Timeline that is used to keep track of when the client should buffer inputs.
 ///
 /// This timeline is synced with the server timeline, and is the main driving timeline:
-/// any speed adjustments applied to this timeline will also be applied to the Time<Virtual> timeline.
+/// any speed adjustments applied to this timeline will also be applied to the `Time<Virtual>` timeline.
 /// (and will therefore affect how fast the FixedUpdate loop runs, and how ticks are incremented)
 ///
 /// This timeline is updated in PreUpdate; it CANNOT be used to get accurate `tick` in PreUpdate;

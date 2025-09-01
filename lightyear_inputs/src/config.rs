@@ -4,7 +4,7 @@ use core::time::Duration;
 use bevy_ecs::resource::Resource;
 use bevy_reflect::Reflect;
 
-// TODO: make this a component ?
+// TODO: add builder functions on InputPlugin to add
 #[derive(Debug, Reflect, Resource)]
 pub struct InputConfig<A> {
     #[cfg(feature = "interpolation")]
@@ -21,6 +21,10 @@ pub struct InputConfig<A> {
     /// How often do we send input messages to the server?
     /// Duration::default() means that we will send input messages every frame.
     pub send_interval: Duration,
+    /// If true, the actions won't be rolled back when a rollback happens.
+    ///
+    /// This can be useful for actions that should not be replayed, for example settings-related actions.
+    pub ignore_rollbacks: bool,
     #[cfg(feature = "prediction")]
     /// If True, the server will rebroadcast a client's inputs to all other clients.
     ///
@@ -45,6 +49,7 @@ impl<A> Default for InputConfig<A> {
             lag_compensation: false,
             packet_redundancy: 10,
             send_interval: Duration::default(),
+            ignore_rollbacks: false,
             #[cfg(feature = "prediction")]
             rebroadcast_inputs: false,
             marker: PhantomData,

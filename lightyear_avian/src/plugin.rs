@@ -93,7 +93,13 @@ impl Plugin for LightyearAvianPlugin {
                     (
                         FrameInterpolationSet::Interpolate,
                         RollbackSet::VisualCorrection,
-                        // In case the user is running FrameInterpolation for Position/Rotation, we run FrameInterpolation and Correction before syncing to Transform
+                        // In case the user is running FrameInterpolation or Correction for Position/Rotation,
+                        // we need to sync the result from FrameInterpolation/Correction to Transform
+                        //
+                        // This is necessary since the only sources of sync in avian are:
+                        // - Hooks for Transform <-> Position
+                        // - RequiredComponents for Position -> Transform
+                        // - Systems from PhysicsTransformPlugin (in FixedPostUpdate)
                         PhysicsSet::Sync,
                         TransformSystem::TransformPropagate,
                     )

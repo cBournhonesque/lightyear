@@ -4,6 +4,7 @@ use bevy_ecs::entity::{EntityMapper, MapEntities};
 use bevy_reflect::{FromReflect, Reflect, Reflectable};
 use core::cmp::max;
 use core::fmt::Debug;
+use core::time::Duration;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
@@ -20,7 +21,7 @@ pub struct NativeStateSequence<A> {
 impl<A: Debug + PartialEq + Clone + Send + Sync + 'static> InputSnapshot for ActionState<A> {
     type Action = A;
 
-    fn decay_tick(&mut self) {}
+    fn decay_tick(&mut self, tick_duration: Duration) {}
 }
 
 impl<A> IntoIterator for NativeStateSequence<A> {
@@ -132,6 +133,7 @@ impl<A: MapEntities> MapEntities for NativeStateSequence<A> {
 mod tests {
     use super::*;
     use alloc::collections::VecDeque;
+    use std::time::Duration;
 
     #[test]
     fn test_build_sequence_from_buffer() {
@@ -185,7 +187,11 @@ mod tests {
                 InputData::SameAsPrecedent,
             ],
         };
-        sequence.update_buffer(&mut input_buffer, Tick(20));
+        sequence.update_buffer(
+            &mut input_buffer,
+            Tick(20),
+            TickDuration(Duration::default()),
+        );
         assert_eq!(input_buffer.get(Tick(20)), None,);
         assert_eq!(input_buffer.get(Tick(19)), None,);
         assert_eq!(input_buffer.get(Tick(18)), None,);
@@ -222,7 +228,11 @@ mod tests {
                 InputData::Input(1),
             ],
         };
-        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(14));
+        let mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(14),
+            TickDuration(Duration::default()),
+        );
         assert_eq!(mismatch, Some(Tick(14)));
         assert_eq!(input_buffer.get(Tick(14)), Some(&ActionState(1)));
         assert_eq!(input_buffer.get(Tick(13)), Some(&ActionState(0)));
@@ -252,7 +262,11 @@ mod tests {
                 InputData::SameAsPrecedent,
             ],
         };
-        sequence.update_buffer(&mut input_buffer, Tick(12));
+        sequence.update_buffer(
+            &mut input_buffer,
+            Tick(12),
+            TickDuration(Duration::default()),
+        );
         assert_eq!(input_buffer.get(Tick(12)), None);
         assert_eq!(input_buffer.get(Tick(11)), None);
         assert_eq!(input_buffer.get(Tick(10)), Some(&ActionState(0)));
@@ -274,7 +288,11 @@ mod tests {
                 InputData::SameAsPrecedent,
             ],
         };
-        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(11));
+        let mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(11),
+            TickDuration(Duration::default()),
+        );
         assert_eq!(mismatch, None);
         assert_eq!(input_buffer.get(Tick(11)), None);
         assert_eq!(input_buffer.get(Tick(10)), None);

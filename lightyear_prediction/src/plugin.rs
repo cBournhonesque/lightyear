@@ -15,6 +15,7 @@ use crate::predicted_history::{
 };
 use crate::prespawn::{PreSpawned, PreSpawnedPlugin};
 use crate::registry::PredictionRegistry;
+use crate::rollback::DisabledDuringRollback;
 use crate::{
     Predicted, PredictionMode, SyncComponent, predicted_on_add_hook, predicted_on_remove_hook,
 };
@@ -232,7 +233,13 @@ impl Plugin for PredictionPlugin {
         app.add_observer(PredictionManager::handle_tick_sync);
 
         // Custom entity disabling
+        let rollback_disable_id = app
+            .world_mut()
+            .register_component::<DisabledDuringRollback>();
         let prediction_disable_id = app.world_mut().register_component::<PredictionDisable>();
+        app.world_mut()
+            .resource_mut::<DefaultQueryFilters>()
+            .register_disabling_component(rollback_disable_id);
         app.world_mut()
             .resource_mut::<DefaultQueryFilters>()
             .register_disabling_component(prediction_disable_id);

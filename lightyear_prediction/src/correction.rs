@@ -91,8 +91,9 @@ pub(crate) fn update_frame_interpolation_post_rollback<C: SyncComponent + Diffab
     let overstep = time.overstep_fraction();
     let tick = timeline.tick();
     for (entity, component, previous_visual, history, mut interpolate) in query.iter_mut() {
+        // compute the new visual value post-rollback but interpolating between the last 2 states of the history
         interpolate.current_value = Some(component.clone());
-        interpolate.previous_value = history.nth_most_recent(1).cloned();
+        interpolate.previous_value = history.second_most_recent(tick).cloned();
         let Some(previous) = &interpolate.previous_value else {
             continue;
         };
@@ -105,6 +106,8 @@ pub(crate) fn update_frame_interpolation_post_rollback<C: SyncComponent + Diffab
             ?current_visual,
             ?previous_visual,
             ?error,
+            // two_previous_values = ?interpolate,
+            // ?history,
             "Updating VisualCorrection post rollback for {:?}",
             core::any::type_name::<C>()
         );
@@ -144,6 +147,8 @@ pub(crate) fn add_visual_correction<C: SyncComponent + Diffable<Delta = C>>(
                 interpolation.interpolate(C::base_value(), visual_correction.error.clone(), r);
             component.bypass_change_detection().apply_diff(&error);
             trace!(
+                ?entity,
+                ?component,
                 previous = ?visual_correction,
                 new = ?error,
                 ?r,

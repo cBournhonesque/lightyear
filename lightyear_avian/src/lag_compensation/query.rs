@@ -1,17 +1,18 @@
 //! Provides a system parameter for performing spatial queries while doing lag compensation.
 use core::cell::RefCell;
 
-use super::history::{AabbEnvelopeHolder, LagCompensationConfig, LagCompensationHistory};
+use super::history::{AabbEnvelopeHolder, LagCompensationHistory};
 use bevy_ecs::{
     entity::Entity,
     hierarchy::ChildOf,
     query::With,
-    system::{Query, Res, Single, SystemParam},
+    system::{Query, SystemParam},
 };
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_interpolation::plugin::InterpolationDelay;
 use lightyear_link::prelude::Server;
-use tracing::{debug, error};
+#[allow(unused_imports)]
+use tracing::{debug, error, info};
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use {
     avian2d::{math::*, prelude::*},
@@ -29,10 +30,17 @@ use {
 /// Systems using this parameter should run after the [`LagCompensationSet::UpdateHistory`](super::history::LagCompensationSet) set.
 #[derive(SystemParam)]
 pub struct LagCompensationSpatialQuery<'w, 's> {
-    pub timeline: Single<'w, &'static LocalTimeline, With<Server>>,
-    pub config: Res<'w, LagCompensationConfig>,
+    pub timeline: Query<'w, 's, &'static LocalTimeline, With<Server>>,
     spatial_query: SpatialQuery<'w, 's>,
-    parent_query: Query<'w, 's, (&'static Collider, &'static LagCompensationHistory)>,
+    parent_query: Query<
+        'w,
+        's,
+        (
+            &'static Collider,
+            &'static CollisionLayers,
+            &'static LagCompensationHistory,
+        ),
+    >,
     child_query: Query<'w, 's, &'static ChildOf, With<AabbEnvelopeHolder>>,
 }
 
@@ -73,7 +81,8 @@ impl LagCompensationSpatialQuery<'_, '_> {
         filter: &mut SpatialQueryFilter,
     ) -> Option<RayHitData> {
         // 1): check if the ray hits the aabb envelope
-        let tick = self.timeline.tick();
+        let timeline = self.timeline.single().ok()?;
+        let tick = timeline.tick();
         // we use interior mutability because the predicate must be a `dyn Fn`
         let exact_hit_data: RefCell<Option<RayHitData>> = RefCell::new(None);
         self.spatial_query.cast_ray_predicate(
@@ -81,6 +90,8 @@ impl LagCompensationSpatialQuery<'_, '_> {
             direction,
             max_distance,
             solid,
+            // TODO: the user could have excluded the Parent entity from the filter, which would do nothing
+            //  since we are checking collisions with the child!
             filter,
             &|child| {
                 // 2) there is a hit! Check if we hit the collider from the history
@@ -91,11 +102,16 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     return false;
                 };
                 let parent = parent_component.parent();
-                debug!("Broadphase hit with {child:?}");
-                let (collider, history) = self
+                debug!(?parent, ?filter, "Broadphase hit with {child:?}");
+                let (collider, collision_layers, history) = self
                     .parent_query
                     .get(parent)
                     .expect("the parent must have a history");
+                // the collisions are done with the lag compensation collider; make sure that the parent is not excluded
+                if !filter.test(parent, *collision_layers) {
+                    debug!("Collider entity {parent:?} with layers {collision_layers:?} excluded because of filter");
+                    return false;
+                }
                 let (interpolation_tick, interpolation_overstep) =
                     interpolation_delay.tick_and_overstep(tick);
 

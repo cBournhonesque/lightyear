@@ -3,7 +3,7 @@
 //!
 //! The flow is:
 //! - PreUpdate:
-//!   - rollback check. We store the previous Position/Rotation in PreviousVisual<Position>/PreviousVisual<Rotation>
+//!   - rollback check. We store the previous Position/Rotation in `PreviousVisual<Position>`/`PreviousVisual<Rotation>`
 //!   - apply rollback
 //!   - end rollback
 //!     - set current/previous values to be the last 2 values from the history
@@ -14,17 +14,17 @@
 //! - FixedUpdate:
 //!   - Run Physics simulation
 //!   - Sync Position/Rotation to Transform
-//!   - Update FrameInterpolation<Transform> with the new Transform value
+//!   - Update `FrameInterpolation<Transform>` with the new Transform value
 //! - PostUpdate:
-//!   - interpolate with FrameInterpolation<Transform>
-//!   - apply VisualCorrection<Transform> if present
+//!   - interpolate with `FrameInterpolation<Transform>`
+//!   - apply `VisualCorrection<Transform>` if present
 //!   - apply TransformPropagation
 //!
-//! If the user is running FrameInterpolation<Transform>, we need to either:
+//! If the user is running `FrameInterpolation<Transform>`, we need to either:
 //! - in end_rollback, compute the error in Position/Rotation space, then convert it to Transform space? How do we handle the Local/Global transform?
 //! - or in end_rollback, compute the error in Position/Rotation space.
 //!
-//! Id the user is running FrameInterpolation<GlobalTransform>, we can:
+//! Id the user is running `FrameInterpolation<GlobalTransform>`, we can:
 //! -
 use bevy_app::prelude::*;
 

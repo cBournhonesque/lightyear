@@ -19,7 +19,7 @@ use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
     system::{Commands, Query, Res, Single},
 };
-use core::fmt::Formatter;
+use core::fmt::{Debug, Formatter};
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostServer;
@@ -27,6 +27,7 @@ use lightyear_connection::prelude::NetworkTarget;
 use lightyear_connection::server::Started;
 use lightyear_core::id::RemoteId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::tick::TickDuration;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
@@ -49,8 +50,8 @@ impl<S> Default for ServerInputPlugin<S> {
 }
 
 #[derive(Resource)]
-struct ServerInputConfig<S> {
-    rebroadcast_inputs: bool,
+pub struct ServerInputConfig<S> {
+    pub rebroadcast_inputs: bool,
     pub marker: core::marker::PhantomData<S>,
 }
 
@@ -97,8 +98,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
         if !app.is_plugin_added::<InputPlugin<S>>() {
             app.add_plugins(InputPlugin::<S>::default());
         }
-        app.insert_resource::<ServerInputConfig<S>>(ServerInputConfig::<S> {
-            // TODO: make this changeable dynamically by putting this in a resource?
+        app.insert_resource(ServerInputConfig::<S::Action> {
             rebroadcast_inputs: self.rebroadcast_inputs,
             marker: core::marker::PhantomData,
         });
@@ -138,9 +138,11 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
 
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<S: ActionStateSequence>(
-    config: Res<ServerInputConfig<S>>,
+    config: Res<ServerInputConfig<S::Action>>,
     server: Query<&Server>,
-    mut sender: ServerMultiMessageSender,
+    // make sure to only rebroadcast inputs to connected clients
+    mut sender: ServerMultiMessageSender<With<Connected>>,
+    tick_duration: Res<TickDuration>,
     rooms: Query<&Room>,
     mut receivers: Query<
         (
@@ -185,7 +187,7 @@ fn receive_input_message<S: ActionStateSequence>(
 
             #[cfg(feature = "prediction")]
             if config.rebroadcast_inputs && let Ok(server) = server.get(server_entity) {
-                trace!("Rebroadcast input message {message:?} from client {client_id:?} with rebroadcaster {rebroadcaster:?}");
+                debug!("Rebroadcast input message {message:?} from client {client_id:?} with rebroadcaster {rebroadcaster:?}");
 
                 match rebroadcaster {
                     None => {
@@ -234,11 +236,11 @@ fn receive_input_message<S: ActionStateSequence>(
                                     buffer.as_ref(),
                                     data.states
                                 );
-                                data.states.update_buffer(&mut buffer, message.end_tick);
+                                data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
                             } else {
                                 debug!("Adding InputBuffer and ActionState which are missing on the entity");
                                 let mut buffer = InputBuffer::<S::Snapshot>::default();
-                                data.states.update_buffer(&mut buffer, message.end_tick);
+                                data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
                                 commands.entity(entity).insert((
                                     buffer,
                                     S::State::base_value()
@@ -321,5 +323,6 @@ fn update_action_state<S: ActionStateSequence>(
         // we keep the current value in the InputBuffer so that if future messages are lost, we can still
         // fallback on the last known value
         input_buffer.pop(tick - history_depth);
+        // info!("Buffer lenght: {}", input_buffer.len());
     }
 }

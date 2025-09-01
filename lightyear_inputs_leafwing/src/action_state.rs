@@ -37,7 +37,7 @@ impl<
 {
 }
 
-#[derive(QueryData)]
+#[derive(QueryData, Debug)]
 #[query_data(mutable)]
 /// To bypass the orphan rule, we wrap the ActionState from leafwing_input_manager
 pub struct ActionStateWrapper<A: LeafwingUserAction> {
@@ -50,9 +50,9 @@ impl<A: LeafwingUserAction> ActionStateQueryData for ActionStateWrapper<A> {
     type Main = ActionState<A>;
     type Bundle = ActionState<A>;
 
-    fn as_read_only<'w, 'a: 'w>(
+    fn as_read_only<'a, 'w: 'a>(
         state: &'a ActionStateWrapperItem<'w, A>,
-    ) -> ActionStateWrapperReadOnlyItem<'w, A> {
+    ) -> ActionStateWrapperReadOnlyItem<'a, A> {
         ActionStateWrapperReadOnlyItem {
             inner: &state.inner,
         }

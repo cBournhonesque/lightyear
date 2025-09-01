@@ -1,12 +1,19 @@
+use crate::components::ComponentReplicationOverrides;
+use crate::control::{Controlled, ControlledBy};
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
 use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
+use crate::send::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
+use crate::send::components::{
+    CachedReplicate, Replicate, Replicating, ReplicationGroup, ReplicationGroupId,
+};
 #[cfg(feature = "interpolation")]
 use crate::send::components::{InterpolationTarget, ShouldBeInterpolated};
 #[cfg(feature = "prediction")]
 use crate::send::components::{PredictionTarget, ShouldBePredicted};
+use crate::send::sender::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 use bevy_ecs::component::Components;
 use bevy_ecs::prelude::*;
@@ -18,17 +25,6 @@ use bevy_ecs::{
     world::{FilteredEntityMut, FilteredEntityRef, OnRemove, Ref},
 };
 use bevy_ptr::Ptr;
-#[cfg(feature = "trace")]
-use tracing::{Level, instrument};
-use tracing::{error, info_span, trace};
-
-use crate::components::ComponentReplicationOverrides;
-use crate::control::{Controlled, ControlledBy};
-use crate::send::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
-use crate::send::components::{
-    CachedReplicate, Replicate, Replicating, ReplicationGroup, ReplicationGroupId,
-};
-use crate::send::sender::ReplicationSender;
 use lightyear_connection::client::Connected;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
@@ -36,6 +32,10 @@ use lightyear_link::prelude::Server;
 use lightyear_link::server::LinkOf;
 use lightyear_messages::MessageManager;
 use lightyear_serde::entity_map::RemoteEntityMap;
+#[cfg(feature = "trace")]
+use tracing::{Level, instrument};
+#[allow(unused_imports)]
+use tracing::{debug, error, info, info_span, trace, trace_span};
 
 /// Keep a cached version of the [`Replicate`] component so that when it gets updated
 /// we can compute a diff from the previous value.
@@ -86,7 +86,7 @@ pub(crate) fn replicate(
     // past ticks where the component changes.
     manager_query.par_iter_mut().for_each(
         |(sender_entity, mut sender, mut message_manager, timeline, delta_manager, link_of)| {
-            let _span = info_span!("replicate", sender = ?sender_entity).entered();
+            let _span = trace_span!("replicate", sender = ?sender_entity).entered();
             // delta: either the delta manager is present on the sender directly (Client)
             // or the delta is on the server
             let delta = delta_manager
@@ -124,6 +124,7 @@ pub(crate) fn replicate(
                     trace!("Replicated Entity {:?} not found in entity_query", entity);
                     return;
                 };
+                let _root_span = trace_span!("root", ?entity).entered();
                 replicate_entity(
                     entity,
                     tick,
@@ -138,6 +139,7 @@ pub(crate) fn replicate(
                 );
                 if let Some(children) = root_entity_ref.get::<ReplicateLikeChildren>() {
                     for child in children.collection() {
+                        let _child_span = trace_span!("child", ?child).entered();
                         let child_entity_ref = entity_query.get(*child).unwrap();
                         replicate_entity(
                             *child,
@@ -154,7 +156,6 @@ pub(crate) fn replicate(
                     }
                 }
             }
-
         },
     );
 }
@@ -401,7 +402,7 @@ pub(crate) fn buffer_entity_despawn_replicate_updated(
                 .difference(&replicate.senders)
                 .for_each(|sender_entity| {
                     if let Ok(mut sender) = senders.get_mut(*sender_entity) {
-                        trace!(
+                        debug!(
                             ?entity,
                             ?sender_entity,
                             ?replicate,
@@ -428,7 +429,7 @@ pub(crate) fn replicate_entity_despawn(
         .and_then(|v| v.clients.get(&sender_entity))
         .is_some_and(|s| s == &VisibilityState::Lost)
     {
-        trace!(
+        debug!(
             ?entity,
             ?sender_entity,
             "Replicate entity despawn because visibility lost"
@@ -484,7 +485,7 @@ pub(crate) fn replicate_entity_spawn(
     let replicate_like_and_visible = is_replicate_like_added
         && network_visibility.is_none_or(|vis| vis.is_visible(sender_entity));
     if replicate_updated || network_visibility_gained || replicate_like_and_visible {
-        trace!(
+        debug!(
             ?entity,
             ?group_id,
             ?replicate,
@@ -562,7 +563,7 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
     let Ok((group, cached_replicate, network_visibility)) = entity_query.get(root) else {
         return;
     };
-    trace!(?entity, ?cached_replicate, "Buffering entity despawn");
+    debug!(?entity, ?cached_replicate, "Buffering entity despawn");
     // TODO: if ReplicateLike is removed, we need to use the root entity's Replicate
     //  if Replicate is removed, we need to use the CachedReplicate (since Replicate is updated immediately via hook)
     //  for the root_entity and its ReplicateLike children

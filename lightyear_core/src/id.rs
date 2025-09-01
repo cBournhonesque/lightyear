@@ -1,5 +1,5 @@
 //! Module to handle the various possible ClientIds
-use core::fmt::Formatter;
+use core::fmt::{Display, Formatter};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -15,11 +15,23 @@ use bevy_reflect::Reflect;
 )]
 pub struct LocalId(pub PeerId);
 
+impl Display for LocalId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
 /// Stores the PeerId of the remote peer that we are connected to
 #[derive(
     Debug, Component, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect, Deref,
 )]
 pub struct RemoteId(pub PeerId);
+
+impl Display for RemoteId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&self.0, f)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum PeerId {

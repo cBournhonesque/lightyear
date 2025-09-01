@@ -19,7 +19,6 @@ pub enum ReplicationSet {
     // PRE UPDATE
     /// Receive replication messages and apply them to the World
     Receive,
-    ReceiveRelationships,
 
     // PostUpdate
     /// Flush the messages buffered in the Link to the io

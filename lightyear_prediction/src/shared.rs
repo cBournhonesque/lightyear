@@ -17,7 +17,7 @@ impl Plugin for SharedPlugin {
         app.register_component::<Controlled>()
             .add_prediction(PredictionMode::Once);
         app.register_component::<ChildOf>()
-            .add_immutable_prediction(PredictionMode::Once);
+            .add_immutable_prediction(PredictionMode::Simple);
         app.register_component::<PreSpawned>();
         app.register_component::<PrePredicted>();
     }
