@@ -6,6 +6,7 @@ use crate::send::Priority;
 use crate::send_trigger::TriggerSender;
 use crate::trigger::TriggerRegistration;
 use bevy_ecs::entity::Entity;
+use bevy_ecs::query::QueryFilter;
 use bevy_ecs::{
     error::Result,
     event::Event,
@@ -22,12 +23,12 @@ use lightyear_transport::channel::Channel;
 use tracing::error;
 
 #[derive(SystemParam)]
-pub struct ServerMultiMessageSender<'w, 's> {
-    sender: MultiMessageSender<'w, 's>,
+pub struct ServerMultiMessageSender<'w, 's, F: QueryFilter + 'static = ()> {
+    sender: MultiMessageSender<'w, 's, F>,
     metadata: Res<'w, PeerMetadata>,
 }
 
-impl ServerMultiMessageSender<'_, '_> {
+impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
     pub fn send<M: Message, C: Channel>(
         &mut self,
         message: &M,

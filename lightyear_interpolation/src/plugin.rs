@@ -1,18 +1,19 @@
 use super::interpolation_history::{
-    add_component_history, apply_confirmed_update_immutable_mode_simple,
-    apply_confirmed_update_mode_full, apply_confirmed_update_mode_simple,
+    apply_confirmed_update_immutable_mode_simple, apply_confirmed_update_mode_full,
+    apply_confirmed_update_mode_simple,
 };
 use crate::despawn::{despawn_interpolated, removed_components};
 use crate::interpolate::{insert_interpolated_component, interpolate, update_interpolate_status};
 use crate::prelude::InterpolationRegistrationExt;
 use crate::registry::InterpolationRegistry;
 use crate::spawn::spawn_interpolated_entity;
+use crate::sync::SyncPlugin;
 use crate::timeline::TimelinePlugin;
 use crate::{
     Interpolated, InterpolationMode, SyncComponent, interpolated_on_add_hook,
     interpolated_on_remove_hook,
 };
-use bevy_app::{App, Plugin, Update};
+use bevy_app::{App, Plugin, PreUpdate, Update};
 use bevy_ecs::hierarchy::ChildOf;
 use bevy_ecs::{
     component::Component,
@@ -78,11 +79,12 @@ pub struct InterpolationPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InterpolationSet {
-    // Update Sets,
+    // PreUpdate Sets,
     /// Spawn interpolation entities,
     Spawn,
-    /// Add component history for all interpolated entities' interpolated components
-    SpawnHistory,
+    /// Sync components from the confirmed to the interpolated entity, and insert the ConfirmedHistory
+    Sync,
+    // Update
     /// Update component history, interpolation status
     Prepare,
     /// Interpolate between last 2 server states. Has to be overridden if
@@ -98,12 +100,7 @@ pub(crate) fn add_immutable_prepare_interpolation_systems<C: Component + Clone>(
     app: &mut App,
     interpolation_mode: InterpolationMode,
 ) {
-    // TODO: maybe run this in PostUpdate?
     // TODO: maybe create an overarching prediction set that contains all others?
-    app.add_systems(
-        Update,
-        add_component_history::<C>.in_set(InterpolationSet::SpawnHistory),
-    );
     app.add_observer(removed_components::<C>);
     match interpolation_mode {
         InterpolationMode::Full => {
@@ -124,12 +121,7 @@ pub(crate) fn add_prepare_interpolation_systems<C: SyncComponent>(
     app: &mut App,
     interpolation_mode: InterpolationMode,
 ) {
-    // TODO: maybe run this in PostUpdate?
     // TODO: maybe create an overarching prediction set that contains all others?
-    app.add_systems(
-        Update,
-        add_component_history::<C>.in_set(InterpolationSet::SpawnHistory),
-    );
     app.add_observer(removed_components::<C>);
     match interpolation_mode {
         InterpolationMode::Full => {
@@ -168,6 +160,7 @@ pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TimelinePlugin);
+        app.add_plugins(SyncPlugin);
 
         // RESOURCES
         app.init_resource::<InterpolationRegistry>();
@@ -176,7 +169,7 @@ impl Plugin for InterpolationPlugin {
         app.register_component::<Controlled>()
             .add_interpolation(InterpolationMode::Once);
         app.register_component::<ChildOf>()
-            .add_immutable_interpolation(InterpolationMode::Once);
+            .add_immutable_interpolation(InterpolationMode::Simple);
 
         // HOOKS
         // TODO: add tests for these!
@@ -194,10 +187,14 @@ impl Plugin for InterpolationPlugin {
 
         // SETS
         app.configure_sets(
+            PreUpdate,
+            (InterpolationSet::Spawn, InterpolationSet::Sync)
+                .in_set(InterpolationSet::All)
+                .chain(),
+        );
+        app.configure_sets(
             Update,
             (
-                InterpolationSet::Spawn,
-                InterpolationSet::SpawnHistory,
                 // PrepareInterpolation uses the sync values (which are used to compute interpolation)
                 InterpolationSet::Prepare.after(SyncSet::Sync),
                 InterpolationSet::Interpolate,
@@ -205,10 +202,9 @@ impl Plugin for InterpolationPlugin {
                 .in_set(InterpolationSet::All)
                 .chain(),
         );
-        app.configure_sets(Update, InterpolationSet::All);
         // SYSTEMS
         app.add_systems(
-            Update,
+            PreUpdate,
             spawn_interpolated_entity.in_set(InterpolationSet::Spawn),
         );
         app.add_observer(despawn_interpolated);

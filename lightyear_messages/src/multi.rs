@@ -1,6 +1,7 @@
 use crate::registry::MessageRegistry;
 use crate::send::Priority;
 use crate::{Message, MessageManager};
+use bevy_ecs::query::QueryFilter;
 use bevy_ecs::{
     entity::EntitySet,
     error::{BevyError, Result},
@@ -15,15 +16,15 @@ use lightyear_transport::prelude::Transport;
 /// 1) sending a message to multiple remote peers at the same time
 /// 2) send a message without needing to clone it
 #[derive(SystemParam)]
-pub struct MultiMessageSender<'w, 's> {
-    pub(crate) query: Query<'w, 's, (&'static mut MessageManager, &'static mut Transport)>,
+pub struct MultiMessageSender<'w, 's, F: QueryFilter + 'static = ()> {
+    pub(crate) query: Query<'w, 's, (&'static mut MessageManager, &'static mut Transport), F>,
     pub(crate) registry: Res<'w, MessageRegistry>,
     // TODO: should we let users provide their own Writer?
     pub(crate) writer: Local<'s, Writer>,
 }
 
 // TODO: add MultiTriggerSender?
-impl MultiMessageSender<'_, '_> {
+impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
     // Note: for the host-client we will also serialize the bytes and buffer then in the Transport's senders
     //  In the recv() function we will directly read the bytes from the Transport's senders
     pub fn send_with_priority<M: Message, C: Channel>(

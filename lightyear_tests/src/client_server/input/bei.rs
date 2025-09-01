@@ -10,11 +10,18 @@ use lightyear::input::bei::input_message::{ActionData, ActionsSnapshot, BEIState
 use lightyear::input::input_buffer::InputBuffer;
 use lightyear::input::input_message::ActionStateQueryData;
 use lightyear::input::input_message::ActionStateSequence;
+use lightyear::input::native::prelude::InputMarker;
 use lightyear_connection::client::Client;
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick, Timeline};
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Rollback, Tick, Timeline};
+use lightyear_link::Link;
+use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
-use lightyear_replication::prelude::Replicate;
+use lightyear_prediction::diagnostics::PredictionMetrics;
+use lightyear_prediction::manager::PredictionManager;
+use lightyear_prediction::prelude::DeterministicPredicted;
+use lightyear_replication::components::Confirmed;
+use lightyear_replication::prelude::{PredictionTarget, Replicate};
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::{Input, InputDelayConfig};
 use test_log::test;
@@ -357,4 +364,196 @@ fn test_client_rollback() {
 
     // Do the rollback
     stepper.frame_step(1);
+}
+
+/// Test remote client inputs: we should be using the last known input value of the remote client, for better prediction accuracy!
+/// Then for the missing ticks we should be predicting the future value of the inpu
+///
+/// Also checks that during rollbacks we fetch the correct input value even for remote inputs.
+///
+/// For example if we receive inputs from client 1 with 5 tick delay, then when we are tick 35 we receive
+/// the input for tick 30. In that case we should either:
+/// - launch a rollback check immediately for tick 30
+/// - or at least at tick 35 use the newly received input value for prediction!
+#[test]
+fn test_input_broadcasting_prediction() {
+    let mut stepper = ClientServerStepper::with_clients(2);
+    let server_recv_delay: i16 = 2;
+
+    // client 0 has some latency to send inputs to the server
+    stepper
+        .client_of_mut(0)
+        .get_mut::<Link>()
+        .unwrap()
+        .recv
+        .conditioner = Some(lightyear_link::LinkConditioner::new(
+        LinkConditionerConfig {
+            incoming_latency: TICK_DURATION * (server_recv_delay as u32),
+            ..default()
+        },
+    ));
+
+    // SETUP - Create an entity controlled by client 0, predicted by all clients
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+            BEIContext,
+        ))
+        .id();
+    stepper.frame_step_server_first(1);
+
+    // Get the predicted entities on both clients
+    let client0_confirmed = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity not replicated to client 0");
+
+    let client0_predicted = stepper.client_apps[0]
+        .world()
+        .get::<Confirmed>(client0_confirmed)
+        .unwrap()
+        .predicted
+        .unwrap();
+    // we spawn an action entity on the client
+    // Add input markers to client 0, and make sure that it's replicated to client 1
+    let client0_tick = stepper.client_tick(0);
+    let client1_tick = stepper.client_tick(1);
+    info!(
+        ?server_entity,
+        ?client0_confirmed,
+        ?client0_predicted,
+        ?client0_tick,
+        ?client1_tick,
+        "Add input marker on client 0"
+    );
+    let client_action = stepper.client_apps[0]
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(client0_predicted),
+            Action::<BEIAction1>::default(),
+            ActionMock::new(
+                ActionState::Fired,
+                ActionValue::Bool(true),
+                MockSpan::Manual,
+            ),
+        ))
+        .id();
+
+    let client1_confirmed = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity not replicated to client 1");
+
+    let client1_predicted = stepper.client_apps[1]
+        .world()
+        .get::<Confirmed>(client1_confirmed)
+        .unwrap()
+        .predicted
+        .unwrap();
+
+    stepper.frame_step(5);
+    // client0 + 1: client 0 sends the input (with 2 ticks delay)
+    // client0 + 3: server receives the input (with 2 ticks delay) and rebroadcasts it to client 1
+    // client1 + 4: client 1 receives the input but cannot process it yet because it receives the input BEFORE it spawns the rebroadcasted Action entity
+    // client1 + 5: client 1 checks rollback for tick (client1 + 4), there is a rollback because of mismatch.
+
+    let action1 = stepper.client_apps[1]
+        .world()
+        .get::<Actions<BEIContext>>(client1_predicted)
+        .unwrap()
+        .collection()[0];
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .entity(action1)
+            .get::<InputBuffer<ActionsSnapshot<BEIContext>>>()
+            .is_some()
+    );
+
+    // TEST:
+    // check that on the last frame, client1 processed the rebroadcasted inputs
+    // - it should update its buffer to match the remote message
+    // - it should trigger a rollback because of mismatch
+    assert_eq!(
+        stepper.client_apps[1]
+            .world()
+            .entity(action1)
+            .get::<InputBuffer<ActionsSnapshot<BEIContext>>>()
+            .unwrap()
+            .get(client1_tick + 1)
+            .unwrap(),
+        &ActionsSnapshot::<BEIContext>::new(
+            ActionState::Fired,
+            ActionValue::Bool(true),
+            ActionTime::default(),
+            ActionEvents::STARTED | ActionEvents::FIRED
+        )
+    );
+    assert_eq!(
+        stepper.client_apps[1]
+            .world()
+            .entity(action1)
+            .get::<InputBuffer<ActionsSnapshot<BEIContext>>>()
+            .unwrap()
+            .get(client1_tick + 2)
+            .unwrap(),
+        &ActionsSnapshot::<BEIContext>::new(
+            ActionState::Fired,
+            ActionValue::Bool(true),
+            ActionTime {
+                elapsed_secs: 0.01,
+                fired_secs: 0.01
+            },
+            ActionEvents::FIRED
+        )
+    );
+    // check that a rollback was triggered on client 1
+    assert_eq!(
+        stepper.client_apps[1]
+            .world()
+            .get_resource::<PredictionMetrics>()
+            .unwrap()
+            .rollbacks,
+        1
+    );
+
+    stepper.frame_step(1);
+
+    // check that the input buffer is still correct after receiving a new remote input
+    assert_eq!(
+        stepper.client_apps[1]
+            .world()
+            .entity(action1)
+            .get::<InputBuffer<ActionsSnapshot<BEIContext>>>()
+            .unwrap()
+            .get(client1_tick + 3)
+            .unwrap(),
+        &ActionsSnapshot::<BEIContext>::new(
+            ActionState::Fired,
+            ActionValue::Bool(true),
+            ActionTime {
+                elapsed_secs: 0.02,
+                fired_secs: 0.02
+            },
+            ActionEvents::FIRED
+        )
+    );
+    // check that this time there was no new rollback since we predicted the correct input value
+    assert_eq!(
+        stepper.client_apps[1]
+            .world()
+            .get_resource::<PredictionMetrics>()
+            .unwrap()
+            .rollbacks,
+        1
+    );
 }

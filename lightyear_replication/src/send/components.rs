@@ -23,10 +23,8 @@ use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
-#[cfg(any(feature = "client", feature = "server"))]
-use tracing::debug;
 #[allow(unused_imports)]
-use tracing::{error, trace};
+use tracing::{debug, error, info, trace};
 
 /// Replication group shared by all predicted entities
 pub const PREDICTION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
@@ -320,8 +318,9 @@ pub type InterpolationTarget = ReplicationTarget<ShouldBeInterpolated>;
 
 /// Insert this component to specify which remote peers will start predicting the entity
 /// upon receiving the entity.
+// NOTE: we don't require Replicate here because we might be using this with ReplicateLike entities
+//  in order to override the prediction/interpolation targets.
 #[derive(Component, Clone, Default, Debug, PartialEq, Reflect)]
-#[require(Replicate)]
 #[component(on_insert = ReplicationTarget::<T>::on_insert)]
 #[component(on_replace = ReplicationTarget::<T>::on_replace)]
 pub struct ReplicationTarget<T: Sync + Send + 'static> {
@@ -378,7 +377,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
             match &mut replicate.mode {
                 ReplicationMode::SingleSender => {
                     let Ok(sender_entity) = world.query_filtered::<Entity, Or<(With<ReplicationSender>, With<HostClient>)>>().single_mut(world) else {
-                        error!("No ReplicationSender found in the world");
+                        error!(mode = ?replicate.mode, "No ReplicationSender found in the world");
                         return;
                     };
                     replicate.senders.insert(sender_entity);
@@ -444,7 +443,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                         .query_filtered::<(), Or<(With<ReplicationSender>, With<HostClient>)>>()
                         .get_mut(world, *entity)
                     else {
-                        error!("No ReplicationSender found in the world");
+                        error!(mode = ?replicate.mode, "No ReplicationSender found in the world");
                         return;
                     };
                     replicate.senders.insert(*entity);
@@ -491,7 +490,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                             .query_filtered::<(), Or<(With<ReplicationSender>, With<HostClient>)>>()
                             .get_mut(world, *sender_entity)
                         else {
-                            error!("No ReplicationSender found in the world");
+                            error!(mode = ?replicate.mode, "No ReplicationSender found in the world for target: {:?}", core::any::type_name::<T>());
                             return;
                         };
                         replicate.senders.insert(*sender_entity);
@@ -665,7 +664,7 @@ impl Replicate {
                         .query_filtered::<(Entity, Option<&mut ReplicationSender>, Has<HostClient>), Or<(With<ReplicationSender>, With<HostClient>)>>()
                         .single_mut(world)
                     else {
-                        error!("No ReplicationSender found in the world");
+                        error!(entity = ?context.entity, "No ReplicationSender found in the world in mode SingleSender");
                         return;
                     };
                     replicate.senders.insert(sender_entity);
@@ -673,7 +672,7 @@ impl Replicate {
                         return;
                     }
                     let Some(mut sender) = sender else {
-                        error!("No ReplicationSender found in the world");
+                        error!(entity = ?context.entity, ?sender_entity, "No ReplicationSender found in the world in mode SingleSender");
                         return;
                     };
                     sender.add_replicated_entity(context.entity, replicate.authority);
@@ -699,7 +698,7 @@ impl Replicate {
                         return;
                     }
                     let Some(mut sender) = sender else {
-                        error!("No ReplicationSender found in the world");
+                        error!(?sender_entity, "No ReplicationSender found in the world in mode Client");
                         return;
                     };
                     sender.add_replicated_entity(context.entity, replicate.authority);
@@ -710,7 +709,6 @@ impl Replicate {
                     use lightyear_connection::host::HostClient;
                     use lightyear_connection::server::Started;
                     use lightyear_link::server::Server;
-                    use tracing::{debug, error, trace};
                     let unsafe_world = world.as_unsafe_world_cell();
                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
                     let world = unsafe { unsafe_world.world_mut() };
@@ -730,10 +728,6 @@ impl Replicate {
                         server.collection().iter().copied(),
                         &peer_metadata.mapping,
                         &mut |client| {
-                            trace!(
-                                "Adding replicated entity {} to ClientOf {}",
-                                context.entity, client
-                            );
                             let Ok((sender, host_client)) = world
                                 .query_filtered::<
                                     (Option<&mut ReplicationSender>, Has<HostClient>),
@@ -741,17 +735,21 @@ impl Replicate {
                                 >()
                                 .get_mut(world, client)
                             else {
-                                debug!("ClientOf {client:?} not found or does not have ReplicationSender");
+                                error!("ClientOf {client:?} not found or does not have ReplicationSender");
                                 return;
                             };
-                            replicate.senders.insert(client);
                             if host_client {
                                 return;
                             }
                             let Some(mut sender) = sender else {
-                                error!("No ReplicationSender found in the world");
+                                error!(entity = ?context.entity, sender = ?client, "No ReplicationSender found in the world for sender in mode SingleServer");
                                 return;
                             };
+                            trace!(
+                                "Adding replicated entity {} to ClientOf {}",
+                                context.entity, client
+                            );
+                            replicate.senders.insert(client);
                             sender.add_replicated_entity(context.entity, replicate.authority);
                         },
                     );
@@ -761,7 +759,7 @@ impl Replicate {
                         .query_filtered::<(Option<&mut ReplicationSender>, Has<HostClient>), Or<(With<ReplicationSender>, With<HostClient>)>>()
                         .get_mut(world, *entity)
                     else {
-                        error!("No ReplicationSender found in the world");
+                        error!(?entity, "No ReplicationSender found in the world in mode Sender");
                         return;
                     };
                     replicate.senders.insert(*entity);
@@ -769,7 +767,7 @@ impl Replicate {
                         return;
                     }
                     let Some(mut sender) = sender else {
-                        error!("No ReplicationSender found in the world");
+                        error!(?entity, "No ReplicationSender found in the world in mode Sender");
                         return;
                     };
                     sender.add_replicated_entity(context.entity, replicate.authority);
@@ -818,7 +816,7 @@ impl Replicate {
                                 return;
                             }
                             let Some(mut sender) = sender else {
-                                error!("No ReplicationSender found in the world");
+                                error!("No ReplicationSender found in the world in mode Server");
                                 return;
                             };
                             sender.add_replicated_entity(context.entity, replicate.authority);
@@ -839,7 +837,7 @@ impl Replicate {
                             Or<(With<ReplicationSender>, With<HostClient>)>>()
                         .get_mut(world, *entity)
                         else {
-                            error!("No ReplicationSender found in the world");
+                            error!(?entity, "No ReplicationSender found in the world in mode Manual");
                             return;
                         };
                         replicate.senders.insert(*entity);
@@ -847,7 +845,7 @@ impl Replicate {
                             return;
                         }
                         let Some(mut sender) = sender else {
-                            error!("No ReplicationSender found in the world");
+                            error!(?entity, "No ReplicationSender found in the world in mode Manual");
                             return;
                         };
                         sender.add_replicated_entity(context.entity, replicate.authority);

@@ -203,12 +203,12 @@ impl Plugin for ProtocolPlugin {
                 ..default()
             },
         });
-        app.add_plugins(bei::InputPlugin::<BEIContext> {
-            config: InputConfig::<BEIContext> {
-                rebroadcast_inputs: true,
-                ..default()
-            },
-        });
+        app.add_plugins(bei::InputPlugin::<BEIContext>::new(InputConfig::<
+            BEIContext,
+        > {
+            rebroadcast_inputs: true,
+            ..default()
+        }));
         app.register_input_action::<BEIAction1>();
     }
 }

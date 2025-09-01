@@ -8,6 +8,7 @@ use crate::manager::{LastConfirmedInput, PredictionManager, RollbackMode};
 use crate::plugin::PredictionSet;
 use crate::prespawn::PreSpawned;
 use crate::registry::PredictionRegistry;
+use alloc::vec::Vec;
 use bevy_app::{App, FixedMain, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::ScheduleLabel;
@@ -25,7 +26,8 @@ use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
-use tracing::{debug, debug_span, error, trace, trace_span, warn};
+#[allow(unused_imports)]
+use tracing::{debug, debug_span, error, info, trace, trace_span, warn};
 
 /// Responsible for re-running the FixedMain schedule a fixed number of times in order
 /// to rollback the simulation to a previous state.
@@ -181,6 +183,11 @@ pub struct DeterministicPredicted;
 #[derive(Component)]
 pub struct DisableRollback;
 
+#[derive(Component)]
+/// Marker `Disabled` component inserted on `DisableRollback` entities during rollbacks so
+/// that they are ignored from all queries
+pub struct DisabledDuringRollback;
+
 /// Check if we need to do a rollback.
 /// We do this separately from `prepare_rollback` because even we stop the `check_rollback` function
 /// early as soon as we find a mismatch, but we need to rollback all components to the original state.
@@ -234,6 +241,7 @@ fn check_rollback(
                 ?tick,
                 "Trying to do a rollback of {delta:?} ticks. The max is {max_rollback_ticks:?}! Aborting"
             );
+            prediction_manager.set_non_rollback();
             return;
         }
         // if prediction_manager.last_rollback_tick.is_some_and(|t| t >= rollback_tick)  {
@@ -640,6 +648,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                         if prediction_registry.has_correction::<C>() {
                             entity_mut.insert(PreviousVisual(predicted_component.clone()));
                             trace!(
+                                ?predicted_entity,
                                 previous_visual = ?predicted_component,
                                 "Storing PreviousVisual for correction"
                             );
@@ -778,6 +787,15 @@ pub(crate) fn run_rollback(world: &mut World) {
     //  otherwise setting Time<()> to Time<Fixed> should be enough
     //  as Time<Physics> uses Time<()>'s delta
 
+    // Insert the DisabledDuringRollback component on all entities that have the DisableRollback component
+    let disabled_entities = world
+        .query_filtered::<Entity, With<DisableRollback>>()
+        .iter(world)
+        .collect::<Vec<_>>();
+    disabled_entities.iter().for_each(|entity| {
+        world.entity_mut(*entity).insert(DisabledDuringRollback);
+    });
+
     // Run the fixed update schedule (which should contain ALL
     // predicted/rollback components and resources). This is similar to what
     // `bevy_time::fixed::run_fixed_main_schedule()` does
@@ -799,6 +817,11 @@ pub(crate) fn run_rollback(world: &mut World) {
         let timestep = world.resource::<Time<Fixed>>().timestep();
         world.resource_mut::<Time<Fixed>>().advance_by(timestep);
     }
+
+    // Remove the DisabledDuringRollback component on all entities that have it
+    disabled_entities.into_iter().for_each(|entity| {
+        world.entity_mut(entity).remove::<DisabledDuringRollback>();
+    });
 
     // Restore the fixed time resource.
     // `current_fixed_time` and the fixed time resource in use (e.g. the

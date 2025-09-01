@@ -29,7 +29,7 @@ impl<A: Default + Send + Sync + 'static> ActionStateQueryData for ActionState<A>
     type Main = ActionState<A>;
     type Bundle = ActionState<A>;
 
-    fn as_read_only<'w, 'a: 'w>(state: &'a Mut<'w, ActionState<A>>) -> &'w ActionState<A> {
+    fn as_read_only<'a, 'w: 'a>(state: &'a Mut<'w, ActionState<A>>) -> &'a ActionState<A> {
         state
     }
 

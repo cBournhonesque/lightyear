@@ -54,7 +54,8 @@ use bevy_ecs::{
 };
 use bevy_platform::collections::hash_map::Entry;
 use bevy_reflect::Reflect;
-use tracing::trace;
+#[allow(unused_imports)]
+use tracing::{info, trace};
 
 /// A [`Room`] is a data structure that is used to perform interest management.
 ///
@@ -161,7 +162,10 @@ impl RoomPlugin {
                             }
                         });
                 } else {
-                    trace!("Inserting NetworkVisibility from room visibility: {room_vis:?}");
+                    trace!(
+                        ?entity,
+                        "Inserting NetworkVisibility from room visibility: {room_vis:?}"
+                    );
                     commands
                         .entity(entity)
                         .try_insert(NetworkVisibility::from(room_vis));

@@ -25,7 +25,7 @@ use lightyear_core::history_buffer::HistoryBuffer;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::timeline::SyncEvent;
 use lightyear_replication::components::PrePredicted;
-use lightyear_replication::prelude::{Confirmed, ReplicationSet};
+use lightyear_replication::prelude::Confirmed;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::InputTimeline;
 use tracing::trace;
@@ -396,9 +396,6 @@ pub(crate) fn add_sync_systems(app: &mut App) {
 
     // Apply the sync events
     // make sure to Sync before the RelationshipSync systems run
-    app.configure_sets(
-        PreUpdate,
-        PredictionSet::Sync.before(ReplicationSet::ReceiveRelationships),
-    );
+    app.configure_sets(PreUpdate, PredictionSet::Sync);
     app.add_systems(PreUpdate, apply_predicted_sync.in_set(PredictionSet::Sync));
 }

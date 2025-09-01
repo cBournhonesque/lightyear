@@ -125,7 +125,12 @@ impl ClientServerStepper {
 
     pub(crate) fn new_client(&mut self) -> usize {
         let mut client_app = App::new();
-        client_app.add_plugins((MinimalPlugins, StatesPlugin, InputPlugin));
+        client_app.add_plugins((
+            MinimalPlugins,
+            StatesPlugin,
+            InputPlugin,
+            LogPlugin::default(),
+        ));
         client_app.add_plugins(client::ClientPlugins {
             tick_duration: self.tick_duration,
         });
@@ -195,7 +200,12 @@ impl ClientServerStepper {
 
     pub(crate) fn new_steam_client(&mut self) -> usize {
         let mut client_app = App::new();
-        client_app.add_plugins((MinimalPlugins, StatesPlugin, InputPlugin));
+        client_app.add_plugins((
+            MinimalPlugins,
+            StatesPlugin,
+            InputPlugin,
+            LogPlugin::default(),
+        ));
 
         // the steam resources need to be added before the ClientPlugins
         client_app.add_steam_resources(STEAM_APP_ID);
@@ -427,10 +437,13 @@ impl ClientServerStepper {
             };
             let server_tick = self.server_tick() + 1;
             info!(?client_tick, ?server_tick, "Frame step");
-            self.client_apps.iter_mut().for_each(|client_app| {
-                client_app.update();
-            });
-            self.server_app.update();
+            self.client_apps
+                .iter_mut()
+                .enumerate()
+                .for_each(|(i, client_app)| {
+                    error_span!("client", ?i).in_scope(|| client_app.update());
+                });
+            error_span!("server").in_scope(|| self.server_app.update());
         }
     }
 
@@ -446,10 +459,13 @@ impl ClientServerStepper {
             };
             let server_tick = self.server_tick() + 1;
             info!(?client_tick, ?server_tick, "Frame step");
-            self.server_app.update();
-            self.client_apps.iter_mut().for_each(|client_app| {
-                client_app.update();
-            });
+            error_span!("server").in_scope(|| self.server_app.update());
+            self.client_apps
+                .iter_mut()
+                .enumerate()
+                .for_each(|(i, client_app)| {
+                    error_span!("client", ?i).in_scope(|| client_app.update());
+                });
         }
     }
 

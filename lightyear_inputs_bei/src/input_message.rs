@@ -6,6 +6,7 @@ use bevy_enhanced_input::action::ActionTime;
 use bevy_enhanced_input::prelude::{ActionEvents, ActionState, ActionValue};
 use core::cmp::max;
 use core::fmt::{Debug, Formatter};
+use core::time::Duration;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{InputBuffer, InputData};
 use lightyear_inputs::input_message::{ActionStateQueryData, ActionStateSequence, InputSnapshot};
@@ -73,10 +74,10 @@ impl<C> MapEntities for BEIStateSequence<C> {
 /// to update the BEI `Actions` component
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 struct ActionsMessage {
-    pub state: ActionState,
-    pub value: ActionValue,
-    pub time: ActionTime,
-    pub events: ActionEvents,
+    state: ActionState,
+    value: ActionValue,
+    time: ActionTime,
+    events: ActionEvents,
 }
 
 impl Default for ActionsMessage {
@@ -90,7 +91,7 @@ impl Default for ActionsMessage {
     }
 }
 
-/// Struct that stores a subset of [`Actions<C>`](Actions) that is needed to
+/// Struct that stores a subset of [`Actions<C>`](bevy_enhanced_input::prelude::Actions) that is needed to
 /// reconstruct the actions state on the remote client.
 ///
 /// We need the timing information in the snapshot so that we can rollback the actions state on the client
@@ -99,6 +100,25 @@ impl Default for ActionsMessage {
 pub struct ActionsSnapshot<C> {
     state: ActionsMessage,
     _marker: core::marker::PhantomData<C>,
+}
+
+impl<C> ActionsSnapshot<C> {
+    pub fn new(
+        state: ActionState,
+        value: ActionValue,
+        time: ActionTime,
+        events: ActionEvents,
+    ) -> Self {
+        Self {
+            state: ActionsMessage {
+                state,
+                value,
+                time,
+                events,
+            },
+            _marker: core::marker::PhantomData,
+        }
+    }
 }
 
 impl<C> Default for ActionsSnapshot<C> {
@@ -135,8 +155,25 @@ impl<C> Debug for ActionsSnapshot<C> {
 
 impl<C: Send + Sync + 'static> InputSnapshot for ActionsSnapshot<C> {
     type Action = C;
-    fn decay_tick(&mut self) {
-        // TODO: maybe advance the elapsed_secs and fired_secs?
+    fn decay_tick(&mut self, tick_duration: Duration) {
+        // We keep ActionState the same but update ActionEvents and ActionTime
+        self.state.events = ActionEvents::new(self.state.state, self.state.state);
+        // TODO: use self.state.time.update() when it's public
+        let delta_secs = tick_duration.as_secs_f32();
+        match self.state.state {
+            ActionState::None => {
+                self.state.time.elapsed_secs = 0.0;
+                self.state.time.fired_secs = 0.0;
+            }
+            ActionState::Ongoing => {
+                self.state.time.elapsed_secs += delta_secs;
+                self.state.time.fired_secs = 0.0;
+            }
+            ActionState::Fired => {
+                self.state.time.elapsed_secs += delta_secs;
+                self.state.time.fired_secs += delta_secs;
+            }
+        }
     }
 }
 
@@ -154,7 +191,7 @@ impl ActionsMessage {
     }
 }
 
-#[derive(QueryData)]
+#[derive(QueryData, Debug)]
 #[query_data(mutable)]
 pub struct ActionData {
     state: &'static mut ActionState,
@@ -163,6 +200,7 @@ pub struct ActionData {
     time: &'static mut ActionTime,
 }
 
+#[derive(Debug)]
 pub struct ActionDataInnerItem<'w> {
     pub state: &'w mut ActionState,
     pub value: &'w mut ActionValue,
@@ -178,7 +216,7 @@ impl ActionStateQueryData for ActionData {
     type Main = ActionState;
     type Bundle = (ActionState, ActionValue, ActionEvents, ActionTime);
 
-    fn as_read_only<'w, 'a: 'w>(state: &'a ActionDataItem<'w>) -> ActionDataReadOnlyItem<'w> {
+    fn as_read_only<'a, 'w: 'a>(state: &'a ActionDataItem<'w>) -> ActionDataReadOnlyItem<'a> {
         ActionDataReadOnlyItem {
             state: &state.state,
             value: &state.value,
@@ -305,6 +343,7 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     use bevy_enhanced_input::prelude::InputAction;
     use bevy_reflect::Reflect;
@@ -435,7 +474,11 @@ mod tests {
             marker: Default::default(),
         };
         // This should extend the buffer to fit ticks 5..=7
-        sequence.update_buffer(&mut input_buffer, Tick(7));
+        sequence.update_buffer(
+            &mut input_buffer,
+            Tick(7),
+            TickDuration(Duration::default()),
+        );
         assert!(input_buffer.get(Tick(5)).is_some());
         assert!(input_buffer.get(Tick(6)).is_some());
         assert!(input_buffer.get(Tick(7)).is_none());
@@ -456,7 +499,11 @@ mod tests {
             marker: Default::default(),
         };
 
-        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(7));
+        let earliest_mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(7),
+            TickDuration(Duration::default()),
+        );
 
         info!("Input buffer after update: {:?}", input_buffer);
 
@@ -485,7 +532,11 @@ mod tests {
             marker: Default::default(),
         };
 
-        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(8));
+        let earliest_mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(8),
+            TickDuration(Duration::default()),
+        );
 
         // Should detect mismatch at tick 7 (first tick after previous_end_tick=5)
         // We predicted continuation of Absent, but got an Input
@@ -511,7 +562,11 @@ mod tests {
             marker: Default::default(),
         };
 
-        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(7));
+        let earliest_mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(7),
+            TickDuration(Duration::default()),
+        );
 
         // Should detect mismatch at tick 6 (first tick after previous_end_tick=5)
         // We predicted continuation of the action, but got Absent
@@ -540,7 +595,11 @@ mod tests {
             marker: Default::default(),
         };
 
-        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(7));
+        let earliest_mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(7),
+            TickDuration(Duration::default()),
+        );
 
         // Should detect mismatch at tick 6 (first tick after previous_end_tick=5)
         // We predicted continuation of first_action, but got second_action
@@ -564,7 +623,11 @@ mod tests {
             marker: Default::default(),
         };
 
-        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(7));
+        let earliest_mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(7),
+            TickDuration(Duration::default()),
+        );
 
         // Should be no mismatch since the action matches our prediction
         assert_eq!(earliest_mismatch, None);
@@ -601,7 +664,11 @@ mod tests {
             marker: Default::default(),
         };
 
-        let earliest_mismatch = sequence.update_buffer(&mut input_buffer, Tick(8));
+        let earliest_mismatch = sequence.update_buffer(
+            &mut input_buffer,
+            Tick(8),
+            TickDuration(Duration::default()),
+        );
 
         // Should detect mismatch at tick 7 (first tick after previous_end_tick=6)
         assert_eq!(earliest_mismatch, Some(Tick(7)));

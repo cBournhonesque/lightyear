@@ -12,8 +12,8 @@ license = "MIT OR Apache-2.0"
 exclude = ["/tests"]
 
 [features]
-default = ["client", "server", "gui", "netcode", "udp"]
-client = ["lightyear/client", "gui"]
+default = ["client", "server", "netcode", "udp"]
+client = ["lightyear/client"]
 server = ["lightyear/server"]
 netcode = ["lightyear/netcode"]
 udp = ["lightyear/udp"]

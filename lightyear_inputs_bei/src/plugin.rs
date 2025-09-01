@@ -4,27 +4,31 @@ use crate::input_message::BEIStateSequence;
 use crate::setup::ActionOfWrapper;
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::setup::InputRegistryPlugin;
-use bevy_app::FixedPreUpdate;
-use bevy_app::{App, Plugin};
-use bevy_ecs::component::Component;
+use bevy_app::prelude::*;
+use bevy_ecs::prelude::*;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::IntoScheduleConfigs;
 #[cfg(all(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::common_conditions::not;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_enhanced_input::EnhancedInputSet;
+use bevy_enhanced_input::action::ActionState;
 use bevy_enhanced_input::context::InputContextAppExt;
 use bevy_enhanced_input::prelude::ActionOf;
 use bevy_reflect::TypePath;
 use core::fmt::Debug;
+use lightyear_core::prelude::is_in_rollback;
+use lightyear_inputs::client::InputSet;
 use lightyear_inputs::config::InputConfig;
 use lightyear_prediction::PredictionMode;
+use lightyear_prediction::plugin::PredictionSet;
 use lightyear_prediction::prelude::PredictionRegistrationExt;
 use lightyear_replication::prelude::AppComponentExt;
 use lightyear_replication::registry::replication::GetWriteFns;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+/// Add BEI Input replication to your app.
 pub struct InputPlugin<C> {
     pub config: InputConfig<C>,
 }
@@ -34,6 +38,12 @@ impl<C> Default for InputPlugin<C> {
         Self {
             config: Default::default(),
         }
+    }
+}
+
+impl<C> InputPlugin<C> {
+    pub fn new(config: InputConfig<C>) -> Self {
+        Self { config }
     }
 }
 
@@ -69,9 +79,23 @@ impl<
             use crate::marker::{
                 add_input_marker_from_binding, add_input_marker_from_parent, propagate_input_marker,
             };
+            // for rebroadcasting inputs, we insert ActionState (which inserts the InputBuffer) when ActionOf<C> is added
+            // on an entity
+            app.register_required_components::<ActionOf<C>, ActionState>();
+
             app.add_observer(propagate_input_marker::<C>);
             app.add_observer(add_input_marker_from_parent::<C>);
             app.add_observer(add_input_marker_from_binding::<C>);
+
+            if self.config.rebroadcast_inputs {
+                #[cfg(feature = "client")]
+                app.add_systems(
+                    PreUpdate,
+                    InputRegistryPlugin::on_rebroadcast_action_received::<C>
+                        // we need to wait for the predicted Context entity to be spawned first
+                        .after(PredictionSet::Sync),
+                );
+            }
 
             app.add_observer(InputRegistryPlugin::add_action_of_replicate::<C>);
 
@@ -84,8 +108,9 @@ impl<
             app.configure_sets(
                 FixedPreUpdate,
                 (
-                    EnhancedInputSet::Update,
-                    lightyear_inputs::client::InputSet::BufferClientInputs,
+                    // do not run Update during rollback as we already know all inputs
+                    EnhancedInputSet::Update.run_if(not(is_in_rollback)),
+                    InputSet::BufferClientInputs,
                     EnhancedInputSet::Apply,
                 )
                     .chain(),
