@@ -32,7 +32,7 @@ simple_box = { path = "../simple_box", features = ["client", "server", "gui"] }
 
 clap = { version = "4.5.3", features = ["derive"] }
 strum = { version = "0.27", features = ["derive"] }
-ron = "0.10"
+ron = "0.11"
 tempfile = "3.19"
 
 [lints]
