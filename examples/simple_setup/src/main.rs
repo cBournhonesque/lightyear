@@ -32,6 +32,21 @@ pub enum Mode {
     Server,
 }
 
+use lightyear::prelude::*;
+use bevy::ecs::entity::MapEntities;
+use serde::{Serialize, Deserialize};
+
+
+
+
+
+// Add this system on Update on the client
+fn handle_reconnect(mut commands: Commands, client: Single<Entity, (With<Client>, With<Connected>)>) -> Result {
+    println!("Re-connecting client");
+    commands.get_entity(*client)?.trigger(Disconnect).insert(Client::default()).trigger(Connect);
+    Ok(())
+}
+
 fn main() {
     let cli = Cli::parse();
     let mut app = App::new();
