@@ -26,6 +26,7 @@ impl Plugin for ExampleRendererPlugin {
         app.add_observer(add_hitscan_visual);
         app.add_observer(add_physics_projectile_visuals);
         app.add_observer(add_homing_missile_visuals);
+
         app.add_plugins(FrameInterpolationPlugin::<Position>::default());
         // app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
 
@@ -107,12 +108,10 @@ struct ModeText;
 #[cfg(feature = "client")]
 fn display_score(
     mut score_text: Query<&mut Text, With<ScoreText>>,
-    hits: Query<&Score, With<Replicated>>,
+    score: Single<&Score, (With<Replicated>, With<Controlled>)>,
 ) {
-    if let Ok(score) = hits.single() {
-        if let Ok(mut text) = score_text.single_mut() {
-            text.0 = format!("Score: {}", score.0);
-        }
+    if let Ok(mut text) = score_text.single_mut() {
+        text.0 = format!("Score: {}", score.0);
     }
 }
 

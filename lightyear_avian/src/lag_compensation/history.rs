@@ -5,23 +5,18 @@
 use avian2d::{math::Vector, prelude::*};
 #[cfg(all(feature = "3d", not(feature = "2d")))]
 use avian3d::{math::Vector, prelude::*};
-use bevy_app::{App, FixedPostUpdate, Plugin};
+use bevy_app::prelude::*;
+use bevy_ecs::prelude::*;
 use bevy_ecs::{
     change_detection::DetectChanges,
-    component::Component,
     hierarchy::{ChildOf, Children},
-    observer::Trigger,
-    query::{With, Without},
-    resource::Resource,
     schedule::{IntoScheduleConfigs, SystemSet},
-    system::{Commands, Query, Res, Single},
-    world::OnAdd,
 };
 use lightyear_core::history_buffer::HistoryBuffer;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_link::prelude::Server;
-use tracing::debug;
-use tracing::trace;
+#[allow(unused_imports)]
+use tracing::{debug, info, trace};
 
 /// Add this plugin to enable lag compensation on the server
 #[derive(Resource)]
@@ -137,13 +132,14 @@ fn spawn_broad_phase_aabb_envelope(
 /// Update the collision layers of the child AabbEnvelopeHolder to match the parent
 fn update_collision_layers(
     mut child_query: Query<&mut CollisionLayers, With<AabbEnvelopeHolder>>,
-    mut parent_query: Query<(&mut CollisionLayers, &Children), Without<AabbEnvelopeHolder>>,
+    mut parent_query: Query<(Entity, &mut CollisionLayers, &Children), (Without<AabbEnvelopeHolder>, Changed<CollisionLayers>)>,
 ) {
-    parent_query.iter_mut().for_each(|(layers, children)| {
+    parent_query.iter_mut().for_each(|(parent, layers, children)| {
         if layers.is_changed() || !layers.is_added() {
             for child in children.iter() {
-                if let Ok(mut child_layers) = child_query.get_mut(*child) {
+                if let Ok(mut child_layers) = child_query.get_mut(child) {
                     *child_layers = *layers;
+                    trace!(?child, ?parent, "Adding layers {layers:?} on lag compensation child collider");
                 }
             }
         }
@@ -168,6 +164,7 @@ fn update_collider_history(
         ),
         Without<AabbEnvelopeHolder>,
     >,
+    // TODO: replace ChildOf with LagCompensationColliderOf? Would TransformPropagate still work?
     mut children_query: Query<(&ChildOf, &mut Collider, &mut Position), With<AabbEnvelopeHolder>>,
 ) {
     let tick = timeline.tick();

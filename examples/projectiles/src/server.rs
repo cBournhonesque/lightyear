@@ -172,6 +172,7 @@ fn server_player_bundle(
     replication_mode: GameReplicationMode,
 ) -> impl Bundle {
     let bundle = shared::player_bundle(client_id);
+    let collision_layer = replication_mode.room_layer();
     (
         Replicate::to_clients(NetworkTarget::All),
         NetworkVisibility::default(),
@@ -183,6 +184,8 @@ fn server_player_bundle(
         // add the component to make lag-compensation possible!
         LagCompensationHistory::default(),
         bundle,
+        // the layers are only necessary on the server to avoid hit detection between players of different rooms
+        CollisionLayers::new(collision_layer, [collision_layer])
     )
 }
 
@@ -326,7 +329,7 @@ struct BotLocal {
 fn bot_inputs(
     time: Res<Time>,
     mut input: ResMut<ButtonInput<KeyCode>>,
-    player: Single<&Position, (With<Controlled>, Without<Confirmed>)>,
+    player: Single<&Position, (With<Controlled>, Without<Confirmed>, With<PlayerMarker>)>,
     mut local: Local<BotLocal>,
 ) {
     let BotLocal {

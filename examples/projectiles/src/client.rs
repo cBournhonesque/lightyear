@@ -49,8 +49,6 @@ pub(crate) fn handle_predicted_spawn(
         if replication_mode == &GameReplicationMode::AllInterpolated {
             return
         };
-        // add actions on the predicted entity
-        add_actions(&mut commands, trigger.target());
         match replication_mode {
             GameReplicationMode::ClientSideHitDetection | GameReplicationMode::OnlyInputsReplicated => {
                 // add these so we can do hit-detection on the client
@@ -62,9 +60,9 @@ pub(crate) fn handle_predicted_spawn(
             }
             _ => {}
         };
-        if player_id.0 != client_id {
-            return;
-        }
+        // if player_id.0 != client_id {
+        //     return;
+        // }
         // add actions on the predicted entity
         add_actions(&mut commands, trigger.target());
     }

@@ -11,7 +11,8 @@ use bevy_ecs::{
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_interpolation::plugin::InterpolationDelay;
 use lightyear_link::prelude::Server;
-use tracing::{debug, error};
+#[allow(unused_imports)]
+use tracing::{debug, info, error};
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use {
     avian2d::{math::*, prelude::*},
@@ -31,7 +32,7 @@ use {
 pub struct LagCompensationSpatialQuery<'w, 's> {
     pub timeline: Query<'w, 's, &'static LocalTimeline, With<Server>>,
     spatial_query: SpatialQuery<'w, 's>,
-    parent_query: Query<'w, 's, (&'static Collider, &'static LagCompensationHistory)>,
+    parent_query: Query<'w, 's, (&'static Collider, &'static CollisionLayers, &'static LagCompensationHistory)>,
     child_query: Query<'w, 's, &'static ChildOf, With<AabbEnvelopeHolder>>,
 }
 
@@ -81,6 +82,8 @@ impl LagCompensationSpatialQuery<'_, '_> {
             direction,
             max_distance,
             solid,
+            // TODO: the user could have excluded the Parent entity from the filter, which would do nothing
+            //  since we are checking collisions with the child!
             filter,
             &|child| {
                 // 2) there is a hit! Check if we hit the collider from the history
@@ -91,11 +94,16 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     return false;
                 };
                 let parent = parent_component.parent();
-                debug!("Broadphase hit with {child:?}");
-                let (collider, history) = self
+                debug!(?parent, ?filter, "Broadphase hit with {child:?}");
+                let (collider, collision_layers, history) = self
                     .parent_query
                     .get(parent)
                     .expect("the parent must have a history");
+                // the collisions are done with the lag compensation collider; make sure that the parent is not excluded
+                if !filter.test(parent, *collision_layers) {
+                    debug!("Collider entity {parent:?} with layers {collision_layers:?} excluded because of filter");
+                    return false;
+                }
                 let (interpolation_tick, interpolation_overstep) =
                     interpolation_delay.tick_and_overstep(tick);
 

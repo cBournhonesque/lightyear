@@ -1,6 +1,6 @@
 use crate::shared::color_from_id;
 use avian2d::position::{Position, Rotation};
-use avian2d::prelude::RigidBody;
+use avian2d::prelude::{CollisionLayers, PhysicsLayer, RigidBody};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear::input::bei::prelude;
@@ -146,7 +146,7 @@ impl ProjectileReplicationMode {
 pub enum GameReplicationMode {
     // TODO: do we predict other entities shooting? or just their movement?
     //  maybe just their movement?
-    AllPredicted, // Current mode: client predicts all entities, server hit detection
+    AllPredicted, // Current mode: client predicts all entities, server hit detection with no lag comp. (favors the shootee)
     ClientPredictedNoComp, // Client predicted, enemies interpolated, no lag comp
     ClientPredictedLagComp, // Client predicted, enemies interpolated, with lag comp
     ClientSideHitDetection, // Client predicted, enemies interpolated, hits computed on client
@@ -208,6 +208,38 @@ impl GameReplicationMode {
             5 => GameReplicationMode::OnlyInputsReplicated,
             _ => GameReplicationMode::AllPredicted, // Default fallback
         }
+    }
+
+    pub fn room_layer(&self) -> RoomLayer {
+        match self {
+            GameReplicationMode::AllPredicted => RoomLayer::AllPredicted,
+            GameReplicationMode::ClientPredictedNoComp => RoomLayer::ClientPredictedNoComp,
+            GameReplicationMode::ClientPredictedLagComp => RoomLayer::ClientPredictedLagComp,
+            GameReplicationMode::ClientSideHitDetection => RoomLayer::ClientSideHitDetection,
+            GameReplicationMode::AllInterpolated => RoomLayer::AllInterpolated,
+            GameReplicationMode::OnlyInputsReplicated => RoomLayer::OnlyInputsReplicated,
+        }
+    }
+}
+
+/// We make one physics layer per room to make sure that the hit-detection doesn't trigger for entities
+/// that are in different rooms
+#[derive(PhysicsLayer, Default, Clone, Copy, Debug)]
+pub enum RoomLayer {
+    #[default]
+    Default, // Layer 0 - the default layer that objects are assigned to
+    AllPredicted,
+    ClientPredictedNoComp,
+    ClientPredictedLagComp,
+    ClientSideHitDetection,
+    AllInterpolated,
+    OnlyInputsReplicated,
+}
+
+/// Members of a room can only attack other members of the room
+impl From<RoomLayer> for CollisionLayers  {
+    fn from(value: RoomLayer) -> Self {
+        Self::new(value, [value])
     }
 }
 
@@ -312,6 +344,7 @@ impl Plugin for ProtocolPlugin {
             Actions<PlayerMarker>,
             ActionOf<PlayerMarker>,
             ActionOfWrapper<PlayerContext>,
+            Score,
         )>();
 
         // inputs

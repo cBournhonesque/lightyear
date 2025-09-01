@@ -590,7 +590,7 @@ pub(crate) fn hitscan_hit_detection(
                 return;
             };
             let query = spatial_set.p0();
-            if let Some(hit_data) = query.cast_ray(
+            if let Some(hit_data) = query.cast_ray_predicate(
                 // the delay is sent in every input message; the latest InterpolationDelay received
                 // is stored on the client entity
                 *delay,
@@ -598,17 +598,18 @@ pub(crate) fn hitscan_hit_detection(
                 Dir2::new_unchecked(direction),
                 HITSCAN_COLLISION_DISTANCE_CHECK,
                 false,
-                &mut SpatialQueryFilter::default(),
+                // we stop on the first time the predicate is true, i.e. if we shoot a Player entity
+                // this is important to not hit the lag compensation colliders
+                &|entity| target_query.get(entity).is_ok(),
+                &mut SpatialQueryFilter::from_excluded_entities([shooter]),
             ) {
                 let target = hit_data.entity;
                 info!(?tick, ?hit_data, ?shooter, ?target, "Hitscan hit detected");
                 // if there is a hit, increment the score
-                player_query
-                    .iter_mut()
-                    .find(|(_, player_id, _)| player_id.0 == id.0)
-                    .map(|(mut score, _, _)| {
-                        score.0 += 1;
-                    });
+                if is_server && let Ok((mut score, _, _)) = player_query.get_mut(shooter) {
+                    info!("Increment score");
+                    score.0 += 1;
+                }
             }
         }
         _ => {
@@ -618,7 +619,9 @@ pub(crate) fn hitscan_hit_detection(
                 Dir2::new_unchecked(direction),
                 HITSCAN_COLLISION_DISTANCE_CHECK,
                 false,
-                &SpatialQueryFilter::default(),
+                &mut SpatialQueryFilter::from_excluded_entities([shooter]),
+                // we stop on the first time the predicate is true, i.e. if we shoot a Player entity
+                // this is important to not hit the lag compensation colliders
                 &|entity| target_query.get(entity).is_ok(),
             ) {
                 let target = hit_data.entity;
@@ -631,12 +634,10 @@ pub(crate) fn hitscan_hit_detection(
                     "Hitscan hit detected"
                 );
                 // if there is a hit, increment the score
-                player_query
-                    .iter_mut()
-                    .find(|(_, player_id, _)| player_id.0 == id.0)
-                    .map(|(mut score, _, _)| {
-                        score.0 += 1;
-                    });
+                if is_server && let Ok((mut score, _, _)) = player_query.get_mut(shooter) {
+                    info!("Increment score");
+                    score.0 += 1;
+                }
             }
         }
     }
@@ -778,34 +779,49 @@ fn shoot_hitscan(
         *id,
         Name::new("HitscanProjectileSpawn"),
     );
+    let collision_layers = CollisionLayers::from(replication_mode.room_layer());
 
     if is_server {
         #[cfg(feature = "server")]
         match replication_mode {
             GameReplicationMode::AllPredicted => {
-                // clients predict other clients using their inputs
+                // clients predict other clients using their inputs. We still shoot the visual on the server
+                // because the hit detection is done on server-side
+                //
+                // clients don't predict other clients shooting, though (unless they have enough input delay?)
+                // I guess no need to replicate to clients since the entity dies so quickly
+                commands.spawn((
+                    spawn_bundle,
+                    // no need to replicate to the shooting player since they are predicting their shot
+                    // and it's very short-lived
+                    Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    PredictionTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    controlled_by.unwrap().clone(),
+                    PreSpawned::default(),
+                    collision_layers,
+                ));
                 // TODO: how does it work for shots fired by others?
             }
             GameReplicationMode::ClientPredictedNoComp => {
                 commands.spawn((
                     spawn_bundle,
                     // no need to replicate to the shooting player since they are predicting their shot
+                    // ans it's very short-lived
                     Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
-                    PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
                     InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                     controlled_by.unwrap().clone(),
-                    PreSpawned::default(),
+                    collision_layers,
                 ));
             }
             GameReplicationMode::ClientPredictedLagComp => {
                 commands.spawn((
                     spawn_bundle,
                     // no need to replicate to the shooting player since they are predicting their shot
+                    // and it's very short-lived
                     Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
-                    PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
                     InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                     controlled_by.unwrap().clone(),
-                    PreSpawned::default(),
+                    collision_layers,
                 ));
             }
             GameReplicationMode::ClientSideHitDetection => {
@@ -818,6 +834,7 @@ fn shoot_hitscan(
                     controlled_by.unwrap().clone(),
                     PreSpawned::default(),
                     ClientHitDetection,
+                    collision_layers,
                 ));
             }
             GameReplicationMode::AllInterpolated => {
@@ -826,6 +843,7 @@ fn shoot_hitscan(
                     Replicate::to_clients(NetworkTarget::All),
                     InterpolationTarget::to_clients(NetworkTarget::All),
                     controlled_by.unwrap().clone(),
+                    collision_layers,
                 ));
             }
             GameReplicationMode::OnlyInputsReplicated => {}
@@ -834,7 +852,8 @@ fn shoot_hitscan(
         // Visuals are purely client-side
         match replication_mode {
             GameReplicationMode::AllPredicted => {
-                // should we predict other clients shooting?
+                // should we predict other clients shooting? I guess yes?
+                //  this observer will also trigger for remove clients
                 commands.spawn((spawn_bundle, PreSpawned::default()));
             }
             GameReplicationMode::ClientPredictedNoComp
@@ -1734,6 +1753,5 @@ pub fn player_bundle(client_id: PeerId) -> impl Bundle {
         WeaponType::default(),
         Name::new("Player"),
         Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
-
     )
 }
