@@ -543,11 +543,11 @@ pub(crate) fn hitscan_hit_detection(
 ) {
     let Ok(timeline) = timeline.single() else {
         info!("no unique timeline");
-        return
+        return;
     };
     let Ok(mode) = mode.single() else {
         info!("no unique mode");
-        return
+        return;
     };
     let Ok((hitscan, bullet_marker, id)) = bullet.get(trigger.target()) else {
         return;

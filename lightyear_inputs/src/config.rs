@@ -22,7 +22,7 @@ pub struct InputConfig<A> {
     /// Duration::default() means that we will send input messages every frame.
     pub send_interval: Duration,
     /// If true, the actions won't be rolled back when a rollback happens.
-    /// 
+    ///
     /// This can be useful for actions that should not be replayed, for example settings-related actions.
     pub ignore_rollbacks: bool,
     #[cfg(feature = "prediction")]

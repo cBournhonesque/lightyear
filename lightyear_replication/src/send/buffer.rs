@@ -1,12 +1,19 @@
+use crate::components::ComponentReplicationOverrides;
+use crate::control::{Controlled, ControlledBy};
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
 use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
+use crate::send::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
+use crate::send::components::{
+    CachedReplicate, Replicate, Replicating, ReplicationGroup, ReplicationGroupId,
+};
 #[cfg(feature = "interpolation")]
 use crate::send::components::{InterpolationTarget, ShouldBeInterpolated};
 #[cfg(feature = "prediction")]
 use crate::send::components::{PredictionTarget, ShouldBePredicted};
+use crate::send::sender::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 use bevy_ecs::component::Components;
 use bevy_ecs::prelude::*;
@@ -18,17 +25,6 @@ use bevy_ecs::{
     world::{FilteredEntityMut, FilteredEntityRef, OnRemove, Ref},
 };
 use bevy_ptr::Ptr;
-#[cfg(feature = "trace")]
-use tracing::{Level, instrument};
-#[allow(unused_imports)]
-use tracing::{error, debug, info, info_span, trace, trace_span};
-use crate::components::ComponentReplicationOverrides;
-use crate::control::{Controlled, ControlledBy};
-use crate::send::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
-use crate::send::components::{
-    CachedReplicate, Replicate, Replicating, ReplicationGroup, ReplicationGroupId,
-};
-use crate::send::sender::ReplicationSender;
 use lightyear_connection::client::Connected;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
@@ -36,6 +32,10 @@ use lightyear_link::prelude::Server;
 use lightyear_link::server::LinkOf;
 use lightyear_messages::MessageManager;
 use lightyear_serde::entity_map::RemoteEntityMap;
+#[cfg(feature = "trace")]
+use tracing::{Level, instrument};
+#[allow(unused_imports)]
+use tracing::{debug, error, info, info_span, trace, trace_span};
 
 /// Keep a cached version of the [`Replicate`] component so that when it gets updated
 /// we can compute a diff from the previous value.

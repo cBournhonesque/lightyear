@@ -28,7 +28,6 @@ use lightyear_replication::registry::replication::GetWriteFns;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-
 /// Add BEI Input replication to your app.
 pub struct InputPlugin<C> {
     pub config: InputConfig<C>,
@@ -44,9 +43,7 @@ impl<C> Default for InputPlugin<C> {
 
 impl<C> InputPlugin<C> {
     pub fn new(config: InputConfig<C>) -> Self {
-        Self {
-            config,
-        }
+        Self { config }
     }
 }
 
@@ -156,7 +153,6 @@ impl<
         }
     }
 }
-
 
 fn never() -> bool {
     false

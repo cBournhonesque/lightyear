@@ -1,7 +1,9 @@
 //! Handle input messages received from the clients
 
 use crate::input_buffer::InputBuffer;
-use crate::input_message::{ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut};
+use crate::input_message::{
+    ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut,
+};
 use crate::plugin::InputPlugin;
 use crate::{HISTORY_DEPTH, InputChannel};
 #[cfg(feature = "metrics")]

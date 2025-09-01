@@ -12,7 +12,7 @@ use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_interpolation::plugin::InterpolationDelay;
 use lightyear_link::prelude::Server;
 #[allow(unused_imports)]
-use tracing::{debug, info, error};
+use tracing::{debug, error, info};
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use {
     avian2d::{math::*, prelude::*},
@@ -32,7 +32,15 @@ use {
 pub struct LagCompensationSpatialQuery<'w, 's> {
     pub timeline: Query<'w, 's, &'static LocalTimeline, With<Server>>,
     spatial_query: SpatialQuery<'w, 's>,
-    parent_query: Query<'w, 's, (&'static Collider, &'static CollisionLayers, &'static LagCompensationHistory)>,
+    parent_query: Query<
+        'w,
+        's,
+        (
+            &'static Collider,
+            &'static CollisionLayers,
+            &'static LagCompensationHistory,
+        ),
+    >,
     child_query: Query<'w, 's, &'static ChildOf, With<AabbEnvelopeHolder>>,
 }
 

@@ -185,7 +185,7 @@ fn server_player_bundle(
         LagCompensationHistory::default(),
         bundle,
         // the layers are only necessary on the server to avoid hit detection between players of different rooms
-        CollisionLayers::new(collision_layer, [collision_layer])
+        CollisionLayers::new(collision_layer, [collision_layer]),
     )
 }
 

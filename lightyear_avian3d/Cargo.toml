@@ -50,5 +50,8 @@ bevy_utils.workspace = true
 tracing.workspace = true
 seahash = { workspace = true, optional = true }
 
+[lints]
+workspace = true
+
 [package.metadata.docs.rs]
 all-features = true

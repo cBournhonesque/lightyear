@@ -237,7 +237,7 @@ pub enum RoomLayer {
 }
 
 /// Members of a room can only attack other members of the room
-impl From<RoomLayer> for CollisionLayers  {
+impl From<RoomLayer> for CollisionLayers {
     fn from(value: RoomLayer) -> Self {
         Self::new(value, [value])
     }

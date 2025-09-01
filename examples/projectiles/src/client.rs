@@ -1,11 +1,11 @@
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{Rooms, color_from_id};
+use avian2d::prelude::{Collider, RigidBody};
 use bevy::prelude::*;
 use bevy_enhanced_input::action::ActionMock;
 use bevy_enhanced_input::bindings;
 use core::time::Duration;
-use avian2d::prelude::{Collider, RigidBody};
 use lightyear::input::bei::prelude::*;
 use lightyear::input::client::InputSet;
 use lightyear::prediction::rollback::DisableRollback;
@@ -47,16 +47,16 @@ pub(crate) fn handle_predicted_spawn(
         };
         color.0 = Color::from(hsva);
         if replication_mode == &GameReplicationMode::AllInterpolated {
-            return
+            return;
         };
         match replication_mode {
-            GameReplicationMode::ClientSideHitDetection | GameReplicationMode::OnlyInputsReplicated => {
+            GameReplicationMode::ClientSideHitDetection
+            | GameReplicationMode::OnlyInputsReplicated => {
                 // add these so we can do hit-detection on the client
-                commands.entity(trigger.target())
-                    .insert((
-                        Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
-                        RigidBody::Kinematic,
-                    ));
+                commands.entity(trigger.target()).insert((
+                    Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
+                    RigidBody::Kinematic,
+                ));
             }
             _ => {}
         };

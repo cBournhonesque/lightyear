@@ -10,7 +10,9 @@ use bevy_enhanced_input::prelude::{ActionValue, Actions};
 use lightyear::input::bei::prelude::InputMarker;
 use lightyear::interpolation::Interpolated;
 use lightyear::prediction::prespawn::PreSpawned;
-use lightyear::prelude::{Client, Confirmed, Controlled, DeterministicPredicted, Predicted, Replicate, Replicated};
+use lightyear::prelude::{
+    Client, Confirmed, Controlled, DeterministicPredicted, Predicted, Replicate, Replicated,
+};
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -138,7 +140,10 @@ fn display_info(
 }
 
 #[cfg(feature = "client")]
-fn render_hitscan_lines(query: Query<(&HitscanVisual, &ColorComponent), Without<Confirmed>>, mut gizmos: Gizmos) {
+fn render_hitscan_lines(
+    query: Query<(&HitscanVisual, &ColorComponent), Without<Confirmed>>,
+    mut gizmos: Gizmos,
+) {
     for (visual, color) in query.iter() {
         let progress = visual.lifetime / visual.max_lifetime;
         let alpha = (1.0 - progress).max(0.0);
