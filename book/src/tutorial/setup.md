@@ -2,7 +2,7 @@
 
 `lightyear` is split up into multiple crates that each provide a facet of networking.
 The main crate `lightyear` provides an easy way of importing all the other crates and settings up the necessary plugins.
-In particular it provides 2 plugin groups that set up the various systems needed for multiplayer app: [`ClientPlugins`](https://docs.rs/lightyear/latest/lightyear/prelude/client/struct.ClientPlugins.html) and [`ServerPlugins`](https://docs.rs/lightyear/latest/lightyear/prelude/client/struct.ServerPlugins.html).
+In particular it provides 2 plugin groups that set up the various systems needed for multiplayer app: [`ClientPlugins`](https://docs.rs/lightyear/latest/lightyear/prelude/client/struct.ClientPlugins.html) and [`ServerPlugins`](https://docs.rs/lightyear/latest/lightyear/prelude/server/struct.ServerPlugins.html).
 
 There are many different sub-plugins that handle most of the complexities of networking, such as:
 

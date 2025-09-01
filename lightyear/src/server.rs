@@ -30,11 +30,18 @@ use core::time::Duration;
 /// - [`MessagePlugin`](lightyear_messages::plugin::MessagePlugin): Handles the messaging system.
 /// - [`ConnectionPlugin`](lightyear_connection::ConnectionPlugin): Handles connections, which are long-term connections with a persistent id on top of a link
 ///   REPLICATION
-#[derive(Default)]
 pub struct ServerPlugins {
     /// The tick interval for the server. This is used to determine how often the server should tick.
     /// The default value is 1/60 seconds.
     pub tick_duration: Duration,
+}
+
+impl Default for ServerPlugins {
+    fn default() -> Self {
+        Self {
+            tick_duration: Duration::from_secs_f32(1.0 / 60.0),
+        }
+    }
 }
 
 impl PluginGroup for ServerPlugins {
@@ -61,13 +68,13 @@ impl PluginGroup for ServerPlugins {
         let builder = builder.add(lightyear_prediction::server::ServerPlugin);
 
         // IO
-        #[cfg(feature = "udp")]
+        #[cfg(all(feature = "udp", not(target_family = "wasm")))]
         let builder = builder.add(lightyear_udp::server::ServerUdpPlugin);
-        #[cfg(feature = "webtransport")]
+        #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
         let builder = builder.add(lightyear_webtransport::server::WebTransportServerPlugin);
-        #[cfg(feature = "websocket")]
+        #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
         let builder = builder.add(lightyear_websocket::server::WebSocketServerPlugin);
-        #[cfg(feature = "steam")]
+        #[cfg(all(feature = "steam", not(target_family = "wasm")))]
         let builder = builder.add(lightyear_steam::server::SteamServerPlugin);
 
         // CONNECTION
