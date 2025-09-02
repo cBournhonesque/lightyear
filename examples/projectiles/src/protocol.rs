@@ -334,8 +334,19 @@ pub struct ClientProjectile {
     pub weapon_type: WeaponType,
 }
 
+#[derive(MapEntities, Event, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct HitDetected {
+    #[entities]
+    pub shooter: Entity,
+    #[entities]
+    pub target: Entity,
+}
+
+pub struct HitChannel;
+
 // Protocol
 pub(crate) struct ProtocolPlugin;
+
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
@@ -372,6 +383,18 @@ impl Plugin for ProtocolPlugin {
         }));
         app.register_input_action::<CycleProjectileMode>();
         app.register_input_action::<CycleReplicationMode>();
+
+        // channel
+        app.add_channel::<HitChannel>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        })
+        .add_direction(NetworkDirection::Bidirectional);
+
+        // messages
+        app.add_trigger::<HitDetected>()
+            .add_map_entities()
+            .add_direction(NetworkDirection::ClientToServer);
 
         // components
         app.register_component::<Name>()

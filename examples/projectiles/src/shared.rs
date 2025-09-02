@@ -105,7 +105,7 @@ pub(crate) fn move_player(
     mut player: Query<&mut Position, Without<Confirmed>>,
     is_bot: Query<(), With<Bot>>,
 ) {
-    const PLAYER_MOVE_SPEED: f32 = 2.0;
+    const PLAYER_MOVE_SPEED: f32 = 1.5;
     if let Ok(mut position) = player.get_mut(trigger.target()) {
         if is_bot.get(trigger.target()).is_err() {
             trace!(
@@ -538,6 +538,7 @@ pub(crate) fn hitscan_hit_detection(
     // (the server creates one entity for each client to store client-specific
     // metadata)
     client_query: Query<&InterpolationDelay, With<ClientOf>>,
+    mut hit_sender: Query<(&LocalId, &mut TriggerSender<HitDetected>), With<Client>>,
     mut player_query: Query<(&mut Score, &PlayerId, Option<&ControlledBy>), With<PlayerMarker>>,
 ) {
     let Ok(timeline) = timeline.single() else {
@@ -569,6 +570,11 @@ pub(crate) fn hitscan_hit_detection(
         if mode != &GameReplicationMode::ClientSideHitDetection
             && mode != &GameReplicationMode::OnlyInputsReplicated
         {
+            return;
+        }
+        let (local_id, _) = hit_sender.single_mut().unwrap();
+        if mode == &GameReplicationMode::ClientSideHitDetection && id.0 != local_id.0 {
+            // for client-side hit detection, we only tell the server about hits from our own bullets
             return;
         }
         // TODO: ignore bullets that were fired by other clients
@@ -605,7 +611,7 @@ pub(crate) fn hitscan_hit_detection(
                 let target = hit_data.entity;
                 info!(?tick, ?hit_data, ?shooter, ?target, "Hitscan hit detected");
                 // if there is a hit, increment the score
-                if is_server && let Ok((mut score, _, _)) = player_query.get_mut(shooter) {
+                if let Ok((mut score, _, _)) = player_query.get_mut(shooter) {
                     info!("Increment score");
                     score.0 += 1;
                 }
@@ -633,9 +639,17 @@ pub(crate) fn hitscan_hit_detection(
                     "Hitscan hit detected"
                 );
                 // if there is a hit, increment the score
-                if is_server && let Ok((mut score, _, _)) = player_query.get_mut(shooter) {
+                if let Ok((mut score, _, _)) = player_query.get_mut(shooter) {
                     info!("Increment score");
                     score.0 += 1;
+                }
+                if !is_server && mode == &GameReplicationMode::ClientSideHitDetection && let Ok((_, mut sender)) = hit_sender.single_mut() {
+                    info!("Client detected hit! Sending hit detection trigger to server");
+                    // the client needs to notify the server about the hit
+                    sender.trigger::<HitChannel>(HitDetected {
+                        shooter,
+                        target
+                    });
                 }
             }
         }

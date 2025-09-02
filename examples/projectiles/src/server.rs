@@ -27,10 +27,9 @@ use lightyear_avian2d::prelude::{
 use lightyear_examples_common::cli::new_headless_app;
 use lightyear_examples_common::shared::{SEND_INTERVAL, SERVER_ADDR, SHARED_SETTINGS};
 use rand::random;
+use lightyear::connection::client::PeerMetadata;
 
 pub struct ExampleServerPlugin;
-
-const BULLET_COLLISION_DISTANCE_CHECK: f32 = 4.0;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
@@ -42,6 +41,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(spawn_player);
         app.add_observer(cycle_replication_mode);
         app.add_observer(cycle_projectile_mode);
+        app.add_observer(handle_hits);
 
         app.add_systems(Startup, spawn_global_control);
 
@@ -134,6 +134,8 @@ pub(crate) fn spawn_player(
                 player,
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+                // add the component to make lag-compensation possible!
+                LagCompensationHistory::default(),
             )),
             GameReplicationMode::ClientSideHitDetection => commands.spawn((
                 player,
@@ -184,13 +186,23 @@ fn server_player_bundle(
             lifetime: Default::default(),
         },
         replication_mode,
-        // add the component to make lag-compensation possible!
-        LagCompensationHistory::default(),
         bundle,
         // the layers are only necessary on the server to avoid hit detection between players of different rooms
         CollisionLayers::new(collision_layer, [collision_layer]),
     )
 }
+
+/// Increment the score if the client told us about a detected hit.
+fn handle_hits(
+    trigger: Trigger<RemoteTrigger<HitDetected>>,
+    mut scores: Query<&mut Score>,
+) {
+    if let Ok(mut score) = scores.get_mut(trigger.trigger.shooter) {
+        info!(?trigger, "Server received hit detection trigger from client!");
+        score.0 += 1;
+    }
+}
+
 
 pub struct BotPlugin;
 
@@ -307,8 +319,8 @@ enum BotMovementMode {
 impl BotMovementMode {
     fn interval(&self) -> f32 {
         match self {
-            BotMovementMode::Strafing => 0.2,     // 200ms for strafing
-            BotMovementMode::StraightLine => 1.0, // 1s for straight line
+            BotMovementMode::Strafing => 0.4,     // 400ms for strafing
+            BotMovementMode::StraightLine => 2.0, // 2s for straight line
         }
     }
 
@@ -358,7 +370,7 @@ fn bot_inputs(
     key_timer.tick(time.delta());
 
     // Switch modes every 4 seconds
-    if mode_timer.elapsed_secs() >= 4.0 {
+    if mode_timer.elapsed_secs() >= 8.0 {
         mode_timer.reset();
         *current_mode = match *current_mode {
             BotMovementMode::Strafing => BotMovementMode::StraightLine,
