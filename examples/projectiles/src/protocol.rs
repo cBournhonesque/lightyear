@@ -10,6 +10,7 @@ use lightyear::prelude::input::bei::InputAction;
 use lightyear::prelude::input::bei::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
+use crate::protocol::WeaponType::Hitscan;
 
 pub const BULLET_SIZE: f32 = 3.0;
 pub const PLAYER_SIZE: f32 = 40.0;
@@ -37,7 +38,7 @@ pub struct Score(pub usize);
 #[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Reflect)]
 pub struct ColorComponent(pub(crate) Color);
 
-#[derive(Component, MapEntities, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, MapEntities, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct BulletMarker {
     #[entities]
     pub shooter: Entity,
@@ -344,6 +345,9 @@ impl Plugin for ProtocolPlugin {
             Actions<PlayerMarker>,
             ActionOf<PlayerMarker>,
             ActionOfWrapper<PlayerContext>,
+            BulletMarker,
+            PlayerId,
+            ColorComponent,
             Score,
         )>();
 
@@ -399,6 +403,12 @@ impl Plugin for ProtocolPlugin {
             .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<Score>();
+
+        // we replicate HitscanVisual for the AllInterpolation mode
+        // make sure that we have an Interpolated HitscanVisual entity since we only render entities
+        // that are interpolated or predicted
+        app.register_component::<HitscanVisual>()
+            .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<RigidBody>()
             .add_prediction(PredictionMode::Once);

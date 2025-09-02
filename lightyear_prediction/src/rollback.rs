@@ -16,6 +16,7 @@ use bevy_ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy_ecs::world::{FilteredEntityMut, FilteredEntityRef};
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
+use serde::{Deserialize, Serialize};
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
@@ -168,7 +169,7 @@ impl Plugin for RollbackPlugin {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, PartialEq, Serialize, Deserialize)]
 /// Marker component used to indicate this entity is predicted (It has a PredictionHistory),
 /// but it won't check for rollback from state updates.
 ///

@@ -24,8 +24,6 @@ use crate::protocol::*;
 use lightyear::prelude::{Room, RoomEvent};
 
 const EPS: f32 = 0.0001;
-pub const BOT_RADIUS: f32 = 15.0;
-pub(crate) const BOT_MOVE_SPEED: f32 = 1.0;
 const BULLET_MOVE_SPEED: f32 = 300.0;
 const MAP_LIMIT: f32 = 2000.0;
 const HITSCAN_COLLISION_DISTANCE_CHECK: f32 = 2000.0;
@@ -103,10 +101,11 @@ pub(crate) fn rotate_player(
 
 pub(crate) fn move_player(
     trigger: Trigger<Fired<MovePlayer>>,
-    mut player: Query<&mut Position>,
+    // Confirmed inputs don't get applied on the client! (for the AllInterpolated case)
+    mut player: Query<&mut Position, Without<Confirmed>>,
     is_bot: Query<(), With<Bot>>,
 ) {
-    const PLAYER_MOVE_SPEED: f32 = 5.0;
+    const PLAYER_MOVE_SPEED: f32 = 2.0;
     if let Ok(mut position) = player.get_mut(trigger.target()) {
         if is_bot.get(trigger.target()).is_err() {
             trace!(

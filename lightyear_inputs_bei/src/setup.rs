@@ -141,18 +141,19 @@ impl InputRegistryPlugin {
     #[cfg(feature = "client")]
     pub(crate) fn on_rebroadcast_action_received<C: Component>(
         query: Query<(Entity, &ActionOfWrapper<C>), (With<Replicated>, Without<ActionOf<C>>)>,
-        context_query: Query<&Confirmed, With<C>>,
+        context_query: Query<(Option<&Confirmed>, Has<DeterministicPredicted>), With<C>>,
         mut commands: Commands,
     ) {
         query.iter().for_each(|(entity, action_of_wrapper)| {
-            if let Ok(confirmed) = context_query.get(action_of_wrapper.context)
-            && let Some(predicted) = confirmed.predicted {
-                debug!(?entity, "On client, insert ActionOf({:?}) for action entity ActionOf<{:?}> from input rebroadcast", predicted, core::any::type_name::<C>());
+            if let Ok((confirmed, deterministic)) = context_query.get(action_of_wrapper.context)
+                // context _entity is either the Predicted entity or DeterministicPredicted entity
+                && let Some(context_entity) = confirmed.and_then(|c| c.predicted).or(deterministic.then_some(action_of_wrapper.context)) {
+                debug!(?entity, "On client, insert ActionOf({:?}) for action entity ActionOf<{:?}> from input rebroadcast", context_entity, core::any::type_name::<C>());
                 // Attach ActionOf to the predicted context entity
                 commands
                     .entity(entity)
                     .insert((
-                        ActionOf::<C>::new(predicted),
+                        ActionOf::<C>::new(context_entity),
                         // We add DeterministicPredicted because lightyear_inputs::client expects the recipient
                         // to be a predicted entity
                         DeterministicPredicted,

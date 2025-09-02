@@ -1,7 +1,7 @@
 use crate::client::ExampleClientPlugin;
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{BOT_RADIUS, Rooms, SharedPlugin, color_from_id};
+use crate::shared::{Rooms, SharedPlugin, color_from_id};
 use avian2d::prelude::*;
 use bevy::input::InputPlugin;
 use bevy::prelude::*;
@@ -122,7 +122,8 @@ pub(crate) fn spawn_player(
         let player = server_player_bundle(room, client_id, sender, replication_mode);
         let player_entity = match replication_mode {
             GameReplicationMode::AllPredicted => {
-                commands.spawn((player, PredictionTarget::to_clients(NetworkTarget::All)))
+                commands.spawn((
+                    player, PredictionTarget::to_clients(NetworkTarget::All)))
             }
             GameReplicationMode::ClientPredictedNoComp => commands.spawn((
                 player,
@@ -144,6 +145,7 @@ pub(crate) fn spawn_player(
             }
             GameReplicationMode::OnlyInputsReplicated => commands.spawn((
                 PlayerContext,
+                replication_mode,
                 Replicate::to_clients(NetworkTarget::All),
                 NetworkVisibility::default(),
                 ControlledBy {
@@ -151,6 +153,7 @@ pub(crate) fn spawn_player(
                     lifetime: Default::default(),
                 },
                 PlayerMarker,
+                PlayerId(client_id),
                 Name::new("Player"),
             )),
         }
