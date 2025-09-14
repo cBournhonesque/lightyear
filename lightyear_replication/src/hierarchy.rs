@@ -315,7 +315,10 @@ mod tests {
         assert!(app.world().get::<ReplicateLike>(child_4).is_none());
 
         // The grandchild should replicate like its parent -> grandparent
-        assert_eq!(app.world().get::<ReplicateLike>(grandchild_1).unwrap().root, grandparent);
+        assert_eq!(
+            app.world().get::<ReplicateLike>(grandchild_1).unwrap().root,
+            grandparent
+        );
     }
 
     /// Check that ReplicateLike propagation works correctly when ReplicationMarker gets added
