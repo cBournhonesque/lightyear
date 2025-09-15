@@ -115,9 +115,9 @@ impl<R: Relationship> HierarchySendPlugin<R> {
     fn propagate_through_hierarchy(
         mut commands: Commands,
         root_query: Query<
-            (Entity, Has<PrePredicted>),
+            (Entity, Has<PrePredicted>, Option<&ReplicateLike>),
             (
-                With<Replicate>,
+                Or<(With<Replicate>, With<ReplicateLike>)>,
                 Without<DisableReplicateHierarchy>,
                 With<R::RelationshipTarget>,
                 Or<(
@@ -132,7 +132,12 @@ impl<R: Relationship> HierarchySendPlugin<R> {
         // for their descendants, and we don't want to add `ReplicateLike` on them)
         child_filter: Query<(), (Without<DisableReplicateHierarchy>, Without<Replicate>)>,
     ) {
-        root_query.iter().for_each(|(root, pre_predicted)| {
+        root_query.iter().for_each(|(mut root, pre_predicted, maybe_replicate_like)| {
+            // If we are already ReplicateLike another entity, we use it as root
+            if let Some(ReplicateLike { root: new_root }) = maybe_replicate_like {
+                root = *new_root;
+            }
+
             // we go through all the descendants (instead of just the children) so that the root is added
             // and we don't need to search for the root ancestor in the replication systems
             let mut stack = SmallVec::<[Entity; 8]>::new();
@@ -224,6 +229,7 @@ mod tests {
 
         let grandparent = app.world_mut().spawn(Replicate::manual(vec![])).id();
         // parent with no ReplicationMarker: ReplicateLike should be propagated
+        let grandchild_1 = app.world_mut().spawn_empty().id();
         let child_1 = app.world_mut().spawn_empty().id();
         let parent_1 = app.world_mut().spawn_empty().add_child(child_1).id();
 
@@ -268,6 +274,12 @@ mod tests {
 
         // flush commands
         app.update();
+
+        // Add grandchild which should also get ReplicateLike
+        app.world_mut().entity_mut(parent_1).add_child(grandchild_1);
+
+        app.update();
+
         assert_eq!(
             app.world().get::<ReplicateLike>(parent_1).unwrap().root,
             grandparent
@@ -301,6 +313,12 @@ mod tests {
         // on the entity itself either
         assert!(app.world().get::<ReplicateLike>(parent_4).is_none());
         assert!(app.world().get::<ReplicateLike>(child_4).is_none());
+
+        // The grandchild should replicate like its parent -> grandparent
+        assert_eq!(
+            app.world().get::<ReplicateLike>(grandchild_1).unwrap().root,
+            grandparent
+        );
     }
 
     /// Check that ReplicateLike propagation works correctly when ReplicationMarker gets added
