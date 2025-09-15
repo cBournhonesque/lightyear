@@ -159,7 +159,7 @@ metrics = "0.24"
 aeronet_webtransport = "0.14.0"
 aeronet_websocket = "0.14.0"
 aeronet_steam = "0.14.1"
-aeronet_io = "0.14.0"
+aeronet_io = "0.16.0"
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.45", features = [
   "sync",
