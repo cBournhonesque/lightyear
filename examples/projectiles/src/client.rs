@@ -38,7 +38,6 @@ pub(crate) fn handle_predicted_spawn(
 ) {
     let client_id = client.into_inner().0;
     if let Ok((player_id, mode)) = player_query.get_mut(trigger.target()) {
-        info!("Adding actions to predicted player {:?}", trigger.target());
         if mode == &GameReplicationMode::AllInterpolated {
             return;
         };
@@ -56,6 +55,7 @@ pub(crate) fn handle_predicted_spawn(
         if player_id.0 != client_id {
             return;
         }
+        info!("Adding actions to predicted player {:?}", trigger.target());
         // add actions on the local entity (remote predicted entities will have actions propagated by the server)
         add_actions(&mut commands, trigger.target());
     }
@@ -72,6 +72,13 @@ pub(crate) fn handle_interpolated_spawn(
 ) {
     let client_id = client.into_inner();
     if let Ok((player_id, interpolated, mode)) = interpolated.get_mut(trigger.target()) {
+        if mode == &GameReplicationMode::ClientSideHitDetection {
+            // add these so we can do hit-detection on the client
+            commands.entity(trigger.target()).insert((
+                Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
+                RigidBody::Kinematic,
+            ));
+        }
         // In the interpolated case, the client controls the confirmed entity
         if let GameReplicationMode::AllInterpolated = mode && client_id.0 == player_id.0 {
             add_actions(&mut commands, interpolated.confirmed_entity);
@@ -88,13 +95,14 @@ pub(crate) fn handle_deterministic_spawn(
     let client_id = client.into_inner();
     if let Ok((player_id, mode)) = query.get(trigger.target())
         && mode == &GameReplicationMode::OnlyInputsReplicated {
-        info!("Spawning actions for DeterministicPredicted player {:?}", trigger.target());
         commands
             .entity(trigger.target())
-            .insert((shared::player_bundle(client_id.0), DeterministicPredicted, DisableRollback));
+            .insert((shared::player_bundle(player_id.0), DeterministicPredicted, DisableRollback));
+        info!("Adding PlayerContext for player {:?}", player_id);
 
         // add actions for the local client
         if player_id.0 == client_id.0 {
+            info!("Spawning actions for DeterministicPredicted player {:?}", player_id);
             add_actions(&mut commands, trigger.target());
         }
     }

@@ -160,8 +160,10 @@ impl InputRegistryPlugin {
                         bevy_enhanced_input::context::ExternallyMocked,
                     ))
                     .remove::<ActionOfWrapper<C>>();
-                // remove the Context from the confirmed entity, since we the predicted entity is what matters
-                commands.entity(action_of_wrapper.context).remove_with_requires::<C>();
+                // remove the Context from the confirmed entity, since the predicted entity is what matters
+                if confirmed.is_some() && !deterministic {
+                    commands.entity(action_of_wrapper.context).remove_with_requires::<C>();
+                }
             } else {
                 // we don't have a Predicted entity to attach this action to, just despawn
                 commands.entity(entity)
