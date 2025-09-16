@@ -4,8 +4,6 @@ use aeronet_steam::SessionConfig;
 use aeronet_steam::server::{
     ListenTarget, SessionRequest, SessionResponse, SteamNetServer, SteamNetServerClient,
 };
-#[allow(unused_imports)]
-use aeronet_steam::steamworks::{ClientManager, ServerManager};
 use alloc::format;
 use alloc::string::ToString;
 use bevy_app::{App, Plugin};
@@ -40,8 +38,7 @@ impl Plugin for SteamServerPlugin {
         if !app.is_plugin_added::<ServerAeronetPlugin>() {
             app.add_plugins(ServerAeronetPlugin);
         }
-        // TODO: should i be using ClientManager or ServerManager here? Maybe ServerManager for dedicated server, ClientManager for peer-to-peer?
-        app.add_plugins(aeronet_steam::server::SteamNetServerPlugin::<ClientManager>::default());
+        app.add_plugins(aeronet_steam::server::SteamNetServerPlugin);
 
         app.add_observer(Self::link);
         app.add_observer(Self::on_linked);
@@ -86,7 +83,7 @@ impl SteamServerPlugin {
             commands.queue(move |world: &mut World| {
                 info!("Server Steam starting at {:?}", target);
                 let child = world.spawn((AeronetLinkOf(entity), Name::from("SteamServer")));
-                SteamNetServer::<ClientManager>::open(config, target).apply(child);
+                SteamNetServer::open(config, target).apply(child);
             });
         }
         Ok(())
@@ -175,7 +172,7 @@ impl SteamServerPlugin {
     fn on_connection(
         trigger: Trigger<OnAdd, Session>,
         query: Query<&AeronetLinkOf>,
-        child_query: Query<(&ChildOf, &SteamNetServerClient<ClientManager>)>,
+        child_query: Query<(&ChildOf, &SteamNetServerClient)>,
         mut commands: Commands,
     ) {
         if let Ok((child_of, steam_conn)) = child_query.get(trigger.target())
@@ -206,7 +203,7 @@ impl SteamServerPlugin {
     /// Steam is both a Link and a Connection, so on a aeronet Disconnected we trigger Unlinked, Disconnected and we despawn the entity
     fn on_disconnected(
         trigger: Trigger<aeronet_io::connection::Disconnected>,
-        query: Query<&AeronetLinkOf, With<SteamNetServerClient<ClientManager>>>,
+        query: Query<&AeronetLinkOf, With<SteamNetServerClient>>,
         mut commands: Commands,
     ) {
         if let Ok(aeronet_link_of) = query.get(trigger.target())

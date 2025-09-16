@@ -156,10 +156,10 @@ crossbeam-channel = { version = "0.5.13", features = [] }
 metrics = "0.24"
 
 # transport
-aeronet_webtransport = "0.14.0"
-aeronet_websocket = "0.14.0"
-aeronet_steam = "0.14.1"
-aeronet_io = "0.14.0"
+aeronet_webtransport = "0.16"
+aeronet_websocket = "0.16"
+aeronet_steam = "0.16"
+aeronet_io = "0.16"
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.45", features = [
   "sync",

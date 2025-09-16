@@ -57,18 +57,14 @@ pub trait SteamAppExt {
 
 impl SteamAppExt for bevy_app::App {
     fn add_steam_resources(&mut self, app_id: u32) -> &mut Self {
-        let (steam, steam_single) =
+        let steam =
             prelude::steamworks::Client::init_app(app_id).expect("failed to initialize steam");
         steam.networking_utils().init_relay_network_access();
 
         self.insert_resource(prelude::SteamworksClient(steam))
-            .insert_non_send_resource(steam_single)
-            .add_systems(
-                PreUpdate,
-                |steam: NonSend<prelude::steamworks::SingleClient>| {
-                    steam.run_callbacks();
-                },
-            );
+            .add_systems(PreUpdate, |steam: NonSend<prelude::SteamworksClient>| {
+                steam.run_callbacks();
+            });
         self
     }
 }

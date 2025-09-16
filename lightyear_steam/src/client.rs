@@ -1,6 +1,5 @@
 use aeronet_io::connection::PeerAddr;
 use aeronet_steam::client::SteamNetClient;
-use aeronet_steam::steamworks::ClientManager;
 use aeronet_steam::{
     SessionConfig, SteamworksClient,
     client::{ConnectTarget, SteamNetClientPlugin},
@@ -27,7 +26,7 @@ impl Plugin for SteamClientPlugin {
         if !app.is_plugin_added::<AeronetPlugin>() {
             app.add_plugins(AeronetPlugin);
         }
-        app.add_plugins(SteamNetClientPlugin::<ClientManager>::default());
+        app.add_plugins(SteamNetClientPlugin);
         app.add_observer(Self::link);
         app.add_observer(Self::on_linked);
         app.add_observer(Self::disconnect);
@@ -92,7 +91,7 @@ impl SteamClientPlugin {
                 trace!("Starting LinkStart for SteamClientIo on entity {entity:?}. Spawning aeronet entity: {aeronet_entity:?}");
 
                 // TODO: also add LocalAddr or LocalId components
-                SteamNetClient::<ClientManager>::connect(config, target).apply(entity_mut);
+                SteamNetClient::connect(config, target).apply(entity_mut);
                 Ok(())
             });
         }
