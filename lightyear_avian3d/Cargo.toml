@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_avian3d"
-version = "0.24.0"
+version = "0.24.1"
 authors.workspace = true
 rust-version.workspace = true
 edition.workspace = true
