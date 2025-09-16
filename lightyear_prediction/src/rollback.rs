@@ -26,6 +26,7 @@ use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
+use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use tracing::{debug, debug_span, error, info, trace, trace_span, warn};
 
@@ -168,7 +169,7 @@ impl Plugin for RollbackPlugin {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, PartialEq, Serialize, Deserialize)]
 /// Marker component used to indicate this entity is predicted (It has a PredictionHistory),
 /// but it won't check for rollback from state updates.
 ///

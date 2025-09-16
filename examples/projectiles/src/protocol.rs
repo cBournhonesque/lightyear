@@ -1,3 +1,4 @@
+use crate::protocol::WeaponType::Hitscan;
 use crate::shared::color_from_id;
 use avian2d::position::{Position, Rotation};
 use avian2d::prelude::{CollisionLayers, PhysicsLayer, RigidBody};
@@ -37,7 +38,7 @@ pub struct Score(pub usize);
 #[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Reflect)]
 pub struct ColorComponent(pub(crate) Color);
 
-#[derive(Component, MapEntities, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Component, MapEntities, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct BulletMarker {
     #[entities]
     pub shooter: Entity,
@@ -333,6 +334,16 @@ pub struct ClientProjectile {
     pub weapon_type: WeaponType,
 }
 
+#[derive(MapEntities, Event, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct HitDetected {
+    #[entities]
+    pub shooter: Entity,
+    #[entities]
+    pub target: Entity,
+}
+
+pub struct HitChannel;
+
 // Protocol
 pub(crate) struct ProtocolPlugin;
 
@@ -344,6 +355,9 @@ impl Plugin for ProtocolPlugin {
             Actions<PlayerMarker>,
             ActionOf<PlayerMarker>,
             ActionOfWrapper<PlayerContext>,
+            BulletMarker,
+            PlayerId,
+            ColorComponent,
             Score,
         )>();
 
@@ -368,6 +382,18 @@ impl Plugin for ProtocolPlugin {
         }));
         app.register_input_action::<CycleProjectileMode>();
         app.register_input_action::<CycleReplicationMode>();
+
+        // channel
+        app.add_channel::<HitChannel>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        })
+        .add_direction(NetworkDirection::Bidirectional);
+
+        // messages
+        app.add_trigger::<HitDetected>()
+            .add_map_entities()
+            .add_direction(NetworkDirection::ClientToServer);
 
         // components
         app.register_component::<Name>()
@@ -399,6 +425,12 @@ impl Plugin for ProtocolPlugin {
             .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<Score>();
+
+        // we replicate HitscanVisual for the AllInterpolation mode
+        // make sure that we have an Interpolated HitscanVisual entity since we only render entities
+        // that are interpolated or predicted
+        app.register_component::<HitscanVisual>()
+            .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<RigidBody>()
             .add_prediction(PredictionMode::Once);

@@ -99,7 +99,16 @@ impl ExampleClient {
                 }
                 ClientTransports::WebSocket => {
                     add_netcode(&mut entity_mut)?;
-                    let config = ClientConfig::builder().with_no_cert_validation();
+                    let config = {
+                        #[cfg(target_family = "wasm")]
+                        {
+                            ClientConfig::default()
+                        }
+                        #[cfg(not(target_family = "wasm"))]
+                        {
+                            ClientConfig::builder().with_no_cert_validation()
+                        }
+                    };
                     entity_mut.insert(WebSocketClientIo { config });
                 }
                 #[cfg(feature = "steam")]

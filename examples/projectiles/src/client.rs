@@ -31,25 +31,17 @@ impl Plugin for ExampleClientPlugin {
 // - assign it a different saturation
 // - add physics components so that its movement can be predicted
 pub(crate) fn handle_predicted_spawn(
-    trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
+    trigger: Trigger<OnAdd, (PlayerMarker, Predicted)>,
     client: Single<&LocalId, With<Client>>,
-    mode: Single<&GameReplicationMode, With<ClientContext>>,
     mut commands: Commands,
-    mut player_query: Query<(&mut ColorComponent, &PlayerId), (With<Predicted>, With<Controlled>)>,
+    mut player_query: Query<(&PlayerId, &GameReplicationMode), With<Predicted>>,
 ) {
     let client_id = client.into_inner().0;
-    let replication_mode = mode.into_inner();
-    if let Ok((mut color, player_id)) = player_query.get_mut(trigger.target()) {
-        info!("Adding actions to predicted player {:?}", trigger.target());
-        let hsva = Hsva {
-            saturation: 0.4,
-            ..Hsva::from(color.0)
-        };
-        color.0 = Color::from(hsva);
-        if replication_mode == &GameReplicationMode::AllInterpolated {
+    if let Ok((player_id, mode)) = player_query.get_mut(trigger.target()) {
+        if mode == &GameReplicationMode::AllInterpolated {
             return;
         };
-        match replication_mode {
+        match mode {
             GameReplicationMode::ClientSideHitDetection
             | GameReplicationMode::OnlyInputsReplicated => {
                 // add these so we can do hit-detection on the client
@@ -60,55 +52,66 @@ pub(crate) fn handle_predicted_spawn(
             }
             _ => {}
         };
-        // if player_id.0 != client_id {
-        //     return;
-        // }
-        // add actions on the predicted entity
+        if player_id.0 != client_id {
+            return;
+        }
+        info!("Adding actions to predicted player {:?}", trigger.target());
+        // add actions on the local entity (remote predicted entities will have actions propagated by the server)
         add_actions(&mut commands, trigger.target());
     }
 }
 
 pub(crate) fn handle_interpolated_spawn(
-    trigger: Trigger<OnAdd, (PlayerId, Interpolated)>,
-    mode: Single<&GameReplicationMode, With<ClientContext>>,
+    trigger: Trigger<OnAdd, (PlayerMarker, Interpolated)>,
+    client: Single<&LocalId, With<Client>>,
     mut interpolated: Query<
-        (&mut ColorComponent, &Interpolated),
-        (With<Interpolated>, With<Controlled>),
+        (&PlayerId, &Interpolated, &GameReplicationMode),
+        (With<Interpolated>, With<PlayerMarker>),
     >,
     mut commands: Commands,
 ) {
-    let replication_mode = mode.into_inner();
-    if let Ok((mut color, interpolated)) = interpolated.get_mut(trigger.target()) {
-        let hsva = Hsva {
-            saturation: 0.1,
-            ..Hsva::from(color.0)
-        };
-        color.0 = Color::from(hsva);
+    let client_id = client.into_inner();
+    if let Ok((player_id, interpolated, mode)) = interpolated.get_mut(trigger.target()) {
+        if mode == &GameReplicationMode::ClientSideHitDetection {
+            // add these so we can do hit-detection on the client
+            commands.entity(trigger.target()).insert((
+                Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
+                RigidBody::Kinematic,
+            ));
+        }
         // In the interpolated case, the client controls the confirmed entity
-        if let GameReplicationMode::AllInterpolated = replication_mode {
+        if let GameReplicationMode::AllInterpolated = mode
+            && client_id.0 == player_id.0
+        {
             add_actions(&mut commands, interpolated.confirmed_entity);
         }
     }
 }
 
 pub(crate) fn handle_deterministic_spawn(
-    trigger: Trigger<OnAdd, PlayerId>,
+    trigger: Trigger<OnAdd, PlayerMarker>,
+    query: Query<(&PlayerId, &GameReplicationMode)>,
     client: Single<&LocalId, With<Client>>,
-    mode: Single<&GameReplicationMode, With<ClientContext>>,
     mut commands: Commands,
 ) {
-    let replication_mode = mode.into_inner();
-    // TODO: it's controllable by the client, but it doesn't render!
     let client_id = client.into_inner();
-    match replication_mode {
-        GameReplicationMode::OnlyInputsReplicated => {
-            commands
-                .entity(trigger.target())
-                .insert((shared::player_bundle(client_id.0), DeterministicPredicted));
+    if let Ok((player_id, mode)) = query.get(trigger.target())
+        && mode == &GameReplicationMode::OnlyInputsReplicated
+    {
+        commands.entity(trigger.target()).insert((
+            shared::player_bundle(player_id.0),
+            DeterministicPredicted,
+            DisableRollback,
+        ));
+        info!("Adding PlayerContext for player {:?}", player_id);
+
+        // add actions for the local client
+        if player_id.0 == client_id.0 {
+            info!(
+                "Spawning actions for DeterministicPredicted player {:?}",
+                player_id
+            );
             add_actions(&mut commands, trigger.target());
-        }
-        _ => {
-            // handled in the predicted/interpolated spawn handlers
         }
     }
 }

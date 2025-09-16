@@ -1,23 +1,46 @@
 # Projectiles Example
 
+## Objective
+
+This example explores the various tradeoffs between different approaches to replicating projectiles for a FPS game.
+It can be time-consuming to test all these approaches; this should provide a convenient way to explore these approaches.
+
+On the right is the server, which spawns 6 differents entities for each player. We use interest management via Rooms to make sure that clients only receive updates about entities that correspond to one of the 6 modes:
+- **AllPredicted**: entity is predicted by all players, hit detection is done server-side with no lag compensation. This should favor the target since the shooter has an imperfect view of their 
+position. This also allows testing that remote entity prediction works well with BEI, which is now the case.
+- **ClientPredicted (No lag Comp)**: the 'default' setting of predicting the client and interpolating other players. Hit detection is done server-side; since there is no lag compensation, even if you 
+  seemingly hit the target on the client's screen it won't be registered as a hit on the server because the client has a delayed view of other clients
+- **ClientPredicted (Lag Comp)**: same as above but this time we use lag compensation on the server. The white boxes on the server are the collider occupied by each player in the last few frames. If 
+  the projectile collides with that (broad-phase), we check if there was an actual collision on the client's screen using the narrow-phase lag compensation query. It's interesting to see how the boxes grow after any diagonal movement, but I think that's expected (it's just for broad-detection)
+- **ClientSideHitDetection**: same as above, but hit detection is done on the client. This should give good results + saves a lot of server-CPU (since server doesn't need to do any hit-detection), 
+  but cheaters are free to send fake 'I hit that target' packets
+- **AllInterpolated**: this time the local client is also interpolated, so each of their movement will be felt after a delay. That's a tradeoff to make in exchange for having all entities in the same 
+  timeline, which removes the need for lag compensation. Note that interpolation seems somewhat clunky because we interpolate between infrequent states without having a full view of the history of each component. I'm planning of maybe adding a mode where the full history of the component is replicated, for better interpolation.
+- **OnlyInputsReplicated**: this time the server does basically nothing except acting as a proxy that exchanges inputs between players. The simulation should be deterministic and run on each client.
+  If there is enough input-delay (for example in lockstep), each client has a perfect view of other clients and there is 0 prediction. Otherwise the client has to predict other players, which can make things tricky. How do we handle mispredicting that a target was shot? How do we handle receiving a late input telling us that a remote client shot a bullet?
+  
+
+The example also uses a fake 'bot' client that acts exactly like another client but runs in a headless app and communicates with the server using crossbeam channels. This is useful for testing to be able to see how remote clients work without having to manually spawn 2 clients.
+
 ## Features
 
 This example showcases several features that can be useful for building a multiplayer FPS, including different weapon types, projectile replication strategies, and networking approaches.
 
+**Controls:**
+- `Q` - Cycle through weapon types
+- `E` - Cycle through projectile replication modes
+- `R` - Cycle through game replication modes
+- `Space` - Shoot current weapon
+  
 ### Weapon Types
 
 The example now supports multiple weapon types that you can cycle through:
 
-1. **Hitscan** - Instant hit with fast visual effect
-2. **Hitscan with Slow Visuals** - Instant hit but with slower visual trail
-3. **Linear Projectile** - Simple projectile with constant velocity
-4. **Shotgun** - Multiple pellets with spread
-5. **Physics Projectile** - Projectile with physics interactions (bouncing, deceleration)
-6. **Homing Missile** - Projectile that tracks nearest target
-
-**Controls:**
-- `Q` - Cycle through weapon types
-- `Space` - Shoot current weapon
+1. **Hitscan** - Instant hit
+2. **Linear Projectile** - Simple projectile with constant velocity
+3. **Shotgun** - Multiple pellets with spread
+4. **Physics Projectile** - Projectile with physics interactions (bouncing, deceleration)
+5. **Homing Missile** - Projectile that tracks nearest target
 
 ### Projectile Replication Methods
 
@@ -29,27 +52,23 @@ Three different approaches to replicating projectiles:
 
 3. **Ring Buffer Replication** - Projectile spawn information is stored in a ring buffer on the Weapon component. The buffer contains spawn tick, position, and direction for efficient batched replication.
 
-**Controls:**
-- `E` - Cycle through replication methods
 
 ### Game Replication Modes (Rooms)
 
 Six different networking approaches using lightyear's room system:
 
-1. **All Predicted** (Room 0) - Current default mode: all entities predicted, server handles hit detection. Favors the target since the shooter might be mispredicting enemy positions.
+1. **All Predicted** (Room 0) - All entities predicted, server handles hit detection. Favors the target since the shooter might be mispredicting enemy positions.
 
 2. **Client Predicted (No Lag Comp)** (Room 1) - Client predicted, enemies interpolated, no lag compensation. Shooter must lead targets (Quake-style gameplay).
 
 3. **Client Predicted (Lag Comp)** (Room 2) - Client predicted, enemies interpolated, with lag compensation. Server rewinds enemy positions to validate hits from the client's perspective. Favors the shooter.
 
-4. **Client-Side Hit Detection** (Room 3) - Hits computed on client and sent to server. Very cheap for server but vulnerable to cheating.
+4. **Client-Side Hit Detection** (Room 3) - Client predicted, enemies interpolated. Hits computed on client and sent to server. Very cheap for server but vulnerable to cheating.
 
-5. **All Interpolated** (Room 4) - Everything in interpolated timeline. User actions have built-in delay but everything is consistent.
+5. **All Interpolated** (Room 4) - Everything in interpolated timeline. User actions have built-in delay but everything is consistent (client and enemies are in the same interpolated timeline).
 
-6. **Only Inputs Replicated** (Room 5) - Only input states are replicated, everything else is predicted/simulated. Most bandwidth efficient.
+6. **Only Inputs Replicated** (Room 5) - Only inputs are replicated, otherwise only the clients are running the simulation, which needs to be perfectly deterministic. Most bandwidth efficient.
 
-**Controls:**
-- `R` - Cycle through replication modes (changes room)
 
 ### Technical Implementation
 
