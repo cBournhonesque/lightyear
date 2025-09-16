@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_transport"
-version = "0.23.0"
+version = "0.24.2"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true

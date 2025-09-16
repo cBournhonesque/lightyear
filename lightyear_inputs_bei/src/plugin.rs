@@ -18,6 +18,7 @@ use bevy_enhanced_input::prelude::ActionOf;
 use bevy_reflect::TypePath;
 use core::fmt::Debug;
 use lightyear_core::prelude::is_in_rollback;
+#[cfg(feature = "client")]
 use lightyear_inputs::client::InputSet;
 use lightyear_inputs::config::InputConfig;
 use lightyear_prediction::PredictionMode;
