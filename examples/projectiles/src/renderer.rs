@@ -186,14 +186,22 @@ pub struct VisibleFilter {
 fn add_player_visuals(
     trigger: Trigger<OnInsert, PlayerId>,
     mut query: Query<
-        (Has<Predicted>, Has<DeterministicPredicted>, Has<PreSpawned>, Has<Interpolated>, &mut ColorComponent),
+        (
+            Has<Predicted>,
+            Has<DeterministicPredicted>,
+            Has<PreSpawned>,
+            Has<Interpolated>,
+            &mut ColorComponent,
+        ),
         (VisibleFilter, With<PlayerMarker>),
     >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((is_predicted, is_det_predicted, prespawned, interpolated, mut color)) = query.get_mut(trigger.target()) {
+    if let Ok((is_predicted, is_det_predicted, prespawned, interpolated, mut color)) =
+        query.get_mut(trigger.target())
+    {
         if interpolated {
             let hsva = Hsva {
                 saturation: 0.7,

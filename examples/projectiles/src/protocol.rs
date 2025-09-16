@@ -1,3 +1,4 @@
+use crate::protocol::WeaponType::Hitscan;
 use crate::shared::color_from_id;
 use avian2d::position::{Position, Rotation};
 use avian2d::prelude::{CollisionLayers, PhysicsLayer, RigidBody};
@@ -10,7 +11,6 @@ use lightyear::prelude::input::bei::InputAction;
 use lightyear::prelude::input::bei::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
-use crate::protocol::WeaponType::Hitscan;
 
 pub const BULLET_SIZE: f32 = 3.0;
 pub const PLAYER_SIZE: f32 = 40.0;
@@ -346,7 +346,6 @@ pub struct HitChannel;
 
 // Protocol
 pub(crate) struct ProtocolPlugin;
-
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {

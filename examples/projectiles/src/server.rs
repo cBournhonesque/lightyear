@@ -13,6 +13,7 @@ use core::net::SocketAddr;
 use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
+use lightyear::connection::client::PeerMetadata;
 use lightyear::core::tick::TickDuration;
 use lightyear::crossbeam::CrossbeamIo;
 use lightyear::input::config::InputConfig;
@@ -27,7 +28,6 @@ use lightyear_avian2d::prelude::{
 use lightyear_examples_common::cli::new_headless_app;
 use lightyear_examples_common::shared::{SEND_INTERVAL, SERVER_ADDR, SHARED_SETTINGS};
 use rand::random;
-use lightyear::connection::client::PeerMetadata;
 
 pub struct ExampleServerPlugin;
 
@@ -122,8 +122,7 @@ pub(crate) fn spawn_player(
         let player = server_player_bundle(room, client_id, sender, replication_mode);
         let player_entity = match replication_mode {
             GameReplicationMode::AllPredicted => {
-                commands.spawn((
-                    player, PredictionTarget::to_clients(NetworkTarget::All)))
+                commands.spawn((player, PredictionTarget::to_clients(NetworkTarget::All)))
             }
             GameReplicationMode::ClientPredictedNoComp => commands.spawn((
                 player,
@@ -193,16 +192,15 @@ fn server_player_bundle(
 }
 
 /// Increment the score if the client told us about a detected hit.
-fn handle_hits(
-    trigger: Trigger<RemoteTrigger<HitDetected>>,
-    mut scores: Query<&mut Score>,
-) {
+fn handle_hits(trigger: Trigger<RemoteTrigger<HitDetected>>, mut scores: Query<&mut Score>) {
     if let Ok(mut score) = scores.get_mut(trigger.trigger.shooter) {
-        info!(?trigger, "Server received hit detection trigger from client!");
+        info!(
+            ?trigger,
+            "Server received hit detection trigger from client!"
+        );
         score.0 += 1;
     }
 }
-
 
 pub struct BotPlugin;
 

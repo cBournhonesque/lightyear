@@ -645,15 +645,18 @@ pub(crate) fn hitscan_hit_detection(
                     score.0 += 1;
                 }
                 // client-side hit detection: the client needs to notify the server about the hit
-                if !is_server && mode == &GameReplicationMode::ClientSideHitDetection && let Ok((_, mut sender)) = hit_sender.single_mut() && let Ok((_, _, Some(predicted))) = player_query.get
-                (shooter) {
+                if !is_server
+                    && mode == &GameReplicationMode::ClientSideHitDetection
+                    && let Ok((_, mut sender)) = hit_sender.single_mut()
+                    && let Ok((_, _, Some(predicted))) = player_query.get(shooter)
+                {
                     info!("Client detected hit! Sending hit detection trigger to server");
                     // the shooter was predicted, we need to convert it to the confirmed entity
                     let confirmed_shooter = predicted.confirmed_entity.unwrap();
                     sender.trigger::<HitChannel>(HitDetected {
                         shooter: confirmed_shooter,
                         // TODO: similarly, we should convert the target entity!
-                        target
+                        target,
                     });
                 }
             }

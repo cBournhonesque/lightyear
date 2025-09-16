@@ -16,7 +16,6 @@ use bevy_ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
 use bevy_ecs::world::{FilteredEntityMut, FilteredEntityRef};
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
-use serde::{Deserialize, Serialize};
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
@@ -27,6 +26,7 @@ use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
+use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use tracing::{debug, debug_span, error, info, trace, trace_span, warn};
 

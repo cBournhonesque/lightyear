@@ -80,7 +80,9 @@ pub(crate) fn handle_interpolated_spawn(
             ));
         }
         // In the interpolated case, the client controls the confirmed entity
-        if let GameReplicationMode::AllInterpolated = mode && client_id.0 == player_id.0 {
+        if let GameReplicationMode::AllInterpolated = mode
+            && client_id.0 == player_id.0
+        {
             add_actions(&mut commands, interpolated.confirmed_entity);
         }
     }
@@ -94,15 +96,21 @@ pub(crate) fn handle_deterministic_spawn(
 ) {
     let client_id = client.into_inner();
     if let Ok((player_id, mode)) = query.get(trigger.target())
-        && mode == &GameReplicationMode::OnlyInputsReplicated {
-        commands
-            .entity(trigger.target())
-            .insert((shared::player_bundle(player_id.0), DeterministicPredicted, DisableRollback));
+        && mode == &GameReplicationMode::OnlyInputsReplicated
+    {
+        commands.entity(trigger.target()).insert((
+            shared::player_bundle(player_id.0),
+            DeterministicPredicted,
+            DisableRollback,
+        ));
         info!("Adding PlayerContext for player {:?}", player_id);
 
         // add actions for the local client
         if player_id.0 == client_id.0 {
-            info!("Spawning actions for DeterministicPredicted player {:?}", player_id);
+            info!(
+                "Spawning actions for DeterministicPredicted player {:?}",
+                player_id
+            );
             add_actions(&mut commands, trigger.target());
         }
     }
