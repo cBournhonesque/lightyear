@@ -24,8 +24,6 @@ use crate::protocol::*;
 use lightyear::prelude::{Room, RoomEvent};
 
 const EPS: f32 = 0.0001;
-pub const BOT_RADIUS: f32 = 15.0;
-pub(crate) const BOT_MOVE_SPEED: f32 = 1.0;
 const BULLET_MOVE_SPEED: f32 = 300.0;
 const MAP_LIMIT: f32 = 2000.0;
 const HITSCAN_COLLISION_DISTANCE_CHECK: f32 = 2000.0;
@@ -103,10 +101,11 @@ pub(crate) fn rotate_player(
 
 pub(crate) fn move_player(
     trigger: Trigger<Fired<MovePlayer>>,
-    mut player: Query<&mut Position>,
+    // Confirmed inputs don't get applied on the client! (for the AllInterpolated case)
+    mut player: Query<&mut Position, Without<Confirmed>>,
     is_bot: Query<(), With<Bot>>,
 ) {
-    const PLAYER_MOVE_SPEED: f32 = 5.0;
+    const PLAYER_MOVE_SPEED: f32 = 1.5;
     if let Ok(mut position) = player.get_mut(trigger.target()) {
         if is_bot.get(trigger.target()).is_err() {
             trace!(
@@ -539,7 +538,8 @@ pub(crate) fn hitscan_hit_detection(
     // (the server creates one entity for each client to store client-specific
     // metadata)
     client_query: Query<&InterpolationDelay, With<ClientOf>>,
-    mut player_query: Query<(&mut Score, &PlayerId, Option<&ControlledBy>), With<PlayerMarker>>,
+    mut hit_sender: Query<(&LocalId, &mut TriggerSender<HitDetected>), With<Client>>,
+    mut player_query: Query<AnyOf<(&mut Score, &ControlledBy, &Predicted)>, With<PlayerMarker>>,
 ) {
     let Ok(timeline) = timeline.single() else {
         info!("no unique timeline");
@@ -559,6 +559,7 @@ pub(crate) fn hitscan_hit_detection(
     let tick = timeline.tick();
     let is_server = server.single().is_ok();
 
+    info!("hit detec");
     // check if we should be running hit detection on the server or client
     if is_server {
         if mode == &GameReplicationMode::ClientSideHitDetection
@@ -572,6 +573,11 @@ pub(crate) fn hitscan_hit_detection(
         {
             return;
         }
+        let (local_id, _) = hit_sender.single_mut().unwrap();
+        if mode == &GameReplicationMode::ClientSideHitDetection && id.0 != local_id.0 {
+            // for client-side hit detection, we only tell the server about hits from our own bullets
+            return;
+        }
         // TODO: ignore bullets that were fired by other clients
     }
     info!(?hitscan, "Hit detection for hitscan");
@@ -580,7 +586,7 @@ pub(crate) fn hitscan_hit_detection(
         GameReplicationMode::ClientPredictedLagComp => {
             let Ok(Some(controlled_by)) = player_query
                 .get(shooter)
-                .map(|(_, _, controlled_by)| controlled_by)
+                .map(|(_, controlled_by, _)| controlled_by)
             else {
                 error!("Could not retrieve controlled_by for client {id:?}");
                 return;
@@ -606,7 +612,7 @@ pub(crate) fn hitscan_hit_detection(
                 let target = hit_data.entity;
                 info!(?tick, ?hit_data, ?shooter, ?target, "Hitscan hit detected");
                 // if there is a hit, increment the score
-                if is_server && let Ok((mut score, _, _)) = player_query.get_mut(shooter) {
+                if let Ok((Some(mut score), _, _)) = player_query.get_mut(shooter) {
                     info!("Increment score");
                     score.0 += 1;
                 }
@@ -634,9 +640,24 @@ pub(crate) fn hitscan_hit_detection(
                     "Hitscan hit detected"
                 );
                 // if there is a hit, increment the score
-                if is_server && let Ok((mut score, _, _)) = player_query.get_mut(shooter) {
+                if let Ok((Some(mut score), _, _)) = player_query.get_mut(shooter) {
                     info!("Increment score");
                     score.0 += 1;
+                }
+                // client-side hit detection: the client needs to notify the server about the hit
+                if !is_server
+                    && mode == &GameReplicationMode::ClientSideHitDetection
+                    && let Ok((_, mut sender)) = hit_sender.single_mut()
+                    && let Ok((_, _, Some(predicted))) = player_query.get(shooter)
+                {
+                    info!("Client detected hit! Sending hit detection trigger to server");
+                    // the shooter was predicted, we need to convert it to the confirmed entity
+                    let confirmed_shooter = predicted.confirmed_entity.unwrap();
+                    sender.trigger::<HitChannel>(HitDetected {
+                        shooter: confirmed_shooter,
+                        // TODO: similarly, we should convert the target entity!
+                        target,
+                    });
                 }
             }
         }
@@ -1151,7 +1172,7 @@ pub(crate) fn update_hitscan_visuals(
     for (entity, mut visual) in query.iter_mut() {
         visual.lifetime += time.delta_secs();
         if visual.lifetime >= visual.max_lifetime {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
         }
     }
 }
@@ -1262,7 +1283,7 @@ pub(crate) fn simulate_client_projectiles(
 
         // Despawn after 3 seconds
         if time_elapsed > 3.0 {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
         }
     }
 }
@@ -1395,7 +1416,7 @@ fn despawn_after(
     for (entity, mut despawn_after) in query.iter_mut() {
         despawn_after.0.tick(time.delta());
         if despawn_after.0.finished() {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
         }
     }
 }

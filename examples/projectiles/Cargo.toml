@@ -53,7 +53,7 @@ lightyear_avian2d = { workspace = true, features = ["2d", "lag_compensation"] }
 leafwing-input-manager.workspace = true
 serde.workspace = true
 bevy.workspace = true
-rand = "0.8.5"
+rand.workspace = true
 
 [package.metadata.bevy_cli.web]
 rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]

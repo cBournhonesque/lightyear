@@ -1,5 +1,4 @@
 use crate::protocol::*;
-use crate::shared::BOT_RADIUS;
 use avian2d::prelude::*;
 use bevy::color::palettes::basic::GREEN;
 use bevy::color::palettes::css::BLUE;
@@ -30,7 +29,7 @@ impl Plugin for ExampleRendererPlugin {
         app.add_observer(add_homing_missile_visuals);
 
         app.add_plugins(FrameInterpolationPlugin::<Position>::default());
-        // app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
 
         #[cfg(feature = "client")]
         {
@@ -74,6 +73,7 @@ fn init(mut commands: Commands) {
     commands.spawn(Camera2d);
     #[cfg(feature = "client")]
     {
+        #[cfg(not(feature = "server"))]
         commands.spawn((
             Text::new("Score: 0"),
             TextFont::from_font_size(30.0),
@@ -184,16 +184,42 @@ pub struct VisibleFilter {
 // TODO: interpolated players are not visible because components are not inserted at the same time?
 /// Add visuals to newly spawned players
 fn add_player_visuals(
-    trigger: Trigger<OnAdd, PlayerId>,
-    query: Query<
-        (Has<Predicted>, Has<DeterministicPredicted>, &ColorComponent),
+    trigger: Trigger<OnInsert, PlayerId>,
+    mut query: Query<
+        (
+            Has<Predicted>,
+            Has<DeterministicPredicted>,
+            Has<PreSpawned>,
+            Has<Interpolated>,
+            &mut ColorComponent,
+        ),
         (VisibleFilter, With<PlayerMarker>),
     >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((is_predicted, is_det_predicted, color)) = query.get(trigger.target()) {
+    if let Ok((is_predicted, is_det_predicted, prespawned, interpolated, mut color)) =
+        query.get_mut(trigger.target())
+    {
+        if interpolated {
+            let hsva = Hsva {
+                saturation: 0.7,
+                ..Hsva::from(color.0)
+            };
+            color.0 = Color::from(hsva);
+        }
+        if is_predicted || is_det_predicted || prespawned {
+            let hsva = Hsva {
+                saturation: 0.4,
+                ..Hsva::from(color.0)
+            };
+            color.0 = Color::from(hsva);
+            commands.entity(trigger.target()).insert((
+                FrameInterpolate::<Position>::default(),
+                FrameInterpolate::<Rotation>::default(),
+            ));
+        }
         commands.entity(trigger.target()).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(PLAYER_SIZE)))),
@@ -202,12 +228,6 @@ fn add_player_visuals(
                 ..Default::default()
             })),
         ));
-        if is_predicted || is_det_predicted {
-            commands.entity(trigger.target()).insert((
-                FrameInterpolate::<Position>::default(),
-                FrameInterpolate::<Rotation>::default(),
-            ));
-        }
     }
 }
 
