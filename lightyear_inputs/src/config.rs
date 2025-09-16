@@ -25,7 +25,6 @@ pub struct InputConfig<A> {
     ///
     /// This can be useful for actions that should not be replayed, for example settings-related actions.
     pub ignore_rollbacks: bool,
-    #[cfg(feature = "prediction")]
     /// If True, the server will rebroadcast a client's inputs to all other clients.
     ///
     /// It could be useful for a client to have access to other client's inputs to be able
@@ -50,7 +49,6 @@ impl<A> Default for InputConfig<A> {
             packet_redundancy: 10,
             send_interval: Duration::default(),
             ignore_rollbacks: false,
-            #[cfg(feature = "prediction")]
             rebroadcast_inputs: false,
             marker: PhantomData,
         }
