@@ -362,6 +362,9 @@ pub mod prelude {
     #[cfg(feature = "interpolation")]
     pub use lightyear_interpolation::prelude::*;
 
+    #[cfg(feature = "metrics")]
+    pub use lightyear_ui::prelude::*;
+
     #[cfg(any(feature = "input_native", feature = "leafwing", feature = "input_bei"))]
     pub mod input {
         pub use lightyear_inputs::prelude::*;

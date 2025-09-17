@@ -24,6 +24,11 @@ use bevy_ecs::{
     system::SystemChangeTick,
     world::{FilteredEntityMut, FilteredEntityRef, OnRemove, Ref},
 };
+#[cfg(feature = "metrics")]
+use bevy_platform::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Instant,
+};
 use bevy_ptr::Ptr;
 use lightyear_connection::client::Connected;
 use lightyear_core::tick::Tick;
@@ -77,6 +82,11 @@ pub(crate) fn replicate(
     components: &Components,
     mut replicated_archetypes: Local<ReplicatedArchetypes>,
 ) {
+    #[cfg(feature = "metrics")]
+    let start = Instant::now();
+    #[cfg(feature = "metrics")]
+    let ran = AtomicBool::new(false);
+
     replicated_archetypes.update(archetypes, components, component_registry.as_ref());
 
     // NOTE: this system doesn't handle delta compression, because we need to store a shared component history
@@ -86,7 +96,17 @@ pub(crate) fn replicate(
     // past ticks where the component changes.
     manager_query.par_iter_mut().for_each(
         |(sender_entity, mut sender, mut message_manager, timeline, delta_manager, link_of)| {
+
             let _span = trace_span!("replicate", sender = ?sender_entity).entered();
+
+            // enable split borrows
+            let sender = &mut *sender;
+            if !sender.send_timer.finished() {
+                return;
+            }
+            #[cfg(feature = "metrics")]
+            ran.store(true, Ordering::Relaxed);
+
             // delta: either the delta manager is present on the sender directly (Client)
             // or the delta is on the server
             let delta = delta_manager
@@ -95,11 +115,6 @@ pub(crate) fn replicate(
                 });
             let tick = timeline.tick();
 
-            // enable split borrows
-            let sender = &mut *sender;
-            if !sender.send_timer.finished() {
-                return;
-            }
             // update the change ticks
             sender.last_run = sender.this_run;
             sender.this_run = system_ticks.this_run();
@@ -158,6 +173,11 @@ pub(crate) fn replicate(
             }
         },
     );
+
+    #[cfg(feature = "metrics")]
+    if ran.load(Ordering::Relaxed) {
+        metrics::gauge!("replication::buffer::time").set(start.elapsed().as_millis() as f64);
+    }
 }
 
 #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]

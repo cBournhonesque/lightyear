@@ -20,6 +20,8 @@ use bevy_ecs::{
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::{observer::Trigger, world::OnAdd};
 use bevy_platform::collections::hash_map::Entry;
+#[cfg(feature = "metrics")]
+use bevy_platform::time::Instant;
 use bevy_time::{Real, Time};
 #[cfg(feature = "test_utils")]
 use bevy_utils::default;
@@ -32,6 +34,7 @@ use lightyear_core::tick::Tick;
 use lightyear_link::{Link, LinkPlugin, LinkSet, Linked};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
+#[allow(unused_imports)]
 use tracing::{error, trace, warn};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -61,6 +64,9 @@ impl TransportPlugin {
         par_commands: ParallelCommands,
         mut query: Query<(Entity, &mut Link, &mut Transport), (With<Linked>, Without<HostClient>)>,
     ) {
+        #[cfg(feature = "metrics")]
+        let start = Instant::now();
+
         query
             .par_iter_mut()
             .for_each(|(entity, mut link, mut transport)| {
@@ -222,7 +228,9 @@ impl TransportPlugin {
                         Ok::<(), TransportError>(())
                     })
                     .ok();
-            })
+            });
+        #[cfg(feature = "metrics")]
+        metrics::gauge!("transport::receive::time").set(start.elapsed().as_millis() as f64);
     }
 
     // TODO: users will mostly interact only via the lightyear_message
@@ -248,6 +256,9 @@ impl TransportPlugin {
         >,
         channel_registry: Res<ChannelRegistry>,
     ) {
+        #[cfg(feature = "metrics")]
+        let start = Instant::now();
+
         query.par_iter_mut().for_each(|(mut link, mut transport, timeline, host_client)| {
             let tick = timeline.tick();
             // allow split borrows
@@ -350,7 +361,10 @@ impl TransportPlugin {
                         .limiter
                         .check_n(remaining_bytes_to_add);
             }
-        })
+        });
+
+        #[cfg(feature = "metrics")]
+        metrics::gauge!("transport::send::time").set(start.elapsed().as_millis() as f64);
     }
 
     /// On disconnection, reset the Transport to its original state.

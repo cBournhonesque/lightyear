@@ -21,6 +21,11 @@ use bevy_ecs::{
     system::{ParamBuilder, Query, QueryParamBuilder, Res, SystemChangeTick, SystemParamBuilder},
     world::OnAdd,
 };
+#[cfg(feature = "metrics")]
+use bevy_platform::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Instant,
+};
 use bevy_time::{Real, Time};
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::prelude::LocalTimeline;
@@ -34,6 +39,7 @@ use lightyear_messages::registry::{MessageKind, MessageRegistry};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
+#[allow(unused_imports)]
 use tracing::{error, warn};
 
 pub struct ReplicationSendPlugin;
@@ -89,6 +95,11 @@ impl ReplicationSendPlugin {
         // but I don't remember why
         mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline), With<Connected>>,
     ) {
+        #[cfg(feature = "metrics")]
+        let start = Instant::now();
+        #[cfg(feature = "metrics")]
+        let ran = AtomicBool::new(false);
+
         let actions_net_id = *message_registry
             .kind_map
             .net_id(&MessageKind::of::<ActionsMessage>())
@@ -103,6 +114,9 @@ impl ReplicationSendPlugin {
                 if !sender.send_timer.finished() {
                     return;
                 }
+                #[cfg(feature = "metrics")]
+                ran.store(true, Ordering::Relaxed);
+
                 let bevy_tick = change_tick.this_run();
                 sender.send_timer.reset();
                 // TODO: also tick ReplicationGroups?
@@ -126,6 +140,11 @@ impl ReplicationSendPlugin {
                     .inspect_err(|e| error!("Error buffering UpdatesMessage: {e:?}"))
                     .ok();
             });
+
+        #[cfg(feature = "metrics")]
+        if ran.load(Ordering::Relaxed) {
+            metrics::gauge!("replication::send::time_ms").set(start.elapsed().as_millis() as f64);
+        }
     }
 
     /// Check which replication messages were actually sent, and update the

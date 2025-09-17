@@ -42,6 +42,8 @@ std = [
   "lightyear_steam?/std",
   "lightyear_sync/std",
   "lightyear_transport/std",
+  "lightyear_ui?/std",
+  "lightyear_utils/std",
 ]
 ## enable client plugins
 client = [
@@ -115,11 +117,15 @@ trace = [
 ]
 ## enable metrics collection (via `metrics` crate)
 metrics = [
+  # the metrics crate is not no-std compatible currently
+  "std",
   "lightyear_inputs?/metrics",
   "lightyear_interpolation?/metrics",
   "lightyear_prediction?/metrics",
   "lightyear_replication/metrics",
   "lightyear_transport/metrics",
+  "lightyear_utils/metrics",
+  "dep:lightyear_ui",
 ]
 ## Enables netcode to provide persistent IDs to clients
 ##
@@ -190,6 +196,7 @@ lightyear_crossbeam = { workspace = true, optional = true }
 lightyear_webtransport = { workspace = true, optional = true }
 lightyear_websocket = { workspace = true, optional = true }
 lightyear_steam = { workspace = true, optional = true }
+lightyear_ui = { workspace = true, optional = true }
 
 # bevy
 bevy_app.workspace = true

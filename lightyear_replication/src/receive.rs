@@ -23,6 +23,11 @@ use crate::plugin;
 use crate::plugin::ReplicationSet;
 use crate::prelude::{ReplicationGroupId, ReplicationSender};
 use crate::registry::buffered::{BufferedChanges, BufferedEntity};
+#[cfg(feature = "metrics")]
+use bevy_platform::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Instant,
+};
 use lightyear_connection::client::{Connected, Disconnected, PeerMetadata};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::prelude::LocalTimeline;
@@ -89,6 +94,11 @@ impl ReplicationReceivePlugin {
             With<Connected>,
         >,
     ) {
+        #[cfg(feature = "metrics")]
+        let start = Instant::now();
+        #[cfg(feature = "metrics")]
+        let ran = AtomicBool::new(false);
+
         query
             .par_iter_mut()
             .for_each(|(mut actions, mut updates, mut receiver)| {
@@ -99,7 +109,16 @@ impl ReplicationReceivePlugin {
                 for message in updates.receive_with_tick() {
                     receiver.recv_updates(message.data, message.remote_tick);
                 }
+                #[cfg(feature = "metrics")]
+                if receiver.received_this_frame {
+                    ran.store(true, Ordering::Relaxed);
+                }
             });
+
+        #[cfg(feature = "metrics")]
+        if ran.load(Ordering::Relaxed) {
+            metrics::gauge!("replication::receive::time").set(start.elapsed().as_millis() as f64);
+        }
     }
 
     pub(crate) fn apply_world(
@@ -116,6 +135,9 @@ impl ReplicationReceivePlugin {
         // buffer to avoid allocations
         mut receiver_entities: Local<Vec<(Entity, PeerId)>>,
     ) {
+        #[cfg(feature = "metrics")]
+        let start = Instant::now();
+
         // we first collect the entities we need into a buffer
         // We cannot use query.iter() and &mut World at the same time as this would be UB because they both access Archetypes
         // See https://discord.com/channels/691052431525675048/1358658786851684393/1358793406679355593
@@ -166,6 +188,9 @@ impl ReplicationReceivePlugin {
                 );
                 receiver.tick_cleanup(tick);
             });
+
+        #[cfg(feature = "metrics")]
+        metrics::gauge!("replication::apply::time").set(start.elapsed().as_millis() as f64);
     }
 }
 
