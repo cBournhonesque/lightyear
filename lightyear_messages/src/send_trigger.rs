@@ -1,17 +1,17 @@
-use crate::prelude::RemoteTrigger;
+use crate::prelude::RemoteEvent;
 use crate::registry::{MessageError, MessageKind};
 use crate::send::Priority;
-pub(crate) use crate::trigger::TriggerMessage;
 use crate::{MessageManager, MessageNetId};
 use alloc::{vec, vec::Vec};
 use bevy_ecs::{
     change_detection::MutUntyped,
-    component::{Component, HookContext},
+    component::{Component},
     entity::Entity,
     event::Event,
     system::ParallelCommands,
     world::{DeferredWorld, World},
 };
+use bevy_ecs::lifecycle::HookContext;
 use lightyear_core::id::PeerId;
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
@@ -24,13 +24,13 @@ use tracing::trace;
 /// Component used to send triggers of type `M` remotely.
 #[derive(Component)]
 #[require(MessageManager)]
-#[component(on_add = TriggerSender::<M>::on_add_hook)]
-pub struct TriggerSender<M: Event> {
-    send: Vec<(TriggerMessage<M>, ChannelKind, Priority)>,
+#[component(on_add = EventSender::<M>::on_add_hook)]
+pub struct EventSender<M: Event> {
+    send: Vec<(M, ChannelKind, Priority)>,
     writer: Writer,
 }
 
-impl<M: Event> Default for TriggerSender<M> {
+impl<M: Event> Default for EventSender<M> {
     fn default() -> Self {
         Self {
             send: Vec::new(),
@@ -39,12 +39,12 @@ impl<M: Event> Default for TriggerSender<M> {
     }
 }
 
-impl<M: Event> TriggerSender<M> {
-    /// Take all messages from the [`TriggerSender<M>`], serialize them, and buffer them
+impl<M: Event> EventSender<M> {
+    /// Take all messages from the [`EventSender<M>`], serialize them, and buffer them
     /// on the appropriate channel of the [`Transport`].
     ///
-    /// SAFETY: the `trigger_sender` must be of type [`TriggerSender<M>`]
-    pub(crate) unsafe fn send_trigger_typed(
+    /// SAFETY: the `trigger_sender` must be of type [`EventSender<M>`]
+    pub(crate) unsafe fn send_event_typed(
         trigger_sender: MutUntyped,
         net_id: MessageNetId,
         transport: &Transport,
@@ -58,38 +58,39 @@ impl<M: Event> TriggerSender<M> {
         sender.send.drain(..).try_for_each(|(message, channel_kind, priority)| {
             // we write the message NetId, and then serialize the message
             net_id.to_bytes(&mut sender.writer)?;
-            // SAFETY: the message has been checked to be of type `TriggerMessage<M>`
-            unsafe { serialize_metadata.serialize::<SendEntityMap, TriggerMessage<M>, M>(&message, &mut sender.writer, entity_map)? };
+            // SAFETY: the message has been checked to be of type `M`
+            unsafe { serialize_metadata.serialize::<SendEntityMap, M, M>(&message, &mut sender.writer, entity_map)? };
             let bytes = sender.writer.split();
-            trace!("Sending message of type {:?} with net_id {net_id:?} on channel {channel_kind:?}", core::any::type_name::<TriggerMessage<M>>());
+            trace!("Sending message of type {:?} with net_id {net_id:?} on channel {channel_kind:?}", core::any::type_name::<M>());
             transport.send_erased(channel_kind, bytes, priority)?;
             Ok(())
         })
     }
 
-    /// Take all messages from the [`TriggerSender<M>`], and trigger them as [`RemoteTrigger<M>`] events
+    // TODO: maybe we don't need this, it's identical to sending a message
+    /// Take all messages from the [`EventSender<M>`], and trigger them as [`RemoteEvent<M>`] events
     ///
     /// # Safety
     ///
-    /// - the `trigger_sender` must be of type [`TriggerSender<M>`]
+    /// - the `trigger_sender` must be of type [`EventSender<M>`]
     pub(crate) unsafe fn send_local_trigger_typed(
         trigger_sender: MutUntyped,
         commands: &ParallelCommands,
     ) {
-        // SAFETY:  the `trigger_sender` must be of type `TriggerSender<M>`
+        // SAFETY:  the `trigger_sender` must be of type `EventSender<M>`
         let mut sender = unsafe { trigger_sender.with_type::<Self>() };
         // enable split borrows
         sender
             .send
             .drain(..)
             .for_each(|(message, channel_kind, priority)| {
-                let remote_trigger = RemoteTrigger {
-                    trigger: message.trigger,
+                let remote_trigger = RemoteEvent {
+                    trigger: message,
                     // TODO: how to get the correct PeerId here?
                     from: PeerId::Local(0),
                 };
                 commands.command_scope(|mut c| {
-                    c.trigger_targets(remote_trigger, message.target_entities.clone());
+                    c.trigger(remote_trigger);
                 });
             });
     }
@@ -123,22 +124,9 @@ pub(crate) type SendTriggerFn = unsafe fn(
 // SAFETY: the sender must correspond to the correct `TriggerSender<M>` type
 pub(crate) type SendLocalTriggerFn = unsafe fn(sender: MutUntyped, commands: &ParallelCommands);
 
-impl<M: Event> TriggerSender<M> {
+impl<M: Event> EventSender<M> {
     /// Buffers a trigger `M` to be sent over the specified channel to the target entities.
     pub fn trigger<C: Channel>(&mut self, trigger: M) {
-        self.trigger_targets::<C>(trigger, vec![]);
-    }
-
-    /// Buffers a trigger `M` to be sent over the specified channel to the target entities.
-    pub fn trigger_targets<C: Channel>(
-        &mut self,
-        trigger: M,
-        targets: impl IntoIterator<Item = Entity>,
-    ) {
-        let message = TriggerMessage {
-            trigger,
-            target_entities: targets.into_iter().collect(),
-        };
-        self.send.push((message, ChannelKind::of::<C>(), 1.0));
+        self.send.push((trigger, ChannelKind::of::<C>(), 1.0));
     }
 }

@@ -55,7 +55,7 @@ pub(crate) fn rollback_button(mut commands: Commands) {
             Button,
         ))
         .observe(
-            |_: Trigger<Pointer<Click>>,
+            |_: On<Pointer<Click>>,
              mut commands: Commands,
              client: Single<(Entity, &LocalTimeline, &PredictionManager)>,
              confirmed: Query<&mut Confirmed>| {

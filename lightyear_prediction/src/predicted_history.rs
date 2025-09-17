@@ -17,7 +17,7 @@ use bevy_ecs::{
     query::{Or, With, Without},
     schedule::IntoScheduleConfigs,
     system::{Commands, Query, Res, ResMut, Single},
-    world::{EntityRef, Mut, OnAdd, OnInsert, OnRemove, Ref, World},
+    world::{EntityRef, Mut, Add, Insert, Remove, Ref, World},
 };
 use core::fmt::Debug;
 use core::ops::Deref;
@@ -61,7 +61,7 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
 /// The history buffer ticks are only relevant relative to the current client tick.
 /// (i.e. X ticks in the past compared to the current tick)
 pub(crate) fn handle_tick_event_prediction_history<C: Component>(
-    trigger: Trigger<SyncEvent<InputTimeline>>,
+    trigger: On<SyncEvent<InputTimeline>>,
     mut query: Query<&mut PredictionHistory<C>>,
 ) {
     for mut history in query.iter_mut() {
@@ -77,13 +77,13 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
 /// If a component is removed on the Predicted entity, and the PredictionMode == FULL
 /// Add the removal to the history (for potential rollbacks)
 pub(crate) fn apply_component_removal_predicted<C: Component>(
-    trigger: Trigger<OnRemove, C>,
+    trigger: On<Remove, C>,
     mut predicted_query: Query<&mut PredictionHistory<C>>,
     timeline: Single<&LocalTimeline, PredictionFilter>,
 ) {
     let tick = timeline.tick();
     // if the component was removed from the Predicted entity, add the Removal to the history
-    if let Ok(mut history) = predicted_query.get_mut(trigger.target()) {
+    if let Ok(mut history) = predicted_query.get_mut(trigger.entity) {
         // tick for which we will record the history (either the current client tick or the current rollback tick)
         history.add_remove(tick);
     }
@@ -94,12 +94,12 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
 /// - if the PredictionMode == SIMPLE, remove the component from the Predicted entity
 /// - if the PredictionMode == FULL, do nothing. We might get a rollback by comparing with the history.
 pub(crate) fn apply_component_removal_confirmed<C: Component>(
-    trigger: Trigger<OnRemove, C>,
+    trigger: On<Remove, C>,
     mut commands: Commands,
     confirmed_query: Query<&Confirmed>,
 ) {
     // Components that are removed from the Confirmed entity also get removed from the Predicted entity
-    if let Ok(confirmed) = confirmed_query.get(trigger.target())
+    if let Ok(confirmed) = confirmed_query.get(trigger.entity)
         && let Some(p) = confirmed.predicted
         && let Ok(mut commands) = commands.get_entity(p)
     {
@@ -234,8 +234,8 @@ fn apply_predicted_sync(world: &mut World) {
 // TODO: We could not run this for [`Predicted`] entities and instead have the confirmed->sync observers already
 //  add a PredictionHistory component if it's missing on the Predicted entity.
 pub(crate) fn add_prediction_history<C: Component>(
-    trigger: Trigger<
-        OnAdd,
+    trigger: On<
+        Add,
         (
             C,
             Predicted,
@@ -259,14 +259,14 @@ pub(crate) fn add_prediction_history<C: Component>(
         ),
     >,
 ) {
-    if query.get(trigger.target()).is_ok() {
+    if query.get(trigger.entity).is_ok() {
         trace!(
             "Add prediction history for {:?} on entity {:?}",
             core::any::type_name::<C>(),
-            trigger.target()
+            trigger.entity
         );
         commands
-            .entity(trigger.target())
+            .entity(trigger.entity)
             .insert(PredictionHistory::<C>::default());
     }
 }
@@ -283,7 +283,7 @@ pub(crate) fn add_prediction_history<C: Component>(
 /// immediately here (because the ParentSync component might not be able to get mapped properly since the parent entity
 /// might not be predicted yet). Therefore we send a PredictedSyncEvent so that all components can be synced at once.
 fn confirmed_added_sync(
-    trigger: Trigger<OnInsert, Confirmed>,
+    trigger: On<Insert, Confirmed>,
     confirmed_query: Query<EntityRef>,
     prediction_registry: Res<PredictionRegistry>,
     component_registry: Res<ComponentRegistry>,
@@ -293,7 +293,7 @@ fn confirmed_added_sync(
     // that shouldn't be an issue because the components are being inserted only on Predicted entities
     // so we don't want to react to them
     let Some(mut events) = events else { return };
-    let confirmed = trigger.target();
+    let confirmed = trigger.entity;
     let entity_ref = confirmed_query.get(confirmed).unwrap();
     let confirmed_component = entity_ref.get::<Confirmed>().unwrap();
     let Some(predicted) = confirmed_component.predicted else {
@@ -329,8 +329,8 @@ fn confirmed_added_sync(
 /// immediately here (because the ParentSync component might not be able to get mapped properly since the parent entity
 /// might not be predicted yet). Therefore we send a PredictedSyncEvent so that all components can be synced at once.
 fn added_on_confirmed_sync(
-    // NOTE: we use OnInsert and not OnAdd because the confirmed entity might already have the component (for example if the client transferred authority to server)
-    trigger: Trigger<OnInsert>,
+    // NOTE: we use Insert and not Add because the confirmed entity might already have the component (for example if the client transferred authority to server)
+    trigger: On<Insert>,
     prediction_registry: Res<PredictionRegistry>,
     component_registry: Res<ComponentRegistry>,
     confirmed_query: Query<&Confirmed>,
@@ -341,13 +341,13 @@ fn added_on_confirmed_sync(
     // so we don't want to react to them
     let Some(mut events) = events else { return };
     // make sure the components were added on the confirmed entity
-    let Ok(confirmed_component) = confirmed_query.get(trigger.target()) else {
+    let Ok(confirmed_component) = confirmed_query.get(trigger.entity) else {
         return;
     };
     let Some(predicted) = confirmed_component.predicted else {
         return;
     };
-    let confirmed = trigger.target();
+    let confirmed = trigger.entity;
 
     // TODO: how do we avoid this allocation?
 

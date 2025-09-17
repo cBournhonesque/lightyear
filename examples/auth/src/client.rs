@@ -113,7 +113,7 @@ async fn get_connect_token_from_auth_backend(auth_backend_address: SocketAddr) -
 
 /// Remove all entities when the client disconnect
 fn on_disconnect(
-    trigger: Trigger<OnInsert, Disconnected>,
+    trigger: On<Insert, Disconnected>,
     mut commands: Commands,
     debug_text: Query<Entity, With<ClientIdText>>,
 ) {
@@ -156,7 +156,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                     Button,
                 ))
                 .observe(
-                    |trigger: Trigger<Pointer<Click>>,
+                    |trigger: On<Pointer<Click>>,
                      mut commands: Commands,
                      mut task_state: ResMut<ConnectTokenRequestTask>,
                      client: Single<(Entity, &Client)>| {

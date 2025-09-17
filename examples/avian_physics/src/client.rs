@@ -35,13 +35,13 @@ impl Plugin for ExampleClientPlugin {
 /// However we remove the Position because we want the balls position to be interpolated, without being computed/updated
 /// by the physics engine? Actually this shouldn't matter because we run interpolation in PostUpdate...
 fn add_ball_physics(
-    trigger: Trigger<OnAdd, BallMarker>,
+    trigger: On<Add, BallMarker>,
     mut commands: Commands,
     ball_query: Query<(), With<Predicted>>,
 ) {
-    if let Ok(()) = ball_query.get(trigger.target()) {
+    if let Ok(()) = ball_query.get(trigger.entity) {
         commands
-            .entity(trigger.target())
+            .entity(trigger.entity)
             .insert(PhysicsBundle::ball());
     }
 }
@@ -78,17 +78,17 @@ fn player_movement(
 // - assign it a different saturation
 // - add physics components so that its movement can be predicted
 pub(crate) fn handle_predicted_spawn(
-    trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
+    trigger: On<Add, (PlayerId, Predicted)>,
     mut commands: Commands,
     mut player_query: Query<(&mut ColorComponent, Has<Controlled>), With<Predicted>>,
 ) {
-    if let Ok((mut color, controlled)) = player_query.get_mut(trigger.target()) {
+    if let Ok((mut color, controlled)) = player_query.get_mut(trigger.entity) {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        let mut entity_mut = commands.entity(trigger.target());
+        let mut entity_mut = commands.entity(trigger.entity);
         entity_mut.insert(PhysicsBundle::player());
         if controlled {
             entity_mut.insert(InputMap::new([
@@ -104,10 +104,10 @@ pub(crate) fn handle_predicted_spawn(
 // When the interpolated copy of the client-owned entity is spawned, do stuff
 // - assign it a different color
 pub(crate) fn handle_interpolated_spawn(
-    trigger: Trigger<OnAdd, ColorComponent>,
+    trigger: On<Add, ColorComponent>,
     mut interpolated: Query<&mut ColorComponent, Added<Interpolated>>,
 ) {
-    if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
+    if let Ok(mut color) = interpolated.get_mut(trigger.entity) {
         let hsva = Hsva {
             saturation: 0.1,
             ..Hsva::from(color.0)

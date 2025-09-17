@@ -8,17 +8,11 @@ use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, MessageAck, ReceiveMessage, SingleData};
 #[cfg(feature = "test_utils")]
 use crate::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
-use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_app::prelude::*;
 use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_ecs::{
-    entity::Entity,
-    event::Event,
-    query::{With, Without},
-    schedule::SystemSet,
-    system::{ParallelCommands, Query, Res},
-};
+use bevy_ecs::prelude::*;
 #[cfg(any(feature = "client", feature = "server"))]
-use bevy_ecs::{observer::Trigger, world::OnAdd};
+use bevy_ecs::{observer::Trigger, world::Add};
 use bevy_platform::collections::hash_map::Entry;
 use bevy_time::{Real, Time};
 #[cfg(feature = "test_utils")]
@@ -356,11 +350,11 @@ impl TransportPlugin {
     /// On disconnection, reset the Transport to its original state.
     #[cfg(any(feature = "client", feature = "server"))]
     fn handle_disconnection(
-        trigger: Trigger<OnAdd, Disconnected>,
+        trigger: On<Add, Disconnected>,
         mut query: Query<&mut Transport>,
         registry: Res<ChannelRegistry>,
     ) {
-        if let Ok(mut transport) = query.get_mut(trigger.target()) {
+        if let Ok(mut transport) = query.get_mut(trigger.entity) {
             transport.reset(&registry);
         }
     }

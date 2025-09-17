@@ -96,14 +96,14 @@ pub struct VisibleFilter {
 // TODO: interpolated players are not visible because components are not inserted at the same time?
 /// Add visuals to newly spawned players
 fn add_player_visuals(
-    trigger: Trigger<OnAdd, PlayerId>,
+    trigger: On<Add, PlayerId>,
     query: Query<(Has<Predicted>, &ColorComponent), (VisibleFilter, Without<BulletMarker>)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((is_predicted, color)) = query.get(trigger.target()) {
-        commands.entity(trigger.target()).insert((
+    if let Ok((is_predicted, color)) = query.get(trigger.entity) {
+        commands.entity(trigger.entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(PLAYER_SIZE)))),
             MeshMaterial2d(materials.add(ColorMaterial {
@@ -113,7 +113,7 @@ fn add_player_visuals(
         ));
         if is_predicted {
             commands
-                .entity(trigger.target())
+                .entity(trigger.entity)
                 .insert(FrameInterpolate::<Transform>::default());
         }
     }
@@ -121,14 +121,14 @@ fn add_player_visuals(
 
 /// Add visuals to newly spawned bullets
 fn add_bullet_visuals(
-    trigger: Trigger<OnAdd, BulletMarker>,
+    trigger: On<Add, BulletMarker>,
     query: Query<(&ColorComponent, Has<Interpolated>), VisibleFilter>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((color, interpolated)) = query.get(trigger.target()) {
-        commands.entity(trigger.target()).insert((
+    if let Ok((color, interpolated)) = query.get(trigger.entity) {
+        commands.entity(trigger.entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
                 radius: BULLET_SIZE,
@@ -140,7 +140,7 @@ fn add_bullet_visuals(
         ));
         if interpolated {
             commands
-                .entity(trigger.target())
+                .entity(trigger.entity)
                 .insert(FrameInterpolate::<Transform>::default());
         }
     }
@@ -148,13 +148,13 @@ fn add_bullet_visuals(
 
 /// Add visuals to newly spawned bots
 fn add_interpolated_bot_visuals(
-    trigger: Trigger<OnAdd, InterpolatedBot>,
+    trigger: On<Add, InterpolatedBot>,
     query: Query<(), VisibleFilter>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.entity;
     if query.get(entity).is_ok() {
         // add visibility
         commands.entity(entity).insert((
@@ -169,13 +169,13 @@ fn add_interpolated_bot_visuals(
 }
 
 fn add_predicted_bot_visuals(
-    trigger: Trigger<OnAdd, PredictedBot>,
+    trigger: On<Add, PredictedBot>,
     query: Query<(), VisibleFilter>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.entity;
     if query.get(entity).is_ok() {
         // add visibility
         commands.entity(entity).insert((

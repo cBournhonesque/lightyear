@@ -6,7 +6,7 @@ use bevy_ecs::observer::Trigger;
 use bevy_ecs::query::{With, Without};
 use bevy_ecs::schedule::{IntoScheduleConfigs, SystemSet};
 use bevy_ecs::system::{Query, Res};
-use bevy_ecs::world::OnAdd;
+use bevy_ecs::world::Add;
 use bevy_time::{Real, Time};
 use core::time::Duration;
 use lightyear_connection::client::Connected;
@@ -115,10 +115,10 @@ impl PingPlugin {
 
     /// On connection, reset the PingManager.
     pub(crate) fn handle_connect(
-        trigger: Trigger<OnAdd, Connected>,
+        trigger: On<Add, Connected>,
         mut query: Query<&mut PingManager>,
     ) {
-        if let Ok(mut manager) = query.get_mut(trigger.target()) {
+        if let Ok(mut manager) = query.get_mut(trigger.entity) {
             manager.reset();
         }
     }
@@ -134,9 +134,9 @@ impl Plugin for PingPlugin {
             priority: f32::INFINITY,
         })
         .add_direction(NetworkDirection::Bidirectional);
-        app.add_message_to_bytes::<Ping>()
+        app.register_message_to_bytes::<Ping>()
             .add_direction(NetworkDirection::Bidirectional);
-        app.add_message_to_bytes::<Pong>()
+        app.register_message_to_bytes::<Pong>()
             .add_direction(NetworkDirection::Bidirectional);
 
         // NOTE: the Transport's PacketBuilder needs accurate LinkStats to function correctly.

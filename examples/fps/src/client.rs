@@ -53,17 +53,17 @@ fn update_cursor_state_from_window(
 // - assign it a different saturation
 // - add physics components so that its movement can be predicted
 pub(crate) fn handle_predicted_spawn(
-    trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
+    trigger: On<Add, (PlayerId, Predicted)>,
     mut commands: Commands,
     mut player_query: Query<&mut ColorComponent, With<Predicted>>,
 ) {
-    if let Ok(mut color) = player_query.get_mut(trigger.target()) {
+    if let Ok(mut color) = player_query.get_mut(trigger.entity) {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        commands.entity(trigger.target()).insert((InputMap::new([
+        commands.entity(trigger.entity).insert((InputMap::new([
             (PlayerActions::Up, KeyCode::KeyW),
             (PlayerActions::Down, KeyCode::KeyS),
             (PlayerActions::Left, KeyCode::KeyA),
@@ -74,10 +74,10 @@ pub(crate) fn handle_predicted_spawn(
 }
 
 pub(crate) fn handle_interpolated_spawn(
-    trigger: Trigger<OnAdd, ColorComponent>,
+    trigger: On<Add, ColorComponent>,
     mut interpolated: Query<&mut ColorComponent, Added<Interpolated>>,
 ) {
-    if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
+    if let Ok(mut color) = interpolated.get_mut(trigger.entity) {
         let hsva = Hsva {
             saturation: 0.1,
             ..Hsva::from(color.0)

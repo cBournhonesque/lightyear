@@ -2,16 +2,13 @@ use crate::{LinkPlugin, Linked, Linking, Unlink, Unlinked};
 use alloc::{format, string::String, vec::Vec};
 use bevy_app::{App, Plugin};
 use bevy_ecs::{
-    component::{Component, HookContext},
-    entity::Entity,
-    observer::Trigger,
-    query::{With, Without},
     relationship::{
         Relationship, RelationshipHookMode, RelationshipSourceCollection, RelationshipTarget,
     },
-    system::{Commands, Query},
-    world::{DeferredWorld, OnAdd, OnInsert},
+    world::{DeferredWorld},
 };
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use lightyear_core::prelude::LocalTimeline;
 use tracing::{trace, warn};
@@ -39,18 +36,19 @@ impl Server {
     }
 
     fn unlinked(
-        trigger: Trigger<OnAdd, Unlinked>,
+        trigger: On<Add, Unlinked>,
         mut query: Query<(&Server, &Unlinked)>,
         mut commands: Commands,
     ) {
-        if let Ok((server_link, unlinked)) = query.get_mut(trigger.target()) {
+        if let Ok((server_link, unlinked)) = query.get_mut(trigger.entity) {
             for link_of in server_link.collection() {
+                commands.trigger(Unlink {
+                    entity: trigger.entity,
+                    reason: unlinked.reason.clone(),
+                });
                 if let Ok(mut c) = commands.get_entity(*link_of) {
                     // cannot simply insert Unlinked because then we wouldn't close aeronet sessions...
-                    c.trigger(Unlink {
-                        reason: unlinked.reason.clone(),
-                    });
-                    c.despawn();
+                    c.try_despawn();
                 }
             }
         }
@@ -75,6 +73,10 @@ impl Relationship for LinkOf {
     #[inline]
     fn from(entity: Entity) -> Self {
         Self { server: entity }
+    }
+
+    fn set_risky(&mut self, entity: Entity) {
+        self.server = entity;
     }
 }
 
@@ -156,11 +158,11 @@ impl LinkOf {
     }
 
     pub(crate) fn on_insert(
-        trigger: Trigger<OnInsert, (LinkOf, LocalTimeline)>,
+        trigger: On<Insert, (LinkOf, LocalTimeline)>,
         server: Query<&LocalTimeline, (Without<LinkOf>, With<Server>)>,
         mut query: Query<(&mut LocalTimeline, &LinkOf)>,
     ) {
-        if let Ok((mut timeline, link_of)) = query.get_mut(trigger.target())
+        if let Ok((mut timeline, link_of)) = query.get_mut(trigger.entity)
             && let Ok(server_timeline) = server.get(link_of.get())
         {
             *timeline = server_timeline.clone();

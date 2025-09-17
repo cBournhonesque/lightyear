@@ -184,7 +184,7 @@ pub struct VisibleFilter {
 // TODO: interpolated players are not visible because components are not inserted at the same time?
 /// Add visuals to newly spawned players
 fn add_player_visuals(
-    trigger: Trigger<OnInsert, PlayerId>,
+    trigger: On<Insert, PlayerId>,
     mut query: Query<
         (
             Has<Predicted>,
@@ -200,7 +200,7 @@ fn add_player_visuals(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     if let Ok((is_predicted, is_det_predicted, prespawned, interpolated, mut color)) =
-        query.get_mut(trigger.target())
+        query.get_mut(trigger.entity)
     {
         if interpolated {
             let hsva = Hsva {
@@ -215,12 +215,12 @@ fn add_player_visuals(
                 ..Hsva::from(color.0)
             };
             color.0 = Color::from(hsva);
-            commands.entity(trigger.target()).insert((
+            commands.entity(trigger.entity).insert((
                 FrameInterpolate::<Position>::default(),
                 FrameInterpolate::<Rotation>::default(),
             ));
         }
-        commands.entity(trigger.target()).insert((
+        commands.entity(trigger.entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(PLAYER_SIZE)))),
             MeshMaterial2d(materials.add(ColorMaterial {
@@ -233,14 +233,14 @@ fn add_player_visuals(
 
 /// Add visuals to newly spawned bullets
 fn add_bullet_visuals(
-    trigger: Trigger<OnAdd, BulletMarker>,
+    trigger: On<Add, BulletMarker>,
     query: Query<(&ColorComponent, &Position, Has<Interpolated>), VisibleFilter>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((color, position, interpolated)) = query.get(trigger.target()) {
-        commands.entity(trigger.target()).insert((
+    if let Ok((color, position, interpolated)) = query.get(trigger.entity) {
+        commands.entity(trigger.entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
                 radius: BULLET_SIZE,
@@ -251,7 +251,7 @@ fn add_bullet_visuals(
             })),
         ));
         if interpolated {
-            commands.entity(trigger.target()).insert((
+            commands.entity(trigger.entity).insert((
                 FrameInterpolate::<Position>::default(),
                 FrameInterpolate::<Rotation>::default(),
             ));
@@ -261,33 +261,33 @@ fn add_bullet_visuals(
 
 /// Add visuals to hitscan effects
 fn add_hitscan_visual(
-    trigger: Trigger<OnAdd, HitscanVisual>,
+    trigger: On<Add, HitscanVisual>,
     query: Query<(&HitscanVisual, &ColorComponent), VisibleFilter>,
     mut commands: Commands,
 ) {
-    if let Ok((visual, color)) = query.get(trigger.target()) {
+    if let Ok((visual, color)) = query.get(trigger.entity) {
         // For now, we'll use gizmos to draw the line in a separate system
         // This is a simple implementation; in a real game you might want
         // more sophisticated line rendering
         commands
-            .entity(trigger.target())
+            .entity(trigger.entity)
             .insert((Visibility::default(), Name::new("HitscanLine")));
     }
 }
 
 /// Add visuals to physics projectiles (same as bullets but with different color)
 fn add_physics_projectile_visuals(
-    trigger: Trigger<OnAdd, PhysicsProjectile>,
+    trigger: On<Add, PhysicsProjectile>,
     query: Query<(&ColorComponent, Has<Interpolated>), (VisibleFilter, With<BulletMarker>)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((color, interpolated)) = query.get(trigger.target()) {
+    if let Ok((color, interpolated)) = query.get(trigger.entity) {
         // Make physics projectiles slightly larger and more orange
         let physics_color = Color::srgb(1.0, 0.5, 0.0); // Orange color for physics projectiles
 
-        commands.entity(trigger.target()).insert((
+        commands.entity(trigger.entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
                 radius: BULLET_SIZE * 1.2, // Slightly larger
@@ -298,7 +298,7 @@ fn add_physics_projectile_visuals(
             })),
         ));
         if !interpolated {
-            commands.entity(trigger.target()).insert((
+            commands.entity(trigger.entity).insert((
                 FrameInterpolate::<Position>::default(),
                 FrameInterpolate::<Rotation>::default(),
             ));
@@ -308,13 +308,13 @@ fn add_physics_projectile_visuals(
 
 /// Add visuals to homing missiles (triangle shape)
 fn add_homing_missile_visuals(
-    trigger: Trigger<OnAdd, HomingMissile>,
+    trigger: On<Add, HomingMissile>,
     query: Query<(&ColorComponent, Has<Interpolated>), (VisibleFilter, With<BulletMarker>)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((color, interpolated)) = query.get(trigger.target()) {
+    if let Ok((color, interpolated)) = query.get(trigger.entity) {
         // Make homing missiles red and triangle-shaped
         let missile_color = Color::srgb(1.0, 0.0, 0.0); // Red color for missiles
 
@@ -325,7 +325,7 @@ fn add_homing_missile_visuals(
             Vec2::new(BULLET_SIZE, -BULLET_SIZE),  // Bottom right
         );
 
-        commands.entity(trigger.target()).insert((
+        commands.entity(trigger.entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(triangle))),
             MeshMaterial2d(materials.add(ColorMaterial {
@@ -334,7 +334,7 @@ fn add_homing_missile_visuals(
             })),
         ));
         if !interpolated {
-            commands.entity(trigger.target()).insert((
+            commands.entity(trigger.entity).insert((
                 FrameInterpolate::<Position>::default(),
                 FrameInterpolate::<Rotation>::default(),
             ));

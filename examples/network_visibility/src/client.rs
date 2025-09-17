@@ -62,11 +62,11 @@ pub(crate) fn movement(
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(
-    trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
+    trigger: On<Add, (PlayerId, Predicted)>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
     mut commands: Commands,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.entity;
     if let Ok(mut color) = predicted.get_mut(entity) {
         let hsva = Hsva {
             saturation: 0.4,
@@ -84,10 +84,10 @@ pub(crate) fn handle_predicted_spawn(
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_interpolated_spawn(
-    trigger: Trigger<OnAdd, PlayerColor>,
+    trigger: On<Add, PlayerColor>,
     mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
 ) {
-    if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
+    if let Ok(mut color) = interpolated.get_mut(trigger.entity) {
         let hsva = Hsva {
             saturation: 0.1,
             ..Hsva::from(color.0)

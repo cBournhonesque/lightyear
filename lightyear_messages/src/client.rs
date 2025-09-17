@@ -1,7 +1,7 @@
 use crate::Message;
 use crate::prelude::{MessageReceiver, MessageSender};
 use crate::registry::MessageRegistration;
-use crate::send_trigger::TriggerSender;
+use crate::send_trigger::EventSender;
 use crate::trigger::TriggerRegistration;
 use bevy_ecs::event::Event;
 use lightyear_connection::client::Client;
@@ -31,7 +31,7 @@ impl<M: Event> TriggerRegistration<'_, M> {
         match direction {
             NetworkDirection::ClientToServer => {
                 self.app
-                    .try_register_required_components::<Client, TriggerSender<M>>()
+                    .try_register_required_components::<Client, EventSender<M>>()
                     .ok();
             }
             NetworkDirection::ServerToClient => {}

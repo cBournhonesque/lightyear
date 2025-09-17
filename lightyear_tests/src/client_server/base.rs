@@ -29,17 +29,17 @@ fn test_setup_client_server() {
     assert!(
         stepper
             .client(0)
-            .contains::<TriggerSender<SenderMetadata>>()
+            .contains::<EventSender<SenderMetadata>>()
     );
     assert!(
         stepper
             .client(0)
-            .contains::<TriggerSender<AuthorityTransferRequest>>()
+            .contains::<EventSender<AuthorityTransferRequest>>()
     );
     assert!(
         stepper
             .client(0)
-            .contains::<TriggerSender<AuthorityTransferResponse>>()
+            .contains::<EventSender<AuthorityTransferResponse>>()
     );
     assert!(stepper.client(0).contains::<ReplicationSender>());
     assert!(stepper.client(0).contains::<ReplicationReceiver>());
@@ -69,17 +69,17 @@ fn test_setup_client_server() {
     assert!(
         stepper
             .client_of(0)
-            .contains::<TriggerSender<SenderMetadata>>()
+            .contains::<EventSender<SenderMetadata>>()
     );
     assert!(
         stepper
             .client_of(0)
-            .contains::<TriggerSender<AuthorityTransferRequest>>()
+            .contains::<EventSender<AuthorityTransferRequest>>()
     );
     assert!(
         stepper
             .client_of(0)
-            .contains::<TriggerSender<AuthorityTransferResponse>>()
+            .contains::<EventSender<AuthorityTransferResponse>>()
     );
     assert!(stepper.client_of(0).contains::<CrossbeamIo>());
     assert!(stepper.client_of(0).contains::<Connected>());

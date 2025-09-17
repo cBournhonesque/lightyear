@@ -110,7 +110,7 @@ impl<R: Relationship> HierarchySendPlugin<R> {
     ///   go through the descendants and add `ReplicateLike`, `ChildOfSync`, ... if the child does not have
     ///   `DisableReplicateHierarchy` or `Replicate` already
     /// - We run this as a system and not an observer because observers cannot handle Children updates very well
-    ///   (if we trigger on ChildOf being added, there is no flush between the ChildOf OnAdd hook and the observer
+    ///   (if we trigger on ChildOf being added, there is no flush between the ChildOf Add hook and the observer
     ///   so the `&Children` query won't be updated (or the component will not exist on the parent yet)
     fn propagate_through_hierarchy(
         mut commands: Commands,
@@ -170,7 +170,7 @@ impl<R: Relationship> HierarchySendPlugin<R> {
     ///
     /// If a child entity already has the `Replicate` component, we ignore it and its descendants.
     pub(crate) fn propagate_replicate_like_replication_marker_removed(
-        trigger: Trigger<OnRemove, Replicate>,
+        trigger: On<Remove, Replicate>,
         root_query: Query<
             (),
             (
@@ -185,7 +185,7 @@ impl<R: Relationship> HierarchySendPlugin<R> {
         child_filter: Query<(), (Without<Replicate>, With<ReplicateLike>)>,
         mut commands: Commands,
     ) {
-        let root = trigger.target();
+        let root = trigger.entity;
         // if `DisableReplicateHierarchy` is present, return early since we don't need to propagate `ReplicateLike`
         let Ok(()) = root_query.get(root) else { return };
         let children = children_query.get(root).unwrap();

@@ -1,6 +1,6 @@
 use super::*;
 use crate::protocol::{CompCorr, CompFull, CompMap, CompOnce, CompSimple};
-use bevy::prelude::{OnAdd, Trigger};
+use bevy::prelude::{Add, Trigger};
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_prediction::Predicted;
 use lightyear_prediction::predicted_history::PredictionHistory;
@@ -293,15 +293,15 @@ fn test_predicted_sync_batch() {
     let mut stepper = ClientServerStepper::single();
     // make sure that when ComponentSimple is added, ComponentOnce was also added
     stepper.client_app().add_observer(
-        |trigger: Trigger<OnAdd, CompSimple>, query: Query<(), With<CompOnce>>| {
-            assert!(query.get(trigger.target()).is_ok());
+        |trigger: On<Add, CompSimple>, query: Query<(), With<CompOnce>>| {
+            assert!(query.get(trigger.entity).is_ok());
         },
     );
     // make sure that when ComponentOnce is added, ComponentSimple was also added
     // i.e. both components are added at the same time
     stepper.client_app().add_observer(
-        |trigger: Trigger<OnAdd, CompOnce>, query: Query<(), With<CompSimple>>| {
-            assert!(query.get(trigger.target()).is_ok());
+        |trigger: On<Add, CompOnce>, query: Query<(), With<CompSimple>>| {
+            assert!(query.get(trigger.entity).is_ok());
         },
     );
 

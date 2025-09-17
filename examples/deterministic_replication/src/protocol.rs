@@ -89,7 +89,7 @@ impl Plugin for ProtocolPlugin {
         .add_direction(NetworkDirection::ClientToServer);
 
         // messages
-        app.add_trigger::<Ready>()
+        app.register_event::<Ready>()
             .add_direction(NetworkDirection::ClientToServer);
 
         // components

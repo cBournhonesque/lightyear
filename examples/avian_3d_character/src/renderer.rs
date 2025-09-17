@@ -77,14 +77,14 @@ fn init(mut commands: Commands) {
 fn add_visual_interpolation_components(
     // We use Position because it's added by avian later, and when it's added
     // we know that Predicted is already present on the entity
-    trigger: Trigger<OnAdd, Position>,
+    trigger: On<Add, Position>,
     query: Query<Entity, (With<Predicted>, Without<FloorMarker>)>,
     mut commands: Commands,
 ) {
-    if !query.contains(trigger.target()) {
+    if !query.contains(trigger.entity) {
         return;
     }
-    commands.entity(trigger.target()).insert((
+    commands.entity(trigger.entity).insert((
         FrameInterpolate::<Position> {
             // We must trigger change detection on visual interpolation
             // to make sure that child entities (sprites, meshes, text)

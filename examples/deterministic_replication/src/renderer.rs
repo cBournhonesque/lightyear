@@ -4,7 +4,7 @@ use avian2d::position::{Position, Rotation};
 use bevy::prelude::*;
 use lightyear::prediction::Predicted;
 use lightyear::prediction::rollback::DeterministicPredicted;
-use lightyear::prelude::{Client, Connected, InterpolationSet, RollbackSet, TriggerSender};
+use lightyear::prelude::{Client, Connected, InterpolationSet, RollbackSet, EventSender};
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]
@@ -31,12 +31,12 @@ impl Plugin for ExampleRendererPlugin {
 }
 
 fn add_visual_interpolation_components(
-    trigger: Trigger<OnAdd, Position>,
+    trigger: On<Add, Position>,
     predicted: Query<(), With<DeterministicPredicted>>,
     mut commands: Commands,
 ) {
-    if let Ok(()) = predicted.get(trigger.target()) {
-        commands.entity(trigger.target()).insert((
+    if let Ok(()) = predicted.get(trigger.entity) {
+        commands.entity(trigger.entity).insert((
             FrameInterpolate::<Position>::default(),
             FrameInterpolate::<Rotation>::default(),
         ));

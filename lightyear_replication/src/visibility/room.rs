@@ -84,12 +84,12 @@ pub struct RoomPlugin;
 
 impl RoomPlugin {
     fn handle_room_event(
-        trigger: Trigger<RoomEvent>,
+        trigger: On<RoomEvent>,
         mut room_events: ResMut<RoomEvents>,
         mut query: Query<&mut Room>,
     ) -> Result {
-        let Ok(mut room) = query.get_mut(trigger.target()) else {
-            return Err(NetworkVisibilityError::RoomNotFound(trigger.target()))?;
+        let Ok(mut room) = query.get_mut(trigger.entity) else {
+            return Err(NetworkVisibilityError::RoomNotFound(trigger.entity))?;
         };
         match trigger.event() {
             RoomEvent::AddEntity(entity) => {

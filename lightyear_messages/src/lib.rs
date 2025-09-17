@@ -29,7 +29,7 @@ mod client;
 pub mod multi;
 pub mod plugin;
 pub mod receive;
-mod receive_trigger;
+mod receive_event;
 pub mod registry;
 pub mod send;
 mod send_trigger;
@@ -39,10 +39,10 @@ mod trigger;
 pub mod prelude {
     pub use crate::plugin::MessageSet;
     pub use crate::receive::MessageReceiver;
-    pub use crate::receive_trigger::RemoteTrigger;
+    pub use crate::receive_event::RemoteEvent;
     pub use crate::registry::{AppMessageExt, MessageRegistry};
     pub use crate::send::MessageSender;
-    pub use crate::send_trigger::TriggerSender;
+    pub use crate::send_trigger::EventSender;
     pub use crate::trigger::AppTriggerExt;
     pub use crate::{Message, MessageManager};
 
@@ -50,8 +50,8 @@ pub mod prelude {
     pub use crate::server::ServerMultiMessageSender;
 }
 
-// send-trigger: prepare message TriggerMessage<M> to be sent.
-// if TriggerMessage<M> is added, we update `sender_id` with MessageSender<RemoteMessage<M>>.
+// send-trigger: prepare message TriggerEvent<M> to be sent.
+// if TriggerEvent<M> is added, we update `sender_id` with MessageSender<RemoteMessage<M>>.
 
 // TODO: for now messages must be able to be used as events, since we output them in our message events
 /// A [`Message`] is basically any type that can be (de)serialized over the network.
@@ -77,7 +77,7 @@ pub type MessageNetId = NetId;
 pub struct MessageManager {
     /// List of component ids of the [`MessageSender<M>`](send::MessageSender) present on this entity
     pub(crate) send_messages: Vec<(MessageKind, ComponentId)>,
-    /// List of component ids of the [`TriggerSender<M>`](send_trigger::TriggerSender) present on this entity
+    /// List of component ids of the [`TriggerSender<M>`](send_trigger::EventSender) present on this entity
     pub(crate) send_triggers: Vec<(MessageKind, ComponentId)>,
     /// List of component ids of the [`MessageReceiver<M>`](receive::MessageReceiver) present on this entity
     pub(crate) receive_messages: Vec<(MessageKind, ComponentId)>,

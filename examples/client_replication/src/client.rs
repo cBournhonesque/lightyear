@@ -28,11 +28,11 @@ impl Plugin for ExampleClientPlugin {
 
 /// Spawn a cursor that is replicated to the server when the client connects
 pub(crate) fn spawn_local_cursor(
-    trigger: Trigger<OnAdd, Connected>,
+    trigger: On<Add, Connected>,
     client: Query<&LocalId, With<Client>>,
     mut commands: Commands,
 ) {
-    if let Ok(client) = client.get(trigger.target()) {
+    if let Ok(client) = client.get(trigger.entity) {
         let client_id = client.0;
         // spawn a local cursor which will be replicated to the server
         let id = commands
@@ -197,11 +197,11 @@ fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(
-    trigger: Trigger<OnAdd, (PlayerId, Predicted)>,
+    trigger: On<Add, (PlayerId, Predicted)>,
     mut predicted: Query<&mut PlayerColor, (With<Predicted>, With<PlayerId>)>,
     mut commands: Commands,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.entity;
     if let Ok(mut color) = predicted.get_mut(entity) {
         let hsva = Hsva {
             saturation: 0.4,
@@ -219,10 +219,10 @@ pub(crate) fn handle_predicted_spawn(
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_interpolated_spawn(
-    trigger: Trigger<OnAdd, PlayerColor>,
+    trigger: On<Add, PlayerColor>,
     mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
 ) {
-    if let Ok(mut color) = interpolated.get_mut(trigger.target()) {
+    if let Ok(mut color) = interpolated.get_mut(trigger.entity) {
         let hsva = Hsva {
             saturation: 0.1,
             ..Hsva::from(color.0)

@@ -85,7 +85,7 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
 
     /// Take messages from the buffer of messages to be sent, and build a list of packets to be sent
     fn send_packet(&mut self) -> (VecDeque<SendMessage>, VecDeque<SendMessage>) {
-        if self.timer.as_ref().is_some_and(|t| !t.finished()) {
+        if self.timer.as_ref().is_some_and(|t| !t.is_finished()) {
             return (VecDeque::new(), VecDeque::new());
         }
         (

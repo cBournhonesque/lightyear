@@ -59,7 +59,7 @@ impl Plugin for ExampleClientPlugin {
 /// Remove all entities when the client disconnect.
 /// Reset the ClientConfig to connect to the dedicated server on the next connection attempt.
 fn on_disconnect(
-    trigger: Trigger<OnAdd, Disconnected>,
+    trigger: On<Add, Disconnected>,
     local_id: Single<&LocalId>,
     lobbies: Query<Entity, With<Lobbies>>,
     mut commands: Commands,
@@ -71,7 +71,7 @@ fn on_disconnect(
     }
 
     // stop the server if it was started (if the player was host)
-    commands.trigger_targets(Stop, trigger.target());
+    commands.trigger_targets(Stop, trigger.entity);
 
     // reset the netcode config to connect to the lobby server
     let host_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), SERVER_PORT);
@@ -88,7 +88,7 @@ fn on_disconnect(
         ..default()
     };
     commands
-        .entity(trigger.target())
+        .entity(trigger.entity)
         .insert(NetcodeClient::new(auth, netcode_config)?);
     Ok(())
 }

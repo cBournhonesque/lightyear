@@ -105,12 +105,12 @@ impl Plugin for LagCompensationPlugin {
 /// Spawns a child entity with a collider that represents the broad-phase aabb envelope
 /// for lag compensation purposes
 fn spawn_broad_phase_aabb_envelope(
-    trigger: Trigger<OnAdd, LagCompensationHistory>,
+    trigger: On<Add, LagCompensationHistory>,
     query: Query<Option<&CollisionLayers>>,
     mut commands: Commands,
 ) {
     debug!("spawning broad-phase collider from aabb!");
-    commands.entity(trigger.target()).with_children(|builder| {
+    commands.entity(trigger.entity).with_children(|builder| {
         let mut child_commands = builder.spawn((
             // the collider/position/rotation values don't matter here because they will be updated in the
             // `update_lag_compensation_broad_phase_collider` system
@@ -123,7 +123,7 @@ fn spawn_broad_phase_aabb_envelope(
             AabbEnvelopeHolder,
         ));
         // the aabb_envelope has the same collision_layers as the parent
-        if let Ok(Some(collision_layers)) = query.get(trigger.target()) {
+        if let Ok(Some(collision_layers)) = query.get(trigger.entity) {
             child_commands.insert(*collision_layers);
         }
     });

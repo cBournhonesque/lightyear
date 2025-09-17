@@ -96,7 +96,7 @@ pub(crate) fn spawn_start_button(app: &mut App) {
                     Button,
                 ))
                 .observe(
-                    |_: Trigger<Pointer<Click>>,
+                    |_: On<Pointer<Click>>,
                      mut commands: Commands,
                      query: Single<(Entity, Has<Started>, Has<Stopped>), With<Server>>| {
                         let (entity, started, stopped) = query.into_inner();

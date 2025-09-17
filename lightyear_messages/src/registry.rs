@@ -66,7 +66,7 @@ impl From<TypeId> for MessageKind {
     }
 }
 
-use crate::receive_trigger::ReceiveTriggerFn;
+use crate::receive_event::ReceiveTriggerFn;
 use crate::send_trigger::{SendLocalTriggerFn, SendTriggerFn};
 
 #[derive(Debug, Clone)]
@@ -87,7 +87,7 @@ pub(crate) struct SendMessageMetadata {
 
 #[derive(Debug, Clone, TypePath)]
 pub(crate) struct SendTriggerMetadata {
-    /// ComponentId of the [`TriggerSender<M>`](crate::send_trigger::TriggerSender) component
+    /// ComponentId of the [`TriggerSender<M>`](crate::send_trigger::EventSender) component
     pub(crate) component_id: ComponentId,
     pub(crate) send_trigger_fn: SendTriggerFn,
     pub(crate) send_local_trigger_fn: SendLocalTriggerFn,
@@ -99,7 +99,7 @@ pub(crate) struct SendTriggerMetadata {
 ///
 /// ### Adding Messages
 ///
-/// You register messages by calling the [`add_message`](AppMessageExt::add_message) method directly on the App.
+/// You register messages by calling the [`add_message`](AppMessageExt::register_message) method directly on the App.
 ///
 /// You can provide a [`NetworkDirection`] to specify if the message should be sent from the client to the server, from the server to the client, or both.
 /// Messages can be sent and receives if your Link entity contains the [`MessageSender<M>`] and [`MessageReceiver<M>`] components. Adding a [`NetworkDirection`] simply registers the sender/receiver components as a required components, but you can also just add and remove them manually.
@@ -337,28 +337,28 @@ impl<'a, M: Message> MessageRegistration<'a, M> {
 pub trait AppMessageExt {
     /// Register a regular message type `M`.
     /// This adds `MessageSender<M>` and `MessageReceiver<M>` components.
-    fn add_message<M: Message + Serialize + DeserializeOwned>(
+    fn register_message<M: Message + Serialize + DeserializeOwned>(
         &mut self,
     ) -> MessageRegistration<'_, M>;
 
     fn is_message_registered<M: Message>(&self) -> bool;
 
     /// Register a regular message type `M` with custom serialization functions.
-    fn add_message_custom_serde<M: Message>(
+    fn register_message_custom_serde<M: Message>(
         &mut self,
         serialize_fns: SerializeFns<M>,
     ) -> MessageRegistration<'_, M>;
 
     #[doc(hidden)]
     /// Register a regular message type `M` that uses `ToBytes` for serialization.
-    fn add_message_to_bytes<M: Message + ToBytes>(&mut self) -> MessageRegistration<'_, M>;
+    fn register_message_to_bytes<M: Message + ToBytes>(&mut self) -> MessageRegistration<'_, M>;
 }
 
 impl AppMessageExt for App {
-    fn add_message<M: Message + Serialize + DeserializeOwned>(
+    fn register_message<M: Message + Serialize + DeserializeOwned>(
         &mut self,
     ) -> MessageRegistration<'_, M> {
-        self.add_message_custom_serde::<M>(SerializeFns::<M>::default())
+        self.register_message_custom_serde::<M>(SerializeFns::<M>::default())
     }
 
     fn is_message_registered<M: Message>(&self) -> bool {
@@ -367,7 +367,7 @@ impl AppMessageExt for App {
             .is_some_and(|r| r.kind_map.net_id(&MessageKind::of::<M>()).is_some())
     }
 
-    fn add_message_custom_serde<M: Message>(
+    fn register_message_custom_serde<M: Message>(
         &mut self,
         serialize_fns: SerializeFns<M>,
     ) -> MessageRegistration<'_, M> {
@@ -398,8 +398,8 @@ impl AppMessageExt for App {
         }
     }
 
-    fn add_message_to_bytes<M: Message + ToBytes>(&mut self) -> MessageRegistration<'_, M> {
-        self.add_message_custom_serde::<M>(SerializeFns::<M>::with_to_bytes())
+    fn register_message_to_bytes<M: Message + ToBytes>(&mut self) -> MessageRegistration<'_, M> {
+        self.register_message_custom_serde::<M>(SerializeFns::<M>::with_to_bytes())
     }
 }
 

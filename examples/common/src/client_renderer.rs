@@ -41,7 +41,7 @@ fn set_window_title(mut window: Query<&mut Window>, game_name: Res<GameName>) {
 pub struct UpdateStatusMessage(pub String);
 
 fn on_update_status_message(
-    trigger: Trigger<UpdateStatusMessage>,
+    trigger: On<UpdateStatusMessage>,
     mut q: Query<&mut Text, With<StatusMessageMarker>>,
 ) {
     for mut text in &mut q {
@@ -101,7 +101,7 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                     Button,
                 ))
                 .observe(
-                    |_: Trigger<Pointer<Click>>,
+                    |_: On<Pointer<Click>>,
                      mut commands: Commands,
                      query: Query<(Entity, &Client)>| {
                         let Ok((entity, client)) = query.single() else {
@@ -150,11 +150,11 @@ pub struct ClientIdText;
 /// Listen for events to know when the client is connected, and spawn a text entity
 /// to display the client id
 pub(crate) fn handle_connection(
-    trigger: Trigger<OnAdd, Connected>,
+    trigger: On<Add, Connected>,
     query: Query<&LocalId, Or<((With<LinkOf>, With<Client>), Without<LinkOf>)>>,
     mut commands: Commands,
 ) {
-    if let Ok(client_id) = query.get(trigger.target()) {
+    if let Ok(client_id) = query.get(trigger.entity) {
         commands.spawn((
             Text(format!("Client {}", client_id.0)),
             TextFont::from_font_size(30.0),
@@ -166,7 +166,7 @@ pub(crate) fn handle_connection(
 /// Listen for events to know when the client is disconnected, and print out the reason
 /// of the disconnection
 pub(crate) fn handle_disconnection(
-    _trigger: Trigger<OnAdd, Disconnected>,
+    _trigger: On<Add, Disconnected>,
     mut commands: Commands,
     debug_text: Query<Entity, With<ClientIdText>>,
 ) {

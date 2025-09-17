@@ -168,9 +168,9 @@ fn setup(mut commands: Commands) {
 }
 
 /// Add the ReplicationSender component to new clients
-pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands
-        .entity(trigger.target())
+        .entity(trigger.entity)
         .insert(ReplicationSender::new(
             SEND_INTERVAL,
             SendUpdatesMode::SinceLastAck,
@@ -180,12 +180,12 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 
 /// Spawn the player entity when a client connects
 pub(crate) fn handle_connected(
-    trigger: Trigger<OnAdd, Connected>,
+    trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
     character_query: Query<Entity, With<CharacterMarker>>,
 ) {
-    let Ok(client_id) = query.get(trigger.target()) else {
+    let Ok(client_id) = query.get(trigger.entity) else {
         return;
     };
     let client_id = client_id.0;
@@ -228,7 +228,7 @@ pub(crate) fn handle_connected(
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
             ControlledBy {
-                owner: trigger.target(),
+                owner: trigger.entity,
                 lifetime: Default::default(),
             },
             CharacterPhysicsBundle::default(),

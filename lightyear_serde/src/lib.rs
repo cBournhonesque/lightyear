@@ -308,9 +308,9 @@ mod tests {
 
     #[test]
     fn test_serialize_entity() {
-        let a = Entity::from_raw(0);
-        let b = Entity::from_raw(23);
-        let c = Entity::from_raw(u32::MAX);
+        let a = Entity::from_raw_u32(0).unwrap();
+        let b = Entity::from_raw_u32(23).unwrap();
+        let c = Entity::from_raw_u32(u32::MAX - 1).unwrap();
         let mut writer = Writer::with_capacity(5);
         a.to_bytes(&mut writer).unwrap();
         b.to_bytes(&mut writer).unwrap();

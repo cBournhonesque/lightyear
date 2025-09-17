@@ -12,6 +12,7 @@ use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
+use bevy_ecs::prelude::On;
 
 /// A timeline defines an independent progression of time.
 #[derive(Default, Debug, Clone, Reflect)]
@@ -138,7 +139,7 @@ pub struct TimelinePlugin {
 }
 
 impl TimelinePlugin {
-    fn update_tick_duration(trigger: Trigger<SetTickDuration>, mut time: ResMut<Time<Fixed>>) {
+    fn update_tick_duration(trigger: On<SetTickDuration>, mut time: ResMut<Time<Fixed>>) {
         time.set_timestep(trigger.0);
     }
 }
@@ -164,7 +165,7 @@ impl Plugin for TimelinePlugin {
 }
 
 #[derive(Event, Debug)]
-pub struct SyncEvent<T> {
+pub struct SyncEvent<T: TimelineContext> {
     // NOTE: it's inconvenient to re-sync the Timeline from a TickInstant to another TickInstant,
     //  so instead we will apply a delta number of ticks with no overstep (so that it's easy
     //  to update the LocalTimeline
@@ -182,13 +183,13 @@ impl<T: TimelineContext> SyncEvent<T> {
     }
 }
 
-impl<T> Clone for SyncEvent<T> {
+impl<T: TimelineContext> Clone for SyncEvent<T> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<T> Copy for SyncEvent<T> {}
+impl<T: TimelineContext> Copy for SyncEvent<T> {}
 
 /// Marker component inserted on the Link if we are currently in rollback
 ///

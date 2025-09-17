@@ -24,8 +24,8 @@ impl Plugin for ExampleServerPlugin {
 ///
 /// You can add additional components to update the connection. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
-pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.target()).insert((
+pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+    commands.entity(trigger.entity).insert((
         ReplicationReceiver::default(),
         ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
         Name::from("ClientOf"),
@@ -75,11 +75,11 @@ pub(crate) fn replicate_players(
     // We add an observer on both Cursor and Replicated because
     // in host-server mode, Replicated is not present on the entity when
     // CursorPosition is added. (Replicated gets added slightly after by an observer)
-    trigger: Trigger<OnAdd, (PlayerPosition, Replicated)>,
+    trigger: On<Add, (PlayerPosition, Replicated)>,
     mut commands: Commands,
     player_query: Query<&Replicated, With<PlayerPosition>>,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.entity;
     let Ok(replicated) = player_query.get(entity) else {
         return;
     };
@@ -112,11 +112,11 @@ pub(crate) fn replicate_cursors(
     // We add an observer on both Cursor and Replicated because
     // in host-server mode, Replicated is not present on the entity when
     // CursorPosition is added. (Replicated gets added slightly after by an observer)
-    trigger: Trigger<OnAdd, (CursorPosition, Replicated)>,
+    trigger: On<Add, (CursorPosition, Replicated)>,
     mut commands: Commands,
     cursor_query: Query<&Replicated, With<CursorPosition>>,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.entity;
     let Ok(replicated) = cursor_query.get(entity) else {
         return;
     };

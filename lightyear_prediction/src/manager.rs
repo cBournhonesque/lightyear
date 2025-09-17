@@ -285,7 +285,7 @@ impl PredictionManager {
     }
 
     pub(crate) fn handle_tick_sync(
-        trigger: Trigger<SyncEvent<Input>>,
+        trigger: On<SyncEvent<Input>>,
         mut manager: Single<&mut PredictionManager, With<Connected>>,
     ) {
         let data: Vec<_> = manager.prespawn_tick_to_hash.drain().collect();

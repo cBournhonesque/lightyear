@@ -31,13 +31,13 @@ impl Plugin for ExampleClientPlugin {
 // - assign it a different saturation
 // - add physics components so that its movement can be predicted
 pub(crate) fn handle_predicted_spawn(
-    trigger: Trigger<OnAdd, (PlayerMarker, Predicted)>,
+    trigger: On<Add, (PlayerMarker, Predicted)>,
     client: Single<&LocalId, With<Client>>,
     mut commands: Commands,
     mut player_query: Query<(&PlayerId, &GameReplicationMode), With<Predicted>>,
 ) {
     let client_id = client.into_inner().0;
-    if let Ok((player_id, mode)) = player_query.get_mut(trigger.target()) {
+    if let Ok((player_id, mode)) = player_query.get_mut(trigger.entity) {
         if mode == &GameReplicationMode::AllInterpolated {
             return;
         };
@@ -45,7 +45,7 @@ pub(crate) fn handle_predicted_spawn(
             GameReplicationMode::ClientSideHitDetection
             | GameReplicationMode::OnlyInputsReplicated => {
                 // add these so we can do hit-detection on the client
-                commands.entity(trigger.target()).insert((
+                commands.entity(trigger.entity).insert((
                     Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
                     RigidBody::Kinematic,
                 ));
@@ -55,14 +55,14 @@ pub(crate) fn handle_predicted_spawn(
         if player_id.0 != client_id {
             return;
         }
-        info!("Adding actions to predicted player {:?}", trigger.target());
+        info!("Adding actions to predicted player {:?}", trigger.entity);
         // add actions on the local entity (remote predicted entities will have actions propagated by the server)
-        add_actions(&mut commands, trigger.target());
+        add_actions(&mut commands, trigger.entity);
     }
 }
 
 pub(crate) fn handle_interpolated_spawn(
-    trigger: Trigger<OnAdd, (PlayerMarker, Interpolated)>,
+    trigger: On<Add, (PlayerMarker, Interpolated)>,
     client: Single<&LocalId, With<Client>>,
     mut interpolated: Query<
         (&PlayerId, &Interpolated, &GameReplicationMode),
@@ -71,10 +71,10 @@ pub(crate) fn handle_interpolated_spawn(
     mut commands: Commands,
 ) {
     let client_id = client.into_inner();
-    if let Ok((player_id, interpolated, mode)) = interpolated.get_mut(trigger.target()) {
+    if let Ok((player_id, interpolated, mode)) = interpolated.get_mut(trigger.entity) {
         if mode == &GameReplicationMode::ClientSideHitDetection {
             // add these so we can do hit-detection on the client
-            commands.entity(trigger.target()).insert((
+            commands.entity(trigger.entity).insert((
                 Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
                 RigidBody::Kinematic,
             ));
@@ -89,16 +89,16 @@ pub(crate) fn handle_interpolated_spawn(
 }
 
 pub(crate) fn handle_deterministic_spawn(
-    trigger: Trigger<OnAdd, PlayerMarker>,
+    trigger: On<Add, PlayerMarker>,
     query: Query<(&PlayerId, &GameReplicationMode)>,
     client: Single<&LocalId, With<Client>>,
     mut commands: Commands,
 ) {
     let client_id = client.into_inner();
-    if let Ok((player_id, mode)) = query.get(trigger.target())
+    if let Ok((player_id, mode)) = query.get(trigger.entity)
         && mode == &GameReplicationMode::OnlyInputsReplicated
     {
-        commands.entity(trigger.target()).insert((
+        commands.entity(trigger.entity).insert((
             shared::player_bundle(player_id.0),
             DeterministicPredicted,
             DisableRollback,
@@ -111,7 +111,7 @@ pub(crate) fn handle_deterministic_spawn(
                 "Spawning actions for DeterministicPredicted player {:?}",
                 player_id
             );
-            add_actions(&mut commands, trigger.target());
+            add_actions(&mut commands, trigger.entity);
         }
     }
 }
@@ -145,14 +145,14 @@ fn add_actions(commands: &mut Commands, player: Entity) {
     ));
 }
 
-pub(crate) fn add_global_actions(trigger: Trigger<OnAdd, ClientContext>, mut commands: Commands) {
+pub(crate) fn add_global_actions(trigger: On<Add, ClientContext>, mut commands: Commands) {
     commands.spawn((
-        ActionOf::<ClientContext>::new(trigger.target()),
+        ActionOf::<ClientContext>::new(trigger.entity),
         Action::<CycleProjectileMode>::new(),
         bindings![KeyCode::KeyE,],
     ));
     commands.spawn((
-        ActionOf::<ClientContext>::new(trigger.target()),
+        ActionOf::<ClientContext>::new(trigger.entity),
         Action::<CycleReplicationMode>::new(),
         bindings![KeyCode::KeyR,],
     ));

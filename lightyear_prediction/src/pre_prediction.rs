@@ -11,7 +11,7 @@ use bevy_ecs::{
     query::{Added, With},
     schedule::{IntoScheduleConfigs, SystemSet},
     system::{Commands, Query, Single},
-    world::{OnAdd, World},
+    world::{Add, World},
 };
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
@@ -105,7 +105,7 @@ impl PrePredictionPlugin {
     /// When PrePredicted is added by the client: we spawn a Confirmed entity and update the mapping
     /// When PrePredicted is replicated from the server: we add the Predicted component
     pub(crate) fn handle_pre_predicted_client(
-        trigger: Trigger<OnAdd, PrePredicted>,
+        trigger: On<Add, PrePredicted>,
         mut commands: Commands,
         prediction_query: Single<&PredictionManager, PredictionFilter>,
         host_server_query: Query<(), With<HostClient>>,
@@ -121,10 +121,10 @@ impl PrePredictionPlugin {
         // PrePredicted was replicated from the server:
         // When we receive an update from the server that confirms a pre-predicted entity,
         // we will add the Predicted component
-        match predicted_map.confirmed_to_predicted.get(&trigger.target()) {
+        match predicted_map.confirmed_to_predicted.get(&trigger.entity) {
             // Received messages from server
             Some(&predicted) => {
-                let confirmed = trigger.target();
+                let confirmed = trigger.entity;
                 info!(
                     "Received PrePredicted entity from server. Confirmed: {confirmed:?}, Predicted: {predicted:?}"
                 );
@@ -139,7 +139,7 @@ impl PrePredictionPlugin {
             }
             // Added PrePredicted on client
             _ => {
-                let predicted_entity = trigger.target();
+                let predicted_entity = trigger.entity;
                 let is_host_server = host_server_query.single().is_ok();
                 if is_host_server {
                     info!("Spawning prepredicted on host-server");

@@ -19,7 +19,7 @@ use bevy_reflect::Reflect;
 use lightyear_connection::client::PeerMetadata;
 use lightyear_connection::prelude::NetworkDirection;
 use lightyear_core::id::PeerId;
-use lightyear_messages::prelude::{AppTriggerExt, RemoteTrigger, TriggerSender};
+use lightyear_messages::prelude::{AppTriggerExt, RemoteEvent, EventSender};
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, ReliableSettings};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
@@ -90,9 +90,9 @@ impl Plugin for AuthorityPlugin {
             priority: 10.0,
         })
         .add_direction(NetworkDirection::Bidirectional);
-        app.add_trigger::<AuthorityTransferRequest>()
+        app.register_event::<AuthorityTransferRequest>()
             .add_direction(NetworkDirection::Bidirectional);
-        app.add_trigger::<AuthorityTransferResponse>()
+        app.register_event::<AuthorityTransferResponse>()
             .add_direction(NetworkDirection::Bidirectional);
 
         app.add_observer(Self::handle_authority_request);
@@ -104,16 +104,16 @@ impl Plugin for AuthorityPlugin {
 
 impl AuthorityPlugin {
     fn handle_authority_request(
-        trigger: Trigger<RemoteTrigger<AuthorityTransferRequest>>,
+        trigger: On<RemoteEvent<AuthorityTransferRequest>>,
         metadata: Res<PeerMetadata>,
         mut sender_query: Query<(
             &mut ReplicationSender,
-            &mut TriggerSender<AuthorityTransferResponse>,
+            &mut EventSender<AuthorityTransferResponse>,
         )>,
         query: Query<&AuthorityTransfer>,
     ) {
         if let Some(&sender_entity) = metadata.mapping.get(&trigger.from) {
-            let entity = trigger.target();
+            let entity = trigger.entity;
             if let Ok((mut sender, mut response_sender)) = sender_query.get_mut(sender_entity) {
                 trace!(
                     "Received authority request: {:?} for entity {:?}, from peer: {:?}",
@@ -163,12 +163,12 @@ impl AuthorityPlugin {
     }
 
     fn handle_authority_response(
-        trigger: Trigger<RemoteTrigger<AuthorityTransferResponse>>,
+        trigger: On<RemoteEvent<AuthorityTransferResponse>>,
         metadata: Res<PeerMetadata>,
         mut sender_query: Query<&mut ReplicationSender>,
     ) {
         if let Some(&sender_entity) = metadata.mapping.get(&trigger.from) {
-            let entity = trigger.target();
+            let entity = trigger.entity;
             if let Ok(mut sender) = sender_query.get_mut(sender_entity) {
                 trace!(
                     "Authority response: {:?} for entity {:?}, from peer: {:?}",
@@ -186,11 +186,11 @@ impl AuthorityPlugin {
     }
 
     fn give_authority(
-        trigger: Trigger<GiveAuthority>,
+        trigger: On<GiveAuthority>,
         metadata: Res<PeerMetadata>,
         mut sender_query: Query<(
             &mut ReplicationSender,
-            &mut TriggerSender<AuthorityTransferRequest>,
+            &mut EventSender<AuthorityTransferRequest>,
         )>,
     ) {
         if let Some(sender_entity) = metadata.mapping.get(&trigger.remote_peer)
@@ -217,11 +217,11 @@ impl AuthorityPlugin {
     }
 
     fn request_authority(
-        trigger: Trigger<RequestAuthority>,
+        trigger: On<RequestAuthority>,
         metadata: Res<PeerMetadata>,
         mut sender_query: Query<(
             &ReplicationSender,
-            &mut TriggerSender<AuthorityTransferRequest>,
+            &mut EventSender<AuthorityTransferRequest>,
         )>,
     ) {
         if let Some(sender_entity) = metadata.mapping.get(&trigger.remote_peer)

@@ -89,7 +89,7 @@ impl<M> Default for TriggerBuffer<M> {
 
 /// System to check that we received the message on the server
 fn count_triggers_observer<M: Event + Debug + Clone>(
-    trigger: Trigger<RemoteTrigger<M>>,
+    trigger: On<RemoteEvent<M>>,
     peer_metadata: Res<PeerMetadata>,
     mut buffer: ResMut<TriggerBuffer<M>>,
 ) {
@@ -98,7 +98,7 @@ fn count_triggers_observer<M: Event + Debug + Clone>(
     let remote = *peer_metadata.mapping.get(&trigger.from).unwrap();
     buffer
         .0
-        .push((remote, trigger.trigger.clone(), trigger.target()));
+        .push((remote, trigger.trigger.clone(), trigger.entity));
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn test_send_triggers() {
     let send_trigger = StringTrigger("Hello".to_string());
     stepper
         .client_mut(0)
-        .get_mut::<TriggerSender<StringTrigger>>()
+        .get_mut::<EventSender<StringTrigger>>()
         .unwrap()
         .trigger::<Channel1>(send_trigger.clone());
     stepper.frame_step(1);
@@ -162,7 +162,7 @@ fn test_send_triggers_map_entities() {
     let send_trigger = EntityTrigger(client_entity);
     stepper
         .client_mut(0)
-        .get_mut::<TriggerSender<EntityTrigger>>()
+        .get_mut::<EventSender<EntityTrigger>>()
         .unwrap()
         .trigger_targets::<Channel1>(send_trigger, core::iter::once(client_entity));
     stepper.frame_step(1);

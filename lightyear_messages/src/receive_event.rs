@@ -6,16 +6,15 @@ use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_transport::channel::ChannelKind;
 
-use crate::trigger::TriggerMessage;
 use lightyear_core::id::PeerId;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_transport::packet::message::MessageId;
 use tracing::trace;
 
-/// Bevy Event emitted when a `TriggerMessage<M>` is received and processed.
+/// Bevy Event emitted when a `TriggerEvent<M>` is received and processed.
 /// Contains the original trigger `M` and the `PeerId` of the sender.
 #[derive(Event, Debug)]
-pub struct RemoteTrigger<M: Message> {
+pub struct RemoteEvent<M: Event> {
     pub trigger: M,
     pub from: PeerId,
 }
@@ -31,11 +30,11 @@ pub(crate) type ReceiveTriggerFn = unsafe fn(
     from: PeerId, // Add sender PeerId
 ) -> Result<(), MessageError>;
 
-/// Receive a `TriggerMessage<M>`, deserialize it, and emit a `RemoteTrigger<M>` event.
+/// Receive a `TriggerEvent<M>`, deserialize it, and emit a `RemoteEvent<M>` event.
 ///
-/// SAFETY: The `reader` must contain a valid serialized `TriggerMessage<M>`.
-/// The `serialize_metadata` must correspond to the `TriggerMessage<M>` type.
-pub(crate) unsafe fn receive_trigger_typed<M: Message + Event>(
+/// SAFETY: The `reader` must contain a valid serialized `TriggerEvent<M>`.
+/// The `serialize_metadata` must correspond to the `TriggerEvent<M>` type.
+pub(crate) unsafe fn receive_event_typed<M: Message + Event>(
     commands: &ParallelCommands,
     reader: &mut Reader,
     _channel_kind: ChannelKind,
@@ -47,19 +46,19 @@ pub(crate) unsafe fn receive_trigger_typed<M: Message + Event>(
 ) -> Result<(), MessageError> {
     // we deserialize the message and send a MessageEvent
     let message =
-        unsafe { serialize_metadata.deserialize::<_, TriggerMessage<M>, M>(reader, entity_map)? };
+        unsafe { serialize_metadata.deserialize::<_, M, M>(reader, entity_map)? };
     trace!(
-        "Received trigger message: {:?} from: {from:?}. Target: {:?}",
+        "Received trigger message: {:?} from: {from:?}",
         core::any::type_name::<M>(),
-        message.target_entities
+        message
     );
-    let trigger = RemoteTrigger {
-        trigger: message.trigger,
+    let trigger = RemoteEvent {
+        trigger: message,
         from,
     };
     commands.command_scope(|mut c| {
-        c.trigger_targets(trigger, message.target_entities);
+        c.trigger(trigger);
     });
-    // commands.trigger_targets(trigger, message.target_entities);
+    // commands.trigger(trigger);
     Ok(())
 }

@@ -6,13 +6,13 @@ use bevy_ecs::event::Event;
 use bevy_ecs::observer::Trigger;
 use bevy_ecs::query::{With, Without};
 use bevy_ecs::system::{Query, ResMut};
-use bevy_ecs::world::OnAdd;
+use bevy_ecs::world::Add;
 use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::host::HostClient;
-use lightyear_messages::prelude::{AppTriggerExt, RemoteTrigger, TriggerSender};
+use lightyear_messages::prelude::{AppTriggerExt, RemoteEvent, EventSender};
 use lightyear_messages::registry::MessageRegistry;
 use lightyear_replication::message::MetadataChannel;
 use lightyear_replication::registry::registry::ComponentRegistry;
@@ -44,8 +44,8 @@ pub enum ProtocolCheckError {
 impl ProtocolCheckPlugin {
     /// On the server, send a message with the protocol checksum when a client connects
     fn send_verify_protocol(
-        trigger: Trigger<OnAdd, Connected>,
-        mut sender: Query<&mut TriggerSender<ProtocolCheck>, (With<ClientOf>, Without<HostClient>)>,
+        trigger: On<Add, Connected>,
+        mut sender: Query<&mut EventSender<ProtocolCheck>, (With<ClientOf>, Without<HostClient>)>,
         messages: Option<ResMut<MessageRegistry>>,
         components: Option<ResMut<ComponentRegistry>>,
         channels: Option<ResMut<ChannelRegistry>>,
@@ -55,13 +55,13 @@ impl ProtocolCheckPlugin {
             components: components.map(|mut c| c.finish()),
             channels: channels.map(|mut c| c.finish()),
         };
-        if let Ok(mut s) = sender.get_mut(trigger.target()) {
+        if let Ok(mut s) = sender.get_mut(trigger.entity) {
             s.trigger::<MetadataChannel>(check_message);
         }
     }
 
     fn receive_verify_protocol(
-        trigger: Trigger<RemoteTrigger<ProtocolCheck>>,
+        trigger: On<RemoteEvent<ProtocolCheck>>,
         messages: Option<ResMut<MessageRegistry>>,
         components: Option<ResMut<ComponentRegistry>>,
         channels: Option<ResMut<ChannelRegistry>>,
@@ -95,7 +95,7 @@ impl Plugin for ProtocolCheckPlugin {
         })
         .add_direction(NetworkDirection::Bidirectional);
 
-        app.add_trigger::<ProtocolCheck>()
+        app.register_event::<ProtocolCheck>()
             .add_direction(NetworkDirection::ServerToClient);
     }
 

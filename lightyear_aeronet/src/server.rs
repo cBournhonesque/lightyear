@@ -1,10 +1,6 @@
 use alloc::format;
 use bevy_app::{App, Plugin};
-use bevy_ecs::{
-    observer::Trigger,
-    system::{Commands, Query},
-    world::OnAdd,
-};
+use bevy_ecs::prelude::*;
 
 use crate::AeronetLinkOf;
 use aeronet_io::server::{Closed, Server, ServerEndpoint};
@@ -16,11 +12,11 @@ pub struct ServerAeronetPlugin;
 
 impl ServerAeronetPlugin {
     fn on_opening(
-        trigger: Trigger<OnAdd, ServerEndpoint>,
+        trigger: On<Add, ServerEndpoint>,
         query: Query<&AeronetLinkOf>,
         mut commands: Commands,
     ) {
-        if let Ok(child_of) = query.get(trigger.target())
+        if let Ok(child_of) = query.get(trigger.entity)
             && let Ok(mut c) = commands.get_entity(child_of.0)
         {
             trace!(
@@ -32,11 +28,11 @@ impl ServerAeronetPlugin {
     }
 
     fn on_opened(
-        trigger: Trigger<OnAdd, Server>,
+        trigger: On<Add, Server>,
         query: Query<&AeronetLinkOf>,
         mut commands: Commands,
     ) {
-        if let Ok(child_of) = query.get(trigger.target())
+        if let Ok(child_of) = query.get(trigger.entity)
             && let Ok(mut c) = commands.get_entity(child_of.0)
         {
             trace!(
@@ -47,8 +43,8 @@ impl ServerAeronetPlugin {
         }
     }
 
-    fn on_closed(trigger: Trigger<Closed>, query: Query<&AeronetLinkOf>, mut commands: Commands) {
-        if let Ok(child_of) = query.get(trigger.target())
+    fn on_closed(trigger: On<Closed>, query: Query<&AeronetLinkOf>, mut commands: Commands) {
+        if let Ok(child_of) = query.get(trigger.entity)
             && let Ok(mut c) = commands.get_entity(child_of.0)
         {
             trace!(

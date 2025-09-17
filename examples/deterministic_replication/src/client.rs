@@ -28,7 +28,7 @@ impl Plugin for ExampleClientPlugin {
 // - add physics components so that its movement can be predicted
 /// When we receive a new player entity
 fn handle_player_spawn(
-    trigger: Trigger<OnAdd, PlayerId>,
+    trigger: On<Add, PlayerId>,
     client: Single<(&LocalId, &LocalTimeline), With<Client>>,
     mut commands: Commands,
     player_query: Query<&PlayerId>,
@@ -38,9 +38,9 @@ fn handle_player_spawn(
 
     // store the tick when the game started, so we can remove the DisableRollback component later
 
-    let peer_id = player_query.get(trigger.target()).unwrap().0;
+    let peer_id = player_query.get(trigger.entity).unwrap().0;
     info!("Received player spawn for player {peer_id:?} at tick {tick:?}");
-    let mut entity_mut = commands.entity(trigger.target());
+    let mut entity_mut = commands.entity(trigger.entity);
     entity_mut.insert(player_bundle(peer_id));
     // keep track of when the entity was spawned
     entity_mut.insert(Spawned(tick));
@@ -56,12 +56,12 @@ fn handle_player_spawn(
 
 // Same thing, we insert Spawned on the ball so that DisableRollback can get removed
 fn handle_ball_spawn(
-    trigger: Trigger<OnAdd, BallMarker>,
+    trigger: On<Add, BallMarker>,
     client: Single<&LocalTimeline, With<Client>>,
     mut commands: Commands,
 ) {
     commands
-        .entity(trigger.target())
+        .entity(trigger.entity)
         .insert(Spawned(client.tick()));
 }
 

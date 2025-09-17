@@ -310,8 +310,8 @@ mod tests {
     //     world.init_resource::<Buffer>();
     //
     //     world.add_observer(
-    //         |trigger: Trigger<OnAdd, ComponentSyncModeFull>, mut commands: Commands| {
-    //             let entity = trigger.target();
+    //         |trigger: On<Add, ComponentSyncModeFull>, mut commands: Commands| {
+    //             let entity = trigger.entity;
     //             commands.queue(move |world: &mut World| {
     //                 let component_id_once = world.register_component::<ComponentSyncModeOnce>();
     //                 let component_id_simple = world.register_component::<ComponentSyncModeSimple>();
@@ -338,8 +338,8 @@ mod tests {
     //         },
     //     );
     //     world.add_observer(
-    //         |trigger: Trigger<OnAdd, ComponentSyncModeOnce>, mut commands: Commands| {
-    //             let entity = trigger.target();
+    //         |trigger: On<Add, ComponentSyncModeOnce>, mut commands: Commands| {
+    //             let entity = trigger.entity;
     //             commands.queue(move |world: &mut World| {
     //                 let component_id = world.register_component::<ComponentSyncModeSimple>();
     //                 let unsafe_world = world.as_unsafe_world_cell();
@@ -359,9 +359,9 @@ mod tests {
     //         },
     //     );
     //     world.add_observer(
-    //         |trigger: Trigger<OnInsert, ComponentSyncModeSimple>,
+    //         |trigger: On<Insert, ComponentSyncModeSimple>,
     //          mut query: Query<&mut ComponentSyncModeFull>| {
-    //             if let Ok(mut comp) = query.get_mut(trigger.target()) {
+    //             if let Ok(mut comp) = query.get_mut(trigger.entity) {
     //                 comp.0 += 1.0;
     //             }
     //         },
