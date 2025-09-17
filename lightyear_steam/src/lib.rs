@@ -16,7 +16,7 @@ extern crate alloc;
 extern crate std;
 
 use bevy_app::PreUpdate;
-use bevy_ecs::prelude::NonSend;
+use bevy_ecs::prelude::Res;
 
 #[cfg(feature = "client")]
 pub mod client;
@@ -62,7 +62,7 @@ impl SteamAppExt for bevy_app::App {
         steam.networking_utils().init_relay_network_access();
 
         self.insert_resource(prelude::SteamworksClient(steam))
-            .add_systems(PreUpdate, |steam: NonSend<prelude::SteamworksClient>| {
+            .add_systems(PreUpdate, |steam: Res<prelude::SteamworksClient>| {
                 steam.run_callbacks();
             });
         self
