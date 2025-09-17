@@ -87,10 +87,10 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
 }
 
 pub(crate) fn rotate_player(
-    trigger: Trigger<Fired<MoveCursor>>,
+    trigger: On<Fired<MoveCursor>>,
     mut player: Query<(&mut Rotation, &Position), (Without<Confirmed>, Without<Bot>)>,
 ) {
-    if let Ok((mut rotation, position)) = player.get_mut(trigger.target()) {
+    if let Ok((mut rotation, position)) = player.get_mut(trigger.entity) {
         let angle = Vec2::new(0.0, 1.0).angle_to(trigger.value - position.0);
         // careful to only activate change detection if there was an actual change
         if (angle - rotation.as_radians()).abs() > EPS {
@@ -100,18 +100,18 @@ pub(crate) fn rotate_player(
 }
 
 pub(crate) fn move_player(
-    trigger: Trigger<Fired<MovePlayer>>,
+    trigger: On<Fired<MovePlayer>>,
     // Confirmed inputs don't get applied on the client! (for the AllInterpolated case)
     mut player: Query<&mut Position, Without<Confirmed>>,
     is_bot: Query<(), With<Bot>>,
 ) {
     const PLAYER_MOVE_SPEED: f32 = 1.5;
-    if let Ok(mut position) = player.get_mut(trigger.target()) {
-        if is_bot.get(trigger.target()).is_err() {
+    if let Ok(mut position) = player.get_mut(trigger.entity) {
+        if is_bot.get(trigger.entity).is_err() {
             trace!(
                 ?position,
                 "Moving player {:?} by {:?}",
-                trigger.target(),
+                trigger.entity,
                 trigger.value
             );
         }
@@ -203,10 +203,10 @@ pub(crate) fn last_log(
 
 /// Handle weapon cycling input
 pub(crate) fn weapon_cycling(
-    trigger: Trigger<Completed<CycleWeapon>>,
+    trigger: On<Completed<CycleWeapon>>,
     mut query: Query<(&mut Weapon, &mut WeaponType)>,
 ) {
-    if let Ok((mut weapon, mut weapon_type)) = query.get_mut(trigger.target()) {
+    if let Ok((mut weapon, mut weapon_type)) = query.get_mut(trigger.entity) {
         let new_weapon_type = weapon_type.next();
         *weapon_type = new_weapon_type;
         weapon.weapon_type = new_weapon_type;
@@ -226,7 +226,7 @@ pub(crate) fn weapon_cycling(
 
 /// Main weapon shooting system that handles all weapon types
 pub(crate) fn shoot_weapon(
-    trigger: Trigger<Completed<Shoot>>,
+    trigger: On<Completed<Shoot>>,
     mut commands: Commands,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     time: Res<Time>,
@@ -247,11 +247,11 @@ pub(crate) fn shoot_weapon(
 ) {
     let tick = timeline.tick();
     let tick_duration = tick_duration.0;
-    let shooter = trigger.target();
+    let shooter = trigger.entity;
     let (projectile_mode, replication_mode) = global.into_inner();
 
     if let Ok((id, transform, color, mut weapon, weapon_type, controlled_by)) =
-        player_query.get_mut(trigger.target())
+        player_query.get_mut(trigger.entity)
     {
         let is_server = controlled_by.is_some();
         // Check fire rate
@@ -526,7 +526,7 @@ fn shoot_with_ring_buffer_replication(
 pub struct ClientHitDetection;
 
 pub(crate) fn hitscan_hit_detection(
-    trigger: Trigger<OnAdd, HitscanVisual>,
+    trigger: On<Add, HitscanVisual>,
     commands: Commands,
     server: Query<Entity, With<Server>>,
     timeline: Query<&LocalTimeline, Without<ClientOf>>,
@@ -538,7 +538,7 @@ pub(crate) fn hitscan_hit_detection(
     // (the server creates one entity for each client to store client-specific
     // metadata)
     client_query: Query<&InterpolationDelay, With<ClientOf>>,
-    mut hit_sender: Query<(&LocalId, &mut TriggerSender<HitDetected>), With<Client>>,
+    mut hit_sender: Query<(&LocalId, &mut EventSender<HitDetected>), With<Client>>,
     mut player_query: Query<AnyOf<(&mut Score, &ControlledBy, &Predicted)>, With<PlayerMarker>>,
 ) {
     let Ok(timeline) = timeline.single() else {
@@ -549,7 +549,7 @@ pub(crate) fn hitscan_hit_detection(
         info!("no unique mode");
         return;
     };
-    let Ok((hitscan, bullet_marker, id)) = bullet.get(trigger.target()) else {
+    let Ok((hitscan, bullet_marker, id)) = bullet.get(trigger.entity) else {
         return;
     };
 
@@ -1423,7 +1423,7 @@ fn despawn_after(
 
 /// Handle ProjectileSpawn by spawning child entities for projectiles
 pub(crate) fn handle_projectile_spawn(
-    trigger: Trigger<OnAdd, ProjectileSpawn>,
+    trigger: On<Add, ProjectileSpawn>,
     mut commands: Commands,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     tick_duration: Res<TickDuration>,
@@ -1436,7 +1436,7 @@ pub(crate) fn handle_projectile_spawn(
     )>,
 ) {
     let Ok((spawn_info, color, bullet_marker, is_predicted, is_interpolated)) =
-        spawn_query.get(trigger.target())
+        spawn_query.get(trigger.entity)
     else {
         return;
     };

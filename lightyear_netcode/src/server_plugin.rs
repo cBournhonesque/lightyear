@@ -293,17 +293,17 @@ impl NetcodeServerPlugin {
     }
 
     fn start(
-        trigger: Trigger<Start>,
+        trigger: On<Start>,
         query: Query<(), With<NetcodeServer>>,
         mut commands: Commands,
     ) {
-        if query.get(trigger.target()).is_ok() {
-            commands.entity(trigger.target()).insert(Started);
+        if query.get(trigger.entity).is_ok() {
+            commands.entity(trigger.entity).insert(Started);
         }
     }
 
     fn stop(
-        trigger: Trigger<Stop>,
+        trigger: On<Stop>,
         mut commands: Commands,
         mut query: Query<(Entity, &mut NetcodeServer, &Server), Without<Stopped>>,
         mut link_query: Query<
@@ -316,7 +316,7 @@ impl NetcodeServerPlugin {
             ),
         >,
     ) -> Result {
-        if let Ok((server_entity, mut netcode_server, server)) = query.get_mut(trigger.target()) {
+        if let Ok((server_entity, mut netcode_server, server)) = query.get_mut(trigger.entity) {
             info!("Stopping netcode server");
 
             // TODO: should we stop the io?

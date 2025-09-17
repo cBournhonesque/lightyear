@@ -9,7 +9,7 @@ use bevy_ecs::component::{Component, ComponentId};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::event::{Event, Events};
 use bevy_ecs::observer::{Observer, Trigger};
-use bevy_ecs::prelude::{EntityRef, IntoScheduleConfigs, OnInsert, Query, World};
+use bevy_ecs::prelude::{EntityRef, IntoScheduleConfigs, Insert, Query, World};
 use bevy_reflect::Reflect;
 use lightyear_replication::components::{Confirmed, Replicated};
 use lightyear_replication::prelude::ComponentRegistry;
@@ -120,7 +120,7 @@ fn apply_interpolated_sync(world: &mut World) {
 /// immediately here (because the ParentSync component might not be able to get mapped properly since the parent entity
 /// might not be interpolated yet). Therefore we send a InterpolatedSyncEvent so that all components can be synced at once.
 fn confirmed_added_sync(
-    trigger: Trigger<OnInsert, Confirmed>,
+    trigger: On<Insert, Confirmed>,
     confirmed_query: Query<EntityRef>,
     interpolation_registry: Res<InterpolationRegistry>,
     component_registry: Res<ComponentRegistry>,
@@ -130,7 +130,7 @@ fn confirmed_added_sync(
     // that shouldn't be an issue because the components are being inserted only on Predicted entities
     // so we don't want to react to them
     let Some(mut events) = events else { return };
-    let confirmed = trigger.target();
+    let confirmed = trigger.entity;
     let entity_ref = confirmed_query.get(confirmed).unwrap();
     let confirmed_component = entity_ref.get::<Confirmed>().unwrap();
     let Some(interpolated) = confirmed_component.interpolated else {
@@ -168,8 +168,8 @@ fn confirmed_added_sync(
 /// immediately here (because the ParentSync component might not be able to get mapped properly since the parent entity
 /// might not be interpolated yet). Therefore we send a InterpolatedSyncEvent so that all components can be synced at once.
 fn added_on_confirmed_sync(
-    // NOTE: we use OnInsert and not OnAdd because the confirmed entity might already have the component (for example if the client transferred authority to server)
-    trigger: Trigger<OnInsert>,
+    // NOTE: we use Insert and not Add because the confirmed entity might already have the component (for example if the client transferred authority to server)
+    trigger: On<Insert>,
     interpolation_registry: Res<InterpolationRegistry>,
     component_registry: Res<ComponentRegistry>,
     confirmed_query: Query<(&Confirmed, &Replicated)>,
@@ -180,13 +180,13 @@ fn added_on_confirmed_sync(
     // so we don't want to react to them
     let Some(mut events) = events else { return };
     // make sure the components were added on the confirmed entity
-    let Ok((confirmed_component, replicated)) = confirmed_query.get(trigger.target()) else {
+    let Ok((confirmed_component, replicated)) = confirmed_query.get(trigger.entity) else {
         return;
     };
     let Some(interpolated) = confirmed_component.interpolated else {
         return;
     };
-    let confirmed = trigger.target();
+    let confirmed = trigger.entity;
 
     // TODO: how do we avoid this allocation?
 

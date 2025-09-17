@@ -62,8 +62,8 @@ fn start_dedicated_server(mut commands: Commands) {
     ));
 }
 
-pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.target()).insert((
+pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+    commands.entity(trigger.entity).insert((
         ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
         Name::from("Client"),
     ));
@@ -111,26 +111,26 @@ mod game {
     /// This is only for the HostServer mode (for the dedicated server mode, the clients are already connected to the server
     /// to join the lobby list)
     pub(crate) fn handle_connections(
-        trigger: Trigger<OnAdd, (Connected, HostClient)>,
+        trigger: On<Add, (Connected, HostClient)>,
         query: Query<&RemoteId, With<ClientOf>>,
         mut commands: Commands,
     ) {
-        let Ok(remote_id) = query.get(trigger.target()) else {
+        let Ok(remote_id) = query.get(trigger.entity) else {
             return;
         };
         let client_id = remote_id.0;
         info!("HostServer spawn player for client {client_id:?}");
-        spawn_player_entity(&mut commands, trigger.target(), client_id, false);
+        spawn_player_entity(&mut commands, trigger.entity, client_id, false);
     }
 
     /// Delete the player's entity when the client disconnects
     pub(crate) fn handle_disconnections(
-        trigger: Trigger<OnAdd, Disconnected>,
+        trigger: On<Add, Disconnected>,
         query: Query<&RemoteId, With<ClientOf>>,
         mut lobbies: Single<&mut Lobbies>,
         mut commands: Commands,
     ) {
-        if let Ok(remote_id) = query.get(trigger.target()) {
+        if let Ok(remote_id) = query.get(trigger.entity) {
             info!("Client {remote_id:?} disconnected, removing from lobby");
             // NOTE: games hosted by players will disappear from the lobby list since the host
             //  is not connected anymore

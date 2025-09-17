@@ -4,7 +4,7 @@ use bevy_ecs::{
     observer::Trigger,
     query::With,
     system::{Commands, Query},
-    world::OnAdd,
+    world::Add,
 };
 use lightyear_link::Linked;
 use lightyear_link::prelude::LinkOf;
@@ -31,12 +31,12 @@ impl ServerPlugin {
     ///
     /// The entity mapping is done on the client.
     pub(crate) fn handle_pre_predicted_server(
-        trigger: Trigger<OnAdd, PrePredicted>,
+        trigger: On<Add, PrePredicted>,
         mut commands: Commands,
         mut link: Query<&mut MessageManager, (With<ReplicationSender>, With<LinkOf>, With<Linked>)>,
         q: Query<(Entity, &PrePredicted, &Replicated)>,
     ) {
-        if let Ok((local_entity, pre_predicted, replicated)) = q.get(trigger.target()) {
+        if let Ok((local_entity, pre_predicted, replicated)) = q.get(trigger.entity) {
             let sending_client = replicated.from;
             // if the client who created the PrePredicted entity is the local client, no need to do anything!
             // (the client Observer already adds Predicted on the entity)

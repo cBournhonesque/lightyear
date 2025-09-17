@@ -92,24 +92,24 @@ pub struct UdpPlugin;
 
 impl UdpPlugin {
     fn link(
-        trigger: Trigger<LinkStart>,
+        trigger: On<LinkStart>,
         mut query: Query<(&mut UdpIo, Option<&LocalAddr>), (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
         trace!("In LinkStart::UDP trigger");
-        if let Ok((mut udp_io, local_addr)) = query.get_mut(trigger.target()) {
+        if let Ok((mut udp_io, local_addr)) = query.get_mut(trigger.entity) {
             let local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?.0;
             let socket = UdpSocket::bind(local_addr)?;
             info!("UDP socket bound to {}", local_addr);
             socket.set_nonblocking(true)?;
             udp_io.socket = Some(socket);
-            commands.entity(trigger.target()).insert(Linked);
+            commands.entity(trigger.entity).insert(Linked);
         }
         Ok(())
     }
 
-    fn unlink(trigger: Trigger<Unlink>, mut query: Query<&mut UdpIo, Without<Unlinked>>) {
-        if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
+    fn unlink(trigger: On<Unlink>, mut query: Query<&mut UdpIo, Without<Unlinked>>) {
+        if let Ok(mut udp_io) = query.get_mut(trigger.entity) {
             info!("UDP socket closed");
             udp_io.socket = None;
         }

@@ -71,16 +71,16 @@ impl Plugin for ExampleRendererPlugin {
 fn add_visual_interpolation_components(
     // We use Position because it's added by avian later, and when it's added
     // we know that Predicted is already present on the entity
-    trigger: Trigger<OnAdd, Position>,
+    trigger: On<Add, Position>,
     q: Query<Entity, (Without<Wall>, With<Predicted>)>,
     mut commands: Commands,
 ) {
-    if !q.contains(trigger.target()) {
+    if !q.contains(trigger.entity) {
         return;
     }
-    debug!("Adding visual interp component to {:?}", trigger.target());
+    debug!("Adding visual interp component to {:?}", trigger.entity);
     commands
-        .entity(trigger.target())
+        .entity(trigger.entity)
         .insert(FrameInterpolate::<Transform> {
             // We must trigger change detection on visual interpolation
             // to make sure that child entities (sprites, meshes, text)
@@ -104,12 +104,12 @@ fn init_camera(mut commands: Commands) {
 }
 
 fn add_player_label(
-    trigger: Trigger<OnAdd, Player>,
+    trigger: On<Add, Player>,
     mut commands: Commands,
     // add the label on both client and server
     q: Query<(Entity, &Player, &Score), Or<(With<Predicted>, With<Replicating>)>>,
 ) {
-    if let Ok((e, player, score)) = q.get(trigger.target()) {
+    if let Ok((e, player, score)) = q.get(trigger.entity) {
         info!("Adding visual bits to {e:?}");
         commands.entity(e).insert((
             Visibility::default(),

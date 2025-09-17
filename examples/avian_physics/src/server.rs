@@ -23,9 +23,9 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands
-        .entity(trigger.target())
+        .entity(trigger.entity)
         .insert(ReplicationSender::new(
             SEND_INTERVAL,
             SendUpdatesMode::SinceLastAck,
@@ -100,15 +100,15 @@ pub(crate) fn movement(
 // Replicate the client-replicated entities back to clients
 // This system is triggered when the server receives an entity from a client (ClientOf component is added)
 pub(crate) fn replicate_players(
-    trigger: Trigger<OnAdd, Connected>,
+    trigger: On<Add, Connected>,
     mut commands: Commands,
     client_query: Query<&RemoteId, With<ClientOf>>,
 ) {
-    let Ok(client_id) = client_query.get(trigger.target()) else {
+    let Ok(client_id) = client_query.get(trigger.entity) else {
         return;
     };
     let client_id = client_id.0;
-    let entity = trigger.target();
+    let entity = trigger.entity;
 
     let color = color_from_id(client_id);
     let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;

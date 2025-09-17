@@ -196,25 +196,25 @@ impl NetcodeClientPlugin {
     }
 
     fn connect(
-        trigger: Trigger<Connect>,
+        trigger: On<Connect>,
         mut commands: Commands,
         mut query: Query<&mut NetcodeClient, Without<Connected>>,
     ) {
-        if let Ok(mut client) = query.get_mut(trigger.target()) {
+        if let Ok(mut client) = query.get_mut(trigger.entity) {
             debug!("Starting netcode connection process");
             client.inner.connect();
-            commands.entity(trigger.target()).insert(Connecting);
+            commands.entity(trigger.entity).insert(Connecting);
         }
     }
 
     fn disconnect(
-        trigger: Trigger<Disconnect>,
+        trigger: On<Disconnect>,
         mut commands: Commands,
         mut query: Query<&mut NetcodeClient, Without<Disconnected>>,
     ) -> Result {
-        if let Ok(mut client) = query.get_mut(trigger.target()) {
+        if let Ok(mut client) = query.get_mut(trigger.entity) {
             client.inner.disconnect()?;
-            commands.entity(trigger.target()).insert(Disconnected {
+            commands.entity(trigger.entity).insert(Disconnected {
                 reason: Some("Client trigger".to_string()),
             });
         }

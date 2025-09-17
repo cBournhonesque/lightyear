@@ -38,14 +38,14 @@ pub struct WebTransportClientIo {
 
 impl WebTransportClientPlugin {
     fn link(
-        trigger: Trigger<LinkStart>,
+        trigger: On<LinkStart>,
         query: Query<
             (Entity, &WebTransportClientIo, Option<&PeerAddr>),
             (Without<Linking>, Without<Linked>),
         >,
         mut commands: Commands,
     ) -> Result {
-        if let Ok((entity, client, peer_addr)) = query.get(trigger.target()) {
+        if let Ok((entity, client, peer_addr)) = query.get(trigger.entity) {
             let server_addr = peer_addr.ok_or(WebTransportError::PeerAddrMissing)?.0;
             let digest = client.certificate_digest.clone();
             commands.queue(move |world: &mut World| -> Result {

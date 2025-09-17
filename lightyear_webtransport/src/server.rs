@@ -9,7 +9,7 @@ use bevy_app::{App, Plugin};
 use bevy_ecs::{
     error::Result,
     prelude::{
-        ChildOf, Commands, Component, Entity, EntityCommand, Name, OnAdd, Query, Trigger, With,
+        ChildOf, Commands, Component, Entity, EntityCommand, Name, Add, Query, Trigger, With,
         Without, World,
     },
 };
@@ -59,14 +59,14 @@ pub struct WebTransportServerIo {
 
 impl WebTransportServerPlugin {
     fn link(
-        trigger: Trigger<LinkStart>,
+        trigger: On<LinkStart>,
         query: Query<
             (Entity, &WebTransportServerIo, Option<&LocalAddr>),
             (Without<Linking>, Without<Linked>),
         >,
         mut commands: Commands,
     ) -> Result {
-        if let Ok((entity, io, local_addr)) = query.get(trigger.target()) {
+        if let Ok((entity, io, local_addr)) = query.get(trigger.entity) {
             let server_addr = local_addr.ok_or(WebTransportError::LocalAddrMissing)?.0;
             let certificate = io.certificate.clone_identity();
             commands.queue(move |world: &mut World| {
@@ -85,19 +85,19 @@ impl WebTransportServerPlugin {
         Ok(())
     }
 
-    fn on_session_request(mut request: Trigger<SessionRequest>) {
+    fn on_session_request(mut request: On<SessionRequest>) {
         request.respond(SessionResponse::Accepted);
     }
 
     // TODO: should also add on_connecting? Or maybe it's handled automatically
     //  because the connecting entity adds SessionEndpoint? (and lightyear_aeronet handles that)
     fn on_connection(
-        trigger: Trigger<OnAdd, Session>,
+        trigger: On<Add, Session>,
         query: Query<&AeronetLinkOf>,
         child_query: Query<(&ChildOf, &PeerAddr), With<WebTransportServerClient>>,
         mut commands: Commands,
     ) {
-        if let Ok((child_of, peer_addr)) = child_query.get(trigger.target())
+        if let Ok((child_of, peer_addr)) = child_query.get(trigger.entity)
             && let Ok(server_link) = query.get(child_of.parent())
         {
             let link_entity = commands
@@ -109,7 +109,7 @@ impl WebTransportServerPlugin {
                     PeerAddr(peer_addr.0),
                 ))
                 .id();
-            commands.entity(trigger.target()).insert((
+            commands.entity(trigger.entity).insert((
                 AeronetLinkOf(link_entity),
                 Name::from("WebTransportClientOf"),
             ));

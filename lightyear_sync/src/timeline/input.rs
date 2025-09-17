@@ -66,11 +66,11 @@ impl Input {
     /// Update the input delay based on the current RTT and tick duration
     /// when there is a SyncEvent
     pub(crate) fn recompute_input_delay(
-        trigger: Trigger<SyncEvent<InputTimeline>>,
+        trigger: On<SyncEvent<InputTimeline>>,
         tick_duration: Res<TickDuration>,
         mut query: Query<(&Link, &mut InputTimeline)>,
     ) {
-        if let Ok((link, mut timeline)) = query.get_mut(trigger.target()) {
+        if let Ok((link, mut timeline)) = query.get_mut(trigger.entity) {
             timeline.input_delay_ticks = timeline.input_delay_config.input_delay_ticks(
                 link.stats,
                 &timeline.config,

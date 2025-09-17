@@ -117,8 +117,8 @@ You can add a trigger to listen to this event and add the extra components to cu
 # use bevy_ecs::prelude::*;
 # use lightyear::prelude::*;
 # use core::time::Duration;
-fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.target()).insert((
+fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+    commands.entity(trigger.entity).insert((
         ReplicationSender::new(Duration::from_millis(100), SendUpdatesMode::SinceLastAck, false),
         Name::from("Client"),
     ));

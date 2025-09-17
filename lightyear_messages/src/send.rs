@@ -7,12 +7,13 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use bevy_ecs::{
     change_detection::MutUntyped,
-    component::{Component, HookContext},
+    component::{Component},
     entity::Entity,
     query::{With, Without},
     system::{ParallelCommands, Query, Res},
     world::{DeferredWorld, FilteredEntityMut, World},
 };
+use bevy_ecs::lifecycle::HookContext;
 use bevy_reflect::Reflect;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;

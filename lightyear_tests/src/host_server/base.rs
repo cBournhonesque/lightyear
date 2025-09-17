@@ -7,7 +7,7 @@ use lightyear_connection::server::Started;
 use lightyear_core::id::{LocalId, RemoteId};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_messages::MessageManager;
-use lightyear_messages::prelude::{MessageReceiver, MessageSender, TriggerSender};
+use lightyear_messages::prelude::{MessageReceiver, MessageSender, EventSender};
 use lightyear_replication::message::SenderMetadata;
 use lightyear_replication::prelude::{ReplicationReceiver, ReplicationSender};
 use lightyear_sync::prelude::client::RemoteTimeline;
@@ -51,7 +51,7 @@ fn test_setup_host_server() {
     assert!(
         stepper
             .host_client()
-            .contains::<TriggerSender<SenderMetadata>>()
+            .contains::<EventSender<SenderMetadata>>()
     );
     // no need to replicate between the host-client and the server
     assert!(!stepper.host_client().contains::<ReplicationSender>());

@@ -72,26 +72,26 @@ pub struct ServerUdpPlugin;
 impl ServerUdpPlugin {
     // TODO: we don't want this system to panic on error
     fn link(
-        trigger: Trigger<LinkStart>,
+        trigger: On<LinkStart>,
         mut query: Query<
             (&mut ServerUdpIo, Option<&LocalAddr>),
             (Without<Linking>, Without<Linked>),
         >,
         mut commands: Commands,
     ) -> Result {
-        if let Ok((mut udp_io, local_addr)) = query.get_mut(trigger.target()) {
+        if let Ok((mut udp_io, local_addr)) = query.get_mut(trigger.entity) {
             let local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?.0;
             info!("Server UDP socket bound to {}", local_addr);
             let socket = std::net::UdpSocket::bind(local_addr)?;
             socket.set_nonblocking(true)?;
             udp_io.socket = Some(socket);
-            commands.entity(trigger.target()).insert(Linked);
+            commands.entity(trigger.entity).insert(Linked);
         }
         Ok(())
     }
 
-    fn unlink(trigger: Trigger<Unlink>, mut query: Query<&mut ServerUdpIo, Without<Unlinked>>) {
-        if let Ok(mut udp_io) = query.get_mut(trigger.target()) {
+    fn unlink(trigger: On<Unlink>, mut query: Query<&mut ServerUdpIo, Without<Unlinked>>) {
+        if let Ok(mut udp_io) = query.get_mut(trigger.entity) {
             info!("Server UDP socket closed");
             udp_io.socket = None;
         }

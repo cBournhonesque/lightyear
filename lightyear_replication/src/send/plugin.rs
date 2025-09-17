@@ -19,7 +19,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
     system::{ParamBuilder, Query, QueryParamBuilder, Res, SystemChangeTick, SystemParamBuilder},
-    world::OnAdd,
+    world::Add,
 };
 use bevy_time::{Real, Time};
 use lightyear_connection::client::{Connected, Disconnected};
@@ -29,7 +29,7 @@ use lightyear_core::time::TickDelta;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSet;
-use lightyear_messages::prelude::TriggerSender;
+use lightyear_messages::prelude::EventSender;
 use lightyear_messages::registry::{MessageKind, MessageRegistry};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::plugin::TransportSet;
@@ -150,20 +150,20 @@ impl ReplicationSendPlugin {
 
     /// Send a message containing metadata about the sender
     fn send_sender_metadata(
-        // NOTE: it's important to trigger on both OnAdd<Connected> and OnAdd<ReplicationSender> because the ClientOf could be
+        // NOTE: it's important to trigger on both Add<Connected> and Add<ReplicationSender> because the ClientOf could be
         //  added BEFORE the ReplicationSender is added. (ClientOf is spawned by netcode, ReplicationSender is added by the user)
-        trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
+        trigger: On<Add, (Connected, ReplicationSender)>,
         tick_duration: Res<TickDuration>,
         mut query: Query<
             (
                 Entity,
                 &ReplicationSender,
-                &mut TriggerSender<SenderMetadata>,
+                &mut EventSender<SenderMetadata>,
             ),
             With<Connected>,
         >,
     ) {
-        if let Ok((sender_entity, sender, mut trigger_sender)) = query.get_mut(trigger.target()) {
+        if let Ok((sender_entity, sender, mut trigger_sender)) = query.get_mut(trigger.entity) {
             let send_interval = sender.send_interval();
             let send_interval_delta = TickDelta::from_duration(send_interval, tick_duration.0);
             let metadata = SenderMetadata {
@@ -176,10 +176,10 @@ impl ReplicationSendPlugin {
 
     /// On disconnect, reset the replication sender to its original state
     fn handle_disconnection(
-        trigger: Trigger<OnAdd, Disconnected>,
+        trigger: On<Add, Disconnected>,
         mut query: Query<&mut ReplicationSender>,
     ) {
-        if let Ok(mut sender) = query.get_mut(trigger.target()) {
+        if let Ok(mut sender) = query.get_mut(trigger.entity) {
             *sender = ReplicationSender::new(
                 sender.send_interval(),
                 sender.send_updates_mode,

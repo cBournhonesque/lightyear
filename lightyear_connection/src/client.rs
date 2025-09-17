@@ -1,16 +1,11 @@
 use alloc::{format, string::String};
 use bevy_app::{App, Plugin};
 use bevy_ecs::{
-    component::{Component, HookContext},
-    entity::Entity,
-    event::Event,
-    observer::Trigger,
-    query::Without,
     reflect::ReflectResource,
-    resource::Resource,
-    system::{Commands, Query},
-    world::{DeferredWorld, OnAdd},
+    world::{DeferredWorld},
 };
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::prelude::*;
 use bevy_platform::collections::HashMap;
 use bevy_reflect::Reflect;
 use lightyear_core::id::{PeerId, RemoteId};
@@ -48,12 +43,16 @@ pub struct Client {
 }
 
 /// Trigger to connect the client
-#[derive(Event)]
-pub struct Connect;
+#[derive(EntityEvent)]
+pub struct Connect {
+    pub entity: Entity
+}
 
 /// Trigger to disconnect the client
-#[derive(Event)]
-pub struct Disconnect;
+#[derive(EntityEvent)]
+pub struct Disconnect {
+    pub entity: Entity
+}
 
 // TODO: it looks like in some cases, we want Connected.peer_id to return the local peer_id (when client connects to server)
 //  and in some cases we want it to return the remote peer_id (when server's ClientOf gets connected)
@@ -156,23 +155,23 @@ pub struct ConnectionPlugin;
 
 impl ConnectionPlugin {
     /// When the client request to connect, we also try to establish the link
-    fn connect(trigger: Trigger<Connect>, mut commands: Commands) {
+    fn connect(connect: On<Connect>, mut commands: Commands) {
         trace!("Triggering LinkStart because Connect was triggered");
-        commands.trigger_targets(LinkStart, trigger.target());
+        commands.trigger(LinkStart { entity: connect.entity});
     }
 
     /// If the underlying link fails, we also disconnect the client
     fn disconnect_if_link_fails(
-        trigger: Trigger<OnAdd, Unlinked>,
+        trigger: On<Add, Unlinked>,
         query: Query<&Unlinked, (Without<Disconnected>, Without<Server>)>,
         mut commands: Commands,
     ) {
-        if let Ok(unlinked) = query.get(trigger.target()) {
+        if let Ok(unlinked) = query.get(trigger.entity) {
             trace!(
                 "Adding Disconnected because the link got Unlinked (reason: {:?})",
                 unlinked.reason
             );
-            commands.entity(trigger.target()).insert(Disconnected {
+            commands.entity(trigger.entity).insert(Disconnected {
                 reason: Some(format!("Link failed: {:?}", unlinked.reason)),
             });
         }

@@ -7,7 +7,7 @@ use bevy_ecs::observer::Trigger;
 use bevy_ecs::query::{Has, With, Without};
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::system::{Commands, Query, Res, ResMut};
-use bevy_ecs::world::OnAdd;
+use bevy_ecs::world::Add;
 use bevy_reflect::Reflect;
 use bevy_time::{Time, Virtual};
 use core::time::Duration;
@@ -193,10 +193,10 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
 {
     /// On connection, reset the Synced timeline.
     pub(crate) fn handle_connect(
-        trigger: Trigger<OnAdd, Connected>,
+        trigger: On<Add, Connected>,
         mut query: Query<(&mut Synced, &LocalTimeline)>,
     ) {
-        if let Ok((mut timeline, local_timeline)) = query.get_mut(trigger.target()) {
+        if let Ok((mut timeline, local_timeline)) = query.get_mut(trigger.entity) {
             timeline.reset();
             if DRIVING {
                 trace!("Set Driving timeline tick to LocalTimeline");
@@ -207,9 +207,9 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
     }
 
     /// On disconnection, remove IsSynced.
-    pub(crate) fn handle_disconnect(trigger: Trigger<OnAdd, Disconnected>, mut commands: Commands) {
+    pub(crate) fn handle_disconnect(trigger: On<Add, Disconnected>, mut commands: Commands) {
         commands
-            .entity(trigger.target())
+            .entity(trigger.entity)
             .remove::<IsSynced<Synced>>();
     }
 

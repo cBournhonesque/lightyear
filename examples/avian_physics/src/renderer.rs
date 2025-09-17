@@ -45,14 +45,14 @@ impl Plugin for ExampleRendererPlugin {
 fn add_visual_interpolation_components(
     // We use Position because it's added by avian later, and when it's added
     // we know that Predicted is already present on the entity
-    trigger: Trigger<OnAdd, Position>,
+    trigger: On<Add, Position>,
     query: Query<Entity, With<Predicted>>,
     mut commands: Commands,
 ) {
-    if !query.contains(trigger.target()) {
+    if !query.contains(trigger.entity) {
         return;
     }
-    commands.entity(trigger.target()).insert((
+    commands.entity(trigger.entity).insert((
         FrameInterpolate::<Position>::default(),
         FrameInterpolate::<Rotation>::default(),
     ));

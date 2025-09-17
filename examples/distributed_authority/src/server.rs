@@ -45,8 +45,8 @@ fn setup(mut commands: Commands) {
     ));
 }
 
-pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.target()).insert((
+pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+    commands.entity(trigger.entity).insert((
         ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
         Name::from("Client"),
     ));
@@ -54,11 +54,11 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 
 /// Spawn player entity when a client connects
 pub(crate) fn handle_connected(
-    trigger: Trigger<OnAdd, Connected>,
+    trigger: On<Add, Connected>,
     mut commands: Commands,
     query: Query<&RemoteId, With<ClientOf>>,
 ) {
-    let Ok(client_id) = query.get(trigger.target()) else {
+    let Ok(client_id) = query.get(trigger.entity) else {
         return;
     };
     let client_id = client_id.0;
@@ -71,7 +71,7 @@ pub(crate) fn handle_connected(
         PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
         ControlledBy {
-            owner: trigger.target(),
+            owner: trigger.entity,
             lifetime: Lifetime::default(),
         },
     ));

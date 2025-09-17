@@ -89,11 +89,11 @@ impl Plugin for SharedPlugin {
             priority: 10.0,
         })
         .add_direction(NetworkDirection::Bidirectional);
-        app.add_message_to_bytes::<ActionsMessage>()
+        app.register_message_to_bytes::<ActionsMessage>()
             .add_direction(NetworkDirection::Bidirectional);
-        app.add_message_to_bytes::<UpdatesMessage>()
+        app.register_message_to_bytes::<UpdatesMessage>()
             .add_direction(NetworkDirection::Bidirectional);
-        app.add_trigger_to_bytes::<SenderMetadata>()
+        app.register_event_to_bytes::<SenderMetadata>()
             .add_direction(NetworkDirection::Bidirectional);
     }
 }

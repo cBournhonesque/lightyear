@@ -13,7 +13,7 @@ use bevy_ecs::{
     reflect::ReflectComponent,
     schedule::{IntoScheduleConfigs, SystemSet},
     system::{Commands, Query, Single},
-    world::{DeferredWorld, OnAdd, World},
+    world::{DeferredWorld, Add, World},
 };
 use bevy_reflect::Reflect;
 use core::any::TypeId;
@@ -59,7 +59,7 @@ impl Plugin for PreSpawnedPlugin {
 impl PreSpawnedPlugin {
     /// For all newly added prespawn hashes, register them in the prediction manager
     pub(crate) fn register_prespawn_hashes(
-        trigger: Trigger<OnAdd, PreSpawned>,
+        trigger: On<Add, PreSpawned>,
         query: Query<
             &PreSpawned,
             // run this only when the component was added on a client-spawned entity (not server-replicated)
@@ -67,7 +67,7 @@ impl PreSpawnedPlugin {
         >,
         manager_query: Single<(&LocalTimeline, &mut PredictionManager), PredictionFilter>,
     ) {
-        let entity = trigger.target();
+        let entity = trigger.entity;
         if let Ok(prespawn) = query.get(entity) {
             let (timeline, mut prediction_manager) = manager_query.into_inner();
             let tick = timeline.tick();
@@ -114,7 +114,7 @@ impl PreSpawnedPlugin {
     /// that means that we already spawned it on the client.
     /// Try to match which client entity it is and take authority over it.
     pub(crate) fn match_with_received_server_entity(
-        trigger: Trigger<OnAdd, PreSpawned>,
+        trigger: On<Add, PreSpawned>,
         mut commands: Commands,
         query: Query<
             &PreSpawned,
@@ -135,7 +135,7 @@ impl PreSpawnedPlugin {
         >,
         manager_query: Single<(&ReplicationReceiver, &mut PredictionManager), PredictionFilter>,
     ) {
-        let confirmed_entity = trigger.target();
+        let confirmed_entity = trigger.entity;
         let (receiver, mut manager) = manager_query.into_inner();
         if let Ok(server_prespawn) = query.get(confirmed_entity) {
             // we handle the PreSpawned hash in this system and don't need it afterwards

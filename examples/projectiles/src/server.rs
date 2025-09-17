@@ -57,12 +57,12 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
     commands.trigger(SpawnBot);
 }
 
-pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     info!(
         "Adding ReplicationSender to new ClientOf entity: {:?}",
-        trigger.target()
+        trigger.entity
     );
-    commands.entity(trigger.target()).insert((
+    commands.entity(trigger.entity).insert((
         ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
         // We need a ReplicationReceiver on the server side because the Action entities are spawned
         // on the client and replicated to the server.
@@ -86,7 +86,7 @@ pub(crate) fn spawn_global_control(mut commands: Commands) {
 // the server has already assumed authority over the entity so the `Replicated` component
 // has been removed
 pub(crate) fn spawn_player(
-    trigger: Trigger<OnAdd, Connected>,
+    trigger: On<Add, Connected>,
     query: Query<(&RemoteId, Has<BotClient>), With<ClientOf>>,
     mut commands: Commands,
     mut rooms: ResMut<Rooms>,
@@ -95,7 +95,7 @@ pub(crate) fn spawn_player(
         (Added<InitialReplicated>, With<PlayerId>),
     >,
 ) {
-    let sender = trigger.target();
+    let sender = trigger.entity;
     let Ok((client_id, is_bot)) = query.get(sender) else {
         return;
     };
@@ -117,7 +117,7 @@ pub(crate) fn spawn_player(
         if i == 0 {
             commands
                 .entity(room)
-                .trigger(RoomEvent::AddSender(trigger.target()));
+                .trigger(RoomEvent::AddSender(trigger.entity));
         }
         let player = server_player_bundle(room, client_id, sender, replication_mode);
         let player_entity = match replication_mode {
@@ -192,7 +192,7 @@ fn server_player_bundle(
 }
 
 /// Increment the score if the client told us about a detected hit.
-fn handle_hits(trigger: Trigger<RemoteTrigger<HitDetected>>, mut scores: Query<&mut Score>) {
+fn handle_hits(trigger: On<RemoteEvent<HitDetected>>, mut scores: Query<&mut Score>) {
     if let Ok(mut score) = scores.get_mut(trigger.trigger.shooter) {
         info!(
             ?trigger,
@@ -236,7 +236,7 @@ impl BotApp {
 /// On the server, we will create a second app to host a bot that is similar to a real client,
 /// but their inputs are mocked
 fn spawn_bot_app(
-    trigger: Trigger<SpawnBot>,
+    trigger: On<SpawnBot>,
     tick_duration: Res<TickDuration>,
     server: Single<Entity, With<Server>>,
     mut commands: Commands,
@@ -418,7 +418,7 @@ fn bot_wait(timeline: Single<&LocalTimeline>) {
 
 /// Handle room switching when replication mode changes
 pub fn cycle_replication_mode(
-    trigger: Trigger<Completed<CycleReplicationMode>>,
+    trigger: On<Completed<CycleReplicationMode>>,
     global: Single<&mut GameReplicationMode, With<ClientContext>>,
     rooms: Res<Rooms>,
     mut input_config: ResMut<ServerInputConfig<PlayerContext>>,
@@ -471,7 +471,7 @@ pub fn cycle_replication_mode(
 
 /// Handle cycling through projectile replication modes
 pub fn cycle_projectile_mode(
-    trigger: Trigger<Completed<CycleProjectileMode>>,
+    trigger: On<Completed<CycleProjectileMode>>,
     global: Single<&mut ProjectileReplicationMode, With<ClientContext>>,
 ) {
     let mut projectile_mode = global.into_inner();

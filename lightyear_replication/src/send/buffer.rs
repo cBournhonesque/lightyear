@@ -22,7 +22,7 @@ use bevy_ecs::{
     component::ComponentTicks,
     relationship::RelationshipTarget,
     system::SystemChangeTick,
-    world::{FilteredEntityMut, FilteredEntityRef, OnRemove, Ref},
+    world::{FilteredEntityMut, FilteredEntityRef, Remove, Ref},
 };
 use bevy_ptr::Ptr;
 use lightyear_connection::client::Connected;
@@ -540,7 +540,7 @@ pub(crate) fn replicate_entity_spawn(
 /// Note that if the entity does not [`Replicating`], we do not replicate the despawn
 pub(crate) fn buffer_entity_despawn_replicate_remove(
     // this covers both cases
-    trigger: Trigger<OnRemove, (Replicate, ReplicateLike)>,
+    trigger: On<Remove, (Replicate, ReplicateLike)>,
     root_query: Query<&ReplicateLike>,
     // only replicate the despawn event if the entity still has Replicating at the time of despawn
     // TODO: but how do we detect if both Replicating AND ReplicateToServer are removed at the same time?
@@ -557,7 +557,7 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
     >,
     mut query: Query<(Entity, &mut ReplicationSender, &mut MessageManager)>,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.entity;
     let root = root_query.get(entity).map_or(entity, |r| r.root);
     // TODO: use the child's ReplicationGroup if there is one that overrides the root's
     let Ok((group, cached_replicate, network_visibility)) = entity_query.get(root) else {
@@ -731,14 +731,14 @@ fn replicate_component_update(
 //   modify the replication target, but we still send messages to the old components.
 //   Maybe we should just add the components to a buffer?
 pub(crate) fn buffer_component_removed(
-    trigger: Trigger<OnRemove>,
+    trigger: On<Remove>,
     // Query<&C, Or<With<ReplicateLike>, (With<Replicate>, With<ReplicationGroup>)>>
     query: Query<FilteredEntityRef>,
     registry: Res<ComponentRegistry>,
     root_query: Query<&ReplicateLike>,
     mut manager_query: Query<(Entity, &mut ReplicationSender, &mut MessageManager)>,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.entity;
     let root = root_query.get(entity).map_or(entity, |r| r.root);
     let Ok(entity_ref) = query.get(root) else {
         return;
@@ -757,7 +757,7 @@ pub(crate) fn buffer_component_removed(
             let entity = manager.entity_mapper.to_remote(entity);
             for component_id in trigger.components() {
                 // TODO: there is a bug in bevy where trigger.components() returns all the componnets that triggered
-                //  OnRemove, not only the components that the observer is watching. This means that this could contain
+                //  Remove, not only the components that the observer is watching. This means that this could contain
                 //  non replicated components, that we need to filter out
                 // check if the component is disabled
                 let Some(kind) = registry.component_id_to_kind.get(component_id) else {

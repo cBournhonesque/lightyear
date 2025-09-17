@@ -90,9 +90,9 @@ fn init(mut commands: Commands) {
 }
 
 /// Add the ReplicationSender component to new clients
-pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands
-        .entity(trigger.target())
+        .entity(trigger.entity)
         .insert(ReplicationSender::new(
             SEND_INTERVAL,
             SendUpdatesMode::SinceLastAck,
@@ -102,14 +102,14 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 
 /// Whenever a new client connects, spawn their spaceship
 pub(crate) fn handle_connections(
-    trigger: Trigger<OnAdd, Connected>,
+    trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
     all_players: Query<Entity, With<Player>>,
 ) {
     // track the number of connected players in order to pick colors and starting positions
     let player_n = all_players.iter().count();
-    if let Ok(remote_id) = query.get(trigger.target()) {
+    if let Ok(remote_id) = query.get(trigger.entity) {
         let client_id = remote_id.0;
         info!("New connected client, client_id: {client_id:?}. Spawning player entity..");
         // pick color and x,y pos for player
@@ -143,7 +143,7 @@ pub(crate) fn handle_connections(
                 Replicate::to_clients(NetworkTarget::All),
                 PredictionTarget::to_clients(NetworkTarget::All),
                 ControlledBy {
-                    owner: trigger.target(),
+                    owner: trigger.entity,
                     lifetime: Default::default(),
                 },
                 // prevent rendering children to be replicated

@@ -5,7 +5,7 @@ use bevy_ecs::component::Component;
 use bevy_ecs::observer::Trigger;
 use bevy_ecs::query::{With, Without};
 use bevy_ecs::system::{Query, Res};
-use bevy_ecs::world::OnAdd;
+use bevy_ecs::world::Add;
 use bevy_reflect::Reflect;
 use bevy_time::{Real, Time};
 use core::time::Duration;
@@ -145,10 +145,10 @@ impl RemoteTimeline {
 
     /// On connection, reset the Remote timeline.
     pub(crate) fn handle_connect(
-        trigger: Trigger<OnAdd, Connected>,
+        trigger: On<Add, Connected>,
         mut query: Query<&mut RemoteTimeline>,
     ) {
-        if let Ok(mut timeline) = query.get_mut(trigger.target()) {
+        if let Ok(mut timeline) = query.get_mut(trigger.entity) {
             timeline.received_packet = false;
             timeline.offset = TickDelta::from(0);
             timeline.first_estimate = true;
@@ -194,11 +194,11 @@ impl RemoteTimeline {
 /// Update the timeline in FixedUpdate based on the Pings received
 /// Should we use this only in FixedUpdate::First? because we need the tick in FixedUpdate to be correct for the timeline
 pub(crate) fn update_remote_timeline(
-    trigger: Trigger<PacketReceived>,
+    trigger: On<PacketReceived>,
     tick_duration: Res<TickDuration>,
     mut query: Query<(&mut RemoteTimeline, &PingManager)>,
 ) {
-    if let Ok((mut t, ping_manager)) = query.get_mut(trigger.target()) {
+    if let Ok((mut t, ping_manager)) = query.get_mut(trigger.entity) {
         trace!(
             "Received packet received with remote tick {:?}",
             trigger.remote_tick

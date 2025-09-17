@@ -391,7 +391,7 @@ impl Plugin for ProtocolPlugin {
         .add_direction(NetworkDirection::Bidirectional);
 
         // messages
-        app.add_trigger::<HitDetected>()
+        app.register_event::<HitDetected>()
             .add_map_entities()
             .add_direction(NetworkDirection::ClientToServer);
 

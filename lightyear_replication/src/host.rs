@@ -27,13 +27,13 @@ use tracing::info;
 //     /// should also have Controlled assigned to them
 //     /// (because most client queries have Controlled as filter)
 //     pub(crate) fn on_add_host_server(
-//         trigger: Trigger<OnAdd, ControlledBy>,
+//         trigger: On<Add, ControlledBy>,
 //         query: Query<&ControlledBy>,
 //         owner: Query<(), With<HostClient>>,
 //         mut commands: Commands,
 //     ) {
-//         if owner.get(query.get(trigger.target()).unwrap().owner).is_ok() {
-//             commands.entity(trigger.target()).insert(Controlled);
+//         if owner.get(query.get(trigger.entity).unwrap().owner).is_ok() {
+//             commands.entity(trigger.entity).insert(Controlled);
 //         }
 //     }
 // }

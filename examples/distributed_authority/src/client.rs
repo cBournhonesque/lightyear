@@ -37,13 +37,13 @@ impl Plugin for ExampleClientPlugin {
 /// When a Ball entity gets replicated to use from the server, add the Replicate component
 /// on the client so that we can replicate updates to the server if we get authority
 /// over the ball
-pub(crate) fn handle_ball(trigger: Trigger<OnAdd, BallMarker>, mut commands: Commands) {
+pub(crate) fn handle_ball(trigger: On<Add, BallMarker>, mut commands: Commands) {
     let mut color_override = ComponentReplicationOverrides::<PlayerColor>::default();
     color_override.global_override(ComponentReplicationOverride {
         disable: true,
         ..default()
     });
-    commands.entity(trigger.target()).insert((
+    commands.entity(trigger.entity).insert((
         Replicate::to_server(),
         Name::new("Ball"),
         // Disable PlayerColor replication from client to server
@@ -151,11 +151,11 @@ pub(crate) fn change_ball_color_on_authority(
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 pub(crate) fn handle_predicted_spawn(
-    trigger: Trigger<OnAdd, PlayerId>,
+    trigger: On<Add, PlayerId>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
     mut commands: Commands,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.entity;
     if let Ok(mut color) = predicted.get_mut(entity) {
         let hsva = Hsva {
             saturation: 0.4,

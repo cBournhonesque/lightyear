@@ -67,7 +67,7 @@ impl InputRegistryPlugin {
     /// we add Replicate to it so that the action entity is also created on the server.
     #[cfg(feature = "client")]
     pub(crate) fn add_action_of_replicate<C: Component>(
-        trigger: Trigger<OnAdd, ActionOf<C>>,
+        trigger: On<Add, ActionOf<C>>,
         server: Query<(), With<Server>>,
         // we don't want to add Replicate on action entities that were already replicated
         action: Query<&ActionOf<C>, Without<Replicated>>,
@@ -78,7 +78,7 @@ impl InputRegistryPlugin {
             // we're on the server, don't do anything
             return;
         }
-        let entity = trigger.target();
+        let entity = trigger.entity;
         if let Ok(action_of) = action.get(entity)
             && let Ok(predicted) = query.get(action_of.get())
         {
@@ -100,13 +100,13 @@ impl InputRegistryPlugin {
     /// and optionally rebroadcast to other clients if rebroadcast_inputs is enabled
     #[cfg(feature = "server")]
     pub(crate) fn on_action_of_replicated<C: Component>(
-        trigger: Trigger<OnAdd, ActionOfWrapper<C>>,
+        trigger: On<Add, ActionOfWrapper<C>>,
         query: Query<&ActionOfWrapper<C>, With<Replicated>>,
         is_server: Single<(), With<Server>>,
         config: Res<InputConfig<C>>,
         mut commands: Commands,
     ) {
-        let entity = trigger.target();
+        let entity = trigger.entity;
         if let Ok(wrapper) = query.get(entity) {
             commands
                 .entity(entity)

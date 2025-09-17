@@ -29,7 +29,7 @@ use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
-use lightyear_messages::prelude::{MessageReceiver, RemoteTrigger};
+use lightyear_messages::prelude::{MessageReceiver, RemoteEvent};
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
@@ -43,7 +43,7 @@ impl ReplicationReceivePlugin {
     /// - Despawn any entities that were spawned from replication when the client despawns.
     /// - Reset the ReplicationReceiver to its original state
     fn handle_disconnection(
-        trigger: Trigger<OnAdd, Disconnected>,
+        trigger: On<Add, Disconnected>,
         mut receiver_query: Query<&mut ReplicationReceiver>,
         replicated_query: Query<(Entity, &Replicated)>,
         mut commands: Commands,
@@ -52,20 +52,20 @@ impl ReplicationReceivePlugin {
         // despawn any entities that were spawned from replication
         replicated_query.iter().for_each(|(entity, replicated)| {
             // TODO: how to avoid this O(n) check? should the replication-receiver maintain a list of received entities?
-            if replicated.receiver == trigger.target()
+            if replicated.receiver == trigger.entity
                 && let Ok(mut commands) = commands.get_entity(entity)
             {
                 commands.despawn();
             }
         });
-        if let Ok(mut receiver) = receiver_query.get_mut(trigger.target()) {
+        if let Ok(mut receiver) = receiver_query.get_mut(trigger.entity) {
             *receiver = ReplicationReceiver::default();
         }
     }
 
     // Update the mapping between our local Receiver entity and the remove Sender entity upon receiving the SenderMetadata
     fn receive_sender_metadata(
-        trigger: Trigger<RemoteTrigger<SenderMetadata>>,
+        trigger: On<RemoteEvent<SenderMetadata>>,
         peer_metadata: Res<PeerMetadata>,
         mut receiver: Query<&mut MessageManager>,
     ) {

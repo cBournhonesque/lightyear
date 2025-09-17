@@ -9,7 +9,7 @@ use bevy_ecs::{
     observer::Trigger,
     reflect::ReflectComponent,
     system::{Command, Commands, EntityCommands, Query},
-    world::{EntityWorldMut, OnRemove, World},
+    world::{EntityWorldMut, Remove, World},
 };
 use bevy_reflect::Reflect;
 use lightyear_connection::host::HostClient;
@@ -98,11 +98,11 @@ impl PredictionDespawnCommandsExt for EntityCommands<'_> {
 
 /// Despawn predicted entities when the confirmed entity gets despawned
 pub(crate) fn despawn_confirmed(
-    trigger: Trigger<OnRemove, Confirmed>,
+    trigger: On<Remove, Confirmed>,
     query: Query<&Confirmed>,
     mut commands: Commands,
 ) -> Result {
-    if let Ok(confirmed) = query.get(trigger.target())
+    if let Ok(confirmed) = query.get(trigger.entity)
         && let Some(predicted) = confirmed.predicted
         && let Ok(mut entity_mut) = commands.get_entity(predicted)
     {

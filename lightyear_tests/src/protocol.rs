@@ -142,9 +142,9 @@ impl Plugin for ProtocolPlugin {
             .add_map_entities()
             .add_direction(NetworkDirection::Bidirectional);
         // triggers
-        app.add_trigger::<StringTrigger>()
+        app.register_event::<StringTrigger>()
             .add_direction(NetworkDirection::Bidirectional);
-        app.add_trigger::<EntityTrigger>()
+        app.register_event::<EntityTrigger>()
             .add_map_entities()
             .add_direction(NetworkDirection::Bidirectional);
         // channels

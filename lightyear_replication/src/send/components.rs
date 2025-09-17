@@ -299,11 +299,11 @@ pub type PredictionTarget = ReplicationTarget<ShouldBePredicted>;
 #[cfg(feature = "prediction")]
 impl PredictionTarget {
     pub fn add_replication_group(
-        trigger: Trigger<OnAdd, PredictionTarget>,
+        trigger: On<Add, PredictionTarget>,
         mut commands: Commands,
     ) {
         // note: we don't need to handle this for ReplicateLike entities because they take the ReplicationGroup from the root entity
-        commands.entity(trigger.target()).insert(PREDICTION_GROUP);
+        commands.entity(trigger.entity).insert(PREDICTION_GROUP);
     }
 }
 
@@ -513,7 +513,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
 
     /// When a new client connects, check if we need to replicate existing entities to it
     pub(crate) fn handle_connection(
-        trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
+        trigger: On<Add, (Connected, ReplicationSender)>,
         mut sender_query: Query<
             (Entity, &mut ReplicationSender, &RemoteId, Option<&LinkOf>),
             With<Connected>,
@@ -521,7 +521,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
         mut replicate_query: Query<(Entity, &mut ReplicationTarget<T>)>,
     ) {
         if let Ok((sender_entity, mut sender, remote_peer_id, link_of)) =
-            sender_query.get_mut(trigger.target())
+            sender_query.get_mut(trigger.entity)
         {
             // TODO: maybe do this in parallel?
             replicate_query.iter_mut().for_each(|(entity, mut replicate)| {
@@ -873,7 +873,7 @@ impl Replicate {
 
     /// When a new client connects, check if we need to replicate existing entities to it
     pub fn handle_connection(
-        trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
+        trigger: On<Add, (Connected, ReplicationSender)>,
         mut sender_query: Query<
             (
                 Entity,
@@ -887,7 +887,7 @@ impl Replicate {
         mut replicate_query: Query<(Entity, &mut Replicate)>,
     ) {
         if let Ok((sender_entity, mut sender, remote_peer_id, _client, client_of)) =
-            sender_query.get_mut(trigger.target())
+            sender_query.get_mut(trigger.entity)
         {
             // TODO: maybe do this in parallel?
             replicate_query.iter_mut().for_each(|(entity, mut replicate)| {
