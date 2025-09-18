@@ -11,5 +11,5 @@ pub mod metrics;
 pub mod prelude {
     pub use crate::debug::DebugUIPlugin;
     pub use crate::metrics::plugin::{ClearBucketsSystem, RegistryPlugin};
-    pub use crate::metrics::registry::{MetricKey, SearchResult, MetricsRegistry};
+    pub use crate::metrics::registry::{MetricsRegistry, SearchResult};
 }

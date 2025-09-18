@@ -216,7 +216,7 @@ fn check_rollback(
     mut commands: Commands,
 ) {
     #[cfg(feature = "metrics")]
-    let _timer = TimerGauge::new("prediction::rollback::check_rollback");
+    let _timer = TimerGauge::new("prediction/rollback/check");
 
     // TODO: iterate through each archetype in parallel? using rayon
 

@@ -1,8 +1,8 @@
+use crate::metrics::registry::MetricsRegistry;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use metrics::set_global_recorder;
 use tracing::error;
-use crate::metrics::registry::MetricsRegistry;
 
 /// Installs and garbage collects a [`MetricsRegistry`].
 ///

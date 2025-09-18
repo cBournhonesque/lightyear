@@ -28,6 +28,9 @@ pub(crate) struct MessageMetadata {
     // if the message is fragmented, we store the total number of fragments
     pub(crate) fragment_index: Option<FragmentIndex>,
     pub(crate) num_fragments: Option<u64>,
+    // Size of the message in bytes (for fragments, it's only the size of the fragment)
+    #[cfg(feature = "metrics")]
+    pub(crate) num_bytes: usize,
 }
 
 /// Data structure that will help us write the packet

@@ -28,6 +28,7 @@ bevy_reflect.workspace = true
 bevy_ui.workspace = true
 bevy_utils.workspace = true
 bevy_text.workspace = true
+bevy_time.workspace = true
 
 [lints]
 workspace = true

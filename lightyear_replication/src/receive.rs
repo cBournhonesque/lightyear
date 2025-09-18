@@ -23,8 +23,6 @@ use crate::plugin;
 use crate::plugin::ReplicationSet;
 use crate::prelude::{ReplicationGroupId, ReplicationSender};
 use crate::registry::buffered::{BufferedChanges, BufferedEntity};
-#[cfg(feature = "metrics")]
-use lightyear_utils::metrics::{TimerGauge, DormantTimerGauge};
 use lightyear_connection::client::{Connected, Disconnected, PeerMetadata};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::prelude::LocalTimeline;
@@ -33,6 +31,8 @@ use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, RemoteTrigger};
 use lightyear_transport::prelude::Transport;
+#[cfg(feature = "metrics")]
+use lightyear_utils::metrics::{DormantTimerGauge, TimerGauge};
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
 

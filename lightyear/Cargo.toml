@@ -121,6 +121,7 @@ metrics = [
   "std",
   "lightyear_inputs?/metrics",
   "lightyear_interpolation?/metrics",
+  "lightyear_messages/metrics",
   "lightyear_prediction?/metrics",
   "lightyear_replication/metrics",
   "lightyear_transport/metrics",

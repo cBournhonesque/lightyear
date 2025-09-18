@@ -24,8 +24,6 @@ use bevy_ecs::{
     system::SystemChangeTick,
     world::{FilteredEntityMut, FilteredEntityRef, OnRemove, Ref},
 };
-#[cfg(feature = "metrics")]
-use lightyear_utils::metrics::DormantTimerGauge;
 use bevy_ptr::Ptr;
 use lightyear_connection::client::Connected;
 use lightyear_core::tick::Tick;
@@ -34,6 +32,8 @@ use lightyear_link::prelude::Server;
 use lightyear_link::server::LinkOf;
 use lightyear_messages::MessageManager;
 use lightyear_serde::entity_map::RemoteEntityMap;
+#[cfg(feature = "metrics")]
+use lightyear_utils::metrics::DormantTimerGauge;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
 #[allow(unused_imports)]

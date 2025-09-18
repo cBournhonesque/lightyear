@@ -20,8 +20,6 @@ use bevy_ecs::{
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::{observer::Trigger, world::OnAdd};
 use bevy_platform::collections::hash_map::Entry;
-#[cfg(feature = "metrics")]
-use lightyear_utils::metrics::TimerGauge;
 use bevy_time::{Real, Time};
 #[cfg(feature = "test_utils")]
 use bevy_utils::default;
@@ -34,6 +32,8 @@ use lightyear_core::tick::Tick;
 use lightyear_link::{Link, LinkPlugin, LinkSet, Linked};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
+#[cfg(feature = "metrics")]
+use lightyear_utils::metrics::TimerGauge;
 #[allow(unused_imports)]
 use tracing::{error, trace, warn};
 
@@ -62,6 +62,7 @@ impl TransportPlugin {
     fn buffer_receive(
         time: Res<Time<Real>>,
         par_commands: ParallelCommands,
+        #[cfg(feature = "metrics")] channel_registry: Res<ChannelRegistry>,
         mut query: Query<(Entity, &mut Link, &mut Transport), (With<Linked>, Without<HostClient>)>,
     ) {
         #[cfg(feature = "metrics")]
@@ -123,16 +124,11 @@ impl TransportPlugin {
                     })
                     .ok();
 
-                #[cfg(feature = "metrics")]
-                metrics::gauge!("transport/recv_bandwidth").set(0);
-                #[cfg(feature = "metrics")]
-                let delta_inv = 1.0 / time.delta_secs_f64();
-
                 link.recv
                     .drain()
                     .try_for_each(|packet| {
                         #[cfg(feature = "metrics")]
-                        metrics::gauge!("transport/recv_bandwidth").increment(packet.len() as f64 * delta_inv);
+                        metrics::gauge!("transport/recv_bytes").increment(packet.len() as f64);
 
                         let mut cursor = Reader::from(packet);
 
@@ -162,6 +158,12 @@ impl TransportPlugin {
                             // read the fragment data
                             let channel_id = ChannelId::from_bytes(&mut cursor)?;
                             let fragment_data = FragmentData::from_bytes(&mut cursor)?;
+                            #[cfg(feature = "metrics")]
+                            {
+                                let channel_name = channel_registry.get_name_from_net_id(channel_id);
+                                metrics::counter!("channel/recv_messages", "channel" => channel_name).increment(1);
+                                metrics::gauge!("channel/recv_bytes", "channel" => channel_name).increment(fragment_data.bytes.len() as f64);
+                            }
                             transport
                                 .receivers
                                 .get_mut(&channel_id)
@@ -175,11 +177,17 @@ impl TransportPlugin {
                         // read single message data
                         while cursor.has_remaining() {
                             let channel_id = ChannelId::from_bytes(&mut cursor)?;
+                            #[cfg(feature = "metrics")]
+                            let channel_name = channel_registry.get_name_from_net_id(channel_id);
                             let num_messages =
                                 cursor.read_u8().map_err(SerializationError::from)?;
+                            #[cfg(feature = "metrics")]
+                            metrics::counter!("channel/recv_messages", "channel" => channel_name).increment(num_messages as u64);
                             trace!(?channel_id, ?num_messages);
                             for _ in 0..num_messages {
                                 let single_data = SingleData::from_bytes(&mut cursor)?;
+                                #[cfg(feature = "metrics")]
+                                metrics::gauge!("channel/recv_bytes", "channel" => channel_name).increment(single_data.bytes.len() as f64);
                                 transport
                                     .receivers
                                     .get_mut(&channel_id)
@@ -332,6 +340,13 @@ impl TransportPlugin {
                             .get_mut(channel_kind)
                             .ok_or(PacketError::ChannelNotFound)?;
 
+                        #[cfg(feature = "metrics")]
+                        {
+                            let channel_name = channel_registry.get_name_from_kind(channel_kind);
+                            metrics::counter!("channel/send_messages", "channel" => channel_name).increment(1);
+                            metrics::gauge!("channel/send_bytes", "channel" => channel_name).increment(metadata.num_bytes as f64);
+                        }
+
                         if sender_metadata.mode.is_watching_acks() {
                             trace!(
                                 "Registering message ack (ChannelId:{:?} {:?}) for packet {:?}",
@@ -362,7 +377,7 @@ impl TransportPlugin {
             }
 
             #[cfg(feature = "metrics")]
-            metrics::gauge!("transport/send_bandwidth").set(total_bytes_sent as f64 / real_time.delta_secs_f64());
+            metrics::gauge!("transport/send_bytes").increment(total_bytes_sent as f64);
 
             // adjust the real amount of bytes that we sent through the limiter (to account for the actual packet size)
             if transport.priority_manager.config.enabled

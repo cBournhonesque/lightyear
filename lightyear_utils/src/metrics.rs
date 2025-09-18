@@ -1,6 +1,6 @@
 use alloc::format;
-use bevy_platform::time::Instant;
 use bevy_platform::sync::atomic::{AtomicBool, Ordering};
+use bevy_platform::time::Instant;
 
 /// Struct that can be created to track the time of a specific operation.
 ///
@@ -19,7 +19,6 @@ impl TimerGauge {
         }
     }
 }
-
 
 // TODO: if incremental, we want to reset the gauge to 0 at the end of the frame.
 impl Drop for TimerGauge {

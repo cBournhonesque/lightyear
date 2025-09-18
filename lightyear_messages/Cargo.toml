@@ -14,6 +14,7 @@ std = ["lightyear_transport/std"]
 client = ["lightyear_connection/client"]
 server = ["lightyear_link", "lightyear_connection/server"]
 test_utils = []
+metrics = ["dep:metrics"]
 
 [dependencies]
 lightyear_link = { workspace = true, optional = true }
@@ -24,6 +25,7 @@ lightyear_transport.workspace = true
 lightyear_connection.workspace = true
 
 # utils
+metrics = { workspace = true, optional = true }
 tracing.workspace = true
 thiserror.workspace = true
 

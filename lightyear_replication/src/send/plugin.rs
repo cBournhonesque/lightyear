@@ -21,8 +21,6 @@ use bevy_ecs::{
     system::{ParamBuilder, Query, QueryParamBuilder, Res, SystemChangeTick, SystemParamBuilder},
     world::OnAdd,
 };
-#[cfg(feature = "metrics")]
-use lightyear_utils::metrics::DormantTimerGauge;
 use bevy_time::{Real, Time};
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::prelude::LocalTimeline;
@@ -36,6 +34,8 @@ use lightyear_messages::registry::{MessageKind, MessageRegistry};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
+#[cfg(feature = "metrics")]
+use lightyear_utils::metrics::DormantTimerGauge;
 #[allow(unused_imports)]
 use tracing::{error, warn};
 

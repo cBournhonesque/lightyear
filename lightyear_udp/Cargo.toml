@@ -11,7 +11,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 [features]
 default = []
 server = ["bevy_platform"]
-metrics = ["dep:metrics", "dep:bevy_time"]
+metrics = ["dep:metrics"]
 
 [dependencies]
 lightyear_core.workspace = true
@@ -26,7 +26,6 @@ tracing.workspace = true
 bevy_app.workspace = true
 bevy_ecs = { workspace = true, features = ["std"] }
 bevy_platform = { workspace = true, optional = true }
-bevy_time = { workspace = true, optional = true}
 
 # utils
 bytes.workspace = true
