@@ -93,7 +93,7 @@ impl ReplicationSendPlugin {
         mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline), With<Connected>>,
     ) {
         #[cfg(feature = "metrics")]
-        let _timer = DormantTimerGauge::new("replication::send");
+        let _timer = DormantTimerGauge::new("replication/send");
 
         let actions_net_id = *message_registry
             .kind_map

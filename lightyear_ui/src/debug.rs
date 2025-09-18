@@ -91,10 +91,10 @@ impl Default for MetricsPanelLayout {
                 MetricsGroup::new(
                     "Replication (ms)",
                     vec![
-                        MetricSpec::new("Receive", "replication::receive::time_ms", MetricKind::Gauge),
-                        MetricSpec::new("Apply", "replication::apply::time_ms", MetricKind::Gauge),
-                        MetricSpec::new("Buffer", "replication::buffer::time_ms", MetricKind::Gauge),
-                        MetricSpec::new("Send", "replication::send::time_ms", MetricKind::Gauge),
+                        MetricSpec::new("Receive", "replication/receive/time_ms", MetricKind::Gauge),
+                        MetricSpec::new("Apply", "replication/apply/time_ms", MetricKind::Gauge),
+                        MetricSpec::new("Buffer", "replication/buffer/time_ms", MetricKind::Gauge),
+                        MetricSpec::new("Send", "replication/send/time_ms", MetricKind::Gauge),
                     ],
                 ),
                 // MetricsGroup::new(
@@ -107,15 +107,16 @@ impl Default for MetricsPanelLayout {
                 MetricsGroup::new(
                     "Rollback",
                     vec![
-                        MetricSpec::new("Count", "prediction::rollback::count", MetricKind::Counter),
-                        MetricSpec::new("Ticks", "prediction::rollback::ticks", MetricKind::Gauge),
+                        MetricSpec::new("Count", "prediction/rollback/count", MetricKind::Counter),
+                        MetricSpec::new("Ticks", "prediction/rollback/ticks", MetricKind::Gauge),
                     ],
                 ),
                 MetricsGroup::new(
-                    "Bandwidth (bytes/s)",
+                    "Transport",
                     vec![
-                        MetricSpec::new("Send total", "lightyear.bandwidth.send.total", MetricKind::Gauge),
-                        MetricSpec::new("Recv total", "lightyear.bandwidth.recv.total", MetricKind::Gauge),
+                        MetricSpec::new("Send packets lost", "transport/packets_lost", MetricKind::Counter),
+                        MetricSpec::new("Send (B/s)", "transport/send_bandwidth", MetricKind::Gauge),
+                        MetricSpec::new("Recv (B/s)", "transport/recv_bandwidth", MetricKind::Gauge),
                     ],
                 ),
             ],

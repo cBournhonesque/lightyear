@@ -779,8 +779,8 @@ pub(crate) fn run_rollback(world: &mut World) {
     );
     #[cfg(feature = "metrics")]
     {
-        metrics::counter!("prediction::rollback::count").increment(1);
-        metrics::gauge!("prediction::rollback::ticks").set(num_rollback_ticks);
+        metrics::counter!("prediction/rollback/count").increment(1);
+        metrics::gauge!("prediction/rollback/ticks").set(num_rollback_ticks);
     }
 
     // Keep track of the generic time resource so it can be restored after the rollback.
@@ -859,7 +859,7 @@ pub(crate) fn end_rollback(
 
 #[cfg(feature = "metrics")]
 pub(crate) fn no_rollback() {
-    metrics::gauge!("prediction::rollback::ticks").set(0);
+    metrics::gauge!("prediction/rollback/ticks").set(0);
 }
 
 /// Track whether we are in rollback or not

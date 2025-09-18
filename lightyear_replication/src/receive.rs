@@ -92,7 +92,7 @@ impl ReplicationReceivePlugin {
         >,
     ) {
         #[cfg(feature = "metrics")]
-        let _timer = DormantTimerGauge::new("replication::receive");
+        let _timer = DormantTimerGauge::new("replication/receive");
 
         query
             .par_iter_mut()
@@ -124,7 +124,7 @@ impl ReplicationReceivePlugin {
         mut receiver_entities: Local<Vec<(Entity, PeerId)>>,
     ) {
         #[cfg(feature = "metrics")]
-        let _timer = TimerGauge::new("replication::apply");
+        let _timer = TimerGauge::new("replication/apply");
 
         // we first collect the entities we need into a buffer
         // We cannot use query.iter() and &mut World at the same time as this would be UB because they both access Archetypes

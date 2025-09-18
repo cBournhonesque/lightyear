@@ -65,7 +65,7 @@ impl TransportPlugin {
         mut query: Query<(Entity, &mut Link, &mut Transport), (With<Linked>, Without<HostClient>)>,
     ) {
         #[cfg(feature = "metrics")]
-        let _timer = TimerGauge::new("transport::receive");
+        let _timer = TimerGauge::new("transport/receive");
 
         query
             .par_iter_mut()
@@ -96,6 +96,8 @@ impl TransportPlugin {
                     .lost_packets
                     .drain(..)
                     .try_for_each(|lost_packet| {
+                        #[cfg(feature = "metrics")]
+                        metrics::counter!("transport/packets_lost").increment(1);
                         if let Some(message_map) =
                             transport.packet_to_message_map.remove(&lost_packet)
                         {
@@ -121,9 +123,17 @@ impl TransportPlugin {
                     })
                     .ok();
 
+                #[cfg(feature = "metrics")]
+                metrics::gauge!("transport/recv_bandwidth").set(0);
+                #[cfg(feature = "metrics")]
+                let delta_inv = 1.0 / time.delta_secs_f64();
+
                 link.recv
                     .drain()
                     .try_for_each(|packet| {
+                        #[cfg(feature = "metrics")]
+                        metrics::gauge!("transport/recv_bandwidth").increment(packet.len() as f64 * delta_inv);
+
                         let mut cursor = Reader::from(packet);
 
                         // Parse the packet
@@ -140,6 +150,8 @@ impl TransportPlugin {
                             .packet_manager
                             .header_manager
                             .process_recv_packet_header(&header);
+
+
 
                         // Parse the payload into messages, put them in the internal buffers for each channel
                         // we read directly from the packet and don't create intermediary datastructures to avoid allocations
@@ -348,6 +360,9 @@ impl TransportPlugin {
                 total_bytes_sent += packet.payload.len() as u32;
                 link.send.push(Bytes::from(packet.payload));
             }
+
+            #[cfg(feature = "metrics")]
+            metrics::gauge!("transport/send_bandwidth").set(total_bytes_sent as f64 / real_time.delta_secs_f64());
 
             // adjust the real amount of bytes that we sent through the limiter (to account for the actual packet size)
             if transport.priority_manager.config.enabled

@@ -125,6 +125,7 @@ metrics = [
   "lightyear_replication/metrics",
   "lightyear_transport/metrics",
   "lightyear_utils/metrics",
+  "lightyear_udp?/metrics",
   "dep:lightyear_ui",
 ]
 ## Enables netcode to provide persistent IDs to clients

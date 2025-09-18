@@ -80,7 +80,7 @@ pub(crate) fn replicate(
     mut replicated_archetypes: Local<ReplicatedArchetypes>,
 ) {
     #[cfg(feature = "metrics")]
-    let _timer = DormantTimerGauge::new("replication::buffer");
+    let _timer = DormantTimerGauge::new("replication/buffer");
 
     replicated_archetypes.update(archetypes, components, component_registry.as_ref());
 
