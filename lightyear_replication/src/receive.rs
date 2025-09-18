@@ -24,10 +24,7 @@ use crate::plugin::ReplicationSet;
 use crate::prelude::{ReplicationGroupId, ReplicationSender};
 use crate::registry::buffered::{BufferedChanges, BufferedEntity};
 #[cfg(feature = "metrics")]
-use bevy_platform::{
-    sync::atomic::{AtomicBool, Ordering},
-    time::Instant,
-};
+use lightyear_utils::metrics::{TimerGauge, DormantTimerGauge};
 use lightyear_connection::client::{Connected, Disconnected, PeerMetadata};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::prelude::LocalTimeline;
@@ -95,9 +92,7 @@ impl ReplicationReceivePlugin {
         >,
     ) {
         #[cfg(feature = "metrics")]
-        let start = Instant::now();
-        #[cfg(feature = "metrics")]
-        let ran = AtomicBool::new(false);
+        let _timer = DormantTimerGauge::new("replication::receive");
 
         query
             .par_iter_mut()
@@ -110,15 +105,8 @@ impl ReplicationReceivePlugin {
                     receiver.recv_updates(message.data, message.remote_tick);
                 }
                 #[cfg(feature = "metrics")]
-                if receiver.received_this_frame {
-                    ran.store(true, Ordering::Relaxed);
-                }
+                _timer.activate();
             });
-
-        #[cfg(feature = "metrics")]
-        if ran.load(Ordering::Relaxed) {
-            metrics::gauge!("replication::receive::time").set(start.elapsed().as_millis() as f64);
-        }
     }
 
     pub(crate) fn apply_world(
@@ -136,7 +124,7 @@ impl ReplicationReceivePlugin {
         mut receiver_entities: Local<Vec<(Entity, PeerId)>>,
     ) {
         #[cfg(feature = "metrics")]
-        let start = Instant::now();
+        let _timer = TimerGauge::new("replication::apply");
 
         // we first collect the entities we need into a buffer
         // We cannot use query.iter() and &mut World at the same time as this would be UB because they both access Archetypes
@@ -188,9 +176,6 @@ impl ReplicationReceivePlugin {
                 );
                 receiver.tick_cleanup(tick);
             });
-
-        #[cfg(feature = "metrics")]
-        metrics::gauge!("replication::apply::time").set(start.elapsed().as_millis() as f64);
     }
 }
 

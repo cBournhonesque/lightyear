@@ -320,8 +320,10 @@ pub fn new_gui_app(add_inspector: bool) -> App {
         app.add_systems(Startup, |mut commands: Commands| {
             commands.spawn(bevy_metrics_dashboard::DashboardWindow::new("Metrics"));
         });
-        app.add_plugins(DebugUIPlugin);
     }
+
+    #[cfg(feature = "debug")]
+    app.add_plugins(DebugUIPlugin);
 
     if add_inspector {
         app.add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin::default());

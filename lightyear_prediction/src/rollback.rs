@@ -755,7 +755,7 @@ fn rollback_fixed_time(current_fixed_time: &Time<Fixed>, num_rollback_ticks: i16
 
 pub(crate) fn run_rollback(world: &mut World) {
     #[cfg(feature = "metrics")]
-    let _timer = TimerGauge::new("prediction::rollback::run");
+    let _timer = TimerGauge::new("prediction::rollback");
 
     let (entity, mut local_timeline, prediction_manager) = world
         .query::<(Entity, &mut LocalTimeline, &PredictionManager)>()
@@ -859,8 +859,7 @@ pub(crate) fn end_rollback(
 
 #[cfg(feature = "metrics")]
 pub(crate) fn no_rollback() {
-    metrics::gauge!("prediction::rollbacks::event").set(0);
-    metrics::gauge!("prediction::rollbacks::ticks").set(0);
+    metrics::gauge!("prediction::rollback::ticks").set(0);
 }
 
 /// Track whether we are in rollback or not

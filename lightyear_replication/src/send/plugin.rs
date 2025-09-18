@@ -22,10 +22,7 @@ use bevy_ecs::{
     world::OnAdd,
 };
 #[cfg(feature = "metrics")]
-use bevy_platform::{
-    sync::atomic::{AtomicBool, Ordering},
-    time::Instant,
-};
+use lightyear_utils::metrics::DormantTimerGauge;
 use bevy_time::{Real, Time};
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::prelude::LocalTimeline;
@@ -96,9 +93,7 @@ impl ReplicationSendPlugin {
         mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline), With<Connected>>,
     ) {
         #[cfg(feature = "metrics")]
-        let start = Instant::now();
-        #[cfg(feature = "metrics")]
-        let ran = AtomicBool::new(false);
+        let _timer = DormantTimerGauge::new("replication::send");
 
         let actions_net_id = *message_registry
             .kind_map
@@ -115,7 +110,7 @@ impl ReplicationSendPlugin {
                     return;
                 }
                 #[cfg(feature = "metrics")]
-                ran.store(true, Ordering::Relaxed);
+                _timer.activate();
 
                 let bevy_tick = change_tick.this_run();
                 sender.send_timer.reset();
@@ -140,11 +135,6 @@ impl ReplicationSendPlugin {
                     .inspect_err(|e| error!("Error buffering UpdatesMessage: {e:?}"))
                     .ok();
             });
-
-        #[cfg(feature = "metrics")]
-        if ran.load(Ordering::Relaxed) {
-            metrics::gauge!("replication::send::time_ms").set(start.elapsed().as_millis() as f64);
-        }
     }
 
     /// Check which replication messages were actually sent, and update the

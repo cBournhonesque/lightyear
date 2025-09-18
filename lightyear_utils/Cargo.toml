@@ -23,6 +23,7 @@ metrics = { workspace = true, optional = true}
 hashbrown.workspace = true
 paste.workspace = true
 seahash.workspace = true
+tracing.workspace = true
 
 # bevy
 bevy_ecs.workspace = true

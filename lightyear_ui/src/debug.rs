@@ -7,7 +7,7 @@
 extern crate alloc;
 
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::{ToString};
 use alloc::collections::VecDeque;
 use alloc::{vec::Vec, vec};
 use bevy_app::prelude::*;
@@ -20,9 +20,9 @@ use bevy_text::prelude::*;
 use bevy_utils::prelude::*;
 
 use bevy_platform::collections::HashMap;
-use bevy_metrics_dashboard::registry::{MetricsRegistry, SearchResult};
-use bevy_metrics_dashboard::metrics_util::{MetricKind, storage::AtomicBucket};
-use core::sync::atomic::Ordering;
+use metrics_util::MetricKind;
+use tracing::info;
+use crate::prelude::{ClearBucketsSystem, MetricsRegistry, RegistryPlugin};
 
 #[derive(Resource, Debug, Reflect)]
 #[reflect(Resource, Debug)]
@@ -42,7 +42,7 @@ impl Default for MetricsPanelSettings {
 struct MetricsPanelRoot;
 
 #[derive(Component)]
-struct MetricLine { name: &'static str }
+struct MetricLine { name: &'static str, kind: MetricKind }
 
 /// Specification for a single metric line in the UI.
 #[derive(Clone)]
@@ -51,11 +51,13 @@ pub struct MetricSpec {
     pub label: &'static str,
     /// Metrics registry key (supports fuzzy match)
     pub name: &'static str,
+    /// Kind of metric
+    pub kind: MetricKind,
 }
 
 impl MetricSpec {
-    pub const fn new(label: &'static str, name: &'static str) -> Self {
-        Self { label, name }
+    const fn new(label: &'static str, name: &'static str, kind: MetricKind) -> Self {
+        Self { label, name, kind }
     }
 }
 
@@ -84,36 +86,36 @@ impl Default for MetricsPanelLayout {
             groups: vec![
                 MetricsGroup::new(
                     "Frame",
-                    vec![MetricSpec::new("Frame Time", "frame.time")],
+                    vec![MetricSpec::new("Frame Time", "frame.time", MetricKind::Gauge)],
                 ),
                 MetricsGroup::new(
-                    "Timing (ms)",
+                    "Replication (ms)",
                     vec![
-                        MetricSpec::new("Receive", "lightyear.receive.time"),
-                        MetricSpec::new("Send", "lightyear.send.time"),
-                        MetricSpec::new("Prediction", "lightyear.prediction.time"),
-                        MetricSpec::new("Interpolation", "lightyear.interpolation.time"),
+                        MetricSpec::new("Receive", "replication::receive::time_ms", MetricKind::Gauge),
+                        MetricSpec::new("Apply", "replication::apply::time_ms", MetricKind::Gauge),
+                        MetricSpec::new("Buffer", "replication::buffer::time_ms", MetricKind::Gauge),
+                        MetricSpec::new("Send", "replication::send::time_ms", MetricKind::Gauge),
                     ],
                 ),
-                MetricsGroup::new(
-                    "Replication counts",
-                    vec![
-                        MetricSpec::new("Entities (total)", "lightyear.replication.entities.total"),
-                        MetricSpec::new("Entities by name", "lightyear.replication.entities.by_name"),
-                    ],
-                ),
+                // MetricsGroup::new(
+                //     "Replication counts",
+                //     vec![
+                //         MetricSpec::new("Entities (total)", "lightyear.replication.entities.total"),
+                //         MetricSpec::new("Entities by name", "lightyear.replication.entities.by_name"),
+                //     ],
+                // ),
                 MetricsGroup::new(
                     "Rollback",
                     vec![
-                        MetricSpec::new("Count", "lightyear.rollback.count"),
-                        MetricSpec::new("Depth", "lightyear.rollback.depth"),
+                        MetricSpec::new("Count", "prediction::rollback::count", MetricKind::Counter),
+                        MetricSpec::new("Ticks", "prediction::rollback::ticks", MetricKind::Gauge),
                     ],
                 ),
                 MetricsGroup::new(
                     "Bandwidth (bytes/s)",
                     vec![
-                        MetricSpec::new("Send total", "lightyear.bandwidth.send.total"),
-                        MetricSpec::new("Recv total", "lightyear.bandwidth.recv.total"),
+                        MetricSpec::new("Send total", "lightyear.bandwidth.send.total", MetricKind::Gauge),
+                        MetricSpec::new("Recv total", "lightyear.bandwidth.recv.total", MetricKind::Gauge),
                     ],
                 ),
             ],
@@ -125,8 +127,8 @@ pub struct DebugUIPlugin;
 
 impl Plugin for DebugUIPlugin {
     fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<bevy_metrics_dashboard::RegistryPlugin>() {
-            app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default());
+        if !app.is_plugin_added::<RegistryPlugin>() {
+            app.add_plugins(RegistryPlugin::default());
         }
         app.register_type::<MetricsPanelSettings>();
         app.init_resource::<MetricsPanelSettings>();
@@ -134,7 +136,12 @@ impl Plugin for DebugUIPlugin {
         app.init_resource::<MetricsPanelLayout>();
         app.add_systems(Startup, setup_metrics_panel);
         app.init_resource::<MetricHistory>();
-        app.add_systems(Update, (update_visibility, sample_metrics_history, update_metrics).chain());
+        app.add_systems(Last, (
+            update_visibility, sample_metrics_history, update_metrics
+        )
+            .chain()
+            .before(ClearBucketsSystem)
+        );
     }
 }
 
@@ -172,15 +179,15 @@ fn header(cmd: &mut RelatedSpawnerCommands<ChildOf>, text: &str) {
     ));
 }
 
-fn line(cmd: &mut RelatedSpawnerCommands<ChildOf>, label: &str, name: &'static str) {
+fn line(cmd: &mut RelatedSpawnerCommands<ChildOf>, spec: &MetricSpec) {
     cmd.spawn(Node {
         display: Display::Flex,
         justify_content: JustifyContent::SpaceBetween,
         ..default()
     })
     .with_children(|cmd| {
-        cmd.spawn((Text::new(label.to_string()), TextFont { font_size: 10.0, ..default() }));
-        cmd.spawn((MetricLine { name }, Text::new("-"), TextFont { font_size: 10.0, ..default() }));
+        cmd.spawn((Text::new(spec.label.to_string()), TextFont { font_size: 10.0, ..default() }));
+        cmd.spawn((MetricLine { name: spec.name, kind: spec.kind }, Text::new("-"), TextFont { font_size: 10.0, ..default() }));
     });
 }
 
@@ -188,7 +195,7 @@ fn build_metrics_groups(cmd: &mut RelatedSpawnerCommands<ChildOf>, layout: &Metr
     for group in &layout.groups {
         header(cmd, group.title);
         for spec in &group.items {
-            line(cmd, spec.label, spec.name);
+            line(cmd, spec);
         }
     }
 }
@@ -201,113 +208,87 @@ fn update_visibility(settings: Res<MetricsPanelSettings>, mut q: Query<&mut Node
 }
 
 fn update_metrics(
-    registry: Option<Res<MetricsRegistry>>, // provided by bevy_metrics_dashboard::RegistryPlugin
     mut q_lines: Query<(&MetricLine, &mut Text)>,
     history: Res<MetricHistory>,
 ) {
-    let Some(registry) = registry else { return; };
     for (line, mut text) in &mut q_lines {
         if let Some((latest, avg)) = history.latest_and_avg(line.name) {
             text.0 = format!("{:.3} (avg {:.3})", latest, avg);
         } else {
-            let value = render_first_metric(registry.as_ref(), line.name);
-            text.0 = value;
+            text.0 = "-".to_string();
         }
     }
-}
-
-fn render_first_metric(reg: &MetricsRegistry, name: &str) -> String {
-    let results = reg.fuzzy_search_by_name(name);
-    if results.is_empty() { return "(no data)".to_string(); }
-
-    // Prefer histogram mean; otherwise show gauge/counter label only for now
-    for SearchResult { key, .. } in &results {
-        match key.kind {
-            MetricKind::Histogram => {
-                let hist = reg.get_or_create_histogram(&key.key);
-                let mean = mean_histogram(&hist);
-                return format!("{:.3}", mean);
-            }
-            MetricKind::Gauge => {
-                return "gauge".to_string();
-            }
-            MetricKind::Counter => {
-                return "counter".to_string();
-            }
-        }
-    }
-    "-".to_string()
-}
-
-fn mean_histogram(bucket: &AtomicBucket<f64>) -> f64 {
-    let mut total = 0.0f64;
-    let mut count = 0;
-    bucket.data_with(|block| {
-        block.iter().for_each(|v| {
-            total += *v;
-            count += 1;
-        });
-    });
-    if count > 0 { total / count as f64 } else { 0.0 }
 }
 
 /// Resource storing rolling windows for metric samples
 #[derive(Resource, Default)]
 struct MetricHistory {
-    windows: HashMap<&'static str, VecDeque<f64>>, // keyed by metric name string (from MetricLine)
+    windows: HashMap<&'static str, MetricBuffer>,
+}
+
+#[derive(Default)]
+struct MetricBuffer {
+    data: VecDeque<f64>,
+    sum: f64,
+}
+
+impl MetricBuffer {
+    fn push(&mut self, value: f64, cap: usize) {
+        self.data.push_back(value);
+        self.sum += value;
+        while self.data.len() > cap {
+            if let Some(v) = self.data.pop_front() {
+                self.sum -= v;
+            }
+        }
+    }
+
+    fn latest_and_avg(&self) -> Option<(f64, f64)> {
+        let latest = *self.data.back()?;
+        let sum = self.sum;
+        let avg = if !self.data.is_empty() { sum / self.data.len() as f64 } else { 0.0 };
+        Some((latest, avg))
+    }
+
 }
 
 impl MetricHistory {
     fn push(&mut self, name: &'static str, value: f64, cap: usize) {
-        let deque = self.windows.entry(name).or_insert_with(VecDeque::new);
-        deque.push_back(value);
-        while deque.len() > cap {
-            deque.pop_front();
-        }
+        let buffer = self.windows.entry(name).or_insert_with(|| MetricBuffer::default());
+        buffer.push(value, cap);
     }
 
     fn latest_and_avg(&self, name: &'static str) -> Option<(f64, f64)> {
         let deque = self.windows.get(name)?;
-        let latest = *deque.back()?;
-        let sum: f64 = deque.iter().copied().sum();
-        let avg = if !deque.is_empty() { sum / deque.len() as f64 } else { latest };
-        Some((latest, avg))
+        deque.latest_and_avg()
     }
 }
 
+/// Fetch the latest metric value from the MetricRegistry and push it to the history
 fn sample_metrics_history(
-    registry: Option<Res<MetricsRegistry>>,
+    registry: Res<MetricsRegistry>,
     settings: Res<MetricsPanelSettings>,
     mut history: ResMut<MetricHistory>,
     q_lines: Query<&MetricLine>,
 ) {
-    let Some(registry) = registry else { return; };
     let cap = settings.window_len.max(1);
     for line in &q_lines {
-        if let Some(sample) = sample_metric_once(registry.as_ref(), line.name) {
+        if let Some(sample) = fetch_metric_value(registry.as_ref(), line) {
             history.push(line.name, sample, cap);
         }
     }
 }
 
-fn sample_metric_once(reg: &MetricsRegistry, name: &str) -> Option<f64> {
-    let results = reg.fuzzy_search_by_name(name);
-    if results.is_empty() { return None; }
-    // Prefer histogram mean, otherwise gauge; counters ignored for now
-    for SearchResult { key, .. } in &results {
-        match key.kind {
-            MetricKind::Histogram => {
-                let hist = reg.get_or_create_histogram(&key.key);
-                let mean = mean_histogram(&hist);
-                return Some(mean);
-            }
-            MetricKind::Gauge => {
-                let g = reg.get_or_create_gauge(&key.key);
-                let v = g.load(Ordering::Relaxed) as f64;
-                return Some(v);
-            }
-            MetricKind::Counter => {}
+fn fetch_metric_value(reg: &MetricsRegistry, line: &MetricLine) -> Option<f64> {
+    match line.kind {
+        MetricKind::Counter => {
+            reg.get_counter_value(line.name)
+        }
+        MetricKind::Gauge => {
+            reg.get_gauge_value(line.name)
+        }
+        MetricKind::Histogram => {
+            reg.get_histogram_mean(line.name)
         }
     }
-    None
 }

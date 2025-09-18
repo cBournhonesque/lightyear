@@ -14,12 +14,10 @@ std = []
 test_utils = []
 
 [dependencies]
-lightyear_core.workspace = true
-lightyear_utils.workspace = true
-
 # utils
 metrics.workspace = true
-bevy_metrics_dashboard.workspace = true
+metrics-util.workspace = true
+tracing.workspace = true
 
 # bevy
 bevy_app.workspace = true

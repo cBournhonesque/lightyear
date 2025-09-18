@@ -156,6 +156,7 @@ crossbeam-channel = { version = "0.5.13", features = [] }
 
 # metrics
 metrics = "0.24"
+metrics-util = "0.20"
 
 # transport
 aeronet_webtransport = "0.16"

@@ -25,10 +25,7 @@ use bevy_ecs::{
     world::{FilteredEntityMut, FilteredEntityRef, OnRemove, Ref},
 };
 #[cfg(feature = "metrics")]
-use bevy_platform::{
-    sync::atomic::{AtomicBool, Ordering},
-    time::Instant,
-};
+use lightyear_utils::metrics::DormantTimerGauge;
 use bevy_ptr::Ptr;
 use lightyear_connection::client::Connected;
 use lightyear_core::tick::Tick;
@@ -83,9 +80,7 @@ pub(crate) fn replicate(
     mut replicated_archetypes: Local<ReplicatedArchetypes>,
 ) {
     #[cfg(feature = "metrics")]
-    let start = Instant::now();
-    #[cfg(feature = "metrics")]
-    let ran = AtomicBool::new(false);
+    let _timer = DormantTimerGauge::new("replication::buffer");
 
     replicated_archetypes.update(archetypes, components, component_registry.as_ref());
 
@@ -105,7 +100,7 @@ pub(crate) fn replicate(
                 return;
             }
             #[cfg(feature = "metrics")]
-            ran.store(true, Ordering::Relaxed);
+            _timer.activate();
 
             // delta: either the delta manager is present on the sender directly (Client)
             // or the delta is on the server
@@ -173,11 +168,6 @@ pub(crate) fn replicate(
             }
         },
     );
-
-    #[cfg(feature = "metrics")]
-    if ran.load(Ordering::Relaxed) {
-        metrics::gauge!("replication::buffer::time").set(start.elapsed().as_millis() as f64);
-    }
 }
 
 #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]

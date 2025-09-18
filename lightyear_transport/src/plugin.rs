@@ -21,7 +21,7 @@ use bevy_ecs::{
 use bevy_ecs::{observer::Trigger, world::OnAdd};
 use bevy_platform::collections::hash_map::Entry;
 #[cfg(feature = "metrics")]
-use bevy_platform::time::Instant;
+use lightyear_utils::metrics::TimerGauge;
 use bevy_time::{Real, Time};
 #[cfg(feature = "test_utils")]
 use bevy_utils::default;
@@ -65,7 +65,7 @@ impl TransportPlugin {
         mut query: Query<(Entity, &mut Link, &mut Transport), (With<Linked>, Without<HostClient>)>,
     ) {
         #[cfg(feature = "metrics")]
-        let start = Instant::now();
+        let _timer = TimerGauge::new("transport::receive");
 
         query
             .par_iter_mut()
@@ -229,8 +229,6 @@ impl TransportPlugin {
                     })
                     .ok();
             });
-        #[cfg(feature = "metrics")]
-        metrics::gauge!("transport::receive::time").set(start.elapsed().as_millis() as f64);
     }
 
     // TODO: users will mostly interact only via the lightyear_message
@@ -257,7 +255,7 @@ impl TransportPlugin {
         channel_registry: Res<ChannelRegistry>,
     ) {
         #[cfg(feature = "metrics")]
-        let start = Instant::now();
+        let _timer = TimerGauge::new("transport::send");
 
         query.par_iter_mut().for_each(|(mut link, mut transport, timeline, host_client)| {
             let tick = timeline.tick();
@@ -362,9 +360,6 @@ impl TransportPlugin {
                         .check_n(remaining_bytes_to_add);
             }
         });
-
-        #[cfg(feature = "metrics")]
-        metrics::gauge!("transport::send::time").set(start.elapsed().as_millis() as f64);
     }
 
     /// On disconnection, reset the Transport to its original state.
