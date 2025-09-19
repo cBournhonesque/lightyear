@@ -1,3 +1,4 @@
+use alloc::vec;
 use crate::channel::builder::Transport;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
@@ -204,7 +205,7 @@ impl TransportPlugin {
                                         if *num_fragments == 0 {
                                             entry.remove();
                                             trace!(
-                                                "Acked all fragments in packet: channel={:?},message_ack={:?}",
+                                                "Acked all fragments in message: channel={:?},message_ack={:?}",
                                                 sender_metadata.name, message_ack
                                             );
                                             sender_metadata.message_acks.push(message_ack.message_id);
@@ -316,9 +317,11 @@ impl TransportPlugin {
                             if let Some(num_fragments) = metadata.num_fragments {
                                 transport.fragment_acks.insert(metadata.message, num_fragments);
                             }
-
+                            
                             transport.packet_to_message_map
                                 .entry(packet.packet_id)
+                                // we could have some old data from wrapped PacketIds, so we start by clearing
+                                .and_modify(|v| v.clear())
                                 .or_default()
                                 .push((*channel_kind, MessageAck {
                                     message_id: metadata.message,
