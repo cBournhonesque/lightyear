@@ -36,6 +36,7 @@ lightyear = { workspace = true, features = [
     "client",
     "server",
     "crossbeam",
+    "metrics",
     "netcode",
     "input_native",
     "input_bei",

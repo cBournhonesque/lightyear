@@ -34,6 +34,9 @@ use lightyear_messages::registry::{MessageKind, MessageRegistry};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::plugin::TransportSet;
 use lightyear_transport::prelude::Transport;
+#[cfg(feature = "metrics")]
+use lightyear_utils::metrics::DormantTimerGauge;
+#[allow(unused_imports)]
 use tracing::{error, warn};
 
 pub struct ReplicationSendPlugin;
@@ -89,6 +92,9 @@ impl ReplicationSendPlugin {
         // but I don't remember why
         mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline), With<Connected>>,
     ) {
+        #[cfg(feature = "metrics")]
+        let _timer = DormantTimerGauge::new("replication/send");
+
         let actions_net_id = *message_registry
             .kind_map
             .net_id(&MessageKind::of::<ActionsMessage>())
@@ -103,6 +109,9 @@ impl ReplicationSendPlugin {
                 if !sender.send_timer.finished() {
                     return;
                 }
+                #[cfg(feature = "metrics")]
+                _timer.activate();
+
                 let bevy_tick = change_tick.this_run();
                 sender.send_timer.reset();
                 // TODO: also tick ReplicationGroups?

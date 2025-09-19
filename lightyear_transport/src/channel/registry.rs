@@ -91,6 +91,17 @@ impl ChannelRegistry {
         (kind, *net_id)
     }
 
+    pub fn get_name_from_net_id(&self, net_id: ChannelId) -> &'static str {
+        self.kind_map
+            .kind(net_id)
+            .and_then(|f| self.kind_map.name(f))
+            .unwrap_or("Unknown")
+    }
+
+    pub fn get_name_from_kind(&self, kind: &ChannelKind) -> &'static str {
+        self.kind_map.name(kind).unwrap_or("Unknown")
+    }
+
     pub fn get_kind_from_net_id(&self, channel_id: ChannelId) -> Option<&ChannelKind> {
         self.kind_map.kind(channel_id)
     }

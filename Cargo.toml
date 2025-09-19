@@ -26,6 +26,7 @@ members = [
   "lightyear_sync",
   "lightyear_tests",
   "lightyear_udp",
+  "lightyear_ui",
   "lightyear_utils",
   "lightyear_webtransport",
   "lightyear_websocket",
@@ -90,6 +91,7 @@ lightyear_serde = { path = "./lightyear_serde", version = "0.24.2", default-feat
 lightyear_steam = { path = "./lightyear_steam", version = "0.24.2", default-features = false }
 lightyear_sync = { path = "./lightyear_sync", version = "0.24.2", default-features = false }
 lightyear_udp = { path = "./lightyear_udp", version = "0.24.2", default-features = false }
+lightyear_ui = { path = "./lightyear_ui", version = "0.24.2", default-features = false }
 lightyear_utils = { path = "./lightyear_utils", version = "0.24.2", default-features = false }
 lightyear_tests = { path = "./lightyear_tests", version = "0.24.2", default-features = false }
 lightyear_webtransport = { path = "./lightyear_webtransport", version = "0.24.2", default-features = false }
@@ -154,6 +156,7 @@ crossbeam-channel = { version = "0.5.13", features = [] }
 
 # metrics
 metrics = "0.24"
+metrics-util = "0.20"
 
 # transport
 aeronet_webtransport = "0.16"
@@ -194,6 +197,7 @@ bevy = { version = "0.16", default-features = false, features = [
 bevy_app = { version = "0.16", default-features = false }
 bevy_derive = { version = "0.16", default-features = false }
 bevy_diagnostic = { version = "0.16", default-features = false }
+bevy_color = { version = "0.16", default-features = false }
 bevy_ecs = { version = "0.16", default-features = false }
 bevy_input = { version = "0.16", default-features = false }
 bevy_log = { version = "0.16", default-features = false }
@@ -201,8 +205,10 @@ bevy_math = { version = "0.16", default-features = false }
 bevy_platform = { version = "0.16", default-features = false }
 bevy_ptr = { version = "0.16", default-features = false }
 bevy_reflect = { version = "0.16", default-features = false }
+bevy_text = { version = "0.16", default-features = false }
 bevy_time = { version = "0.16", default-features = false }
 bevy_transform = { version = "0.16", default-features = false }
+bevy_ui = { version = "0.16", default-features = false }
 bevy_utils = { version = "0.16", default-features = false }
 tracy-client = { version = "=0.18.0" }
 

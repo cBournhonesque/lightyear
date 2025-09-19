@@ -4,6 +4,8 @@
 
 extern crate alloc;
 extern crate core;
+#[cfg(feature = "std")]
+extern crate std;
 
 pub mod free_list;
 
@@ -17,3 +19,6 @@ pub mod collections;
 pub mod ecs;
 pub mod registry;
 pub mod wrapping_id;
+
+#[cfg(feature = "metrics")]
+pub mod metrics;

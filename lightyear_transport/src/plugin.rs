@@ -33,7 +33,10 @@ use lightyear_core::tick::Tick;
 use lightyear_link::{Link, LinkPlugin, LinkSet, Linked};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
-use tracing::{error, trace, warn};
+#[cfg(feature = "metrics")]
+use lightyear_utils::metrics::TimerGauge;
+#[allow(unused_imports)]
+use tracing::{error, info, trace, warn};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum TransportSet {
@@ -60,8 +63,12 @@ impl TransportPlugin {
     fn buffer_receive(
         time: Res<Time<Real>>,
         par_commands: ParallelCommands,
+        #[cfg(feature = "metrics")] channel_registry: Res<ChannelRegistry>,
         mut query: Query<(Entity, &mut Link, &mut Transport), (With<Linked>, Without<HostClient>)>,
     ) {
+        #[cfg(feature = "metrics")]
+        let _timer = TimerGauge::new("transport/recv");
+
         query
             .par_iter_mut()
             .for_each(|(entity, mut link, mut transport)| {
@@ -91,6 +98,8 @@ impl TransportPlugin {
                     .lost_packets
                     .drain(..)
                     .try_for_each(|lost_packet| {
+                        #[cfg(feature = "metrics")]
+                        metrics::counter!("transport/packets_lost").increment(1);
                         if let Some(message_map) =
                             transport.packet_to_message_map.remove(&lost_packet)
                         {
@@ -119,6 +128,9 @@ impl TransportPlugin {
                 link.recv
                     .drain()
                     .try_for_each(|packet| {
+                        #[cfg(feature = "metrics")]
+                        metrics::gauge!("transport/recv_bytes").increment(packet.len() as f64);
+
                         let mut cursor = Reader::from(packet);
 
                         // Parse the packet
@@ -136,6 +148,8 @@ impl TransportPlugin {
                             .header_manager
                             .process_recv_packet_header(&header);
 
+
+
                         // Parse the payload into messages, put them in the internal buffers for each channel
                         // we read directly from the packet and don't create intermediary datastructures to avoid allocations
                         // TODO: maybe do this in a helper function?
@@ -145,6 +159,12 @@ impl TransportPlugin {
                             // read the fragment data
                             let channel_id = ChannelId::from_bytes(&mut cursor)?;
                             let fragment_data = FragmentData::from_bytes(&mut cursor)?;
+                            #[cfg(feature = "metrics")]
+                            {
+                                let channel_name = channel_registry.get_name_from_net_id(channel_id);
+                                metrics::gauge!("channel/recv_messages", "channel" => channel_name).increment(1);
+                                metrics::gauge!("channel/recv_bytes", "channel" => channel_name).increment(fragment_data.bytes.len() as f64);
+                            }
                             transport
                                 .receivers
                                 .get_mut(&channel_id)
@@ -158,11 +178,17 @@ impl TransportPlugin {
                         // read single message data
                         while cursor.has_remaining() {
                             let channel_id = ChannelId::from_bytes(&mut cursor)?;
+                            #[cfg(feature = "metrics")]
+                            let channel_name = channel_registry.get_name_from_net_id(channel_id);
                             let num_messages =
                                 cursor.read_u8().map_err(SerializationError::from)?;
+                            #[cfg(feature = "metrics")]
+                            metrics::gauge!("channel/recv_messages", "channel" => channel_name).increment(num_messages as f64);
                             trace!(?channel_id, ?num_messages);
                             for _ in 0..num_messages {
                                 let single_data = SingleData::from_bytes(&mut cursor)?;
+                                #[cfg(feature = "metrics")]
+                                metrics::gauge!("channel/recv_bytes", "channel" => channel_name).increment(single_data.bytes.len() as f64);
                                 transport
                                     .receivers
                                     .get_mut(&channel_id)
@@ -223,15 +249,8 @@ impl TransportPlugin {
                         Ok::<(), TransportError>(())
                     })
                     .ok();
-            })
+            });
     }
-
-    // TODO: users will mostly interact only via the lightyear_message
-    //  MessageSender<M> and MessageReceiver<M> so maybe there's no need
-    //  to create ChannelSender<C> components? or should we do it for users
-    //  who only want to use lightyear_transport without lightyear_messages?
-    //  so they can easily buffer messages in parallel to various channels?
-    //  The parallelism is lost when using lightyear_message so maybe there is no point!
 
     /// Iterates through the `ChannelSenders` on the entity,
     /// Build packets from the messages in the channel,
@@ -249,6 +268,9 @@ impl TransportPlugin {
         >,
         channel_registry: Res<ChannelRegistry>,
     ) {
+        #[cfg(feature = "metrics")]
+        let _timer = TimerGauge::new("transport/send");
+
         query.par_iter_mut().for_each(|(mut link, mut transport, timeline, host_client)| {
             let tick = timeline.tick();
             // allow split borrows
@@ -312,6 +334,8 @@ impl TransportPlugin {
                             .get_mut(channel_kind)
                             .ok_or(PacketError::ChannelNotFound)?;
 
+                        // note: cannot compute send metrics here because this is just for messages
+                        //   that have a message id
                         if sender_metadata.mode.is_watching_acks() {
                             trace!(
                                 "Registering message ack (ChannelId:{:?} {:?}) for packet {:?}",
@@ -343,6 +367,9 @@ impl TransportPlugin {
                 link.send.push(Bytes::from(packet.payload));
             }
 
+            #[cfg(feature = "metrics")]
+            metrics::gauge!("transport/send_bytes").increment(total_bytes_sent as f64);
+
             // adjust the real amount of bytes that we sent through the limiter (to account for the actual packet size)
             if transport.priority_manager.config.enabled
                 && let Ok(remaining_bytes_to_add) =
@@ -353,7 +380,7 @@ impl TransportPlugin {
                         .limiter
                         .check_n(remaining_bytes_to_add);
             }
-        })
+        });
     }
 
     /// On disconnection, reset the Transport to its original state.

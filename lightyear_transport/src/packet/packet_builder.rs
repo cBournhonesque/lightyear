@@ -118,6 +118,8 @@ impl PacketBuilder {
                 message: fragment_data.message_id,
                 fragment_index: Some(fragment_data.fragment_id),
                 num_fragments: Some(fragment_data.num_fragments.0),
+                #[cfg(feature = "metrics")]
+                num_bytes: fragment_data.bytes.len(),
             }],
             packet_id: header.packet_id,
             prewritten_size: 0,
@@ -333,6 +335,8 @@ impl PacketBuilder {
                         message: id,
                         fragment_index: None,
                         num_fragments: None,
+                        #[cfg(feature = "metrics")]
+                        num_bytes: message.bytes_len(),
                     });
                 }
             }
@@ -664,6 +668,8 @@ mod tests {
                 message: MessageId(3),
                 fragment_index: Some(FragmentIndex(0)),
                 num_fragments: Some(fragments.len() as u64),
+                #[cfg(feature = "metrics")]
+                num_bytes: fragments[0].bytes.len(),
             }]
         );
         let contents = packet.parse_packet_payload()?;
@@ -681,6 +687,8 @@ mod tests {
                 message: MessageId(0),
                 fragment_index: Some(FragmentIndex(1)),
                 num_fragments: Some(fragments.len() as u64),
+                #[cfg(feature = "metrics")]
+                num_bytes: fragments[1].bytes.len(),
             }]
         );
         let contents = packet.parse_packet_payload()?;

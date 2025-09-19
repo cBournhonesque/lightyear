@@ -26,6 +26,8 @@ use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::registry::ComponentRegistry;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
+#[cfg(feature = "metrics")]
+use lightyear_utils::metrics::TimerGauge;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use tracing::{debug, debug_span, error, info, trace, trace_span, warn};
@@ -213,6 +215,9 @@ fn check_rollback(
     parallel_commands: ParallelCommands,
     mut commands: Commands,
 ) {
+    #[cfg(feature = "metrics")]
+    let _timer = TimerGauge::new("prediction/rollback/check");
+
     // TODO: iterate through each archetype in parallel? using rayon
 
     // TODO: maybe have a sparse-set component with ConfirmedUpdated to quickly query only through predicted entities
@@ -268,6 +273,7 @@ fn check_rollback(
                     &mut commands,
                     Rollback::FromState,
                 );
+
                 return;
             };
             skip_state_check = true;
@@ -748,6 +754,9 @@ fn rollback_fixed_time(current_fixed_time: &Time<Fixed>, num_rollback_ticks: i16
 }
 
 pub(crate) fn run_rollback(world: &mut World) {
+    #[cfg(feature = "metrics")]
+    let _timer = TimerGauge::new("prediction::rollback");
+
     let (entity, mut local_timeline, prediction_manager) = world
         .query::<(Entity, &mut LocalTimeline, &PredictionManager)>()
         .single_mut(world)
@@ -770,9 +779,8 @@ pub(crate) fn run_rollback(world: &mut World) {
     );
     #[cfg(feature = "metrics")]
     {
-        metrics::counter!("prediction::rollbacks::count").increment(1);
-        metrics::gauge!("prediction::rollbacks::event").set(1);
-        metrics::gauge!("prediction::rollbacks::ticks").set(num_rollback_ticks);
+        metrics::counter!("prediction/rollback/count").increment(1);
+        metrics::gauge!("prediction/rollback/ticks").set(num_rollback_ticks);
     }
 
     // Keep track of the generic time resource so it can be restored after the rollback.
@@ -851,8 +859,7 @@ pub(crate) fn end_rollback(
 
 #[cfg(feature = "metrics")]
 pub(crate) fn no_rollback() {
-    metrics::gauge!("prediction::rollbacks::event").set(0);
-    metrics::gauge!("prediction::rollbacks::ticks").set(0);
+    metrics::gauge!("prediction/rollback/ticks").set(0);
 }
 
 /// Track whether we are in rollback or not
