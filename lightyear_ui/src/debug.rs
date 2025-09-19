@@ -435,7 +435,7 @@ impl Default for MetricsPanelLayout {
                                 .with_direction(MetricDirection::Receive),
                             ],
                         ),
-                         MetricsSubsection::new(
+                        MetricsSubsection::new(
                             "Sync",
                             vec![
                                 MetricSpec::new(
@@ -625,7 +625,11 @@ fn setup_metrics_panel(
         });
 }
 
-fn line(cmd: &mut RelatedSpawnerCommands<ChildOf>, spec: &MetricSpec, settings: &MetricsPanelSettings) {
+fn line(
+    cmd: &mut RelatedSpawnerCommands<ChildOf>,
+    spec: &MetricSpec,
+    settings: &MetricsPanelSettings,
+) {
     cmd.spawn((
         MetricLine { spec: spec.clone() },
         DirectionMarker(spec.direction),

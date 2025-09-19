@@ -9,12 +9,12 @@ use crate::channel::registry::{ChannelId, ChannelRegistry};
 use crate::packet::message::{FragmentData, MessageData, SendMessage, SingleData};
 use governor::{DefaultDirectRateLimiter, Quota};
 use lightyear_core::network::NetId;
+use lightyear_serde::ToBytes;
 use nonzero_ext::*;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace};
-use lightyear_serde::ToBytes;
 
 const BYPASS_QUOTA_PRIORITY: f32 = 100000.0;
 
@@ -122,7 +122,8 @@ impl PriorityManager {
                 #[cfg(feature = "metrics")]
                 let channel_name = channel_registry.get_name_from_net_id(net_id);
                 #[cfg(feature = "metrics")]
-                metrics::gauge!("channel/send_messages", "channel" => channel_name).increment((single.len() + fragment.len()) as f64);
+                metrics::gauge!("channel/send_messages", "channel" => channel_name)
+                    .increment((single.len() + fragment.len()) as f64);
 
                 single_data.push((
                     net_id,
@@ -134,7 +135,8 @@ impl PriorityManager {
                             };
                             #[cfg(feature = "metrics")]
                             {
-                                metrics::gauge!("channel/send_bytes", "channel" => channel_name).increment(single.bytes_len() as f64);
+                                metrics::gauge!("channel/send_bytes", "channel" => channel_name)
+                                    .increment(single.bytes_len() as f64);
                             }
                             // we don't actually use the `messages_sent` field when the priority filter is disabled
                             // but we still include it so that we can easily check in tests how many messages were sent
@@ -162,7 +164,8 @@ impl PriorityManager {
                             };
                             #[cfg(feature = "metrics")]
                             {
-                                metrics::gauge!("channel/send_bytes", "channel" => channel_name).increment(fragment.bytes_len() as f64);
+                                metrics::gauge!("channel/send_bytes", "channel" => channel_name)
+                                    .increment(fragment.bytes_len() as f64);
                             }
                             fragment
                         })
@@ -248,9 +251,11 @@ impl PriorityManager {
 
             #[cfg(feature = "metrics")]
             {
-                let channel_name = channel_registry.get_name_from_net_id(buffered_message.channel_net_id);
+                let channel_name =
+                    channel_registry.get_name_from_net_id(buffered_message.channel_net_id);
                 metrics::gauge!("channel/send_messages", "channel" => channel_name).increment(1);
-                metrics::gauge!("channel/send_bytes", "channel" => channel_name).increment(buffered_message.data.bytes_len() as f64);
+                metrics::gauge!("channel/send_bytes", "channel" => channel_name)
+                    .increment(buffered_message.data.bytes_len() as f64);
             }
 
             // the message is allowed, add it to the list of messages to send
