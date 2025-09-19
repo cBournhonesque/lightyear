@@ -10,16 +10,13 @@ use lightyear::input::bei::input_message::{ActionData, ActionsSnapshot, BEIState
 use lightyear::input::input_buffer::InputBuffer;
 use lightyear::input::input_message::ActionStateQueryData;
 use lightyear::input::input_message::ActionStateSequence;
-use lightyear::input::native::prelude::InputMarker;
 use lightyear_connection::client::Client;
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Rollback, Tick, Timeline};
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick, Timeline};
 use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::diagnostics::PredictionMetrics;
-use lightyear_prediction::manager::PredictionManager;
-use lightyear_prediction::prelude::DeterministicPredicted;
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
 use lightyear_sync::prelude::InputTimeline;

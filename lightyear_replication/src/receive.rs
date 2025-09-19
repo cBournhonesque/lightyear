@@ -31,6 +31,8 @@ use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, RemoteEvent};
 use lightyear_transport::prelude::Transport;
+#[cfg(feature = "metrics")]
+use lightyear_utils::metrics::{DormantTimerGauge, TimerGauge};
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
 
@@ -89,6 +91,9 @@ impl ReplicationReceivePlugin {
             With<Connected>,
         >,
     ) {
+        #[cfg(feature = "metrics")]
+        let _timer = DormantTimerGauge::new("replication/receive");
+
         query
             .par_iter_mut()
             .for_each(|(mut actions, mut updates, mut receiver)| {
@@ -99,6 +104,8 @@ impl ReplicationReceivePlugin {
                 for message in updates.receive_with_tick() {
                     receiver.recv_updates(message.data, message.remote_tick);
                 }
+                #[cfg(feature = "metrics")]
+                _timer.activate();
             });
     }
 
@@ -116,6 +123,9 @@ impl ReplicationReceivePlugin {
         // buffer to avoid allocations
         mut receiver_entities: Local<Vec<(Entity, PeerId)>>,
     ) {
+        #[cfg(feature = "metrics")]
+        let _timer = TimerGauge::new("replication/apply");
+
         // we first collect the entities we need into a buffer
         // We cannot use query.iter() and &mut World at the same time as this would be UB because they both access Archetypes
         // See https://discord.com/channels/691052431525675048/1358658786851684393/1358793406679355593

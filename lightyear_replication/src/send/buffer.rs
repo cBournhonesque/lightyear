@@ -32,6 +32,8 @@ use lightyear_link::prelude::Server;
 use lightyear_link::server::LinkOf;
 use lightyear_messages::MessageManager;
 use lightyear_serde::entity_map::RemoteEntityMap;
+#[cfg(feature = "metrics")]
+use lightyear_utils::metrics::DormantTimerGauge;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
 #[allow(unused_imports)]
@@ -77,6 +79,9 @@ pub(crate) fn replicate(
     components: &Components,
     mut replicated_archetypes: Local<ReplicatedArchetypes>,
 ) {
+    #[cfg(feature = "metrics")]
+    let _timer = DormantTimerGauge::new("replication/buffer");
+
     replicated_archetypes.update(archetypes, components, component_registry.as_ref());
 
     // NOTE: this system doesn't handle delta compression, because we need to store a shared component history
@@ -86,7 +91,17 @@ pub(crate) fn replicate(
     // past ticks where the component changes.
     manager_query.par_iter_mut().for_each(
         |(sender_entity, mut sender, mut message_manager, timeline, delta_manager, link_of)| {
+
             let _span = trace_span!("replicate", sender = ?sender_entity).entered();
+
+            // enable split borrows
+            let sender = &mut *sender;
+            if !sender.send_timer.finished() {
+                return;
+            }
+            #[cfg(feature = "metrics")]
+            _timer.activate();
+
             // delta: either the delta manager is present on the sender directly (Client)
             // or the delta is on the server
             let delta = delta_manager
@@ -95,11 +110,6 @@ pub(crate) fn replicate(
                 });
             let tick = timeline.tick();
 
-            // enable split borrows
-            let sender = &mut *sender;
-            if !sender.send_timer.finished() {
-                return;
-            }
             // update the change ticks
             sender.last_run = sender.this_run;
             sender.this_run = system_ticks.this_run();

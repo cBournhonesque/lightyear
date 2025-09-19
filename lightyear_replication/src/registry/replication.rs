@@ -149,11 +149,11 @@ impl ComponentRegistry {
         entity_mut.buffered.remove(component_id);
         #[cfg(feature = "metrics")]
         {
-            metrics::counter!("replication::receive::component::remove").increment(1);
-            metrics::counter!(format!(
-                "replication::receive::component::{}::remove",
-                core::any::type_name::<C>()
-            ))
+            metrics::counter!("replication/receive/component/remove").increment(1);
+            metrics::counter!(
+                "replication/receive/component/remove",
+                "component" => core::any::type_name::<C>()
+            )
             .increment(1);
         }
     }
@@ -225,11 +225,11 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
         if c.as_ref() != &component {
             #[cfg(feature = "metrics")]
             {
-                metrics::counter!("replication::receive::component::update").increment(1);
-                metrics::counter!(format!(
-                    "replication::receive::component::{}::update",
-                    core::any::type_name::<C>()
-                ))
+                metrics::counter!("replication/receive/component/update").increment(1);
+                metrics::counter!(
+                    "replication/receive/component/update",
+                    "component" => core::any::type_name::<C>()
+                )
                 .increment(1);
             }
             *c = component;
@@ -241,11 +241,11 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
         }
         #[cfg(feature = "metrics")]
         {
-            metrics::counter!("replication::receive::component::insert").increment(1);
-            metrics::counter!(format!(
-                "replication::receive::component::{}::insert",
-                core::any::type_name::<C>()
-            ))
+            metrics::counter!("replication/receive/component/insert").increment(1);
+            metrics::counter!(
+                "replication/receive/component/insert",
+                "component" => core::any::type_name::<C>()
+            )
             .increment(1);
         }
     }

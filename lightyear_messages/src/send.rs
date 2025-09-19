@@ -120,6 +120,11 @@ impl<M: Message> MessageSender<M> {
             // SAFETY: the message has been checked to be of type `M`
             unsafe { serialize_metadata.serialize::<SendEntityMap, M, M>(&message, &mut sender.writer, entity_map)? };
             let bytes = sender.writer.split();
+            #[cfg(feature = "metrics")]
+            {
+                metrics::counter!("message/send", "message" => core::any::type_name::<M>()).increment(1);
+                metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>()).increment(bytes.len() as f64);
+            }
             trace!("Sending message of type {:?} with net_id {net_id:?}/kind {:?} on channel {channel_kind:?}", core::any::type_name::<M>(), MessageKind::of::<M>());
             transport.send_erased(channel_kind, bytes, priority)?;
             Ok(())

@@ -43,9 +43,15 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
                 &mut SendEntityMap::default(),
             )?;
             let bytes = self.writer.split();
+            let bytes_len = bytes.len();
             self.query
                 .iter_many_unique_mut(senders)
                 .try_for_each(|(_, transport)| {
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("message/send", "message" => core::any::type_name::<M>()).increment(1);
+                        metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>()).increment(bytes_len as f64);
+                    }
                     transport.send_with_priority::<C>(bytes.clone(), priority)
                 })?;
         } else {
@@ -59,6 +65,11 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
                         &mut manager.entity_mapper.local_to_remote,
                     )?;
                     let bytes = self.writer.split();
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("message/send", "message" => core::any::type_name::<M>()).increment(1);
+                        metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>()).increment(bytes.len() as f64);
+                    }
                     transport.send_with_priority::<C>(bytes, priority)?;
                     Ok::<(), BevyError>(())
                 })?;

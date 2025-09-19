@@ -14,15 +14,8 @@
 use std::{io::ErrorKind, net::UdpSocket};
 
 use aeronet_io::connection::{LocalAddr, PeerAddr};
-use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::{
-    component::Component,
-    error::Result,
-    observer::Trigger,
-    query::{With, Without},
-    schedule::IntoScheduleConfigs,
-    system::{Commands, Query},
-};
+use bevy_app::prelude::*;
+use bevy_ecs::prelude::*;
 use bytes::{BufMut, BytesMut};
 use lightyear_core::time::Instant;
 use lightyear_link::{
@@ -120,6 +113,9 @@ impl UdpPlugin {
             .par_iter_mut()
             .for_each(|(mut link, mut udp_io, remote_addr)| {
                 link.send.drain().for_each(|payload| {
+                    // B/s
+                    #[cfg(feature = "metrics")]
+                    metrics::gauge!("udp/send").increment(payload.len() as f64);
                     udp_io
                         .socket
                         .as_mut()

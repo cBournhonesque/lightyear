@@ -12,7 +12,7 @@ pub trait TypeKind: From<TypeId> + Copy + PartialEq + Eq + Hash {}
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypeMapper<K: TypeKind> {
     pub(crate) next_net_id: NetId,
-    pub(crate) kind_map: HashMap<K, NetId>,
+    pub(crate) kind_map: HashMap<K, (NetId, &'static str)>,
     pub(crate) id_map: HashMap<NetId, K>,
 }
 
@@ -38,7 +38,8 @@ impl<K: TypeKind> TypeMapper<K> {
             return kind;
         }
         let net_id = self.next_net_id;
-        self.kind_map.insert(kind, net_id);
+        self.kind_map
+            .insert(kind, (net_id, core::any::type_name::<T>()));
         self.id_map.insert(net_id, kind);
         self.next_net_id += 1;
         kind
@@ -49,7 +50,11 @@ impl<K: TypeKind> TypeMapper<K> {
     }
 
     pub fn net_id(&self, kind: &K) -> Option<&NetId> {
-        self.kind_map.get(kind)
+        self.kind_map.get(kind).map(|(id, _)| id)
+    }
+
+    pub fn name(&self, kind: &K) -> Option<&'static str> {
+        self.kind_map.get(kind).map(|(_, name)| *name)
     }
 }
 
