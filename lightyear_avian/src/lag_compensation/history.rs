@@ -1,218 +1,399 @@
-//! This plugin maintains a history buffer of the Position, Rotation and ColliderAabb of server entities
-//! so that they can be used for lag compensation.
+use core::ops::{Deref, DerefMut};
+use std::time::Duration;
 
-#[cfg(all(feature = "2d", not(feature = "3d")))]
-use avian2d::{math::Vector, prelude::*};
-#[cfg(all(feature = "3d", not(feature = "2d")))]
-use avian3d::{math::Vector, prelude::*};
-use bevy_app::prelude::*;
-use bevy_ecs::prelude::*;
-use bevy_ecs::{
-    change_detection::DetectChanges,
-    hierarchy::{ChildOf, Children},
-    schedule::{IntoScheduleConfigs, SystemSet},
-};
-use lightyear_core::history_buffer::HistoryBuffer;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_link::prelude::Server;
-#[allow(unused_imports)]
-use tracing::{debug, info, trace};
 
-/// Add this plugin to enable lag compensation on the server
-#[derive(Resource)]
+use avian2d::prelude::{Collider, ColliderAabb, CollisionEventsEnabled, CollisionLayers, LinearVelocity, OnCollisionStart, PhysicsSet, Position, Rotation, ShapeCastConfig, SpatialQuery, SpatialQueryFilter};
+use bevy_app::{App, FixedUpdate, Plugin, Update};
+use bevy_ecs::{component::Component, entity::Entity, event::Event, name::Name, observer::{Observer, Trigger}, query::{Has, With}, relationship::Relationship, schedule::IntoScheduleConfigs, system::{Commands, Populated, Query, Res, Single}, world::{OnAdd, OnInsert, OnRemove}};
+use bevy_math::{Dir3, Vec3};
+use bevy_time::{Time, Timer, TimerMode};
+use lightyear_core::{history_buffer::HistoryBuffer, prelude::{LocalTimeline, NetworkTimeline}, tick::Tick};
+use lightyear_interpolation::plugin::InterpolationDelay;
+use lightyear_link::server::Server;
+use tracing::{debug, trace, warn};
+
+
+/// This is a server only plugin do not put in client. As lag compensation is a server matter
 pub struct LagCompensationPlugin;
-
-/// This resource contains some configuration options for lag compensation
-#[derive(Resource)]
-pub struct LagCompensationConfig {
-    /// Maximum number of ticks that we will store in the history buffer for lag compensation.
-    /// This will determine how far back in time we can rewind the entity's position.
-    ///
-    /// Around 300ms should be enough for most cases
-    pub max_collider_history_ticks: u8,
-}
-
-impl Default for LagCompensationConfig {
-    fn default() -> Self {
-        Self {
-            // 33 ticks corresponds to ~500ms assuming 64Hz ticks
-            max_collider_history_ticks: 35,
-        }
-    }
-}
-
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum LagCompensationSet {
-    /// Update the broad phase collider history
-    ///
-    /// Any t needs to perform some lag-compensation query using the history
-    /// should run after this set
-    UpdateHistory,
-    /// Compute collisions using lag compensation
-    Collisions,
-}
-
-/// Marker component to indicate that this collider's [ColliderAabb] holds the
-/// broad-phase AABB envelope of its parent (the entity for which we want to apply
-/// lag compensation)
-#[derive(Component)]
-pub struct AabbEnvelopeHolder;
-
-/// Component that will store the Position, Rotation, ColliderAabb in a history buffer
-/// in order to perform lag compensation for client-predicted entities interacting with
-/// this entity
-pub type LagCompensationHistory = HistoryBuffer<(Position, Rotation, ColliderAabb)>;
 
 impl Plugin for LagCompensationPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<LagCompensationHistory>();
+        // Observers
+        app.add_observer(handle_lag_compensated)
+            .add_observer(clear_lag_boxes)
+            .add_observer(handle_true_collisions)
+            .add_observer(despawn_true_colliders);
 
-        app.init_resource::<LagCompensationConfig>();
-        app.add_observer(spawn_broad_phase_aabb_envelope);
-        // We want the history buffer at tick N to contain the collider state (Position, Rotation)
-        // AFTER the PhysicsSet::Step has run. (one way to reason about this is that the server
-        // sends the collider state at tick N in post-update, also after the physics simulation step has run)
-        //
-        // The ColliderAABB gets updated in the BroadPhase set (before the Solver step) which might cause
-        // a 1-tick delay but that shouldn't matter much because we are just using it to compute an aabb envelope
-        // of all ticks
+        //Systems
         app.add_systems(
-            PhysicsSchedule,
-            (update_collision_layers, update_collider_history)
-                .in_set(LagCompensationSet::UpdateHistory),
-        );
+            FixedUpdate,
+            (fill_history, create_aabb_lag_box)
+                .chain_ignore_deferred()
+                .after(PhysicsSet::Prepare),
+        )
+        .add_systems(FixedUpdate, handle_projectiles)
+        .add_systems(Update, despawn_true_colliders_time_passed);
 
-        app.configure_sets(
-            PhysicsSchedule,
-            (
-                PhysicsStepSet::Solver,
-                // the history must be updated before the SpatialQuery is updated
-                LagCompensationSet::UpdateHistory.ambiguous_with(PhysicsStepSet::Sleeping),
-                PhysicsStepSet::SpatialQuery,
-                // collisions must run after the SpatialQuery has been updated
-                // NOTE: we set it as ambiguous with Finalize, but maybe we should run before?
-                LagCompensationSet::Collisions.ambiguous_with(PhysicsStepSet::Finalize),
-            )
-                .chain(),
-        );
-        app.configure_sets(
-            FixedPostUpdate,
-            LagCompensationSet::Collisions.after(PhysicsSet::Sync),
-        );
+        app.add_event::<Hit>();
     }
 }
 
-/// Spawns a child entity with a collider that represents the broad-phase aabb envelope
-/// for lag compensation purposes
-fn spawn_broad_phase_aabb_envelope(
-    trigger: Trigger<OnAdd, LagCompensationHistory>,
-    query: Query<Option<&CollisionLayers>>,
+
+
+/// This component is the one inserted unto the entity you want to be lag compensated, this entity should be interpolated  with [`Replicate`] and should have a collider.
+/// Note - We will listen to after insertions or changes in colliders
+#[derive(Component)]
+#[require(LagConfig)]
+#[relationship_target(relationship=LagBoxOf)]
+pub struct LagCompensated(Entity);
+
+impl LagCompensated {
+    fn new() -> Self {
+        Self(Entity::PLACEHOLDER)
+    }
+}
+
+/// A one-to-one relationship with [`LagCompensated`], represents a massive AABB collider that acts as our broadphase (a checker if it would collider player).
+/// This was made as preemptive optimization and is really useful to avoid generating useless colliders.
+#[derive(Component)]
+#[require(ColliderHistory, AabbHistory)]
+#[relationship(relationship_target=LagCompensated)]
+pub struct LagBoxOf(Entity);
+
+/// Carries the history of colliders, note we will spawn those colliders. If a hit is detected
+pub type ColliderHistory = HistoryBuffer<(Collider, Position, Rotation)>;
+
+/// Carries the AABB history of the colliders
+pub type AabbHistory = HistoryBuffer<(Vec3, Vec3)>;
+
+/// This marks the projectile that you are using, note this is used to preemptive shapecast unto the LagBox. So we know if your bullet will hit it or not.
+/// This was made to avoid nuisances with Avian schedule
+#[derive(Component, Debug, Clone)]
+pub struct ProjectileMarker;
+
+/// A relationship one to one, the shape cast might return multiple collisions for a few frames, this relationship is used to despawn them preemptively
+/// Note we also automatically despawn them after a while
+#[derive(Component, Debug)]
+#[relationship_target(relationship = LagCompHitOf)]
+pub struct LagCompHit(Entity);
+
+/// Marks the "true" colliders or what we consider as such, in summary that would be the precise interpolated collider of the entity you decided to lag compensate.
+/// Note - There might be a slight margin of error although not very relevant.
+#[derive(Component, Debug)]
+#[relationship(relationship_target = LagCompHit)]
+pub struct LagCompHitOf(Entity);
+
+/// Points out the [`LagCompensated`] entity in the interpolated collider
+#[derive(Component, Debug)]
+pub struct OriginEntity(Entity);
+
+#[derive(Component)]
+struct TimerHitCollider(Timer);
+
+/// An event that occurs an interpolated collider get collided with. If you dont want to play with the component you can easily use this guy
+/// Gives the lag compensated entity that got hit
+#[derive(Event)]
+#[allow(unused)]
+struct Hit(Entity);
+
+/// Configurations related to lag compensation
+#[derive(Component)]
+pub struct LagConfig {
+    /// Points out the "client" entity also know as the representor of your connection to server. This should contain [`InterpolationDelay`] so check your input protocol!
+    pub client: Entity,
+    /// If you teleport or anything like that you probably want to limit how big your box is for a few tick.
+    pub lag_box_limit: f32,
+    /// The amount of history we take in evaluation, adjust according to ms
+    pub max_history_ticks: u16,
+    /// Collision layer of our "true" collider, you should try to make him have your projectile layer on it is filters
+    pub collision_layer: CollisionLayers,
+    /// Time to despawn
+    pub time_to_despawn: Duration,
+}
+
+impl Default for LagConfig {
+    fn default() -> Self {
+        Self {
+            client: Entity::PLACEHOLDER,
+            lag_box_limit: 100.,
+            max_history_ticks: 25,
+            collision_layer: CollisionLayers::NONE,
+            time_to_despawn: Duration::from_secs(3),
+        }
+    }
+}
+
+impl LagConfig {
+    fn new(
+        client: Entity,
+        lag_box_limit: f32,
+        max_history_ticks: u16,
+        collision_layer: CollisionLayers,
+        time_to_despawn: Duration,
+    ) -> Self {
+        Self {
+            client,
+            lag_box_limit,
+            max_history_ticks,
+            collision_layer,
+            time_to_despawn,
+        }
+    }
+}
+
+/// Create lag boxes, if a collider is added at the same point as [`LagCompensated`]
+fn handle_lag_compensated(
+    trigger: Trigger<OnAdd, LagCompensated>,
+    has_collider: Query<Has<Collider>>,
     mut commands: Commands,
 ) {
-    debug!("spawning broad-phase collider from aabb!");
-    commands.entity(trigger.target()).with_children(|builder| {
-        let mut child_commands = builder.spawn((
-            // the collider/position/rotation values don't matter here because they will be updated in the
-            // `update_lag_compensation_broad_phase_collider` system
-            #[cfg(all(feature = "2d", not(feature = "3d")))]
-            Collider::rectangle(1.0, 1.0),
-            #[cfg(all(feature = "3d", not(feature = "2d")))]
-            Collider::cuboid(1.0, 1.0, 1.0),
-            Position::default(),
-            Rotation::default(),
-            AabbEnvelopeHolder,
-        ));
-        // the aabb_envelope has the same collision_layers as the parent
-        if let Ok(Some(collision_layers)) = query.get(trigger.target()) {
-            child_commands.insert(*collision_layers);
-        }
-    });
+    let lag_compensated = trigger.target();
+
+    let entity_to_watch = commands.entity(lag_compensated).id();
+
+    // Handles case when collider already exists
+    let has_collider = has_collider.get(lag_compensated).unwrap_or_default();
+    if has_collider {
+        commands
+            .entity(lag_compensated)
+            .with_related::<LagBoxOf>(Name::new("Lag Box"));
+        debug!("Creating lag for someone that already had lag collider");
+    }
+
+    // Handles future colliders additions
+    let mut observer = Observer::new(handle_late_insertions);
+    observer.watch_entity(entity_to_watch);
+    commands.spawn(observer);
+    debug!("Observing entity for colliders insertions");
 }
 
-/// Update the collision layers of the child AabbEnvelopeHolder to match the parent
-fn update_collision_layers(
-    mut child_query: Query<&mut CollisionLayers, With<AabbEnvelopeHolder>>,
-    mut parent_query: Query<
-        (Entity, &mut CollisionLayers, &Children),
-        (Without<AabbEnvelopeHolder>, Changed<CollisionLayers>),
-    >,
-) {
-    parent_query
-        .iter_mut()
-        .for_each(|(parent, layers, children)| {
-            if layers.is_changed() || !layers.is_added() {
-                for child in children.iter() {
-                    if let Ok(mut child_layers) = child_query.get_mut(child) {
-                        *child_layers = *layers;
-                        trace!(
-                            ?child,
-                            ?parent,
-                            "Adding layers {layers:?} on lag compensation child collider"
-                        );
-                    }
-                }
-            }
-        });
+/// Create lag boxes, if a collider is added after pointer as [`LagCompensated``]
+fn handle_late_insertions(trigger: Trigger<OnInsert, Collider>, mut commands: Commands) {
+    debug!("Creating lag box");
+    let lag_compensated = trigger.target();
+    let observer = trigger.observer();
+
+    commands
+        .entity(lag_compensated)
+        .with_related::<LagBoxOf>(Name::new("Lag Box"));
+
+    commands.entity(observer).despawn();
+    debug!("Handling late insertion of collider")
 }
 
-/// For each lag-compensated collider, store every tick a copy of the
-/// Position, Rotation and ColliderAabb in the history buffer
-///
-/// The ColliderAabb is used to compute the broad-phase aabb envelope in the broad-phase.
-/// The Position and Rotation will be used to compute an interpolated collider in the narrow-phase.
-fn update_collider_history(
-    // TODO: check the Replicate component to only affect entities that are replicated on a Server
+/// Note this will occur automatically as the on insert originates a new related lag box
+fn clear_lag_boxes(trigger: Trigger<OnRemove, LagBoxOf>, mut commands: Commands) {
+    let lag_box = trigger.target();
+
+    commands.entity(lag_box).despawn();
+}
+
+/// Fills history buffer with the given collider positions also creates the history of the aabbs available
+fn fill_history(
+    mut query: Populated<(&LagBoxOf, &mut AabbHistory, &mut ColliderHistory)>,
+    history_components: Query<(&Collider, &ColliderAabb, &Position, &Rotation, &LagConfig)>,
     timeline: Single<&LocalTimeline, With<Server>>,
-    config: Res<LagCompensationConfig>,
-    mut parent_query: Query<
-        (
-            &Position,
-            &Rotation,
-            &ColliderAabb,
-            &mut LagCompensationHistory,
-        ),
-        Without<AabbEnvelopeHolder>,
-    >,
-    // TODO: replace ChildOf with LagCompensationColliderOf? Would TransformPropagate still work?
-    mut children_query: Query<(&ChildOf, &mut Collider, &mut Position), With<AabbEnvelopeHolder>>,
 ) {
-    let tick = timeline.tick();
-    children_query
-        .iter_mut()
-        .for_each(|(child_of, mut collider, mut position)| {
-            let Ok((parent_position, parent_rotation, parent_aabb, mut history)) =
-                parent_query.get_mut(child_of.parent())
-            else {
-                debug!("The lag compensation collider is not yet spawned! For one of the entities");
-                return;
-            };
+    for (lag_box, mut aabb_history, mut collider_history) in query.iter_mut() {
+        let current_tick = timeline.tick();
+        let lag_compensated = lag_box.get();
 
-            // step 1. update the history buffer of the parent
-            history.add_update(tick, (*parent_position, *parent_rotation, *parent_aabb));
-            history.clear_until_tick(tick - (config.max_collider_history_ticks as u16));
+        let Ok((collider, aabb, position, rotation, config)) =
+            history_components.get(lag_compensated)
+        else {
+            debug!("Compensated entity did not apply yet their changes");
+            continue;
+        };
 
-            // step 2. update the child's Position, Rotation, Collider so that the avian spatial query
-            //  can use the collider's aabb envelope for broad-phase collision detection
-            let (min, max) = history.into_iter().fold(
-                (Vector::MAX, Vector::MIN),
-                |(min, max), (_, (_, _, aabb))| (min.min(aabb.min), max.max(aabb.max)),
-            );
+        let aabb_min = aabb.min;
+        let aabb_max = aabb.max;
+
+        if aabb_min.length_squared() == f32::INFINITY {
+            continue;
+        }
+        if aabb_max.length_squared() == f32::INFINITY {
+            continue;
+        }
+
+        aabb_history.add_update(current_tick, (aabb_min, aabb_max));
+        aabb_history.clear_until_tick(Tick(current_tick.saturating_sub(config.max_history_ticks)));
+
+        // If for some reason collider mutates you wanna know that
+        collider_history.add_update(current_tick, (collider.clone(), *position, *rotation));
+        collider_history
+            .clear_until_tick(Tick(current_tick.saturating_sub(config.max_history_ticks)));
+    }
+}
+
+fn create_aabb_lag_box(
+    query: Populated<(Entity, &AabbHistory, &LagBoxOf)>,
+    configs: Query<&LagConfig>,
+    mut commands: Commands,
+) {
+    for (entity, history, lag_box_of) in query.iter() {
+        let lag_compensated = lag_box_of.get();
+
+        let config = configs
+            .get(lag_compensated)
+            .expect("To always have lag config in lag compensated");
+
+        if let Some((_, (first_min, first_max))) = history.into_iter().next() {
+            let mut min = *first_min;
+            let mut max = *first_max;
+
+            for (_, (hist_min, hist_max)) in history.into_iter() {
+                min = min.min(*hist_min);
+                max = max.max(*hist_max);
+            }
+
+            if (max - min).length_squared() > config.lag_box_limit {
+                debug!("Collider too chonki probably teleporting lets keep the old one");
+                continue;
+            }
+
+            trace!(?min, ?max);
+
             let aabb_envelope = ColliderAabb::from_min_max(min, max);
-            // we cannot use the aabb_envelope directly because the SpatialQuery uses Position, Rotation, Collider
-            // instead we will use a cuboid collider with the same dimensions as the aabb envelope, and whose position
-            // is the center of the aabb envelope.
-            // We don't need to change the Rotation since the aabb envelope is axis-aligned
-            #[cfg(all(feature = "2d", not(feature = "3d")))]
-            let new_collider = Collider::rectangle(max.x - min.x, max.y - min.y);
-            #[cfg(all(feature = "3d", not(feature = "2d")))]
             let new_collider = Collider::cuboid(max.x - min.x, max.y - min.y, max.z - min.z);
-            *collider = new_collider;
-            *position = Position(aabb_envelope.center());
-            trace!(
-                ?tick,
-                ?history,
-                ?aabb_envelope,
-                "update collider history and aabb envelope"
-            );
-        });
+
+            commands
+                .entity(entity)
+                .insert((new_collider, Position(aabb_envelope.center())));
+        }
+    }
+}
+
+fn handle_projectiles(
+    query: Populated<Entity, With<ProjectileMarker>>,
+    collider: Query<(&Collider, &LinearVelocity, &Position, &Rotation)>,
+    lag_box: Query<&LagBoxOf>,
+    historys: Query<&ColliderHistory>,
+    lag_config: Query<&LagConfig>,
+    interpolation_delay: Query<&InterpolationDelay>,
+    spatial_query: SpatialQuery,
+    timeline: Single<&LocalTimeline, With<Server>>,
+    mut commands: Commands,
+) {
+    for projectile in query.iter() {
+        let Ok((collider, lin_vel, position, rotation)) = collider.get(projectile) else {
+            debug!("Waiting for collider to have needed information");
+            continue;
+        };
+
+        let cast_distance = lin_vel.length() * (5.0 / 64.0); // 5 ticks worth
+        let Ok(direction) = Dir3::try_from(lin_vel.normalize_or_zero()) else {
+            warn!("Couldnt construct direction of {}", projectile);
+            continue;
+        };
+
+        // Shape cast hit someone
+        if let Some(collision) = spatial_query.cast_shape(
+            &collider.clone(),
+            position.0,
+            rotation.0,
+            direction,
+            &ShapeCastConfig::default().with_max_distance(cast_distance),
+            &SpatialQueryFilter::default().with_excluded_entities([projectile]),
+        ) {
+            // Get collided entity
+            let collided_entity = collision.entity;
+
+            if let Ok(lag_box_of) = lag_box.get(collided_entity) {
+                let current_tick = timeline.tick();
+
+                // Get interpolation delay
+                let related = lag_box_of.get();
+
+                let config = lag_config.get(related).expect("To have lag config");
+
+                let delay = interpolation_delay.get(config.client).expect(
+                    "Pointed client entity to have interpolation delay check your input if this error appears",
+                );
+
+                let (interpolation_tick, interpolation_overstep) =
+                    delay.tick_and_overstep(current_tick);
+
+                // Get colliders corresponding to the place in time
+                let history = historys
+                    .get(collided_entity)
+                    .expect("Lag box to have history");
+
+                let Some((source_idx, (_, (collider, start_position, start_rotation)))) = history
+                    .into_iter()
+                    .enumerate()
+                    .find(|(_, (history_tick, _))| *history_tick == interpolation_tick)
+                else {
+                    warn!(
+                        "A collision tick is not in the history buffer, this player must be hella lagged"
+                    );
+                    continue;
+                };
+
+                // Interpolate by one
+                let (_, (_, target_position, target_rotation)) =
+                    history.into_iter().nth(source_idx + 1).unwrap();
+
+                let interpolated_position =
+                    start_position.lerp(**target_position, interpolation_overstep);
+                let interpolated_rotation =
+                    start_rotation.slerp(*target_rotation, interpolation_overstep);
+
+                commands.spawn((
+                    Name::new("Interpolated collider"),
+                    collider.clone(),
+                    Position(interpolated_position),
+                    interpolated_rotation,
+                    CollisionEventsEnabled,
+                    LagCompHitOf(projectile),
+                    config.collision_layer,
+                    OriginEntity(related),
+                    TimerHitCollider(Timer::new(config.time_to_despawn, TimerMode::Once)),
+                ));
+                debug!("Spawning interpolated collider from client")
+            }
+        }
+    }
+}
+
+/// Sends a hit event whenever the projectile collides with the collider
+fn handle_true_collisions(
+    trigger: Trigger<OnCollisionStart>,
+    query: Query<&LagCompHitOf>,
+    origin_entity: Query<&OriginEntity>,
+    mut commands: Commands,
+) {
+    let entity = trigger.target();
+
+    if query.contains(entity) {
+        let compensated_entity = origin_entity
+            .get_inner(entity)
+            .expect("For this component to always be available");
+
+        commands.send_event(Hit(compensated_entity.0));
+
+        debug!(?entity);
+        debug!("hit");
+    }
+}
+
+/// When the relationship gets cleared, meaning whenever projectile gets despawned or a new shape cast take it is place
+/// We despawn the interpolated collider.
+fn despawn_true_colliders(trigger: Trigger<OnRemove, LagCompHitOf>, mut commands: Commands) {
+    let entity = trigger.target();
+    commands.entity(entity).despawn();
+}
+
+/// After a certain while if no after hit is detected we despawn the unnecessary colliders
+fn despawn_true_colliders_time_passed(
+    mut query: Populated<(Entity, &mut TimerHitCollider)>,
+    time: Res<Time>,
+    mut commands: Commands,
+) {
+    for (entity, mut timer_hit_collider) in query.iter_mut() {
+        timer_hit_collider.0.tick(time.delta());
+
+        if timer_hit_collider.0.finished() {
+            commands.entity(entity).despawn();
+        }
+    }
 }
