@@ -35,7 +35,7 @@ use lightyear_serde::{SerializationError, ToBytes};
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::TimerGauge;
 #[allow(unused_imports)]
-use tracing::{error, trace, warn};
+use tracing::{error, info, trace, warn};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum TransportSet {
@@ -66,7 +66,7 @@ impl TransportPlugin {
         mut query: Query<(Entity, &mut Link, &mut Transport), (With<Linked>, Without<HostClient>)>,
     ) {
         #[cfg(feature = "metrics")]
-        let _timer = TimerGauge::new("transport/receive");
+        let _timer = TimerGauge::new("transport/recv");
 
         query
             .par_iter_mut()
@@ -161,7 +161,7 @@ impl TransportPlugin {
                             #[cfg(feature = "metrics")]
                             {
                                 let channel_name = channel_registry.get_name_from_net_id(channel_id);
-                                metrics::counter!("channel/recv_messages", "channel" => channel_name).increment(1);
+                                metrics::gauge!("channel/recv_messages", "channel" => channel_name).increment(1);
                                 metrics::gauge!("channel/recv_bytes", "channel" => channel_name).increment(fragment_data.bytes.len() as f64);
                             }
                             transport
@@ -182,7 +182,7 @@ impl TransportPlugin {
                             let num_messages =
                                 cursor.read_u8().map_err(SerializationError::from)?;
                             #[cfg(feature = "metrics")]
-                            metrics::counter!("channel/recv_messages", "channel" => channel_name).increment(num_messages as u64);
+                            metrics::gauge!("channel/recv_messages", "channel" => channel_name).increment(num_messages as f64);
                             trace!(?channel_id, ?num_messages);
                             for _ in 0..num_messages {
                                 let single_data = SingleData::from_bytes(&mut cursor)?;
@@ -251,13 +251,6 @@ impl TransportPlugin {
             });
     }
 
-    // TODO: users will mostly interact only via the lightyear_message
-    //  MessageSender<M> and MessageReceiver<M> so maybe there's no need
-    //  to create ChannelSender<C> components? or should we do it for users
-    //  who only want to use lightyear_transport without lightyear_messages?
-    //  so they can easily buffer messages in parallel to various channels?
-    //  The parallelism is lost when using lightyear_message so maybe there is no point!
-
     /// Iterates through the `ChannelSenders` on the entity,
     /// Build packets from the messages in the channel,
     /// Upload the packets to the [`Link`]
@@ -275,7 +268,7 @@ impl TransportPlugin {
         channel_registry: Res<ChannelRegistry>,
     ) {
         #[cfg(feature = "metrics")]
-        let _timer = TimerGauge::new("transport::send");
+        let _timer = TimerGauge::new("transport/send");
 
         query.par_iter_mut().for_each(|(mut link, mut transport, timeline, host_client)| {
             let tick = timeline.tick();
@@ -340,13 +333,8 @@ impl TransportPlugin {
                             .get_mut(channel_kind)
                             .ok_or(PacketError::ChannelNotFound)?;
 
-                        #[cfg(feature = "metrics")]
-                        {
-                            let channel_name = channel_registry.get_name_from_kind(channel_kind);
-                            metrics::counter!("channel/send_messages", "channel" => channel_name).increment(1);
-                            metrics::gauge!("channel/send_bytes", "channel" => channel_name).increment(metadata.num_bytes as f64);
-                        }
-
+                        // note: cannot compute send metrics here because this is just for messages
+                        //   that have a message id
                         if sender_metadata.mode.is_watching_acks() {
                             trace!(
                                 "Registering message ack (ChannelId:{:?} {:?}) for packet {:?}",

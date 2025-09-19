@@ -24,6 +24,8 @@ use crate::prelude::{ClearBucketsSystem, MetricsRegistry, RegistryPlugin};
 use bevy_platform::collections::HashMap;
 use metrics::Key;
 use metrics_util::{CompositeKey, MetricKind};
+#[allow(unused_imports)]
+use tracing::info;
 
 #[derive(Resource, Debug, Reflect)]
 #[reflect(Resource, Debug)]
@@ -40,7 +42,7 @@ impl Default for MetricsPanelSettings {
         Self {
             enabled: true,
             window_len: 50,
-            alpha: 0.6,
+            alpha: 0.2,
         }
     }
 }
@@ -138,43 +140,66 @@ impl Default for MetricsPanelLayout {
             sections: vec![
                 MetricsSection::new(
                     "Profiler (ms)",
-                    vec![MetricsSubsection::new(
-                        "Replication",
-                        vec![
-                            MetricSpec::new(
-                                "Receive messages",
-                                CompositeKey::new(
-                                    MetricKind::Gauge,
-                                    Key::from_name("replication/receive/time_ms"),
-                                ),
-                            )
-                            .with_direction(MetricDirection::Receive),
-                            MetricSpec::new(
-                                "Apply to World",
-                                CompositeKey::new(
-                                    MetricKind::Gauge,
-                                    Key::from_name("replication/apply/time_ms"),
-                                ),
-                            )
-                            .with_direction(MetricDirection::Receive),
-                            MetricSpec::new(
-                                "Buffer messages",
-                                CompositeKey::new(
-                                    MetricKind::Gauge,
-                                    Key::from_name("replication/buffer/time_ms"),
-                                ),
-                            )
-                            .with_direction(MetricDirection::Send),
-                            MetricSpec::new(
-                                "Send messages",
-                                CompositeKey::new(
-                                    MetricKind::Gauge,
-                                    Key::from_name("replication/send/time_ms"),
-                                ),
-                            )
-                            .with_direction(MetricDirection::Send),
-                        ],
-                    )],
+                    vec![
+                        MetricsSubsection::new(
+                            "Replication",
+                            vec![
+                                MetricSpec::new(
+                                    "Receive messages",
+                                    CompositeKey::new(
+                                        MetricKind::Gauge,
+                                        Key::from_name("replication/receive/time_ms"),
+                                    ),
+                                )
+                                .with_direction(MetricDirection::Receive),
+                                MetricSpec::new(
+                                    "Apply to World",
+                                    CompositeKey::new(
+                                        MetricKind::Gauge,
+                                        Key::from_name("replication/apply/time_ms"),
+                                    ),
+                                )
+                                .with_direction(MetricDirection::Receive),
+                                MetricSpec::new(
+                                    "Buffer messages",
+                                    CompositeKey::new(
+                                        MetricKind::Gauge,
+                                        Key::from_name("replication/buffer/time_ms"),
+                                    ),
+                                )
+                                .with_direction(MetricDirection::Send),
+                                MetricSpec::new(
+                                    "Send messages",
+                                    CompositeKey::new(
+                                        MetricKind::Gauge,
+                                        Key::from_name("replication/send/time_ms"),
+                                    ),
+                                )
+                                .with_direction(MetricDirection::Send),
+                            ],
+                        ),
+                        MetricsSubsection::new(
+                            "Transport",
+                            vec![
+                                MetricSpec::new(
+                                    "Receive",
+                                    CompositeKey::new(
+                                        MetricKind::Gauge,
+                                        Key::from_name("transport/recv/time_ms"),
+                                    ),
+                                )
+                                .with_direction(MetricDirection::Receive),
+                                MetricSpec::new(
+                                    "Send",
+                                    CompositeKey::new(
+                                        MetricKind::Gauge,
+                                        Key::from_name("transport/send/time_ms"),
+                                    ),
+                                )
+                                .with_direction(MetricDirection::Send),
+                            ],
+                        ),
+                    ],
                 ),
                 MetricsSection::new(
                     "Prediction",
@@ -222,11 +247,6 @@ impl Default for MetricsPanelLayout {
                                 )
                                 .with_per_second(true)
                                 .with_direction(MetricDirection::Receive),
-                            ],
-                        ),
-                        MetricsSubsection::new(
-                            "Replication",
-                            vec![
                                 MetricSpec::new(
                                     "Packets lost",
                                     CompositeKey::new(
@@ -235,6 +255,11 @@ impl Default for MetricsPanelLayout {
                                     ),
                                 )
                                 .with_direction(MetricDirection::Send),
+                            ],
+                        ),
+                        MetricsSubsection::new(
+                            "Replication",
+                            vec![
                                 MetricSpec::new(
                                     "Send Actions (bytes/s)",
                                     CompositeKey::new(
@@ -278,6 +303,7 @@ impl Default for MetricsPanelLayout {
                                         ),
                                     ),
                                 )
+                                .with_per_second(true)
                                 .with_direction(MetricDirection::Send),
                                 MetricSpec::new(
                                     "Send Updates (num messages)",
@@ -292,7 +318,8 @@ impl Default for MetricsPanelLayout {
                                         ),
                                     ),
                                 )
-                                .with_direction(MetricDirection::Receive),
+                                .with_per_second(true)
+                                .with_direction(MetricDirection::Send),
                                 MetricSpec::new(
                                     "Recv Actions (bytes/s)",
                                     CompositeKey::new(
@@ -322,7 +349,7 @@ impl Default for MetricsPanelLayout {
                                     ),
                                 )
                                 .with_per_second(true)
-                                .with_direction(MetricDirection::Send),
+                                .with_direction(MetricDirection::Receive),
                                 MetricSpec::new(
                                     "Recv Actions (num messages)",
                                     CompositeKey::new(
@@ -336,6 +363,7 @@ impl Default for MetricsPanelLayout {
                                         ),
                                     ),
                                 )
+                                .with_per_second(true)
                                 .with_direction(MetricDirection::Receive),
                                 MetricSpec::new(
                                     "Recv Updates (num messages)",
@@ -350,6 +378,7 @@ impl Default for MetricsPanelLayout {
                                         ),
                                     ),
                                 )
+                                .with_per_second(true)
                                 .with_direction(MetricDirection::Receive),
                             ],
                         ),
@@ -390,6 +419,7 @@ impl Default for MetricsPanelLayout {
                                         ),
                                     ),
                                 )
+                                .with_per_second(true)
                                 .with_direction(MetricDirection::Send),
                                 MetricSpec::new(
                                     "Recv Inputs (num messages)",
@@ -401,6 +431,60 @@ impl Default for MetricsPanelLayout {
                                         ),
                                     ),
                                 )
+                                .with_per_second(true)
+                                .with_direction(MetricDirection::Receive),
+                            ],
+                        ),
+                         MetricsSubsection::new(
+                            "Sync",
+                            vec![
+                                MetricSpec::new(
+                                    "Send Ping (bytes/s)",
+                                    CompositeKey::new(
+                                        MetricKind::Gauge,
+                                        Key::from_parts(
+                                            "channel/send_bytes",
+                                            &[("channel", "lightyear_sync::ping::PingChannel")],
+                                        ),
+                                    ),
+                                )
+                                .with_per_second(true)
+                                .with_direction(MetricDirection::Send),
+                                MetricSpec::new(
+                                    "Recv Ping (bytes/s)",
+                                    CompositeKey::new(
+                                        MetricKind::Gauge,
+                                        Key::from_parts(
+                                            "channel/recv_bytes",
+                                            &[("channel", "lightyear_sync::ping::PingChannel")],
+                                        ),
+                                    ),
+                                )
+                                .with_per_second(true)
+                                .with_direction(MetricDirection::Receive),
+                                MetricSpec::new(
+                                    "Send Ping (num messages)",
+                                    CompositeKey::new(
+                                        MetricKind::Gauge,
+                                        Key::from_parts(
+                                            "channel/send_messages",
+                                            &[("channel", "lightyear_sync::ping::PingChannel")],
+                                        ),
+                                    ),
+                                )
+                                .with_per_second(true)
+                                .with_direction(MetricDirection::Send),
+                                MetricSpec::new(
+                                    "Recv Ping (num messages)",
+                                    CompositeKey::new(
+                                        MetricKind::Gauge,
+                                        Key::from_parts(
+                                            "channel/recv_messages",
+                                            &[("channel", "lightyear_sync::ping::PingChannel")],
+                                        ),
+                                    ),
+                                )
+                                .with_per_second(true)
                                 .with_direction(MetricDirection::Receive),
                             ],
                         ),
@@ -433,9 +517,9 @@ impl Plugin for DebugUIPlugin {
             (
                 update_visibility,
                 handle_button_interactions,
+                update_collapsible_displays,
                 sample_metrics_history,
                 update_metrics,
-                update_collapsible_displays,
             )
                 .chain()
                 .before(ClearBucketsSystem),
@@ -541,18 +625,7 @@ fn setup_metrics_panel(
         });
 }
 
-fn header(cmd: &mut RelatedSpawnerCommands<ChildOf>, text: &str) {
-    cmd.spawn((
-        Text::new(text.to_string()),
-        TextFont {
-            font_size: 12.0,
-            ..default()
-        },
-        TextColor(Color::srgb(0.9, 0.9, 0.9)),
-    ));
-}
-
-fn line(cmd: &mut RelatedSpawnerCommands<ChildOf>, spec: &MetricSpec) {
+fn line(cmd: &mut RelatedSpawnerCommands<ChildOf>, spec: &MetricSpec, settings: &MetricsPanelSettings) {
     cmd.spawn((
         MetricLine { spec: spec.clone() },
         DirectionMarker(spec.direction),
@@ -561,6 +634,7 @@ fn line(cmd: &mut RelatedSpawnerCommands<ChildOf>, spec: &MetricSpec) {
             justify_content: JustifyContent::SpaceBetween,
             ..default()
         },
+        BackgroundColor(Color::srgba(0.32, 0.32, 0.32, settings.alpha)),
     ))
     .with_children(|cmd| {
         cmd.spawn((
@@ -601,7 +675,7 @@ fn build_sections(
         ))
         .with_children(|cmd| {
             cmd.spawn((
-                Text::new(format!("V {}", section.title)),
+                Text::new(format!("> {}", section.title)),
                 TextFont {
                     font_size: 12.0,
                     ..default()
@@ -634,7 +708,7 @@ fn build_sections(
                 ))
                 .with_children(|cmd| {
                     cmd.spawn((
-                        Text::new(format!("V {}", subsection.title)),
+                        Text::new(format!("> {}", subsection.title)),
                         TextFont {
                             font_size: 11.0,
                             ..default()
@@ -654,7 +728,7 @@ fn build_sections(
                 ))
                 .with_children(|cmd| {
                     for spec in &subsection.items {
-                        line(cmd, spec);
+                        line(cmd, spec, settings);
                     }
                 });
                 subsection_id += 1;
@@ -790,7 +864,6 @@ fn update_collapsible_displays(
     }
 }
 
-// Text input for per-channel filter omitted in phase 1 (requires bevy_input in this crate)
 fn update_visibility(
     settings: Res<MetricsPanelSettings>,
     mut q: Query<&mut Node, With<MetricsPanelRoot>>,
@@ -811,13 +884,10 @@ fn update_visibility(
 fn update_metrics(
     time: Res<Time<Real>>,
     vis: Res<VisibilityFilter>,
-    collapse: Res<CollapseState>,
     mut q_lines: Query<(&MetricLine, &DirectionMarker, &mut Node, &Children)>,
     mut q_values: Query<&mut Text, With<ValueText>>,
     history: Res<MetricHistory>,
 ) {
-    let delta_inv = 1.0 / time.delta().as_secs_f64();
-
     // Section/subsection collapsing is handled by containers; here we only apply Send/Recv filtering
     for (line, dir, mut node, children) in &mut q_lines {
         // Filter by Send/Receive toggles
