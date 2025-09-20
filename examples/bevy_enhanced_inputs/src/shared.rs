@@ -44,12 +44,7 @@ pub(crate) fn confirmed_log(
 pub(crate) fn interpolate_log(
     timeline: Single<&LocalTimeline, Or<(With<Client>, Without<ClientOf>)>>,
     players: Query<
-        (
-            Entity,
-            &PlayerPosition,
-            &InterpolateStatus<PlayerPosition>,
-            &ConfirmedHistory<PlayerPosition>,
-        ),
+        (Entity, &PlayerPosition, &ConfirmedHistory<PlayerPosition>),
         With<Interpolated>,
     >,
 ) {

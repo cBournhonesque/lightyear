@@ -3,7 +3,7 @@ use super::interpolation_history::{
     apply_confirmed_update_mode_simple,
 };
 use crate::despawn::{despawn_interpolated, removed_components};
-use crate::interpolate::{insert_interpolated_component, interpolate, update_interpolate_status};
+use crate::interpolate::{interpolate, update_confirmed_history};
 use crate::prelude::InterpolationRegistrationExt;
 use crate::registry::InterpolationRegistry;
 use crate::spawn::spawn_interpolated_entity;
@@ -24,7 +24,7 @@ use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::Tick;
 use lightyear_core::time::PositiveTickDelta;
 use lightyear_replication::control::Controlled;
-use lightyear_replication::prelude::AppComponentExt;
+use lightyear_replication::prelude::{AppComponentExt, ReplicationSet};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -84,8 +84,13 @@ pub enum InterpolationSet {
     Spawn,
     /// Sync components from the confirmed to the interpolated entity, and insert the ConfirmedHistory
     Sync,
+
     // Update
-    /// Update component history, interpolation status
+    /// Update component history
+    /// (add new values from confirmed updates and pop values that are older than interpolation)
+    ///
+    /// This can be in Update since we use the confirmed.tick to add values to the history, which is independent
+    /// from the local tick.
     Prepare,
     /// Interpolate between last 2 server states. Has to be overridden if
     /// `InterpolationConfig.custom_interpolation_logic` is set to true
@@ -129,10 +134,7 @@ pub(crate) fn add_prepare_interpolation_systems<C: SyncComponent>(
                 Update,
                 (
                     apply_confirmed_update_mode_full::<C>,
-                    update_interpolate_status::<C>,
-                    // TODO: that means we could insert the component twice, here and then in interpolate...
-                    //  need to optimize this
-                    insert_interpolated_component::<C>,
+                    update_confirmed_history::<C>,
                 )
                     .chain()
                     .in_set(InterpolationSet::Prepare),
@@ -190,7 +192,8 @@ impl Plugin for InterpolationPlugin {
             PreUpdate,
             (InterpolationSet::Spawn, InterpolationSet::Sync)
                 .in_set(InterpolationSet::All)
-                .chain(),
+                .chain()
+                .after(ReplicationSet::Receive),
         );
         app.configure_sets(
             Update,

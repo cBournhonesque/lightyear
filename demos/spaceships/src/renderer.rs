@@ -56,19 +56,19 @@ impl Plugin for ExampleRendererPlugin {
 
         // observers that add VisualInterpolationStatus components to entities which receive
         // a Position
-        app.add_observer(add_visual_interpolation_components);
+        app.add_observer(add_frame_interpolation_components);
     }
 }
 
-// Non-wall entities get some visual interpolation by adding the lightyear
-// VisualInterpolateStatus component
+// Non-wall entities get some frame interpolation by adding the lightyear
+// FrameInterpolate component
 //
 // We query filter With<Predicted> so that the correct client entities get visual-interpolation.
-// We don't want to visually interpolate the client's Confirmed entities, since they are not rendered.
+// We don't want to frame interpolate the client's Confirmed entities, since they are not rendered.
 //
 // We must trigger change detection so that the Transform updates from interpolation
 // will be propagated to children (sprites, meshes, text, etc.)
-fn add_visual_interpolation_components(
+fn add_frame_interpolation_components(
     // We use Position because it's added by avian later, and when it's added
     // we know that Predicted is already present on the entity
     trigger: Trigger<OnAdd, Position>,

@@ -15,7 +15,7 @@ use tracing::{debug, error};
 use crate::manager::InterpolationManager;
 
 mod despawn;
-/// Contains the `InterpolateStatus` component and interpolation logic.
+/// Contains interpolation logic.
 pub mod interpolate;
 /// Defines `ConfirmedHistory` for storing historical states of confirmed entities.
 pub mod interpolation_history;
@@ -29,7 +29,7 @@ pub mod timeline;
 
 /// Commonly used items for client-side interpolation.
 pub mod prelude {
-    pub use crate::interpolate::InterpolateStatus;
+    pub use crate::interpolate::interpolation_fraction;
     pub use crate::interpolation_history::ConfirmedHistory;
     pub use crate::manager::InterpolationManager;
     pub use crate::plugin::{InterpolationDelay, InterpolationPlugin, InterpolationSet};

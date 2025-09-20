@@ -66,12 +66,12 @@ fn init(mut commands: Commands) {
     ));
 }
 
-/// Add the VisualInterpolateStatus::<Transform> component to non-floor entities with
-/// component `Position`. Floors don't need to be visually interpolated because we
+/// Add the FrameInterpolate::<Position> component to non-floor entities with
+/// component `Position`. Floors don't need to be frame interpolated because we
 /// don't expect them to move.
 ///
 /// We query Without<Confirmed> instead of With<Predicted> so that the server's
-/// gui will also get some visual interpolation. But we're usually just
+/// gui will also get some frame interpolation. But we're usually just
 /// concerned that the client's Predicted entities get the interpolation
 /// treatment.
 fn add_visual_interpolation_components(
