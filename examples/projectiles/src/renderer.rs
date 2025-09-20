@@ -24,7 +24,7 @@ impl Plugin for ExampleRendererPlugin {
 
         app.add_observer(add_bullet_visuals);
         app.add_observer(add_player_visuals);
-        app.add_observer(add_hitscan_visual);
+        // app.add_observer(add_hitscan_visual);
         app.add_observer(add_physics_projectile_visuals);
         app.add_observer(add_homing_missile_visuals);
 
@@ -120,17 +120,9 @@ fn display_score(
 #[cfg(feature = "client")]
 fn display_info(
     mut mode_text: Single<&mut Text, With<ModeText>>,
-    weapon_type: Single<
-        &WeaponType,
-        (
-            With<Actions<PlayerContext>>,
-            With<PlayerMarker>,
-            With<Controlled>,
-        ),
-    >,
-    mode_query: Single<(&ProjectileReplicationMode, &GameReplicationMode), With<ClientContext>>,
+    mode_query: Single<(&ProjectileReplicationMode, &GameReplicationMode, &WeaponType), With<ClientContext>>,
 ) {
-    let (projectile_mode, replication_mode) = mode_query.into_inner();
+    let (projectile_mode, replication_mode, weapon_type) = mode_query.into_inner();
     mode_text.0 = format!(
         "Weapon: {}\nProjectile Mode: {}\nReplication Mode: {}\nPress Q to cycle weapons\nPress E to cycle replication\nPress R to cycle rooms\nPress Space to shoot",
         weapon_type.name(),
@@ -250,7 +242,7 @@ fn add_bullet_visuals(
                 ..Default::default()
             })),
         ));
-        if interpolated {
+        if !interpolated {
             commands.entity(trigger.target()).insert((
                 FrameInterpolate::<Position>::default(),
                 FrameInterpolate::<Rotation>::default(),

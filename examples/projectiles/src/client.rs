@@ -138,11 +138,6 @@ fn add_actions(commands: &mut Commands, player: Entity) {
         Action::<Shoot>::new(),
         Bindings::spawn_one((Binding::from(KeyCode::Space), Name::from("Binding"))),
     ));
-    commands.spawn((
-        ActionOf::<PlayerContext>::new(player),
-        Action::<CycleWeapon>::new(),
-        Bindings::spawn_one((Binding::from(KeyCode::KeyQ), Name::from("Binding"))),
-    ));
 }
 
 pub(crate) fn add_global_actions(trigger: Trigger<OnAdd, ClientContext>, mut commands: Commands) {
@@ -155,6 +150,11 @@ pub(crate) fn add_global_actions(trigger: Trigger<OnAdd, ClientContext>, mut com
         ActionOf::<ClientContext>::new(trigger.target()),
         Action::<CycleReplicationMode>::new(),
         bindings![KeyCode::KeyR,],
+    ));
+    commands.spawn((
+        ActionOf::<ClientContext>::new(trigger.target()),
+        Action::<CycleWeapon>::new(),
+        bindings![KeyCode::KeyQ,],
     ));
 }
 

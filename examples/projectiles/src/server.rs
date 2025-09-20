@@ -41,6 +41,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(spawn_player);
         app.add_observer(cycle_replication_mode);
         app.add_observer(cycle_projectile_mode);
+        app.add_observer(cycle_weapon_type);
         app.add_observer(handle_hits);
 
         app.add_systems(Startup, spawn_global_control);
@@ -77,6 +78,7 @@ pub(crate) fn spawn_global_control(mut commands: Commands) {
         Replicate::to_clients(NetworkTarget::All),
         GameReplicationMode::default(),
         ProjectileReplicationMode::default(),
+        WeaponType::default(),
         Name::new("ClientContext"),
     ));
 }
@@ -477,4 +479,14 @@ pub fn cycle_projectile_mode(
     let mut projectile_mode = global.into_inner();
     *projectile_mode = projectile_mode.next();
     info!("Cycled to projectile mode: {}", projectile_mode.name());
+}
+
+/// Handle weapon cycling input
+pub(crate) fn cycle_weapon_type(
+    trigger: Trigger<Completed<CycleWeapon>>,
+    global: Single<&mut WeaponType, With<ClientContext>>,
+) {
+    let mut weapon_type = global.into_inner();
+    *weapon_type = weapon_type.next();
+    info!("Switched to weapon: {}", weapon_type.name());
 }

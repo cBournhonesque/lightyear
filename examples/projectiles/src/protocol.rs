@@ -110,6 +110,16 @@ impl WeaponType {
             WeaponType::HomingMissile => "Homing Missile",
         }
     }
+
+    pub fn fire_rate(&self) -> f32 {
+        match self {
+            WeaponType::Hitscan => 5.0,
+            WeaponType::LinearProjectile => 2.0,
+            WeaponType::Shotgun => 1.0,
+            WeaponType::PhysicsProjectile => 1.5,
+            WeaponType::HomingMissile => 0.5,
+        }
+    }
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
@@ -246,8 +256,6 @@ impl From<RoomLayer> for CollisionLayers {
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Weapon {
-    pub weapon_type: WeaponType,
-    pub fire_rate: f32, // shots per second
     pub last_fire_tick: Option<Tick>,
     // Ring buffer for projectiles (used with RingBuffer replication mode)
     pub projectile_buffer: Vec<ProjectileSpawnInfo>,
@@ -265,8 +273,6 @@ pub struct ProjectileSpawnInfo {
 impl Default for Weapon {
     fn default() -> Self {
         Self {
-            weapon_type: WeaponType::default(),
-            fire_rate: 2.0, // 2 shots per second by default
             last_fire_tick: None,
             projectile_buffer: Vec::new(),
             buffer_capacity: 100,
