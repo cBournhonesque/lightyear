@@ -53,20 +53,20 @@ pub(crate) fn confirmed_log(
 }
 
 pub(crate) fn interpolate_log(
-    timeline: Single<&LocalTimeline, Or<(With<Client>, Without<ClientOf>)>>,
+    timeline: Single<
+        (&LocalTimeline, &InterpolationTimeline),
+        Or<(With<Client>, Without<ClientOf>)>,
+    >,
     players: Query<
-        (
-            Entity,
-            &PlayerPosition,
-            &InterpolateStatus<PlayerPosition>,
-            &ConfirmedHistory<PlayerPosition>,
-        ),
+        (Entity, &PlayerPosition, &ConfirmedHistory<PlayerPosition>),
         With<Interpolated>,
     >,
 ) {
+    let (timeline, interpolation_timeline) = timeline.into_inner();
     let tick = timeline.tick();
+    let interpolation_tick = interpolation_timeline.tick();
     for status in players.iter() {
-        trace!(?tick, ?status, "Interpolation");
+        trace!(?tick, ?interpolation_tick, ?status, "Interpolation");
     }
 }
 

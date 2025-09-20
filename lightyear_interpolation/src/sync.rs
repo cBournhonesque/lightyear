@@ -14,7 +14,8 @@ use bevy_reflect::Reflect;
 use lightyear_replication::components::{Confirmed, Replicated};
 use lightyear_replication::prelude::ComponentRegistry;
 use lightyear_replication::registry::buffered::BufferedChanges;
-use tracing::trace;
+#[allow(unused_imports)]
+use tracing::{info, trace};
 
 /// Plugin that syncs components that were inserted on the Confirmed entity to the Interpolated entity
 pub(crate) struct SyncPlugin;
@@ -70,6 +71,7 @@ struct InterpolatedSyncEvent {
 pub(crate) struct InterpolationSyncBuffer(BufferedChanges);
 
 /// Sync components from confirmed entity to interpolated entity
+// TODO: sync removals! when C gets removed on confirmed, we should remove C + ConfirmedHistory<C> on interpolated
 fn apply_interpolated_sync(world: &mut World) {
     world.resource_scope(|world, mut events: Mut<Events<InterpolatedSyncEvent>>| {
         events.drain().for_each(|event| {

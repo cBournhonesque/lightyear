@@ -89,6 +89,11 @@ impl<R> HistoryBuffer<R> {
         self.buffer.back()
     }
 
+    /// Get the n-th most recent value in the buffer (starts from n = 0)
+    pub fn get_nth(&self, n: usize) -> Option<&(Tick, HistoryState<R>)> {
+        self.buffer.get(n)
+    }
+
     #[doc(hidden)]
     /// Get the second most recent value in the buffer, knowing that tick is the current tick.
     ///
@@ -187,6 +192,11 @@ impl<R> HistoryBuffer<R> {
     #[cfg(feature = "test_utils")]
     pub fn buffer(&self) -> &VecDeque<(Tick, HistoryState<R>)> {
         &self.buffer
+    }
+
+    /// Pop the oldest value in the history
+    pub fn pop(&mut self) -> Option<(Tick, HistoryState<R>)> {
+        self.buffer.pop_front()
     }
 }
 

@@ -1,4 +1,3 @@
-use crate::interpolate::InterpolateStatus;
 use crate::interpolation_history::ConfirmedHistory;
 use bevy_ecs::component::Component;
 use bevy_ecs::{
@@ -19,7 +18,7 @@ pub(crate) fn removed_components<C: Component>(
         && let Some(interpolated) = confirmed.interpolated
         && let Ok(mut entity) = commands.get_entity(interpolated)
     {
-        entity.try_remove::<(C, ConfirmedHistory<C>, InterpolateStatus<C>)>();
+        entity.try_remove::<(C, ConfirmedHistory<C>)>();
     }
 }
 

@@ -1,6 +1,5 @@
-use core::ops::Deref;
-
 use crate::manager::InterpolationManager;
+use crate::prelude::InterpolationRegistry;
 use crate::{Interpolated, SyncComponent};
 use bevy_ecs::{
     change_detection::DetectChanges,
@@ -10,68 +9,106 @@ use bevy_ecs::{
     system::{Commands, Query, Res, Single},
     world::Ref,
 };
+use bevy_reflect::Reflect;
+use core::ops::Deref;
+use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{LocalTimeline, Tick};
 use lightyear_replication::components::Confirmed;
 use lightyear_replication::registry::registry::ComponentRegistry;
-use lightyear_utils::ready_buffer::ReadyBuffer;
-use tracing::trace;
+#[allow(unused_imports)]
+use tracing::{info, trace};
 
-/// To know if we need to do rollback, we need to compare the interpolated entity's history with the server's state updates
-#[derive(Component, Debug)]
-pub struct ConfirmedHistory<C: Component> {
-    // TODO: here we can use a sequence buffer. We won't store more than a couple
-
-    // TODO: add a max size for the buffer
-    // We want to avoid using a SequenceBuffer for optimization (we don't want to store a copy of the component for each history tick)
-    // We can afford to use a ReadyBuffer because we will get server updates with monotonically increasing ticks
-    // therefore we can get rid of the old ticks before the server update
-
-    // We will only store the history for the ticks where the component got updated
-    pub buffer: ReadyBuffer<Tick, C>,
+/// Stores a buffer of past component values received from the remote
+#[derive(Component, Debug, Reflect)]
+pub struct ConfirmedHistory<C> {
+    history: HistoryBuffer<C>,
 }
 
-impl<C: SyncComponent> Default for ConfirmedHistory<C> {
+impl<C> Default for ConfirmedHistory<C> {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-// mostly used for tests
-impl<C: SyncComponent> PartialEq for ConfirmedHistory<C> {
-    fn eq(&self, other: &Self) -> bool {
-        self.buffer.heap.iter().eq(other.buffer.heap.iter())
-    }
-}
-
-impl<C: Component> ConfirmedHistory<C> {
-    pub fn new() -> Self {
         Self {
-            buffer: ReadyBuffer::new(),
+            history: HistoryBuffer::<C>::default(),
+        }
+    }
+}
+
+impl<C> PartialEq for ConfirmedHistory<C> {
+    fn eq(&self, other: &Self) -> bool {
+        self.history.eq(&other.history)
+    }
+}
+
+impl<C> ConfirmedHistory<C> {
+    pub(crate) fn len(&self) -> usize {
+        self.history.len()
+    }
+
+    /// Get the n-th oldest tick in the buffer (starts from n = 0)
+    pub fn get_nth_tick(&self, n: usize) -> Option<Tick> {
+        self.history.get_nth(n).map(|(t, _)| *t)
+    }
+
+    /// The oldest value in the history, which is used as the start value for the interpolation
+    pub fn start(&self) -> Option<(Tick, &C)> {
+        self.get_nth(0)
+    }
+
+    /// The second oldest value in the history, which is used as the end value for the interpolation
+    pub fn end(&self) -> Option<(Tick, &C)> {
+        self.get_nth(1)
+    }
+
+    /// Get the n-th oldest tick in the buffer (starts from n = 0)
+    pub(crate) fn get_nth(&self, n: usize) -> Option<(Tick, &C)> {
+        match self.history.get_nth(n) {
+            None | Some((_, HistoryState::Removed)) => None,
+            Some((t, HistoryState::Updated(v))) => Some((*t, v)),
         }
     }
 
-    /// Reset the history for this component
-    pub(crate) fn clear(&mut self) {
-        self.buffer = ReadyBuffer::new();
+    /// Push a new value in the history.
+    /// It MUST be more recent than all previous values, which is guaranteed from
+    /// how lightyear_replication::receive works
+    pub fn push(&mut self, tick: Tick, value: C) {
+        self.history.add_update(tick, value)
     }
 
-    pub(crate) fn peek(&mut self) -> Option<(Tick, &C)> {
-        self.buffer.heap.peek().map(|item| (item.key, &item.item))
+    /// Pop the oldest value in the history
+    pub fn pop(&mut self) -> Option<(Tick, C)> {
+        match self.history.pop() {
+            None | Some((_, HistoryState::Removed)) => None,
+            Some((t, HistoryState::Updated(v))) => Some((t, v)),
+        }
     }
+}
 
-    pub(crate) fn pop(&mut self) -> Option<(Tick, C)> {
-        self.buffer.heap.pop().map(|item| (item.key, item.item))
-    }
-
-    /// Get the value of the component at the specified tick.
-    /// Clears the history buffer of all ticks older or equal than the specified tick.
-    /// NOTE: doesn't pop the last value!
-    /// CAREFUL:
-    /// the component history will only contain the ticks where the component got updated, and otherwise
-    /// contains gaps. Therefore, we need to always leave a value in the history buffer so that we can
-    /// get the values for the future ticks
-    pub(crate) fn pop_until_tick(&mut self, tick: Tick) -> Option<(Tick, C)> {
-        self.buffer.pop_until(&tick)
+impl<C: Component + Clone> ConfirmedHistory<C> {
+    pub fn interpolate(
+        &self,
+        interpolation_tick: Tick,
+        interpolation_overstep: f32,
+        interpolation_registry: &InterpolationRegistry,
+    ) -> Option<C> {
+        if let Some((start_tick, start)) = self.start()
+            && let Some((end_tick, end)) = self.end()
+        {
+            if interpolation_tick < start_tick {
+                return None;
+            }
+            let fraction = ((interpolation_tick - start_tick) as f32 + interpolation_overstep)
+                / (end_tick - start_tick) as f32;
+            trace!(
+                ?start_tick,
+                ?end_tick,
+                ?interpolation_tick,
+                ?interpolation_overstep,
+                ?fraction,
+                "Interpolate {:?}",
+                core::any::type_name::<C>()
+            );
+            return Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction));
+        }
+        None
     }
 }
 
@@ -91,7 +128,6 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
     for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
         if let Some(p) = confirmed.interpolated
             && confirmed_component.is_changed()
-            && !confirmed_component.is_added()
             && let Ok(mut history) = interpolated_entities.get_mut(p)
         {
             // // if has_authority is true, we will consider the Confirmed value as the source of truth
@@ -121,7 +157,9 @@ pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
             let _ = manager.map_entities(&mut component, component_registry.as_ref());
             trace!(?kind, tick = ?tick, "adding confirmed update to history");
             // update the history at the value that the entity currently is
-            history.buffer.push(tick, component);
+            // NOTE: it is guaranteed that the confirmed update is more recent than all previous updates
+            //  We enforce this invariant in replication::receive
+            history.push(tick, component);
 
             // TODO: here we do not want to update directly the component, that will be done during interpolation
         }

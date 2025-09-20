@@ -1,11 +1,9 @@
-use crate::interpolate::InterpolateStatus;
 use crate::interpolation_history::ConfirmedHistory;
 use crate::manager::InterpolationManager;
 use crate::plugin::{
     add_immutable_prepare_interpolation_systems, add_interpolation_systems,
     add_prepare_interpolation_systems,
 };
-use crate::timeline::InterpolationTimeline;
 use crate::{InterpolationMode, SyncComponent};
 use bevy_ecs::component::ComponentId;
 use bevy_ecs::entity::Entity;
@@ -16,12 +14,11 @@ use bevy_math::{
     curve::{Ease, EaseFunction, EasingCurve},
 };
 use bevy_platform::collections::HashMap;
-use lightyear_core::prelude::NetworkTimeline;
-use lightyear_core::timeline::LocalTimeline;
 use lightyear_replication::prelude::{ComponentRegistration, ComponentRegistry};
 use lightyear_replication::registry::buffered::BufferedChanges;
 use lightyear_replication::registry::registry::LerpFn;
 use lightyear_replication::registry::{ComponentError, ComponentKind};
+use tracing::info;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -187,16 +184,9 @@ impl InterpolationRegistry {
                     return;
                 }
                 let history_component_id = world.register_component::<ConfirmedHistory<C>>();
-                let interpolate_status_component_id =
-                    world.register_component::<InterpolateStatus<C>>();
-
                 let manager_entity_ref = world.entity(manager);
-                let local_timeline = manager_entity_ref.get::<LocalTimeline>().unwrap();
-                let timeline = manager_entity_ref.get::<InterpolationTimeline>().unwrap();
                 let interpolation_manager =
                     manager_entity_ref.get::<InterpolationManager>().unwrap();
-                let current_tick = local_timeline.tick();
-                let current_overstep = timeline.overstep();
 
                 // map any entities from confirmed to interpolated
                 let _ = interpolation_manager.map_entities(&mut new_component, component_registry);
@@ -207,18 +197,10 @@ impl InterpolationRegistry {
 
                 // SAFETY: the component_id matches the component
                 unsafe {
-                    buffer.insert(ConfirmedHistory::<C>::new(), history_component_id);
+                    // we can insert a default confirmed history, it will be populated in the `update_history` system
+                    buffer.insert(ConfirmedHistory::<C>::default(), history_component_id);
                 };
-                let status = InterpolateStatus::<C> {
-                    start: Some((current_tick, new_component)),
-                    end: None,
-                    current_tick,
-                    current_overstep: current_overstep.value(),
-                };
-                // SAFETY: the component_id matches the component
-                unsafe {
-                    buffer.insert(status, interpolate_status_component_id);
-                };
+                info!("Insert ConfirmedHistory<C>");
             }
             InterpolationMode::Simple | InterpolationMode::Once => {
                 // InterpolationMode::Once, we only need to sync it once
