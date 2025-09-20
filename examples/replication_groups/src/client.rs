@@ -146,73 +146,83 @@ pub(crate) fn debug_post_visual_interpolation(
 
 pub(crate) fn debug_interpolate(
     timeline: Single<&LocalTimeline>,
-    parent_query: Query<(
-        &InterpolateStatus<PlayerPosition>,
-        &ConfirmedHistory<PlayerPosition>,
-    )>,
-    tail_query: Query<(
-        &PlayerParent,
-        &InterpolateStatus<TailPoints>,
-        &ConfirmedHistory<TailPoints>,
-    )>,
+    parent_query: Query<(&ConfirmedHistory<PlayerPosition>,)>,
+    tail_query: Query<(&PlayerParent, &ConfirmedHistory<TailPoints>)>,
 ) {
     debug!(tick = ?timeline.tick(), "interpolation debug");
-    for (parent, tail_status, tail_history) in tail_query.iter() {
-        let (parent_status, parent_history) = parent_query
+    for (parent, tail_history) in tail_query.iter() {
+        let parent_history = parent_query
             .get(parent.0)
             .expect("Tail entity has no parent entity!");
-        debug!(?parent_status, ?parent_history, "parent");
-        debug!(?tail_status, ?tail_history, "tail");
+        debug!(?parent_history, "parent");
+        debug!(?tail_history, "tail");
     }
 }
 
 // Here, we want to have a custom interpolation logic, because we need to query two components
 // at once to do the interpolation correctly.
 // We want the interpolated entity to stay on the tail path of the confirmed entity at all times.
-// The `InterpolateStatus` provides the start and end tick + component value, making it easy to perform interpolation.
+//
+// We should always interpolate between the first 2 values of the ConfirmedHistory if the
+// interpolation_tick is between them
 pub(crate) fn interpolate(
-    mut parent_query: Query<(&mut PlayerPosition, &InterpolateStatus<PlayerPosition>)>,
+    registry: Res<InterpolationRegistry>,
+    timeline: Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>,
+    mut parent_query: Query<(&mut PlayerPosition, &ConfirmedHistory<PlayerPosition>)>,
     mut tail_query: Query<(
         Entity,
         &PlayerParent,
         &TailLength,
         &mut TailPoints,
-        &InterpolateStatus<TailPoints>,
+        &ConfirmedHistory<TailPoints>,
     )>,
 ) {
-    'outer: for (tail_entity, parent, tail_length, mut tail, tail_status) in tail_query.iter_mut() {
-        let Ok((mut parent_position, parent_status)) = parent_query.get_mut(parent.0) else {
+    let interpolation_tick = timeline.tick();
+    let interpolation_overstep = timeline.overstep().value();
+    'outer: for (tail_entity, parent, tail_length, mut tail, tail_history) in tail_query.iter_mut()
+    {
+        let Ok((mut parent_position, parent_history)) = parent_query.get_mut(parent.0) else {
             // TODO: could this be due that we don't sync at the same time?
             error!("Tail entity {tail_entity:?} has no parent entity!");
             continue;
         };
-        debug!(
-            ?parent_position,
-            ?tail,
-            ?parent_status,
-            ?tail_status,
-            "interpolate situation"
-        );
+
         // the ticks should be the same for both components
-        if let Some((start_tick, tail_start_value)) = &tail_status.start {
-            if parent_status.start.is_none() {
+        if let Some((start_tick, tail_start_value)) = tail_history.start() {
+            // make sure to stop early if the interpolation_tick is too early
+            if interpolation_tick < start_tick {
+                continue;
+            };
+            let Some((_, pos_start)) = parent_history.start() else {
                 // the parent component has not been confirmed yet, so we can't interpolate
                 continue;
-            }
-            let pos_start = &parent_status.start.as_ref().unwrap().1;
-            if let Some((end_tick, tail_end_value)) = &tail_status.end {
-                if parent_status.end.is_none() {
+            };
+            if let Some((end_tick, tail_end_value)) = tail_history.end() {
+                let Some((_, pos_end)) = parent_history.end() else {
                     // the parent component has not been confirmed yet, so we can't interpolate
                     continue;
-                }
-                let pos_end = &parent_status.end.as_ref().unwrap().1;
+                };
                 if start_tick != end_tick {
                     // the new tail will be similar to the old tail, with some added points at the front
                     *tail = tail_start_value.clone();
                     *parent_position = pos_start.clone();
 
                     // interpolation ratio
-                    let t = tail_status.interpolation_fraction().unwrap();
+                    let t = interpolation_fraction(
+                        start_tick,
+                        end_tick,
+                        interpolation_tick,
+                        interpolation_overstep,
+                    );
+                    debug!(
+                        ?start_tick,
+                        ?end_tick,
+                        ?interpolation_tick,
+                        ?t,
+                        ?parent_history,
+                        ?tail_history,
+                        "interpolate situation"
+                    );
                     let mut tail_diff_length = 0.0;
                     // find in which end tail segment the previous head_position is
 

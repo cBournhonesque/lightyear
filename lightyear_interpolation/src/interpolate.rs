@@ -2,14 +2,11 @@ use crate::SyncComponent;
 use crate::interpolation_history::ConfirmedHistory;
 use crate::registry::InterpolationRegistry;
 use crate::timeline::InterpolationTimeline;
-use bevy_ecs::{
-    component::{Component, Mutable},
-    entity::Entity,
-    query::{With, Without},
-    system::{Commands, Query, Res, Single},
-};
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
-use lightyear_core::tick::TickDuration;
+use bevy_ecs::component::Mutable;
+use bevy_ecs::prelude::Has;
+use bevy_ecs::prelude::*;
+use lightyear_core::prelude::NetworkTimeline;
+use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_sync::prelude::client::IsSynced;
 use tracing::trace;
 
@@ -21,53 +18,25 @@ use tracing::trace;
 // TODO: this value should depend on jitter I think
 const SEND_INTERVAL_TICK_FACTOR: f32 = 1.3;
 
-// TODO: the inner fields are pub just for integration testing.
-//  maybe put the test here?
-// NOTE: there's not a strict need for this, it just makes the logic easier to follow
-/// Component that will tract the values to interpolate between, as well as the interpolation ratio.
-/// This is provided so that you can easily compute your own interpolation if you want to.
-#[derive(Component, PartialEq, Debug)]
-pub struct InterpolateStatus<C: Component> {
-    /// start tick to interpolate from, along with value
-    pub start: Option<(Tick, C)>,
-    /// end tick to interpolate to, along with value
-    pub end: Option<(Tick, C)>,
-    /// current interpolation tick, which will belong to [start_tick, end_tick[
-    pub current_tick: Tick,
-    /// for more accurate interpolation, this is the fraction between [current_tick, current_tick + 1[
-    pub current_overstep: f32,
+/// Compute the interpolation fraction
+pub fn interpolation_fraction(start: Tick, end: Tick, current: Tick, overstep: f32) -> f32 {
+    ((current - start) as f32 + overstep) / (end - start) as f32
 }
 
-impl<C: Component> InterpolateStatus<C> {
-    pub fn interpolation_fraction(&self) -> Option<f32> {
-        self.start.as_ref().and_then(|(start_tick, _)| {
-            self.end.as_ref().map(|(end_tick, _)| {
-                if *start_tick != *end_tick {
-                    ((self.current_tick - *start_tick) as f32 + self.current_overstep)
-                        / (*end_tick - *start_tick) as f32
-                } else {
-                    0.0
-                }
-            })
-        })
-    }
-}
-
-/// At the end of each frame, interpolate the components between the last 2 confirmed server states
-/// Invariant: start_tick <= current_interpolate_tick + overstep < end_tick
-pub(crate) fn update_interpolate_status<C: SyncComponent>(
+/// Update the ConfirmedHistory so that interpolation can simply interpolate between the last 2 updates.
+///
+/// Also handle inserting the
+pub(crate) fn update_confirmed_history<C: SyncComponent>(
     // TODO: handle multiple interpolation timelines
     // TODO: exclude host-server
     interpolation: Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>,
     tick_duration: Res<TickDuration>,
-    mut query: Query<(
-        Entity,
-        Option<&mut C>,
-        &mut InterpolateStatus<C>,
-        &mut ConfirmedHistory<C>,
-    )>,
+    // we don't insert the component immediately, instead we wait for:
+    // - either 2 updates, so that we can interpolate between them
+    // - or enough time has passed since the initial update
+    mut query: Query<(Entity, &mut ConfirmedHistory<C>, Has<C>)>,
+    mut commands: Commands,
 ) {
-    let kind = core::any::type_name::<C>();
     let timeline = interpolation.into_inner();
 
     // how many ticks between each interpolation
@@ -77,178 +46,83 @@ pub(crate) fn update_interpolate_status<C: SyncComponent>(
     .ceil() as i16;
 
     let current_interpolate_tick = timeline.now().tick;
-    let current_interpolate_overstep = timeline.now().overstep;
-    for (entity, component, mut status, mut history) in query.iter_mut() {
-        let mut start = status.start.take();
-        let mut end = status.end.take();
+    for (entity, mut history, present) in query.iter_mut() {
+        // the ConfirmedHistory contains an ordered list (from oldest to most recent) of Confirmed component updates to interpolate between
+        // The component must always be interpolating between the oldest and the second oldest values in the history.
+        // History: H1...X...H2.....H3
 
-        // if the interpolation tick is beyond the previous end tick,
-        // we need to replace start with end, and clear end
-        if let Some((end_tick, ref end_value)) = end
-            && end_tick <= current_interpolate_tick
+        // We enforce this like so:
+        // - If we have 2 older history values than the current tick, we pop the last value
+        //   History: H1....H2..X..H3  -> pop H1
+        if let Some((history_tick, end_value)) = history.end() {
+            // we have 2 updates, we can start interpolating!
+            if !present {
+                trace!(
+                    "insert interpolated comp value because we have 2 values to interpolate between"
+                );
+                // we can insert the end_value because:
+                // - if H1..X...H2, we will do interpolation right after
+                // - if H1...H2..X, H2 is a good starting point for the interpolation
+                commands.entity(entity).insert(end_value.clone());
+            }
+            if current_interpolate_tick >= history_tick {
+                history.pop();
+            }
+        }
+
+        // If it's been too long since we last received an update; we pop the value from the history and
+        // re-insert it as the current interpolation tick.
+        // Otherwise we would be interpolating from a very old value, which would look strange.
+        //   History: H1.....................................X..H2...H3 -> H1.X...H2..H3
+        // We will then wait to have 2 new values before we can interpolate.
+        if history.len() == 1
+            && let Some((history_tick, val)) = history.start()
+            && (current_interpolate_tick - history_tick) >= send_interval_delta_tick
         {
+            if !present {
+                trace!("insert interpolated comp value because enough time has passed");
+                commands.entity(entity).insert(val.clone());
+            }
+
             trace!(
-                ?entity,
-                ?end_tick,
                 ?current_interpolate_tick,
-                "interpolation is beyond previous end tick"
+                ?history_tick,
+                ?send_interval_delta_tick,
+                "Reset the start_tick because it's been too long since we received an update"
             );
-            start.clone_from(&end);
-            // TODO: this clone should be avoidable
-            if let Some(mut component) = component {
-                *component = end_value.clone();
-            }
-            end = None;
+            let (_, val) = history.pop().unwrap();
+            // TODO: the correct behaviour would be to know the exact tick at which the component started getting updated
+            //  so that we know exactly which tick to interpolate from!
+            // we reset the value to a more recent tick so that the interpolation is done between two close values.
+            history.push(current_interpolate_tick, val);
         }
 
-        // TODO: do we need to call this if status.end is set? probably not because the updates are sequenced?
+        // It is possible that the interpolation_tick is early compared to the two updates
+        // (for example we received an update H, then no update for a while so we removed it from the history, and then
+        //  we receive two updates ahead of the interpolation_tick)
+        // X...H1...H2
+        // In which case the interpolation should not run.
 
-        // TODO: CAREFUL, we need to always leave a value in the history, so that we can compute future values?
-        //  maybe not, because for interpolation we don't care about the value at a given specific tick
-
-        // clear all values with a tick <= current_interpolate_tick, and get the last cleared value
-        // (we need to call this even if status.start is set, because a new more recent server update could have been received)
-        let new_start = history.pop_until_tick(current_interpolate_tick);
-        if let Some((new_tick, _)) = new_start
-            && start.as_ref().is_none_or(|(tick, _)| *tick <= new_tick)
-        {
-            trace!(
-                    ?current_interpolate_tick,
-                    old_start = ?start.as_ref().map(|(tick, _)| tick),
-                    new_start = ?new_tick,
-                    "found more recent tick between start and interpolation tick");
-            start = new_start;
-        }
-
-        // get the next value immediately > current_interpolate_tick, but without popping
-        // (we need to call this even if status.end is set, because a new more recent server update could have been received)
-        if let Some((new_tick, _)) = history.peek()
-            && end.as_ref().is_none_or(|(tick, _)| new_tick < *tick)
-        {
-            trace!("next value after current_interpolate_tick: {:?}", new_tick);
-            // only pop if we actually put the value in end
-            end = history.pop();
-        }
-
-        // If it's been too long since we received an update, reset the start tick to None
-        // (so that we wait again until interpolation_tick is between two server updates)
-        // otherwise the interpolation will seem weird because the start tick is very old
-        // Only do this when end_tick is None, otherwise it could affect the currently running
-        // interpolation
-        if end.is_none() {
-            let temp_start = core::mem::take(&mut start);
-            if let Some((start_tick, _)) = temp_start {
-                if current_interpolate_tick - start_tick < send_interval_delta_tick {
-                    start = temp_start;
-                } else {
-                    trace!(
-                        ?current_interpolate_tick,
-                        ?start_tick,
-                        ?send_interval_delta_tick,
-                        "Reset the start_tick because it's been too long since we received an update"
-                    );
-                }
-                // else (if it's been too long), reset the server tick to None
-            }
-        }
-
-        trace!(
-            ?entity,
-            component = ?kind,
-            ?send_interval_delta_tick,
-            ?current_interpolate_tick,
-            ?current_interpolate_overstep,
-            // last_received_server_tick = ?connection.latest_received_server_tick(),
-            start_tick = ?start.as_ref().map(|(tick, _)| tick),
-            end_tick = ?end.as_ref().map(|(tick, _) | tick),
-            "update_interpolate_status");
-        status.start = start;
-        status.end = end;
-        status.current_tick = current_interpolate_tick;
-        status.current_overstep = current_interpolate_overstep.value();
-        if status.start.is_none() {
-            trace!("no lerp start tick");
-        }
-        if status.end.is_none() {
-            // warn!("no lerp end tick: might want to increase the interpolation delay");
-        }
+        // TODO: if we don't have 2 values to interpolate between, we should extrapolate
+        //   History: H1....X...  -> extrapolate X
     }
 }
 
-/// Insert the component on the `Interpolated` entity.
-/// We do not insert the component immediately on `Interpolated` when the component gets added on the `Confirmed` entity,
-/// because then the component value would be constant (= to the starting value) until we get another component update,
-/// and then it starts moving. This can be jarring if the server send rate is low (then for example a bullet is frozen for a bit
-/// before it starts moving).
-/// Instead we will insert the component after either:
-/// - we have received 2 updates on the Confirmed entity (so we can interpolate between them)
-/// - or at least SEND_INTERVAL_TICK_FACTOR * send_interval has passed. (this is to deal with the case where we only receive
-///   one update; for example if we spawn the player and then they don't move. If we didn't do this
-///   the interpolated entity would simply not appear)
-pub(crate) fn insert_interpolated_component<C: SyncComponent>(
-    component_registry: Res<InterpolationRegistry>,
-    tick_duration: Res<TickDuration>,
-    tick_manager: Single<(&LocalTimeline, &InterpolationTimeline)>,
-    mut commands: Commands,
-    mut query: Query<(Entity, &InterpolateStatus<C>), Without<C>>,
-) {
-    let (local_timeline, interpolation_timeline) = tick_manager.into_inner();
-    let tick = local_timeline.tick();
-    // how many ticks between each interpolation update (add 1 to roughly take the ceil)
-    // TODO: use something more precise, with the interpolation overstep?
-    let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
-        * interpolation_timeline.remote_send_interval.as_secs_f32()
-        / tick_duration.as_secs_f32()) as i16
-        + 1;
-    for (entity, status) in query.iter_mut() {
-        trace!("checking if we need to insert the component on the Interpolated entity");
-        let mut entity_commands = commands.entity(entity);
-        // NOTE: it is possible that we reach start_tick when end_tick is not set
-        if let Some((start_tick, start_value)) = &status.start {
-            trace!(is_end = ?status.end.is_some(), "start tick exists, checking if we need to insert the component");
-            // we have two updates!, add the component
-            match &status.end {
-                Some((end_tick, end_value)) => {
-                    assert!(status.current_tick < *end_tick);
-                    assert_ne!(start_tick, end_tick);
-                    trace!("insert interpolated comp value because we have 2 updates");
-                    let t = status.interpolation_fraction().unwrap();
-                    let value =
-                        component_registry.interpolate(start_value.clone(), end_value.clone(), t);
-                    entity_commands.insert(value.clone());
-                }
-                _ => {
-                    // we only have one update, but enough time has passed that we should add the component anyway
-                    if tick - *start_tick >= send_interval_delta_tick {
-                        trace!("insert interpolated comp value because enough time has passed");
-                        entity_commands.insert(start_value.clone());
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Update the component value on the Interpolate entity
+/// Apply interpolation for the component
 pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
-    component_registry: Res<InterpolationRegistry>,
-    mut query: Query<(&mut C, &InterpolateStatus<C>)>,
+    interpolation_registry: Res<InterpolationRegistry>,
+    timeline: Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>,
+    mut query: Query<(&mut C, &ConfirmedHistory<C>)>,
 ) {
-    for (mut component, status) in query.iter_mut() {
-        // NOTE: it is possible that we reach start_tick when end_tick is not set
-        if let Some((start_tick, start_value)) = &status.start
-            && let Some((end_tick, end_value)) = &status.end
-        {
-            trace!(?start_tick, interpolate_tick=?status.current_tick, ?end_tick, "doing interpolation!");
-            assert!(status.current_tick < *end_tick);
-            if start_tick != end_tick {
-                let t = status.interpolation_fraction().unwrap();
-                let value =
-                    component_registry.interpolate(start_value.clone(), end_value.clone(), t);
-                *component = value.clone();
-            } else {
-                *component = start_value.clone();
-            }
+    let interpolation_tick = timeline.tick();
+    let interpolation_overstep = timeline.overstep().value();
+    for (mut component, history) in query.iter_mut() {
+        if let Some(interpolated) = history.interpolate(
+            interpolation_tick,
+            interpolation_overstep,
+            interpolation_registry.as_ref(),
+        ) {
+            *component = interpolated;
         }
     }
 }
