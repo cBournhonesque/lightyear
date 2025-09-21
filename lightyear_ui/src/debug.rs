@@ -768,19 +768,19 @@ fn handle_button_interactions(
         for (id, first_child) in section_events {
             let entry = collapse.sections.entry(id).or_insert(false);
             *entry = !*entry;
-            if let Some(child) = first_child {
-                if let Ok(mut text) = uis.p4().get_mut(child) {
-                    let label = text
-                        .0
-                        .trim_start_matches('V')
-                        .trim_start_matches('>')
-                        .trim();
-                    text.0 = if *entry {
-                        format!("> {}", label)
-                    } else {
-                        format!("V {}", label)
-                    };
-                }
+            if let Some(child) = first_child
+                && let Ok(mut text) = uis.p4().get_mut(child)
+            {
+                let label = text
+                    .0
+                    .trim_start_matches('V')
+                    .trim_start_matches('>')
+                    .trim();
+                text.0 = if *entry {
+                    format!("> {}", label)
+                } else {
+                    format!("V {}", label)
+                };
             }
         }
         // reset interactions
@@ -804,19 +804,19 @@ fn handle_button_interactions(
         for (id, first_child) in subsection_events {
             let entry = collapse.subsections.entry(id).or_insert(false);
             *entry = !*entry;
-            if let Some(child) = first_child {
-                if let Ok(mut text) = uis.p4().get_mut(child) {
-                    let label = text
-                        .0
-                        .trim_start_matches('V')
-                        .trim_start_matches('>')
-                        .trim();
-                    text.0 = if *entry {
-                        format!("> {}", label)
-                    } else {
-                        format!("V {}", label)
-                    };
-                }
+            if let Some(child) = first_child
+                && let Ok(mut text) = uis.p4().get_mut(child)
+            {
+                let label = text
+                    .0
+                    .trim_start_matches('V')
+                    .trim_start_matches('>')
+                    .trim();
+                text.0 = if *entry {
+                    format!("> {}", label)
+                } else {
+                    format!("V {}", label)
+                };
             }
         }
         for (_h, mut interaction, _c) in &mut uis.p1() {
@@ -826,27 +826,27 @@ fn handle_button_interactions(
         }
     }
     // Send/Recv toggles
-    if let Ok((mut inter, mut bg)) = uis.p2().single_mut() {
-        if *inter == Interaction::Pressed {
-            vis.show_send = !vis.show_send;
-            bg.0 = if vis.show_send {
-                Color::srgba(0.0, 0.6, 0.0, settings.alpha)
-            } else {
-                Color::srgba(0.2, 0.2, 0.2, settings.alpha)
-            };
-            *inter = Interaction::None;
-        }
+    if let Ok((mut inter, mut bg)) = uis.p2().single_mut()
+        && *inter == Interaction::Pressed
+    {
+        vis.show_send = !vis.show_send;
+        bg.0 = if vis.show_send {
+            Color::srgba(0.0, 0.6, 0.0, settings.alpha)
+        } else {
+            Color::srgba(0.2, 0.2, 0.2, settings.alpha)
+        };
+        *inter = Interaction::None;
     }
-    if let Ok((mut inter, mut bg)) = uis.p3().single_mut() {
-        if *inter == Interaction::Pressed {
-            vis.show_recv = !vis.show_recv;
-            bg.0 = if vis.show_recv {
-                Color::srgba(0.0, 0.6, 0.0, settings.alpha)
-            } else {
-                Color::srgba(0.2, 0.2, 0.2, settings.alpha)
-            };
-            *inter = Interaction::None;
-        }
+    if let Ok((mut inter, mut bg)) = uis.p3().single_mut()
+        && *inter == Interaction::Pressed
+    {
+        vis.show_recv = !vis.show_recv;
+        bg.0 = if vis.show_recv {
+            Color::srgba(0.0, 0.6, 0.0, settings.alpha)
+        } else {
+            Color::srgba(0.2, 0.2, 0.2, settings.alpha)
+        };
+        *inter = Interaction::None;
     }
 }
 
@@ -903,14 +903,15 @@ fn update_metrics(
         node.display = if show { Display::Flex } else { Display::None };
 
         // Update value text
-        if show && let Some(buffer) = history.buffers.get(&line.spec.key.key().get_hash()) {
-            if let Some(latest) = buffer.latest() {
-                let avg = buffer.avg().unwrap();
-                if let Some(&child) = children.get(1) {
-                    if let Ok(mut text) = q_values.get_mut(child) {
-                        text.0 = format!("{:.3} (avg {:.3})", latest, avg);
-                    }
-                }
+        if show
+            && let Some(buffer) = history.buffers.get(&line.spec.key.key().get_hash())
+            && let Some(latest) = buffer.latest()
+        {
+            let avg = buffer.avg().unwrap();
+            if let Some(&child) = children.get(1)
+                && let Ok(mut text) = q_values.get_mut(child)
+            {
+                text.0 = format!("{:.3} (avg {:.3})", latest, avg);
             }
         }
     }
@@ -967,10 +968,7 @@ fn sample_metrics_history(
     for line in &q_lines {
         if let Some(mut sample) = fetch_metric_value(registry.as_ref(), line) {
             let key = line.spec.key.key().get_hash();
-            let buffer = history
-                .buffers
-                .entry(key)
-                .or_insert_with(|| MetricBuffer::default());
+            let buffer = history.buffers.entry(key).or_default();
             if line.spec.per_second {
                 sample /= delta;
             };
@@ -988,8 +986,8 @@ fn sample_metrics_history(
 
 fn fetch_metric_value(reg: &MetricsRegistry, line: &MetricLine) -> Option<f64> {
     match line.spec.key.kind() {
-        MetricKind::Counter => reg.get_counter_value(&line.spec.key.key()),
-        MetricKind::Gauge => reg.get_gauge_value(&line.spec.key.key()),
-        MetricKind::Histogram => reg.get_histogram_mean(&line.spec.key.key()),
+        MetricKind::Counter => reg.get_counter_value(line.spec.key.key()),
+        MetricKind::Gauge => reg.get_gauge_value(line.spec.key.key()),
+        MetricKind::Histogram => reg.get_histogram_mean(line.spec.key.key()),
     }
 }

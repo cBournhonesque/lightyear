@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use avian2d::prelude::*;
-use bevy::color::palettes::basic::GREEN;
+use bevy::color::palettes::basic::{GREEN, RED};
 use bevy::color::palettes::css::BLUE;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
@@ -24,12 +24,26 @@ impl Plugin for ExampleRendererPlugin {
 
         app.add_observer(add_bullet_visuals);
         app.add_observer(add_player_visuals);
-        app.add_observer(add_hitscan_visual);
+        // app.add_observer(add_hitscan_visual);
         app.add_observer(add_physics_projectile_visuals);
         app.add_observer(add_homing_missile_visuals);
 
         app.add_plugins(FrameInterpolationPlugin::<Position>::default());
         app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
+
+        app.add_plugins(PhysicsDebugPlugin::default())
+            .insert_gizmo_config(
+                PhysicsGizmos {
+                    // aabb_color: Some(Color::WHITE),
+                    collider_color: Some(BLUE.into()),
+                    raycast_color: Some(GREEN.into()),
+                    raycast_point_color: Some(RED.into()),
+                    raycast_normal_color: Some(RED.into()),
+                    hide_meshes: true,
+                    ..default()
+                },
+                GizmoConfig::default(),
+            );
 
         #[cfg(feature = "client")]
         {
@@ -120,17 +134,16 @@ fn display_score(
 #[cfg(feature = "client")]
 fn display_info(
     mut mode_text: Single<&mut Text, With<ModeText>>,
-    weapon_type: Single<
-        &WeaponType,
+    mode_query: Single<
         (
-            With<Actions<PlayerContext>>,
-            With<PlayerMarker>,
-            With<Controlled>,
+            &ProjectileReplicationMode,
+            &GameReplicationMode,
+            &WeaponType,
         ),
+        With<ClientContext>,
     >,
-    mode_query: Single<(&ProjectileReplicationMode, &GameReplicationMode), With<ClientContext>>,
 ) {
-    let (projectile_mode, replication_mode) = mode_query.into_inner();
+    let (projectile_mode, replication_mode, weapon_type) = mode_query.into_inner();
     mode_text.0 = format!(
         "Weapon: {}\nProjectile Mode: {}\nReplication Mode: {}\nPress Q to cycle weapons\nPress E to cycle replication\nPress R to cycle rooms\nPress Space to shoot",
         weapon_type.name(),
@@ -234,12 +247,12 @@ fn add_player_visuals(
 /// Add visuals to newly spawned bullets
 fn add_bullet_visuals(
     trigger: Trigger<OnAdd, BulletMarker>,
-    query: Query<(&ColorComponent, &Position, Has<Interpolated>), VisibleFilter>,
+    query: Query<(&ColorComponent, Has<Interpolated>), VisibleFilter>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((color, position, interpolated)) = query.get(trigger.target()) {
+    if let Ok((color, interpolated)) = query.get(trigger.target()) {
         commands.entity(trigger.target()).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
@@ -250,7 +263,7 @@ fn add_bullet_visuals(
                 ..Default::default()
             })),
         ));
-        if interpolated {
+        if !interpolated {
             commands.entity(trigger.target()).insert((
                 FrameInterpolate::<Position>::default(),
                 FrameInterpolate::<Rotation>::default(),

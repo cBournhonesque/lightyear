@@ -44,15 +44,15 @@ impl MetricsRegistry {
     pub fn reset_metric(&self, key: &CompositeKey) -> Option<()> {
         match key.kind() {
             MetricKind::Gauge => {
-                let gauge = self.inner.registry.get_gauge(&key.key())?;
+                let gauge = self.inner.registry.get_gauge(key.key())?;
                 gauge.store(0, Ordering::Relaxed);
             }
             MetricKind::Counter => {
-                let counter = self.inner.registry.get_counter(&key.key())?;
+                let counter = self.inner.registry.get_counter(key.key())?;
                 counter.store(0, Ordering::Relaxed);
             }
             MetricKind::Histogram => {
-                let histogram = self.inner.registry.get_histogram(&key.key())?;
+                let histogram = self.inner.registry.get_histogram(key.key())?;
                 histogram.clear();
             }
         };
