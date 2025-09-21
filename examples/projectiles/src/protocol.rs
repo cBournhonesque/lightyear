@@ -1,7 +1,7 @@
 use crate::protocol::WeaponType::Hitscan;
-use crate::shared::color_from_id;
+use crate::shared::{DespawnAfter, color_from_id};
 use avian2d::position::{Position, Rotation};
-use avian2d::prelude::{CollisionLayers, PhysicsLayer, RigidBody};
+use avian2d::prelude::{CollisionLayers, LinearVelocity, PhysicsLayer, RigidBody};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear::input::bei::prelude;
@@ -426,6 +426,9 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation_fn();
         // .add_linear_correction_fn();
 
+        app.register_component::<LinearVelocity>()
+            .add_prediction(PredictionMode::Full);
+
         app.register_component::<ColorComponent>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
@@ -496,6 +499,9 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ClientProjectile>()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full);
+
+        // Make sure that we rollback the DespawnAfter timer in deterministic replication mode
+        app.add_rollback::<DespawnAfter>();
     }
 }
 

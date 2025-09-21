@@ -24,7 +24,7 @@ impl TimerGauge {
 impl Drop for TimerGauge {
     fn drop(&mut self) {
         metrics::gauge!(format!("{}/time_ms", self.name))
-            .set(self.start.elapsed().as_secs_f64() * 1e3 as f64);
+            .set(self.start.elapsed().as_secs_f64() * 1e3_f64);
     }
 }
 
@@ -54,7 +54,7 @@ impl Drop for DormantTimerGauge {
     fn drop(&mut self) {
         if !self.inactive.load(Ordering::Relaxed) {
             metrics::gauge!(format!("{}/time_ms", self.timer.name))
-                .set(self.timer.start.elapsed().as_secs_f64() * 1e3 as f64);
+                .set(self.timer.start.elapsed().as_secs_f64() * 1e3_f64);
         }
     }
 }

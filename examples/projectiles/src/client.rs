@@ -99,7 +99,7 @@ pub(crate) fn handle_deterministic_spawn(
         && mode == &GameReplicationMode::OnlyInputsReplicated
     {
         commands.entity(trigger.target()).insert((
-            shared::player_bundle(player_id.0),
+            shared::player_bundle(player_id.0, GameReplicationMode::OnlyInputsReplicated),
             DeterministicPredicted,
             DisableRollback,
         ));

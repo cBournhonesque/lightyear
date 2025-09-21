@@ -177,7 +177,7 @@ fn server_player_bundle(
     owner: Entity,
     replication_mode: GameReplicationMode,
 ) -> impl Bundle {
-    let bundle = shared::player_bundle(client_id);
+    let bundle = shared::player_bundle(client_id, replication_mode);
     let collision_layer = replication_mode.room_layer();
     (
         Replicate::to_clients(NetworkTarget::All),
@@ -186,15 +186,16 @@ fn server_player_bundle(
             owner,
             lifetime: Default::default(),
         },
-        replication_mode,
         bundle,
         // the layers are only necessary on the server to avoid hit detection between players of different rooms
-        CollisionLayers::new(collision_layer, [collision_layer]),
+        // CollisionLayers::new(collision_layer, [collision_layer]),
     )
 }
 
 /// Increment the score if the client told us about a detected hit.
 fn handle_hits(trigger: Trigger<RemoteTrigger<HitDetected>>, mut scores: Query<&mut Score>) {
+    // TODO: ideally we would also despawn the bullet, otherwise we will keep replicating data for it to clients
+    //  even though they have already despawned it!
     if let Ok(mut score) = scores.get_mut(trigger.trigger.shooter) {
         info!(
             ?trigger,

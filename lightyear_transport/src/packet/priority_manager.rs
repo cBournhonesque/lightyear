@@ -9,6 +9,7 @@ use crate::channel::registry::{ChannelId, ChannelRegistry};
 use crate::packet::message::{FragmentData, MessageData, SendMessage, SingleData};
 use governor::{DefaultDirectRateLimiter, Quota};
 use lightyear_core::network::NetId;
+#[cfg(feature = "metrics")]
 use lightyear_serde::ToBytes;
 use nonzero_ext::*;
 #[cfg(feature = "trace")]
