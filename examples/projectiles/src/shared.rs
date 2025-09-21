@@ -27,6 +27,7 @@ const EPS: f32 = 0.0001;
 const BULLET_MOVE_SPEED: f32 = 300.0;
 const MAP_LIMIT: f32 = 2000.0;
 const HITSCAN_COLLISION_DISTANCE_CHECK: f32 = 2000.0;
+const BULLET_COLLISION_DISTANCE_CHECK: f32 = 2.0;
 
 #[derive(Clone)]
 pub struct SharedPlugin;
@@ -39,7 +40,6 @@ impl Plugin for SharedPlugin {
         app.add_observer(rotate_player);
         app.add_observer(move_player);
         app.add_observer(shoot_weapon);
-        app.add_observer(weapon_cycling);
 
         // projectile spawning
         app.add_observer(handle_projectile_spawn);
@@ -201,29 +201,6 @@ pub(crate) fn last_log(
     // }
 }
 
-/// Handle weapon cycling input
-pub(crate) fn weapon_cycling(
-    trigger: On<Completed<CycleWeapon>>,
-    mut query: Query<(&mut Weapon, &mut WeaponType)>,
-) {
-    if let Ok((mut weapon, mut weapon_type)) = query.get_mut(trigger.entity) {
-        let new_weapon_type = weapon_type.next();
-        *weapon_type = new_weapon_type;
-        weapon.weapon_type = new_weapon_type;
-
-        // Update weapon properties based on type
-        match new_weapon_type {
-            WeaponType::Hitscan => weapon.fire_rate = 5.0,
-            WeaponType::LinearProjectile => weapon.fire_rate = 2.0,
-            WeaponType::Shotgun => weapon.fire_rate = 1.0,
-            WeaponType::PhysicsProjectile => weapon.fire_rate = 1.5,
-            WeaponType::HomingMissile => weapon.fire_rate = 0.5,
-        }
-
-        info!("Switched to weapon: {}", new_weapon_type.name());
-    }
-}
-
 /// Main weapon shooting system that handles all weapon types
 pub(crate) fn shoot_weapon(
     trigger: On<Completed<Shoot>>,
@@ -238,19 +215,25 @@ pub(crate) fn shoot_weapon(
             &Transform,
             &ColorComponent,
             &mut Weapon,
-            &WeaponType,
             Option<&ControlledBy>,
         ),
         With<PlayerMarker>,
     >,
-    global: Single<(&ProjectileReplicationMode, &GameReplicationMode), With<ClientContext>>,
+    global: Single<
+        (
+            &ProjectileReplicationMode,
+            &GameReplicationMode,
+            &WeaponType,
+        ),
+        With<ClientContext>,
+    >,
 ) {
     let tick = timeline.tick();
     let tick_duration = tick_duration.0;
     let shooter = trigger.entity;
-    let (projectile_mode, replication_mode) = global.into_inner();
+    let (projectile_mode, replication_mode, weapon_type) = global.into_inner();
 
-    if let Ok((id, transform, color, mut weapon, weapon_type, controlled_by)) =
+    if let Ok((id, transform, color, mut weapon, controlled_by)) =
         player_query.get_mut(trigger.entity)
     {
         let is_server = controlled_by.is_some();
@@ -258,7 +241,7 @@ pub(crate) fn shoot_weapon(
         if let Some(last_fire) = weapon.last_fire_tick {
             let ticks_since_last_fire = tick.0.saturating_sub(last_fire.0);
             let time_since_last_fire = Duration::from_secs_f64(ticks_since_last_fire as f64 / 64.0);
-            let min_fire_interval = Duration::from_secs_f32(1.0 / weapon.fire_rate);
+            let min_fire_interval = Duration::from_secs_f32(1.0 / weapon_type.fire_rate());
 
             if time_since_last_fire < min_fire_interval {
                 return; // Too soon to fire again
@@ -533,7 +516,7 @@ pub(crate) fn hitscan_hit_detection(
     mode: Query<&GameReplicationMode, With<ClientContext>>,
     mut spatial_set: ParamSet<(LagCompensationSpatialQuery, SpatialQuery)>,
     bullet: Query<(&HitscanVisual, &BulletMarker, &PlayerId)>,
-    target_query: Query<(), (With<PlayerMarker>, Without<Confirmed>)>,
+    target_query: Query<&GameReplicationMode, (With<PlayerMarker>, Without<Confirmed>)>,
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
     // metadata)
@@ -559,7 +542,6 @@ pub(crate) fn hitscan_hit_detection(
     let tick = timeline.tick();
     let is_server = server.single().is_ok();
 
-    info!("hit detec");
     // check if we should be running hit detection on the server or client
     if is_server {
         if mode == &GameReplicationMode::ClientSideHitDetection
@@ -603,10 +585,12 @@ pub(crate) fn hitscan_hit_detection(
                 hitscan.start,
                 Dir2::new_unchecked(direction),
                 HITSCAN_COLLISION_DISTANCE_CHECK,
-                false,
-                // we stop on the first time the predicate is true, i.e. if we shoot a Player entity
+                true,
+                // we stop on the first time the predicate is true, i.e. check if we hit a player that is in
+                // the same room (GameReplicationMode) and has a PlayerMarker
                 // this is important to not hit the lag compensation colliders
-                &|entity| target_query.get(entity).is_ok(),
+                &|entity| target_query.get(entity).is_ok_and(|m| m == mode),
+                // avoid hitting ourselves
                 &mut SpatialQueryFilter::from_excluded_entities([shooter]),
             ) {
                 let target = hit_data.entity;
@@ -624,11 +608,12 @@ pub(crate) fn hitscan_hit_detection(
                 hitscan.start,
                 Dir2::new_unchecked(direction),
                 HITSCAN_COLLISION_DISTANCE_CHECK,
-                false,
+                true,
                 &mut SpatialQueryFilter::from_excluded_entities([shooter]),
-                // we stop on the first time the predicate is true, i.e. if we shoot a Player entity
+                // we stop on the first time the predicate is true, i.e. check if we hit a player that is in
+                // the same room (GameReplicationMode) and has a PlayerMarker
                 // this is important to not hit the lag compensation colliders
-                &|entity| target_query.get(entity).is_ok(),
+                &|entity| target_query.get(entity).is_ok_and(|m| m == mode),
             ) {
                 let target = hit_data.entity;
                 info!(
@@ -664,19 +649,21 @@ pub(crate) fn hitscan_hit_detection(
     }
 }
 
+/// Hit detection for full-entity bullets
 pub(crate) fn bullet_hit_detection(
-    commands: Commands,
+    mut commands: Commands,
     server: Query<Entity, With<Server>>,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     mode: Single<&GameReplicationMode, With<ClientContext>>,
     mut spatial_set: ParamSet<(LagCompensationSpatialQuery, SpatialQuery)>,
-    bullet: Query<(&Position, &LinearVelocity, &BulletMarker, &PlayerId)>,
-    target_query: Query<(), (With<PlayerMarker>, Without<Confirmed>)>,
+    bullet: Query<(Entity, &Position, &LinearVelocity, &BulletMarker, &PlayerId)>,
+    target_query: Query<&GameReplicationMode, (With<PlayerMarker>, Without<Confirmed>)>,
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
     // metadata)
     client_query: Query<&InterpolationDelay, With<ClientOf>>,
-    mut player_query: Query<(&mut Score, &PlayerId, Option<&ControlledBy>), With<PlayerMarker>>,
+    mut hit_sender: Query<(&LocalId, &mut TriggerSender<HitDetected>), With<Client>>,
+    mut player_query: Query<AnyOf<(&mut Score, &ControlledBy, &Predicted)>, With<PlayerMarker>>,
 ) {
     let tick = timeline.tick();
     let is_server = server.single().is_ok();
@@ -695,21 +682,29 @@ pub(crate) fn bullet_hit_detection(
         {
             return;
         }
-        // TODO: ignore bullets that were fired by other clients
+        // TODO: for ClientSide HitDetection, ignore bullets that were fired by other clients, we only compute the hits from
+        //  our own bullets
     }
     bullet
         .iter()
-        .for_each(|(position, velocity, bullet_marker, id)| {
+        .for_each(|(entity, position, velocity, bullet_marker, id)| {
             let shooter = bullet_marker.shooter;
-            let direction = velocity.0.normalize();
+            let Some(direction) = velocity.0.try_normalize() else {
+                info!(
+                    ?is_server,
+                    "Despawning bullet {entity:?} with invalid velocity {velocity:?}"
+                );
+                commands.entity(entity).try_despawn();
+                return;
+            };
             let start = position.0;
-            let max_distance = velocity.0.length();
+            let max_distance = BULLET_COLLISION_DISTANCE_CHECK;
 
             match mode {
                 GameReplicationMode::ClientPredictedLagComp => {
                     let Ok(Some(controlled)) = player_query
                         .get(shooter)
-                        .map(|(_, _, controlled_by)| controlled_by)
+                        .map(|(_, controlled_by, _)| controlled_by)
                     else {
                         error!("Could not retrieve controlled_by for client {id:?}");
                         return;
@@ -719,25 +714,29 @@ pub(crate) fn bullet_hit_detection(
                         return;
                     };
                     let query = spatial_set.p0();
-                    if let Some(hit_data) = query.cast_ray(
+                    if let Some(hit_data) = query.cast_ray_predicate(
                         // the delay is sent in every input message; the latest InterpolationDelay received
                         // is stored on the client entity
                         *delay,
                         start,
                         Dir2::new_unchecked(direction),
                         max_distance,
-                        false,
-                        &mut SpatialQueryFilter::default(),
+                        true,
+                        // we stop on the first time the predicate is true, i.e. check if we hit a player that is in
+                        // the same room (GameReplicationMode) and has a PlayerMarker
+                        // this is important to not hit the lag compensation colliders
+                        &|entity| target_query.get(entity).is_ok_and(|m| m == mode),
+                        &mut SpatialQueryFilter::from_excluded_entities([shooter]),
                     ) {
+                        // TODO: the client should also predict the hit so that it can show some cosmetics and despawn the bullet!
                         let target = hit_data.entity;
-                        info!(?tick, ?hit_data, ?shooter, ?target, "Hitscan hit detected");
+                        info!(?tick, ?hit_data, ?shooter, ?target, "Bullet hit detected");
+                        commands.entity(entity).try_despawn();
                         // if there is a hit, increment the score
-                        player_query
-                            .iter_mut()
-                            .find(|(_, player_id, _)| player_id.0 == id.0)
-                            .map(|(mut score, _, _)| {
-                                score.0 += 1;
-                            });
+                        if let Ok((Some(mut score), _, _)) = player_query.get_mut(shooter) {
+                            info!("Increment score");
+                            score.0 += 1;
+                        }
                     }
                 }
                 _ => {
@@ -746,9 +745,12 @@ pub(crate) fn bullet_hit_detection(
                         start,
                         Dir2::new_unchecked(direction),
                         max_distance,
-                        false,
-                        &SpatialQueryFilter::default(),
-                        &|entity| target_query.get(entity).is_ok(),
+                        true,
+                        &mut SpatialQueryFilter::from_excluded_entities([shooter]),
+                        // we stop on the first time the predicate is true, i.e. check if we hit a player that is in
+                        // the same room (GameReplicationMode) and has a PlayerMarker
+                        // this is important to not hit the lag compensation colliders
+                        &|entity| target_query.get(entity).is_ok_and(|m| m == mode),
                     ) {
                         let target = hit_data.entity;
                         info!(
@@ -757,15 +759,30 @@ pub(crate) fn bullet_hit_detection(
                             ?hit_data,
                             ?shooter,
                             ?target,
-                            "Hitscan hit detected"
+                            "Bullet hit detected"
                         );
+                        // TODO: this might not be enough because in ClientSideHitDetection the server might re-replicate the bullet?
+                        commands.entity(entity).try_despawn();
                         // if there is a hit, increment the score
-                        player_query
-                            .iter_mut()
-                            .find(|(_, player_id, _)| player_id.0 == id.0)
-                            .map(|(mut score, _, _)| {
-                                score.0 += 1;
+                        if let Ok((Some(mut score), _, _)) = player_query.get_mut(shooter) {
+                            info!("Increment score");
+                            score.0 += 1;
+                        }
+                        // client-side hit detection: the client needs to notify the server about the hit
+                        if !is_server
+                            && mode == &GameReplicationMode::ClientSideHitDetection
+                            && let Ok((_, mut sender)) = hit_sender.single_mut()
+                            && let Ok((_, _, Some(predicted))) = player_query.get(shooter)
+                        {
+                            info!("Client detected hit! Sending hit detection trigger to server");
+                            // the shooter was predicted, we need to convert it to the confirmed entity
+                            let confirmed_shooter = predicted.confirmed_entity.unwrap();
+                            sender.trigger::<HitChannel>(HitDetected {
+                                shooter: confirmed_shooter,
+                                // TODO: similarly, we should convert the target entity!
+                                target,
                             });
+                        }
                     }
                 }
             }
@@ -910,7 +927,9 @@ fn shoot_linear_projectile(
     let bullet_transform = transform.clone();
     let bullet_bundle = (
         bullet_transform,
+        Position::new(transform.translation.truncate()),
         LinearVelocity(bullet_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED),
+        DespawnAfter(Timer::new(Duration::from_secs(3), TimerMode::Once)),
         RigidBody::Kinematic,
         *id,
         *color,
@@ -921,36 +940,24 @@ fn shoot_linear_projectile(
     if is_server {
         #[cfg(feature = "server")]
         match replication_mode {
-            GameReplicationMode::AllPredicted => {}
-            GameReplicationMode::ClientPredictedNoComp => {
+            GameReplicationMode::AllPredicted => {
+                // We do not predict other players shooting? or should we do it if we received the input in time?
                 commands.spawn((
                     bullet_bundle,
+                    // we predict-spawn the bullet on the client, so we need to also add PreSpawned on the server
                     PreSpawned::default(),
-                    DespawnAfter(Timer::new(Duration::from_secs(3), TimerMode::Once)),
                     Replicate::to_clients(NetworkTarget::All),
-                    PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
-                    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                    PredictionTarget::to_clients(NetworkTarget::All),
                     controlled_by.unwrap().clone(),
                 ));
-                // TODO: hit detection
             }
-            GameReplicationMode::ClientPredictedLagComp => {
+            GameReplicationMode::ClientPredictedNoComp
+            | GameReplicationMode::ClientPredictedLagComp
+            | GameReplicationMode::ClientSideHitDetection => {
                 commands.spawn((
                     bullet_bundle,
+                    // we predict-spawn the bullet on the client, so we need to also add PreSpawned on the server
                     PreSpawned::default(),
-                    DespawnAfter(Timer::new(Duration::from_secs(3), TimerMode::Once)),
-                    Replicate::to_clients(NetworkTarget::All),
-                    PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
-                    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
-                    controlled_by.unwrap().clone(),
-                ));
-                // TODO: hit detection
-            }
-            GameReplicationMode::ClientSideHitDetection => {
-                commands.spawn((
-                    bullet_bundle,
-                    PreSpawned::default(),
-                    DespawnAfter(Timer::new(Duration::from_secs(3), TimerMode::Once)),
                     Replicate::to_clients(NetworkTarget::All),
                     PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
                     InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
@@ -960,7 +967,6 @@ fn shoot_linear_projectile(
             GameReplicationMode::AllInterpolated => {
                 commands.spawn((
                     bullet_bundle,
-                    DespawnAfter(Timer::new(Duration::from_secs(3), TimerMode::Once)),
                     Replicate::to_clients(NetworkTarget::All),
                     InterpolationTarget::to_clients(NetworkTarget::All),
                     controlled_by.unwrap().clone(),
@@ -975,12 +981,9 @@ fn shoot_linear_projectile(
                 commands.spawn((bullet_bundle, PreSpawned::default()));
             }
             GameReplicationMode::ClientPredictedNoComp
-            | GameReplicationMode::ClientPredictedLagComp => {
+            | GameReplicationMode::ClientPredictedLagComp
+            | GameReplicationMode::ClientSideHitDetection => {
                 commands.spawn((bullet_bundle, PreSpawned::default()));
-            }
-            GameReplicationMode::ClientSideHitDetection => {
-                commands.spawn((bullet_bundle, PreSpawned::default()));
-                // do hit detection
             }
             GameReplicationMode::AllInterpolated => {
                 // we don't spawn anything, it will be replicated to us
@@ -1390,8 +1393,8 @@ fn spawn_projectile_from_buffer(
     }
 }
 
-#[derive(Component)]
-struct DespawnAfter(pub Timer);
+#[derive(Component, Clone, PartialEq, Debug)]
+pub struct DespawnAfter(pub Timer);
 
 /// Resource to track room entities for each replication mode
 #[derive(Resource, Debug)]
@@ -1751,7 +1754,7 @@ fn spawn_homing_missile_child(
     }
 }
 
-pub fn player_bundle(client_id: PeerId) -> impl Bundle {
+pub fn player_bundle(client_id: PeerId, mode: GameReplicationMode) -> impl Bundle {
     let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
     let color = color_from_id(client_id);
     (
@@ -1771,8 +1774,9 @@ pub fn player_bundle(client_id: PeerId) -> impl Bundle {
         ColorComponent(color),
         PlayerMarker,
         Weapon::default(),
-        WeaponType::default(),
         Name::new("Player"),
         Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
+        // Track the replication mode of the player
+        mode,
     )
 }

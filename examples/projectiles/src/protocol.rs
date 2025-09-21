@@ -1,7 +1,7 @@
 use crate::protocol::WeaponType::Hitscan;
-use crate::shared::color_from_id;
+use crate::shared::{DespawnAfter, color_from_id};
 use avian2d::position::{Position, Rotation};
-use avian2d::prelude::{CollisionLayers, PhysicsLayer, RigidBody};
+use avian2d::prelude::{CollisionLayers, LinearVelocity, PhysicsLayer, RigidBody};
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear::input::bei::prelude;
@@ -108,6 +108,16 @@ impl WeaponType {
             WeaponType::Shotgun => "Shotgun",
             WeaponType::PhysicsProjectile => "Physics Projectile",
             WeaponType::HomingMissile => "Homing Missile",
+        }
+    }
+
+    pub fn fire_rate(&self) -> f32 {
+        match self {
+            WeaponType::Hitscan => 5.0,
+            WeaponType::LinearProjectile => 2.0,
+            WeaponType::Shotgun => 1.0,
+            WeaponType::PhysicsProjectile => 1.5,
+            WeaponType::HomingMissile => 0.5,
         }
     }
 }
@@ -246,8 +256,6 @@ impl From<RoomLayer> for CollisionLayers {
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Weapon {
-    pub weapon_type: WeaponType,
-    pub fire_rate: f32, // shots per second
     pub last_fire_tick: Option<Tick>,
     // Ring buffer for projectiles (used with RingBuffer replication mode)
     pub projectile_buffer: Vec<ProjectileSpawnInfo>,
@@ -265,8 +273,6 @@ pub struct ProjectileSpawnInfo {
 impl Default for Weapon {
     fn default() -> Self {
         Self {
-            weapon_type: WeaponType::default(),
-            fire_rate: 2.0, // 2 shots per second by default
             last_fire_tick: None,
             projectile_buffer: Vec::new(),
             buffer_capacity: 100,
@@ -420,6 +426,9 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation_fn();
         // .add_linear_correction_fn();
 
+        app.register_component::<LinearVelocity>()
+            .add_prediction(PredictionMode::Full);
+
         app.register_component::<ColorComponent>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
@@ -490,6 +499,9 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ClientProjectile>()
             .add_prediction(PredictionMode::Full)
             .add_interpolation(InterpolationMode::Full);
+
+        // Make sure that we rollback the DespawnAfter timer in deterministic replication mode
+        app.add_rollback::<DespawnAfter>();
     }
 }
 

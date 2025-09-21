@@ -41,6 +41,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(spawn_player);
         app.add_observer(cycle_replication_mode);
         app.add_observer(cycle_projectile_mode);
+        app.add_observer(cycle_weapon_type);
         app.add_observer(handle_hits);
 
         app.add_systems(Startup, spawn_global_control);
@@ -77,6 +78,7 @@ pub(crate) fn spawn_global_control(mut commands: Commands) {
         Replicate::to_clients(NetworkTarget::All),
         GameReplicationMode::default(),
         ProjectileReplicationMode::default(),
+        WeaponType::default(),
         Name::new("ClientContext"),
     ));
 }
@@ -175,7 +177,7 @@ fn server_player_bundle(
     owner: Entity,
     replication_mode: GameReplicationMode,
 ) -> impl Bundle {
-    let bundle = shared::player_bundle(client_id);
+    let bundle = shared::player_bundle(client_id, replication_mode);
     let collision_layer = replication_mode.room_layer();
     (
         Replicate::to_clients(NetworkTarget::All),
@@ -184,15 +186,16 @@ fn server_player_bundle(
             owner,
             lifetime: Default::default(),
         },
-        replication_mode,
         bundle,
         // the layers are only necessary on the server to avoid hit detection between players of different rooms
-        CollisionLayers::new(collision_layer, [collision_layer]),
+        // CollisionLayers::new(collision_layer, [collision_layer]),
     )
 }
 
 /// Increment the score if the client told us about a detected hit.
 fn handle_hits(trigger: On<RemoteEvent<HitDetected>>, mut scores: Query<&mut Score>) {
+    // TODO: ideally we would also despawn the bullet, otherwise we will keep replicating data for it to clients
+    //  even though they have already despawned it!
     if let Ok(mut score) = scores.get_mut(trigger.trigger.shooter) {
         info!(
             ?trigger,
@@ -477,4 +480,14 @@ pub fn cycle_projectile_mode(
     let mut projectile_mode = global.into_inner();
     *projectile_mode = projectile_mode.next();
     info!("Cycled to projectile mode: {}", projectile_mode.name());
+}
+
+/// Handle weapon cycling input
+pub(crate) fn cycle_weapon_type(
+    trigger: Trigger<Completed<CycleWeapon>>,
+    global: Single<&mut WeaponType, With<ClientContext>>,
+) {
+    let mut weapon_type = global.into_inner();
+    *weapon_type = weapon_type.next();
+    info!("Switched to weapon: {}", weapon_type.name());
 }
