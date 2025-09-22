@@ -22,21 +22,15 @@ visibility.lose_visibility(client);
 ```
 */
 
-use bevy_app::{App, Plugin, PostUpdate};
-use bevy_ecs::{
-    component::Component,
-    entity::{Entity, EntityHashMap},
-    reflect::ReflectComponent,
-    relationship::RelationshipTarget,
-    schedule::{IntoScheduleConfigs, SystemSet},
-    system::Query,
-};
-use bevy_platform::collections::hash_map::Entry;
-use bevy_reflect::Reflect;
-
 use crate::prelude::ReplicateLikeChildren;
 use crate::send::plugin::ReplicationBufferSet;
 use crate::send::sender::ReplicationSender;
+use bevy_app::{App, Plugin, PostUpdate};
+use bevy_ecs::entity::EntityHashMap;
+use bevy_ecs::prelude::*;
+use bevy_platform::collections::hash_map::Entry;
+use bevy_reflect::Reflect;
+use lightyear_connection::client::Disconnected;
 
 /// Event related to [`Entities`](Entity) which are relevant to a client
 #[derive(Debug, PartialEq, Clone, Copy, Reflect)]
@@ -67,7 +61,7 @@ impl VisibilityState {
 /// You can use [`gain_visibility`](NetworkVisibility::gain_visibility) and [`lose_visibility`](NetworkVisibility::lose_visibility)
 /// to control the network visibility of entities.
 ///
-/// You can also use [`Room`](super::room::Room)s for a more stateful approach to network visibility
+/// You can also use [`Room`]s for a more stateful approach to network visibility
 ///
 /// (the client still needs to be included in the [`Replicate`](crate::prelude::Replicate), the room is simply an additional constraint)
 #[derive(Component, Clone, Default, PartialEq, Debug, Reflect)]
@@ -173,6 +167,16 @@ impl NetworkVisibilityPlugin {
                     });
             });
     }
+
+    /// Pop the disconnected client from all NetworkVisibility components
+    fn handle_disconnect(
+        trigger: Trigger<OnAdd, Disconnected>,
+        mut query: Query<&mut NetworkVisibility>,
+    ) {
+        query.iter_mut().for_each(|mut room| {
+            room.clients.remove(&trigger.target());
+        });
+    }
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -194,6 +198,7 @@ impl Plugin for NetworkVisibilityPlugin {
             PostUpdate,
             (Self::update_network_visibility.in_set(VisibilitySet::UpdateVisibility),),
         );
+        app.add_observer(Self::handle_disconnect);
     }
 }
 

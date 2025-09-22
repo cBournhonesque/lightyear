@@ -42,18 +42,12 @@ use crate::send::plugin::ReplicationBufferSet;
 use crate::visibility::error::NetworkVisibilityError;
 use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilityState};
 use bevy_app::{App, Plugin, PostUpdate};
-use bevy_ecs::{
-    component::Component,
-    entity::{Entity, EntityHashMap, EntityHashSet, EntityIndexMap},
-    error::Result,
-    event::Event,
-    observer::Trigger,
-    resource::Resource,
-    schedule::{IntoScheduleConfigs, SystemSet},
-    system::{Commands, Query, ResMut},
-};
+use bevy_ecs::entity::{EntityHashMap, EntityHashSet, EntityIndexMap};
+use bevy_ecs::prelude::OnAdd;
+use bevy_ecs::prelude::*;
 use bevy_platform::collections::hash_map::Entry;
 use bevy_reflect::Reflect;
+use lightyear_connection::prelude::Disconnected;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
@@ -83,6 +77,13 @@ impl Room {
 pub struct RoomPlugin;
 
 impl RoomPlugin {
+    /// Pop the disconnected client from all rooms
+    fn handle_disconnect(trigger: Trigger<OnAdd, Disconnected>, mut query: Query<&mut Room>) {
+        query.iter_mut().for_each(|mut room| {
+            room.clients.remove(&trigger.target());
+        });
+    }
+
     fn handle_room_event(
         trigger: Trigger<RoomEvent>,
         mut room_events: ResMut<RoomEvents>,
@@ -271,6 +272,7 @@ impl Plugin for RoomPlugin {
                 .before(crate::visibility::immediate::VisibilitySet::UpdateVisibility),
         );
         app.add_observer(Self::handle_room_event);
+        app.add_observer(Self::handle_disconnect);
     }
 }
 
