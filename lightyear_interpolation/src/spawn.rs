@@ -1,15 +1,11 @@
 use crate::Interpolated;
 use crate::manager::InterpolationManager;
-use bevy_ecs::{
-    entity::Entity,
-    error::Result,
-    query::{Added, With},
-    system::{Commands, Query, Single},
-};
+use bevy_ecs::prelude::*;
 use lightyear_connection::client::Connected;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver, ShouldBeInterpolated};
-use tracing::trace;
+#[allow(unused_imports)]
+use tracing::{trace, warn};
 
 /// Spawn an interpolated entity for each confirmed entity that has the `ShouldBeInterpolated` component added
 pub(crate) fn spawn_interpolated_entity(

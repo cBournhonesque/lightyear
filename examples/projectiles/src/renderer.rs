@@ -1,4 +1,5 @@
 use crate::protocol::*;
+use crate::shared::direction_only::BulletOf;
 use avian2d::prelude::*;
 use bevy::color::palettes::basic::{GREEN, RED};
 use bevy::color::palettes::css::BLUE;
@@ -23,6 +24,7 @@ impl Plugin for ExampleRendererPlugin {
         app.add_systems(Startup, init);
 
         app.add_observer(add_bullet_visuals);
+        app.add_observer(add_bullet_visuals_interpolated);
         app.add_observer(add_player_visuals);
         // app.add_observer(add_hitscan_visual);
         app.add_observer(add_physics_projectile_visuals);
@@ -189,6 +191,8 @@ pub struct VisibleFilter {
         With<Interpolated>,
         // to show entities on the server
         With<Replicate>,
+        // to show bullets spawned by ProjectileSpawn
+        With<BulletOf>,
     )>,
     // we don't show any replicated (confirmed) entities unless it's the DeterministicPredicted case
     b: Or<(Without<Replicated>, With<DeterministicPredicted>)>,
@@ -247,12 +251,17 @@ fn add_player_visuals(
 /// Add visuals to newly spawned bullets
 fn add_bullet_visuals(
     trigger: Trigger<OnAdd, BulletMarker>,
-    query: Query<(&ColorComponent, Has<Interpolated>), VisibleFilter>,
+    // Hitscan are rendered differently
+    query: Query<
+        (&ColorComponent, Has<BulletOf>),
+        (VisibleFilter, Without<HitscanVisual>, With<Position>),
+    >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((color, interpolated)) = query.get(trigger.target()) {
+    if let Ok((color, has_bullet_of)) = query.get(trigger.target()) {
+        // TODO: for interpolation, we want to only start showing the bullet when the Position component gets synced to Interpolated.
         commands.entity(trigger.target()).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
@@ -263,12 +272,50 @@ fn add_bullet_visuals(
                 ..Default::default()
             })),
         ));
-        if !interpolated {
+        // we know that the entity is predicted since
+        // - it cannot be interpolated because Position is added later on, not immediately on sync
+        // - it cannot be a BulletOf
+        if !has_bullet_of {
             commands.entity(trigger.target()).insert((
                 FrameInterpolate::<Position>::default(),
                 FrameInterpolate::<Rotation>::default(),
             ));
         }
+    }
+}
+
+/// Add visuals to newly spawned bullets
+///
+/// For interpolation, we want to only start showing the bullet when the Position component gets synced to Interpolated.
+/// (otherwise it would first appear in the middle of the screen)
+fn add_bullet_visuals_interpolated(
+    trigger: Trigger<OnAdd, Position>,
+    // Hitscan are rendered differently
+    query: Query<
+        &ColorComponent,
+        (
+            With<Interpolated>,
+            Without<HitscanVisual>,
+            With<Position>,
+            With<BulletMarker>,
+        ),
+    >,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    if let Ok(color) = query.get(trigger.target()) {
+        // TODO: for interpolation, we want to only start showing the bullet when the Position component gets synced to Interpolated.
+        commands.entity(trigger.target()).insert((
+            Visibility::default(),
+            Mesh2d(meshes.add(Mesh::from(Circle {
+                radius: BULLET_SIZE,
+            }))),
+            MeshMaterial2d(materials.add(ColorMaterial {
+                color: color.0,
+                ..Default::default()
+            })),
+        ));
     }
 }
 
@@ -279,6 +326,7 @@ fn add_hitscan_visual(
     mut commands: Commands,
 ) {
     if let Ok((visual, color)) = query.get(trigger.target()) {
+        info!("Add hitscan vis");
         // For now, we'll use gizmos to draw the line in a separate system
         // This is a simple implementation; in a real game you might want
         // more sophisticated line rendering
