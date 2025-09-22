@@ -15,6 +15,7 @@ impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         // add our client-specific logic. Here we will just connect to the server
         app.add_systems(Startup, startup);
+        app.add_observer(receive);
     }
 }
 
@@ -40,4 +41,12 @@ fn startup(mut commands: Commands) -> Result {
         .id();
     commands.trigger_targets(Connect, client);
     Ok(())
+}
+
+fn receive(
+    t: Trigger<OnAdd, StressComponent>,
+    q: Query<&StressComponent>
+) {
+    let stress = q.get(t.target()).unwrap();
+    info!("Entity {:?} received {:?}", t.target(), stress);
 }
