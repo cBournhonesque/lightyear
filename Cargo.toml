@@ -214,7 +214,7 @@ tracy-client = { version = "=0.18.0" }
 
 # input
 bevy_enhanced_input = { version = "0.18" }
-leafwing-input-manager = { version = "0.17.1", default-features = false, features = [
+leafwing-input-manager = { version = "0.18.0", default-features = false, features = [
   "keyboard",
 ] }
 
