@@ -220,38 +220,6 @@ impl GameReplicationMode {
             _ => GameReplicationMode::AllPredicted, // Default fallback
         }
     }
-
-    pub fn room_layer(&self) -> RoomLayer {
-        match self {
-            GameReplicationMode::AllPredicted => RoomLayer::AllPredicted,
-            GameReplicationMode::ClientPredictedNoComp => RoomLayer::ClientPredictedNoComp,
-            GameReplicationMode::ClientPredictedLagComp => RoomLayer::ClientPredictedLagComp,
-            GameReplicationMode::ClientSideHitDetection => RoomLayer::ClientSideHitDetection,
-            GameReplicationMode::AllInterpolated => RoomLayer::AllInterpolated,
-            GameReplicationMode::OnlyInputsReplicated => RoomLayer::OnlyInputsReplicated,
-        }
-    }
-}
-
-/// We make one physics layer per room to make sure that the hit-detection doesn't trigger for entities
-/// that are in different rooms
-#[derive(PhysicsLayer, Default, Clone, Copy, Debug)]
-pub enum RoomLayer {
-    #[default]
-    Default, // Layer 0 - the default layer that objects are assigned to
-    AllPredicted,
-    ClientPredictedNoComp,
-    ClientPredictedLagComp,
-    ClientSideHitDetection,
-    AllInterpolated,
-    OnlyInputsReplicated,
-}
-
-/// Members of a room can only attack other members of the room
-impl From<RoomLayer> for CollisionLayers {
-    fn from(value: RoomLayer) -> Self {
-        Self::new(value, [value])
-    }
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
@@ -327,17 +295,10 @@ pub struct ProjectileSpawn {
     pub position: Vec2,
     pub direction: Vec2,
     pub speed: f32,
+    pub color: ColorComponent,
     pub weapon_type: WeaponType,
+    pub shooter: Entity,
     pub player_id: PeerId,
-}
-
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-pub struct ClientProjectile {
-    pub start_position: Vec2,
-    pub direction: Vec2,
-    pub speed: f32,
-    pub spawn_tick: Tick,
-    pub weapon_type: WeaponType,
 }
 
 #[derive(MapEntities, Event, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -439,6 +400,7 @@ impl Plugin for ProtocolPlugin {
         // make sure that we have an Interpolated HitscanVisual entity since we only render entities
         // that are interpolated or predicted
         app.register_component::<HitscanVisual>()
+            .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
 
         app.register_component::<RigidBody>()
@@ -495,10 +457,6 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<ProjectileSpawn>()
             .add_prediction(PredictionMode::Once)
             .add_interpolation(InterpolationMode::Once);
-
-        app.register_component::<ClientProjectile>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full);
 
         // Make sure that we rollback the DespawnAfter timer in deterministic replication mode
         app.add_rollback::<DespawnAfter>();

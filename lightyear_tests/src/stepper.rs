@@ -116,7 +116,6 @@ impl ClientServerStepper {
                     // Note: no need to add ReplicationSender/Receiver on the host-client entity
                     // TODO: maybe don't add Link either?
                     Link::new(None),
-                    // For Crossbeam we need to mark the IO as Linked, as there is no ServerLink to do that for us
                     Linked,
                 ))
                 .id(),
