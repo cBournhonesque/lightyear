@@ -187,6 +187,7 @@ impl ReplicationSendPlugin {
     fn handle_disconnection(
         trigger: On<Add, Disconnected>,
         mut query: Query<&mut ReplicationSender>,
+        mut replicate: Query<&mut Replicate>,
     ) {
         if let Ok(mut sender) = query.get_mut(trigger.entity) {
             *sender = ReplicationSender::new(
@@ -195,6 +196,9 @@ impl ReplicationSendPlugin {
                 sender.bandwidth_cap_enabled,
             );
         }
+        replicate.iter_mut().for_each(|mut r| {
+            r.senders.swap_remove(&trigger.target());
+        });
     }
 
     // /// Tick the internal timers of all replication groups.
