@@ -48,14 +48,8 @@ impl Plugin for ExampleServerPlugin {
 
         // we don't want to panic when trying to read the InputReader if gui is not enabled
         app.configure_sets(PreUpdate, EnhancedInputSet::Prepare.run_if(|| false));
-        app.add_plugins(BotPlugin);
+        app.add_plugins(bot::BotPlugin);
     }
-}
-
-/// Spawn bots when the server starts
-/// NOTE: this has to be done after `Plugin::finish()` so that BEI has finished building.
-pub(crate) fn spawn_bots(mut commands: Commands) {
-    commands.trigger(SpawnBot);
 }
 
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
@@ -89,7 +83,7 @@ pub(crate) fn spawn_global_control(mut commands: Commands) {
 // has been removed
 pub(crate) fn spawn_player(
     trigger: On<Add, Connected>,
-    query: Query<(&RemoteId, Has<BotClient>), With<ClientOf>>,
+    query: Query<(&RemoteId, Has<bot::BotClient>), With<ClientOf>>,
     mut commands: Commands,
     mut rooms: ResMut<Rooms>,
     replicated_players: Query<
@@ -178,7 +172,6 @@ fn server_player_bundle(
     replication_mode: GameReplicationMode,
 ) -> impl Bundle {
     let bundle = shared::player_bundle(client_id, replication_mode);
-    let collision_layer = replication_mode.room_layer();
     (
         Replicate::to_clients(NetworkTarget::All),
         NetworkVisibility::default(),
@@ -187,8 +180,6 @@ fn server_player_bundle(
             lifetime: Default::default(),
         },
         bundle,
-        // the layers are only necessary on the server to avoid hit detection between players of different rooms
-        // CollisionLayers::new(collision_layer, [collision_layer]),
     )
 }
 
@@ -205,218 +196,247 @@ fn handle_hits(trigger: On<RemoteEvent<HitDetected>>, mut scores: Query<&mut Sco
     }
 }
 
-pub struct BotPlugin;
+mod bot {
+    use super::*;
+    pub struct BotPlugin;
 
-impl Plugin for BotPlugin {
-    fn build(&self, app: &mut App) {}
+    impl Plugin for BotPlugin {
+        fn build(&self, app: &mut App) {}
 
-    // run in `cleanup` because BEI finishes building in `finish`
-    fn cleanup(&self, app: &mut App) {
-        app.add_observer(spawn_bot_app);
-        app.add_systems(Startup, spawn_bots);
+        // run in `cleanup` because BEI finishes building in `finish`
+        fn cleanup(&self, app: &mut App) {
+            app.add_observer(spawn_bot_app);
+            app.add_systems(Startup, spawn_bots);
+        }
     }
-}
 
-#[derive(Component)]
-pub struct BotClient;
+    #[derive(Component)]
+    pub struct BotClient;
 
-#[derive(Event)]
-pub struct SpawnBot;
+    #[derive(Event)]
+    pub struct SpawnBot;
 
-pub struct BotApp(App);
+    pub struct BotApp(App);
 
-unsafe impl Send for BotApp {}
-unsafe impl Sync for BotApp {}
+    unsafe impl Send for BotApp {}
+    unsafe impl Sync for BotApp {}
 
-impl BotApp {
-    fn run(&mut self) {
-        info_span!("bot").in_scope(|| {
-            self.0.run();
+    impl BotApp {
+        fn run(&mut self) {
+            info_span!("bot").in_scope(|| {
+                self.0.run();
+            });
+        }
+    }
+
+    /// Spawn bots when the server starts
+    /// NOTE: this has to be done after `Plugin::finish()` so that BEI has finished building.
+    pub(crate) fn spawn_bots(mut commands: Commands) {
+        commands.trigger(SpawnBot);
+    }
+
+    /// On the server, we will create a second app to host a bot that is similar to a real client,
+    /// but their inputs are mocked
+    fn spawn_bot_app(
+        trigger: On<SpawnBot>,
+        tick_duration: Res<TickDuration>,
+        server: Single<Entity, With<Server>>,
+        mut commands: Commands,
+    ) {
+        info!("Spawning bot app");
+        let (crossbeam_client, crossbeam_server) = CrossbeamIo::new_pair();
+
+        let mut app = new_headless_app();
+        // TODO: just spawn a bot player entity without creating a new client
+        // cannot use headless app because the frame rate is too fast so
+        // the bot sends too many packets
+        // let mut app = new_gui_app(false);
+        app.add_plugins(InputPlugin);
+        app.add_plugins(lightyear::prelude::client::ClientPlugins {
+            tick_duration: tick_duration.0,
+        });
+        app.add_plugins(SharedPlugin);
+        app.add_plugins(ExampleClientPlugin);
+
+        let client_id = rand::random::<u64>();
+        let auth = Authentication::Manual {
+            server_addr: SERVER_ADDR,
+            client_id,
+            private_key: SHARED_SETTINGS.private_key,
+            protocol_id: SHARED_SETTINGS.protocol_id,
+        };
+
+        app.world_mut().spawn((
+            Client::default(),
+            BotClient,
+            ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+            ReplicationReceiver::default(),
+            NetcodeClient::new(
+                auth,
+                lightyear::netcode::client_plugin::NetcodeConfig::default(),
+            )
+            .unwrap(),
+            crossbeam_client,
+            PredictionManager::default(),
+            InterpolationManager::default(),
+            Name::from("BotClient"),
+        ));
+        let server = server.into_inner();
+        let conditioner = RecvLinkConditioner::new(LinkConditionerConfig::average_condition());
+        commands.spawn((
+            LinkOf { server },
+            Link::new(Some(conditioner)),
+            Linked,
+            ClientOf,
+            BotClient,
+            crossbeam_server,
+            ReplicationSender::default(),
+        ));
+
+        app.add_systems(Startup, bot_connect);
+        app.add_systems(FixedFirst, bot_inputs);
+        app.add_systems(Update, bot_wait);
+        let mut bot_app = BotApp(app);
+        std::thread::spawn(move || {
+            bot_app.run();
         });
     }
-}
 
-/// On the server, we will create a second app to host a bot that is similar to a real client,
-/// but their inputs are mocked
-fn spawn_bot_app(
-    trigger: On<SpawnBot>,
-    tick_duration: Res<TickDuration>,
-    server: Single<Entity, With<Server>>,
-    mut commands: Commands,
-) {
-    info!("Spawning bot app");
-    let (crossbeam_client, crossbeam_server) = CrossbeamIo::new_pair();
+    fn bot_connect(bot: Single<Entity, (With<BotClient>, With<Client>)>, mut commands: Commands) {
+        let entity = bot.into_inner();
+        info!("Bot entity {entity:?} connecting to server");
+        commands.entity(entity).trigger(Connect);
+    }
 
-    let mut app = new_headless_app();
-    // TODO: just spawn a bot player entity without creating a new client
-    // cannot use headless app because the frame rate is too fast so
-    // the bot sends too many packets
-    // let mut app = new_gui_app(false);
-    app.add_plugins(InputPlugin);
-    app.add_plugins(lightyear::prelude::client::ClientPlugins {
-        tick_duration: tick_duration.0,
-    });
-    app.add_plugins(SharedPlugin);
-    app.add_plugins(ExampleClientPlugin);
+    #[derive(Debug, Clone, Copy, Default)]
+    enum BotMovementMode {
+        #[default]
+        Strafing, // 200ms intervals
+        StraightLine, // 1s intervals
+    }
 
-    let client_id = rand::random::<u64>();
-    let auth = Authentication::Manual {
-        server_addr: SERVER_ADDR,
-        client_id,
-        private_key: SHARED_SETTINGS.private_key,
-        protocol_id: SHARED_SETTINGS.protocol_id,
-    };
+    impl BotMovementMode {
+        fn interval(&self) -> f32 {
+            match self {
+                BotMovementMode::Strafing => 0.4,     // 400ms for strafing
+                BotMovementMode::StraightLine => 2.0, // 2s for straight line
+            }
+        }
 
-    app.world_mut().spawn((
-        Client::default(),
-        BotClient,
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
-        ReplicationReceiver::default(),
-        NetcodeClient::new(
-            auth,
-            lightyear::netcode::client_plugin::NetcodeConfig::default(),
-        )
-        .unwrap(),
-        crossbeam_client,
-        PredictionManager::default(),
-        InterpolationManager::default(),
-        Name::from("BotClient"),
-    ));
-    let server = server.into_inner();
-    let conditioner = RecvLinkConditioner::new(LinkConditionerConfig::average_condition());
-    commands.spawn((
-        LinkOf { server },
-        Link::new(Some(conditioner)),
-        Linked,
-        ClientOf,
-        BotClient,
-        crossbeam_server,
-        ReplicationSender::default(),
-    ));
-
-    app.add_systems(Startup, bot_connect);
-    app.add_systems(First, bot_inputs);
-    #[cfg(not(feature = "gui"))]
-    app.add_systems(Update, bot_wait);
-    let mut bot_app = BotApp(app);
-    std::thread::spawn(move || {
-        bot_app.run();
-    });
-}
-
-fn bot_connect(bot: Single<Entity, (With<BotClient>, With<Client>)>, mut commands: Commands) {
-    let entity = bot.into_inner();
-    info!("Bot entity {entity:?} connecting to server");
-    commands.entity(entity).trigger(Connect);
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-enum BotMovementMode {
-    #[default]
-    Strafing, // 200ms intervals
-    StraightLine, // 1s intervals
-}
-
-impl BotMovementMode {
-    fn interval(&self) -> f32 {
-        match self {
-            BotMovementMode::Strafing => 0.4,     // 400ms for strafing
-            BotMovementMode::StraightLine => 2.0, // 2s for straight line
+        fn name(&self) -> &'static str {
+            match self {
+                BotMovementMode::Strafing => "strafing",
+                BotMovementMode::StraightLine => "straight-line",
+            }
         }
     }
 
-    fn name(&self) -> &'static str {
-        match self {
-            BotMovementMode::Strafing => "strafing",
-            BotMovementMode::StraightLine => "straight-line",
+    struct BotLocal {
+        mode_timer: Stopwatch,
+        key_timer: Stopwatch,
+        shoot_timer: Timer,
+        current_mode: BotMovementMode,
+        press_a: bool,
+        override_direction: Option<bool>, // None = normal, Some(true) = force A, Some(false) = force D
+    }
+
+    impl Default for BotLocal {
+        fn default() -> Self {
+            BotLocal {
+                mode_timer: Default::default(),
+                key_timer: Default::default(),
+                shoot_timer: Timer::from_seconds(2.0, TimerMode::Repeating),
+                current_mode: Default::default(),
+                press_a: false,
+                override_direction: None,
+            }
         }
     }
-}
 
-#[derive(Default)]
-struct BotLocal {
-    mode_timer: Stopwatch,
-    key_timer: Stopwatch,
-    current_mode: BotMovementMode,
-    press_a: bool,
-    override_direction: Option<bool>, // None = normal, Some(true) = force A, Some(false) = force D
-}
+    fn bot_inputs(
+        time: Res<Time>,
+        mut input: ResMut<ButtonInput<KeyCode>>,
+        player: Single<&Position, (With<Controlled>, Without<Confirmed>, With<PlayerMarker>)>,
+        mut local: Local<BotLocal>,
+    ) {
+        let BotLocal {
+            mode_timer,
+            key_timer,
+            shoot_timer,
+            current_mode,
+            press_a,
+            override_direction,
+        } = local.deref_mut();
 
-fn bot_inputs(
-    time: Res<Time>,
-    mut input: ResMut<ButtonInput<KeyCode>>,
-    player: Single<&Position, (With<Controlled>, Without<Confirmed>, With<PlayerMarker>)>,
-    mut local: Local<BotLocal>,
-) {
-    let BotLocal {
-        mode_timer,
-        key_timer,
-        current_mode,
-        press_a,
-        override_direction,
-    } = local.deref_mut();
+        // If bot is too far from x = 0, override direction
+        let threshold = 500.0;
+        let pos_x = player.x;
+        if pos_x.abs() > threshold {
+            // If too far right, press A; if too far left, press D
+            *override_direction = Some(pos_x > 0.0);
+        } else if override_direction.is_some() && pos_x.abs() <= threshold * 0.8 {
+            // If bot is close enough to center, resume normal strafing
+            *override_direction = None;
+        }
 
-    // If bot is too far from x = 0, override direction
-    let threshold = 500.0;
-    let pos_x = player.x;
-    if pos_x.abs() > threshold {
-        // If too far right, press A; if too far left, press D
-        *override_direction = Some(pos_x > 0.0);
-    } else if override_direction.is_some() && pos_x.abs() <= threshold * 0.8 {
-        // If bot is close enough to center, resume normal strafing
-        *override_direction = None;
-    }
+        mode_timer.tick(time.delta());
+        key_timer.tick(time.delta());
+        shoot_timer.tick(time.delta());
 
-    mode_timer.tick(time.delta());
-    key_timer.tick(time.delta());
-
-    // Switch modes every 4 seconds
-    if mode_timer.elapsed_secs() >= 8.0 {
-        mode_timer.reset();
-        *current_mode = match *current_mode {
-            BotMovementMode::Strafing => BotMovementMode::StraightLine,
-            BotMovementMode::StraightLine => BotMovementMode::Strafing,
-        };
-        trace!("Bot switching to {} mode", current_mode.name());
-    }
-
-    // Switch keys based on the current mode's interval
-    if key_timer.elapsed_secs() >= current_mode.interval() {
-        key_timer.reset();
-        if *press_a {
-            input.release(KeyCode::KeyA);
+        // we use press-space to make sure that we press the button long enough for it to be captured in FixedUpdate
+        if shoot_timer.finished() {
+            input.press(KeyCode::Space);
         } else {
-            input.release(KeyCode::KeyD);
+            input.release(KeyCode::Space);
         }
-        *press_a = !*press_a;
+
+        // Switch modes every 4 seconds
+        if mode_timer.elapsed_secs() >= 8.0 {
+            mode_timer.reset();
+            *current_mode = match *current_mode {
+                BotMovementMode::Strafing => BotMovementMode::StraightLine,
+                BotMovementMode::StraightLine => BotMovementMode::Strafing,
+            };
+            trace!("Bot switching to {} mode", current_mode.name());
+        }
+
+        // Switch keys based on the current mode's interval
+        if key_timer.elapsed_secs() >= current_mode.interval() {
+            key_timer.reset();
+            if *press_a {
+                input.release(KeyCode::KeyA);
+            } else {
+                input.release(KeyCode::KeyD);
+            }
+            *press_a = !*press_a;
+        }
+
+        // Decide which key to press
+        let press_a_now = match *override_direction {
+            Some(true) => true,   // Press A to move left
+            Some(false) => false, // Press D to move right
+            None => *press_a,
+        };
+
+        // Press the current key
+        if press_a_now {
+            input.press(KeyCode::KeyA);
+            input.release(KeyCode::KeyD);
+        } else {
+            input.press(KeyCode::KeyD);
+            input.release(KeyCode::KeyA);
+        }
+        trace!(
+            "Bot in {} mode, pressing {:?}",
+            current_mode.name(),
+            input.get_pressed().collect::<Vec<_>>()
+        );
     }
 
-    // Decide which key to press
-    let press_a_now = match *override_direction {
-        Some(true) => true,   // Press A to move left
-        Some(false) => false, // Press D to move right
-        None => *press_a,
-    };
-
-    // Press the current key
-    if press_a_now {
-        input.press(KeyCode::KeyA);
-        input.release(KeyCode::KeyD);
-    } else {
-        input.press(KeyCode::KeyD);
-        input.release(KeyCode::KeyA);
+    // prevent the bot from running too fast
+    fn bot_wait(timeline: Single<&LocalTimeline>) {
+        std::thread::sleep(Duration::from_millis(15));
     }
-    trace!(
-        "Bot in {} mode, pressing {:?}",
-        current_mode.name(),
-        input.get_pressed().collect::<Vec<_>>()
-    );
-}
-
-#[cfg(not(feature = "gui"))]
-// prevent the bot from running too fast
-fn bot_wait(timeline: Single<&LocalTimeline>) {
-    std::thread::sleep(Duration::from_millis(15));
 }
 
 /// Handle room switching when replication mode changes

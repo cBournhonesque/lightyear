@@ -18,7 +18,6 @@ use lightyear_replication::prelude::{ComponentRegistration, ComponentRegistry};
 use lightyear_replication::registry::buffered::BufferedChanges;
 use lightyear_replication::registry::registry::LerpFn;
 use lightyear_replication::registry::{ComponentError, ComponentKind};
-use tracing::info;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -200,7 +199,6 @@ impl InterpolationRegistry {
                     // we can insert a default confirmed history, it will be populated in the `update_history` system
                     buffer.insert(ConfirmedHistory::<C>::default(), history_component_id);
                 };
-                info!("Insert ConfirmedHistory<C>");
             }
             InterpolationMode::Simple | InterpolationMode::Once => {
                 // InterpolationMode::Once, we only need to sync it once
