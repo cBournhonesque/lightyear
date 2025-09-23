@@ -15,6 +15,8 @@ use lightyear_connection::network_target::NetworkTarget;
 #[cfg(feature = "server")]
 use lightyear_connection::{client::PeerMetadata, client_of::ClientOf};
 use lightyear_core::id::RemoteId;
+use lightyear_core::interpolation::Interpolated;
+use lightyear_core::prediction::Predicted;
 use lightyear_link::server::LinkOf;
 #[cfg(feature = "server")]
 use lightyear_link::server::Server;
@@ -288,13 +290,7 @@ impl ToBytes for ReplicationGroupId {
 }
 
 #[cfg(feature = "prediction")]
-/// Marker component that tells the client to spawn a Predicted entity
-#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct ShouldBePredicted;
-
-#[cfg(feature = "prediction")]
-pub type PredictionTarget = ReplicationTarget<ShouldBePredicted>;
+pub type PredictionTarget = ReplicationTarget<Predicted>;
 
 #[cfg(feature = "prediction")]
 impl PredictionTarget {
@@ -308,13 +304,7 @@ impl PredictionTarget {
 }
 
 #[cfg(feature = "interpolation")]
-/// Marker component that tells the client to spawn an Interpolated entity
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct ShouldBeInterpolated;
-
-#[cfg(feature = "interpolation")]
-pub type InterpolationTarget = ReplicationTarget<ShouldBeInterpolated>;
+pub type InterpolationTarget = ReplicationTarget<Interpolated>;
 
 /// Insert this component to specify which remote peers will start predicting the entity
 /// upon receiving the entity.

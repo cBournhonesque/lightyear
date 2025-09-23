@@ -4,6 +4,7 @@ use crate::message::{
     ActionsChannel, EntityActions, SendEntityActionsMessage, SpawnAction, UpdatesChannel,
     UpdatesSendMessage,
 };
+use crate::prespawn::PreSpawned;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 use crate::send::components::ReplicationGroupId;
@@ -330,6 +331,9 @@ impl ReplicationSender {
         entity: Entity,
         group_id: ReplicationGroupId,
         priority: f32,
+        predicted: bool,
+        interpolated: bool,
+        prespawned: Option<&PreSpawned>,
     ) {
         #[cfg(feature = "metrics")]
         {
@@ -342,7 +346,11 @@ impl ReplicationSender {
             .pending_actions
             .entry(entity)
             .or_default()
-            .spawn = SpawnAction::Spawn;
+            .spawn = SpawnAction::Spawn {
+            predicted,
+            interpolated,
+            prespawn: prespawned.map(|p| p.hash).flatten(),
+        };
         self.group_channels
             .entry(group_id)
             .or_default()

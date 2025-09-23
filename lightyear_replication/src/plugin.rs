@@ -33,7 +33,6 @@ impl Plugin for SharedPlugin {
         app.register_type::<Replicated>()
             .register_type::<InitialReplicated>()
             .register_type::<Replicating>()
-            .register_type::<Confirmed>()
             .register_type::<Controlled>()
             .register_type::<ControlledBy>()
             .register_type::<ControlledByRemote>()
@@ -53,13 +52,11 @@ impl Plugin for SharedPlugin {
 
         #[cfg(feature = "interpolation")]
         {
-            app.register_type::<(ShouldBeInterpolated, InterpolationTarget)>();
-            app.register_component::<ShouldBeInterpolated>();
+            app.register_type::<InterpolationTarget>();
         }
         #[cfg(feature = "prediction")]
         {
-            app.register_type::<(ShouldBePredicted, PrePredicted, PredictionTarget)>();
-            app.register_component::<ShouldBePredicted>();
+            app.register_type::<PredictionTarget>();
         }
 
         app.add_channel::<MetadataChannel>(ChannelSettings {

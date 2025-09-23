@@ -1,4 +1,4 @@
-use bevy_ecs::{component::Component, entity::Entity, reflect::ReflectComponent};
+use bevy_ecs::{component::Component, reflect::ReflectComponent};
 use bevy_reflect::Reflect;
 
 /// Component added to client-side entities that are visually interpolated.
@@ -14,11 +14,4 @@ use bevy_reflect::Reflect;
 // NOTE: we create Interpolated here because it is used by multiple crates (interpolation, replication)
 #[derive(Debug, Reflect, Component)]
 #[reflect(Component)]
-pub struct Interpolated {
-    // TODO: maybe here add an interpolation function?
-    pub confirmed_entity: Entity,
-    // TODO: add config about despawn behaviour here:
-    //  - despawn immediately all components
-    //  - leave the entity alive until the confirmed entity catches up to it and then it gets removed.
-    //    - or do this only for certain components (audio, animation, particles..) -> mode on PredictedComponent
-}
+pub struct Interpolated;

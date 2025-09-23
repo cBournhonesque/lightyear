@@ -54,6 +54,9 @@ pub struct Replicated {
     pub receiver: Entity,
     /// The remote peer that is actively replicating the entity
     pub from: PeerId,
+    /// The tick that the confirmed entity is at.
+    /// (this is latest server tick for which we applied updates to the entity)
+    pub tick: Tick,
 }
 
 // TODO: we need a ReplicateConfig similar to ComponentReplicationConfig
@@ -65,24 +68,6 @@ pub struct Replicated {
 /// - an entity that simply contains the replicated components. It will have the marker component [`Confirmed`]
 /// - an entity that is in the future compared to the confirmed entity, and does prediction with rollback. It will have the marker component [`Predicted`](lightyear_core::prediction::Predicted)
 /// - an entity that is in the past compared to the confirmed entity and interpolates between multiple server updates. It will have the marker component [`Interpolated`](lightyear_core::interpolation::Interpolated)
-#[derive(Component, Reflect, Default, Debug)]
+#[derive(Component, Reflect, PartialEq, Default, Debug, Clone)]
 #[reflect(Component)]
-pub struct Confirmed {
-    /// The corresponding Predicted entity
-    pub predicted: Option<Entity>,
-    /// The corresponding Interpolated entity
-    pub interpolated: Option<Entity>,
-    /// The tick that the confirmed entity is at.
-    /// (this is latest server tick for which we applied updates to the entity)
-    pub tick: Tick,
-}
-
-// TODO: enable this only if predicted feature
-/// Indicates that an entity was pre-predicted
-// NOTE: we do not map entities for this component, we want to receive the entities as is
-//  because we already do the mapping at other steps
-#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct PrePredicted {
-    pub confirmed_entity: Option<Entity>,
-}
+pub struct Confirmed<C>(pub C);
