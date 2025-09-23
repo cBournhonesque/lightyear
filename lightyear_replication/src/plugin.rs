@@ -33,7 +33,6 @@ impl Plugin for SharedPlugin {
         app.register_type::<Replicated>()
             .register_type::<InitialReplicated>()
             .register_type::<Replicating>()
-            .register_type::<Confirmed>()
             .register_type::<Controlled>()
             .register_type::<ControlledBy>()
             .register_type::<ControlledByRemote>()

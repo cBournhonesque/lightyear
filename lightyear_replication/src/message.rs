@@ -71,7 +71,11 @@ impl ToBytes for EntityActions {
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) enum SpawnAction {
     None,
-    Spawn,
+    Spawn{
+        // TODO: make it impossible to enable both predicted and interpolatd
+        predicted: bool,
+        interpolated: bool
+    },
     Despawn,
 }
 
@@ -79,7 +83,7 @@ impl ToBytes for SpawnAction {
     fn bytes_len(&self) -> usize {
         match &self {
             SpawnAction::None => 1,
-            SpawnAction::Spawn => 1,
+            SpawnAction::Spawn { .. } => 1,
             SpawnAction::Despawn => 1,
         }
     }
@@ -87,8 +91,15 @@ impl ToBytes for SpawnAction {
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         match &self {
             SpawnAction::None => buffer.write_u8(0)?,
-            SpawnAction::Spawn => buffer.write_u8(1)?,
-            SpawnAction::Despawn => buffer.write_u8(2)?,
+            SpawnAction::Spawn { predicted, interpolated} => {
+                match (*predicted, *interpolated) {
+                    (false, false) => {buffer.write_u8(1)?}
+                    (false, true) => {buffer.write_u8(2)?}
+                    (true, false) => {buffer.write_u8(3)?}
+                    (true, true) => {Err(SerializationError::InvalidValue)?}
+                }
+            },
+            SpawnAction::Despawn => buffer.write_u8(4)?,
         }
         Ok(())
     }
@@ -99,8 +110,10 @@ impl ToBytes for SpawnAction {
     {
         match buffer.read_u8()? {
             0 => Ok(SpawnAction::None),
-            1 => Ok(SpawnAction::Spawn),
-            2 => Ok(SpawnAction::Despawn),
+            1 => Ok(SpawnAction::Spawn { predicted: false, interpolated: false}),
+            2 => Ok(SpawnAction::Spawn { predicted: false, interpolated: true}),
+            3 => Ok(SpawnAction::Spawn { predicted: true, interpolated: false}),
+            4 => Ok(SpawnAction::Despawn),
             _ => Err(SerializationError::InvalidPacketType),
         }
     }

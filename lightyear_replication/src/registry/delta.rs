@@ -21,6 +21,7 @@ use lightyear_serde::writer::Writer;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tracing::trace;
+use crate::components::Confirmed;
 
 impl ComponentRegistry {
     /// Register delta compression functions for a component
@@ -173,9 +174,13 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
     tick: Tick,
     entity_mut: &mut BufferedEntity,
     entity_map: &mut ReceiveEntityMap,
+    synced: bool,
 ) -> Result<(), ComponentError> {
     let kind = ComponentKind::of::<C>();
-    let component_id = entity_mut.component_id::<C>();
+    let mut component_id = entity_mut.component_id::<C>();
+    if synced {
+        component_id = entity_mut.component_id::<Confirmed<C>>();
+    }
     let entity = entity_mut.entity.id();
     let delta = deserialize.deserialize(entity_map, reader)?;
     trace!(
@@ -208,13 +213,23 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
             history.buffer = history.buffer.split_off(&previous_tick);
             // store the new value in the history
             history.buffer.insert(tick, new_value.clone());
-            let Some(mut c) = entity_mut.entity.get_mut::<C>() else {
-                return Err(ComponentError::DeltaCompressionError(format!(
-                    "Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
-                    core::any::type_name::<C>()
-                )));
-            };
-            *c = new_value;
+            if synced {
+                let Some(mut c) = entity_mut.entity.get_mut::<Confirmed<C>>() else {
+                    return Err(ComponentError::DeltaCompressionError(format!(
+                        "Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
+                        core::any::type_name::<C>()
+                    )));
+                };
+                *c = Confirmed(new_value);
+            } else {
+                let Some(mut c) = entity_mut.entity.get_mut::<C>() else {
+                    return Err(ComponentError::DeltaCompressionError(format!(
+                        "Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
+                        core::any::type_name::<C>()
+                    )));
+                };
+                *c = new_value;
+            }
         }
         DeltaType::FromBase => {
             let mut new_value = C::base_value();
@@ -223,18 +238,35 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
             let cloned_value = new_value.clone();
 
             // if the component is on the entity, no need to insert
-            if let Some(mut c) = entity_mut.entity.get_mut::<C>() {
-                // only apply the update if the component is different, to not trigger change detection
-                if c.as_ref() != &new_value {
-                    *c = new_value;
+            if synced {
+                let new_value = Confirmed(new_value);
+                if let Some(mut c) = entity_mut.entity.get_mut::<Confirmed<C>>() {
+                    // only apply the update if the component is different, to not trigger change detection
+                    if c.as_ref() != &new_value {
+                        *c = new_value;
+                    }
+                } else {
+                    // use the component id of C, not DeltaMessage<C>
+                    // SAFETY: we are inserting a component of type C, which matches the component_id
+                    unsafe {
+                        entity_mut.buffered.insert::<Confirmed<C>>(new_value, component_id);
+                    }
                 }
             } else {
-                // use the component id of C, not DeltaMessage<C>
-                // SAFETY: we are inserting a component of type C, which matches the component_id
-                unsafe {
-                    entity_mut.buffered.insert::<C>(new_value, component_id);
+                if let Some(mut c) = entity_mut.entity.get_mut::<C>() {
+                    // only apply the update if the component is different, to not trigger change detection
+                    if c.as_ref() != &new_value {
+                        *c = new_value;
+                    }
+                } else {
+                    // use the component id of C, not DeltaMessage<C>
+                    // SAFETY: we are inserting a component of type C, which matches the component_id
+                    unsafe {
+                        entity_mut.buffered.insert::<C>(new_value, component_id);
+                    }
                 }
             }
+
             // store the component value in the delta component history, so that we can compute
             // diffs from it
             if let Some(mut history) = entity_mut.entity.get_mut::<DeltaComponentHistory<C>>() {

@@ -9,7 +9,7 @@ use bevy_ecs::{
 };
 use bevy_platform::collections::{HashMap, HashSet};
 
-use crate::components::{Confirmed, InitialReplicated, Replicated};
+use crate::components::{InitialReplicated, Replicated};
 use crate::message::{ActionsMessage, SenderMetadata, SpawnAction, UpdatesMessage};
 use crate::registry::registry::ComponentRegistry;
 use alloc::vec::Vec;
@@ -25,7 +25,7 @@ use crate::prelude::{ReplicationGroupId, ReplicationSender};
 use crate::registry::buffered::{BufferedChanges, BufferedEntity};
 use lightyear_connection::client::{Connected, Disconnected, PeerMetadata};
 use lightyear_core::id::{PeerId, RemoteId};
-use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::prelude::{LocalTimeline, Predicted};
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
@@ -35,6 +35,7 @@ use lightyear_transport::prelude::Transport;
 use lightyear_utils::metrics::{DormantTimerGauge, TimerGauge};
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
+use lightyear_core::interpolation::Interpolated;
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 
@@ -122,6 +123,8 @@ impl ReplicationReceivePlugin {
         >,
         // buffer to avoid allocations
         mut receiver_entities: Local<Vec<(Entity, PeerId)>>,
+        // buffer to store a mapping from newly Spawned entities to a bool that indicates if the entity is spawned predicted or interpolated
+        mut spawn_buffer: Local<EntityHashMap<Entity, bool>>,
     ) {
         #[cfg(feature = "metrics")]
         let _timer = TimerGauge::new("replication/apply");
@@ -173,6 +176,7 @@ impl ReplicationReceivePlugin {
                     authority_map,
                     component_registry,
                     tick,
+                    &mut spawn_buffer,
                 );
                 receiver.tick_cleanup(tick);
             });
@@ -388,6 +392,7 @@ impl ReplicationReceiver {
         authority_map: Option<&EntityIndexMap<bool>>,
         component_registry: &ComponentRegistry,
         current_tick: Tick,
+        spawn_buffer: &mut EntityHashMap<Entity, bool>,
     ) {
         // apply all actions first
         self.group_channels
@@ -432,6 +437,7 @@ impl ReplicationReceiver {
                         authority_map,
                         &mut self.local_entity_to_group,
                         &mut self.buffer,
+                        spawn_buffer
                     );
                 }
             });
@@ -729,6 +735,7 @@ impl GroupChannel {
         authority_map: Option<&EntityIndexMap<bool>>,
         local_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
         temp_write_buffer: &mut BufferedChanges,
+        spawn_buffer: &mut EntityHashMap<Entity, bool>,
     ) {
         let group_id = message.group_id;
         debug!(
@@ -741,8 +748,9 @@ impl GroupChannel {
         // Our solution is to first handle spawn for all entities separately.
         for (remote_entity, actions) in message.actions.iter() {
             // spawn
-            if actions.spawn == SpawnAction::Spawn {
+            if let SpawnAction::Spawn { predicted, interpolated } = actions.spawn {
                 if let Some(local_entity) = remote_entity_map.get_local(*remote_entity) {
+                    spawn_buffer.insert(local_entity, predicted || interpolated);
                     // this can happen with authority transfer
                     // (e.g client spawned an entity and then transfer the authority to the server.
                     //  The server will then send a spawn message)
@@ -778,13 +786,22 @@ impl GroupChannel {
 
                 // NOTE: at this point we know that the remote entity was not mapped!
 
-                let local_entity = world.spawn((
+                let mut local_entity = world.spawn((
                     Replicated {
                         receiver: receiver_entity,
                         from: remote,
+                        tick: remote_tick,
                     },
                     InitialReplicated { from: remote },
                 ));
+                if interpolated {
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("interpolated::spawn").increment(1);
+                    }
+                    local_entity.insert(Interpolated);
+                }
+                spawn_buffer.insert(local_entity.id(), predicted || interpolated);
                 self.local_entities.insert(local_entity.id());
                 local_entity_to_group.insert(local_entity.id(), group_id);
                 remote_entity_map.insert(*remote_entity, local_entity.id());
@@ -813,10 +830,22 @@ impl GroupChannel {
             }
 
             // safety: we know by this point that the entity exists
-            let Some(local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
+            let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
                 error!(?entity, "cannot find entity");
                 continue;
             };
+            // check if the entity is predicted or interpolated, in which case we want to replicate C as Confirmed<C>
+            // (C will be the Predicted or Interpolated value)
+            let synced = spawn_buffer.get(&local_entity_mut.id())
+                .copied()
+                .unwrap_or_default()
+                // TODO: check for deterministic predicted, pre-predicted, pre-spawned
+                || local_entity_mut.get::<Predicted>().is_some() || local_entity_mut.get::<Interpolated>().is_some();
+
+            if synced && let Some(mut replicated) = local_entity_mut.get_mut::<Replicated>() {
+                replicated.tick = remote_tick;
+            }
+
             // the local Sender has authority over the entity, so we don't want to accept the updates
             if authority_map.is_some_and(|a| {
                 a.get(&local_entity_mut.id())
@@ -846,6 +875,7 @@ impl GroupChannel {
                         &mut buffered_entity,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
+                        synced,
                     )
                 })
                 .inspect_err(|e| error!("could not insert the components to the entity: {:?}", e));
@@ -883,6 +913,7 @@ impl GroupChannel {
                         &mut buffered_entity,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
+                        synced
                     )
                     .inspect_err(|e| {
                         error!("could not write the component to the entity: {:?}", e)
@@ -899,6 +930,7 @@ impl GroupChannel {
 
         // TODO: apply authority check for the update confirmed tick?
         self.update_confirmed_tick(world, group_id, remote_tick);
+        spawn_buffer.clear();
     }
 
     pub(crate) fn apply_updates_message(
@@ -925,13 +957,19 @@ impl GroupChannel {
         );
         for (entity, components) in message.updates.into_iter() {
             trace!(?components, remote_entity = ?entity, "Received UpdateComponent");
-            let Some(local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
+            let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
                 // we can get a few buffered updates after the entity has been despawned
                 // those are the updates that we received before the despawn action message, but with a tick
                 // later than the despawn action message
                 info!(remote_entity = ?entity, "update for entity that doesn't exist?");
                 continue;
             };
+            let synced = // TODO: check for deterministic predicted, pre-predicted, pre-spawned
+                local_entity_mut.get::<Predicted>().is_some() || local_entity_mut.get::<Interpolated>().is_some();
+            if synced && let Some(mut replicated) = local_entity_mut.get_mut::<Replicated>() {
+                replicated.tick = remote_tick;
+            }
+
             // the local Sender has authority over the entity, so we don't want to accept the updates
             if authority_map.is_some_and(|a| {
                 a.get(&local_entity_mut.id())
@@ -955,6 +993,7 @@ impl GroupChannel {
                         &mut local_entity_mut,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
+                        synced,
                     )
                     .inspect_err(|e| {
                         error!("could not write the component to the entity: {:?}", e)
@@ -969,8 +1008,7 @@ impl GroupChannel {
         // we want Confirmed to be added so that it can be updated with the correct tick!
         world.flush();
 
-        // TODO: should the update_confirmed_tick only be for entities in the group for which
-        //  we have authority?
+        // TODO: should the update_confirmed_tick only be for entities in the group for which we have authority?
         self.update_confirmed_tick(world, group_id, remote_tick);
     }
 
@@ -994,7 +1032,7 @@ impl GroupChannel {
         );
         self.local_entities.iter().for_each(|local_entity| {
             if let Ok(mut local_entity_mut) = world.get_entity_mut(*local_entity)
-                && let Some(mut confirmed) = local_entity_mut.get_mut::<Confirmed>()
+                && let Some(mut confirmed) = local_entity_mut.get_mut::<Replicated>()
             {
                 trace!(
                     ?remote_tick,

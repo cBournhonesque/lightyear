@@ -330,6 +330,8 @@ impl ReplicationSender {
         entity: Entity,
         group_id: ReplicationGroupId,
         priority: f32,
+        predicted: bool,
+        interpolated: bool,
     ) {
         #[cfg(feature = "metrics")]
         {
@@ -342,7 +344,10 @@ impl ReplicationSender {
             .pending_actions
             .entry(entity)
             .or_default()
-            .spawn = SpawnAction::Spawn;
+            .spawn = SpawnAction::Spawn {
+            predicted,
+            interpolated,
+        };
         self.group_channels
             .entry(group_id)
             .or_default()
