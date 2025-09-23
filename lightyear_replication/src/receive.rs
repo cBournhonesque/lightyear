@@ -19,12 +19,14 @@ use lightyear_transport::packet::message::MessageId;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, trace_span, warn};
 
-use crate::plugin;
 use crate::plugin::ReplicationSet;
 use crate::prelude::{ReplicationGroupId, ReplicationSender};
+use crate::prespawn::PreSpawnedReceiver;
 use crate::registry::buffered::{BufferedChanges, BufferedEntity};
+use crate::{plugin, prespawn};
 use lightyear_connection::client::{Connected, Disconnected, PeerMetadata};
 use lightyear_core::id::{PeerId, RemoteId};
+use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prelude::{LocalTimeline, Predicted};
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::MessageManager;
@@ -35,7 +37,6 @@ use lightyear_transport::prelude::Transport;
 use lightyear_utils::metrics::{DormantTimerGauge, TimerGauge};
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
-use lightyear_core::interpolation::Interpolated;
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 
@@ -189,6 +190,7 @@ impl Plugin for ReplicationReceivePlugin {
         if !app.is_plugin_added::<plugin::SharedPlugin>() {
             app.add_plugins(plugin::SharedPlugin);
         }
+        app.add_plugins(prespawn::PreSpawnedPlugin);
 
         // SYSTEMS
         app.configure_sets(
@@ -437,7 +439,7 @@ impl ReplicationReceiver {
                         authority_map,
                         &mut self.local_entity_to_group,
                         &mut self.buffer,
-                        spawn_buffer
+                        spawn_buffer,
                     );
                 }
             });
@@ -743,28 +745,56 @@ impl GroupChannel {
             ?message,
             "Received replication actions from remote: {remote:?}"
         );
+        let world_clone = world.as_unsafe_world_cell().clone();
+        let mut prespawned_receiver =
+            unsafe { world_clone.world_mut() }.get_mut::<PreSpawnedReceiver>(receiver_entity);
+        // SAFETY: the rest of the function won't affect PreSpawnedReceiver
+        let world = unsafe { world_clone.world_mut() };
+
         // NOTE: order matters here, because some components can depend on other entities.
         // These components could even form a cycle, for example A.HasWeapon(B) and B.HasHolder(A)
         // Our solution is to first handle spawn for all entities separately.
         for (remote_entity, actions) in message.actions.iter() {
             // spawn
-            if let SpawnAction::Spawn { predicted, interpolated } = actions.spawn {
-                if let Some(local_entity) = remote_entity_map.get_local(*remote_entity) {
+            if let SpawnAction::Spawn {
+                predicted,
+                interpolated,
+                prespawn,
+            } = actions.spawn
+            {
+                // check if the entity can already be mapped to an existing local entity.
+                // This can happen with authority transfer or prespawning
+                // (e.g client spawned an entity and then transfer the authority to the server.
+                //  The server will then send a spawn message)
+                if let Some(local_entity) = prespawn
+                    .and_then(|hash| {
+                        prespawned_receiver
+                            .as_mut()
+                            .and_then(|receiver| receiver.matches(hash, *remote_entity))
+                    })
+                    .inspect(|e| {
+                        // we update the entity map for the prespawning case
+                        remote_entity_map.insert(*remote_entity, *e);
+                    })
+                    .or(remote_entity_map.get_local(*remote_entity))
+                {
                     spawn_buffer.insert(local_entity, predicted || interpolated);
-                    // this can happen with authority transfer
-                    // (e.g client spawned an entity and then transfer the authority to the server.
-                    //  The server will then send a spawn message)
+                    local_entity_to_group.insert(local_entity, group_id);
                     if world.get_entity(local_entity).is_ok() {
                         debug!(
                             ?local_entity,
-                            "Received spawn for entity {local_entity:?} that already exists. This might be because of an authority transfer or pre-prediction."
+                            "Received spawn for entity {local_entity:?} that already exists. This might be because of an authority transfer or prespawning."
                         );
                         // we still need to update the local entity to group mapping on the receiver
                         self.local_entities.insert(local_entity);
-                        local_entity_to_group.insert(local_entity, group_id);
                         continue;
                     }
-                    local_entity_to_group.insert(local_entity, group_id);
+                    // TODO: if this is prespawned, the prespawned entity could already have been despawned! add metrics/logs
+                    // #[cfg(feature = "metrics")]
+                    // {
+                    //     metrics::counter!("prespawn::match::missing").increment(1);
+                    // }
+
                     warn!(
                         "Received spawn for an entity that is already in our entity mapping! Not spawning"
                     );
@@ -800,6 +830,14 @@ impl GroupChannel {
                         metrics::counter!("interpolated::spawn").increment(1);
                     }
                     local_entity.insert(Interpolated);
+                }
+                if predicted {
+                    // this might also count PreSpawned entities, even if they ended up not being matched
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("prediction::spawn").increment(1);
+                    }
+                    local_entity.insert(Predicted);
                 }
                 spawn_buffer.insert(local_entity.id(), predicted || interpolated);
                 self.local_entities.insert(local_entity.id());
@@ -913,7 +951,7 @@ impl GroupChannel {
                         &mut buffered_entity,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
-                        synced
+                        synced,
                     )
                     .inspect_err(|e| {
                         error!("could not write the component to the entity: {:?}", e)

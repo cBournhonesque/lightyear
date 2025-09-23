@@ -1,3 +1,4 @@
+use crate::components::Confirmed;
 use crate::delta::Diffable;
 use crate::prelude::{ComponentReplicationConfig, ComponentReplicationOverrides};
 use crate::registry::delta::ErasedDeltaFns;
@@ -133,6 +134,7 @@ pub struct ComponentRegistry {
 
 #[derive(Debug, Clone)]
 pub struct ComponentMetadata {
+    pub confirmed_component_id: ComponentId,
     pub component_id: ComponentId,
     pub(crate) replication: Option<ReplicationMetadata>,
     pub serialization: Option<ErasedSerializeFns>,
@@ -175,11 +177,13 @@ impl ComponentRegistry {
     ) {
         let component_kind = self.kind_map.add::<C>();
         let component_id = world.register_component::<C>();
+        let confirmed_component_id = world.register_component::<Confirmed<C>>();
         self.component_id_to_kind
             .insert(component_id, component_kind);
         self.component_metadata_map
             .entry(component_kind)
             .or_insert(ComponentMetadata {
+                confirmed_component_id,
                 component_id,
                 replication: None,
                 serialization: None,

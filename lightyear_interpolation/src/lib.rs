@@ -7,7 +7,6 @@ extern crate std;
 
 use bevy_ecs::component::{Component, Mutable};
 
-
 mod despawn;
 /// Contains interpolation logic.
 pub mod interpolate;
@@ -20,12 +19,12 @@ pub mod timeline;
 
 /// Commonly used items for client-side interpolation.
 pub mod prelude {
+    pub use crate::Interpolated;
     pub use crate::interpolate::interpolation_fraction;
     pub use crate::interpolation_history::ConfirmedHistory;
     pub use crate::plugin::{InterpolationDelay, InterpolationPlugin, InterpolationSet};
     pub use crate::registry::{InterpolationRegistrationExt, InterpolationRegistry};
     pub use crate::timeline::InterpolationTimeline;
-    pub use crate::{Interpolated};
 }
 
 pub use lightyear_core::interpolation::Interpolated;

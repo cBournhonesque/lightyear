@@ -1,3 +1,4 @@
+use crate::components::Confirmed;
 use crate::delta::{DeltaComponentHistory, DeltaMessage, DeltaType, Diffable};
 use crate::prelude::ComponentReplicationConfig;
 use crate::registry::buffered::BufferedEntity;
@@ -21,7 +22,6 @@ use lightyear_serde::writer::Writer;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tracing::trace;
-use crate::components::Confirmed;
 
 impl ComponentRegistry {
     /// Register delta compression functions for a component
@@ -249,7 +249,9 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
                     // use the component id of C, not DeltaMessage<C>
                     // SAFETY: we are inserting a component of type C, which matches the component_id
                     unsafe {
-                        entity_mut.buffered.insert::<Confirmed<C>>(new_value, component_id);
+                        entity_mut
+                            .buffered
+                            .insert::<Confirmed<C>>(new_value, component_id);
                     }
                 }
             } else {

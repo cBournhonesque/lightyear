@@ -71,13 +71,3 @@ pub struct Replicated {
 #[derive(Component, Reflect, PartialEq, Default, Debug, Clone)]
 #[reflect(Component)]
 pub struct Confirmed<C>(pub C);
-
-// TODO: enable this only if predicted feature
-/// Indicates that an entity was pre-predicted
-// NOTE: we do not map entities for this component, we want to receive the entities as is
-//  because we already do the mapping at other steps
-#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct PrePredicted {
-    pub confirmed_entity: Option<Entity>,
-}

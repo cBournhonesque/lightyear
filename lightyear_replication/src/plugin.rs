@@ -52,13 +52,11 @@ impl Plugin for SharedPlugin {
 
         #[cfg(feature = "interpolation")]
         {
-            app.register_type::<(ShouldBeInterpolated, InterpolationTarget)>();
-            app.register_component::<ShouldBeInterpolated>();
+            app.register_type::<InterpolationTarget>();
         }
         #[cfg(feature = "prediction")]
         {
-            app.register_type::<(ShouldBePredicted, PrePredicted, PredictionTarget)>();
-            app.register_component::<ShouldBePredicted>();
+            app.register_type::<PredictionTarget>();
         }
 
         app.add_channel::<MetadataChannel>(ChannelSettings {

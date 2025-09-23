@@ -1,11 +1,9 @@
 use super::interpolation_history::{apply_confirmed_update, insert_confirmed_history};
-use crate::despawn::{removed_components};
+use crate::despawn::removed_components;
 use crate::interpolate::{interpolate, update_confirmed_history};
 use crate::registry::InterpolationRegistry;
 use crate::timeline::TimelinePlugin;
-use crate::{
-    Interpolated, SyncComponent
-};
+use crate::{Interpolated, SyncComponent};
 use bevy_app::{App, Plugin, PreUpdate, Update};
 use bevy_ecs::hierarchy::ChildOf;
 use bevy_ecs::{
@@ -99,18 +97,13 @@ pub enum InterpolationSet {
 }
 
 /// Add per-component systems related to interpolation
-pub(crate) fn add_prepare_interpolation_systems<C: Component + Clone>(
-    app: &mut App,
-) {
+pub(crate) fn add_prepare_interpolation_systems<C: Component + Clone>(app: &mut App) {
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_observer(removed_components::<C>);
     app.add_observer(insert_confirmed_history::<C>);
     app.add_systems(
         Update,
-        (
-            apply_confirmed_update::<C>,
-            update_confirmed_history::<C>,
-        )
+        (apply_confirmed_update::<C>, update_confirmed_history::<C>)
             .chain()
             .in_set(InterpolationSet::Prepare),
     );
