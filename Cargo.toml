@@ -159,10 +159,10 @@ metrics = "0.24"
 metrics-util = "0.20"
 
 # transport
-aeronet_webtransport = "0.16"
-aeronet_websocket = "0.16"
-aeronet_steam = "0.16"
-aeronet_io = "0.16"
+aeronet_webtransport = { git = "https://github.com/aecsocket/aeronet.git", branch = "bevy-0.17.0-rc.1"}
+aeronet_websocket = { git = "https://github.com/aecsocket/aeronet.git", branch = "bevy-0.17.0-rc.1"}
+aeronet_steam = { git = "https://github.com/aecsocket/aeronet.git", branch = "bevy-0.17.0-rc.1"}
+aeronet_io = { git = "https://github.com/aecsocket/aeronet.git", branch = "bevy-0.17.0-rc.1"}
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.45", features = [
   "sync",
@@ -213,7 +213,7 @@ bevy_utils = { version = "0.17.0-rc.1", default-features = false }
 tracy-client = { version = "=0.18.0" }
 
 # input
-bevy_enhanced_input = { version = "0.18" }
+bevy_enhanced_input = { git = "https://github.com/Lenchog/bevy_enhanced_input.git", branch = "master" }
 leafwing-input-manager = { version = "0.18", default-features = false, features = [
   "keyboard",
 ] }

@@ -5,12 +5,9 @@ use crate::auth::Authentication;
 use crate::client::{ClientConfig, ClientState};
 use aeronet_io::connection::PeerAddr;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
-use bevy_ecs::prelude::*;
-use bevy_ecs::{
-    system::ParallelCommands,
-    world::DeferredWorld,
-};
 use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::prelude::*;
+use bevy_ecs::{system::ParallelCommands, world::DeferredWorld};
 use bevy_reflect::Reflect;
 use bevy_time::{Real, Time};
 use lightyear_connection::ConnectionSet;

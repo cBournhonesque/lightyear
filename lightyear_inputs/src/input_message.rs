@@ -66,8 +66,8 @@ pub trait ActionStateQueryData {
     // If the ActionState is a single component, then this is simply `&'static mut Self`.
     type Mut: QueryData;
 
-    // The inner value corresponding to Self::Mut::Item<'w> (i.e. for Mut<'w, ActionState<A>, this is &'mut ActionState<A>)
-    type MutItemInner<'w>;
+    // The inner value corresponding to Self::Mut::Item<'w, 's> (i.e. for Mut<'w, 's, ActionState<A>, this is &'mut ActionState<A>)
+    type MutItemInner<'w, 's>;
 
     // Component that should always be present to represent the ActionState.
     // We use this for registering required components in the App.
@@ -77,15 +77,17 @@ pub trait ActionStateQueryData {
     type Bundle: Bundle + Send + Sync + 'static;
 
     // Convert from the mutable query item (i.e. Mut<'w, ActionState<A>>) to the read-only query item (i.e. &ActionState<A>)
-    fn as_read_only<'a, 'w: 'a>(
-        state: &'a <Self::Mut as QueryData>::Item<'w>,
-    ) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'a>;
+    fn as_read_only<'a, 'w: 'a, 's>(
+        state: &'a <Self::Mut as QueryData>::Item<'w, 's>,
+    ) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'a, 's>;
 
     // Convert from the mutable query item (i.e. Mut<'w, ActionState<A>>) to the inner mutable item (i.e. &mut ActionState<A>)
-    fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w>;
+    fn into_inner<'w, 's>(
+        mut_item: <Self::Mut as QueryData>::Item<'w, 's>,
+    ) -> Self::MutItemInner<'w, 's>;
 
     // Convert from the Bundle (ActionState<A>) to the inner mutable item (i.e. &mut ActionState<A>)
-    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w>;
+    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w, '_>;
     fn base_value() -> Self::Bundle;
 }
 
@@ -94,16 +96,18 @@ pub(crate) type StateRef<S: ActionStateSequence> =
     <<S::State as ActionStateQueryData>::Mut as QueryData>::ReadOnly;
 
 // equivalent to &'w ActionState<S::Action>
-pub(crate) type StateRefItem<'w, S: ActionStateSequence> = <StateRef<S> as QueryData>::Item<'w>;
+pub(crate) type StateRefItem<'w, 's, S: ActionStateSequence> =
+    <StateRef<S> as QueryData>::Item<'w, 's>;
 
 // equivalent to &mut ActionState<S::Action>
 pub(crate) type StateMut<S: ActionStateSequence> = <S::State as ActionStateQueryData>::Mut;
 
 // equivalent to Mut<'w, ActionState<S::Action>>
-pub(crate) type StateMutItem<'w, S: ActionStateSequence> = <StateMut<S> as QueryData>::Item<'w>;
+pub(crate) type StateMutItem<'w, 's, S: ActionStateSequence> =
+    <StateMut<S> as QueryData>::Item<'w, 's>;
 
-pub(crate) type StateMutItemInner<'w, S: ActionStateSequence> =
-    <S::State as ActionStateQueryData>::MutItemInner<'w>;
+pub(crate) type StateMutItemInner<'w, 's, S: ActionStateSequence> =
+    <S::State as ActionStateQueryData>::MutItemInner<'w, 's>;
 
 /// An ActionStateSequence represents a sequence of states that can be serialized and sent over the network.
 ///
@@ -216,10 +220,10 @@ pub trait ActionStateSequence:
         Self: Sized;
 
     /// Create a snapshot from the given state.
-    fn to_snapshot<'w>(state: StateRefItem<'w, Self>) -> Self::Snapshot;
+    fn to_snapshot<'w, 's>(state: StateRefItem<'w, 's, Self>) -> Self::Snapshot;
 
     /// Modify the given state to reflect the given snapshot.
-    fn from_snapshot<'w>(state: StateMutItemInner<'w, Self>, snapshot: &Self::Snapshot);
+    fn from_snapshot<'w, 's>(state: StateMutItemInner<'w, 's, Self>, snapshot: &Self::Snapshot);
 }
 
 /// Message used to send client inputs to the server.
@@ -240,10 +244,11 @@ impl<S: ActionStateSequence + MapEntities> MapEntities for InputMessage<S> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.inputs.iter_mut().for_each(|data| {
             match &mut data.target {
-                InputTarget::PrePredictedEntity(e) | InputTarget::ActionEntity(e) => {
+                InputTarget::Entity(e)
+                | InputTarget::PrePredictedEntity(e)
+                | InputTarget::ActionEntity(e) => {
                     *e = entity_mapper.get_mapped(*e);
                 }
-                _ => {}
             }
             data.states.map_entities(entity_mapper);
         });

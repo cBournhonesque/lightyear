@@ -5,17 +5,9 @@ use aeronet_steam::server::{
     ListenTarget, SessionRequest, SessionResponse, SteamNetServer, SteamNetServerClient,
 };
 use alloc::format;
-use alloc::string::ToString;
 use bevy_app::{App, Plugin};
-use bevy_ecs::prelude::With;
+use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::RelationshipTarget;
-use bevy_ecs::{
-    error::Result,
-    prelude::{
-        Add, ChildOf, Commands, Component, Entity, EntityCommand, Name, Query, Trigger, Without,
-        World,
-    },
-};
 use lightyear_aeronet::server::ServerAeronetPlugin;
 use lightyear_aeronet::{AeronetLink, AeronetLinkOf, AeronetPlugin};
 use lightyear_connection::client::{Connected, Disconnected};
@@ -108,12 +100,14 @@ impl SteamServerPlugin {
     ) {
         if query.get(trigger.entity).is_ok() {
             trace!("SteamServer Start triggered, triggering LinkStart");
-            commands.trigger_targets(LinkStart, trigger.entity);
+            commands.trigger(LinkStart {
+                entity: trigger.entity,
+            });
         }
     }
 
     fn on_session_request(mut request: On<SessionRequest>) {
-        trace!("Accepted steam link-of request: {:?}", request.target());
+        trace!("Accepted steam link-of request: {:?}", request.event());
         request.respond(SessionResponse::Accepted);
     }
 
@@ -236,12 +230,7 @@ impl SteamServerPlugin {
     ) {
         if let Ok(aeronet_link) = query.get(trigger.entity) {
             trace!("SteamServer Stop triggered, closing.");
-            commands.trigger_targets(
-                Close {
-                    reason: "User requested".to_string(),
-                },
-                *aeronet_link.collection(),
-            );
+            commands.trigger(Close::new(*aeronet_link.collection(), "User requested"));
         }
     }
 }

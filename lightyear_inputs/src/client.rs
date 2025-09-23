@@ -57,15 +57,8 @@ use alloc::{vec, vec::Vec};
 use bevy_app::{
     App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoopSystems,
 };
-use bevy_ecs::query::Or;
-use bevy_ecs::{
-    entity::{Entity, MapEntities},
-    observer::Trigger,
-    query::{Has, With, Without},
-    resource::Resource,
-    schedule::{IntoScheduleConfigs, SystemSet},
-    system::{Commands, Query, Res, ResMut, Single},
-};
+use bevy_ecs::entity::MapEntities;
+use bevy_ecs::prelude::*;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::*;
 use lightyear_core::tick::TickDuration;
@@ -80,8 +73,7 @@ use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
 #[cfg(feature = "prediction")]
 use lightyear_prediction::prelude::*;
-use lightyear_replication::components::{Confirmed, PrePredicted};
-use lightyear_replication::prelude::Replicate;
+use lightyear_replication::prelude::{PreSpawned, Replicate};
 use lightyear_sync::plugin::SyncSet;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
@@ -479,8 +471,8 @@ fn prepare_input_message<S: ActionStateSequence>(
         (
             Entity,
             &InputBuffer<S::Snapshot>,
-            Option<&Predicted>,
-            Option<&PrePredicted>,
+            Has<Predicted>,
+            Option<&PreSpawned>,
             Option<&Replicate>,
         ),
         With<S::Marker>,
@@ -519,7 +511,7 @@ fn prepare_input_message<S: ActionStateSequence>(
         .unwrap();
     num_tick *= input_config.packet_redundancy;
     let mut message = InputMessage::<S>::new(tick);
-    for (entity, input_buffer, predicted, pre_predicted, replicate) in input_buffer_query.iter() {
+    for (entity, input_buffer, predicted, pre_spawned, replicate) in input_buffer_query.iter() {
         trace!(
             ?tick,
             ?entity,
@@ -535,12 +527,12 @@ fn prepare_input_message<S: ActionStateSequence>(
         if let Some(target) = if is_host_client {
             // we are using PrePredictedEntity to make sure that MapEntities will be used on the client receiving side
             Some(InputTarget::PrePredictedEntity(entity))
-        } else if pre_predicted.is_some() {
+        } else if pre_spawned.is_some() {
             // wait until the client receives the PrePredicted entity confirmation to send inputs
             // otherwise we get failed entity_map logs
             // TODO: the problem is that we wait until we have received the server answer. Ideally we would like
             //  to wait until the server has received the PrePredicted entity
-            if predicted.is_none() {
+            if !predicted {
                 continue;
             }
             trace!(
@@ -551,9 +543,6 @@ fn prepare_input_message<S: ActionStateSequence>(
             //  to receive the inputs until it receives the pre-predicted spawn message.
             //  so all the inputs sent between pre-predicted spawn and server-receives-pre-predicted will be lost
 
-            // TODO: I feel like pre-predicted inputs work well only for global-inputs, because then the server can know
-            //  for which client the inputs were!
-
             // 0. the entity is pre-predicted, no need to convert the entity (the mapping will be done on the server, when
             // receiving the message. It's possible because the server received the PrePredicted entity before)
             Some(InputTarget::PrePredictedEntity(entity))
@@ -561,18 +550,8 @@ fn prepare_input_message<S: ActionStateSequence>(
             // this only happens if the entity is a BEI Action entity
             Some(InputTarget::ActionEntity(entity))
         } else {
-            // 1. if the entity is confirmed, we need to convert the entity to the server's entity
-            // 2. if the entity is predicted, we need to first convert the entity to confirmed, and then from confirmed to remote
-            if let Some(confirmed) = predicted.map_or(Some(entity), |p| p.confirmed_entity) {
-                message_manager.entity_mapper.get_remote(confirmed).map(|server_entity|{
-                    trace!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
-                    InputTarget::Entity(server_entity)
-                })
-            } else {
-                // TODO: entity is not predicted or not confirmed? also need to do the conversion, no?
-                trace!("not sending inputs because couldnt find server entity");
-                None
-            }
+            // if the entity is replicated (confirmed or predicted), entity mapping will be applied
+            Some(InputTarget::Entity(entity))
         } && let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_tick, tick)
         {
             message.inputs.push(PerTargetData {
@@ -617,8 +596,6 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         // the host-client won't receive input messages from the Server
         (With<IsSynced<InputTimeline>>, Without<HostClient>),
     >,
-    // TODO: for deterministic replication, the
-    confirmed_query: Query<&Confirmed, Without<S::Marker>>,
     mut predicted_query: Query<
         (Option<&mut InputBuffer<S::Snapshot>>, Option<StateMut<S>>),
         (
@@ -657,17 +634,11 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 entity
             );
             // TODO: careful of entity collisions!
-            // StateReplication: we will receive the input message for the confirmed entity, which we need to map to the predicted
-            // DeterministicReplication: we will receive the input message for the predicted entity
-            let Some(predicted) = confirmed_query.get(entity).map_or_else(|_| Some(entity), |confirmed| confirmed.predicted) else {
-                error!("received remote player input message for non existent entity {entity:?}");
-                continue
-            };
-            let Ok((input_buffer, action_state)) = predicted_query.get_mut(predicted) else {
+            let Ok((input_buffer, action_state)) = predicted_query.get_mut(entity) else {
                 error!(?entity, ?target_data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                 continue
             };
-            trace!(confirmed=?entity, ?predicted, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
+            trace!(predicted=?entity, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
             if let Some(mut input_buffer) = input_buffer {
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
@@ -695,7 +666,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     *tick_duration
                 );
                 // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
-                commands.entity(predicted).insert((
+                commands.entity(entity).insert((
                     input_buffer,
                     action_state,
                 ));

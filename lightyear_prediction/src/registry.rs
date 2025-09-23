@@ -181,15 +181,14 @@ impl PredictionRegistry {
             //  requires mutable aliasing
             return false;
         };
-        let history_value = predicted_history.pop_until_tick(confirmed_tick);
-        let confirmed_component = entity_mut.get::<Confirmed<C>>();
-
         #[cfg(feature = "metrics")]
         metrics::gauge!(format!(
             "prediction::rollbacks::history::{:?}::num_values",
             core::any::type_name::<C>()
         ))
         .set(predicted_history.len() as f64);
+        let history_value = predicted_history.pop_until_tick(confirmed_tick);
+        let confirmed_component = entity_mut.get::<Confirmed<C>>();
 
         debug!(?history_value, ?confirmed_component, "check");
         match confirmed_component {

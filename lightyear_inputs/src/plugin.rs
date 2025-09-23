@@ -37,7 +37,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
         // bidirectional in case of rebroadcasting inputs
         .add_direction(NetworkDirection::Bidirectional);
 
-        app.add_message::<InputMessage<S>>()
+        app.register_message::<InputMessage<S>>()
             // add entity mapping for:
             // - server receiving pre-predicted entities
             // - client receiving other players' inputs

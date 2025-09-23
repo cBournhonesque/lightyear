@@ -3,9 +3,7 @@ use alloc::{sync::Arc, vec::Vec};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::{
-    entity::{UniqueEntitySlice},
-    relationship::RelationshipTarget,
-    system::{ParallelCommands},
+    entity::UniqueEntitySlice, relationship::RelationshipTarget, system::ParallelCommands,
 };
 use bevy_time::{Real, Time};
 use lightyear_connection::client::{Connected, Disconnected, Disconnecting};

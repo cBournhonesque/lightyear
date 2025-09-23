@@ -21,9 +21,7 @@ use lightyear_core::prelude::is_in_rollback;
 #[cfg(feature = "client")]
 use lightyear_inputs::client::InputSet;
 use lightyear_inputs::config::InputConfig;
-use lightyear_prediction::PredictionMode;
 use lightyear_prediction::plugin::PredictionSet;
-use lightyear_prediction::prelude::PredictionRegistrationExt;
 use lightyear_replication::prelude::AppComponentExt;
 use lightyear_replication::registry::replication::GetWriteFns;
 use serde::Serialize;
@@ -66,8 +64,7 @@ impl<
 
         app.add_input_context_to::<FixedPreUpdate, C>();
         // we register the context C entity so that it can be replicated from the server to the client
-        app.register_component::<C>()
-            .add_immutable_prediction(PredictionMode::Once);
+        app.register_component::<C>();
 
         // We cannot directly replicate ActionOf<C> because it contains an entity, and we might need to do some custom mapping
         // i.e. if the Action is spawned on the predicted entity on the client, we want the ActionOf<C> entity

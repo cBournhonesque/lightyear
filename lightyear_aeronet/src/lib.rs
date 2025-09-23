@@ -8,11 +8,12 @@ pub mod server;
 
 use alloc::format;
 
-use aeronet_io::connection::{Disconnect, Disconnected, LocalAddr, PeerAddr};
+use aeronet_io::connection::{Disconnect, DisconnectReason, Disconnected, LocalAddr, PeerAddr};
 use aeronet_io::server::{Close, Server};
-use aeronet_io::{IoSet, Session, SessionEndpoint};
+use aeronet_io::{IoSystems, Session, SessionEndpoint};
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
+use bevy_ecs::relationship::Relationship;
 use bevy_reflect::Reflect;
 use lightyear_link::{
     Link, LinkPlugin, LinkReceiveSet, LinkSet, Linked, Linking, Unlink, Unlinked,
@@ -106,14 +107,14 @@ impl AeronetPlugin {
         if let Ok(aeronet_io) = query.get(trigger.entity)
             && let Ok(mut c) = commands.get_entity(aeronet_io.0)
         {
-            let reason = match &*trigger {
-                Disconnected::ByUser(reason) => {
+            let reason = match &trigger.reason {
+                DisconnectReason::ByUser(reason) => {
                     format!("Disconnected by user: {reason}")
                 }
-                Disconnected::ByPeer(reason) => {
+                DisconnectReason::ByPeer(reason) => {
                     format!("Disconnected by remote: {reason}")
                 }
-                Disconnected::ByError(err) => {
+                DisconnectReason::ByError(err) => {
                     format!("Disconnected due to error: {err:?}")
                 }
             };
@@ -142,11 +143,9 @@ impl AeronetPlugin {
                 trigger.entity, aeronet_link.0
             );
             if is_server {
-                commands.entity(aeronet_link.0).trigger(Close::new(reason));
+                commands.trigger(Close::new(aeronet_link.0, reason));
             } else {
-                commands
-                    .entity(aeronet_link.0)
-                    .trigger(Disconnect::new(reason));
+                commands.trigger(Disconnect::new(aeronet_link.0, reason));
             }
         }
     }
@@ -200,8 +199,8 @@ impl Plugin for AeronetPlugin {
         app.add_observer(Self::on_disconnected);
         app.add_observer(Self::unlink);
 
-        app.configure_sets(PreUpdate, LinkSet::Receive.after(IoSet::Poll));
-        app.configure_sets(PostUpdate, LinkSet::Send.before(IoSet::Flush));
+        app.configure_sets(PreUpdate, LinkSet::Receive.after(IoSystems::Poll));
+        app.configure_sets(PostUpdate, LinkSet::Send.before(IoSystems::Flush));
         app.add_systems(
             PreUpdate,
             Self::receive.in_set(LinkReceiveSet::BufferToLink),

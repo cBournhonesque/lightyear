@@ -6,13 +6,9 @@ use aeronet_steam::{
 };
 use alloc::string::ToString;
 use bevy_app::{App, Plugin};
-use bevy_ecs::component::HookContext;
-use bevy_ecs::prelude::{Add, With};
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
-use bevy_ecs::{
-    error::Result,
-    prelude::{Commands, Component, Entity, EntityCommand, Name, Query, Trigger, Without, World},
-};
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
 use lightyear_connection::client::{Connected, Disconnect};
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
@@ -120,12 +116,10 @@ impl SteamClientPlugin {
         mut commands: Commands,
     ) {
         if query.get(trigger.entity).is_ok() {
-            commands.trigger_targets(
-                Unlink {
-                    reason: "User requested disconnect".to_string(),
-                },
-                trigger.entity,
-            );
+            commands.trigger(Unlink {
+                entity: trigger.entity,
+                reason: "User requested disconnect".to_string(),
+            });
         }
     }
 }
