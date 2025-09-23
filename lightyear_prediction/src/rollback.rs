@@ -127,10 +127,10 @@ impl Plugin for RollbackPlugin {
                 builder.data::<&Replicated>();
                 builder.without::<DeterministicPredicted>();
                 builder.without::<DisableRollback>();
+                // include PredictionDisable entities (entities that are predicted and 'despawned'
+                // but we keep them around for rollback check)
+                builder.filter::<Allow<PredictionDisable>>();
                 builder.optional(|b| {
-                    // include PredictionDisable entities (entities that are predicted and 'despawned'
-                    // but we keep them around for rollback check)
-                    b.data::<&PredictionDisable>();
                     // include access to &mut PredictionHistory<C> and &Confirmed<C> for all prediction components
                     prediction_registry.prediction_map.values().for_each(|m| {
                         b.mut_id(m.history_id.unwrap());
@@ -448,6 +448,10 @@ pub(crate) fn remove_prediction_disable(
     query: Query<Entity, (With<Predicted>, With<PredictionDisable>)>,
 ) {
     query.iter().for_each(|e| {
+        trace!(
+            ?e,
+            "Removing PredictionDisable marker before rollback preparation"
+        );
         commands.entity(e).try_remove::<PredictionDisable>();
     });
 }
@@ -545,7 +549,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         ) {
             // we will rollback to the confirmed state
             (Rollback::FromState, false) => {
-                let Some(predicted) = predicted else {
+                if predicted.is_none() {
                     error!("Entity needs a Predicted component to handle Rollback::FromState");
                     continue;
                 };
@@ -564,6 +568,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             _ => {
                 trace!(
                     ?entity,
+                    ?prespawned,
+                    ?is_non_networked,
                     "Rollback to the value stored in the PredictionHistory"
                 );
                 (

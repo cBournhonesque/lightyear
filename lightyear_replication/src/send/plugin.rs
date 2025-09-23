@@ -6,6 +6,7 @@ use crate::message::{
 };
 use crate::plugin::ReplicationSet;
 use crate::prelude::NetworkVisibility;
+use crate::prespawn;
 use crate::prespawn::PreSpawned;
 use crate::registry::registry::ComponentRegistry;
 use crate::send::buffer;
@@ -227,6 +228,9 @@ impl Plugin for ReplicationSendPlugin {
         // PLUGINS
         if !app.is_plugin_added::<crate::plugin::SharedPlugin>() {
             app.add_plugins(crate::plugin::SharedPlugin);
+        }
+        if !app.is_plugin_added::<prespawn::PreSpawnedPlugin>() {
+            app.add_plugins(prespawn::PreSpawnedPlugin);
         }
 
         // SETS

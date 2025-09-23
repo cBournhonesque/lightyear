@@ -50,19 +50,21 @@ impl<A: LeafwingUserAction> ActionStateQueryData for ActionStateWrapper<A> {
     type Main = ActionState<A>;
     type Bundle = ActionState<A>;
 
-    fn as_read_only<'a, 'w: 'a>(
-        state: &'a ActionStateWrapperItem<'w, A>,
-    ) -> ActionStateWrapperReadOnlyItem<'a, A> {
+    fn as_read_only<'a, 'w: 'a, 's>(
+        state: &'a <Self::Mut as QueryData>::Item<'w, 's>,
+    ) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'a, 's> {
         ActionStateWrapperReadOnlyItem {
             inner: &state.inner,
         }
     }
 
-    fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w> {
+    fn into_inner<'w, 's>(
+        mut_item: <Self::Mut as QueryData>::Item<'w, 's>,
+    ) -> Self::MutItemInner<'w> {
         mut_item.inner.into_inner()
     }
 
-    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w> {
+    fn as_mut(bundle: &mut Self::Bundle) -> Self::MutItemInner<'_> {
         bundle
     }
 

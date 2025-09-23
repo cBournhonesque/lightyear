@@ -21,12 +21,12 @@ pub mod resource_history;
 pub mod rollback;
 
 mod deterministic;
-mod shared;
 
 pub mod prelude {
     pub use crate::Predicted;
     pub use crate::correction::VisualCorrection;
     pub use crate::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
+    pub use crate::diagnostics::PredictionMetrics;
     pub use crate::manager::{LastConfirmedInput, PredictionManager, RollbackMode, RollbackPolicy};
     pub use crate::plugin::{PredictionPlugin, PredictionSet};
     pub use crate::predicted_history::PredictionHistory;

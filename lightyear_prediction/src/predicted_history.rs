@@ -75,20 +75,36 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
     }
 }
 
-/// If a PredictionMode::Full gets added to [`Predicted`] entity,
-/// add a PredictionHistory component.
+/// If a PredictionMode::Full gets added to [`Predicted`] entity, add a PredictionHistory component.
 ///
 /// We don't put any value in the history because the `update_history` systems will add the value.
-// TODO: We could not run this for [`Predicted`] entities and instead have the confirmed->sync observers already
-//  add a PredictionHistory component if it's missing on the Predicted entity.
+///
+/// Predicted: when Confirmed<C> is added, we potentially do a rollback which will add C
+/// PreSpawned:
+///   - on the client the component C is added, which should be added to the history
+///   - before matching, any rollback should bring us back to the state of C in the history
+///   - when Predicted is added (on PreSpawn match), Confirmed<C> might be added, which shouldn't trigger a rollback
+///     beacuse it should match the state of C in the history. We remove PreSpawned to make sure that we rollback to
+///     the Confirmed<C> state
+///   - if no match, we also remove PreSpawned, so that the entity is just Predicted (and we rollback to the last Confirmed<C> state)
 pub(crate) fn add_prediction_history<C: Component>(
-    trigger: On<Add, (Confirmed<C>, Predicted, PreSpawned, DeterministicPredicted)>,
+    trigger: On<
+        Add,
+        (
+            Confirmed<C>,
+            C,
+            Predicted,
+            PreSpawned,
+            DeterministicPredicted,
+        ),
+    >,
     mut commands: Commands,
     // TODO: should we also have With<ShouldBePredicted>?
     query: Query<
         (),
         (
-            (Without<PredictionHistory<C>>, With<Confirmed<C>>),
+            Without<PredictionHistory<C>>,
+            Or<(With<Confirmed<C>>, With<C>)>,
             Or<(
                 With<Predicted>,
                 With<PreSpawned>,

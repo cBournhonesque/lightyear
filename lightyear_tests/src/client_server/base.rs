@@ -30,12 +30,12 @@ fn test_setup_client_server() {
     assert!(
         stepper
             .client(0)
-            .contains::<EventSender<AuthorityTransferRequest>>()
+            .contains::<EventSender<AuthorityRequestEvent>>()
     );
     assert!(
         stepper
             .client(0)
-            .contains::<EventSender<AuthorityTransferResponse>>()
+            .contains::<EventSender<AuthorityResponseEvent>>()
     );
     assert!(stepper.client(0).contains::<ReplicationSender>());
     assert!(stepper.client(0).contains::<ReplicationReceiver>());
@@ -70,12 +70,12 @@ fn test_setup_client_server() {
     assert!(
         stepper
             .client_of(0)
-            .contains::<EventSender<AuthorityTransferRequest>>()
+            .contains::<EventSender<AuthorityRequestEvent>>()
     );
     assert!(
         stepper
             .client_of(0)
-            .contains::<EventSender<AuthorityTransferResponse>>()
+            .contains::<EventSender<AuthorityResponseEvent>>()
     );
     assert!(stepper.client_of(0).contains::<CrossbeamIo>());
     assert!(stepper.client_of(0).contains::<Connected>());

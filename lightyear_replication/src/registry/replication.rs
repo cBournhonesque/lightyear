@@ -22,6 +22,8 @@ pub struct ReplicationMetadata {
     pub(crate) inner_buffer: unsafe fn(),
     pub(crate) buffer: RawBufferFn,
     pub(crate) remove: Option<RawBufferRemoveFn>,
+    predicted: bool,
+    interpolated: bool,
 }
 
 type RawBufferRemoveFn = fn(&ComponentRegistry, &mut BufferedEntity);
@@ -49,7 +51,21 @@ impl ReplicationMetadata {
             inner_buffer: unsafe { core::mem::transmute::<BufferFn<C>, unsafe fn()>(buffer_fn) },
             buffer: Self::buffer::<C>,
             remove: Some(ComponentRegistry::buffer_remove::<C>),
+            predicted: false,
+            interpolated: false,
         }
+    }
+
+    // TODO: Could we override this for a certain component? i.e. on an entity, the user can say
+    //  "this component is not predicted"
+    /// Mark the component as being predicted.
+    pub fn set_predicted(&mut self, predicted: bool) {
+        self.predicted = predicted;
+    }
+
+    /// Mark the component as being interpolated.
+    pub fn set_interpolated(&mut self, interpolated: bool) {
+        self.interpolated = interpolated;
     }
 
     pub(crate) fn default_fns<C: Component<Mutability: GetWriteFns<C>>>(
@@ -87,8 +103,8 @@ impl ComponentRegistry {
         entity_mut: &mut BufferedEntity,
         tick: Tick,
         entity_map: &mut ReceiveEntityMap,
-        // true if the entity is predicted or interpolated
-        synced: bool,
+        predicted: bool,
+        interpolated: bool,
     ) -> Result<(), ComponentError> {
         let mut reader = Reader::from(bytes);
         let net_id = ComponentNetId::from_bytes(&mut reader)?;
@@ -113,6 +129,8 @@ impl ComponentRegistry {
             .serialization
             .as_ref()
             .ok_or(ComponentError::MissingSerializationFns)?;
+        let synced = (predicted && replication_metadata.predicted)
+            || (interpolated && replication_metadata.interpolated);
         (replication_metadata.buffer)(
             replication_metadata,
             erased_serialize_fns,

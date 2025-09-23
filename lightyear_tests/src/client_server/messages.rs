@@ -3,6 +3,7 @@ use crate::stepper::ClientServerStepper;
 use bevy::ecs::entity::UniqueEntityArray;
 use bevy::prelude::*;
 use core::fmt::Debug;
+use lightyear::prelude::Message;
 use lightyear::prelude::*;
 use lightyear_connection::client::PeerMetadata;
 use lightyear_messages::multi::MultiMessageSender;
@@ -79,7 +80,7 @@ fn test_send_messages() {
 }
 
 #[derive(Resource)]
-struct TriggerBuffer<M>(Vec<(Entity, M, Entity)>);
+struct TriggerBuffer<M>(Vec<(Entity, M)>);
 
 impl<M> Default for TriggerBuffer<M> {
     fn default() -> Self {
@@ -96,9 +97,7 @@ fn count_triggers_observer<M: Event + Debug + Clone>(
     info!("Received trigger: {:?}", trigger);
     // Get the entity that is 'receiving' the trigger
     let remote = *peer_metadata.mapping.get(&trigger.from).unwrap();
-    buffer
-        .0
-        .push((remote, trigger.trigger.clone(), trigger.entity));
+    buffer.0.push((remote, trigger.trigger.clone()));
 }
 
 #[test]
@@ -126,12 +125,33 @@ fn test_send_triggers() {
             .world()
             .resource::<TriggerBuffer<StringTrigger>>()
             .0,
-        &vec![(
-            stepper.client_of_entities[0],
-            send_trigger,
-            Entity::PLACEHOLDER
-        )]
+        &vec![(stepper.client_of_entities[0], send_trigger,)]
     );
+}
+
+#[derive(Resource)]
+struct EntityTriggerBuffer<M>(Vec<(Entity, M, Entity)>);
+
+impl<M> Default for EntityTriggerBuffer<M> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
+/// System to check that we received the message on the server
+fn count_entity_triggers_observer<M: EntityEvent + Debug + Clone>(
+    trigger: On<RemoteEvent<M>>,
+    peer_metadata: Res<PeerMetadata>,
+    mut buffer: ResMut<EntityTriggerBuffer<M>>,
+) {
+    info!("Received trigger: {:?}", trigger);
+    // Get the entity that is 'receiving' the trigger
+    let remote = *peer_metadata.mapping.get(&trigger.from).unwrap();
+    buffer.0.push((
+        remote,
+        trigger.trigger.clone(),
+        trigger.trigger.event_target(),
+    ));
 }
 
 #[test]
@@ -153,10 +173,10 @@ fn test_send_triggers_map_entities() {
 
     stepper
         .server_app
-        .add_observer(count_triggers_observer::<EntityTrigger>);
+        .add_observer(count_entity_triggers_observer::<EntityTrigger>);
     stepper
         .server_app
-        .init_resource::<TriggerBuffer<EntityTrigger>>();
+        .init_resource::<EntityTriggerBuffer<EntityTrigger>>();
 
     trace!("Sending trigger from client to server");
     let send_trigger = EntityTrigger(client_entity);
@@ -164,14 +184,14 @@ fn test_send_triggers_map_entities() {
         .client_mut(0)
         .get_mut::<EventSender<EntityTrigger>>()
         .unwrap()
-        .trigger_targets::<Channel1>(send_trigger, core::iter::once(client_entity));
+        .trigger::<Channel1>(send_trigger);
     stepper.frame_step(1);
 
     assert_eq!(
         &stepper
             .server_app
             .world()
-            .resource::<TriggerBuffer<EntityTrigger>>()
+            .resource::<EntityTriggerBuffer<EntityTrigger>>()
             .0,
         &vec![(
             stepper.client_of_entities[0],

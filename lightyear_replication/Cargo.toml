@@ -46,6 +46,7 @@ bytes.workspace = true
 
 # bevy
 bevy_app.workspace = true
+bevy_derive.workspace = true
 bevy_ecs.workspace = true
 bevy_platform.workspace = true
 bevy_ptr.workspace = true

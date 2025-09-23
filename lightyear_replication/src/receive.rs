@@ -20,7 +20,7 @@ use lightyear_transport::packet::message::MessageId;
 use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::plugin::ReplicationSet;
-use crate::prelude::{ReplicationGroupId, ReplicationSender};
+use crate::prelude::{PreSpawned, ReplicationGroupId, ReplicationSender};
 use crate::prespawn::PreSpawnedReceiver;
 use crate::registry::buffered::{BufferedChanges, BufferedEntity};
 use crate::{plugin, prespawn};
@@ -124,8 +124,6 @@ impl ReplicationReceivePlugin {
         >,
         // buffer to avoid allocations
         mut receiver_entities: Local<Vec<(Entity, PeerId)>>,
-        // buffer to store a mapping from newly Spawned entities to a bool that indicates if the entity is spawned predicted or interpolated
-        mut spawn_buffer: Local<EntityHashMap<Entity, bool>>,
     ) {
         #[cfg(feature = "metrics")]
         let _timer = TimerGauge::new("replication/apply");
@@ -177,7 +175,6 @@ impl ReplicationReceivePlugin {
                     authority_map,
                     component_registry,
                     tick,
-                    &mut spawn_buffer,
                 );
                 receiver.tick_cleanup(tick);
             });
@@ -190,7 +187,9 @@ impl Plugin for ReplicationReceivePlugin {
         if !app.is_plugin_added::<plugin::SharedPlugin>() {
             app.add_plugins(plugin::SharedPlugin);
         }
-        app.add_plugins(prespawn::PreSpawnedPlugin);
+        if !app.is_plugin_added::<prespawn::PreSpawnedPlugin>() {
+            app.add_plugins(prespawn::PreSpawnedPlugin);
+        }
 
         // SYSTEMS
         app.configure_sets(
@@ -394,7 +393,6 @@ impl ReplicationReceiver {
         authority_map: Option<&EntityIndexMap<bool>>,
         component_registry: &ComponentRegistry,
         current_tick: Tick,
-        spawn_buffer: &mut EntityHashMap<Entity, bool>,
     ) {
         // apply all actions first
         self.group_channels
@@ -439,7 +437,6 @@ impl ReplicationReceiver {
                         authority_map,
                         &mut self.local_entity_to_group,
                         &mut self.buffer,
-                        spawn_buffer,
                     );
                 }
             });
@@ -737,8 +734,29 @@ impl GroupChannel {
         authority_map: Option<&EntityIndexMap<bool>>,
         local_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
         temp_write_buffer: &mut BufferedChanges,
-        spawn_buffer: &mut EntityHashMap<Entity, bool>,
     ) {
+        let insert_sync_components =
+            |predicted: bool, interpolated: bool, entity: &mut EntityWorldMut| {
+                if interpolated {
+                    trace!("Inserting interpolated on local entity {:?}", entity.id());
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("interpolated::spawn").increment(1);
+                    }
+                    entity.insert(Interpolated);
+                }
+                if predicted {
+                    trace!("Inserting predicted on local entity {:?}", entity.id());
+                    // this might also count PreSpawned entities, even if they ended up not being matched
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("prediction::spawn").increment(1);
+                    }
+
+                    entity.insert(Predicted);
+                }
+            };
+
         let group_id = message.group_id;
         debug!(
             ?remote_tick,
@@ -778,15 +796,22 @@ impl GroupChannel {
                     })
                     .or(remote_entity_map.get_local(*remote_entity))
                 {
-                    spawn_buffer.insert(local_entity, predicted || interpolated);
                     local_entity_to_group.insert(local_entity, group_id);
-                    if world.get_entity(local_entity).is_ok() {
+                    if let Ok(mut local_entity) = world.get_entity_mut(local_entity) {
                         debug!(
-                            ?local_entity,
-                            "Received spawn for entity {local_entity:?} that already exists. This might be because of an authority transfer or prespawning."
+                            "Received spawn for entity {:?} that already exists. This might be because of an authority transfer or prespawning.",
+                            local_entity.id()
                         );
+                        if predicted {
+                            // if the entity is predicted, we remove PreSpawned no matter if there is a match
+                            // - if match, the entity is now predicted and we want to rollback to the Confirmed<C> state
+                            //   (while PreSpawned, we rollback to the value of the component in the history)
+                            local_entity.remove::<PreSpawned>();
+                        }
+
+                        insert_sync_components(predicted, interpolated, &mut local_entity);
                         // we still need to update the local entity to group mapping on the receiver
-                        self.local_entities.insert(local_entity);
+                        self.local_entities.insert(local_entity.id());
                         continue;
                     }
                     // TODO: if this is prespawned, the prespawned entity could already have been despawned! add metrics/logs
@@ -801,21 +826,7 @@ impl GroupChannel {
                     continue;
                 }
 
-                // TODO: spawning all entities with Confirmed:
-                //  - is inefficient because we don't need the receive tick in most cases (only for prediction/interpolation)
-                //  - we can't use Without<Confirmed> queries to display all interpolated/predicted entities, because
-                //    the entities we receive from other clients all have Confirmed added.
-                //    Doing Or<(With<Interpolated>, With<Predicted>)> is not ideal; what if we want to see a replicated entity that doesn't have
-                //    interpolation/prediction? Maybe we should introduce new components ReplicatedFrom<Server> and ReplicatedFrom<Client>.
-                // // we spawn every replicated entity with the `Confirmed` component
-                // let local_entity = world.spawn(Confirmed {
-                //     predicted: None,
-                //     interpolated: None,
-                //     tick,
-                // });
-
                 // NOTE: at this point we know that the remote entity was not mapped!
-
                 let mut local_entity = world.spawn((
                     Replicated {
                         receiver: receiver_entity,
@@ -824,30 +835,16 @@ impl GroupChannel {
                     },
                     InitialReplicated { from: remote },
                 ));
-                if interpolated {
-                    #[cfg(feature = "metrics")]
-                    {
-                        metrics::counter!("interpolated::spawn").increment(1);
-                    }
-                    local_entity.insert(Interpolated);
-                }
-                if predicted {
-                    // this might also count PreSpawned entities, even if they ended up not being matched
-                    #[cfg(feature = "metrics")]
-                    {
-                        metrics::counter!("prediction::spawn").increment(1);
-                    }
-                    local_entity.insert(Predicted);
-                }
-                spawn_buffer.insert(local_entity.id(), predicted || interpolated);
-                self.local_entities.insert(local_entity.id());
-                local_entity_to_group.insert(local_entity.id(), group_id);
-                remote_entity_map.insert(*remote_entity, local_entity.id());
-                trace!("Updated remote entity map: {:?}", remote_entity_map);
                 debug!(
                     "Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}",
                     local_entity.id()
                 );
+                insert_sync_components(predicted, interpolated, &mut local_entity);
+
+                self.local_entities.insert(local_entity.id());
+                local_entity_to_group.insert(local_entity.id(), group_id);
+                remote_entity_map.insert(*remote_entity, local_entity.id());
+                trace!("Updated remote entity map: {:?}", remote_entity_map);
             }
         }
 
@@ -874,13 +871,12 @@ impl GroupChannel {
             };
             // check if the entity is predicted or interpolated, in which case we want to replicate C as Confirmed<C>
             // (C will be the Predicted or Interpolated value)
-            let synced = spawn_buffer.get(&local_entity_mut.id())
-                .copied()
-                .unwrap_or_default()
-                // TODO: check for deterministic predicted, pre-predicted, pre-spawned
-                || local_entity_mut.get::<Predicted>().is_some() || local_entity_mut.get::<Interpolated>().is_some();
-
-            if synced && let Some(mut replicated) = local_entity_mut.get_mut::<Replicated>() {
+            // TODO: check for deterministic predicted, pre-predicted, pre-spawned
+            let predicted = local_entity_mut.get::<Predicted>().is_some();
+            let interpolated = local_entity_mut.get::<Interpolated>().is_some();
+            if (predicted || interpolated)
+                && let Some(mut replicated) = local_entity_mut.get_mut::<Replicated>()
+            {
                 replicated.tick = remote_tick;
             }
 
@@ -896,7 +892,6 @@ impl GroupChannel {
                 continue;
             }
 
-            trace!(?entity, "Temp write buffer: {temp_write_buffer:?}");
             let mut buffered_entity = BufferedEntity {
                 entity: local_entity_mut,
                 buffered: temp_write_buffer,
@@ -913,7 +908,8 @@ impl GroupChannel {
                         &mut buffered_entity,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
-                        synced,
+                        predicted,
+                        interpolated,
                     )
                 })
                 .inspect_err(|e| error!("could not insert the components to the entity: {:?}", e));
@@ -951,7 +947,8 @@ impl GroupChannel {
                         &mut buffered_entity,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
-                        synced,
+                        predicted,
+                        interpolated,
                     )
                     .inspect_err(|e| {
                         error!("could not write the component to the entity: {:?}", e)
@@ -968,7 +965,6 @@ impl GroupChannel {
 
         // TODO: apply authority check for the update confirmed tick?
         self.update_confirmed_tick(world, group_id, remote_tick);
-        spawn_buffer.clear();
     }
 
     pub(crate) fn apply_updates_message(
@@ -1002,9 +998,12 @@ impl GroupChannel {
                 info!(remote_entity = ?entity, "update for entity that doesn't exist?");
                 continue;
             };
-            let synced = // TODO: check for deterministic predicted, pre-predicted, pre-spawned
-                local_entity_mut.get::<Predicted>().is_some() || local_entity_mut.get::<Interpolated>().is_some();
-            if synced && let Some(mut replicated) = local_entity_mut.get_mut::<Replicated>() {
+            // TODO: check for deterministic predicted, pre-predicted, pre-spawned ?
+            let predicted = local_entity_mut.get::<Predicted>().is_some();
+            let interpolated = local_entity_mut.get::<Interpolated>().is_some();
+            if (predicted || interpolated)
+                && let Some(mut replicated) = local_entity_mut.get_mut::<Replicated>()
+            {
                 replicated.tick = remote_tick;
             }
 
@@ -1031,7 +1030,8 @@ impl GroupChannel {
                         &mut local_entity_mut,
                         remote_tick,
                         &mut remote_entity_map.remote_to_local,
-                        synced,
+                        predicted,
+                        interpolated,
                     )
                     .inspect_err(|e| {
                         error!("could not write the component to the entity: {:?}", e)

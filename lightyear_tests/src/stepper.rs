@@ -248,9 +248,9 @@ impl ClientServerStepper {
         let server_entity = self.client_of_entities.pop().unwrap();
         let mut client_app = self.client_apps.pop().unwrap();
 
-        client_app
-            .world_mut()
-            .trigger_targets(Disconnect, client_entity);
+        client_app.world_mut().trigger(Disconnect {
+            entity: client_entity,
+        });
         // on the server normally we should wait for the client to send a Disconnect message, but if we despawn the client entity
         // the crossbeam io gets severed
         self.server_app
@@ -351,9 +351,9 @@ impl ClientServerStepper {
             .get_resource_mut::<Time<Real>>()
             .unwrap()
             .update_with_instant(now);
-        self.server_app
-            .world_mut()
-            .trigger_targets(Start, self.server_entity);
+        self.server_app.world_mut().trigger(Start {
+            entity: self.server_entity,
+        });
         // For HostServer, the server needs to be started before the client,
         // so make sure it is started
         self.server_app.world_mut().flush();
@@ -363,12 +363,14 @@ impl ClientServerStepper {
                 .get_resource_mut::<Time<Real>>()
                 .unwrap()
                 .update_with_instant(now);
-            self.client_apps[i]
-                .world_mut()
-                .trigger_targets(Connect, self.client_entities[i]);
+            self.client_apps[i].world_mut().trigger(Connect {
+                entity: self.client_entities[i],
+            });
         }
         if let Some(host) = self.host_client_entity {
-            self.server_app.world_mut().trigger_targets(Connect, host);
+            self.server_app
+                .world_mut()
+                .trigger(Connect { entity: host });
         }
 
         self.wait_for_connection();

@@ -96,7 +96,7 @@ pub(crate) fn receive_message1(mut receiver: Single<&mut MessageReceiver<Message
 /// [`Confirmed`] and then again for the [`Predicted`] or [`Interpolated`] copy. The
 /// `With<Predicted>` filter ensures we only add the `InputMarker` once.
 pub(crate) fn handle_predicted_spawn(
-    trigger: On<Add, (PlayerId, Predicted)>,
+    trigger: On<Add, PlayerId>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
     mut commands: Commands,
 ) {

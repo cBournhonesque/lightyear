@@ -124,5 +124,7 @@ impl ExampleClient {
 }
 
 pub(crate) fn connect(mut commands: Commands, client: Single<Entity, With<Client>>) {
-    commands.trigger(Connect { entity: client.into_inner() });
+    commands.trigger(Connect {
+        entity: client.into_inner(),
+    });
 }

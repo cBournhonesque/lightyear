@@ -19,7 +19,8 @@ use test_log::test;
 /// - the various components we expect are present
 #[test]
 fn test_setup_host_server() {
-    let stepper = ClientServerStepper::host_server();
+    let mut stepper = ClientServerStepper::host_server();
+    stepper.frame_step(1);
 
     // Check that the various components we expect are present
     assert!(stepper.host_client().contains::<HostClient>());

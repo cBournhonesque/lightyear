@@ -19,20 +19,20 @@ use lightyear_interpolation::plugin::InterpolationDelay;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
-use tracing::{debug, info, trace};
+use tracing::{debug, error, info, trace};
 
 /// Enum indicating the target entity for the input.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
 pub enum InputTarget {
     /// The input is for a predicted or confirmed entity.
-    /// On the client, the server's local entity is mapped to the client's confirmed entity.
+    /// When sending from client to server, entity mapping is applied.
+    /// (Also when rebroadcast from server to client)
     Entity(Entity),
-    /// The input is for a pre-predicted entity.
-    /// On the server, the server's local entity is mapped to the client's pre-predicted entity.
-    PrePredictedEntity(Entity),
-    /// The input is on a BEI action entity that was spawned on the client and replicated to the server.
-    /// Entity must be applied on the server-side
-    ActionEntity(Entity),
+    /// The input is for a prespawned entity.
+    /// We wan the client to be able to send inputs for a prespawned entity before it gets matched with a server entity.
+    /// To achieve this, the client sends the PreSpawned hash and the server will map it to the correct server entity.
+    /// When rebroadcasting from server to other client, we rebroadcast it as a normal Entity?
+    PreSpawned(u64),
 }
 
 /// Contains the input data for a specific target entity over a range of ticks.
@@ -134,10 +134,10 @@ pub trait ActionStateSequence:
 
     /// Register the required components for this ActionStateSequence in the App.
     fn register_required_components(app: &mut App) {
-        app.register_required_components::<<Self::State as ActionStateQueryData>::Main, InputBuffer<Self::Snapshot>>();
+        // TODO: cannot create cyclic required dependencies in bevy 0.17
+        // app.register_required_components::<<Self::State as ActionStateQueryData>::Main, InputBuffer<Self::Snapshot>>();
         app.register_required_components::<InputBuffer<Self::Snapshot>, <Self::State as ActionStateQueryData>::Main>();
-        app.try_register_required_components::<Self::Marker, <Self::State as ActionStateQueryData>::Main>()
-            .ok();
+        app.register_required_components::<Self::Marker, InputBuffer<Self::Snapshot>>();
     }
 
     /// Returns the sequence of snapshots from the ActionStateSequence.
@@ -244,11 +244,10 @@ impl<S: ActionStateSequence + MapEntities> MapEntities for InputMessage<S> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.inputs.iter_mut().for_each(|data| {
             match &mut data.target {
-                InputTarget::Entity(e)
-                | InputTarget::PrePredictedEntity(e)
-                | InputTarget::ActionEntity(e) => {
+                InputTarget::Entity(e) => {
                     *e = entity_mapper.get_mapped(*e);
                 }
+                _ => {}
             }
             data.states.map_entities(entity_mapper);
         });

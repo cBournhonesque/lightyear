@@ -12,10 +12,11 @@ use lightyear_prediction::Predicted;
 use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
 use lightyear_prediction::diagnostics::PredictionMetrics;
 use lightyear_prediction::predicted_history::PredictionHistory;
-use lightyear_prediction::prelude::{PreSpawned, PredictionManager, RollbackSet};
+use lightyear_prediction::prelude::RollbackSet;
 use lightyear_replication::prelude::{
-    Confirmed, PredictionTarget, Replicate, Replicated, ReplicationGroup,
+    PreSpawned, PredictionTarget, Replicate, Replicated, ReplicationGroup,
 };
+use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_utils::ready_buffer::ItemWithReadyKey;
 use test_log::test;
@@ -39,8 +40,8 @@ fn test_compute_hash() {
     stepper.frame_step(1);
 
     let current_tick = stepper.client_tick(0);
-    let prediction_manager = stepper.client(0).get::<PredictionManager>().unwrap();
-    let expected_hash: u64 = 9119856607680835319;
+    let prediction_manager = stepper.client(0).get::<PreSpawnedReceiver>().unwrap();
+    let expected_hash: u64 = 5335464222343754353;
     assert_eq!(
         prediction_manager
             .prespawn_hash_to_entities
@@ -123,55 +124,37 @@ fn test_multiple_prespawn() {
     stepper.frame_step(1);
     stepper.frame_step(1);
 
-    // check that both prespawn entities have been replaced with predicted entities
+    // check that both prespawn entities have Predicted added, and were matched to the remote entity
+    // TODO: check that they were matched!
     let predicted_a = stepper
         .client_app()
         .world()
         .get::<Predicted>(client_prespawn_a)
         .unwrap();
-    let confirmed_a = predicted_a.confirmed_entity.unwrap();
     assert_eq!(
         stepper
-            .client_app()
-            .world()
-            .get::<Confirmed>(confirmed_a)
+            .client(0)
+            .get::<MessageManager>()
             .unwrap()
-            .predicted
-            .unwrap(),
+            .entity_mapper
+            .get_local(server_prespawn_a)
+            .expect("entity is not present in entity map"),
         client_prespawn_a
     );
-    // The PreSpawnPlayerObject component has been removed on the client
-    assert!(
-        stepper
-            .client_app()
-            .world()
-            .get::<PreSpawned>(client_prespawn_a)
-            .is_none()
-    );
-
     let predicted_b = stepper
         .client_app()
         .world()
         .get::<Predicted>(client_prespawn_b)
         .unwrap();
-    let confirmed_b = predicted_b.confirmed_entity.unwrap();
     assert_eq!(
         stepper
-            .client_app()
-            .world()
-            .get::<Confirmed>(confirmed_b)
+            .client(0)
+            .get::<MessageManager>()
             .unwrap()
-            .predicted
-            .unwrap(),
+            .entity_mapper
+            .get_local(server_prespawn_b)
+            .expect("entity is not present in entity map"),
         client_prespawn_b
-    );
-    // The PreSpawnPlayerObject component has been removed on the client
-    assert!(
-        stepper
-            .client_app()
-            .world()
-            .get::<PreSpawned>(client_prespawn_b)
-            .is_none()
     );
 }
 
@@ -205,17 +188,7 @@ fn test_prespawn_success() {
         .world()
         .get::<Predicted>(client_prespawn)
         .unwrap();
-    let confirmed = predicted.confirmed_entity.unwrap();
-    assert_eq!(
-        stepper
-            .client_app()
-            .world()
-            .get::<Confirmed>(confirmed)
-            .unwrap()
-            .predicted
-            .unwrap(),
-        client_prespawn
-    );
+
     assert_eq!(
         stepper
             .client(0)
@@ -224,26 +197,7 @@ fn test_prespawn_success() {
             .entity_mapper
             .get_local(server_prespawn)
             .unwrap(),
-        confirmed
-    );
-    // The PreSpawned component has been removed on the client
-    assert!(
-        stepper
-            .client_app()
-            .world()
-            .get::<PreSpawned>(client_prespawn)
-            .is_none()
-    );
-
-    // if the Confirmed entity is despawned, the Predicted entity should also be despawned
-    stepper.client_app().world_mut().despawn(confirmed);
-    stepper.frame_step(1);
-    assert!(
-        stepper
-            .client_app()
-            .world()
-            .get_entity(client_prespawn)
-            .is_err()
+        client_prespawn
     );
 }
 
@@ -267,13 +221,12 @@ fn test_prespawn_client_missing() {
         ))
         .id();
     stepper.frame_step(2);
-    let (client_confirmed, confirmed) = stepper
+    let client_entity = stepper
         .client_app()
         .world_mut()
-        .query_filtered::<(Entity, &Confirmed), With<Replicated>>()
+        .query_filtered::<Entity, With<Replicated>>()
         .single(stepper.client_app().world())
         .unwrap();
-    let client_predicted = confirmed.predicted.unwrap();
 
     // run prespawned entity on server.
     // for some reason the entity is not spawned on the client
@@ -292,52 +245,23 @@ fn test_prespawn_client_missing() {
 
     // We couldn't match the entity based on hash
     // So we should have just spawned a predicted entity
-    let client_confirmed_2 = stepper
+    let client_entity_2 = stepper
         .client(0)
         .get::<MessageManager>()
         .unwrap()
         .entity_mapper
         .get_local(server_entity_2)
         .expect("entity was not replicated to client");
-    // it should have a predicted entity
-    let client_predicted_2 = stepper
-        .client_app()
-        .world()
-        .get::<Confirmed>(client_confirmed_2)
-        .unwrap()
-        .predicted
-        .unwrap();
 
-    // the MapEntities component should have been mapped to confirmed
+    // the MapEntities component should have been mapped
     assert_eq!(
         stepper
             .client_app()
             .world()
-            .get::<CompMap>(client_confirmed_2)
+            .get::<CompMap>(client_entity_2)
             .unwrap()
             .0,
-        client_confirmed
-    );
-    // the MapEntities component on the predicted entity should have been mapped to predicted
-    assert_eq!(
-        stepper
-            .client_app()
-            .world()
-            .get::<CompMap>(client_predicted_2)
-            .unwrap()
-            .0,
-        client_predicted
-    );
-
-    // If we despawn the confirmed entity, the predicted entity should also be despawned
-    stepper.client_app().world_mut().despawn(client_confirmed_2);
-    stepper.frame_step(1);
-    assert!(
-        stepper
-            .client_app()
-            .world()
-            .get_entity(client_predicted_2)
-            .is_err()
+        client_entity
     );
 }
 

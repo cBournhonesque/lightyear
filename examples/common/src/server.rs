@@ -164,7 +164,9 @@ impl ExampleServer {
 }
 
 pub(crate) fn start(mut commands: Commands, server: Single<Entity, With<Server>>) {
-    commands.trigger(Start { entity: server.into_inner() });
+    commands.trigger(Start {
+        entity: server.into_inner(),
+    });
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

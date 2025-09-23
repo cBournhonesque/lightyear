@@ -16,8 +16,9 @@ use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::AppMessageExt;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
-use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, Transport};
-use tracing::trace;
+use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
+#[allow(unused_imports)]
+use tracing::{info, trace};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PingSet {
@@ -136,7 +137,12 @@ impl Plugin for PingPlugin {
         //   Theoretically anything can modify the LinkStats but in practice it's done in the PingManager
         //   so we make the Transport require a PingManager.
         //   Maybe we should error if TransportPlugin is added without PingPlugin?
-        app.register_required_components::<Transport, PingManager>();
+
+        // We used to have Client -> InputTimeline -> PingManager -> MessageSender<Ping> -> MessageManager -> Transport -> [Link, LocalTimeline]
+        // but it is not possible anymore since we also have a Transport -> PingManager dependency and cyclic dependencies are not allowed anymore.
+        //
+        // So we removed Transport -> PingManager dependency and hope that PingManager will always be added to entities that have a Transport...
+        // app.register_required_components::<Transport, PingManager>();
 
         #[cfg(feature = "server")]
         app.register_required_components::<lightyear_connection::prelude::server::ClientOf, PingManager>();

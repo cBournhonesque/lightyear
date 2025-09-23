@@ -1,10 +1,10 @@
 use bevy_derive::{Deref, DerefMut};
-use bevy_ecs::query::QueryData;
+use bevy_ecs::entity::MapEntities;
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryData;
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use bevy_ecs::entity::MapEntities;
 use lightyear_inputs::input_buffer::InputData;
 
 use lightyear_inputs::input_message::ActionStateQueryData;
@@ -26,11 +26,15 @@ impl<A: Default + Send + Sync + 'static> ActionStateQueryData for ActionState<A>
     type Main = ActionState<A>;
     type Bundle = ActionState<A>;
 
-    fn as_read_only<'a, 'w: 'a, 's>(state: &'a <Self::Mut as QueryData>::Item<'w, 's>) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'a, 's> {
+    fn as_read_only<'a, 'w: 'a, 's>(
+        state: &'a <Self::Mut as QueryData>::Item<'w, 's>,
+    ) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'a, 's> {
         state
     }
 
-    fn into_inner<'w, 's>(mut_item: <Self::Mut as QueryData>::Item<'w, 's>) -> Self::MutItemInner<'w> {
+    fn into_inner<'w, 's>(
+        mut_item: <Self::Mut as QueryData>::Item<'w, 's>,
+    ) -> Self::MutItemInner<'w> {
         mut_item.into_inner()
     }
 

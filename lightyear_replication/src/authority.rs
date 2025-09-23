@@ -8,6 +8,7 @@
 
 use crate::send::sender::ReplicationSender;
 use bevy_app::{App, Plugin};
+use bevy_ecs::entity::MapEntities;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use lightyear_connection::client::PeerMetadata;
@@ -64,8 +65,9 @@ pub enum AuthorityTransferRequest {
 }
 
 /// Trigger that can be networked to give or take authority over an entity.
-#[derive(EntityEvent, Serialize, Deserialize, Debug, Clone, Copy, Reflect)]
+#[derive(EntityEvent, MapEntities, Serialize, Deserialize, Debug, Clone, Copy, Reflect)]
 pub struct AuthorityRequestEvent {
+    #[entities]
     entity: Entity,
     request: AuthorityTransferRequest,
 }
@@ -77,8 +79,9 @@ pub enum AuthorityTransferResponse {
 }
 
 /// Trigger that can be networked to give or take authority over an entity.
-#[derive(EntityEvent, Serialize, Deserialize, Debug, Clone, Copy, Reflect)]
+#[derive(EntityEvent, MapEntities, Serialize, Deserialize, Debug, Clone, Copy, Reflect)]
 pub struct AuthorityResponseEvent {
+    #[entities]
     entity: Entity,
     response: AuthorityTransferResponse,
 }
@@ -97,8 +100,10 @@ impl Plugin for AuthorityPlugin {
         })
         .add_direction(NetworkDirection::Bidirectional);
         app.register_event::<AuthorityRequestEvent>()
+            .add_map_entities()
             .add_direction(NetworkDirection::Bidirectional);
         app.register_event::<AuthorityResponseEvent>()
+            .add_map_entities()
             .add_direction(NetworkDirection::Bidirectional);
 
         app.add_observer(Self::handle_authority_request);
@@ -122,8 +127,8 @@ impl AuthorityPlugin {
             let entity = trigger.event_target();
             if let Ok((mut sender, mut response_sender)) = sender_query.get_mut(sender_entity) {
                 trace!(
-                    "Received authority request: {:?} for entity {:?}, from peer: {:?}",
-                    trigger.trigger, entity, trigger.from
+                    "Received authority request: {:?} from peer: {:?}",
+                    trigger.trigger, trigger.from
                 );
                 match trigger.trigger.request {
                     AuthorityTransferRequest::Request => {

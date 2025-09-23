@@ -65,7 +65,7 @@ impl HostPlugin {
         if let Ok(link_of) = query.get(trigger.entity)
             && server_query.get(link_of.server).is_ok()
         {
-            info!("Connected host-client");
+            info!(entity=?trigger.entity, "Connected host-client");
             commands.entity(trigger.entity).insert((
                 Connected,
                 // We cannot insert the ids purely from the point of view of the client
@@ -94,7 +94,7 @@ impl HostPlugin {
         if let Ok(link_of) = query.get(trigger.entity)
             && server_query.get(link_of.server).is_ok()
         {
-            info!("Disconnected host-client");
+            info!(entity=?trigger.entity,"Disconnected host-client");
             commands
                 .entity(trigger.entity)
                 .remove::<HostClient>()

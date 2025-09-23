@@ -223,9 +223,7 @@ fn receive_input_message<S: ActionStateSequence>(
                     // (which is possible because the server received the entity)
                     // - for non-pre predicted entities, the mapping was already done on client side
                     // (client converted from their local entity to the remote server entity)
-                    InputTarget::Entity(entity)
-                    | InputTarget::PrePredictedEntity(entity)
-                    | InputTarget::ActionEntity(entity) => {
+                    InputTarget::Entity(entity) => {
                         // TODO Don't update input buffer if inputs arrived too late?
                         trace!("received input for entity: {:?}", entity);
 
@@ -255,6 +253,9 @@ fn receive_input_message<S: ActionStateSequence>(
                         } else {
                             debug!(?entity, ?data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                         }
+                    }
+                    InputTarget::PreSpawned(hash) => {
+                        todo!("Handle prespawned inputs");
                     }
                 }
             }

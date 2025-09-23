@@ -1,11 +1,8 @@
 use crate::stepper::ClientServerStepper;
-use bevy::prelude::{Entity, Event, EventReader, Events, Query, Single, With};
+use bevy::prelude::*;
 use lightyear_core::prelude::{Rollback, Tick};
-use lightyear_prediction::prelude::PredictionManager;
-use lightyear_replication::components::Confirmed;
-use lightyear_replication::prelude::ReplicationReceiver;
-
-mod pre_prediction;
+use lightyear_prediction::prelude::*;
+use lightyear_replication::prelude::{Replicated, ReplicationReceiver};
 
 mod correction;
 mod despawn;
@@ -15,7 +12,7 @@ mod rollback;
 mod spawn;
 
 /// Mock that we received an update for the Confirmed entity at a given tick
-#[derive(Event)]
+#[derive(Message)]
 pub(crate) struct RollbackInfo {
     tick: Tick,
 }
@@ -24,14 +21,14 @@ pub(crate) struct RollbackInfo {
 /// We have to add a system because otherwise the ReplicationReceiver resets `set_received_this_frame`
 /// in ReplicationSet::Receive
 pub(crate) fn trigger_rollback_system(
-    mut events: EventReader<RollbackInfo>,
+    mut events: MessageReader<RollbackInfo>,
     mut receiver: Single<&mut ReplicationReceiver, With<PredictionManager>>,
-    mut query: Query<&mut Confirmed>,
+    mut query: Query<&mut Replicated, With<Predicted>>,
 ) {
     for event in events.read() {
         receiver.set_received_this_frame();
-        for mut confirmed in query.iter_mut() {
-            confirmed.tick = event.tick;
+        for mut replicated in query.iter_mut() {
+            replicated.tick = event.tick;
         }
     }
 }
@@ -40,8 +37,8 @@ pub(crate) fn trigger_rollback_check(stepper: &mut ClientServerStepper, tick: Ti
     stepper
         .client_app()
         .world_mut()
-        .resource_mut::<Events<RollbackInfo>>()
-        .send(RollbackInfo { tick });
+        .resource_mut::<Messages<RollbackInfo>>()
+        .write(RollbackInfo { tick });
 }
 
 pub(crate) fn trigger_state_rollback(stepper: &mut ClientServerStepper, tick: Tick) {
@@ -54,9 +51,9 @@ pub(crate) fn trigger_state_rollback(stepper: &mut ClientServerStepper, tick: Ti
     stepper
         .client_app()
         .world_mut()
-        .query::<&mut Confirmed>()
+        .query::<&mut Replicated>()
         .iter_mut(stepper.client_app().world_mut())
-        .for_each(|mut confirmed| {
-            confirmed.tick = tick;
+        .for_each(|mut replicated| {
+            replicated.tick = tick;
         })
 }

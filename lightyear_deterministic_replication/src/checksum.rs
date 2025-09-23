@@ -44,7 +44,7 @@ pub struct ChecksumSendPlugin;
 impl ChecksumSendPlugin {
     /// Compute a checksum for all deterministic entities with hashable components.
     fn compute_and_send_checksum(
-        world: ChecksumWorld<'_, '_, true>,
+        mut world: ChecksumWorld<'_, '_, true>,
         client: Single<
             (
                 &LocalTimeline,
@@ -66,7 +66,9 @@ impl ChecksumSendPlugin {
             return;
         }
 
-        world.iter_archetypes().for_each(|(archetype, checksum_archetype)| {
+        world.update_archetypes();
+        // SAFETY: world.update_archetypes() has been called
+        unsafe { world.iter_archetypes() }.for_each(|(archetype, checksum_archetype)| {
             // TODO: how can we guarantee that the order is the same on client and server? We need a stable order for entities, otherwise the checksum will differ even if the data is the same.
             archetype.entities().iter().for_each(|entity| {
                 // // TODO: currently this only works if the entity was replicated from the server
@@ -141,7 +143,7 @@ pub struct ChecksumReceivePlugin;
 impl ChecksumReceivePlugin {
     /// Compute a checksum for all deterministic entities with hashable components.
     fn compute_and_store_checksum(
-        world: ChecksumWorld<'_, '_, false>,
+        mut world: ChecksumWorld<'_, '_, false>,
         server: Single<(&LocalTimeline, &mut ChecksumHistory), With<Started>>,
     ) {
         let mut checksum = 0u64;
@@ -149,7 +151,9 @@ impl ChecksumReceivePlugin {
         let (timeline, mut history) = server.into_inner();
         let tick = timeline.tick();
 
-        world.iter_archetypes().for_each(|(archetype, checksum_archetype)| {
+        // SAFETY: world.update_archetypes() has been called
+        world.update_archetypes();
+        unsafe { world.iter_archetypes() }.for_each(|(archetype, checksum_archetype)| {
             // TODO: how can we ensure that we are iterating entities in a stable order on both client and server?
             archetype.entities().iter().for_each(|entity| {
                 // TODO: we don't write entities in the checksum because if there are some non-replicated entities, the entity ids will differ between client and server.
@@ -220,7 +224,7 @@ impl Plugin for ChecksumReceivePlugin {
         app.register_required_components::<Server, ChecksumHistory>();
 
         if !app.is_message_registered::<ChecksumMessage>() {
-            app.add_message::<ChecksumMessage>()
+            app.register_message::<ChecksumMessage>()
                 .add_direction(NetworkDirection::ClientToServer);
         }
 

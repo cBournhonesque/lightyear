@@ -130,7 +130,7 @@ pub struct ComponentRegistry {
 pub struct ComponentMetadata {
     pub confirmed_component_id: ComponentId,
     pub component_id: ComponentId,
-    pub(crate) replication: Option<ReplicationMetadata>,
+    pub replication: Option<ReplicationMetadata>,
     pub serialization: Option<ErasedSerializeFns>,
     pub(crate) delta: Option<ErasedDeltaFns>,
     #[cfg(feature = "deterministic")]

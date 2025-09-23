@@ -5,7 +5,6 @@ use crate::registry::InterpolationRegistry;
 use crate::timeline::TimelinePlugin;
 use crate::{Interpolated, SyncComponent};
 use bevy_app::{App, Plugin, PreUpdate, Update};
-use bevy_ecs::hierarchy::ChildOf;
 use bevy_ecs::{
     component::Component,
     schedule::{IntoScheduleConfigs, SystemSet},
@@ -14,8 +13,7 @@ use bevy_reflect::Reflect;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::Tick;
 use lightyear_core::time::PositiveTickDelta;
-use lightyear_replication::control::Controlled;
-use lightyear_replication::prelude::{AppComponentExt, ReplicationSet};
+use lightyear_replication::prelude::ReplicationSet;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -124,12 +122,6 @@ impl Plugin for InterpolationPlugin {
 
         // RESOURCES
         app.init_resource::<InterpolationRegistry>();
-
-        // PROTOCOL
-        app.register_component::<Controlled>();
-        app.register_component::<ChildOf>();
-
-        // HOOKS
 
         // Host-Clients have no interpolation delay
         app.register_required_components::<HostClient, InterpolationDelay>();

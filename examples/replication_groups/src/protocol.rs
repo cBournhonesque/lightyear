@@ -227,41 +227,30 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
-        app.register_component::<Name>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
-        app.register_component::<PlayerId>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<Name>();
+        app.register_component::<PlayerId>();
 
         app.register_component::<PlayerPosition>()
-            .add_prediction(PredictionMode::Full)
+            .add_prediction()
             // NOTE: notice that we use custom interpolation here, this means that we don't run
             //  the interpolation function for this component, so we need to implement our own interpolation system
             //  (we do this because our interpolation system queries multiple components at once)
-            .add_custom_interpolation(InterpolationMode::Full)
-            // we still register an interpolation function which will be used for visual interpolation
+            .add_custom_interpolation()
+            // we still register an interpolation function which will be used for frame interpolation
             .add_linear_interpolation_fn();
 
-        app.register_component::<PlayerColor>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerColor>();
 
         app.register_component::<TailPoints>()
-            .add_prediction(PredictionMode::Full)
+            .add_prediction()
             // NOTE: notice that we use custom interpolation here, this means that we don't run
             //  the interpolation function for this component, so we need to implement our own interpolation system
             //  (we do this because our interpolation system queries multiple components at once)
-            .add_custom_interpolation(InterpolationMode::Full);
+            .add_custom_interpolation();
         // we do not register an interpolation function because we will use a custom interpolation system
 
-        app.register_component::<TailLength>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<TailLength>();
 
-        app.register_component::<PlayerParent>()
-            .add_map_entities()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerParent>().add_map_entities();
     }
 }

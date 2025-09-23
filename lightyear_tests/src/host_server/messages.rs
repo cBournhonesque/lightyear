@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use core::fmt::Debug;
 use lightyear::prelude::*;
 use lightyear_connection::client::PeerMetadata;
+use lightyear_messages::Message;
 use lightyear_messages::multi::MultiMessageSender;
 use test_log::test;
 use tracing::trace;
@@ -168,7 +169,7 @@ fn count_triggers_observer<M: Event + Debug + Clone>(
     let remote = *peer_metadata.mapping.get(&trigger.from).unwrap();
     buffer
         .0
-        .push((remote, trigger.trigger.clone(), trigger.entity));
+        .push((remote, trigger.trigger.clone(), Entity::PLACEHOLDER));
 }
 
 #[test]

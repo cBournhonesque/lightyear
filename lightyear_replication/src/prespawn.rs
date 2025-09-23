@@ -3,7 +3,7 @@
 use crate::components::Replicated;
 use crate::control::Controlled;
 use crate::hierarchy::ReplicateLike;
-use crate::prelude::{AppComponentExt, ComponentRegistry};
+use crate::prelude::ComponentRegistry;
 use crate::registry::ComponentKind;
 use alloc::vec::Vec;
 use bevy_app::{App, Plugin, PostUpdate};
@@ -24,9 +24,9 @@ use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, SyncEvent, Tick};
 use lightyear_link::prelude::Server;
 use lightyear_sync::prelude::client::Input;
 use lightyear_utils::ready_buffer::ReadyBuffer;
-use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 #[allow(unused_imports)]
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>;
 
@@ -48,7 +48,6 @@ pub enum PreSpawnedSet {
 impl Plugin for PreSpawnedPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(PostUpdate, PreSpawnedSet::CleanUp);
-        app.register_component::<PreSpawned>();
         app.add_observer(Self::register_prespawn_hashes);
         app.add_observer(PreSpawnedReceiver::handle_tick_sync);
         app.add_systems(
@@ -88,6 +87,7 @@ impl PreSpawnedPlugin {
             let hash = prespawn
                 .hash
                 .expect("prespawn hash should have been calculated by a hook");
+
             // check if we can match with an existing server entity that was received
             // before the client entity was spawned
             // this could happen if we are predicting remote players:
@@ -153,7 +153,7 @@ impl PreSpawnedPlugin {
     }
 }
 
-#[derive(Serialize, Deserialize, Default, Debug, Copy, Clone, PartialEq, Eq, Reflect)]
+#[derive(Default, Debug, Copy, Clone, Reflect)]
 /// Added to indicate the client has prespawned the predicted version of this entity.
 ///
 /// The server should spawn a similar component and replicate it to the client, when the
@@ -188,7 +188,6 @@ pub struct PreSpawned {
     ///
     /// Since the default hash uses the tick and components, a useful addition is the client id, to
     /// distinguish between bullets spawned on the same tick, but by different players.
-    #[serde(skip)]
     pub user_salt: Option<u64>,
 
     // TODO: what if we want the Prespawned to only be for a given sender? or a subset of senders?
@@ -235,10 +234,10 @@ pub struct PreSpawnedReceiver {
     ///
     /// Also stores the tick at which the entities was spawned.
     /// If the interpolation_tick reaches that tick and there is till no match, we should despawn the entity
-    prespawn_hash_to_entities: EntityHashMap<u64, Vec<Entity>>,
+    pub prespawn_hash_to_entities: EntityHashMap<u64, Vec<Entity>>,
     #[doc(hidden)]
     /// Store the spawn tick of the entity, as well as the corresponding hash
-    prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
+    pub prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
 }
 
 impl PreSpawnedReceiver {
@@ -320,65 +319,44 @@ impl PreSpawned {
 
         // Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
         // ignore replicated entities, we only want to iterate through entities spawned on the client directly
-        if let Some(receiver) = prespawned_obj.receiver
+        let tick = if let Some(receiver) = prespawned_obj.receiver
             && let Some(local_timeline) = deferred_world.get::<LocalTimeline>(receiver)
         {
-            let tick = local_timeline.tick();
-            let components = deferred_world.components();
-            let component_registry = deferred_world.resource::<ComponentRegistry>();
-            let entity_ref = deferred_world.entity(entity);
-            let hash = compute_default_hash(
-                component_registry,
-                components,
-                entity_ref.archetype(),
-                tick,
-                salt,
-            );
-            // update component with the computed hash
-            debug!(
-                ?entity,
-                ?tick,
-                hash = ?hash,
-                "PreSpawned hook, setting the hash on the component"
-            );
-            deferred_world
-                .entity_mut(entity)
-                .get_mut::<PreSpawned>()
-                .unwrap()
-                .hash = Some(hash);
+            local_timeline.tick()
         } else {
-            // we need to run a query to get the Server entity.
-            deferred_world.commands().queue(move |world: &mut World| {
-                let tick = world
-                    .query_filtered::<&LocalTimeline, Or<(With<Server>, With<PreSpawnedReceiver>)>>(
-                    )
-                    .single(world)
-                    .expect("No Server or Client with PreSpawnedReceiver was found")
-                    .tick();
-                let components = world.components();
-                let component_registry = world.resource::<ComponentRegistry>();
-                let entity_ref = world.entity(entity);
-                let hash = compute_default_hash(
-                    component_registry,
-                    components,
-                    entity_ref.archetype(),
-                    tick,
-                    salt,
-                );
-                // update component with the computed hash
-                debug!(
-                    ?entity,
-                    ?tick,
-                    hash = ?hash,
-                    "PreSpawned hook, setting the hash on the component"
-                );
-                world
-                    .entity_mut(entity)
-                    .get_mut::<PreSpawned>()
-                    .unwrap()
-                    .hash = Some(hash);
-            });
-        }
+            // TODO: cache the query state in a resource to avoid re-creating a QueryState every time the hook runs? (which would mean re-processing all archetypes)
+            let mut query_state = QueryState::<
+                &LocalTimeline,
+                Or<(With<Server>, With<PreSpawnedReceiver>)>,
+            >::try_new(deferred_world.deref())
+            .unwrap();
+            query_state
+                .single(deferred_world.deref())
+                .expect("No Server or Client with PreSpawnedReceiver was found")
+                .tick()
+        };
+        let components = deferred_world.components();
+        let component_registry = deferred_world.resource::<ComponentRegistry>();
+        let entity_ref = deferred_world.entity(entity);
+        let hash = compute_default_hash(
+            component_registry,
+            components,
+            entity_ref.archetype(),
+            tick,
+            salt,
+        );
+        // update component with the computed hash
+        debug!(
+            ?entity,
+            ?tick,
+            hash = ?hash,
+            "PreSpawned hook, setting the hash on the component"
+        );
+        deferred_world
+            .entity_mut(entity)
+            .get_mut::<PreSpawned>()
+            .unwrap()
+            .hash = Some(hash);
     }
 }
 

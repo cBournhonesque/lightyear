@@ -216,7 +216,9 @@ impl ActionStateQueryData for ActionData {
     type Main = ActionState;
     type Bundle = (ActionState, ActionValue, ActionEvents, ActionTime);
 
-    fn as_read_only<'a, 'w: 'a>(state: &'a ActionDataItem<'w>) -> ActionDataReadOnlyItem<'a> {
+    fn as_read_only<'a, 'w: 'a, 's>(
+        state: &'a <Self::Mut as QueryData>::Item<'w, 's>,
+    ) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'a, 's> {
         ActionDataReadOnlyItem {
             state: &state.state,
             value: &state.value,
@@ -225,7 +227,9 @@ impl ActionStateQueryData for ActionData {
         }
     }
 
-    fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w> {
+    fn into_inner<'w, 's>(
+        mut_item: <Self::Mut as QueryData>::Item<'w, 's>,
+    ) -> Self::MutItemInner<'w> {
         ActionDataInnerItem {
             state: mut_item.state.into_inner(),
             value: mut_item.value.into_inner(),
@@ -234,7 +238,7 @@ impl ActionStateQueryData for ActionData {
         }
     }
 
-    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w> {
+    fn as_mut(bundle: &mut Self::Bundle) -> Self::MutItemInner<'_> {
         let (state, value, events, time) = bundle;
         ActionDataInnerItem {
             state,

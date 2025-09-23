@@ -9,7 +9,7 @@ extern crate alloc;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::RelationshipTarget;
-use bevy_ecs::system::{ParallelCommands};
+use bevy_ecs::system::ParallelCommands;
 use tracing::{debug, error, info};
 
 use crate::UdpError;

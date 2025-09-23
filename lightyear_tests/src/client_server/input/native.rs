@@ -12,8 +12,7 @@ use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::prelude::PredictionManager;
-use lightyear_replication::components::Confirmed;
-use lightyear_replication::prelude::{PredictionTarget, Replicate, Room, RoomEvent};
+use lightyear_replication::prelude::{PredictionTarget, Replicate, Room, RoomEvent, RoomTarget};
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
 use test_log::test;
@@ -108,7 +107,7 @@ fn test_remote_client_predicted_input() {
 
     stepper.frame_step(2);
 
-    let client_confirmed = stepper
+    let client_predicted = stepper
         .client(0)
         .get::<MessageManager>()
         .unwrap()
@@ -116,14 +115,7 @@ fn test_remote_client_predicted_input() {
         .get_local(server_entity)
         .expect("entity was not replicated to client");
 
-    let client_predicted = stepper
-        .client_app()
-        .world()
-        .get::<Confirmed>(client_confirmed)
-        .unwrap()
-        .predicted
-        .unwrap();
-    info!(?client_predicted, ?client_confirmed, "client entities");
+    info!(?client_predicted, "client entities");
 
     // TEST
     stepper
@@ -167,73 +159,6 @@ fn test_remote_client_predicted_input() {
     );
 }
 
-/// Test a remote client's confirmed entity sending inputs to the server
-#[test]
-fn test_remote_client_confirmed_input() {
-    let mut stepper = ClientServerStepper::single();
-
-    // SETUP
-    let server_entity = stepper
-        .server_app
-        .world_mut()
-        .spawn((
-            Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::to_clients(NetworkTarget::All),
-        ))
-        .id();
-
-    stepper.frame_step(2);
-
-    let client_confirmed = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
-        .expect("entity was not replicated to client");
-
-    // TEST
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(client_confirmed)
-        .insert(InputMarker::<MyInput>::default());
-    stepper
-        .client_app()
-        .world_mut()
-        .get_mut::<ActionState<MyInput>>(client_confirmed)
-        .unwrap()
-        .0 = MyInput(3);
-
-    stepper.frame_step(1);
-    let server_tick = stepper.server_tick();
-    let client_tick = stepper.client_tick(0);
-
-    // ASSERT
-    assert_eq!(
-        stepper
-            .server_app
-            .world()
-            .get::<InputBuffer<ActionState<MyInput>>>(server_entity)
-            .unwrap()
-            .get(client_tick)
-            .unwrap(),
-        &ActionState(MyInput(3))
-    );
-
-    // Advance to client tick to verify server applies the input
-    stepper.frame_step((client_tick.0 - server_tick.0) as usize);
-
-    assert_eq!(
-        stepper
-            .server_app
-            .world()
-            .get::<ActionState<MyInput>>(server_entity)
-            .unwrap(),
-        &ActionState(MyInput(3))
-    );
-}
-
 /// Test remote client inputs: we should be using the last known input value of the remote client, for better prediction accuracy!
 ///
 /// Also checks that during rollbacks we fetch the correct input value even for remote inputs.
@@ -273,7 +198,7 @@ fn test_input_broadcasting_prediction() {
     stepper.frame_step_server_first(1);
 
     // Get the predicted entities on both clients
-    let client0_confirmed = stepper
+    let client0_predicted = stepper
         .client(0)
         .get::<MessageManager>()
         .unwrap()
@@ -281,14 +206,7 @@ fn test_input_broadcasting_prediction() {
         .get_local(server_entity)
         .expect("entity not replicated to client 0");
 
-    let client0_predicted = stepper.client_apps[0]
-        .world()
-        .get::<Confirmed>(client0_confirmed)
-        .unwrap()
-        .predicted
-        .unwrap();
-
-    let client1_confirmed = stepper
+    let client1_predicted = stepper
         .client(1)
         .get::<MessageManager>()
         .unwrap()
@@ -296,17 +214,17 @@ fn test_input_broadcasting_prediction() {
         .get_local(server_entity)
         .expect("entity not replicated to client 1");
 
-    let client1_predicted = stepper.client_apps[1]
-        .world()
-        .get::<Confirmed>(client1_confirmed)
-        .unwrap()
-        .predicted
-        .unwrap();
-
     // Add input markers to client 0, and make sure that it's replicated to client 1
     let client0_tick = stepper.client_tick(0);
     let client1_tick = stepper.client_tick(1);
-    info!(?client0_tick, ?client1_tick, "Add input marker on client 0");
+    info!(
+        ?client0_tick,
+        ?client1_tick,
+        ?client0_predicted,
+        ?client1_predicted,
+        ?server_entity,
+        "Add input marker on client 0"
+    );
     stepper.client_apps[0]
         .world_mut()
         .entity_mut(client0_predicted)
@@ -438,20 +356,20 @@ fn test_input_custom_rebroadcast() {
 
     // Add rooms only for clients 0 and 1
     let room = stepper.server_app.world_mut().spawn(Room::default()).id();
-    stepper
-        .server_app
-        .world_mut()
-        .trigger_targets(RoomEvent::AddEntity(server_entity), room);
+    stepper.server_app.world_mut().trigger(RoomEvent {
+        target: RoomTarget::AddEntity(server_entity),
+        room,
+    });
     let client_of0 = stepper.client_of(0).id();
     let client_of1 = stepper.client_of(1).id();
-    stepper
-        .server_app
-        .world_mut()
-        .trigger_targets(RoomEvent::AddSender(client_of0), room);
-    stepper
-        .server_app
-        .world_mut()
-        .trigger_targets(RoomEvent::AddSender(client_of1), room);
+    stepper.server_app.world_mut().trigger(RoomEvent {
+        target: RoomTarget::AddSender(client_of0),
+        room,
+    });
+    stepper.server_app.world_mut().trigger(RoomEvent {
+        target: RoomTarget::AddSender(client_of1),
+        room,
+    });
     stepper.frame_step_server_first(1);
 
     // make sure that ClientOf 0 only rebroadcasts inputs to the room (so to client 1)
@@ -460,7 +378,7 @@ fn test_input_custom_rebroadcast() {
         .insert(InputRebroadcaster::<MyInput>::Room(room));
 
     // Get the predicted entities on both clients
-    let client0_confirmed = stepper
+    let client0_predicted = stepper
         .client(0)
         .get::<MessageManager>()
         .unwrap()
@@ -468,14 +386,7 @@ fn test_input_custom_rebroadcast() {
         .get_local(server_entity)
         .expect("entity not replicated to client 0");
 
-    let client0_predicted = stepper.client_apps[0]
-        .world()
-        .get::<Confirmed>(client0_confirmed)
-        .unwrap()
-        .predicted
-        .unwrap();
-
-    let client1_confirmed = stepper
+    let client1_predicted = stepper
         .client(1)
         .get::<MessageManager>()
         .unwrap()
@@ -483,27 +394,13 @@ fn test_input_custom_rebroadcast() {
         .get_local(server_entity)
         .expect("entity not replicated to client 1");
 
-    let client1_predicted = stepper.client_apps[1]
-        .world()
-        .get::<Confirmed>(client1_confirmed)
-        .unwrap()
-        .predicted
-        .unwrap();
-
-    let client2_confirmed = stepper
+    let client2_predicted = stepper
         .client(2)
         .get::<MessageManager>()
         .unwrap()
         .entity_mapper
         .get_local(server_entity)
         .expect("entity not replicated to client 2");
-
-    let client2_predicted = stepper.client_apps[2]
-        .world()
-        .get::<Confirmed>(client2_confirmed)
-        .unwrap()
-        .predicted
-        .unwrap();
 
     // Add input markers to client 0, and make sure that it's replicated to client 1 but not to client 2
     // because the input message is not broadcasted to client 2

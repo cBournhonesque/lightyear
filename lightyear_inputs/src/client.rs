@@ -73,7 +73,7 @@ use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
 #[cfg(feature = "prediction")]
 use lightyear_prediction::prelude::*;
-use lightyear_replication::prelude::{PreSpawned, Replicate};
+use lightyear_replication::prelude::PreSpawned;
 use lightyear_sync::plugin::SyncSet;
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
@@ -455,12 +455,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     tick_duration: Res<TickDuration>,
     input_config: Res<InputConfig<S::Action>>,
     sender: Single<
-        (
-            &LocalTimeline,
-            &InputTimeline,
-            &MessageManager,
-            Has<HostClient>,
-        ),
+        (&LocalTimeline, &InputTimeline, Has<HostClient>),
         // the host-client doesn't need to send input messages since the ActionState is already on the entity
         // unless we want to rebroadcast the HostClient inputs to other clients (in which
         // case we prepare the input-message, which will be send_local to the server)
@@ -468,19 +463,14 @@ fn prepare_input_message<S: ActionStateSequence>(
     >,
     channel_registry: Res<ChannelRegistry>,
     input_buffer_query: Query<
-        (
-            Entity,
-            &InputBuffer<S::Snapshot>,
-            Has<Predicted>,
-            Option<&PreSpawned>,
-            Option<&Replicate>,
-        ),
+        (Entity, &InputBuffer<S::Snapshot>, Option<&PreSpawned>),
         With<S::Marker>,
     >,
 ) {
-    let (local_timeline, input_timeline, message_manager, is_host_client) = sender.into_inner();
+    let (local_timeline, input_timeline, is_host_client) = sender.into_inner();
     #[cfg(not(feature = "prediction"))]
     if is_host_client {
+        // if there is not prediction, no need to rebroadcast inputs
         return;
     }
 
@@ -511,7 +501,7 @@ fn prepare_input_message<S: ActionStateSequence>(
         .unwrap();
     num_tick *= input_config.packet_redundancy;
     let mut message = InputMessage::<S>::new(tick);
-    for (entity, input_buffer, predicted, pre_spawned, replicate) in input_buffer_query.iter() {
+    for (entity, input_buffer, pre_spawned) in input_buffer_query.iter() {
         trace!(
             ?tick,
             ?entity,
@@ -519,41 +509,17 @@ fn prepare_input_message<S: ActionStateSequence>(
             input_buffer
         );
 
-        // Make sure that server can read the inputs correctly
-        // TODO: currently we are not sending inputs for pre-predicted entities until we receive the confirmation from the server
-        //  could we find a way to do it?
-        //  maybe if it's pre-predicted, we send the original entity (pre-predicted), and the server will apply the conversion
-        //   on their end?
-        if let Some(target) = if is_host_client {
-            // we are using PrePredictedEntity to make sure that MapEntities will be used on the client receiving side
-            Some(InputTarget::PrePredictedEntity(entity))
-        } else if pre_spawned.is_some() {
-            // wait until the client receives the PrePredicted entity confirmation to send inputs
-            // otherwise we get failed entity_map logs
-            // TODO: the problem is that we wait until we have received the server answer. Ideally we would like
-            //  to wait until the server has received the PrePredicted entity
-            if !predicted {
-                continue;
-            }
-            trace!(
-                ?tick,
-                "sending inputs for pre-predicted entity! Local client entity: {:?}", entity
-            );
-            // TODO: not sure if this whole pre-predicted inputs thing is worth it, because the server won't be able to
-            //  to receive the inputs until it receives the pre-predicted spawn message.
-            //  so all the inputs sent between pre-predicted spawn and server-receives-pre-predicted will be lost
-
-            // 0. the entity is pre-predicted, no need to convert the entity (the mapping will be done on the server, when
-            // receiving the message. It's possible because the server received the PrePredicted entity before)
-            Some(InputTarget::PrePredictedEntity(entity))
-        } else if replicate.is_some() {
-            // this only happens if the entity is a BEI Action entity
-            Some(InputTarget::ActionEntity(entity))
-        } else {
-            // if the entity is replicated (confirmed or predicted), entity mapping will be applied
-            Some(InputTarget::Entity(entity))
-        } && let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_tick, tick)
+        // PreSpawned: the include the Prespawned Hash
+        let target = if let Some(prespawned) = pre_spawned
+            && let Some(hash) = prespawned.hash
         {
+            // TODO: the server needs to add a PreSpawnedReceiver to be able to handle the hash
+            InputTarget::PreSpawned(hash)
+        } else {
+            InputTarget::Entity(entity)
+        };
+
+        if let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_tick, tick) {
             message.inputs.push(PerTargetData {
                 target,
                 states: state_sequence,
@@ -616,13 +582,13 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             //   ONLY if it's PrePredicted or ActionEntity (look at the MapEntities implementation)
             let entity = match target_data.target {
                 InputTarget::Entity(entity) => {
-                    // TODO: find a better way!
-                    // if InputTarget = Entity, we still need to do the mapping
-                    manager
-                        .entity_mapper
-                        .get_local(entity)
+                    Some(entity)
                 }
-                InputTarget::ActionEntity(entity) | InputTarget::PrePredictedEntity(entity) => Some(entity),
+                InputTarget::PreSpawned(hash) => {
+                    // TODO: should clients receive rebroadcasted PreSpawned using the hash?
+                    //  if they don't receive the remote clients inputs in time, they cannot prespawn, so maybe they should just use the entity?
+                    None
+                }
             };
             let Some(entity) = entity else {
                 warn!("Could not find entity in entity_map for remote player input message {:?}", target_data.target);

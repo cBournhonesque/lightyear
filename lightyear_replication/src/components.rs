@@ -1,6 +1,7 @@
 //! Components used for replication
 
 use crate::send::components::ComponentReplicationOverride;
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use lightyear_core::id::PeerId;
@@ -68,6 +69,6 @@ pub struct Replicated {
 /// - an entity that simply contains the replicated components. It will have the marker component [`Confirmed`]
 /// - an entity that is in the future compared to the confirmed entity, and does prediction with rollback. It will have the marker component [`Predicted`](lightyear_core::prediction::Predicted)
 /// - an entity that is in the past compared to the confirmed entity and interpolates between multiple server updates. It will have the marker component [`Interpolated`](lightyear_core::interpolation::Interpolated)
-#[derive(Component, Reflect, PartialEq, Default, Debug, Clone)]
+#[derive(Deref, DerefMut, Component, Reflect, PartialEq, Default, Debug, Clone)]
 #[reflect(Component)]
 pub struct Confirmed<C>(pub C);

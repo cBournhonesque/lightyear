@@ -334,6 +334,16 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         // TODO: how do we avoid the server adding the prediction systems?
         //   do we need to make sure that the Protocol runs after the client/server plugins are added?
         add_prediction_systems::<C>(self.app);
+
+        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
+        registry
+            .component_metadata_map
+            .get_mut(&ComponentKind::of::<C>())
+            .unwrap()
+            .replication
+            .as_mut()
+            .unwrap()
+            .set_predicted(true);
         self
     }
 

@@ -222,9 +222,6 @@ impl Plugin for PredictionPlugin {
         app.configure_sets(PostUpdate, PredictionSet::All.run_if(should_run));
 
         // PLUGINS
-        if !app.is_plugin_added::<crate::shared::SharedPlugin>() {
-            app.add_plugins(crate::shared::SharedPlugin);
-        }
         app.add_plugins((PredictionDiagnosticsPlugin::default(), RollbackPlugin));
     }
 }

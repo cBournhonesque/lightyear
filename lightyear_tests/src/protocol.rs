@@ -21,8 +21,12 @@ pub struct EntityMessage(#[entities] pub Entity);
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect, Event)]
 pub struct StringTrigger(pub String);
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect, Event, MapEntities)]
-pub struct EntityTrigger(#[entities] pub Entity);
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect, EntityEvent, MapEntities)]
+pub struct EntityTrigger(
+    #[event_target]
+    #[entities]
+    pub Entity,
+);
 
 // Channels
 #[derive(Reflect)]
@@ -49,6 +53,14 @@ pub struct CompMap(#[entities] pub Entity);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompFull(pub f32);
+
+impl Ease for CompFull {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| {
+            CompFull(f32::lerp(start.0, end.0, t))
+        })
+    }
+}
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompSimple(pub f32);
@@ -136,9 +148,9 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
-        app.add_message::<StringMessage>()
+        app.register_message::<StringMessage>()
             .add_direction(NetworkDirection::Bidirectional);
-        app.add_message::<EntityMessage>()
+        app.register_message::<EntityMessage>()
             .add_map_entities()
             .add_direction(NetworkDirection::Bidirectional);
         // triggers
@@ -162,20 +174,16 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<CompA>();
         app.register_component::<CompS>();
         app.register_component::<CompFull>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full);
-        app.register_component::<CompSimple>()
-            .add_prediction(PredictionMode::Simple)
-            .add_interpolation(InterpolationMode::Simple);
-        app.register_component::<CompOnce>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+            .add_prediction()
+            .add_linear_interpolation();
+        app.register_component::<CompSimple>();
+        app.register_component::<CompOnce>();
         app.register_component::<CompCorr>()
-            .add_prediction(PredictionMode::Full)
+            .add_prediction()
             .add_linear_correction_fn()
-            .add_interpolation(InterpolationMode::Full);
+            .add_linear_interpolation();
         app.register_component::<CompMap>()
-            .add_prediction(PredictionMode::Full)
+            .add_prediction()
             .add_map_entities();
         app.register_component::<CompDisabled>()
             .with_replication_config(ComponentReplicationConfig {

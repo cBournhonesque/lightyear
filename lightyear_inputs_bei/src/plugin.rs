@@ -1,7 +1,6 @@
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::input_message::BEIStateSequence;
 
-use crate::setup::ActionOfWrapper;
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::setup::InputRegistryPlugin;
 use bevy_app::prelude::*;
@@ -11,7 +10,7 @@ use bevy_ecs::schedule::IntoScheduleConfigs;
 #[cfg(all(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::common_conditions::not;
 #[cfg(any(feature = "client", feature = "server"))]
-use bevy_enhanced_input::EnhancedInputSet;
+use bevy_enhanced_input::EnhancedInputSystems;
 use bevy_enhanced_input::action::ActionState;
 use bevy_enhanced_input::context::InputContextAppExt;
 use bevy_enhanced_input::prelude::ActionOf;
@@ -21,7 +20,6 @@ use lightyear_core::prelude::is_in_rollback;
 #[cfg(feature = "client")]
 use lightyear_inputs::client::InputSet;
 use lightyear_inputs::config::InputConfig;
-use lightyear_prediction::plugin::PredictionSet;
 use lightyear_replication::prelude::AppComponentExt;
 use lightyear_replication::registry::replication::GetWriteFns;
 use serde::Serialize;
@@ -69,8 +67,8 @@ impl<
         // We cannot directly replicate ActionOf<C> because it contains an entity, and we might need to do some custom mapping
         // i.e. if the Action is spawned on the predicted entity on the client, we want the ActionOf<C> entity
         // to be able to be mapped
-        app.register_component::<ActionOfWrapper<C>>()
-            .add_map_entities();
+        app.register_component::<ActionOf<C>>()
+            .add_component_map_entities();
 
         #[cfg(feature = "client")]
         {
@@ -87,12 +85,7 @@ impl<
 
             if self.config.rebroadcast_inputs {
                 #[cfg(feature = "client")]
-                app.add_systems(
-                    PreUpdate,
-                    InputRegistryPlugin::on_rebroadcast_action_received::<C>
-                        // we need to wait for the predicted Context entity to be spawned first
-                        .after(PredictionSet::Sync),
-                );
+                app.add_observer(InputRegistryPlugin::on_rebroadcast_action_received::<C>);
             }
 
             app.add_observer(InputRegistryPlugin::add_action_of_replicate::<C>);
@@ -107,9 +100,9 @@ impl<
                 FixedPreUpdate,
                 (
                     // do not run Update during rollback as we already know all inputs
-                    EnhancedInputSet::Update.run_if(not(is_in_rollback)),
+                    EnhancedInputSystems::Update.run_if(not(is_in_rollback)),
                     InputSet::BufferClientInputs,
-                    EnhancedInputSet::Apply,
+                    EnhancedInputSystems::Apply,
                 )
                     .chain(),
             );
@@ -125,18 +118,18 @@ impl<
                 },
             );
 
-            // If we are running a headless server, there is no need to run EnhancedInputSet::Update system
+            // If we are running a headless server, there is no need to run EnhancedInputSystems::Update system
             #[cfg(not(feature = "client"))]
             {
                 use bevy_app::PreUpdate;
-                app.configure_sets(PreUpdate, EnhancedInputSet::Prepare.run_if(never));
-                app.configure_sets(FixedPreUpdate, EnhancedInputSet::Update.run_if(never));
+                app.configure_sets(PreUpdate, EnhancedInputSystems::Prepare.run_if(never));
+                app.configure_sets(FixedPreUpdate, EnhancedInputSystems::Update.run_if(never));
             }
             #[cfg(feature = "client")]
             {
                 app.configure_sets(
                     FixedPreUpdate,
-                    EnhancedInputSet::Update
+                    EnhancedInputSystems::Update
                         .run_if(not(lightyear_connection::server::is_headless_server)),
                 );
             }
@@ -146,7 +139,7 @@ impl<
             app.configure_sets(
                 FixedPreUpdate,
                 lightyear_inputs::server::InputSet::UpdateActionState
-                    .before(EnhancedInputSet::Apply),
+                    .before(EnhancedInputSystems::Apply),
             );
         }
     }

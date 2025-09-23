@@ -6,7 +6,7 @@ use avian2d::prelude::*;
 use bevy::input::InputPlugin;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
-use bevy_enhanced_input::EnhancedInputSet;
+use bevy_enhanced_input::EnhancedInputSystems;
 use bevy_enhanced_input::action::Action;
 use bevy_enhanced_input::prelude::{ActionOf, Actions, Completed, Started};
 use core::net::SocketAddr;
@@ -47,7 +47,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(Startup, spawn_global_control);
 
         // we don't want to panic when trying to read the InputReader if gui is not enabled
-        app.configure_sets(PreUpdate, EnhancedInputSet::Prepare.run_if(|| false));
+        app.configure_sets(PreUpdate, EnhancedInputSystems::Prepare.run_if(|| false));
         app.add_plugins(bot::BotPlugin);
     }
 }

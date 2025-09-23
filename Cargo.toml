@@ -210,11 +210,11 @@ bevy_text = { version = "0.17.0-rc.1", default-features = false }
 bevy_time = { version = "0.17.0-rc.1", default-features = false }
 bevy_transform = { version = "0.17.0-rc.1", default-features = false }
 bevy_ui = { version = "0.17.0-rc.1", default-features = false }
-bevy_utils = { version = "0.17.0-rc.1", default-features = false }
+bevy_utils = { version = "0.17.0-rc.1", default-features = false, features = ["debug"] }
 tracy-client = { version = "=0.18.0" }
 
 # input
-bevy_enhanced_input = { git = "https://github.com/Lenchog/bevy_enhanced_input.git", branch = "master" }
+bevy_enhanced_input = { git = "https://github.com/cBournhonesque/bevy_enhanced_input.git", branch = "bevy-0.17", features = ["serialize"] }
 leafwing-input-manager = { version = "0.18", default-features = false, features = [
   "keyboard",
 ] }

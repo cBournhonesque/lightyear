@@ -11,7 +11,8 @@ use lightyear_core::prelude::{LocalTimeline, NetworkTimelinePlugin};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent};
-use tracing::{debug, trace};
+#[allow(unused_imports)]
+use tracing::{debug, info, trace};
 
 /// Marker component to indicate that the timeline has been synced
 #[derive(Component, Debug)]
@@ -200,6 +201,14 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
         }
     }
 
+    /// For HostClient, we directly set IsSynced on connection (since there is no messages exchanged) and the
+    /// Synced timeline is always the same as the Remote timeline
+    pub(crate) fn handle_host_client(trigger: On<Add, HostClient>, mut commands: Commands) {
+        commands
+            .entity(trigger.entity)
+            .insert(IsSynced::<Synced>::default());
+    }
+
     /// On disconnection, remove IsSynced.
     pub(crate) fn handle_disconnect(trigger: On<Add, Disconnected>, mut commands: Commands) {
         commands.entity(trigger.entity).remove::<IsSynced<Synced>>();
@@ -234,19 +243,13 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
                 &mut LocalTimeline,
                 &PingManager,
                 Has<IsSynced<Synced>>,
-                Has<HostClient>,
             ),
-            With<Connected>,
+            (With<Connected>, Without<HostClient>),
         >,
     ) {
         // TODO: return early if we haven't received any remote packets? (nothing to sync to)
-
-        query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, mut local_timeline, ping_manager, has_is_synced, host_client)| {
-            // automatically sync if we're the host client
-            if !has_is_synced && host_client {
-                commands.entity(entity).insert(IsSynced::<Synced>::default());
-                return;
-            }
+        query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, mut local_timeline, ping_manager, has_is_synced)| {
+            trace!(?entity, ?has_is_synced, "In SyncTimelines from {:?} to {:?}", core::any::type_name::<Synced>(), core::any::type_name::<Remote>());
             // return early if the remote timeline hasn't received any packets
             if !main_timeline.received_packet() {
                 return;
@@ -290,6 +293,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Pl
         app.register_required_components::<Synced, PingManager>();
         app.register_required_components::<Synced, Remote>();
         app.add_observer(Self::handle_connect);
+        app.add_observer(Self::handle_host_client);
         app.add_observer(Self::handle_disconnect);
         // NOTE: we don't have to run this in PostUpdate, we could run this right after RunFixedMainLoop?
         app.add_systems(PostUpdate, Self::sync_timelines.in_set(SyncSet::Sync));

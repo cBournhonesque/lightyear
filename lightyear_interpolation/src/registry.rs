@@ -111,6 +111,16 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
         registry.set_interpolation::<C>(interpolation_fn);
         add_prepare_interpolation_systems::<C>(self.app);
         add_interpolation_systems::<C>(self.app);
+
+        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
+        registry
+            .component_metadata_map
+            .get_mut(&ComponentKind::of::<C>())
+            .unwrap()
+            .replication
+            .as_mut()
+            .unwrap()
+            .set_interpolated(true);
         self
     }
 
@@ -144,6 +154,16 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
                 custom_interpolation: true,
             });
         add_prepare_interpolation_systems::<C>(self.app);
+
+        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
+        registry
+            .component_metadata_map
+            .get_mut(&ComponentKind::of::<C>())
+            .unwrap()
+            .replication
+            .as_mut()
+            .unwrap()
+            .set_interpolated(true);
         self
     }
 }
