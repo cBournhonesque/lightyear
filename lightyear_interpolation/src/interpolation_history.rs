@@ -1,20 +1,11 @@
-use crate::manager::InterpolationManager;
 use crate::prelude::InterpolationRegistry;
-use crate::{Interpolated, SyncComponent};
-use bevy_ecs::{
-    change_detection::DetectChanges,
-    component::Component,
-    entity::Entity,
-    query::{With, Without},
-    system::{Commands, Query, Res, Single},
-    world::Ref,
-};
+use crate::{Interpolated};
+use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use core::ops::Deref;
+use bevy_ecs::prelude::Changed;
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
-use lightyear_core::prelude::{LocalTimeline, Tick};
-use lightyear_replication::components::Confirmed;
-use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_core::prelude::{Tick};
+use lightyear_replication::components::{Confirmed, Replicated};
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
@@ -112,103 +103,59 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
     }
 }
 
+/// When Confirmed<C> is inserted on an Interpolated entity, insert a ConfirmedHistory::<C> component
+///
+// TODO: should we populate the history immediately with the component value?
+pub(crate) fn insert_confirmed_history<C: Component>(
+    trigger: Trigger<OnAdd, Confirmed<C>>,
+    mut commands: Commands,
+    query: Query<(), (With<Interpolated>, Without<ConfirmedHistory<C>>)>,
+) {
+    if query.get(trigger.target()).is_ok() {
+        commands.entity(trigger.target()).try_insert(ConfirmedHistory::<C>::default());
+    }
+}
+
 /// When we receive a server update for an interpolated component, we need to store it in the confirmed history,
-pub(crate) fn apply_confirmed_update_mode_full<C: SyncComponent>(
-    component_registry: Res<ComponentRegistry>,
+pub(crate) fn apply_confirmed_update<C: Component + Clone>(
+    // TODO: this should be a trigger, we should trigger an event whenever Confirmed gets inserted or modified
+
     // TODO: use the interpolation receiver corresponding to the Confirmed entity (via Replicated)
-    query: Single<(&LocalTimeline, &InterpolationManager)>,
     mut interpolated_entities: Query<
-        &mut ConfirmedHistory<C>,
-        (With<Interpolated>, Without<Confirmed>),
+        (&mut ConfirmedHistory<C>, &Confirmed<C>, &Replicated),
+        (With<Interpolated>, Changed<Confirmed<C>>),
     >,
-    confirmed_entities: Query<(Entity, &Confirmed, Ref<C>)>,
 ) {
     let kind = core::any::type_name::<C>();
-    let (timeline, manager) = query.into_inner();
-    for (confirmed_entity, confirmed, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed.interpolated
-            && confirmed_component.is_changed()
-            && let Ok(mut history) = interpolated_entities.get_mut(p)
-        {
-            // // if has_authority is true, we will consider the Confirmed value as the source of truth
-            // // else it will be the server updates
-            // // TODO: as an alternative, we could set the confirmed.tick to be equal to the current tick
-            // //  if we have authority! Then it would also work for prediction?
-            // let tick = if has_authority {
-            //     timeline.tick()
-            // } else {
-            //     confirmed.tick
-            // };
-            let tick = confirmed.tick;
+    for (mut history, confirmed_component, replicated) in interpolated_entities.iter_mut() {
+        // // if has_authority is true, we will consider the Confirmed value as the source of truth
+        // // else it will be the server updates
+        // // TODO: as an alternative, we could set the confirmed.tick to be equal to the current tick
+        // //  if we have authority! Then it would also work for prediction?
+        // let tick = if has_authority {
+        //     timeline.tick()
+        // } else {
+        //     confirmed.tick
+        // };
+        let tick = replicated.tick;
 
-            // let Some(tick) = client
-            //     .replication_receiver()
-            //     .get_confirmed_tick(confirmed_entity)
-            // else {
-            //     error!(
-            //         "Could not find replication channel for entity {:?}",
-            //         confirmed_entity
-            //     );
-            //     continue;
-            // };
+        // let Some(tick) = client
+        //     .replication_receiver()
+        //     .get_confirmed_tick(confirmed_entity)
+        // else {
+        //     error!(
+        //         "Could not find replication channel for entity {:?}",
+        //         confirmed_entity
+        //     );
+        //     continue;
+        // };
 
-            // map any entities from confirmed to predicted
-            let mut component = confirmed_component.deref().clone();
-            let _ = manager.map_entities(&mut component, component_registry.as_ref());
-            trace!(?kind, tick = ?tick, "adding confirmed update to history");
-            // update the history at the value that the entity currently is
-            // NOTE: it is guaranteed that the confirmed update is more recent than all previous updates
-            //  We enforce this invariant in replication::receive
-            history.push(tick, component);
-
-            // TODO: here we do not want to update directly the component, that will be done during interpolation
-        }
-    }
-}
-
-/// When we receive a server update for a simple component, we just update the entity directly
-pub(crate) fn apply_confirmed_update_mode_simple<C: SyncComponent>(
-    component_registry: Res<ComponentRegistry>,
-    // TODO: handle multiple interpolation receivers
-    manager: Single<&InterpolationManager>,
-    mut interpolated_entities: Query<&mut C, (With<Interpolated>, Without<Confirmed>)>,
-    confirmed_entities: Query<(&Confirmed, Ref<C>)>,
-) {
-    for (confirmed, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed.interpolated
-            && confirmed_component.is_changed()
-            && !confirmed_component.is_added()
-            && let Ok(mut interpolated_component) = interpolated_entities.get_mut(p)
-        {
-            // for sync-components, we just match the confirmed component
-            // map any entities from confirmed to interpolated first
-            let mut component = confirmed_component.deref().clone();
-            let _ = manager.map_entities(&mut component, component_registry.as_ref());
-            *interpolated_component = component;
-        }
-    }
-}
-
-/// When we receive a server update for a simple component, we just update the entity directly
-pub(crate) fn apply_confirmed_update_immutable_mode_simple<C: Component + Clone>(
-    component_registry: Res<ComponentRegistry>,
-    // TODO: handle multiple interpolation receivers
-    manager: Single<&InterpolationManager>,
-    mut interpolated_entities: Query<(), (With<Interpolated>, Without<Confirmed>)>,
-    confirmed_entities: Query<(&Confirmed, Ref<C>)>,
-    mut commands: Commands,
-) {
-    for (confirmed, confirmed_component) in confirmed_entities.iter() {
-        if let Some(p) = confirmed.interpolated
-            && confirmed_component.is_changed()
-            && !confirmed_component.is_added()
-            && let Ok(()) = interpolated_entities.get_mut(p)
-        {
-            // for sync-components, we just match the confirmed component
-            // map any entities from confirmed to interpolated first
-            let mut component = confirmed_component.deref().clone();
-            let _ = manager.map_entities(&mut component, component_registry.as_ref());
-            commands.entity(p).try_insert(component);
-        }
+        let component = confirmed_component.clone();
+        trace!(?kind, tick = ?tick, "adding confirmed update to history");
+        // update the history at the value that the entity currently is
+        // NOTE: it is guaranteed that the confirmed update is more recent than all previous updates
+        //  We enforce this invariant in replication::receive
+        history.push(tick, component.0);
+        // TODO: here we do not want to update directly the component, that will be done during interpolation
     }
 }

@@ -22,6 +22,7 @@ use lightyear_core::interpolation::Interpolated;
 #[cfg(feature = "prediction")]
 use lightyear_core::prediction::Predicted;
 use tracing::info;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 // impl ControlledBy {
 //     /// In Host-Server mode, any entity that is marked as ControlledBy the host
 //     /// should also have Controlled assigned to them
@@ -61,7 +62,7 @@ impl HostServerPlugin {
     /// that the host-server wants to replicate, so that client code can still query for them
     fn add_prediction_interpolation_components(
         mut commands: Commands,
-        local_client: Single<(Entity, &LocalId, Ref<HostClient>)>,
+        local_client: Single<(Entity, &LocalTimeline, &LocalId, Ref<HostClient>)>,
         // this is only for entities that are spawned on the host-server
         // we can't rely only on Without<InitialReplicated> because we add a fake
         // InitialReplicated in this system, which might prevent fake Predicted/Interpolated
@@ -71,7 +72,8 @@ impl HostServerPlugin {
             Or<(Without<InitialReplicated>, With<SpawnedOnHostServer>)>,
         >,
     ) {
-        let (local_entity, local_id, host_client) = local_client.into_inner();
+        let (local_entity, timeline, local_id, host_client) = local_client.into_inner();
+        let tick = timeline.tick();
 
         let add_fake_components =
             |commands: &mut Commands, d: &HostServerQueryDataItem, entity: Entity| {
@@ -90,6 +92,7 @@ impl HostServerPlugin {
                         Replicated {
                             receiver: local_entity,
                             from: local_id.0,
+                            tick,
                         },
                         InitialReplicated { from: local_id.0 },
                         SpawnedOnHostServer,
@@ -125,9 +128,7 @@ impl HostServerPlugin {
                 if d.interpolation.as_ref().is_some_and(|p| {
                     (p.is_added() || host_client.is_added()) && p.senders.contains(&local_entity)
                 }) {
-                    commands.entity(entity).insert(Interpolated {
-                        confirmed_entity: entity,
-                    });
+                    commands.entity(entity).insert(Interpolated);
                 }
             };
 

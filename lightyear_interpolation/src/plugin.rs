@@ -1,17 +1,10 @@
-use super::interpolation_history::{
-    apply_confirmed_update_immutable_mode_simple, apply_confirmed_update_mode_full,
-    apply_confirmed_update_mode_simple,
-};
-use crate::despawn::{despawn_interpolated, removed_components};
+use super::interpolation_history::{apply_confirmed_update, insert_confirmed_history};
+use crate::despawn::{removed_components};
 use crate::interpolate::{interpolate, update_confirmed_history};
-use crate::prelude::InterpolationRegistrationExt;
 use crate::registry::InterpolationRegistry;
-use crate::spawn::spawn_interpolated_entity;
-use crate::sync::SyncPlugin;
 use crate::timeline::TimelinePlugin;
 use crate::{
-    Interpolated, InterpolationMode, SyncComponent, interpolated_on_add_hook,
-    interpolated_on_remove_hook,
+    Interpolated, SyncComponent
 };
 use bevy_app::{App, Plugin, PreUpdate, Update};
 use bevy_ecs::hierarchy::ChildOf;
@@ -74,14 +67,19 @@ impl ToBytes for InterpolationDelay {
     }
 }
 
+// TODO: if Interpolated is added on an existing entity, we need to swap all its existing interpolated components to Confirmed<C>
+
+// TODO (IMPORTANT): when a component with interpolation is inserted, we need to insert ConfirmedHistory
+
+/// Plugin that enables interpolating between replicated updates received from the remote.
+///
+/// Each remote update will be stored in a buffer, and the component will smoothly interpolate between two consecutive remote updates.
 #[derive(Default)]
 pub struct InterpolationPlugin;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InterpolationSet {
     // PreUpdate Sets,
-    /// Spawn interpolation entities,
-    Spawn,
     /// Sync components from the confirmed to the interpolated entity, and insert the ConfirmedHistory
     Sync,
 
@@ -100,54 +98,22 @@ pub enum InterpolationSet {
     All,
 }
 
-/// Add per-component systems related to interpolation for immutable components
-pub(crate) fn add_immutable_prepare_interpolation_systems<C: Component + Clone>(
-    app: &mut App,
-    interpolation_mode: InterpolationMode,
-) {
-    // TODO: maybe create an overarching prediction set that contains all others?
-    app.add_observer(removed_components::<C>);
-    match interpolation_mode {
-        InterpolationMode::Full => {
-            panic!("Full interpolation mode is not supported for immutable components");
-        }
-        InterpolationMode::Simple => {
-            app.add_systems(
-                Update,
-                apply_confirmed_update_immutable_mode_simple::<C>.in_set(InterpolationSet::Prepare),
-            );
-        }
-        _ => {}
-    }
-}
-
 /// Add per-component systems related to interpolation
-pub(crate) fn add_prepare_interpolation_systems<C: SyncComponent>(
+pub(crate) fn add_prepare_interpolation_systems<C: Component + Clone>(
     app: &mut App,
-    interpolation_mode: InterpolationMode,
 ) {
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_observer(removed_components::<C>);
-    match interpolation_mode {
-        InterpolationMode::Full => {
-            app.add_systems(
-                Update,
-                (
-                    apply_confirmed_update_mode_full::<C>,
-                    update_confirmed_history::<C>,
-                )
-                    .chain()
-                    .in_set(InterpolationSet::Prepare),
-            );
-        }
-        InterpolationMode::Simple => {
-            app.add_systems(
-                Update,
-                apply_confirmed_update_mode_simple::<C>.in_set(InterpolationSet::Prepare),
-            );
-        }
-        _ => {}
-    }
+    app.add_observer(insert_confirmed_history::<C>);
+    app.add_systems(
+        Update,
+        (
+            apply_confirmed_update::<C>,
+            update_confirmed_history::<C>,
+        )
+            .chain()
+            .in_set(InterpolationSet::Prepare),
+    );
 }
 
 // We add the interpolate system in different function because we might not want to add them
@@ -162,23 +128,15 @@ pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TimelinePlugin);
-        app.add_plugins(SyncPlugin);
 
         // RESOURCES
         app.init_resource::<InterpolationRegistry>();
 
         // PROTOCOL
-        app.register_component::<Controlled>()
-            .add_interpolation(InterpolationMode::Once);
-        app.register_component::<ChildOf>()
-            .add_immutable_interpolation(InterpolationMode::Simple);
+        app.register_component::<Controlled>();
+        app.register_component::<ChildOf>();
 
         // HOOKS
-        // TODO: add tests for these!
-        app.world_mut()
-            .register_component_hooks::<Interpolated>()
-            .on_add(interpolated_on_add_hook)
-            .on_remove(interpolated_on_remove_hook);
 
         // Host-Clients have no interpolation delay
         app.register_required_components::<HostClient, InterpolationDelay>();
@@ -190,7 +148,7 @@ impl Plugin for InterpolationPlugin {
         // SETS
         app.configure_sets(
             PreUpdate,
-            (InterpolationSet::Spawn, InterpolationSet::Sync)
+            InterpolationSet::Sync
                 .in_set(InterpolationSet::All)
                 .chain()
                 .after(ReplicationSet::Receive),
@@ -205,12 +163,6 @@ impl Plugin for InterpolationPlugin {
                 .in_set(InterpolationSet::All)
                 .chain(),
         );
-        // SYSTEMS
-        app.add_systems(
-            PreUpdate,
-            spawn_interpolated_entity.in_set(InterpolationSet::Spawn),
-        );
-        app.add_observer(despawn_interpolated);
     }
 }
 

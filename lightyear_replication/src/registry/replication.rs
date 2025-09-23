@@ -12,6 +12,7 @@ use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{ContextDeserializeFns, ErasedSerializeFns};
 use tracing::{debug, trace};
+use crate::components::Confirmed;
 
 #[derive(Debug, Clone)]
 pub struct ReplicationMetadata {
@@ -33,6 +34,7 @@ type RawBufferFn = fn(
     Tick,
     &mut BufferedEntity,
     &mut ReceiveEntityMap,
+    bool,
 ) -> Result<(), ComponentError>;
 
 impl ReplicationMetadata {
@@ -64,12 +66,13 @@ impl ReplicationMetadata {
         tick: Tick,
         entity_mut: &mut BufferedEntity,
         entity_map: &mut ReceiveEntityMap,
+        synced: bool,
     ) -> Result<(), ComponentError> {
         let buffer_fn =
             unsafe { core::mem::transmute::<unsafe fn(), BufferFn<C>>(self.inner_buffer) };
         // SAFETY: the erased_deserialize is guaranteed to be valid for the type C
         let deserialize = unsafe { erased_serialize_fns.deserialize_fns::<_, C, C>() };
-        buffer_fn(deserialize, reader, tick, entity_mut, entity_map)
+        buffer_fn(deserialize, reader, tick, entity_mut, entity_map, synced)
     }
 }
 
@@ -84,6 +87,8 @@ impl ComponentRegistry {
         entity_mut: &mut BufferedEntity,
         tick: Tick,
         entity_map: &mut ReceiveEntityMap,
+        // true if the entity is predicted or interpolated
+        synced: bool,
     ) -> Result<(), ComponentError> {
         let mut reader = Reader::from(bytes);
         let net_id = ComponentNetId::from_bytes(&mut reader)?;
@@ -100,7 +105,6 @@ impl ComponentRegistry {
             .component_metadata_map
             .get(kind)
             .ok_or(ComponentError::MissingSerializationFns)?;
-
         let replication_metadata = component_metadata
             .replication
             .as_ref()
@@ -116,6 +120,7 @@ impl ComponentRegistry {
             tick,
             entity_mut,
             entity_map,
+            synced
         )?;
         Ok::<(), ComponentError>(())
     }
@@ -187,6 +192,7 @@ pub type BufferFn<C> = fn(
     tick: Tick,
     entity_mut: &mut BufferedEntity,
     entity_map: &mut ReceiveEntityMap,
+    synced: bool,
 ) -> Result<(), ComponentError>;
 
 pub trait GetWriteFns<C: Component> {
@@ -208,6 +214,7 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
     _tick: Tick,
     entity_mut: &mut BufferedEntity,
     entity_map: &mut ReceiveEntityMap,
+    synced: bool,
 ) -> Result<(), ComponentError> {
     let kind = ComponentKind::of::<C>();
     let component_id = entity_mut.component_id::<C>();
@@ -219,36 +226,72 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
     );
 
     // if the component is already on the entity, no need to insert
-    if let Some(mut c) = entity_mut.entity.get_mut::<C>() {
-        // TODO: when can we be in this situation? on authority change?
-        // only apply the update if the component is different, to not trigger change detection
-        if c.as_ref() != &component {
+    if synced {
+        let component_id = entity_mut.component_id::<Confirmed<C>>();
+        let component = Confirmed(component);
+        if let Some(mut c) = entity_mut.entity.get_mut::<Confirmed<C>>() {
+            // TODO: when can we be in this situation? on authority change?
+            // only apply the update if the component is different, to not trigger change detection
+            if c.as_ref() != &component {
+                 #[cfg(feature = "metrics")]
+                 {
+                     metrics::counter!("replication/receive/component/update").increment(1);
+                     metrics::counter!(
+                         "replication/receive/component/update",
+                         "component" => core::any::type_name::<C>()
+                     )
+                         .increment(1);
+                 }
+                 *c = component;
+             }
+        } else {
+            // SAFETY: we made sure that component_id corresponds to either C or Confirmed<C>
+            unsafe {
+                entity_mut.buffered.insert::<Confirmed<C>>(component, component_id);
+            }
             #[cfg(feature = "metrics")]
             {
-                metrics::counter!("replication/receive/component/update").increment(1);
+                metrics::counter!("replication/receive/component/insert").increment(1);
                 metrics::counter!(
-                    "replication/receive/component/update",
+                    "replication/receive/component/insert",
                     "component" => core::any::type_name::<C>()
                 )
                 .increment(1);
             }
-            *c = component;
         }
     } else {
-        // SAFETY: the component_id matches the component
-        unsafe {
-            entity_mut.buffered.insert::<C>(component, component_id);
-        }
-        #[cfg(feature = "metrics")]
-        {
-            metrics::counter!("replication/receive/component/insert").increment(1);
-            metrics::counter!(
-                "replication/receive/component/insert",
-                "component" => core::any::type_name::<C>()
-            )
-            .increment(1);
+        if let Some(mut c) = entity_mut.entity.get_mut::<C>() {
+            if c.as_ref() != &component {
+                // only apply the update if the component is different, to not trigger change detection
+                #[cfg(feature = "metrics")]
+                {
+                    metrics::counter!("replication/receive/component/update").increment(1);
+                    metrics::counter!(
+                        "replication/receive/component/update",
+                        "component" => core::any::type_name::<C>()
+                    )
+                        .increment(1);
+                }
+                *c = component;
+            }
+        } else {
+            // SAFETY: we made sure that component_id corresponds to either C or Confirmed<C>
+            unsafe {
+                entity_mut.buffered.insert::<C>(component, component_id);
+            }
+            #[cfg(feature = "metrics")]
+            {
+                metrics::counter!("replication/receive/component/insert").increment(1);
+                metrics::counter!(
+                    "replication/receive/component/insert",
+                    "component" => core::any::type_name::<C>()
+                )
+                .increment(1);
+            }
         }
     }
+
+
     Ok(())
 }
 
@@ -265,6 +308,7 @@ fn default_immutable_buffer<C: Component<Mutability = Immutable> + PartialEq>(
     _tick: Tick,
     entity_mut: &mut BufferedEntity,
     entity_map: &mut ReceiveEntityMap,
+    synced: bool,
 ) -> Result<(), ComponentError> {
     let kind = ComponentKind::of::<C>();
     let component_id = entity_mut.component_id::<C>();
@@ -274,16 +318,22 @@ fn default_immutable_buffer<C: Component<Mutability = Immutable> + PartialEq>(
         "Insert component {} to entity {entity:?}",
         core::any::type_name::<C>()
     );
-    if entity_mut.entity.get::<C>().is_none_or(|c| c != &component) {
-        #[cfg(feature = "metrics")]
-        {
-            metrics::counter!("replication::receive::component::insert").increment(1);
-            metrics::counter!(format!(
-                "replication::receive::component::{}::insert",
-                core::any::type_name::<C>()
-            ))
-            .increment(1);
+    #[cfg(feature = "metrics")]
+    {
+        metrics::counter!("replication::receive::component::insert").increment(1);
+        metrics::counter!(format!(
+            "replication::receive::component::{}::insert",
+            core::any::type_name::<C>()
+        ))
+        .increment(1);
+    }
+    if synced {
+        let component_id = entity_mut.component_id::<Confirmed<C>>();
+        let component = Confirmed(component);
+        unsafe {
+            entity_mut.buffered.insert::<Confirmed<C>>(component, component_id);
         }
+    } else {
         unsafe {
             entity_mut.buffered.insert::<C>(component, component_id);
         }

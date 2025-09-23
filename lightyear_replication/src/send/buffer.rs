@@ -10,9 +10,9 @@ use crate::send::components::{
     CachedReplicate, Replicate, Replicating, ReplicationGroup, ReplicationGroupId,
 };
 #[cfg(feature = "interpolation")]
-use crate::send::components::{InterpolationTarget, ShouldBeInterpolated};
+use crate::send::components::{InterpolationTarget};
 #[cfg(feature = "prediction")]
-use crate::send::components::{PredictionTarget, ShouldBePredicted};
+use crate::send::components::{PredictionTarget};
 use crate::send::sender::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 use bevy_ecs::component::Components;
@@ -506,34 +506,23 @@ pub(crate) fn replicate_entity_spawn(
             ?replicate_like_and_visible,
             "Sending Spawn"
         );
-        sender.prepare_entity_spawn(entity, group_id, priority);
+        #[allow(unused_mut)]
+        let mut predicted = false;
+        #[allow(unused_mut)]
+        let mut interpolated = false;
+        #[cfg(feature = "prediction")]
+        if prediction_target.is_some_and(|p| p.senders.contains(&sender_entity)) {
+            predicted = true;
+        }
+        #[cfg(feature = "interpolation")]
+        if interpolation_target.is_some_and(|p| p.senders.contains(&sender_entity)) {
+            interpolated = true
+        }
+        sender.prepare_entity_spawn(entity, group_id, priority, predicted, interpolated);
 
         if controlled_by.is_some_and(|c| c.owner == sender_entity) {
             sender
                 .prepare_typed_component_insert(entity, group_id, component_registry, &Controlled)
-                .unwrap();
-        }
-
-        #[cfg(feature = "prediction")]
-        if prediction_target.is_some_and(|p| p.senders.contains(&sender_entity)) {
-            sender
-                .prepare_typed_component_insert(
-                    entity,
-                    group_id,
-                    component_registry,
-                    &ShouldBePredicted,
-                )
-                .unwrap();
-        }
-        #[cfg(feature = "interpolation")]
-        if interpolation_target.is_some_and(|p| p.senders.contains(&sender_entity)) {
-            sender
-                .prepare_typed_component_insert(
-                    entity,
-                    group_id,
-                    component_registry,
-                    &ShouldBeInterpolated,
-                )
                 .unwrap();
         }
     }

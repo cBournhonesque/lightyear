@@ -1,4 +1,3 @@
-use crate::SyncComponent;
 use crate::interpolation_history::ConfirmedHistory;
 use crate::registry::InterpolationRegistry;
 use crate::timeline::InterpolationTimeline;
@@ -24,9 +23,7 @@ pub fn interpolation_fraction(start: Tick, end: Tick, current: Tick, overstep: f
 }
 
 /// Update the ConfirmedHistory so that interpolation can simply interpolate between the last 2 updates.
-///
-/// Also handle inserting the
-pub(crate) fn update_confirmed_history<C: SyncComponent>(
+pub(crate) fn update_confirmed_history<C: Component + Clone>(
     // TODO: handle multiple interpolation timelines
     // TODO: exclude host-server
     interpolation: Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>,
