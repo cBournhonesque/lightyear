@@ -1,3 +1,4 @@
+use crate::components::Confirmed;
 use crate::prelude::ComponentReplicationConfig;
 use crate::registry::buffered::BufferedEntity;
 use crate::registry::registry::ComponentRegistry;
@@ -12,7 +13,6 @@ use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{ContextDeserializeFns, ErasedSerializeFns};
 use tracing::{debug, trace};
-use crate::components::Confirmed;
 
 #[derive(Debug, Clone)]
 pub struct ReplicationMetadata {
@@ -120,7 +120,7 @@ impl ComponentRegistry {
             tick,
             entity_mut,
             entity_map,
-            synced
+            synced,
         )?;
         Ok::<(), ComponentError>(())
     }
@@ -233,21 +233,23 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
             // TODO: when can we be in this situation? on authority change?
             // only apply the update if the component is different, to not trigger change detection
             if c.as_ref() != &component {
-                 #[cfg(feature = "metrics")]
-                 {
-                     metrics::counter!("replication/receive/component/update").increment(1);
-                     metrics::counter!(
-                         "replication/receive/component/update",
-                         "component" => core::any::type_name::<C>()
-                     )
-                         .increment(1);
-                 }
-                 *c = component;
-             }
+                #[cfg(feature = "metrics")]
+                {
+                    metrics::counter!("replication/receive/component/update").increment(1);
+                    metrics::counter!(
+                        "replication/receive/component/update",
+                        "component" => core::any::type_name::<C>()
+                    )
+                    .increment(1);
+                }
+                *c = component;
+            }
         } else {
             // SAFETY: we made sure that component_id corresponds to either C or Confirmed<C>
             unsafe {
-                entity_mut.buffered.insert::<Confirmed<C>>(component, component_id);
+                entity_mut
+                    .buffered
+                    .insert::<Confirmed<C>>(component, component_id);
             }
             #[cfg(feature = "metrics")]
             {
@@ -270,7 +272,7 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
                         "replication/receive/component/update",
                         "component" => core::any::type_name::<C>()
                     )
-                        .increment(1);
+                    .increment(1);
                 }
                 *c = component;
             }
@@ -290,7 +292,6 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
             }
         }
     }
-
 
     Ok(())
 }
@@ -331,7 +332,9 @@ fn default_immutable_buffer<C: Component<Mutability = Immutable> + PartialEq>(
         let component_id = entity_mut.component_id::<Confirmed<C>>();
         let component = Confirmed(component);
         unsafe {
-            entity_mut.buffered.insert::<Confirmed<C>>(component, component_id);
+            entity_mut
+                .buffered
+                .insert::<Confirmed<C>>(component, component_id);
         }
     } else {
         unsafe {

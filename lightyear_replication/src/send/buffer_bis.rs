@@ -274,6 +274,8 @@ pub fn replicate_entity_bis(
                     prediction_target,
                     #[cfg(feature = "interpolation")]
                     interpolation_target,
+                    // TODO
+                    None,
                     owned_by,
                     cached_replicate,
                     visibility,

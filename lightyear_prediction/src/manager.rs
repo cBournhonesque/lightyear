@@ -1,6 +1,5 @@
 //! Defines bevy resources needed for Prediction
 
-use alloc::vec::Vec;
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
@@ -9,21 +8,12 @@ use crate::correction::CorrectionPolicy;
 use crate::rollback::RollbackState;
 use bevy_ecs::component::HookContext;
 use bevy_ecs::entity::EntityHash;
-use bevy_ecs::observer::Trigger;
-use bevy_ecs::query::With;
-use bevy_ecs::system::Single;
 use bevy_ecs::world::DeferredWorld;
-use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
-use lightyear_connection::client::Connected;
-use lightyear_core::prelude::{SyncEvent, Tick};
-use lightyear_replication::registry::ComponentError;
+use lightyear_core::prelude::Tick;
+use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_replication::registry::buffered::BufferedChanges;
-use lightyear_replication::registry::registry::ComponentRegistry;
-use lightyear_serde::entity_map::EntityMap;
 use lightyear_sync::prelude::InputTimeline;
-use lightyear_sync::timeline::input::Input;
-use lightyear_utils::ready_buffer::ReadyBuffer;
 use parking_lot::RwLock;
 
 #[derive(Resource)]
@@ -34,38 +24,6 @@ pub struct PredictionResource {
 }
 
 type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>;
-
-#[derive(Default, Debug, Reflect)]
-pub struct PredictedEntityMap {
-    /// Map from the confirmed entity to the predicted entity
-    /// useful for despawning, as we won't have access to the Confirmed/Predicted components anymore
-    pub confirmed_to_predicted: EntityMap,
-}
-
-// #[derive(Debug, Clone, Copy, Default, Reflect)]
-// pub enum RollbackPolicy {
-//     /// Every frame, rollback to the latest of:
-//     /// - last confirmed tick of any Predicted entity (all predicted entities share the same tick)
-//     /// - last tick where we have a confirmed input from each remote client
-//     ///
-//     /// This can be useful to test that your game can handle a certain amount of rollback frames.
-//     Always,
-//     /// Always rollback upon receipt of a new state, without checking if the confirmed state matches
-//     /// the predicted history.
-//     ///
-//     /// When using this policy, we don't need to store a PredictionHistory to see if the newly received
-//     /// confirmed state matches the predicted state history.
-//     AlwaysState,
-//     #[default]
-//     /// Only rollback if the confirmed state does not match the predicted state history
-//     StateCheckOnly,
-//     /// Rollback if the confirmed state does not match the predicted state history,
-//     /// or if an input received from a remote client does not match our previous input buffer
-//     StateAndInputCheck,
-//     /// Only rollback be checking if the remote client inputs don't match our previously received inputs.
-//     /// We will rollback to the
-//     InputCheckOnly,
-// }
 
 #[derive(Debug, Clone, Copy, Default, Reflect)]
 pub enum RollbackMode {
@@ -134,6 +92,7 @@ pub(crate) struct PredictionSyncBuffer(BufferedChanges);
 #[component(on_insert = PredictionManager::on_insert)]
 #[require(InputTimeline)]
 #[require(PredictionSyncBuffer)]
+#[require(PreSpawnedReceiver)]
 // TODO: ideally we would only insert LastConfirmedInput if the PredictionManager is updated to use RollbackMode::AlwaysInput
 //  because that's where we need it. In practice we don't have an OnChange observer so we cannot do this easily
 #[require(LastConfirmedInput)]
@@ -144,24 +103,6 @@ pub struct PredictionManager {
     /// The configuration for how to handle Correction, which is basically lerping the previously predicted state
     /// to the corrected state over a period of time after a rollback
     pub correction_policy: CorrectionPolicy,
-    /// Map between confirmed and predicted entities
-    ///
-    /// We wrap it into an UnsafeCell because the MapEntities trait requires a mutable reference to the EntityMap,
-    /// but in our case calling map_entities will not mutate the map itself; by doing so we can improve the parallelism
-    /// by avoiding a `ResMut<PredictionManager>` in our systems.
-    #[reflect(ignore)]
-    pub predicted_entity_map: UnsafeCell<PredictedEntityMap>,
-    #[doc(hidden)]
-    /// Map from the hash of a PrespawnedPlayerObject to the corresponding local entity
-    /// NOTE: multiple entities could share the same hash. In which case, upon receiving a server prespawned entity,
-    /// we will randomly select a random entity in the set to be its predicted counterpart
-    ///
-    /// Also stores the tick at which the entities was spawned.
-    /// If the interpolation_tick reaches that tick and there is till no match, we should despawn the entity
-    pub prespawn_hash_to_entities: EntityHashMap<u64, Vec<Entity>>,
-    #[doc(hidden)]
-    /// Store the spawn tick of the entity, as well as the corresponding hash
-    pub prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
     pub earliest_mismatch_input: EarliestMismatchedInput,
     // // TODO: this needs to be cleaned up at regular intervals!
     // //  do a centralized TickCleanup system in lightyear_core
@@ -217,9 +158,6 @@ impl Default for PredictionManager {
         Self {
             rollback_policy: RollbackPolicy::default(),
             correction_policy: CorrectionPolicy::default(),
-            predicted_entity_map: UnsafeCell::new(PredictedEntityMap::default()),
-            prespawn_hash_to_entities: EntityHashMap::default(),
-            prespawn_tick_to_hash: ReadyBuffer::default(),
             earliest_mismatch_input: EarliestMismatchedInput::default(),
             // last_rollback_tick: None,
             rollback: RwLock::new(RollbackState::Default),
@@ -243,21 +181,6 @@ unsafe impl Send for PredictionManager {}
 unsafe impl Sync for PredictionManager {}
 
 impl PredictionManager {
-    /// Call MapEntities on the given component.
-    ///
-    /// Using this function only requires `&self` instead of `&mut self` (on the MapEntities trait), which is useful for parallelism
-    pub fn map_entities<C: 'static>(
-        &self,
-        component: &mut C,
-        component_registry: &ComponentRegistry,
-    ) -> Result<(), ComponentError> {
-        // SAFETY: `EntityMap` isn't mutated during `map_entities`
-        unsafe {
-            let entity_map = &mut *self.predicted_entity_map.get();
-            component_registry.map_entities::<C>(component, &mut entity_map.confirmed_to_predicted)
-        }
-    }
-
     /// Returns true if we are currently in a rollback state
     pub fn is_rollback(&self) -> bool {
         match *self.rollback.read().deref() {
@@ -282,17 +205,5 @@ impl PredictionManager {
     /// Set the rollback state to `ShouldRollback` with the given tick.
     pub fn set_rollback_tick(&self, tick: Tick) {
         *self.rollback.write().deref_mut() = RollbackState::RollbackStart(tick)
-    }
-
-    pub(crate) fn handle_tick_sync(
-        trigger: On<SyncEvent<Input>>,
-        mut manager: Single<&mut PredictionManager, With<Connected>>,
-    ) {
-        let data: Vec<_> = manager.prespawn_tick_to_hash.drain().collect();
-        data.into_iter().for_each(|(tick, hash)| {
-            manager
-                .prespawn_tick_to_hash
-                .push(tick + trigger.tick_delta, hash);
-        });
     }
 }

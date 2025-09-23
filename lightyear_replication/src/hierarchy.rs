@@ -1,6 +1,6 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
 
-use crate::prelude::{PrePredicted, Replicate, ReplicationBufferSet};
+use crate::prelude::{Replicate, ReplicationBufferSet};
 use crate::registry::registry::AppComponentExt;
 use alloc::vec::Vec;
 use bevy_app::prelude::*;
@@ -106,7 +106,7 @@ impl<
 
 impl<R: Relationship> HierarchySendPlugin<R> {
     /// Propagate certain replication components through the hierarchy.
-    /// - If new children are added, `Replicate` is added, `PrePredicted` is added, we recursively
+    /// - If new children are added, `Replicate` is added, we recursively
     ///   go through the descendants and add `ReplicateLike`, `ChildOfSync`, ... if the child does not have
     ///   `DisableReplicateHierarchy` or `Replicate` already
     /// - We run this as a system and not an observer because observers cannot handle Children updates very well
@@ -115,16 +115,12 @@ impl<R: Relationship> HierarchySendPlugin<R> {
     fn propagate_through_hierarchy(
         mut commands: Commands,
         root_query: Query<
-            (Entity, Has<PrePredicted>, Option<&ReplicateLike>),
+            (Entity, Option<&ReplicateLike>),
             (
                 Or<(With<Replicate>, With<ReplicateLike>)>,
                 Without<DisableReplicateHierarchy>,
                 With<R::RelationshipTarget>,
-                Or<(
-                    Changed<R::RelationshipTarget>,
-                    Added<PrePredicted>,
-                    Added<Replicate>,
-                )>,
+                Or<(Changed<R::RelationshipTarget>, Added<Replicate>)>,
             ),
         >,
         children_query: Query<&R::RelationshipTarget>,
@@ -132,33 +128,29 @@ impl<R: Relationship> HierarchySendPlugin<R> {
         // for their descendants, and we don't want to add `ReplicateLike` on them)
         child_filter: Query<(), (Without<DisableReplicateHierarchy>, Without<Replicate>)>,
     ) {
-        root_query.iter().for_each(|(mut root, pre_predicted, maybe_replicate_like)| {
-            // If we are already ReplicateLike another entity, we use it as root
-            if let Some(ReplicateLike { root: new_root }) = maybe_replicate_like {
-                root = *new_root;
-            }
+        root_query
+            .iter()
+            .for_each(|(mut root, maybe_replicate_like)| {
+                // If we are already ReplicateLike another entity, we use it as root
+                if let Some(ReplicateLike { root: new_root }) = maybe_replicate_like {
+                    root = *new_root;
+                }
 
-            // we go through all the descendants (instead of just the children) so that the root is added
-            // and we don't need to search for the root ancestor in the replication systems
-            let mut stack = SmallVec::<[Entity; 8]>::new();
-            stack.push(root);
-            while let Some(parent) = stack.pop() {
-                for child in children_query.relationship_sources(parent) {
-                    if let Ok(()) = child_filter.get(child) {
-                        // TODO: should we buffer those inside a SmallVec for batch insert?
-                        trace!("Adding ReplicateLike to child {child:?} with root {root:?}. PrePredicted: {pre_predicted:?}");
-                        commands
-                            .entity(child)
-                            .insert(ReplicateLike { root });
-                        if pre_predicted {
-                            trace!("Adding PrePredicted to child {child:?} with root {root:?}");
-                            commands.entity(child).insert(PrePredicted::default());
+                // we go through all the descendants (instead of just the children) so that the root is added
+                // and we don't need to search for the root ancestor in the replication systems
+                let mut stack = SmallVec::<[Entity; 8]>::new();
+                stack.push(root);
+                while let Some(parent) = stack.pop() {
+                    for child in children_query.relationship_sources(parent) {
+                        if let Ok(()) = child_filter.get(child) {
+                            // TODO: should we buffer those inside a SmallVec for batch insert?
+                            trace!("Adding ReplicateLike to child {child:?} with root {root:?}.");
+                            commands.entity(child).insert(ReplicateLike { root });
+                            stack.push(child);
                         }
-                        stack.push(child);
                     }
                 }
-            }
-        })
+            })
     }
 
     // TODO: but are the children's despawn replicated? or maybe there's no need because the root's despawned

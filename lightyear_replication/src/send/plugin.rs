@@ -6,6 +6,7 @@ use crate::message::{
 };
 use crate::plugin::ReplicationSet;
 use crate::prelude::NetworkVisibility;
+use crate::prespawn::PreSpawned;
 use crate::registry::registry::ComponentRegistry;
 use crate::send::buffer;
 #[cfg(feature = "interpolation")]
@@ -328,6 +329,7 @@ impl Plugin for ReplicationSendPlugin {
                         &ReplicateLikeChildren,
                         &ReplicateLike,
                         &ControlledBy,
+                        &PreSpawned,
                     )>();
                     #[cfg(feature = "prediction")]
                     b.data::<&PredictionTarget>();

@@ -1,10 +1,10 @@
+use crate::Interpolated;
 use crate::prelude::InterpolationRegistry;
-use crate::{Interpolated};
+use bevy_ecs::prelude::Changed;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use bevy_ecs::prelude::Changed;
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
-use lightyear_core::prelude::{Tick};
+use lightyear_core::prelude::Tick;
 use lightyear_replication::components::{Confirmed, Replicated};
 #[allow(unused_imports)]
 use tracing::{info, trace};
@@ -112,7 +112,9 @@ pub(crate) fn insert_confirmed_history<C: Component>(
     query: Query<(), (With<Interpolated>, Without<ConfirmedHistory<C>>)>,
 ) {
     if query.get(trigger.target()).is_ok() {
-        commands.entity(trigger.target()).try_insert(ConfirmedHistory::<C>::default());
+        commands
+            .entity(trigger.target())
+            .try_insert(ConfirmedHistory::<C>::default());
     }
 }
 

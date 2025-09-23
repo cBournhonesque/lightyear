@@ -41,6 +41,8 @@ pub mod message;
 pub mod control;
 pub mod host;
 mod impls;
+
+pub mod prespawn;
 /// Manages entity visibility for replication (e.g., interest management, rooms).
 pub mod visibility;
 
@@ -58,6 +60,7 @@ pub mod prelude {
     };
     pub use crate::message::*;
     pub use crate::plugin::ReplicationSet;
+    pub use crate::prespawn::PreSpawned;
     pub use crate::receive::{ReplicationReceivePlugin, ReplicationReceiver};
     pub use crate::registry::registry::{
         AppComponentExt, ComponentRegistration, ComponentRegistry, TransformLinearInterpolation,

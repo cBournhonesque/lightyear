@@ -1,8 +1,5 @@
-use crate::plugin::{
-    add_interpolation_systems,
-    add_prepare_interpolation_systems,
-};
-use crate::{SyncComponent};
+use crate::SyncComponent;
+use crate::plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::prelude::World;
 use bevy_ecs::{component::Component, resource::Resource};
@@ -12,9 +9,9 @@ use bevy_math::{
 };
 use bevy_platform::collections::HashMap;
 use lightyear_replication::prelude::{ComponentRegistration, ComponentRegistry};
+use lightyear_replication::registry::ComponentKind;
 use lightyear_replication::registry::buffered::BufferedChanges;
 use lightyear_replication::registry::registry::LerpFn;
-use lightyear_replication::registry::{ComponentKind};
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -62,9 +59,7 @@ impl InterpolationRegistry {
     /// Returns True if the component `C` is interpolated
     pub fn interpolated<C: Component>(&self) -> bool {
         let kind = ComponentKind::of::<C>();
-        self.interpolation_map
-            .get(&kind)
-            .is_some()
+        self.interpolation_map.get(&kind).is_some()
     }
 
     pub fn interpolate<C: Component>(&self, start: C, end: C, t: f32) -> C {
@@ -140,7 +135,8 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
                 .insert_resource(InterpolationRegistry::default());
         }
         let mut registry = self.app.world_mut().resource_mut::<InterpolationRegistry>();
-        registry.interpolation_map
+        registry
+            .interpolation_map
             .entry(ComponentKind::of::<C>())
             .and_modify(|r| r.custom_interpolation = true)
             .or_insert_with(|| InterpolationMetadata {

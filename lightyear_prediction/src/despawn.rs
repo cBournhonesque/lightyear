@@ -1,20 +1,13 @@
 use crate::Predicted;
 use crate::manager::PredictionResource;
-use crate::prespawn::PreSpawned;
+use crate::prelude::DeterministicPredicted;
 use bevy_ecs::error::ignore;
-use bevy_ecs::{
-    component::Component,
-    entity::Entity,
-    error::Result,
-    observer::Trigger,
-    reflect::ReflectComponent,
-    system::{Command, Commands, EntityCommands, Query},
-    world::{EntityWorldMut, Remove, World},
-};
+use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use lightyear_connection::host::HostClient;
-use lightyear_replication::prelude::{Confirmed, ShouldBePredicted};
+use lightyear_replication::prelude::PreSpawned;
 use tracing::{error, info};
+// TODO (IMPORTANT): we need to add PredictionDisable in the replication receiver systems!!!
 
 /// This command must be used to despawn Predicted entities.
 /// The reason is that we might want to not completely despawn the entity in case it gets 'restored' during a rollback.
@@ -51,7 +44,7 @@ impl Command for PredictionDespawnCommand {
 
         if let Ok(mut entity) = world.get_entity_mut(self.entity) {
             if entity.get::<Predicted>().is_some()
-                || entity.get::<ShouldBePredicted>().is_some()
+                || entity.get::<DeterministicPredicted>().is_some()
                 // see https://github.com/cBournhonesque/lightyear/issues/818
                 || entity.get::<PreSpawned>().is_some()
             {
@@ -60,10 +53,6 @@ impl Command for PredictionDespawnCommand {
                 // entity catches up to it
                 info!("inserting prediction disable marker");
                 entity.insert(PredictionDisable);
-            } else if entity.get::<Confirmed>().is_some() {
-                // TODO: actually we should never despawn directly on the client a Confirmed entity
-                //  it should only get despawned when replicating!
-                entity.despawn();
             } else {
                 error!("This command should only be called for predicted entities!");
             }
@@ -94,19 +83,4 @@ impl PredictionDespawnCommandsExt for EntityCommands<'_> {
             ignore,
         );
     }
-}
-
-/// Despawn predicted entities when the confirmed entity gets despawned
-pub(crate) fn despawn_confirmed(
-    trigger: On<Remove, Confirmed>,
-    query: Query<&Confirmed>,
-    mut commands: Commands,
-) -> Result {
-    if let Ok(confirmed) = query.get(trigger.entity)
-        && let Some(predicted) = confirmed.predicted
-        && let Ok(mut entity_mut) = commands.get_entity(predicted)
-    {
-        entity_mut.try_despawn();
-    }
-    Ok(())
 }

@@ -3,16 +3,17 @@ use crate::control::{Controlled, ControlledBy};
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
+use crate::prespawn::PreSpawned;
 use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
 use crate::send::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
+#[cfg(feature = "interpolation")]
+use crate::send::components::InterpolationTarget;
+#[cfg(feature = "prediction")]
+use crate::send::components::PredictionTarget;
 use crate::send::components::{
     CachedReplicate, Replicate, Replicating, ReplicationGroup, ReplicationGroupId,
 };
-#[cfg(feature = "interpolation")]
-use crate::send::components::{InterpolationTarget};
-#[cfg(feature = "prediction")]
-use crate::send::components::{PredictionTarget};
 use crate::send::sender::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 use bevy_ecs::component::Components;
@@ -251,6 +252,8 @@ pub(crate) fn replicate_entity(
             )
         }
     };
+    // we use the entity's PreSpawned component (we cannot re-use the root's)
+    let prespawned = entity_ref.get::<PreSpawned>();
 
     #[cfg(feature = "prediction")]
     let prediction_target = entity_ref
@@ -292,6 +295,7 @@ pub(crate) fn replicate_entity(
         prediction_target,
         #[cfg(feature = "interpolation")]
         interpolation_target,
+        prespawned,
         owned_by,
         cached_replicate,
         visibility,
@@ -463,6 +467,7 @@ pub(crate) fn replicate_entity_spawn(
     replicate: &Ref<Replicate>,
     #[cfg(feature = "prediction")] prediction_target: Option<&PredictionTarget>,
     #[cfg(feature = "interpolation")] interpolation_target: Option<&InterpolationTarget>,
+    prespawned: Option<&PreSpawned>,
     controlled_by: Option<&ControlledBy>,
     cached_replicate: Option<&CachedReplicate>,
     network_visibility: Option<&NetworkVisibility>,
@@ -518,7 +523,14 @@ pub(crate) fn replicate_entity_spawn(
         if interpolation_target.is_some_and(|p| p.senders.contains(&sender_entity)) {
             interpolated = true
         }
-        sender.prepare_entity_spawn(entity, group_id, priority, predicted, interpolated);
+        sender.prepare_entity_spawn(
+            entity,
+            group_id,
+            priority,
+            predicted,
+            interpolated,
+            prespawned,
+        );
 
         if controlled_by.is_some_and(|c| c.owner == sender_entity) {
             sender

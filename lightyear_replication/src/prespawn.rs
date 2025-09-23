@@ -1,35 +1,37 @@
 //! Handles spawning entities that are predicted
 
-use crate::Predicted;
-use crate::manager::{PredictionManager, PredictionResource};
-use crate::plugin::{PredictionFilter, PredictionSet};
+use crate::components::Replicated;
+use crate::control::Controlled;
+use crate::hierarchy::ReplicateLike;
+use crate::prelude::{AppComponentExt, ComponentRegistry};
+use crate::registry::ComponentKind;
 use alloc::vec::Vec;
 use bevy_app::{App, Plugin, PostUpdate};
-use bevy_ecs::{
-    archetype::Archetype,
-    component::{Component, ComponentHooks, Components, HookContext, Mutable, StorageType},
-    observer::Trigger,
-    query::{Or, With, Without},
-    reflect::ReflectComponent,
-    schedule::{IntoScheduleConfigs, SystemSet},
-    system::{Commands, Query, Single},
-    world::{DeferredWorld, Add, World},
-};
+use bevy_ecs::archetype::Archetype;
+use bevy_ecs::component::{ComponentHooks, Components, HookContext, Mutable, StorageType};
+use bevy_ecs::entity::{Entity, EntityHash};
+use bevy_ecs::prelude::*;
+use bevy_ecs::query::QuerySingleError;
+use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::Reflect;
 use core::any::TypeId;
 use core::hash::{Hash, Hasher};
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
+use lightyear_connection::client::Connected;
+use lightyear_connection::host::HostClient;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, SyncEvent, Tick};
 use lightyear_link::prelude::Server;
-use lightyear_replication::components::{PrePredicted, Replicated};
-use lightyear_replication::control::Controlled;
-use lightyear_replication::prelude::{
-    Confirmed, ReplicateLike, ReplicationReceiver, ShouldBeInterpolated, ShouldBePredicted,
-};
-use lightyear_replication::registry::ComponentKind;
-use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_sync::prelude::client::Input;
+use lightyear_utils::ready_buffer::ReadyBuffer;
 use serde::{Deserialize, Serialize};
+#[allow(unused_imports)]
 use tracing::{debug, error, trace, warn};
 
+type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>;
+
+/// PreSpawning allows you to replicate an entity to the remote, but instead of creating a new
+/// entity in the remote world, you match an existing pre-spawned entity.
+///
+/// This is achieved by adding a [`PreSpawned`] component on both the sender and receiver entity.
 #[derive(Default)]
 pub(crate) struct PreSpawnedPlugin;
 
@@ -43,12 +45,10 @@ pub enum PreSpawnedSet {
 
 impl Plugin for PreSpawnedPlugin {
     fn build(&self, app: &mut App) {
-        app.configure_sets(
-            PostUpdate,
-            PreSpawnedSet::CleanUp.in_set(PredictionSet::All),
-        );
-        app.add_observer(Self::match_with_received_server_entity);
+        app.configure_sets(PostUpdate, PreSpawnedSet::CleanUp);
+        app.register_component::<PreSpawned>();
         app.add_observer(Self::register_prespawn_hashes);
+        app.add_observer(PreSpawnedReceiver::handle_tick_sync);
         app.add_systems(
             PostUpdate,
             Self::pre_spawned_player_object_cleanup.in_set(PreSpawnedSet::CleanUp),
@@ -65,11 +65,20 @@ impl PreSpawnedPlugin {
             // run this only when the component was added on a client-spawned entity (not server-replicated)
             Without<Replicated>,
         >,
-        manager_query: Single<(&LocalTimeline, &mut PredictionManager), PredictionFilter>,
+        mut manager_query: Query<
+            (&LocalTimeline, &mut PreSpawnedReceiver),
+            (With<Connected>, Without<HostClient>),
+        >,
     ) {
         let entity = trigger.entity;
-        if let Ok(prespawn) = query.get(entity) {
-            let (timeline, mut prediction_manager) = manager_query.into_inner();
+        if let Ok(prespawn) = query.get(entity)
+            && let Ok((timeline, mut prespawned_receiver)) = match prespawn.receiver {
+                None => manager_query.single_mut(),
+                Some(receiver) => manager_query
+                    .get_mut(receiver)
+                    .map_err(|_| QuerySingleError::NoEntities("")),
+            }
+        {
             let tick = timeline.tick();
 
             // the hash can be None when PreSpawned is inserted, but the component
@@ -86,13 +95,13 @@ impl PreSpawnedPlugin {
 
             // TODO: what to do in multiple entities share the same hash?
             //  just match a random one of them? or should the user have a more precise hash?
-            prediction_manager
+            prespawned_receiver
                 .prespawn_hash_to_entities
                 .entry(hash)
                 .or_default()
                 .push(entity);
 
-            if prediction_manager
+            if prespawned_receiver
                 .prespawn_hash_to_entities
                 .get(&hash)
                 .is_some_and(|v| v.len() > 1)
@@ -105,136 +114,14 @@ impl PreSpawnedPlugin {
             }
             // add a timer on the entity so that it gets despawned if the interpolation tick
             // reaches it without matching with any server entity
-            prediction_manager.prespawn_tick_to_hash.push(tick, hash);
-        }
-    }
-
-    // TODO: should we require that ShouldBePredicted is present on the entity?
-    /// When we receive an entity from the server that contains the PreSpawned component,
-    /// that means that we already spawned it on the client.
-    /// Try to match which client entity it is and take authority over it.
-    pub(crate) fn match_with_received_server_entity(
-        trigger: On<Add, PreSpawned>,
-        mut commands: Commands,
-        query: Query<
-            &PreSpawned,
-            // only trigger this when the entity is received on the client via server-replication
-            // (this is valid because Replicated is added before the components are inserted
-            // NOTE: we cannot use Added<Replicated> because Added only checks components added
-            //  since the last time the observer has run, and if multiple entities are in the same
-            //  ReplicationGroup then the observer could run several times in a row
-            //
-            // We also require ShouldBePredicted to be present as an extra guarantee that this is the first
-            // time we have received the server entity. We could receive PreSpawned multiple
-            // times in a row for the same entity (because of ReplicationMode=SinceLastAck); and on the
-            // second time we would try again to match the entity, since on the first insert we would
-            // do a match and remove the PreSpawned component. ShouldBePredicted is guaranteed to be present
-            // on the entity the first time thanks to batch inserts. After the initial match, ShouldBePredicted
-            // gets removed so we are safe.
-            (With<Replicated>, With<ShouldBePredicted>),
-        >,
-        manager_query: Single<(&ReplicationReceiver, &mut PredictionManager), PredictionFilter>,
-    ) {
-        let confirmed_entity = trigger.entity;
-        let (receiver, mut manager) = manager_query.into_inner();
-        if let Ok(server_prespawn) = query.get(confirmed_entity) {
-            // we handle the PreSpawned hash in this system and don't need it afterwards
-            commands.entity(confirmed_entity).remove::<PreSpawned>();
-            let Some(server_hash) = server_prespawn.hash else {
-                error!("Received a PreSpawned entity from the server without a hash");
-                return;
-            };
-            let Some(mut client_entity_list) =
-                manager.prespawn_hash_to_entities.remove(&server_hash)
-            else {
-                #[cfg(feature = "metrics")]
-                {
-                    metrics::counter!("prespawn::no_match").increment(1);
-                }
-                debug!(
-                    ?server_hash,
-                    "Received a PreSpawned entity {confirmed_entity:?} from the server with a hash that does not match any client entity"
-                );
-                // remove the PreSpawned so that the entity can be normal-predicted
-                commands.entity(confirmed_entity).remove::<PreSpawned>();
-                return;
-            };
-
-            // if there are multiple entities, we will use the first one
-            let client_entity = client_entity_list.pop().unwrap();
-            debug!(
-                "found a client pre-spawned entity {client_entity:?} corresponding to server pre-spawned entity {confirmed_entity:?} for hash {server_hash:?}!",
-            );
-
-            // we found the corresponding client entity!
-            // 1.a if the client_entity exists, remove the PreSpawned component from the client entity
-            //  and add a Predicted component to it
-            let predicted_entity =
-                if let Ok(mut entity_commands) = commands.get_entity(client_entity) {
-                    #[cfg(feature = "metrics")]
-                    {
-                        metrics::counter!("prespawn::match::found").increment(1);
-                    }
-                    trace!("re-using existing entity");
-                    entity_commands.remove::<PreSpawned>().insert(Predicted {
-                        confirmed_entity: Some(confirmed_entity),
-                    });
-                    client_entity
-                } else {
-                    #[cfg(feature = "metrics")]
-                    {
-                        metrics::counter!("prespawn::match::missing").increment(1);
-                    }
-                    trace!("spawning new entity");
-                    // 1.b if the client_entity does not exist (for example it was despawned on the client),
-                    // re-create it (because server has authority)
-                    commands
-                        .spawn(Predicted {
-                            confirmed_entity: Some(confirmed_entity),
-                        })
-                        .id()
-                };
-
-            // update the predicted entity mapping
-            manager
-                .predicted_entity_map
-                .get_mut()
-                .confirmed_to_predicted
-                .insert(confirmed_entity, predicted_entity);
-
-            // 2. assign Confirmed to the server entity's counterpart, and remove PreSpawned
-            // get the confirmed tick for the entity
-            // if we don't have it, something has gone very wrong
-            let confirmed_tick = receiver.get_confirmed_tick(confirmed_entity).unwrap();
-            commands
-                .entity(confirmed_entity)
-                .insert(Confirmed {
-                    predicted: Some(predicted_entity),
-                    interpolated: None,
-                    tick: confirmed_tick,
-                })
-                // remove ShouldBePredicted so that we don't spawn another Predicted entity
-                .remove::<(PreSpawned, ShouldBePredicted)>();
-            debug!(
-                ?confirmed_tick,
-                "Added/Spawned the Predicted entity: {:?} for the confirmed entity: {:?}",
-                predicted_entity,
-                confirmed_entity
-            );
-
-            // 3. re-add the remaining entities in the map
-            if !client_entity_list.is_empty() {
-                manager
-                    .prespawn_hash_to_entities
-                    .insert(server_hash, client_entity_list);
-            }
+            prespawned_receiver.prespawn_tick_to_hash.push(tick, hash);
         }
     }
 
     /// Cleanup the client prespawned entities for which we couldn't find a mapped server entity
     pub(crate) fn pre_spawned_player_object_cleanup(
         mut commands: Commands,
-        manager_query: Single<(&LocalTimeline, &mut PredictionManager)>,
+        manager_query: Single<(&LocalTimeline, &mut PreSpawnedReceiver)>,
     ) {
         let (timeline, mut manager) = manager_query.into_inner();
         let tick = timeline.tick();
@@ -274,7 +161,7 @@ impl PreSpawnedPlugin {
 /// Prespawned entities must be spawned in the `FixedMain` schedule.
 ///
 /// ```rust
-/// # use lightyear_prediction::prelude::*;
+/// # use lightyear_replication::prelude::*;
 /// // Default hashing implementation: (tick + components)
 /// PreSpawned::default();
 ///
@@ -299,6 +186,11 @@ pub struct PreSpawned {
     /// distinguish between bullets spawned on the same tick, but by different players.
     #[serde(skip)]
     pub user_salt: Option<u64>,
+
+    // TODO: what if we want the Prespawned to only be for a given sender? or a subset of senders?
+    /// Receiver entity that is prespawning this entity.
+    /// If None, then we will use the entity that has a [`PredictionManager`].
+    pub receiver: Option<Entity>,
 }
 
 impl PreSpawned {
@@ -307,6 +199,7 @@ impl PreSpawned {
         Self {
             hash: Some(hash),
             user_salt: None,
+            receiver: None,
         }
     }
     /// Uses default hasher with additional `salt`.
@@ -314,7 +207,96 @@ impl PreSpawned {
         Self {
             hash: None,
             user_salt: Some(salt),
+            receiver: None,
         }
+    }
+
+    pub fn for_receiver(self, entity: Entity) -> Self {
+        Self {
+            hash: self.hash,
+            user_salt: self.user_salt,
+            receiver: Some(entity),
+        }
+    }
+}
+
+/// Component that can be inserted on an entity that has a [`ReplicationReceiver`](crate::receive::ReplicationReceiver)
+/// so that it can match replicated entities that have a PreSpawned hash with locally prespawned entities.
+#[derive(Component, Debug, Default)]
+pub struct PreSpawnedReceiver {
+    #[doc(hidden)]
+    /// Map from the hash of a PrespawnedPlayerObject to the corresponding local entity
+    /// NOTE: multiple entities could share the same hash. In which case, upon receiving a server prespawned entity,
+    /// we will randomly select a random entity in the set to be its predicted counterpart
+    ///
+    /// Also stores the tick at which the entities was spawned.
+    /// If the interpolation_tick reaches that tick and there is till no match, we should despawn the entity
+    prespawn_hash_to_entities: EntityHashMap<u64, Vec<Entity>>,
+    #[doc(hidden)]
+    /// Store the spawn tick of the entity, as well as the corresponding hash
+    prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
+}
+
+impl PreSpawnedReceiver {
+    /// Returns the PreSpawned entity on the receiver World that corresponds to the hash
+    /// received from the remote sender
+    pub(crate) fn matches(&mut self, hash: u64, entity: Entity) -> Option<Entity> {
+        let Some(mut prespawned_entity_list) = self.prespawn_hash_to_entities.remove(&hash) else {
+            #[cfg(feature = "metrics")]
+            {
+                metrics::counter!("prespawn::no_match").increment(1);
+            }
+            debug!(
+                ?hash,
+                "Received a PreSpawned entity {entity:?} from the remote with a hash that does not match any prespawned entity"
+            );
+            return None;
+        };
+        // if there are multiple entities, we will use the first one
+        let prespawned_entity = prespawned_entity_list.pop().unwrap();
+        // re-add the remaining entities in the map
+        if !prespawned_entity_list.is_empty() {
+            self.prespawn_hash_to_entities
+                .insert(hash, prespawned_entity_list);
+        }
+        #[cfg(feature = "metrics")]
+        {
+            metrics::counter!("prespawn::match::found").increment(1);
+        }
+        debug!(
+            "found a client pre-spawned entity {prespawned_entity:?} for remote entity {entity:?} and hash {hash:?}!",
+        );
+        Some(prespawned_entity)
+    }
+
+    /// Despawn all PreSpawned entities that were not matched and were spawned at a tick >= Tick.
+    #[doc(hidden)]
+    pub fn despawn_prespawned_after(&mut self, tick: Tick, commands: &mut Commands) {
+        for (_, hash) in self.prespawn_tick_to_hash.drain_after(&tick) {
+            if let Some(entities) = self.prespawn_hash_to_entities.remove(&hash) {
+                entities.into_iter().for_each(|entity| {
+                    debug!(
+                        ?entity,
+                        "deleting pre-spawned entity because it was created after the rollback tick"
+                    );
+                    if let Ok(mut entity_commands) = commands.get_entity(entity) {
+                        entity_commands.despawn();
+                    }
+                });
+            }
+        }
+    }
+
+    pub(crate) fn handle_tick_sync(
+        trigger: Trigger<SyncEvent<Input>>,
+        mut manager: Single<&mut Self, With<Connected>>,
+    ) {
+        let data: Vec<_> = manager.prespawn_tick_to_hash.drain().collect();
+        data.into_iter().for_each(|(tick, hash)| {
+            manager
+                .prespawn_tick_to_hash
+                .push(tick + trigger.tick_delta, hash);
+        });
     }
 }
 
@@ -336,10 +318,11 @@ impl Component for PreSpawned {
                 return;
             }
             let salt = prespawned_obj.user_salt;
+
             // Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
             // ignore replicated entities, we only want to iterate through entities spawned on the client directly
-            if let Some(prediction_resource) = deferred_world.get_resource::<PredictionResource>() {
-                let tick = deferred_world.get::<LocalTimeline>(prediction_resource.link_entity).unwrap().tick();
+            if let Some(receiver) = prespawned_obj.receiver && let Some(prespawned_receiver) = deferred_world.get::<PreSpawnedReceiver>(receiver) {
+                let tick = deferred_world.get::<LocalTimeline>(receiver).unwrap().tick();
                 let components = deferred_world.components();
                 let component_registry = deferred_world.resource::<ComponentRegistry>();
                 let entity_ref = deferred_world.entity(entity);
@@ -363,12 +346,11 @@ impl Component for PreSpawned {
                     .unwrap()
                     .hash = Some(hash);
             } else {
-                // we cannot use PredictionResource because it does not exist on the server!
                 // we need to run a query to get the Server entity.
                 deferred_world.commands().queue(move |world: &mut World| {
-                    let tick = world.query_filtered::<&LocalTimeline, Or<(With<Server>, With<PredictionManager>)>>()
+                    let tick = world.query_filtered::<&LocalTimeline, Or<(With<Server>, With<PreSpawnedReceiver>)>>()
                         .single(world)
-                        .expect("No Server or Client with PredictionManager was found")
+                        .expect("No Server or Client with PreSpawnedReceiver was found")
                         .tick();
                     let components = world.components();
                     let component_registry = world.resource::<ComponentRegistry>();
@@ -430,10 +412,7 @@ pub(crate) fn compute_default_hash(
         .filter_map(|component_id| {
             if let Some(type_id) = components.get_info(component_id).unwrap().type_id() {
                 // ignore some book-keeping components that are included in the component registry
-                if type_id != TypeId::of::<PrePredicted>()
-                    && type_id != TypeId::of::<PreSpawned>()
-                    && type_id != TypeId::of::<ShouldBePredicted>()
-                    && type_id != TypeId::of::<ShouldBeInterpolated>()
+                if type_id != TypeId::of::<PreSpawned>()
                     && type_id != TypeId::of::<Controlled>()
                     && type_id != TypeId::of::<ReplicateLike>()
                 {
