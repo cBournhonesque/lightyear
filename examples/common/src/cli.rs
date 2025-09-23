@@ -280,7 +280,7 @@ pub fn window_plugin() -> WindowPlugin {
     WindowPlugin {
         primary_window: Some(Window {
             title: format!("Lightyear Example: {}", env!("CARGO_PKG_NAME")),
-            resolution: (1024., 768.).into(),
+            resolution: (1024, 768).into(),
             present_mode: PresentMode::AutoVsync,
             // set to true if we want to capture tab etc in wasm
             prevent_default_event_handling: true,
@@ -326,8 +326,8 @@ pub fn new_gui_app(add_inspector: bool) -> App {
     app.add_plugins(DebugUIPlugin);
 
     if add_inspector {
-        app.add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin::default());
-        app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
+        // app.add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin::default());
+        // app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
     }
     app
 }

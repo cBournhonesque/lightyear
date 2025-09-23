@@ -6,7 +6,7 @@ use core::net::{Ipv4Addr, SocketAddr};
 use bevy::prelude::*;
 
 use crate::shared::SharedSettings;
-use bevy::ecs::component::HookContext;
+use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use lightyear::netcode::NetcodeClient;
 use lightyear::netcode::client_plugin::NetcodeConfig;
@@ -55,7 +55,6 @@ impl ExampleClient {
                 PeerAddr(settings.server_addr),
                 ReplicationReceiver::default(),
                 PredictionManager::default(),
-                InterpolationManager::default(),
                 Name::from("Client"),
             ));
 
@@ -125,5 +124,5 @@ impl ExampleClient {
 }
 
 pub(crate) fn connect(mut commands: Commands, client: Single<Entity, With<Client>>) {
-    commands.trigger_targets(Connect, client.into_inner());
+    commands.trigger(Connect { entity: client.into_inner() });
 }

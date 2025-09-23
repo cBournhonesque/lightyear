@@ -109,10 +109,10 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                         };
                         match client.state {
                             ClientState::Disconnected => {
-                                commands.trigger_targets(Connect, entity);
+                                commands.trigger(Connect{ entity });
                             }
                             _ => {
-                                commands.trigger_targets(Disconnect, entity);
+                                commands.trigger(Disconnect {entity });
                             }
                         };
                     },

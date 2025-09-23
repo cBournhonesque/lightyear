@@ -3,10 +3,7 @@ use aeronet_io::connection::PeerAddr;
 use aeronet_websocket::client::{ClientConfig, WebSocketClient};
 use alloc::format;
 use bevy_app::{App, Plugin};
-use bevy_ecs::{
-    error::Result,
-    prelude::{Commands, Component, Entity, EntityCommand, Name, Query, Trigger, Without, World},
-};
+use bevy_ecs::prelude::*;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
 use lightyear_link::{Link, LinkStart, Linked, Linking};
 

@@ -118,7 +118,7 @@ impl Plugin for ChecksumSendPlugin {
         // we need the LastConfirmedInput to compute the checksums
         app.register_required_components::<InputTimeline, LastConfirmedInput>();
 
-        app.add_message::<ChecksumMessage>()
+        app.register_message::<ChecksumMessage>()
             .add_direction(NetworkDirection::ClientToServer);
     }
 

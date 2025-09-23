@@ -79,7 +79,7 @@ fn movement(
         (&mut PlayerPosition, &ActionState<Inputs>),
         // if we run in host-server mode, we don't want to apply this system to the local client's entities
         // because they are already moved by the client plugin
-        (Without<Confirmed>, Without<Predicted>),
+        Without<Predicted>,
     >,
 ) {
     let tick = timeline.tick();

@@ -7,14 +7,9 @@ This crate provides abstractions for sending and receiving raw bytes over the ne
 extern crate alloc;
 
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
-use bevy_ecs::component::Component;
-use bevy_ecs::entity::Entity;
-use bevy_ecs::error::Result;
-use bevy_ecs::observer::Trigger;
-use bevy_ecs::query::{With, Without};
+use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::RelationshipTarget;
-use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_ecs::system::{Commands, ParallelCommands, Query};
+use bevy_ecs::system::{ParallelCommands};
 use tracing::{debug, error, info};
 
 use crate::UdpError;

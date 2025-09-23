@@ -193,6 +193,7 @@ bevy = { version = "0.17.0-rc.1", default-features = false, features = [
   "bevy_color",
   "multi_threaded",
   "sysinfo_plugin",
+  "zstd_rust"
 ] }
 bevy_app = { version = "0.17.0-rc.1", default-features = false }
 bevy_derive = { version = "0.17.0-rc.1", default-features = false }

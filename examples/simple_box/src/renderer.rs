@@ -1,6 +1,5 @@
 use crate::protocol::*;
 use bevy::prelude::*;
-use lightyear::prelude::Confirmed;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
@@ -20,7 +19,7 @@ fn init(mut commands: Commands) {
 /// The components should be replicated from the server to the client
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &PlayerColor), Without<Confirmed>>,
+    players: Query<(&PlayerPosition, &PlayerColor)>,
 ) {
     for (position, color) in &players {
         gizmos.rect_2d(

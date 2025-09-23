@@ -321,12 +321,9 @@ impl PreSpawned {
         // Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
         // ignore replicated entities, we only want to iterate through entities spawned on the client directly
         if let Some(receiver) = prespawned_obj.receiver
-            && let Some(prespawned_receiver) = deferred_world.get::<PreSpawnedReceiver>(receiver)
+            && let Some(local_timeline) = deferred_world.get::<LocalTimeline>(receiver)
         {
-            let tick = deferred_world
-                .get::<LocalTimeline>(receiver)
-                .unwrap()
-                .tick();
+            let tick = local_timeline.tick();
             let components = deferred_world.components();
             let component_registry = deferred_world.resource::<ComponentRegistry>();
             let entity_ref = deferred_world.entity(entity);

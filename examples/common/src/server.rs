@@ -10,7 +10,7 @@ use core::time::Duration;
 use crate::shared::SharedSettings;
 #[cfg(not(target_family = "wasm"))]
 use async_compat::Compat;
-use bevy::ecs::component::HookContext;
+use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
 #[cfg(not(target_family = "wasm"))]
 use bevy::tasks::IoTaskPool;
@@ -164,7 +164,7 @@ impl ExampleServer {
 }
 
 pub(crate) fn start(mut commands: Commands, server: Single<Entity, With<Server>>) {
-    commands.trigger_targets(Start, server.into_inner());
+    commands.trigger(Start { entity: server.into_inner() });
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

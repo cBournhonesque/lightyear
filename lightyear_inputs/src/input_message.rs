@@ -67,7 +67,7 @@ pub trait ActionStateQueryData {
     type Mut: QueryData;
 
     // The inner value corresponding to Self::Mut::Item<'w, 's> (i.e. for Mut<'w, 's, ActionState<A>, this is &'mut ActionState<A>)
-    type MutItemInner<'w, 's>;
+    type MutItemInner<'w>;
 
     // Component that should always be present to represent the ActionState.
     // We use this for registering required components in the App.
@@ -84,10 +84,10 @@ pub trait ActionStateQueryData {
     // Convert from the mutable query item (i.e. Mut<'w, ActionState<A>>) to the inner mutable item (i.e. &mut ActionState<A>)
     fn into_inner<'w, 's>(
         mut_item: <Self::Mut as QueryData>::Item<'w, 's>,
-    ) -> Self::MutItemInner<'w, 's>;
+    ) -> Self::MutItemInner<'w>;
 
     // Convert from the Bundle (ActionState<A>) to the inner mutable item (i.e. &mut ActionState<A>)
-    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w, '_>;
+    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w>;
     fn base_value() -> Self::Bundle;
 }
 
@@ -106,8 +106,8 @@ pub(crate) type StateMut<S: ActionStateSequence> = <S::State as ActionStateQuery
 pub(crate) type StateMutItem<'w, 's, S: ActionStateSequence> =
     <StateMut<S> as QueryData>::Item<'w, 's>;
 
-pub(crate) type StateMutItemInner<'w, 's, S: ActionStateSequence> =
-    <S::State as ActionStateQueryData>::MutItemInner<'w, 's>;
+pub(crate) type StateMutItemInner<'w, S: ActionStateSequence> =
+    <S::State as ActionStateQueryData>::MutItemInner<'w>;
 
 /// An ActionStateSequence represents a sequence of states that can be serialized and sent over the network.
 ///
@@ -223,7 +223,7 @@ pub trait ActionStateSequence:
     fn to_snapshot<'w, 's>(state: StateRefItem<'w, 's, Self>) -> Self::Snapshot;
 
     /// Modify the given state to reflect the given snapshot.
-    fn from_snapshot<'w, 's>(state: StateMutItemInner<'w, 's, Self>, snapshot: &Self::Snapshot);
+    fn from_snapshot<'w>(state: StateMutItemInner<'w, Self>, snapshot: &Self::Snapshot);
 }
 
 /// Message used to send client inputs to the server.

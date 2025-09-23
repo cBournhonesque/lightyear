@@ -110,11 +110,11 @@ impl<
         Some(Self { states })
     }
 
-    fn to_snapshot<'w, 's>(state: &'w ActionState<A>) -> Self::Snapshot {
+    fn to_snapshot(state: &ActionState<A>) -> Self::Snapshot {
         (*state).clone()
     }
 
-    fn from_snapshot<'w, 's>(state: &'w mut ActionState<A>, snapshot: &Self::Snapshot) {
+    fn from_snapshot(state: &mut ActionState<A>, snapshot: &Self::Snapshot) {
         *state = snapshot.clone();
     }
 }

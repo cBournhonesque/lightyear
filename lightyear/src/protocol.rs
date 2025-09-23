@@ -2,11 +2,7 @@
 
 use bevy_app::{App, Plugin};
 use bevy_ecs::error::{BevyError, Result};
-use bevy_ecs::event::Event;
-use bevy_ecs::observer::Trigger;
-use bevy_ecs::query::{With, Without};
-use bevy_ecs::system::{Query, ResMut};
-use bevy_ecs::world::Add;
+use bevy_ecs::prelude::*;
 use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
