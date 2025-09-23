@@ -4,12 +4,7 @@
 
 use bevy_app::{App, Plugin, PreUpdate};
 use bevy_derive::{Deref, DerefMut};
-use bevy_ecs::{
-    component::Component,
-    observer::Trigger,
-    query::{With, Without},
-    system::{Query, Res},
-};
+use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_time::{Time, Virtual};
 use bevy_utils::default;
@@ -18,7 +13,7 @@ use lightyear_connection::client::{Client, Connected};
 use lightyear_core::prelude::Rollback;
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{TickDelta, TickInstant};
-use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineContext};
+use lightyear_core::timeline::{NetworkTimeline, Timeline, TimelineContext};
 use lightyear_messages::prelude::RemoteEvent;
 use lightyear_replication::message::SenderMetadata;
 use lightyear_sync::prelude::PingManager;
@@ -131,16 +126,13 @@ impl SyncedTimeline for InterpolationTimeline {
         obj
     }
 
-    fn resync(&mut self, sync_objective: TickInstant) -> SyncEvent<Self> {
+    fn resync(&mut self, sync_objective: TickInstant) -> i16 {
         let now = self.now();
         let target = sync_objective;
         let tick_delta = (target - now).to_i16();
         trace!(?tick_delta, "Resync Interpolation timeline!");
         self.now = target;
-        SyncEvent::<Self> {
-            tick_delta,
-            marker: core::marker::PhantomData,
-        }
+        tick_delta
     }
 
     // TODO: this code is duplicated in the Predicted timeline
@@ -153,7 +145,7 @@ impl SyncedTimeline for InterpolationTimeline {
         remote: &T,
         ping_manager: &PingManager,
         tick_duration: Duration,
-    ) -> Option<SyncEvent<Self>> {
+    ) -> Option<i16> {
         // skip syncing if we haven't received enough information
         if ping_manager.pongs_recv < self.sync_config.handshake_pings as u32 {
             return None;

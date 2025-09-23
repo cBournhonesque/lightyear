@@ -107,13 +107,13 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
 ///
 // TODO: should we populate the history immediately with the component value?
 pub(crate) fn insert_confirmed_history<C: Component>(
-    trigger: Trigger<OnAdd, Confirmed<C>>,
+    trigger: On<Add, Confirmed<C>>,
     mut commands: Commands,
     query: Query<(), (With<Interpolated>, Without<ConfirmedHistory<C>>)>,
 ) {
-    if query.get(trigger.target()).is_ok() {
+    if query.get(trigger.entity).is_ok() {
         commands
-            .entity(trigger.target())
+            .entity(trigger.entity)
             .try_insert(ConfirmedHistory::<C>::default());
     }
 }

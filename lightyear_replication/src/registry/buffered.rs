@@ -126,7 +126,7 @@ impl TempWriteBuffer {
     /// insert them all at once using `entity_world_mut.insert_by_ids`
     ///
     /// # Safety
-    /// - the byte presentation of the component [`C`] must match the byte representation of the component
+    /// - the byte presentation of the component `C` must match the byte representation of the component
     ///   identified by `component_id `
     pub unsafe fn buffer_insert_raw_ptrs<C: Component>(
         &mut self,

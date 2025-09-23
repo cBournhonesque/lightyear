@@ -47,7 +47,7 @@ impl Plugin for SharedPlugin {
 
         app.add_systems(
             RunFixedMainLoop,
-            debug.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
+            debug.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         );
     }
 }

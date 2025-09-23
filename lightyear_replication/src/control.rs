@@ -1,13 +1,5 @@
 use alloc::vec::Vec;
-use bevy_ecs::{
-    component::Component,
-    entity::Entity,
-    observer::Trigger,
-    reflect::ReflectComponent,
-    relationship::RelationshipTarget,
-    system::{Commands, Query},
-    world::Add,
-};
+use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use lightyear_connection::client::Disconnected;
 use serde::{Deserialize, Serialize};

@@ -2,16 +2,11 @@ use crate::prelude::RemoteEvent;
 use crate::registry::{MessageError, MessageKind};
 use crate::send::Priority;
 use crate::{MessageManager, MessageNetId};
-use alloc::{vec, vec::Vec};
-use bevy_ecs::{
-    change_detection::MutUntyped,
-    component::{Component},
-    entity::Entity,
-    event::Event,
-    system::ParallelCommands,
-    world::{DeferredWorld, World},
-};
+use alloc::vec::Vec;
+use bevy_ecs::change_detection::MutUntyped;
 use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::prelude::*;
+use bevy_ecs::world::DeferredWorld;
 use lightyear_core::id::PeerId;
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;

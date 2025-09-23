@@ -116,9 +116,7 @@ pub(crate) fn move_player(
         if is_bot.get(trigger.entity).is_err() {
             trace!(
                 ?position,
-                "Moving player {:?} by {:?}",
-                trigger.entity,
-                trigger.value
+                "Moving player {:?} by {:?}", trigger.entity, trigger.value
             );
         }
         let value = trigger.value;

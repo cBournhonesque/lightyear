@@ -22,7 +22,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(add_global_actions);
         // app.add_observer(cycle_projectile_mode);
         // app.add_observer(cycle_replication_mode);
-        // app.add_systems(RunFixedMainLoop, cycle_replication_mode.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop), "gui");
+        // app.add_systems(RunFixedMainLoop, cycle_replication_mode.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop), "gui");
         // app.add_systems(FixedUpdate, cycle_replication_mode_fixed_update);
     }
 }

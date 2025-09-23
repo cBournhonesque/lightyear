@@ -70,7 +70,7 @@ pub fn replicate_bis(
 
             // enable split borrows
             let sender = &mut *sender;
-            if !sender.send_timer.finished() {
+            if !sender.send_timer.is_finished() {
                 return;
             }
             // update the change ticks
@@ -241,7 +241,7 @@ pub fn replicate_entity_bis(
             |(sender_entity, mut sender, mut message_manager, timeline)| {
                 let entity_mapper = &mut message_manager.entity_mapper;
                 let sender = sender.as_mut();
-                if !sender.send_timer.finished() {
+                if !sender.send_timer.is_finished() {
                     return;
                 }
 
@@ -378,7 +378,7 @@ pub fn replicate_entity_bis(
             .par_iter_many_unique_mut(replicate.senders.as_slice())
             .for_each(
                 |(sender_entity, mut sender, mut message_manager, timeline)| {
-                    if !sender.send_timer.finished() {
+                    if !sender.send_timer.is_finished() {
                         return;
                     }
                     // If we are using visibility and this sender is not visible, skip

@@ -8,18 +8,12 @@
 
 use crate::send::sender::ReplicationSender;
 use bevy_app::{App, Plugin};
-use bevy_ecs::{
-    component::Component,
-    entity::Entity,
-    event::Event,
-    observer::Trigger,
-    system::{Query, Res},
-};
+use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use lightyear_connection::client::PeerMetadata;
 use lightyear_connection::prelude::NetworkDirection;
 use lightyear_core::id::PeerId;
-use lightyear_messages::prelude::{AppTriggerExt, RemoteEvent, EventSender};
+use lightyear_messages::prelude::{AppTriggerExt, EventSender, RemoteEvent};
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, ReliableSettings};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
@@ -63,18 +57,30 @@ pub enum AuthorityTransfer {
     Denied,
 }
 
-/// Trigger that can be networked to give or take authority over an entity.
-#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy, Reflect)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Reflect)]
 pub enum AuthorityTransferRequest {
     Request,
     Give,
 }
 
 /// Trigger that can be networked to give or take authority over an entity.
-#[derive(Event, Serialize, Deserialize, Debug, Clone, Copy, Reflect)]
+#[derive(EntityEvent, Serialize, Deserialize, Debug, Clone, Copy, Reflect)]
+pub struct AuthorityRequestEvent {
+    entity: Entity,
+    request: AuthorityTransferRequest,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Reflect)]
 pub enum AuthorityTransferResponse {
     Granted,
     Denied,
+}
+
+/// Trigger that can be networked to give or take authority over an entity.
+#[derive(EntityEvent, Serialize, Deserialize, Debug, Clone, Copy, Reflect)]
+pub struct AuthorityResponseEvent {
+    entity: Entity,
+    response: AuthorityTransferResponse,
 }
 
 struct AuthorityChannel;
@@ -90,9 +96,9 @@ impl Plugin for AuthorityPlugin {
             priority: 10.0,
         })
         .add_direction(NetworkDirection::Bidirectional);
-        app.register_event::<AuthorityTransferRequest>()
+        app.register_event::<AuthorityRequestEvent>()
             .add_direction(NetworkDirection::Bidirectional);
-        app.register_event::<AuthorityTransferResponse>()
+        app.register_event::<AuthorityResponseEvent>()
             .add_direction(NetworkDirection::Bidirectional);
 
         app.add_observer(Self::handle_authority_request);
@@ -104,22 +110,22 @@ impl Plugin for AuthorityPlugin {
 
 impl AuthorityPlugin {
     fn handle_authority_request(
-        trigger: On<RemoteEvent<AuthorityTransferRequest>>,
+        trigger: On<RemoteEvent<AuthorityRequestEvent>>,
         metadata: Res<PeerMetadata>,
         mut sender_query: Query<(
             &mut ReplicationSender,
-            &mut EventSender<AuthorityTransferResponse>,
+            &mut EventSender<AuthorityResponseEvent>,
         )>,
         query: Query<&AuthorityTransfer>,
     ) {
         if let Some(&sender_entity) = metadata.mapping.get(&trigger.from) {
-            let entity = trigger.entity;
+            let entity = trigger.event_target();
             if let Ok((mut sender, mut response_sender)) = sender_query.get_mut(sender_entity) {
                 trace!(
                     "Received authority request: {:?} for entity {:?}, from peer: {:?}",
                     trigger.trigger, entity, trigger.from
                 );
-                match trigger.trigger {
+                match trigger.trigger.request {
                     AuthorityTransferRequest::Request => {
                         // Check if the entity has authority transfer enabled
                         if let Ok(transfer) = query.get(entity) {
@@ -134,24 +140,28 @@ impl AuthorityPlugin {
                                         "Remote peer {:?} is taking authority from us for entity {entity:?}",
                                         trigger.from
                                     );
-                                    response_sender.trigger_targets::<AuthorityChannel>(
-                                        AuthorityTransferResponse::Granted,
-                                        core::iter::once(entity),
+                                    response_sender.trigger::<AuthorityChannel>(
+                                        AuthorityResponseEvent {
+                                            entity,
+                                            response: AuthorityTransferResponse::Granted,
+                                        },
                                     );
                                     sender.replicated_entities.insert(entity, false);
                                 }
                                 AuthorityTransfer::Denied => {
-                                    response_sender.trigger_targets::<AuthorityChannel>(
-                                        AuthorityTransferResponse::Denied,
-                                        core::iter::once(entity),
+                                    response_sender.trigger::<AuthorityChannel>(
+                                        AuthorityResponseEvent {
+                                            entity,
+                                            response: AuthorityTransferResponse::Denied,
+                                        },
                                     );
                                 }
                             }
                         } else {
-                            response_sender.trigger_targets::<AuthorityChannel>(
-                                AuthorityTransferResponse::Denied,
-                                core::iter::once(entity),
-                            );
+                            response_sender.trigger::<AuthorityChannel>(AuthorityResponseEvent {
+                                entity,
+                                response: AuthorityTransferResponse::Denied,
+                            });
                         }
                     }
                     AuthorityTransferRequest::Give => {
@@ -163,18 +173,18 @@ impl AuthorityPlugin {
     }
 
     fn handle_authority_response(
-        trigger: On<RemoteEvent<AuthorityTransferResponse>>,
+        trigger: On<RemoteEvent<AuthorityResponseEvent>>,
         metadata: Res<PeerMetadata>,
         mut sender_query: Query<&mut ReplicationSender>,
     ) {
         if let Some(&sender_entity) = metadata.mapping.get(&trigger.from) {
-            let entity = trigger.entity;
+            let entity = trigger.event_target();
             if let Ok(mut sender) = sender_query.get_mut(sender_entity) {
                 trace!(
                     "Authority response: {:?} for entity {:?}, from peer: {:?}",
                     trigger.trigger, entity, trigger.from
                 );
-                match trigger.trigger {
+                match trigger.trigger.response {
                     AuthorityTransferResponse::Granted => {
                         // we have been granted authority by the remote peer
                         sender.replicated_entities.insert(entity, true);
@@ -190,7 +200,7 @@ impl AuthorityPlugin {
         metadata: Res<PeerMetadata>,
         mut sender_query: Query<(
             &mut ReplicationSender,
-            &mut EventSender<AuthorityTransferRequest>,
+            &mut EventSender<AuthorityRequestEvent>,
         )>,
     ) {
         if let Some(sender_entity) = metadata.mapping.get(&trigger.remote_peer)
@@ -206,10 +216,10 @@ impl AuthorityPlugin {
                             "Give authority for entity {:?} to peer: {:?}",
                             trigger.entity, trigger.remote_peer
                         );
-                        trigger_sender.trigger_targets::<AuthorityChannel>(
-                            AuthorityTransferRequest::Give,
-                            core::iter::once(trigger.entity),
-                        );
+                        trigger_sender.trigger::<AuthorityChannel>(AuthorityRequestEvent {
+                            entity: trigger.entity,
+                            request: AuthorityTransferRequest::Give,
+                        });
                         *entry = false;
                     }
                 });
@@ -219,10 +229,7 @@ impl AuthorityPlugin {
     fn request_authority(
         trigger: On<RequestAuthority>,
         metadata: Res<PeerMetadata>,
-        mut sender_query: Query<(
-            &ReplicationSender,
-            &mut EventSender<AuthorityTransferRequest>,
-        )>,
+        mut sender_query: Query<(&ReplicationSender, &mut EventSender<AuthorityRequestEvent>)>,
     ) {
         if let Some(sender_entity) = metadata.mapping.get(&trigger.remote_peer)
             && let Ok((sender, mut trigger_sender)) = sender_query.get_mut(*sender_entity)
@@ -232,24 +239,26 @@ impl AuthorityPlugin {
                 "Request authority for entity {:?} from peer: {:?}",
                 trigger.entity, trigger.remote_peer
             );
-            trigger_sender.trigger_targets::<AuthorityChannel>(
-                AuthorityTransferRequest::Request,
-                core::iter::once(trigger.entity),
-            );
+            trigger_sender.trigger::<AuthorityChannel>(AuthorityRequestEvent {
+                entity: trigger.entity,
+                request: AuthorityTransferRequest::Request,
+            });
         }
     }
 }
 
-/// Trigger to emit to give authority over entity `entity` to the remote peer
-#[derive(Event, Debug)]
+/// Event to emit to give authority over entity `entity` to the remote peer
+#[derive(EntityEvent, Debug)]
 pub struct GiveAuthority {
+    pub sender: Entity,
     pub entity: Entity,
     pub remote_peer: PeerId,
 }
 
-/// Trigger to emit to request authority over entity `entity` from the remote peer
-#[derive(Event, Debug)]
+/// Event to emit to request authority over entity `entity` from the remote peer
+#[derive(EntityEvent, Debug)]
 pub struct RequestAuthority {
+    pub sender: Entity,
     pub entity: Entity,
     pub remote_peer: PeerId,
 }

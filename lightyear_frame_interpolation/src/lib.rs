@@ -48,17 +48,11 @@ pub mod prelude {
 // - we need to store the component values of the previous tick
 // - then in PostUpdate (visual interpolation) we interpolate between the previous tick and the current tick using the overstep
 // - in PreUpdate, we restore the component value to the previous tick values
-use bevy_app::{App, FixedLast, Plugin, PostUpdate, RunFixedMainLoop, RunFixedMainLoopSystem};
-use bevy_ecs::{
-    change_detection::DetectChangesMut,
-    component::{Component, Mutable},
-    query::With,
-    schedule::{IntoScheduleConfigs, SystemSet, common_conditions::not},
-    system::{Query, Res, Single},
-    world::Ref,
-};
+use bevy_app::{App, FixedLast, Plugin, PostUpdate, RunFixedMainLoop, RunFixedMainLoopSystems};
+use bevy_ecs::component::Mutable;
+use bevy_ecs::prelude::*;
+use bevy_ecs::schedule::common_conditions::not;
 use bevy_time::{Fixed, Time};
-use bevy_transform::TransformSystem;
 use core::fmt::Debug;
 use lightyear_connection::client::Client;
 use lightyear_core::prelude::LocalTimeline;
@@ -111,7 +105,7 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
         // SETS
         app.configure_sets(
             RunFixedMainLoop,
-            FrameInterpolationSet::Restore.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
+            FrameInterpolationSet::Restore.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         );
         // We don't run UpdateVisualInterpolationState in rollback because we that would be a waste.
         // At the end of rollback, we have a system in lightyear_prediction that manually sets the FrameInterpolate component.
@@ -122,7 +116,7 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
         app.configure_sets(
             PostUpdate,
             FrameInterpolationSet::Interpolate
-                .before(TransformSystem::TransformPropagate)
+                .before(bevy_transform::TransformSystems::Propagate)
                 // we don't want the visual interpolation value to be the one replicated!
                 .after(ReplicationBufferSet::Buffer),
         );

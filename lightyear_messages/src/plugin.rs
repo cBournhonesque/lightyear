@@ -1,11 +1,11 @@
 use crate::MessageManager;
 use crate::registry::MessageRegistry;
 use bevy_app::{App, Last, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::prelude::{Add, On};
 use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
     system::{ParamBuilder, Query, QueryParamBuilder, SystemParamBuilder},
 };
-use bevy_ecs::prelude::{Add, On};
 use lightyear_connection::client::Disconnected;
 use lightyear_transport::plugin::{TransportPlugin, TransportSet};
 

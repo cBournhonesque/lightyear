@@ -61,7 +61,7 @@ impl VisibilityState {
 /// You can use [`gain_visibility`](NetworkVisibility::gain_visibility) and [`lose_visibility`](NetworkVisibility::lose_visibility)
 /// to control the network visibility of entities.
 ///
-/// You can also use [`Room`]s for a more stateful approach to network visibility
+/// You can also use [`Room`](super::room::Room)s for a more stateful approach to network visibility
 ///
 /// (the client still needs to be included in the [`Replicate`](crate::prelude::Replicate), the room is simply an additional constraint)
 #[derive(Component, Clone, Default, PartialEq, Debug, Reflect)]
@@ -147,7 +147,7 @@ impl NetworkVisibilityPlugin {
         manager_query
             .iter_mut()
             .for_each(|(sender_entity, sender)| {
-                if !sender.send_timer.finished() {
+                if !sender.send_timer.is_finished() {
                     return;
                 }
                 sender
@@ -169,12 +169,9 @@ impl NetworkVisibilityPlugin {
     }
 
     /// Pop the disconnected client from all NetworkVisibility components
-    fn handle_disconnect(
-        trigger: Trigger<OnAdd, Disconnected>,
-        mut query: Query<&mut NetworkVisibility>,
-    ) {
+    fn handle_disconnect(trigger: On<Add, Disconnected>, mut query: Query<&mut NetworkVisibility>) {
         query.iter_mut().for_each(|mut room| {
-            room.clients.remove(&trigger.target());
+            room.clients.remove(&trigger.entity);
         });
     }
 }

@@ -43,8 +43,7 @@ impl AeronetPlugin {
         {
             trace!(
                 "LocalAddr added on AeronetLink {:?}. Adding on Link entity {:?}",
-                trigger.entity,
-                aeronet_link.0
+                trigger.entity, aeronet_link.0
             );
             c.insert(LocalAddr(local_addr.0));
         }
@@ -61,8 +60,7 @@ impl AeronetPlugin {
         {
             trace!(
                 "PeerAddr added on AeronetLink {:?}. Adding on Link entity {:?}",
-                trigger.entity,
-                aeronet_link.0
+                trigger.entity, aeronet_link.0
             );
             c.insert(PeerAddr(peer_addr.0));
         }
@@ -78,8 +76,7 @@ impl AeronetPlugin {
         {
             trace!(
                 "SessionEndpoint added on AeronetLink {:?}. Adding Linking on Link entity {:?}",
-                trigger.entity,
-                aeronet_link.0
+                trigger.entity, aeronet_link.0
             );
             c.insert(Linking);
         }
@@ -95,8 +92,7 @@ impl AeronetPlugin {
         {
             trace!(
                 "Session added on AeronetLink {:?}. Adding Linked on Link entity {:?}",
-                trigger.entity,
-                aeronet_link.0
+                trigger.entity, aeronet_link.0
             );
             c.insert(Linked);
         }
@@ -123,8 +119,7 @@ impl AeronetPlugin {
             };
             trace!(
                 "Disconnected (reason: {reason:?}) triggered added on AeronetLink {:?}. Adding Unlinked on Link entity {:?}",
-                trigger.entity,
-                aeronet_io.0
+                trigger.entity, aeronet_io.0
             );
             // we try insert, because the LinkOf entity might have been despawned already
             c.try_insert(Unlinked { reason });
@@ -144,8 +139,7 @@ impl AeronetPlugin {
             let reason = core::mem::take(&mut trigger.reason);
             trace!(
                 "Unlink triggered on Link entity {:?} (reason: {reason:?}). Closing/Disconnecting AeronetLink entity {:?}",
-                trigger.entity,
-                aeronet_link.0
+                trigger.entity, aeronet_link.0
             );
             if is_server {
                 commands.entity(aeronet_link.0).trigger(Close::new(reason));

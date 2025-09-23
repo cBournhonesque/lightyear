@@ -9,10 +9,8 @@ use crate::packet::message::{FragmentData, MessageAck, ReceiveMessage, SingleDat
 #[cfg(feature = "test_utils")]
 use crate::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 use bevy_app::prelude::*;
-use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::prelude::*;
-#[cfg(any(feature = "client", feature = "server"))]
-use bevy_ecs::{observer::Trigger, world::Add};
+use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_platform::collections::hash_map::Entry;
 use bevy_time::{Real, Time};
 #[cfg(feature = "test_utils")]
@@ -42,8 +40,10 @@ pub enum TransportSet {
     Send,
 }
 
-#[derive(Event)]
+/// Event triggered on a [`Transport`] entity when it receives a new packet
+#[derive(EntityEvent)]
 pub struct PacketReceived {
+    pub entity: Entity,
     pub remote_tick: Tick,
 }
 
@@ -132,7 +132,7 @@ impl TransportPlugin {
 
                         // TODO: maybe switch to event buffer instead of triggers?
                         par_commands.command_scope(|mut commands| {
-                            commands.trigger_targets(PacketReceived { remote_tick: tick }, entity);
+                            commands.trigger(PacketReceived { entity, remote_tick: tick });
                         });
 
                         // Update the packet acks

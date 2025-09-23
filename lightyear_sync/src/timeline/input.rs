@@ -2,10 +2,7 @@ use crate::ping::manager::PingManager;
 use crate::timeline::sync::{SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline};
 
 use bevy_derive::{Deref, DerefMut};
-use bevy_ecs::component::Component;
-use bevy_ecs::observer::Trigger;
-use bevy_ecs::query::{Changed, With, Without};
-use bevy_ecs::system::{Query, Res};
+use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_time::Time;
 use bevy_utils::default;
@@ -304,13 +301,10 @@ impl SyncedTimeline for InputTimeline {
         obj
     }
 
-    fn resync(&mut self, sync_objective: TickInstant) -> SyncEvent<Self> {
+    fn resync(&mut self, sync_objective: TickInstant) -> i16 {
         let now = self.now();
         self.now = sync_objective;
-        SyncEvent {
-            tick_delta: (sync_objective - now).to_i16(),
-            marker: core::marker::PhantomData,
-        }
+        (sync_objective - now).to_i16()
     }
 
     /// Adjust the current timeline to stay in sync with the [`RemoteTimeline`].
@@ -324,7 +318,7 @@ impl SyncedTimeline for InputTimeline {
         main: &T,
         ping_manager: &PingManager,
         tick_duration: Duration,
-    ) -> Option<SyncEvent<Self>> {
+    ) -> Option<i16> {
         // skip syncing if we haven't received enough information
         if ping_manager.pongs_recv < self.config.handshake_pings as u32 {
             return None;

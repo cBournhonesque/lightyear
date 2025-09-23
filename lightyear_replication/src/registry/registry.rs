@@ -72,12 +72,9 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// calling the [`add_map_entities`](ComponentRegistration::add_map_entities) method.
 ///
 /// #### Prediction
-/// When client-prediction is enabled, we create two distinct entities on the client when the server replicates an entity: a [`Confirmed`](crate::prelude::Confirmed) entity and a [`Predicted`](lightyear_core::prelude::Predicted) entity.
-/// The `Confirmed` entity will just get updated when the client receives the server updates, while the `Predicted` entity will be updated by the client's prediction system.
+/// When client-prediction is enabled, a predicted entity is one that has the [`Predicted`](lightyear_core::prelude::Predicted) component.
 ///
-/// Components are not synced from the Confirmed entity to the Predicted entity by default, you have to enable this behaviour.
-/// You can do this by calling the `add_prediction` method.
-/// You will have to provide a `PredictionMode` that defines the behaviour of the prediction system.
+/// You have to specify which components are predicted by calling the `add_prediction` method.
 ///
 /// #### Correction
 /// When client-prediction is enabled, there might be cases where there is a mismatch between the state of the Predicted entity
@@ -90,13 +87,10 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// which provides linear interpolation.
 ///
 /// #### Interpolation
-/// Similarly to client-prediction, we create two distinct entities on the client when the server replicates an entity: a [`Confirmed`](crate::prelude::Confirmed) entity and an [`Interpolated`](lightyear_core::prelude::Interpolated) entity.
-/// The Confirmed entity will just get updated when the client receives the server updates, while the Interpolated entity will be updated by the client's interpolation system,
-/// which will interpolate between two Confirmed states.
+/// Similarly to client-prediction, an interpolated entity has the [`Interpolated`](lightyear_core::prelude::Interpolated) component.
 ///
-/// Components are not synced from the Confirmed entity to the Interpolated entity by default, you have to enable this behaviour.
-/// You can do this by calling the `add_interpolation` method.
-/// You will have to provide a `InterpolationMode` that defines the behaviour of the interpolation system.
+/// Interpolated componnets are added by calling the `add_interpolation` method and will interpolate between two
+/// consecutive replicated updates.
 ///
 /// You will also need to provide an interpolation function that will be used to interpolate between two states.
 /// If your component implements the `Ease` trait, you can use the `add_linear_interpolation_fn` method,

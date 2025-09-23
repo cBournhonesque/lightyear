@@ -55,7 +55,7 @@ use crate::{HISTORY_DEPTH, InputChannel};
 use alloc::format;
 use alloc::{vec, vec::Vec};
 use bevy_app::{
-    App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoopSystem,
+    App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoopSystems,
 };
 use bevy_ecs::query::Or;
 use bevy_ecs::{
@@ -154,15 +154,15 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         // SETS
 
         // NOTE: this is subtle! We receive remote players messages after
-        //  RunFixedMainLoopSystem::BeforeFixedMainLoop to ensure that the local leafwing `states` have
+        //  RunFixedMainLoopSystems::BeforeFixedMainLoop to ensure that the local leafwing `states` have
         //  been switched to the `fixed_update` state (see https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)
         //  We can move this system back in PreUpdate if we drop leafwing support.
         //  Conveniently, this also ensures that we run this after MessageSet::Receive.
         app.configure_sets(
             PreUpdate,
             InputSet::ReceiveInputMessages
-                .before(RunFixedMainLoopSystem::FixedMainLoop)
-                .after(RunFixedMainLoopSystem::BeforeFixedMainLoop),
+                .before(RunFixedMainLoopSystems::FixedMainLoop)
+                .after(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         );
 
         app.configure_sets(
@@ -187,7 +187,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         // SYSTEMS
         #[cfg(feature = "prediction")]
         if self.config.rebroadcast_inputs {
-            // NOTE: we do NOT need to run this after RunFixedMainLoopSystem::BeforeFixedMainLoop to ensure that the
+            // NOTE: we do NOT need to run this after RunFixedMainLoopSystems::BeforeFixedMainLoop to ensure that the
             //  local leafwing `states` have been switched to the `fixed_update` state (see
             //  https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)
             //  because when applying the diffs we manually update the fixed_update_state .

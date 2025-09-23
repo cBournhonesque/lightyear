@@ -27,11 +27,7 @@ impl ServerAeronetPlugin {
         }
     }
 
-    fn on_opened(
-        trigger: On<Add, Server>,
-        query: Query<&AeronetLinkOf>,
-        mut commands: Commands,
-    ) {
+    fn on_opened(trigger: On<Add, Server>, query: Query<&AeronetLinkOf>, mut commands: Commands) {
         if let Ok(child_of) = query.get(trigger.entity)
             && let Ok(mut c) = commands.get_entity(child_of.0)
         {

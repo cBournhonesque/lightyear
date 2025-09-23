@@ -25,14 +25,11 @@ use alloc::{collections::vec_deque::Drain, string::String};
 pub use crate::conditioner::LinkConditioner;
 use alloc::collections::VecDeque;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
-use bevy_ecs::{
-    event::Event,
-    world::DeferredWorld,
-};
-use bytes::Bytes;
-use core::time::Duration;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
+use bevy_ecs::world::DeferredWorld;
+use bytes::Bytes;
+use core::time::Duration;
 use lightyear_core::time::Instant;
 
 /// Commonly used items from the `lightyear_link` crate.

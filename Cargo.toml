@@ -197,7 +197,7 @@ bevy = { version = "0.17.0-rc.1", default-features = false, features = [
 bevy_app = { version = "0.17.0-rc.1", default-features = false }
 bevy_derive = { version = "0.17.0-rc.1", default-features = false }
 bevy_diagnostic = { version = "0.17.0-rc.1", default-features = false }
-bevy_color = { version = "0.16", default-features = false }
+bevy_color = { version = "0.17.0-rc.1", default-features = false }
 bevy_ecs = { version = "0.17.0-rc.1", default-features = false }
 bevy_input = { version = "0.17.0-rc.1", default-features = false }
 bevy_log = { version = "0.17.0-rc.1", default-features = false }
@@ -205,9 +205,9 @@ bevy_math = { version = "0.17.0-rc.1", default-features = false }
 bevy_platform = { version = "0.17.0-rc.1", default-features = false }
 bevy_ptr = { version = "0.17.0-rc.1", default-features = false }
 bevy_reflect = { version = "0.17.0-rc.1", default-features = false }
-bevy_text = { version = "0.16", default-features = false }
+bevy_text = { version = "0.17.0-rc.1", default-features = false }
 bevy_time = { version = "0.17.0-rc.1", default-features = false }
-bevy_transform = { version = "0.16", default-features = false }
+bevy_transform = { version = "0.17.0-rc.1", default-features = false }
 bevy_ui = { version = "0.17.0-rc.1", default-features = false }
 bevy_utils = { version = "0.17.0-rc.1", default-features = false }
 tracy-client = { version = "=0.18.0" }

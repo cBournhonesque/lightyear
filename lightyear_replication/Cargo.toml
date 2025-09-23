@@ -52,6 +52,7 @@ bevy_ptr.workspace = true
 bevy_reflect.workspace = true
 bevy_time = { workspace = true, features = ["bevy_reflect"] }
 bevy_transform = { workspace = true, features = ["libm"] }
+bevy_utils.workspace = true
 
 # avian
 avian2d = { workspace = true, optional = true }

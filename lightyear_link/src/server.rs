@@ -1,14 +1,14 @@
 use crate::{LinkPlugin, Linked, Linking, Unlink, Unlinked};
 use alloc::{format, string::String, vec::Vec};
 use bevy_app::{App, Plugin};
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::prelude::*;
 use bevy_ecs::{
     relationship::{
         Relationship, RelationshipHookMode, RelationshipSourceCollection, RelationshipTarget,
     },
-    world::{DeferredWorld},
+    world::DeferredWorld,
 };
-use bevy_ecs::lifecycle::HookContext;
-use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use lightyear_core::prelude::LocalTimeline;
 use tracing::{trace, warn};

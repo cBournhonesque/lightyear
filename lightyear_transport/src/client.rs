@@ -1,8 +1,8 @@
 use crate::channel::Channel;
 use crate::channel::registry::ChannelRegistration;
 use crate::prelude::{ChannelRegistry, Transport};
-use bevy_ecs::prelude::*;
 use bevy_ecs::prelude::On;
+use bevy_ecs::prelude::*;
 use lightyear_connection::client::Client;
 use lightyear_connection::direction::NetworkDirection;
 

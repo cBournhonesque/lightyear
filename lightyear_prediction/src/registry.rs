@@ -174,11 +174,15 @@ impl PredictionRegistry {
             ?confirmed_tick
         )
         .entered();
-        let confirmed_component = entity_mut.get::<Confirmed<C>>();
+
+        // TODO: if the history is not present on the entity, but the confirmed component is present, we need to rollback
         let Some(mut predicted_history) = entity_mut.get_mut::<PredictionHistory<C>>() else {
-            // if the history is not present on the entity, but the confirmed component is present, we need to rollback
-            return confirmed_component.is_some();
+            // TODO: if the history is not present on the entity, but the confirmed component is present, we need to rollback!
+            //  requires mutable aliasing
+            return false;
         };
+        let history_value = predicted_history.pop_until_tick(confirmed_tick);
+        let confirmed_component = entity_mut.get::<Confirmed<C>>();
 
         #[cfg(feature = "metrics")]
         metrics::gauge!(format!(
@@ -187,7 +191,6 @@ impl PredictionRegistry {
         ))
         .set(predicted_history.len() as f64);
 
-        let history_value = predicted_history.pop_until_tick(confirmed_tick);
         debug!(?history_value, ?confirmed_component, "check");
         match confirmed_component {
             // TODO: history-value should not be empty here; should we panic if it is?

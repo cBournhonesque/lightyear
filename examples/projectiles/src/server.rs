@@ -384,7 +384,7 @@ mod bot {
         shoot_timer.tick(time.delta());
 
         // we use press-space to make sure that we press the button long enough for it to be captured in FixedUpdate
-        if shoot_timer.finished() {
+        if shoot_timer.is_finished() {
             input.press(KeyCode::Space);
         } else {
             input.release(KeyCode::Space);

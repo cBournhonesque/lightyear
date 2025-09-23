@@ -1,11 +1,8 @@
 use alloc::{format, string::String};
 use bevy_app::{App, Plugin};
-use bevy_ecs::{
-    reflect::ReflectResource,
-    world::{DeferredWorld},
-};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
+use bevy_ecs::{reflect::ReflectResource, world::DeferredWorld};
 use bevy_platform::collections::HashMap;
 use bevy_reflect::Reflect;
 use lightyear_core::id::{PeerId, RemoteId};
@@ -45,13 +42,13 @@ pub struct Client {
 /// Trigger to connect the client
 #[derive(EntityEvent)]
 pub struct Connect {
-    pub entity: Entity
+    pub entity: Entity,
 }
 
 /// Trigger to disconnect the client
 #[derive(EntityEvent)]
 pub struct Disconnect {
-    pub entity: Entity
+    pub entity: Entity,
 }
 
 // TODO: it looks like in some cases, we want Connected.peer_id to return the local peer_id (when client connects to server)
@@ -157,7 +154,9 @@ impl ConnectionPlugin {
     /// When the client request to connect, we also try to establish the link
     fn connect(connect: On<Connect>, mut commands: Commands) {
         trace!("Triggering LinkStart because Connect was triggered");
-        commands.trigger(LinkStart { entity: connect.entity});
+        commands.trigger(LinkStart {
+            entity: connect.entity,
+        });
     }
 
     /// If the underlying link fails, we also disconnect the client

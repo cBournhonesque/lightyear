@@ -69,5 +69,5 @@ pub mod prelude {
     pub use crate::send::plugin::{ReplicationBufferSet, ReplicationSendPlugin};
     pub use crate::send::sender::{ReplicationSender, SendUpdatesMode};
     pub use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin};
-    pub use crate::visibility::room::{Room, RoomEvent, RoomPlugin};
+    pub use crate::visibility::room::{Room, RoomEvent, RoomPlugin, RoomTarget};
 }

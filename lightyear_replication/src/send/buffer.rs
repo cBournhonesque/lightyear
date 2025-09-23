@@ -23,7 +23,7 @@ use bevy_ecs::{
     component::ComponentTicks,
     relationship::RelationshipTarget,
     system::SystemChangeTick,
-    world::{FilteredEntityMut, FilteredEntityRef, Remove, Ref},
+    world::{FilteredEntityMut, FilteredEntityRef},
 };
 use bevy_ptr::Ptr;
 use lightyear_connection::client::Connected;
@@ -97,7 +97,7 @@ pub(crate) fn replicate(
 
             // enable split borrows
             let sender = &mut *sender;
-            if !sender.send_timer.finished() {
+            if !sender.send_timer.is_finished() {
                 return;
             }
             #[cfg(feature = "metrics")]
@@ -766,7 +766,7 @@ pub(crate) fn buffer_component_removed(
         .for_each(|(sender_entity, mut sender, manager)| {
             // convert the entity to a network entity (possibly mapped)
             let entity = manager.entity_mapper.to_remote(entity);
-            for component_id in trigger.components() {
+            for component_id in trigger.trigger().components {
                 // TODO: there is a bug in bevy where trigger.components() returns all the componnets that triggered
                 //  Remove, not only the components that the observer is watching. This means that this could contain
                 //  non replicated components, that we need to filter out

@@ -2,11 +2,7 @@ use crate::ping::PingChannel;
 use crate::ping::manager::PingManager;
 use crate::ping::message::{Ping, Pong};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
-use bevy_ecs::observer::Trigger;
-use bevy_ecs::query::{With, Without};
-use bevy_ecs::schedule::{IntoScheduleConfigs, SystemSet};
-use bevy_ecs::system::{Query, Res};
-use bevy_ecs::world::Add;
+use bevy_ecs::prelude::*;
 use bevy_time::{Real, Time};
 use core::time::Duration;
 use lightyear_connection::client::Connected;
@@ -114,10 +110,7 @@ impl PingPlugin {
     }
 
     /// On connection, reset the PingManager.
-    pub(crate) fn handle_connect(
-        trigger: On<Add, Connected>,
-        mut query: Query<&mut PingManager>,
-    ) {
+    pub(crate) fn handle_connect(trigger: On<Add, Connected>, mut query: Query<&mut PingManager>) {
         if let Ok(mut manager) = query.get_mut(trigger.entity) {
             manager.reset();
         }

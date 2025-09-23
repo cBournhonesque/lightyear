@@ -1,9 +1,9 @@
 use crate::components::ComponentReplicationOverrides;
 use crate::send::sender::ReplicationSender;
 use alloc::vec::Vec;
-use bevy_ecs::component::{Component, HookContext};
+use bevy_ecs::component::Component;
 use bevy_ecs::entity::index_set::EntityIndexSet;
-use bevy_ecs::observer::Trigger;
+use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::reflect::ReflectComponent;
 use bevy_ecs::world::DeferredWorld;
@@ -294,10 +294,7 @@ pub type PredictionTarget = ReplicationTarget<Predicted>;
 
 #[cfg(feature = "prediction")]
 impl PredictionTarget {
-    pub fn add_replication_group(
-        trigger: On<Add, PredictionTarget>,
-        mut commands: Commands,
-    ) {
+    pub fn add_replication_group(trigger: On<Add, PredictionTarget>, mut commands: Commands) {
         // note: we don't need to handle this for ReplicateLike entities because they take the ReplicationGroup from the root entity
         commands.entity(trigger.entity).insert(PREDICTION_GROUP);
     }

@@ -1,11 +1,11 @@
 use crate::client::{Client, Disconnected, Disconnecting};
 use crate::client_of::ClientOf;
 use bevy_app::{App, Last, Plugin};
+use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
+use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
-use bevy_ecs::lifecycle::HookContext;
-use bevy_ecs::world::DeferredWorld;
 use lightyear_link::prelude::Server;
 use lightyear_link::{LinkStart, Unlinked};
 use tracing::trace;
@@ -24,13 +24,13 @@ pub enum ConnectionError {
 /// Trigger to start the server
 #[derive(EntityEvent)]
 pub struct Start {
-    pub entity: Entity
+    pub entity: Entity,
 }
 
 /// Trigger to stop the server
 #[derive(EntityEvent)]
 pub struct Stop {
-    pub entity: Entity
+    pub entity: Entity,
 }
 
 #[derive(Component)]
@@ -96,7 +96,9 @@ impl ConnectionPlugin {
     /// We also despawn any existing ClientOf.
     fn start(trigger: On<Start>, mut commands: Commands) {
         trace!("Triggering LinkStart because Start was triggered");
-        commands.trigger(LinkStart { entity: trigger.entity });
+        commands.trigger(LinkStart {
+            entity: trigger.entity,
+        });
 
         // TODO: this was a crutch to make sure that all ClientOfs are despawned when Stop is called..
         // commands.entity(trigger.entity).despawn_related::<Server>();

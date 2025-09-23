@@ -17,11 +17,7 @@ use crate::send::components::{Replicate, Replicating, ReplicationGroup};
 use crate::send::sender::ReplicationSender;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
-use bevy_ecs::{
-    schedule::{IntoScheduleConfigs, SystemSet},
-    system::{ParamBuilder, Query, QueryParamBuilder, Res, SystemChangeTick, SystemParamBuilder},
-    world::Add,
-};
+use bevy_ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick, SystemParamBuilder};
 use bevy_time::{Real, Time};
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::prelude::LocalTimeline;
@@ -107,7 +103,7 @@ impl ReplicationSendPlugin {
         query
             .par_iter_mut()
             .for_each(|(mut sender, mut transport, timeline)| {
-                if !sender.send_timer.finished() {
+                if !sender.send_timer.is_finished() {
                     return;
                 }
                 #[cfg(feature = "metrics")]
@@ -146,7 +142,7 @@ impl ReplicationSendPlugin {
         query
             .par_iter_mut()
             .for_each(|(mut sender, mut transport)| {
-                if !sender.send_timer.finished() {
+                if !sender.send_timer.is_finished() {
                     return;
                 }
                 let messages_sent = &mut transport
@@ -165,11 +161,7 @@ impl ReplicationSendPlugin {
         trigger: On<Add, (Connected, ReplicationSender)>,
         tick_duration: Res<TickDuration>,
         mut query: Query<
-            (
-                Entity,
-                &ReplicationSender,
-                &mut EventSender<SenderMetadata>,
-            ),
+            (Entity, &ReplicationSender, &mut EventSender<SenderMetadata>),
             With<Connected>,
         >,
     ) {
@@ -198,7 +190,7 @@ impl ReplicationSendPlugin {
             );
         }
         replicate.iter_mut().for_each(|mut r| {
-            r.senders.swap_remove(&trigger.target());
+            r.senders.swap_remove(&trigger.entity);
         });
     }
 

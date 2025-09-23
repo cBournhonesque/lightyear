@@ -5,7 +5,7 @@ use crate::{Message, MessageNetId};
 use alloc::vec::Vec;
 use bevy_ecs::{
     change_detection::MutUntyped,
-    component::{Component},
+    component::Component,
     entity::Entity,
     event::Event,
     query::With,

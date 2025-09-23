@@ -1,13 +1,7 @@
 use crate::ping::manager::PingManager;
 use crate::plugin::SyncSet;
 use bevy_app::{App, Last, Plugin, PostUpdate};
-use bevy_ecs::component::Component;
-use bevy_ecs::entity::Entity;
-use bevy_ecs::observer::Trigger;
-use bevy_ecs::query::{Has, With, Without};
-use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_ecs::system::{Commands, Query, Res, ResMut};
-use bevy_ecs::world::Add;
+use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_time::{Time, Virtual};
 use core::time::Duration;
@@ -43,22 +37,22 @@ pub trait SyncedTimeline: NetworkTimeline {
         tick_duration: Duration,
     ) -> TickInstant;
 
-    fn resync(&mut self, sync_objective: TickInstant) -> SyncEvent<Self>
-    where
-        Self: Sized;
+    /// Resync the timeline if they are too out of sync. Returns the number of tick deltas
+    /// that should be applied
+    fn resync(&mut self, sync_objective: TickInstant) -> i16;
 
     /// Sync the current timeline to the other timeline T.
     /// Usually this is achieved by slightly speeding up or slowing down the current timeline.
     /// If there is a big discrepancy we can do a `resync` instead.
+    ///
+    /// Returns the number of delta ticks that should be applied
     // TODO: should we use LinkStats instead of PingManager? and PingManager is a way to update the LinkStats?
     fn sync<Remote: SyncTargetTimeline>(
         &mut self,
         main: &Remote,
         ping_manager: &PingManager,
         tick_duration: Duration,
-    ) -> Option<SyncEvent<Self>>
-    where
-        Self: Sized;
+    ) -> Option<i16>;
 
     fn is_synced(&self) -> bool;
 
@@ -208,9 +202,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
 
     /// On disconnection, remove IsSynced.
     pub(crate) fn handle_disconnect(trigger: On<Add, Disconnected>, mut commands: Commands) {
-        commands
-            .entity(trigger.entity)
-            .remove::<IsSynced<Synced>>();
+        commands.entity(trigger.entity).remove::<IsSynced<Synced>>();
     }
 
     pub(crate) fn update_virtual_time(
@@ -263,18 +255,17 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
                 debug!("Timeline {:?} is synced to {:?}", core::any::type_name::<Synced>(), core::any::type_name::<Remote>());
                 commands.entity(entity).insert(IsSynced::<Synced>::default());
             }
-            if let Some(sync_event) = sync_timeline.sync(main_timeline, ping_manager, tick_duration.0) {
+            if let Some(tick_delta) = sync_timeline.sync(main_timeline, ping_manager, tick_duration.0) {
                 // if it's the driving pipeline, also update the LocalTimeline
                 if DRIVING {
                     let local_tick = local_timeline.tick();
                     let synced_tick = sync_timeline.tick();
-                    let delta = sync_event.tick_delta;
-                    local_timeline.apply_delta(TickDelta::from_i16(sync_event.tick_delta));
+                    local_timeline.apply_delta(TickDelta::from_i16(tick_delta));
                     debug!(
-                        ?local_tick, ?synced_tick, ?delta, new_local_tick = ?local_timeline.tick(),
+                        ?local_tick, ?synced_tick, ?tick_delta, new_local_tick = ?local_timeline.tick(),
                         "Apply delta to LocalTimeline from driving pipeline {:?}'s SyncEvent", core::any::type_name::<Synced>());
                 }
-                commands.trigger_targets(sync_event, entity);
+                commands.trigger(SyncEvent::<Synced::Context>::new(entity, tick_delta));
             }
         })
     }

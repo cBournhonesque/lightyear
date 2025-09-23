@@ -12,13 +12,11 @@ extern crate alloc;
 
 use aeronet_io::connection::{LocalAddr, PeerAddr};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::error::Result;
+use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
-use bevy_ecs::{
-    error::Result,
-};
 use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
-use bevy_ecs::prelude::*;
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use lightyear_core::time::Instant;
 use lightyear_link::{Link, LinkPlugin, LinkReceiveSet, LinkSet, LinkStart, Linked};

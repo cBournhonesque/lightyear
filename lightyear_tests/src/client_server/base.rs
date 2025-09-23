@@ -26,11 +26,7 @@ fn test_setup_client_server() {
             .client(0)
             .contains::<MessageReceiver<StringMessage>>()
     );
-    assert!(
-        stepper
-            .client(0)
-            .contains::<EventSender<SenderMetadata>>()
-    );
+    assert!(stepper.client(0).contains::<EventSender<SenderMetadata>>());
     assert!(
         stepper
             .client(0)

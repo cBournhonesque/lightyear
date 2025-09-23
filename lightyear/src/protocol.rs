@@ -12,7 +12,7 @@ use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::host::HostClient;
-use lightyear_messages::prelude::{AppTriggerExt, RemoteEvent, EventSender};
+use lightyear_messages::prelude::{AppTriggerExt, EventSender, RemoteEvent};
 use lightyear_messages::registry::MessageRegistry;
 use lightyear_replication::message::MetadataChannel;
 use lightyear_replication::registry::registry::ComponentRegistry;

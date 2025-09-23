@@ -9,7 +9,7 @@ use bevy_app::{App, Plugin};
 use bevy_ecs::{
     error::Result,
     prelude::{
-        ChildOf, Commands, Component, Entity, EntityCommand, Name, Add, Query, Trigger, With,
+        Add, ChildOf, Commands, Component, Entity, EntityCommand, Name, Query, Trigger, With,
         Without, World,
     },
 };

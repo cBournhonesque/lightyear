@@ -8,12 +8,14 @@ use crate::registry::ComponentKind;
 use alloc::vec::Vec;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::archetype::Archetype;
-use bevy_ecs::component::{ComponentHooks, Components, HookContext, Mutable, StorageType};
-use bevy_ecs::entity::{Entity, EntityHash};
+use bevy_ecs::component::Components;
+use bevy_ecs::entity::EntityHash;
+use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QuerySingleError;
 use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::Reflect;
+use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
 use core::hash::{Hash, Hasher};
 use lightyear_connection::client::Connected;
@@ -76,7 +78,7 @@ impl PreSpawnedPlugin {
                 None => manager_query.single_mut(),
                 Some(receiver) => manager_query
                     .get_mut(receiver)
-                    .map_err(|_| QuerySingleError::NoEntities("")),
+                    .map_err(|_| QuerySingleError::NoEntities(DebugName::borrowed(""))),
             }
         {
             let tick = timeline.tick();
@@ -173,6 +175,8 @@ impl PreSpawnedPlugin {
 /// let custom_hash: u64 = 1;
 /// PreSpawned::new(1);
 /// ```
+#[derive(Component)]
+#[component(on_add = PreSpawned::on_add)]
 #[reflect(Component)]
 pub struct PreSpawned {
     // TODO: be able to specify for which receiver this pre-spawned entity is?
@@ -189,7 +193,7 @@ pub struct PreSpawned {
 
     // TODO: what if we want the Prespawned to only be for a given sender? or a subset of senders?
     /// Receiver entity that is prespawning this entity.
-    /// If None, then we will use the entity that has a [`PredictionManager`].
+    /// If None, then we will use the entity that has a [`PreSpawnedReceiver`].
     pub receiver: Option<Entity>,
 }
 
@@ -288,7 +292,7 @@ impl PreSpawnedReceiver {
     }
 
     pub(crate) fn handle_tick_sync(
-        trigger: Trigger<SyncEvent<Input>>,
+        trigger: On<SyncEvent<Input>>,
         mut manager: Single<&mut Self, With<Connected>>,
     ) {
         let data: Vec<_> = manager.prespawn_tick_to_hash.drain().collect();
@@ -303,29 +307,60 @@ impl PreSpawnedReceiver {
 /// Hook calculates the hash (if missing), and updates the PreSpawned component.
 /// Since this is a hook, it will calculate based on components inserted before or alongside the
 /// PreSpawned component, on the same tick that PreSpawned was inserted.
-impl Component for PreSpawned {
-    const STORAGE_TYPE: StorageType = StorageType::Table;
+impl PreSpawned {
+    fn on_add(mut deferred_world: DeferredWorld, context: HookContext) {
+        let entity = context.entity;
+        let prespawned_obj = deferred_world.entity(entity).get::<PreSpawned>().unwrap();
+        // The user may have provided the hash for us, or the hash is already present because the component
+        // has been replicated from the server, in which case do nothing.
+        if prespawned_obj.hash.is_some() {
+            return;
+        }
+        let salt = prespawned_obj.user_salt;
 
-    type Mutability = Mutable;
-
-    fn register_component_hooks(hooks: &mut ComponentHooks) {
-        hooks.on_add(|mut deferred_world: DeferredWorld, context: HookContext| {
-            let entity = context.entity;
-            let prespawned_obj = deferred_world.entity(entity).get::<PreSpawned>().unwrap();
-            // The user may have provided the hash for us, or the hash is already present because the component
-            // has been replicated from the server, in which case do nothing.
-            if prespawned_obj.hash.is_some() {
-                return;
-            }
-            let salt = prespawned_obj.user_salt;
-
-            // Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
-            // ignore replicated entities, we only want to iterate through entities spawned on the client directly
-            if let Some(receiver) = prespawned_obj.receiver && let Some(prespawned_receiver) = deferred_world.get::<PreSpawnedReceiver>(receiver) {
-                let tick = deferred_world.get::<LocalTimeline>(receiver).unwrap().tick();
-                let components = deferred_world.components();
-                let component_registry = deferred_world.resource::<ComponentRegistry>();
-                let entity_ref = deferred_world.entity(entity);
+        // Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
+        // ignore replicated entities, we only want to iterate through entities spawned on the client directly
+        if let Some(receiver) = prespawned_obj.receiver
+            && let Some(prespawned_receiver) = deferred_world.get::<PreSpawnedReceiver>(receiver)
+        {
+            let tick = deferred_world
+                .get::<LocalTimeline>(receiver)
+                .unwrap()
+                .tick();
+            let components = deferred_world.components();
+            let component_registry = deferred_world.resource::<ComponentRegistry>();
+            let entity_ref = deferred_world.entity(entity);
+            let hash = compute_default_hash(
+                component_registry,
+                components,
+                entity_ref.archetype(),
+                tick,
+                salt,
+            );
+            // update component with the computed hash
+            debug!(
+                ?entity,
+                ?tick,
+                hash = ?hash,
+                "PreSpawned hook, setting the hash on the component"
+            );
+            deferred_world
+                .entity_mut(entity)
+                .get_mut::<PreSpawned>()
+                .unwrap()
+                .hash = Some(hash);
+        } else {
+            // we need to run a query to get the Server entity.
+            deferred_world.commands().queue(move |world: &mut World| {
+                let tick = world
+                    .query_filtered::<&LocalTimeline, Or<(With<Server>, With<PreSpawnedReceiver>)>>(
+                    )
+                    .single(world)
+                    .expect("No Server or Client with PreSpawnedReceiver was found")
+                    .tick();
+                let components = world.components();
+                let component_registry = world.resource::<ComponentRegistry>();
+                let entity_ref = world.entity(entity);
                 let hash = compute_default_hash(
                     component_registry,
                     components,
@@ -340,43 +375,13 @@ impl Component for PreSpawned {
                     hash = ?hash,
                     "PreSpawned hook, setting the hash on the component"
                 );
-                deferred_world
+                world
                     .entity_mut(entity)
                     .get_mut::<PreSpawned>()
                     .unwrap()
                     .hash = Some(hash);
-            } else {
-                // we need to run a query to get the Server entity.
-                deferred_world.commands().queue(move |world: &mut World| {
-                    let tick = world.query_filtered::<&LocalTimeline, Or<(With<Server>, With<PreSpawnedReceiver>)>>()
-                        .single(world)
-                        .expect("No Server or Client with PreSpawnedReceiver was found")
-                        .tick();
-                    let components = world.components();
-                    let component_registry = world.resource::<ComponentRegistry>();
-                    let entity_ref = world.entity(entity);
-                    let hash = compute_default_hash(
-                        component_registry,
-                        components,
-                        entity_ref.archetype(),
-                        tick,
-                        salt,
-                    );
-                    // update component with the computed hash
-                    debug!(
-                        ?entity,
-                        ?tick,
-                        hash = ?hash,
-                        "PreSpawned hook, setting the hash on the component"
-                    );
-                    world
-                        .entity_mut(entity)
-                        .get_mut::<PreSpawned>()
-                        .unwrap()
-                        .hash = Some(hash);
-                });
-            }
-        });
+            });
+        }
     }
 }
 
@@ -408,7 +413,7 @@ pub(crate) fn compute_default_hash(
     //  might get iterated in any order!
     //  Instead we will get the sorted list of types to hash first, sorted by type_id
     let mut kinds_to_hash = archetype
-        .components()
+        .iter_components()
         .filter_map(|component_id| {
             if let Some(type_id) = components.get_info(component_id).unwrap().type_id() {
                 // ignore some book-keeping components that are included in the component registry

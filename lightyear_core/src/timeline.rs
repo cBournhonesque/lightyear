@@ -4,15 +4,15 @@ use crate::time::{Overstep, TickDelta, TickInstant};
 use bevy_app::{App, FixedFirst, Plugin};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::component::{Component, Mutable};
-use bevy_ecs::event::Event;
-use bevy_ecs::observer::Trigger;
+use bevy_ecs::entity::Entity;
+use bevy_ecs::event::{EntityEvent, Event};
+use bevy_ecs::prelude::On;
 use bevy_ecs::query::With;
 use bevy_ecs::system::{Query, ResMut};
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
-use bevy_ecs::prelude::On;
 
 /// A timeline defines an independent progression of time.
 #[derive(Default, Debug, Clone, Reflect)]
@@ -38,6 +38,7 @@ pub trait TimelineContext: Send + Sync + 'static {}
 // TODO: should we get rid of this trait and just use the Timeline<T> struct?
 //  maybe a trait gives us more options in the future
 pub trait NetworkTimeline: Component<Mutability = Mutable> {
+    type Context: TimelineContext;
     const PAUSED_DURING_ROLLBACK: bool = true;
 
     /// Estimate of the current time in the [`Timeline`]
@@ -54,9 +55,13 @@ pub trait NetworkTimeline: Component<Mutability = Mutable> {
     }
 }
 
+impl<T: NetworkTimeline> TimelineContext for T {}
+
 impl<C: TimelineContext, T: Component<Mutability = Mutable> + DerefMut<Target = Timeline<C>>>
     NetworkTimeline for T
 {
+    type Context = C;
+
     /// Estimate of the current time in the [`Timeline`]
     fn now(&self) -> TickInstant {
         self.now
@@ -164,8 +169,10 @@ impl Plugin for TimelinePlugin {
     }
 }
 
-#[derive(Event, Debug)]
+#[derive(EntityEvent, Debug)]
 pub struct SyncEvent<T: TimelineContext> {
+    /// Entity holding a [`Timeline`]
+    pub entity: Entity,
     // NOTE: it's inconvenient to re-sync the Timeline from a TickInstant to another TickInstant,
     //  so instead we will apply a delta number of ticks with no overstep (so that it's easy
     //  to update the LocalTimeline
@@ -175,8 +182,9 @@ pub struct SyncEvent<T: TimelineContext> {
 }
 
 impl<T: TimelineContext> SyncEvent<T> {
-    pub fn new(tick_delta: i16) -> Self {
+    pub fn new(entity: Entity, tick_delta: i16) -> Self {
         SyncEvent {
+            entity,
             tick_delta,
             marker: core::marker::PhantomData,
         }

@@ -10,7 +10,7 @@ use avian3d::{
     sync::{SyncConfig, SyncSet},
 };
 use bevy_app::{
-    App, FixedPostUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoop, RunFixedMainLoopSystem,
+    App, FixedPostUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoop, RunFixedMainLoopSystems,
 };
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_transform::{TransformSystem, components::Transform};
@@ -67,7 +67,7 @@ impl Plugin for LightyearAvianPlugin {
         // just in case the user is running physics in RunFixedMainLoop...
         app.configure_sets(
             RunFixedMainLoop,
-            PhysicsSet::Sync.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
+            PhysicsSet::Sync.in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
         );
 
         match self.replication_mode {

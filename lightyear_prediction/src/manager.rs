@@ -6,8 +6,8 @@ use bevy_reflect::Reflect;
 
 use crate::correction::CorrectionPolicy;
 use crate::rollback::RollbackState;
-use bevy_ecs::component::HookContext;
 use bevy_ecs::entity::EntityHash;
+use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::world::DeferredWorld;
 use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::Tick;

@@ -1,11 +1,5 @@
 use crate::interpolation_history::ConfirmedHistory;
-use bevy_ecs::component::Component;
-use bevy_ecs::prelude::With;
-use bevy_ecs::{
-    observer::Trigger,
-    system::{Commands, Query},
-    world::Remove,
-};
+use bevy_ecs::prelude::*;
 use lightyear_core::interpolation::Interpolated;
 use lightyear_replication::prelude::Confirmed;
 
@@ -17,7 +11,7 @@ pub(crate) fn removed_components<C: Component>(
     query: Query<(), (With<Interpolated>, With<C>)>,
 ) {
     if query.get(trigger.entity).is_ok()
-        && let Ok(mut entity) = commands.get_entity(trigger.target())
+        && let Ok(mut entity) = commands.get_entity(trigger.entity)
     {
         entity.try_remove::<(C, ConfirmedHistory<C>)>();
     }

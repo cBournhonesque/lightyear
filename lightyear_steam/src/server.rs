@@ -12,7 +12,7 @@ use bevy_ecs::relationship::RelationshipTarget;
 use bevy_ecs::{
     error::Result,
     prelude::{
-        ChildOf, Commands, Component, Entity, EntityCommand, Name, Add, Query, Trigger, Without,
+        Add, ChildOf, Commands, Component, Entity, EntityCommand, Name, Query, Trigger, Without,
         World,
     },
 };

@@ -1,27 +1,19 @@
-use alloc::vec::Vec;
 use bevy_app::App;
-use bevy_ecs::{
-    entity::{Entity, EntityMapper, MapEntities},
-    event::Event,
-};
-use tracing::trace;
+use bevy_ecs::{entity::MapEntities, event::Event};
 
-use crate::Message;
 use crate::receive_event::receive_event_typed;
 use crate::registry::{MessageKind, MessageRegistry, SendTriggerMetadata};
 use crate::send_trigger::EventSender;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
-use lightyear_serde::reader::{ReadVarInt, Reader};
+use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{
     ContextDeserializeFns, ContextSerializeFns, DeserializeFn, SerializeFn, SerializeFns,
 };
-use lightyear_serde::writer::{WriteInteger, Writer};
+use lightyear_serde::writer::Writer;
 use lightyear_serde::{SerializationError, ToBytes};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-
-
 
 pub struct TriggerRegistration<'a, M> {
     pub app: &'a mut App,
@@ -44,10 +36,7 @@ impl<'a, M: Event> TriggerRegistration<'a, M> {
         M: Clone + MapEntities + 'static,
     {
         let mut registry = self.app.world_mut().resource_mut::<MessageRegistry>();
-        registry.add_map_entities::<M, M>(
-            trigger_serialize_mapped,
-            trigger_deserialize_mapped,
-        );
+        registry.add_map_entities::<M, M>(trigger_serialize_mapped, trigger_deserialize_mapped);
         self
     }
 

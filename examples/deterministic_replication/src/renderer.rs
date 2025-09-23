@@ -4,7 +4,7 @@ use avian2d::position::{Position, Rotation};
 use bevy::prelude::*;
 use lightyear::prediction::Predicted;
 use lightyear::prediction::rollback::DeterministicPredicted;
-use lightyear::prelude::{Client, Connected, InterpolationSet, RollbackSet, EventSender};
+use lightyear::prelude::{Client, Connected, EventSender, InterpolationSet, RollbackSet};
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]

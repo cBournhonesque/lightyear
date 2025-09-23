@@ -7,7 +7,7 @@ use lightyear_connection::server::Started;
 use lightyear_core::id::{LocalId, RemoteId};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_messages::MessageManager;
-use lightyear_messages::prelude::{MessageReceiver, MessageSender, EventSender};
+use lightyear_messages::prelude::{EventSender, MessageReceiver, MessageSender};
 use lightyear_replication::message::SenderMetadata;
 use lightyear_replication::prelude::{ReplicationReceiver, ReplicationSender};
 use lightyear_sync::prelude::client::RemoteTimeline;
