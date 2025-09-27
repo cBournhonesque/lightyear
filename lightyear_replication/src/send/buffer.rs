@@ -26,6 +26,7 @@ use bevy_ecs::{
 };
 use bevy_ptr::Ptr;
 use lightyear_connection::client::Connected;
+use lightyear_connection::host::HostClient;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
 use lightyear_link::prelude::Server;
@@ -70,7 +71,7 @@ pub(crate) fn replicate(
             Option<&DeltaManager>,
             Option<&LinkOf>,
         ),
-        With<Connected>,
+        (With<Connected>, Without<HostClient>),
     >,
     delta_query: Query<&DeltaManager, With<Server>>,
     component_registry: Res<ComponentRegistry>,

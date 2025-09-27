@@ -8,6 +8,7 @@ use bevy_ecs::{
     schedule::IntoScheduleConfigs,
 };
 use bevy_platform::collections::{HashMap, HashSet};
+use lightyear_connection::host::HostClient;
 
 use crate::components::{Confirmed, InitialReplicated, Replicated};
 use crate::message::{ActionsMessage, SenderMetadata, SpawnAction, UpdatesMessage};
@@ -88,7 +89,7 @@ impl ReplicationReceivePlugin {
                 &mut MessageReceiver<UpdatesMessage>,
                 &mut ReplicationReceiver,
             ),
-            With<Connected>,
+            (With<Connected>, Without<HostClient>),
         >,
     ) {
         #[cfg(feature = "metrics")]
