@@ -63,7 +63,7 @@ impl Input {
     /// Update the input delay based on the current RTT and tick duration
     /// when there is a SyncEvent
     pub(crate) fn recompute_input_delay(
-        trigger: On<SyncEvent<InputTimeline>>,
+        trigger: On<SyncEvent<Input>>,
         tick_duration: Res<TickDuration>,
         mut query: Query<(&Link, &mut InputTimeline)>,
     ) {

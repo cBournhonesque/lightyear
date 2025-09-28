@@ -4,8 +4,8 @@ use bevy_ecs::prelude::*;
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::timeline::SyncEvent;
-use lightyear_sync::prelude::InputTimeline;
 use tracing::trace;
+use lightyear_sync::prelude::client::Input;
 
 pub(crate) type ResourceHistory<R> = HistoryBuffer<R>;
 
@@ -15,7 +15,7 @@ pub(crate) type ResourceHistory<R> = HistoryBuffer<R>;
 /// The history buffer ticks are only relevant relative to the current client tick.
 /// (i.e. X ticks in the past compared to the current tick)
 pub(crate) fn handle_tick_event_resource_history<R: Resource>(
-    trigger: On<SyncEvent<InputTimeline>>,
+    trigger: On<SyncEvent<Input>>,
     res: Option<ResMut<ResourceHistory<R>>>,
 ) {
     if let Some(mut history) = res {

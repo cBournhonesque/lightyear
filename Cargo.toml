@@ -224,13 +224,13 @@ avian2d = { version = "0.3", default-features = false }
 avian3d = { version = "0.3", default-features = false }
 
 # gui debug ui
-bevy-inspector-egui = { version = "0.33", default-features = false, features = [
+bevy-inspector-egui = { git = "https://github.com/pindash-io/bevy-inspector-egui.git", branch = "bevy-0.17", default-features = false, features = [
   "bevy_pbr",
   "bevy_image",
   "bevy_render",
   "egui_open_url",
 ] }
-bevy_egui = { version = "0.36", default-features = false, features = [
+bevy_egui = { git = "https://github.com/pindash-io/bevy_egui.git", branch = "bevy-0.17", default-features = false, features = [
   "open_url",
   "default_fonts",
   "render",

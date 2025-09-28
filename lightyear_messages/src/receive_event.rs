@@ -3,6 +3,7 @@ use crate::registry::MessageError;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::event::EntityEvent;
 use bevy_ecs::{event::Event, system::ParallelCommands};
+use bevy_utils::prelude::DebugName;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
@@ -60,7 +61,7 @@ pub(crate) unsafe fn receive_event_typed<M: Message + Event>(
     let message = unsafe { serialize_metadata.deserialize::<_, M, M>(reader, entity_map)? };
     trace!(
         "Received trigger message: {:?} from: {from:?}",
-        core::any::type_name::<M>()
+        DebugName::type_name::<M>()
     );
     let trigger = RemoteEvent {
         trigger: message,

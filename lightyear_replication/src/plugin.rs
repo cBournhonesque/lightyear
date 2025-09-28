@@ -31,6 +31,7 @@ impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         // REFLECTION
         app.register_type::<Replicated>()
+            .register_type::<ConfirmedTick>()
             .register_type::<InitialReplicated>()
             .register_type::<Replicating>()
             .register_type::<Controlled>()
@@ -58,6 +59,9 @@ impl Plugin for SharedPlugin {
         {
             app.register_type::<PredictionTarget>();
         }
+
+        app.add_observer(ConfirmedTick::add_confirmed_tick_hook);
+
 
         app.add_channel::<MetadataChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
@@ -94,3 +98,4 @@ impl Plugin for SharedPlugin {
             .add_direction(NetworkDirection::Bidirectional);
     }
 }
+

@@ -15,6 +15,7 @@ use bevy_ecs::{
     world::{DeferredWorld, FilteredEntityMut, World},
 };
 use bevy_reflect::Reflect;
+use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
@@ -125,7 +126,7 @@ impl<M: Message> MessageSender<M> {
                 metrics::counter!("message/send", "message" => core::any::type_name::<M>()).increment(1);
                 metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>()).increment(bytes.len() as f64);
             }
-            trace!("Sending message of type {:?} with net_id {net_id:?}/kind {:?} on channel {channel_kind:?}", core::any::type_name::<M>(), MessageKind::of::<M>());
+            trace!("Sending message of type {:?} with net_id {net_id:?}/kind {:?} on channel {channel_kind:?}", DebugName::type_name::<M>(), MessageKind::of::<M>());
             transport.send_erased(channel_kind, bytes, priority)?;
             Ok(())
         })
@@ -153,7 +154,7 @@ impl<M: Message> MessageSender<M> {
             .for_each(|(message, channel_kind, _)| {
                 trace!(
                     "Send local message of type {:?} on channel {channel_kind:?}",
-                    core::any::type_name::<M>()
+                    DebugName::type_name::<M>()
                 );
                 receiver.recv.push(ReceivedMessage::<M> {
                     data: message,

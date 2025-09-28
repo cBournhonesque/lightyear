@@ -10,6 +10,7 @@ use bevy_ecs::{
     world::DeferredWorld,
 };
 use bevy_reflect::Reflect;
+use bevy_utils::prelude::DebugName;
 use lightyear_core::prelude::LocalTimeline;
 use tracing::{trace, warn};
 // TODO: should we also have a LinkId (remote addr/etc.) that uniquely identifies the link?
@@ -102,8 +103,8 @@ impl LinkOf {
                 caller
                     .map(|location| format!("{location}: "))
                     .unwrap_or_default(),
-                core::any::type_name::<Self>(),
-                core::any::type_name::<Self>()
+                DebugName::type_name::<Self>(),
+                DebugName::type_name::<Self>()
             );
             world.commands().entity(entity).remove::<Self>();
             return;
@@ -122,8 +123,8 @@ impl LinkOf {
                 caller
                     .map(|location| format!("{location}: "))
                     .unwrap_or_default(),
-                core::any::type_name::<Self>(),
-                core::any::type_name::<Self>()
+                DebugName::type_name::<Self>(),
+                DebugName::type_name::<Self>()
             );
             world.commands().entity(entity).remove::<Self>();
         }

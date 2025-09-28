@@ -70,9 +70,8 @@ fn test_update_history() {
             Predicted,
             Replicated {
                 receiver: Entity::PLACEHOLDER,
-                from: PeerId::Server,
-                tick,
             },
+            ConfirmedTick { tick }
         ))
         .id();
 

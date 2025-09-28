@@ -24,7 +24,7 @@ pub struct ClientPlugin;
 
 impl ClientPlugin {
     pub fn update_local_timeline(
-        trigger: On<SyncEvent<InputTimeline>>,
+        trigger: On<SyncEvent<Input>>,
         mut query: Query<&mut LocalTimeline>,
     ) {
         if let Ok(mut timeline) = query.get_mut(trigger.entity) {

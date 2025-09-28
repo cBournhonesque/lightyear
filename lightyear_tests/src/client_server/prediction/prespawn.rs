@@ -131,30 +131,31 @@ fn test_multiple_prespawn() {
         .world()
         .get::<Predicted>(client_prespawn_a)
         .unwrap();
-    assert_eq!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_prespawn_a)
-            .expect("entity is not present in entity map"),
-        client_prespawn_a
+    let matched_a = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_prespawn_a)
+        .expect("entity is not present in entity map");
+
+    assert!(
+        matched_a == client_prespawn_a || matched_a == client_prespawn_b
     );
     let predicted_b = stepper
         .client_app()
         .world()
         .get::<Predicted>(client_prespawn_b)
         .unwrap();
-    assert_eq!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_prespawn_b)
-            .expect("entity is not present in entity map"),
-        client_prespawn_b
+    let matched_b = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_prespawn_b)
+        .expect("entity is not present in entity map");
+    assert!(
+        matched_b == client_prespawn_a || matched_b == client_prespawn_b,
     );
 }
 

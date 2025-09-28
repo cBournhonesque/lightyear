@@ -5,6 +5,7 @@ use crate::{SerializationError, ToBytes};
 use bevy_ecs::entity::MapEntities;
 use bevy_ptr::{Ptr, PtrMut};
 use core::any::TypeId;
+use bevy_utils::prelude::DebugName;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -13,7 +14,7 @@ use serde::de::DeserializeOwned;
 #[derive(Clone, Debug)]
 pub struct ErasedSerializeFns {
     pub(crate) type_id: TypeId,
-    pub type_name: &'static str,
+    pub type_name: DebugName,
     // TODO: maybe use `Vec<MaybeUninit<u8>>` instead of unsafe fn(), like bevy?
     pub erased_serialize: ErasedSerializeFn,
     pub serialize: unsafe fn(),
@@ -253,7 +254,7 @@ impl ErasedSerializeFns {
     ) -> Self {
         Self {
             type_id: TypeId::of::<M>(),
-            type_name: core::any::type_name::<M>(),
+            type_name: DebugName::type_name::<M>(),
             erased_serialize: erased_serialize_fn::<M>,
             serialize: unsafe { core::mem::transmute(serialize.serialize) },
             context_serialize: unsafe { core::mem::transmute(serialize.context_serialize) },

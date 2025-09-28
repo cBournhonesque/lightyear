@@ -38,6 +38,7 @@ use bevy_ecs::{
 };
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time, Virtual};
+use bevy_utils::prelude::DebugName;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_frame_interpolation::FrameInterpolate;
 use lightyear_interpolation::prelude::InterpolationRegistry;
@@ -109,7 +110,7 @@ pub(crate) fn update_frame_interpolation_post_rollback<C: SyncComponent + Diffab
             // two_previous_values = ?interpolate,
             // ?history,
             "Updating VisualCorrection post rollback for {:?}",
-            core::any::type_name::<C>()
+            DebugName::type_name::<C>()
         );
         commands
             .entity(entity)
@@ -138,7 +139,7 @@ pub(crate) fn add_visual_correction<C: SyncComponent + Diffable<Delta = C>>(
                 trace!(
                     ?visual_correction,
                     "Removing visual correction error {:?} since it is already small enough",
-                    core::any::type_name::<C>()
+                    DebugName::type_name::<C>()
                 );
                 commands.entity(entity).remove::<VisualCorrection<C>>();
                 return;
@@ -153,7 +154,7 @@ pub(crate) fn add_visual_correction<C: SyncComponent + Diffable<Delta = C>>(
                 new = ?error,
                 ?r,
                 "Applied visual correction and decaying error for {:?}",
-                core::any::type_name::<C>()
+                DebugName::type_name::<C>()
             );
             visual_correction.error = error;
         });

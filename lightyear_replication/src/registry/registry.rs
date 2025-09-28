@@ -15,6 +15,7 @@ use bevy_platform::collections::HashMap;
 use bevy_ptr::{Ptr, PtrMut};
 use bevy_reflect::TypePath;
 use bevy_transform::components::Transform;
+use bevy_utils::prelude::DebugName;
 use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
@@ -145,7 +146,7 @@ impl ComponentRegistry {
             .unwrap_or_else(|| {
                 panic!(
                     "Component {} is not registered",
-                    core::any::type_name::<C>()
+                    DebugName::type_name::<C>()
                 )
             })
     }
@@ -210,7 +211,7 @@ fn mapped_context_serialize<M: MapEntities + Clone>(
     let mut message = message.clone();
     trace!(
         "mapped_context_serialize: {:?}. Mapper: {:?}",
-        core::any::type_name::<M>(),
+        DebugName::type_name::<M>(),
         mapper
     );
     message.map_entities(mapper);
@@ -227,7 +228,7 @@ fn mapped_context_deserialize<M: MapEntities>(
     Ok(message)
 }
 
-fn component_map_entities<'a, M: Component>(component: PtrMut<'a>, mapper: &mut EntityMap) {
+fn component_map_entities<M: Component>(component: PtrMut, mapper: &mut EntityMap) {
     // SAFETY: the caller must ensure that the PtrMut corresponds to type M
     let component = unsafe { component.deref_mut::<M>() };
     Component::map_entities(component, mapper);
@@ -273,7 +274,7 @@ impl ComponentRegistry {
             .unwrap_or_else(|| {
                 panic!(
                     "Component {} is not part of the protocol",
-                    core::any::type_name::<C>()
+                    DebugName::type_name::<C>()
                 )
             });
         let erased_fns = metadata.serialization.as_mut().unwrap();
@@ -295,7 +296,7 @@ impl ComponentRegistry {
             .unwrap_or_else(|| {
                 panic!(
                     "Component {} is not part of the protocol",
-                    core::any::type_name::<C>()
+                    DebugName::type_name::<C>()
                 )
             });
         let erased_fns = metadata.serialization.as_mut().unwrap();
@@ -372,7 +373,7 @@ impl ComponentRegistry {
         reader: &mut Reader,
         entity_map: &mut ReceiveEntityMap,
     ) -> Result<C, ComponentError> {
-        let net_id = NetId::from_bytes(reader)?;
+        let _ = NetId::from_bytes(reader)?;
         self.raw_deserialize(reader, entity_map)
     }
 
@@ -446,7 +447,7 @@ impl AppComponentExt for App {
                 if !registry.is_registered::<C>() {
                     registry.register_component_custom_serde::<C>(world, serialize_fns);
                 }
-                debug!("register component {}", core::any::type_name::<C>());
+                debug!("register component {}", DebugName::type_name::<C>());
             });
         ComponentRegistration {
             app: self,
@@ -513,7 +514,7 @@ impl<C> ComponentRegistration<'_, C> {
         let metadata = registry.component_metadata_map.get_mut(&kind).unwrap_or_else(|| {
             panic!(
                 "Component {} is not part of the protocol, did you forget to call register_component?",
-                core::any::type_name::<C>()
+                DebugName::type_name::<C>()
             );
         });
         metadata.replication = Some(ReplicationMetadata::default_fns::<C>(

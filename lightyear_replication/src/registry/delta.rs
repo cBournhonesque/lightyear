@@ -14,6 +14,7 @@ use bevy_ecs::{
 use bevy_ptr::{Ptr, PtrMut};
 use core::any::TypeId;
 use core::ptr::NonNull;
+use bevy_utils::prelude::DebugName;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
@@ -41,7 +42,7 @@ impl ComponentRegistry {
             .unwrap_or_else(|| {
                 panic!(
                     "Can only add delta-compression on a registered component (kind = {:?}).",
-                    core::any::type_name::<C>()
+                    DebugName::type_name::<C>()
                 );
             });
         metadata.delta = Some(ErasedDeltaFns::new::<C>());
@@ -188,20 +189,20 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
         ?component_id,
         delta_type = ?delta.delta_type,
         "Writing component delta {} to entity",
-        core::any::type_name::<C>()
+        DebugName::type_name::<C>()
     );
     match delta.delta_type {
         DeltaType::Normal { previous_tick } => {
             let Some(mut history) = entity_mut.entity.get_mut::<DeltaComponentHistory<C>>() else {
                 return Err(ComponentError::DeltaCompressionError(format!(
                     "Entity {entity:?} does not have a ConfirmedHistory<{}>, but we received a diff for delta-compression",
-                    core::any::type_name::<C>()
+                    DebugName::type_name::<C>()
                 )));
             };
             let Some(past_value) = history.buffer.get(&previous_tick) else {
                 return Err(ComponentError::DeltaCompressionError(format!(
                     "Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
-                    core::any::type_name::<C>()
+                    DebugName::type_name::<C>()
                 )));
             };
             // TODO: is it possible to have one clone instead of 2?
@@ -217,7 +218,7 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
                 let Some(mut c) = entity_mut.entity.get_mut::<Confirmed<C>>() else {
                     return Err(ComponentError::DeltaCompressionError(format!(
                         "Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
-                        core::any::type_name::<C>()
+                        DebugName::type_name::<C>()
                     )));
                 };
                 *c = Confirmed(new_value);
@@ -225,7 +226,7 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
                 let Some(mut c) = entity_mut.entity.get_mut::<C>() else {
                     return Err(ComponentError::DeltaCompressionError(format!(
                         "Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
-                        core::any::type_name::<C>()
+                        DebugName::type_name::<C>()
                     )));
                 };
                 *c = new_value;
@@ -346,7 +347,7 @@ unsafe fn erased_drop<C>(data: NonNull<u8>) {
 #[derive(Debug, Clone)]
 pub(crate) struct ErasedDeltaFns {
     pub(crate) type_id: TypeId,
-    pub(crate) type_name: &'static str,
+    pub(crate) type_name: DebugName,
     pub delta_kind: ComponentKind,
     // TODO: maybe use `Vec<MaybeUninit<u8>>` instead of unsafe fn(), like bevy?
     pub clone: ErasedCloneFn,
@@ -361,7 +362,7 @@ impl ErasedDeltaFns {
     pub(crate) fn new<C: Component + Diffable>() -> Self {
         Self {
             type_id: TypeId::of::<C>(),
-            type_name: core::any::type_name::<C>(),
+            type_name: DebugName::type_name::<C>(),
             delta_kind: ComponentKind::of::<DeltaMessage<C::Delta>>(),
             clone: erased_clone::<C>,
             diff: erased_diff::<C>,

@@ -22,6 +22,7 @@ use lightyear_transport::prelude::Transport;
 
 use alloc::sync::Arc;
 use bevy_ecs::lifecycle::HookContext;
+use bevy_utils::prelude::DebugName;
 use bytes::Bytes;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
@@ -147,7 +148,7 @@ impl<M: Message> MessageReceiver<M> {
         };
         trace!(
             "Received message {:?} on channel {channel_kind:?}",
-            core::any::type_name::<M>()
+            DebugName::type_name::<M>()
         );
         receiver.recv.push(received_message);
         Ok(())
@@ -172,7 +173,7 @@ impl MessagePlugin {
         message_manager: &mut MessageManager,
         commands: &ParallelCommands,
         remote_peer_id: PeerId,
-    ) -> core::result::Result<(), MessageError> {
+    ) -> Result<(), MessageError> {
         trace!(
             "Received message (id:{message_id:?}) from peer {:?} on channel {channel_kind:?}. {entity:?}",
             remote_peer_id

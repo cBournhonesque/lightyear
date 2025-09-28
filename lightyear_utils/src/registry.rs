@@ -2,6 +2,7 @@ use crate::collections::HashMap;
 use core::any::TypeId;
 use core::fmt::Formatter;
 use core::hash::{Hash, Hasher};
+use bevy_utils::prelude::DebugName;
 
 /// ID used to serialize IDs over the network efficiently
 pub(crate) type NetId = u16;
@@ -86,10 +87,10 @@ impl RegistryHasher {
         if self.hash.is_some() {
             panic!(
                 "Tried to register type {:?} after the protocol was finished",
-                core::any::type_name::<T>()
+                DebugName::type_name::<T>()
             )
         }
-        core::any::type_name::<T>().hash(&mut self.hasher);
+        DebugName::type_name::<T>().hash(&mut self.hasher);
     }
     pub fn finish(&mut self) -> RegistryHash {
         match self.hash {

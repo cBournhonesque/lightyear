@@ -7,6 +7,7 @@ use bevy_ecs::change_detection::MutUntyped;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
+use bevy_utils::prelude::DebugName;
 use lightyear_core::id::PeerId;
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
@@ -56,7 +57,7 @@ impl<M: Event> EventSender<M> {
             // SAFETY: the message has been checked to be of type `M`
             unsafe { serialize_metadata.serialize::<SendEntityMap, M, M>(&message, &mut sender.writer, entity_map)? };
             let bytes = sender.writer.split();
-            trace!("Sending message of type {:?} with net_id {net_id:?} on channel {channel_kind:?}", core::any::type_name::<M>());
+            trace!("Sending message of type {:?} with net_id {net_id:?} on channel {channel_kind:?}", DebugName::type_name::<M>());
             transport.send_erased(channel_kind, bytes, priority)?;
             Ok(())
         })

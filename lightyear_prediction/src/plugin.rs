@@ -17,6 +17,7 @@ use alloc::format;
 use bevy_app::prelude::*;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
+use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
 use lightyear_replication::prelude::ReplicationSet;
@@ -106,7 +107,7 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
         metrics::describe_counter!(
             format!(
                 "prediction::rollbacks::causes::{}::missing_on_confirmed",
-                core::any::type_name::<C>()
+                DebugName::type_name::<C>()
             ),
             metrics::Unit::Count,
             "Component present in the prediction history but missing on the confirmed entity"
@@ -114,7 +115,7 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
         metrics::describe_counter!(
             format!(
                 "prediction::rollbacks::causes::{}::value_mismatch",
-                core::any::type_name::<C>()
+                DebugName::type_name::<C>()
             ),
             metrics::Unit::Count,
             "Component present in the prediction history but with a different value than on the confirmed entity"
@@ -122,7 +123,7 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
         metrics::describe_counter!(
             format!(
                 "prediction::rollbacks::causes::{}::missing_on_predicted",
-                core::any::type_name::<C>()
+                DebugName::type_name::<C>()
             ),
             metrics::Unit::Count,
             "Component present in the confirmed entity but missing in the prediction history"
@@ -130,7 +131,7 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
         metrics::describe_counter!(
             format!(
                 "prediction::rollbacks::causes::{}::removed_on_predicted",
-                core::any::type_name::<C>()
+                DebugName::type_name::<C>()
             ),
             metrics::Unit::Count,
             "Component present in the confirmed entity but removed in the prediction history"

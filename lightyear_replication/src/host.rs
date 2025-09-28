@@ -7,16 +7,9 @@ use crate::prelude::InterpolationTarget;
 use crate::prelude::PredictionTarget;
 use crate::prelude::Replicate;
 use bevy_app::{App, Plugin, PostUpdate};
-use bevy_ecs::{
-    change_detection::DetectChanges,
-    component::Component,
-    entity::Entity,
-    query::{Or, QueryData, With, Without},
-    system::{Commands, Query, Single},
-    world::Ref,
-};
+use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryData;
 use lightyear_connection::host::HostClient;
-use lightyear_core::id::LocalId;
 #[cfg(feature = "interpolation")]
 use lightyear_core::interpolation::Interpolated;
 #[cfg(feature = "prediction")]
@@ -62,7 +55,7 @@ impl HostServerPlugin {
     /// that the host-server wants to replicate, so that client code can still query for them
     fn add_prediction_interpolation_components(
         mut commands: Commands,
-        local_client: Single<(Entity, &LocalTimeline, &LocalId, Ref<HostClient>)>,
+        local_client: Single<(Entity, &LocalTimeline, Ref<HostClient>)>,
         // this is only for entities that are spawned on the host-server
         // we can't rely only on Without<InitialReplicated> because we add a fake
         // InitialReplicated in this system, which might prevent fake Predicted/Interpolated
@@ -72,7 +65,7 @@ impl HostServerPlugin {
             Or<(Without<InitialReplicated>, With<SpawnedOnHostServer>)>,
         >,
     ) {
-        let (local_entity, timeline, local_id, host_client) = local_client.into_inner();
+        let (local_entity, timeline, host_client) = local_client.into_inner();
         let tick = timeline.tick();
 
         let add_fake_components =
@@ -91,10 +84,8 @@ impl HostServerPlugin {
                     commands.entity(entity).insert((
                         Replicated {
                             receiver: local_entity,
-                            from: local_id.0,
-                            tick,
                         },
-                        InitialReplicated { from: local_id.0 },
+                        InitialReplicated { receiver: local_entity },
                         SpawnedOnHostServer,
                     ));
                 }

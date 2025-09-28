@@ -40,11 +40,8 @@ fn setup() -> (ClientServerStepper, Entity) {
         .world_mut()
         .spawn((
             Predicted,
-            Replicated {
-                receiver,
-                from: PeerId::Server,
-                tick,
-            },
+            Replicated { receiver },
+            ConfirmedTick { tick },
             Confirmed(CompFull(1.0)),
         ))
         .id();
@@ -339,9 +336,8 @@ fn test_disable_rollback() {
             Predicted,
             Replicated {
                 receiver,
-                from: PeerId::Server,
-                tick,
             },
+            ConfirmedTick { tick },
             DeterministicPredicted,
             Confirmed(CompFull(1.0)),
         ))

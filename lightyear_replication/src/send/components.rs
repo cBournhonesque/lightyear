@@ -9,6 +9,7 @@ use bevy_ecs::reflect::ReflectComponent;
 use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::Reflect;
 use bevy_time::{Timer, TimerMode};
+use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
 use lightyear_connection::network_target::NetworkTarget;
@@ -110,7 +111,7 @@ impl<C> ComponentReplicationOverrides<C> {
         self
     }
 
-    pub fn enable_all(mut self, sender: Entity) -> Self {
+    pub fn enable_all(mut self) -> Self {
         let o = self.all_senders.get_or_insert_default();
         o.enable = true;
         o.disable = false;
@@ -408,7 +409,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                         &mut |client| {
                             trace!(
                                 "Adding ReplicationTarget<{}>, entity {} to ClientOf {}",
-                                core::any::type_name::<T>(),
+                                DebugName::type_name::<T>(),
                                 context.entity,
                                 client
                             );
@@ -477,7 +478,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                             .query_filtered::<(), Or<(With<ReplicationSender>, With<HostClient>)>>()
                             .get_mut(world, *sender_entity)
                         else {
-                            error!(mode = ?replicate.mode, "No ReplicationSender found in the world for target: {:?}", core::any::type_name::<T>());
+                            error!(mode = ?replicate.mode, "No ReplicationSender found in the world for target: {:?}", DebugName::type_name::<T>());
                             return;
                         };
                         replicate.senders.insert(*sender_entity);
@@ -709,7 +710,7 @@ impl Replicate {
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
                     let world = unsafe { unsafe_world.world_mut() };
                     let peer_metadata =
-                        world.resource::<lightyear_connection::client::PeerMetadata>();
+                        world.resource::<PeerMetadata>();
                     let world = unsafe { unsafe_world.world_mut() };
                     target.apply_targets(
                         server.collection().iter().copied(),
@@ -782,7 +783,7 @@ impl Replicate {
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
                     let peer_metadata = unsafe { unsafe_world.world() }
-                        .resource::<lightyear_connection::client::PeerMetadata>();
+                        .resource::<PeerMetadata>();
                     let world = unsafe { unsafe_world.world_mut() };
                     target.apply_targets(
                         server.collection().iter().copied(),

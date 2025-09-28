@@ -2,7 +2,7 @@ use crate::stepper::ClientServerStepper;
 use bevy::prelude::*;
 use lightyear_core::prelude::{Rollback, Tick};
 use lightyear_prediction::prelude::*;
-use lightyear_replication::prelude::{Replicated, ReplicationReceiver};
+use lightyear_replication::prelude::{ConfirmedTick, ReplicationReceiver};
 
 mod correction;
 mod despawn;
@@ -23,12 +23,12 @@ pub(crate) struct RollbackInfo {
 pub(crate) fn trigger_rollback_system(
     mut events: MessageReader<RollbackInfo>,
     mut receiver: Single<&mut ReplicationReceiver, With<PredictionManager>>,
-    mut query: Query<&mut Replicated, With<Predicted>>,
+    mut query: Query<&mut ConfirmedTick, With<Predicted>>,
 ) {
     for event in events.read() {
-        receiver.set_received_this_frame();
-        for mut replicated in query.iter_mut() {
-            replicated.tick = event.tick;
+        receiver.received_this_frame = true;
+        for mut confirmed_tick in query.iter_mut() {
+            confirmed_tick.tick = event.tick;
         }
     }
 }
@@ -51,9 +51,9 @@ pub(crate) fn trigger_state_rollback(stepper: &mut ClientServerStepper, tick: Ti
     stepper
         .client_app()
         .world_mut()
-        .query::<&mut Replicated>()
+        .query::<&mut ConfirmedTick>()
         .iter_mut(stepper.client_app().world_mut())
-        .for_each(|mut replicated| {
-            replicated.tick = tick;
+        .for_each(|mut confirmed| {
+            confirmed.tick = tick;
         })
 }

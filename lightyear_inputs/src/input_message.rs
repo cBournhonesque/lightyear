@@ -13,6 +13,7 @@ use bevy_ecs::{
 use bevy_reflect::Reflect;
 use core::fmt::{Debug, Formatter, Write};
 use core::time::Duration;
+use bevy_utils::prelude::DebugName;
 use lightyear_core::prelude::Tick;
 #[cfg(feature = "interpolation")]
 use lightyear_interpolation::plugin::InterpolationDelay;
@@ -256,7 +257,7 @@ impl<S: ActionStateSequence + MapEntities> MapEntities for InputMessage<S> {
 
 impl<S: ActionStateSequence + core::fmt::Display> core::fmt::Display for InputMessage<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        let ty = core::any::type_name::<S::Action>();
+        let ty = DebugName::type_name::<S::Action>();
 
         if self.inputs.is_empty() {
             return write!(f, "EmptyInputMessage<{ty:?}>");

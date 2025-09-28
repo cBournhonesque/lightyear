@@ -20,6 +20,7 @@ use bevy_ecs::{
     system::{Commands, Query, Res, Single},
 };
 use core::fmt::{Debug, Formatter};
+use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostServer;
@@ -74,14 +75,14 @@ pub enum InputRebroadcaster<S> {
     Marker(core::marker::PhantomData<S>),
 }
 
-impl<S> core::fmt::Debug for InputRebroadcaster<S> {
+impl<S> Debug for InputRebroadcaster<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             InputRebroadcaster::Room(entity) => f.debug_tuple("Room").field(entity).finish(),
             InputRebroadcaster::Target(target) => f.debug_tuple("Target").field(target).finish(),
             InputRebroadcaster::Marker(_) => f
                 .debug_tuple("Marker")
-                .field(&core::any::type_name::<S>())
+                .field(&DebugName::type_name::<S>())
                 .finish(),
         }
     }
@@ -169,13 +170,13 @@ fn receive_input_message<S: ActionStateSequence>(
             // ignore input messages from the local client (if running in host-server mode)
             // if we're not doing rebroadcasting
             if client_id.is_local() && !config.rebroadcast_inputs {
-                error!("Received input message from HostClient for action {:?} even though rebroadcasting is disabled. Ignoring the message.", core::any::type_name::<S::Action>());
+                error!("Received input message from HostClient for action {:?} even though rebroadcasting is disabled. Ignoring the message.", DebugName::type_name::<S::Action>());
                 return Ok(())
             }
             if message.is_empty() {
                 return Ok(())
             }
-            trace!(?client_id, action = ?core::any::type_name::<S::Action>(), ?message.end_tick, ?message.inputs, "received input message");
+            trace!(?client_id, action = ?DebugName::type_name::<S::Action>(), ?message.end_tick, ?message.inputs, "received input message");
 
             // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
             //  that the message was intended for?
@@ -254,7 +255,7 @@ fn receive_input_message<S: ActionStateSequence>(
                             debug!(?entity, ?data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                         }
                     }
-                    InputTarget::PreSpawned(hash) => {
+                    InputTarget::PreSpawned(_) => {
                         todo!("Handle prespawned inputs");
                     }
                 }
@@ -298,7 +299,7 @@ fn update_action_state<S: ActionStateSequence>(
                 // so that we can handle lost messages
                 metrics::gauge!(format!(
                     "inputs::{}::{}::buffer_size",
-                    core::any::type_name::<S::Action>(),
+                    DebugName::type_name::<S::Action>(),
                     entity
                 ))
                 .set(input_buffer.len() as f64);

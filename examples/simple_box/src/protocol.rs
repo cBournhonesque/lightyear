@@ -39,7 +39,7 @@ impl PlayerBundle {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(PeerId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect, Deref, DerefMut)]
 pub struct PlayerPosition(pub Vec2);
 
 impl Ease for PlayerPosition {
@@ -112,7 +112,7 @@ pub struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<Inputs>();
+        app.register_type::<(Inputs, PlayerPosition)>();
         // messages
         app.register_message::<Message1>()
             .add_direction(NetworkDirection::ServerToClient);

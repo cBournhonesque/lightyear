@@ -15,6 +15,7 @@ use bevy_math::{
     curve::{Ease, EaseFunction, EasingCurve},
 };
 use core::fmt::Debug;
+use bevy_utils::prelude::DebugName;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::tick::Tick;
 use lightyear_replication::components::Confirmed;
@@ -166,7 +167,7 @@ impl PredictionRegistry {
         entity_mut: &mut FilteredEntityMut,
     ) -> bool {
         let entity = entity_mut.entity();
-        let name = core::any::type_name::<C>();
+        let name = DebugName::type_name::<C>();
         let _span = trace_span!(
             "check_rollback",
             ?name,
@@ -184,7 +185,7 @@ impl PredictionRegistry {
         #[cfg(feature = "metrics")]
         metrics::gauge!(format!(
             "prediction::rollbacks::history::{:?}::num_values",
-            core::any::type_name::<C>()
+            DebugName::type_name::<C>()
         ))
         .set(predicted_history.len() as f64);
         let history_value = predicted_history.pop_until_tick(confirmed_tick);
@@ -205,7 +206,7 @@ impl PredictionRegistry {
                     #[cfg(feature = "metrics")]
                     metrics::counter!(format!(
                         "prediction::rollbacks::causes::{}::missing_on_confirmed",
-                        core::any::type_name::<C>()
+                        DebugName::type_name::<C>()
                     ))
                     .increment(1)
                 }
@@ -220,7 +221,7 @@ impl PredictionRegistry {
                     #[cfg(feature = "metrics")]
                     metrics::counter!(format!(
                         "prediction::rollbacks::causes::{}::missing_on_predicted",
-                        core::any::type_name::<C>()
+                        DebugName::type_name::<C>()
                     ))
                     .increment(1);
                     true
@@ -235,7 +236,7 @@ impl PredictionRegistry {
                             #[cfg(feature = "metrics")]
                             metrics::counter!(format!(
                                 "prediction::rollbacks::causes::{}::value_mismatch",
-                                core::any::type_name::<C>()
+                                DebugName::type_name::<C>()
                             ))
                             .increment(1);
                         }
@@ -248,7 +249,7 @@ impl PredictionRegistry {
                         #[cfg(feature = "metrics")]
                         metrics::counter!(format!(
                             "prediction::rollbacks::causes::{}::removed_on_predicted",
-                            core::any::type_name::<C>()
+                            DebugName::type_name::<C>()
                         ))
                         .increment(1);
                         true
@@ -277,7 +278,7 @@ impl PredictionRegistry {
         if let Some(HistoryState::Updated(v)) = history.pop_until_tick(tick) {
             trace!(
                 "Popped value from PredictionHistory<{:?}? at tick {:?}: {:?} for hashing",
-                core::any::type_name::<C>(),
+                DebugName::type_name::<C>(),
                 tick,
                 v
             );
@@ -328,7 +329,7 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         let mut registry = self.app.world_mut().resource_mut::<PredictionRegistry>();
         trace!(
             "Adding prediction for component {:?}",
-            core::any::type_name::<C>()
+            DebugName::type_name::<C>()
         );
         registry.register::<C>(history_id);
         // TODO: how do we avoid the server adding the prediction systems?

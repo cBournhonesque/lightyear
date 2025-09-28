@@ -30,7 +30,6 @@ tracing.workspace = true
 thiserror.workspace = true
 
 # serde
-bincode = { workspace = true, optional = true }
 serde.workspace = true
 bytes.workspace = true
 
@@ -38,6 +37,7 @@ bytes.workspace = true
 bevy_app.workspace = true
 bevy_ecs = { workspace = true, features = ["serialize"] }
 bevy_reflect.workspace = true
+bevy_utils.workspace = true
 
 [dev-dependencies]
 lightyear_link.workspace = true

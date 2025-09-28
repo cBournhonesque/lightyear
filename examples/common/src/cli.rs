@@ -119,9 +119,9 @@ impl Cli {
                         client_port: CLIENT_PORT,
                         server_addr: SERVER_ADDR,
                         conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
-                        // transport: ClientTransports::Udp,
+                        transport: ClientTransports::Udp,
                         // transport: ClientTransports::WebSocket,
-                        transport: ClientTransports::WebTransport,
+                        // transport: ClientTransports::WebTransport,
                         // #[cfg(feature = "steam")]
                         // transport: ClientTransports::Steam,
                         shared: SHARED_SETTINGS,
@@ -135,19 +135,19 @@ impl Cli {
                     .world_mut()
                     .spawn(ExampleServer {
                         conditioner: None,
-                        // transport: ServerTransports::Udp {
-                        //     local_port: SERVER_PORT,
-                        // },
+                        transport: ServerTransports::Udp {
+                            local_port: SERVER_PORT,
+                        },
                         // transport: ServerTransports::WebSocket {
                         //     local_port: SERVER_PORT,
                         // },
-                        transport: ServerTransports::WebTransport {
-                            local_port: SERVER_PORT,
-                            certificate: WebTransportCertificateSettings::FromFile {
-                                cert: "../../certificates/cert.pem".to_string(),
-                                key: "../../certificates/key.pem".to_string(),
-                            },
-                        },
+                        // transport: ServerTransports::WebTransport {
+                        //     local_port: SERVER_PORT,
+                        //     certificate: WebTransportCertificateSettings::FromFile {
+                        //         cert: "../../certificates/cert.pem".to_string(),
+                        //         key: "../../certificates/key.pem".to_string(),
+                        //     },
+                        // },
                         // #[cfg(feature = "steam")]
                         // transport: ServerTransports::Steam {
                         //     local_port: SERVER_PORT,
@@ -326,8 +326,8 @@ pub fn new_gui_app(add_inspector: bool) -> App {
     app.add_plugins(DebugUIPlugin);
 
     if add_inspector {
-        // app.add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin::default());
-        // app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
+        app.add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin::default());
+        app.add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new());
     }
     app
 }

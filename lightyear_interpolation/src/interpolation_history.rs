@@ -3,9 +3,10 @@ use crate::prelude::InterpolationRegistry;
 use bevy_ecs::prelude::Changed;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
+use bevy_utils::prelude::DebugName;
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::Tick;
-use lightyear_replication::components::{Confirmed, Replicated};
+use lightyear_replication::components::{Confirmed, ConfirmedTick};
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
@@ -95,7 +96,7 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
                 ?interpolation_overstep,
                 ?fraction,
                 "Interpolate {:?}",
-                core::any::type_name::<C>()
+                DebugName::type_name::<C>()
             );
             return Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction));
         }
@@ -124,12 +125,12 @@ pub(crate) fn apply_confirmed_update<C: Component + Clone>(
 
     // TODO: use the interpolation receiver corresponding to the Confirmed entity (via Replicated)
     mut interpolated_entities: Query<
-        (&mut ConfirmedHistory<C>, &Confirmed<C>, &Replicated),
+        (&mut ConfirmedHistory<C>, &Confirmed<C>, &ConfirmedTick),
         (With<Interpolated>, Changed<Confirmed<C>>),
     >,
 ) {
-    let kind = core::any::type_name::<C>();
-    for (mut history, confirmed_component, replicated) in interpolated_entities.iter_mut() {
+    let kind = DebugName::type_name::<C>();
+    for (mut history, confirmed_component, confirmed) in interpolated_entities.iter_mut() {
         // // if has_authority is true, we will consider the Confirmed value as the source of truth
         // // else it will be the server updates
         // // TODO: as an alternative, we could set the confirmed.tick to be equal to the current tick
@@ -139,7 +140,7 @@ pub(crate) fn apply_confirmed_update<C: Component + Clone>(
         // } else {
         //     confirmed.tick
         // };
-        let tick = replicated.tick;
+        let tick = confirmed.tick;
 
         // let Some(tick) = client
         //     .replication_receiver()

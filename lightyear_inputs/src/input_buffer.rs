@@ -16,6 +16,7 @@ use alloc::{
 use bevy_ecs::component::Component;
 use bevy_reflect::Reflect;
 use core::fmt::{Debug, Formatter};
+use bevy_utils::prelude::DebugName;
 use lightyear_core::tick::Tick;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
@@ -28,7 +29,7 @@ pub struct InputBuffer<T> {
 
 impl<T: Debug> core::fmt::Display for InputBuffer<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        let ty = core::any::type_name::<T>();
+        let ty = DebugName::type_name::<T>();
 
         let Some(tick) = self.start_tick else {
             return write!(f, "EmptyInputBuffer");

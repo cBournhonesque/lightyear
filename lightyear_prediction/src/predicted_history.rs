@@ -6,11 +6,12 @@ use crate::plugin::PredictionFilter;
 use crate::rollback::DeterministicPredicted;
 use bevy_ecs::prelude::*;
 use core::ops::Deref;
+use bevy_utils::prelude::DebugName;
 use lightyear_core::history_buffer::HistoryBuffer;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::timeline::SyncEvent;
 use lightyear_replication::prelude::{Confirmed, PreSpawned};
-use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::{Input};
 use tracing::trace;
 
 pub type PredictionHistory<C> = HistoryBuffer<C>;
@@ -31,7 +32,7 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
         if component.is_changed() {
             trace!(
                 "Prediction history changed for tick {tick:?} component {:?}",
-                core::any::type_name::<T>()
+                DebugName::type_name::<T>()
             );
             history.add_update(tick, component.deref().clone());
         }
@@ -44,13 +45,13 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
 /// The history buffer ticks are only relevant relative to the current client tick.
 /// (i.e. X ticks in the past compared to the current tick)
 pub(crate) fn handle_tick_event_prediction_history<C: Component>(
-    trigger: On<SyncEvent<InputTimeline>>,
+    trigger: On<SyncEvent<Input>>,
     mut query: Query<&mut PredictionHistory<C>>,
 ) {
     for mut history in query.iter_mut() {
         trace!(
             "Prediction history updated for {:?} with tick delta {:?}",
-            core::any::type_name::<C>(),
+            DebugName::type_name::<C>(),
             trigger.tick_delta
         );
         history.update_ticks(trigger.tick_delta);
@@ -116,7 +117,7 @@ pub(crate) fn add_prediction_history<C: Component>(
     if query.get(trigger.entity).is_ok() {
         trace!(
             "Add prediction history for {:?} on entity {:?}",
-            core::any::type_name::<C>(),
+            DebugName::type_name::<C>(),
             trigger.entity
         );
         commands

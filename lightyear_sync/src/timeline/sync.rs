@@ -5,6 +5,7 @@ use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_time::{Time, Virtual};
 use core::time::Duration;
+use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimelinePlugin};
@@ -221,7 +222,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
         if let Ok(timeline) = query.single() {
             trace!(
                 "Timeline {} sets the virtual time relative speed to {}",
-                core::any::type_name::<Synced>(),
+                DebugName::type_name::<Synced>(),
                 timeline.relative_speed()
             );
             // TODO: be able to apply the speed_ratio on top of any speed ratio already applied by the user.
@@ -249,13 +250,13 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
     ) {
         // TODO: return early if we haven't received any remote packets? (nothing to sync to)
         query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, mut local_timeline, ping_manager, has_is_synced)| {
-            trace!(?entity, ?has_is_synced, "In SyncTimelines from {:?} to {:?}", core::any::type_name::<Synced>(), core::any::type_name::<Remote>());
+            trace!(?entity, ?has_is_synced, "In SyncTimelines from {:?} to {:?}", DebugName::type_name::<Synced>(), DebugName::type_name::<Remote>());
             // return early if the remote timeline hasn't received any packets
             if !main_timeline.received_packet() {
                 return;
             }
             if !has_is_synced && sync_timeline.is_synced()  {
-                debug!("Timeline {:?} is synced to {:?}", core::any::type_name::<Synced>(), core::any::type_name::<Remote>());
+                debug!("Timeline {:?} is synced to {:?}", DebugName::type_name::<Synced>(), DebugName::type_name::<Remote>());
                 commands.entity(entity).insert(IsSynced::<Synced>::default());
             }
             if let Some(tick_delta) = sync_timeline.sync(main_timeline, ping_manager, tick_duration.0) {
@@ -266,7 +267,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
                     local_timeline.apply_delta(TickDelta::from_i16(tick_delta));
                     debug!(
                         ?local_tick, ?synced_tick, ?tick_delta, new_local_tick = ?local_timeline.tick(),
-                        "Apply delta to LocalTimeline from driving pipeline {:?}'s SyncEvent", core::any::type_name::<Synced>());
+                        "Apply delta to LocalTimeline from driving pipeline {:?}'s SyncEvent", DebugName::type_name::<Synced>());
                 }
                 commands.trigger(SyncEvent::<Synced::Context>::new(entity, tick_delta));
             }

@@ -2,6 +2,7 @@ use bevy_app::App;
 use bevy_ecs::prelude::*;
 #[cfg(feature = "client")]
 use {bevy_ecs::relationship::Relationship, lightyear_replication::prelude::Replicate};
+use bevy_utils::prelude::DebugName;
 
 use bevy_enhanced_input::prelude::*;
 use lightyear_link::prelude::Server;
@@ -35,7 +36,7 @@ impl InputRegistryPlugin {
         let entity = trigger.entity;
         if let Ok(action_of) = action.get(entity) {
             let context_entity = action_of.get();
-            debug!(action_entity = ?entity, "Replicating ActionOf<{:?}> for context entity {context_entity:?} from client to server", core::any::type_name::<C>());
+            debug!(action_entity = ?entity, "Replicating ActionOf<{:?}> for context entity {context_entity:?} from client to server", DebugName::type_name::<C>());
             commands.entity(entity).insert((Replicate::to_server(),));
         }
     }
@@ -45,18 +46,18 @@ impl InputRegistryPlugin {
     pub(crate) fn on_action_of_replicated<C: Component>(
         trigger: On<Add, ActionOf<C>>,
         query: Query<&ActionOf<C>, With<Replicated>>,
-        is_server: Single<(), With<Server>>,
+        _: Single<(), With<Server>>,
         config: Res<InputConfig<C>>,
         mut commands: Commands,
     ) {
         let entity = trigger.entity;
         if let Ok(wrapper) = query.get(entity) {
             commands.entity(entity).remove::<Replicated>();
-            debug!(?entity, context = ?core::any::type_name::<C>(), "Server received action entity");
+            debug!(?entity, context = ?DebugName::type_name::<C>(), "Server received action entity");
 
             // If rebroadcast_inputs is enabled, set up replication to other clients
             if config.rebroadcast_inputs {
-                debug!(action_entity = ?entity, "On server, insert ReplicateLike({:?}) for action entity ActionOf<{:?}>", wrapper.get(), core::any::type_name::<C>());
+                debug!(action_entity = ?entity, "On server, insert ReplicateLike({:?}) for action entity ActionOf<{:?}>", wrapper.get(), DebugName::type_name::<C>());
 
                 // TODO: don't rebroadcast to the original client
                 commands.entity(entity).insert((
@@ -86,7 +87,7 @@ impl InputRegistryPlugin {
     ) {
         if let Ok(action_of) = query.get(trigger.entity) {
             let entity = trigger.entity;
-            debug!(?entity, "On client, received ActionOf({:?}) for action entity ActionOf<{:?}> from input rebroadcast", action_of.get(), core::any::type_name::<C>());
+            debug!(?entity, "On client, received ActionOf({:?}) for action entity ActionOf<{:?}> from input rebroadcast", action_of.get(), DebugName::type_name::<C>());
 
             commands
                 .entity(entity)

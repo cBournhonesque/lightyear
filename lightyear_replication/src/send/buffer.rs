@@ -39,6 +39,7 @@ use lightyear_utils::metrics::DormantTimerGauge;
 use tracing::{Level, instrument};
 #[allow(unused_imports)]
 use tracing::{debug, error, info, info_span, trace, trace_span};
+use lightyear_connection::host::HostClient;
 
 /// Keep a cached version of the [`Replicate`] component so that when it gets updated
 /// we can compute a diff from the previous value.
@@ -71,7 +72,9 @@ pub(crate) fn replicate(
             Option<&DeltaManager>,
             Option<&LinkOf>,
         ),
-        With<Connected>,
+        // On the Host-Client there is no replication messages to send since the entities
+        // from the sender are in the same world!
+        (With<Connected>, Without<HostClient>)
     >,
     delta_query: Query<&DeltaManager, With<Server>>,
     component_registry: Res<ComponentRegistry>,

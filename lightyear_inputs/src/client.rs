@@ -59,6 +59,7 @@ use bevy_app::{
 };
 use bevy_ecs::entity::MapEntities;
 use bevy_ecs::prelude::*;
+use bevy_utils::prelude::DebugName;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::*;
 use lightyear_core::tick::TickDuration;
@@ -75,7 +76,7 @@ use lightyear_messages::prelude::{MessageReceiver, MessageSender};
 use lightyear_prediction::prelude::*;
 use lightyear_replication::prelude::PreSpawned;
 use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::{Input, InputTimeline};
 use lightyear_sync::prelude::client::IsSynced;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::ChannelRegistry;
@@ -361,7 +362,7 @@ fn get_action_state<S: ActionStateSequence>(
                 ?entity,
                 ?tick,
                 "Action = {}, For remote input; no input for tick so we decay the ActionState to: {:?}",
-                core::any::type_name::<S::Action>(),
+                DebugName::type_name::<S::Action>(),
                 snapshot
             );
             // update the action state with decay
@@ -533,7 +534,7 @@ fn prepare_input_message<S: ActionStateSequence>(
         ?tick,
         ?num_tick,
         "sending input message for {:?}: {:?}",
-        core::any::type_name::<S::Action>(),
+        DebugName::type_name::<S::Action>(),
         message
     );
     message_buffer.0.push(message);
@@ -575,7 +576,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     let tick = timeline.tick();
     let has_messages = receiver.has_messages();
     receiver.receive().for_each(|message| {
-        trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", core::any::type_name::<S::Action>());
+        trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", DebugName::type_name::<S::Action>());
         for target_data in message.inputs {
             // - the input target has already been set to the server entity in the InputMessage
             // - it has been mapped to a client-entity on the client during deserialization
@@ -687,7 +688,7 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
         }
     });
     trace!(
-        kind = ?core::any::type_name::<S::Action>(),
+        kind = ?DebugName::type_name::<S::Action>(),
         "Updated LastConfirmedTick to tick {:?}",
         last_confirmed_input.tick.get()
     );
@@ -747,19 +748,19 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
         {
             metrics::counter!(format!(
                 "inputs::{}::remote_player::receive",
-                core::any::type_name::<S::Action>(),
+                DebugName::type_name::<S::Action>(),
             ))
             .increment(1);
             let margin = input_buffer.end_tick().unwrap() - tick;
             metrics::gauge!(format!(
                 "inputs::{}::remote_player::{}::buffer_margin",
-                core::any::type_name::<S::Action>(),
+                DebugName::type_name::<S::Action>(),
                 entity
             ))
             .set(margin as f64);
             metrics::gauge!(format!(
                 "inputs::{}::remote_player::{}::buffer_size",
-                core::any::type_name::<S::Action>(),
+                DebugName::type_name::<S::Action>(),
                 entity
             ))
             .set(input_buffer.len() as f64);
@@ -835,7 +836,7 @@ fn send_input_messages<S: ActionStateSequence>(
 
 /// In case the client tick changes suddenly, we also update the InputBuffer accordingly
 fn receive_tick_events<S: ActionStateSequence>(
-    trigger: On<SyncEvent<InputTimeline>>,
+    trigger: On<SyncEvent<Input>>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
     mut input_buffer_query: Query<&mut InputBuffer<S::Snapshot>>,
 ) {

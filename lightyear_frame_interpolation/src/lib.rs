@@ -54,6 +54,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::common_conditions::not;
 use bevy_time::{Fixed, Time};
 use core::fmt::Debug;
+use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::Client;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::is_in_rollback;
@@ -178,7 +179,7 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
     timeline: Single<&LocalTimeline, With<Client>>,
     mut query: Query<(&mut C, &FrameInterpolate<C>)>,
 ) {
-    let kind = core::any::type_name::<C>();
+    let kind = DebugName::type_name::<C>();
     let tick = timeline.now.tick;
     // TODO: how should we get the overstep? the LocalTimeline is only incremented during FixedUpdate so has an overstep of 0.0
     //  the InputTimeline seems to have an overstep, but it doesn't match the Time<Fixed> overstep
@@ -248,7 +249,7 @@ pub(crate) fn restore_from_visual_interpolation<
 >(
     mut query: Query<(&mut C, &mut FrameInterpolate<C>)>,
 ) {
-    let kind = core::any::type_name::<C>();
+    let kind = DebugName::type_name::<C>();
     for (mut component, interpolate_status) in query.iter_mut() {
         if let Some(current_value) = &interpolate_status.current_value {
             trace!(

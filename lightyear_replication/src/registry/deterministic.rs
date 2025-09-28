@@ -5,6 +5,7 @@ use bevy_ecs::change_detection::Mut;
 use bevy_ecs::component::Component;
 use bevy_ptr::Ptr;
 use core::fmt::Debug;
+use bevy_utils::prelude::DebugName;
 use tracing::trace;
 
 #[derive(Debug, Clone, Copy)]
@@ -34,7 +35,7 @@ fn custom_hash_fn<C: Debug>(ptr: Ptr, hasher: &mut seahash::SeaHasher, f: unsafe
     trace!(
         "Hashing component value: {:?} into {:?}",
         value,
-        core::any::type_name::<C>()
+        DebugName::type_name::<C>()
     );
     f(value, hasher);
 }

@@ -6,6 +6,7 @@ use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_ecs::component::{Component, ComponentId, Immutable, Mutable};
+use bevy_utils::prelude::DebugName;
 use bytes::Bytes;
 use lightyear_core::prelude::Tick;
 use lightyear_serde::ToBytes;
@@ -240,7 +241,7 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
     let entity = entity_mut.entity.id();
     trace!(
         "Insert component {} to entity {entity:?}",
-        core::any::type_name::<C>()
+        DebugName::type_name::<C>()
     );
 
     // if the component is already on the entity, no need to insert
@@ -335,14 +336,14 @@ fn default_immutable_buffer<C: Component<Mutability = Immutable> + PartialEq>(
     let entity = entity_mut.entity.id();
     debug!(
         "Insert component {} to entity {entity:?}",
-        core::any::type_name::<C>()
+        DebugName::type_name::<C>()
     );
     #[cfg(feature = "metrics")]
     {
         metrics::counter!("replication::receive::component::insert").increment(1);
         metrics::counter!(format!(
             "replication::receive::component::{}::insert",
-            core::any::type_name::<C>()
+            DebugName::type_name::<C>()
         ))
         .increment(1);
     }

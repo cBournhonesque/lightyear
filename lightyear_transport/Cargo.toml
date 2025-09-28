@@ -13,7 +13,7 @@ default = ["std"]
 std = ["bevy_ecs/std"]
 client = ["lightyear_connection/client"]
 server = ["lightyear_connection/server"]
-metrics = ["dep:metrics", "std", "lightyear_utils/metrics"]
+metrics = ["dep:metrics", "std", "lightyear_utils/metrics", "bevy_utils/debug"]
 trace = []
 
 test_utils = []

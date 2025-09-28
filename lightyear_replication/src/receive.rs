@@ -9,7 +9,7 @@ use bevy_ecs::{
 };
 use bevy_platform::collections::{HashMap, HashSet};
 
-use crate::components::{InitialReplicated, Replicated};
+use crate::components::{ConfirmedTick, InitialReplicated, Replicated};
 use crate::message::{ActionsMessage, SenderMetadata, SpawnAction, UpdatesMessage};
 use crate::registry::registry::ComponentRegistry;
 use alloc::vec::Vec;
@@ -27,7 +27,7 @@ use crate::{plugin, prespawn};
 use lightyear_connection::client::{Connected, Disconnected, PeerMetadata};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::interpolation::Interpolated;
-use lightyear_core::prelude::{LocalTimeline, Predicted};
+use lightyear_core::prelude::{LocalTimeline, Predicted, SyncEvent};
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
@@ -37,6 +37,8 @@ use lightyear_transport::prelude::Transport;
 use lightyear_utils::metrics::{DormantTimerGauge, TimerGauge};
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
+use lightyear_connection::host::HostClient;
+use lightyear_sync::prelude::client::Input;
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 
@@ -90,7 +92,9 @@ impl ReplicationReceivePlugin {
                 &mut MessageReceiver<UpdatesMessage>,
                 &mut ReplicationReceiver,
             ),
-            With<Connected>,
+            // On the Host-Client there is no replication messages to receive since the entities
+            // from the sender are in the same world!
+            (With<Connected>, Without<HostClient>)
         >,
     ) {
         #[cfg(feature = "metrics")]
@@ -99,7 +103,6 @@ impl ReplicationReceivePlugin {
         query
             .par_iter_mut()
             .for_each(|(mut actions, mut updates, mut receiver)| {
-                receiver.received_this_frame = false;
                 for message in actions.receive_with_tick() {
                     receiver.recv_actions(message.data, message.remote_tick);
                 }
@@ -179,6 +182,23 @@ impl ReplicationReceivePlugin {
                 receiver.tick_cleanup(tick);
             });
     }
+
+    pub(crate) fn on_sync_event(
+        trigger: On<SyncEvent<Input>>,
+        mut receiver: Query<&mut ReplicationReceiver>,
+    ) {
+        info!("Replication sync event");
+        receiver.iter_mut().for_each(|mut receiver| {
+            // we set `received_this_frame` to true so that we can trigger a rollback check, now that ticks have been updated
+            // this is also useful to do a rollback check the first time the InputTimeline is synced, since clients
+            // receive replication updates on With<Connected> but do rollback checks on With<IsSynced<InputTimeline>>
+            receiver.received_this_frame = true;
+            if let Some(tick) = receiver.last_cleanup_tick.as_mut() {
+                *tick = *tick + trigger.tick_delta;
+            }
+            // we don't need to apply the delta to the GroupChannels or to the ConfirmedTick because the ticks stored there are remote ticks
+        })
+    }
 }
 
 impl Plugin for ReplicationReceivePlugin {
@@ -204,6 +224,7 @@ impl Plugin for ReplicationReceivePlugin {
         );
         app.add_observer(Self::handle_disconnection);
         app.add_observer(Self::receive_sender_metadata);
+        app.add_observer(Self::on_sync_event);
     }
 }
 
@@ -221,8 +242,15 @@ pub struct ReplicationReceiver {
 
     /// Tick when we last did a cleanup
     pub(crate) last_cleanup_tick: Option<Tick>,
-    /// Flag to indicate if we received a replication message this frame
-    pub(crate) received_this_frame: bool,
+    #[doc(hidden)]
+    /// Flag to indicate if we received a replication message this frame.
+    ///
+    /// This is only used to know if we should do a rollback check or not.
+    /// The flag is set to true when replication messages are received, and reset to false
+    /// during the rollback check.
+    /// (it's reset to false in the rollback check because we also set it to true when the InputTimeline is synced,
+    /// so that on the first sync we also do a rollback check)
+    pub received_this_frame: bool,
 }
 
 impl Default for ReplicationReceiver {
@@ -242,16 +270,6 @@ impl ReplicationReceiver {
             last_cleanup_tick: None,
             received_this_frame: false,
         }
-    }
-
-    /// Returns true if we received a replication message this frame
-    pub fn has_received_this_frame(&self) -> bool {
-        self.received_this_frame
-    }
-
-    #[cfg(feature = "test_utils")]
-    pub fn set_received_this_frame(&mut self) {
-        self.received_this_frame = true;
     }
 
     /// Buffer a received [`ActionsMessage`].
@@ -286,6 +304,7 @@ impl ReplicationReceiver {
     /// The remote_tick is the tick at which the message was buffered and sent by the remote client.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn recv_updates(&mut self, updates: UpdatesMessage, remote_tick: Tick) {
+        // TODO: instead of storing the group_id, we could do entity_mapping for the first entity and get group_channel from there?
         trace!(?updates, ?remote_tick, "Received replication message");
         let channel = self.group_channels.entry(updates.group_id).or_default();
 
@@ -368,6 +387,8 @@ impl ReplicationReceiver {
             }
         }
     }
+
+
 }
 
 /// We want:
@@ -736,7 +757,10 @@ impl GroupChannel {
         temp_write_buffer: &mut BufferedChanges,
     ) {
         let insert_sync_components =
-            |predicted: bool, interpolated: bool, entity: &mut EntityWorldMut| {
+            |predicted: bool, interpolated: bool, entity: &mut EntityWorldMut, remote_tick: Tick| {
+                if interpolated || predicted {
+                    entity.insert(ConfirmedTick { tick: remote_tick});
+                }
                 if interpolated {
                     trace!("Inserting interpolated on local entity {:?}", entity.id());
                     #[cfg(feature = "metrics")]
@@ -809,7 +833,7 @@ impl GroupChannel {
                             local_entity.remove::<PreSpawned>();
                         }
 
-                        insert_sync_components(predicted, interpolated, &mut local_entity);
+                        insert_sync_components(predicted, interpolated, &mut local_entity, remote_tick);
                         // we still need to update the local entity to group mapping on the receiver
                         self.local_entities.insert(local_entity.id());
                         continue;
@@ -830,16 +854,14 @@ impl GroupChannel {
                 let mut local_entity = world.spawn((
                     Replicated {
                         receiver: receiver_entity,
-                        from: remote,
-                        tick: remote_tick,
                     },
-                    InitialReplicated { from: remote },
+                    InitialReplicated { receiver: receiver_entity },
                 ));
                 debug!(
                     "Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}",
                     local_entity.id()
                 );
-                insert_sync_components(predicted, interpolated, &mut local_entity);
+                insert_sync_components(predicted, interpolated, &mut local_entity, remote_tick);
 
                 self.local_entities.insert(local_entity.id());
                 local_entity_to_group.insert(local_entity.id(), group_id);
@@ -865,7 +887,7 @@ impl GroupChannel {
             }
 
             // safety: we know by this point that the entity exists
-            let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
+            let Some(local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
                 error!(?entity, "cannot find entity");
                 continue;
             };
@@ -874,11 +896,6 @@ impl GroupChannel {
             // TODO: check for deterministic predicted, pre-predicted, pre-spawned
             let predicted = local_entity_mut.get::<Predicted>().is_some();
             let interpolated = local_entity_mut.get::<Interpolated>().is_some();
-            if (predicted || interpolated)
-                && let Some(mut replicated) = local_entity_mut.get_mut::<Replicated>()
-            {
-                replicated.tick = remote_tick;
-            }
 
             // the local Sender has authority over the entity, so we don't want to accept the updates
             if authority_map.is_some_and(|a| {
@@ -991,7 +1008,7 @@ impl GroupChannel {
         );
         for (entity, components) in message.updates.into_iter() {
             trace!(?components, remote_entity = ?entity, "Received UpdateComponent");
-            let Some(mut local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
+            let Some(local_entity_mut) = remote_entity_map.get_by_remote(world, entity) else {
                 // we can get a few buffered updates after the entity has been despawned
                 // those are the updates that we received before the despawn action message, but with a tick
                 // later than the despawn action message
@@ -1001,11 +1018,6 @@ impl GroupChannel {
             // TODO: check for deterministic predicted, pre-predicted, pre-spawned ?
             let predicted = local_entity_mut.get::<Predicted>().is_some();
             let interpolated = local_entity_mut.get::<Interpolated>().is_some();
-            if (predicted || interpolated)
-                && let Some(mut replicated) = local_entity_mut.get_mut::<Replicated>()
-            {
-                replicated.tick = remote_tick;
-            }
 
             // the local Sender has authority over the entity, so we don't want to accept the updates
             if authority_map.is_some_and(|a| {
@@ -1070,7 +1082,7 @@ impl GroupChannel {
         );
         self.local_entities.iter().for_each(|local_entity| {
             if let Ok(mut local_entity_mut) = world.get_entity_mut(*local_entity)
-                && let Some(mut confirmed) = local_entity_mut.get_mut::<Replicated>()
+                && let Some(mut confirmed) = local_entity_mut.get_mut::<ConfirmedTick>()
             {
                 trace!(
                     ?remote_tick,

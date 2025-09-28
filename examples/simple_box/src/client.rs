@@ -92,9 +92,9 @@ pub(crate) fn receive_message1(mut receiver: Single<&mut MessageReceiver<Message
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
 ///
-/// Note that this will be triggered multiple times: for the entity that will have
-/// [`Confirmed`] and then again for the [`Predicted`] or [`Interpolated`] copy. The
-/// `With<Predicted>` filter ensures we only add the `InputMarker` once.
+/// Note that this will be triggered multiple times: for the locally-controled entity,
+/// but also for the remote-controlled entities that are spawned with [`Interpolated`].
+/// The `With<Predicted>` filter ensures we only add the `InputMarker` once.
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, PlayerId>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
